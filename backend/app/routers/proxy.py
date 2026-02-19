@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -7,6 +7,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.models.models import Endpoint
 from app.services.loadbalancer import (
     get_model_config_with_endpoints,
     select_endpoint,
@@ -18,7 +19,6 @@ from app.services.proxy_service import (
     build_upstream_url,
     build_upstream_headers,
     proxy_request,
-    proxy_stream,
     should_failover,
     extract_model_from_body,
     extract_stream_flag,
@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["proxy"])
 
-# Custom header for routing GET/DELETE requests that have no body
 MODEL_ID_HEADER = "x-model-id"
 
 
@@ -38,12 +37,30 @@ def _get_client_headers(request: Request) -> dict[str, str]:
 
 
 def _resolve_model_id(request: Request, raw_body: bytes | None) -> str | None:
-    """Resolve model ID from body (POST/PUT/PATCH) or X-Model-Id header (GET/DELETE)."""
     if raw_body:
         model_id = extract_model_from_body(raw_body)
         if model_id:
             return model_id
     return request.headers.get(MODEL_ID_HEADER)
+
+
+async def _iter_stream(
+    resp: httpx.Response,
+    db: AsyncSession,
+    ep: Endpoint,
+) -> AsyncGenerator[bytes, None]:
+    try:
+        async for chunk in resp.aiter_bytes():
+            if chunk:
+                yield chunk
+        await record_success(db, ep)
+        await db.commit()
+    except Exception as e:
+        await record_failure(db, ep)
+        await db.commit()
+        logger.error(f"Stream error on endpoint {ep.id}: {e}")
+    finally:
+        await resp.aclose()
 
 
 async def _handle_proxy(
@@ -65,6 +82,11 @@ async def _handle_proxy(
 
     model_config = await get_model_config_with_endpoints(db, model_id)
     if not model_config:
+        logger.warning(
+            "Proxy lookup failed: model_id=%r not found or disabled (path=%s)",
+            model_id,
+            request_path,
+        )
         raise HTTPException(
             status_code=404, detail=f"Model '{model_id}' not configured or disabled"
         )
@@ -92,36 +114,43 @@ async def _handle_proxy(
 
         try:
             if is_streaming:
-                stream_headers: dict[str, str] = {}
-                stream_media_type: str = "text/event-stream"
+                kwargs: dict = {"headers": headers}
+                if raw_body:
+                    kwargs["content"] = raw_body
 
-                async def stream_with_tracking():
-                    nonlocal stream_headers, stream_media_type
-                    first_chunk = True
-                    try:
-                        async for chunk, resp_headers, status_code in proxy_stream(
-                            client, method, upstream_url, headers, raw_body
-                        ):
-                            if first_chunk:
-                                ct = resp_headers.get(
-                                    "content-type", "text/event-stream"
-                                )
-                                stream_media_type = ct
-                                stream_headers = filter_response_headers(resp_headers)
-                                first_chunk = False
-                            yield chunk
-                        await record_success(db, ep)
-                        await db.commit()
-                    except Exception as e:
-                        await record_failure(db, ep)
-                        await db.commit()
-                        logger.error(f"Stream error on endpoint {ep.id}: {e}")
-                        raise
+                send_req = client.build_request(method, upstream_url, **kwargs)
+                upstream_resp = await client.send(send_req, stream=True)
 
+                resp_headers_filtered = filter_response_headers(upstream_resp.headers)
+
+                if upstream_resp.status_code >= 400:
+                    body = await upstream_resp.aread()
+                    await upstream_resp.aclose()
+                    await record_failure(db, ep)
+                    await db.commit()
+
+                    if should_failover(upstream_resp.status_code):
+                        last_error = f"Upstream returned {upstream_resp.status_code}"
+                        logger.warning(
+                            f"Endpoint {ep.id} failed with {upstream_resp.status_code}, trying next"
+                        )
+                        continue
+
+                    return Response(
+                        content=body,
+                        status_code=upstream_resp.status_code,
+                        headers=resp_headers_filtered,
+                    )
+
+                media_type = upstream_resp.headers.get(
+                    "content-type", "text/event-stream"
+                )
                 return StreamingResponse(
-                    stream_with_tracking(),
-                    media_type=stream_media_type,
+                    _iter_stream(upstream_resp, db, ep),
+                    status_code=upstream_resp.status_code,
+                    media_type=media_type,
                     headers={
+                        **resp_headers_filtered,
                         "Cache-Control": "no-cache",
                         "X-Accel-Buffering": "no",
                     },

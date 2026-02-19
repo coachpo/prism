@@ -47,10 +47,24 @@ HOP_BY_HOP_HEADERS = frozenset(
 
 
 def build_upstream_url(endpoint: Endpoint, request_path: str) -> str:
-    """Forward the exact request path to the endpoint's base URL."""
-    base = endpoint.base_url.rstrip("/")
-    path = request_path if request_path.startswith("/") else f"/{request_path}"
-    return f"{base}{path}"
+    """Forward the exact request path to the endpoint's base URL.
+
+    Handles overlapping path prefixes between base_url and request_path.
+    e.g. base_url="https://api.example.com/v1" + request_path="/v1/responses"
+         -> "https://api.example.com/v1/responses" (not /v1/v1/responses)
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(endpoint.base_url)
+    base_path = parsed.path.rstrip("/")
+    req_path = request_path if request_path.startswith("/") else f"/{request_path}"
+
+    if base_path and req_path.startswith(base_path):
+        final_path = req_path
+    else:
+        final_path = f"{base_path}{req_path}"
+
+    return urlunparse((parsed.scheme, parsed.netloc, final_path, "", "", ""))
 
 
 def build_upstream_headers(
@@ -113,7 +127,8 @@ async def proxy_stream(
     """Stream a response from the upstream provider.
 
     Yields (chunk, response_headers, status_code).
-    On error, raises HTTPStatusError with the raw upstream response.
+    For error responses, reads the full body and yields it as a single chunk
+    so the caller can forward it transparently.
     """
     kwargs: dict = {"headers": headers}
     if raw_body:
@@ -121,11 +136,8 @@ async def proxy_stream(
     async with client.stream(method, upstream_url, **kwargs) as response:
         if response.status_code >= 400:
             await response.aread()
-            raise httpx.HTTPStatusError(
-                f"Upstream error: {response.status_code}",
-                request=response.request,
-                response=response,
-            )
+            yield response.content, response.headers, response.status_code
+            return
         async for chunk in response.aiter_bytes():
             if chunk:
                 yield chunk, response.headers, response.status_code
