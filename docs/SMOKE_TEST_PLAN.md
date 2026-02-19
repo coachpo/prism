@@ -124,11 +124,13 @@
 
 ## Execution Notes
 
-- Tests should be run in order (ST-1 through ST-12)
+- Tests should be run in order (ST-1 through ST-14)
 - ST-3 must run before ST-4/ST-5/ST-6 to ensure log data exists
 - ST-3 must run before ST-10 to ensure endpoint success rate data exists
+- ST-13 and ST-14 require valid API keys for configured providers
 - Frontend tests (ST-7, ST-8, ST-10, ST-11, ST-12) require both backend and frontend running
 - Health check tests (ST-2) validate the specific bug fix (404 → real request)
+- Token extraction tests (ST-13, ST-14) validate provider-aware parsing of upstream responses
 
 ---
 
@@ -180,3 +182,33 @@
 | 5 | Verify "vLLM" is NOT in the dropdown | vLLM option is absent |
 | 6 | Select "OpenAI" filter | Table filters to show only OpenAI requests |
 | 7 | Select "All Providers" filter | Table shows all requests again |
+
+---
+
+## ST-13: Token Usage Extraction (Non-Streaming)
+
+**Objective**: Verify token usage is correctly extracted and displayed for all provider response formats.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | `POST /v1/chat/completions` with `{"model": "{configured_openai_model}", "messages": [{"role": "user", "content": "Say hi"}], "max_tokens": 5}` | `200` with response containing `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` |
+| 2 | `GET /api/stats/requests?limit=1` | Latest log entry has non-null `input_tokens`, `output_tokens`, `total_tokens` |
+| 3 | `POST /v1/messages` with `{"model": "{configured_anthropic_model}", "max_tokens": 5, "messages": [{"role": "user", "content": "Say hi"}]}` | `200` with response containing `usage.input_tokens`, `usage.output_tokens` |
+| 4 | `GET /api/stats/requests?limit=1` | Latest log entry has non-null `input_tokens`, `output_tokens`, `total_tokens` (computed sum) |
+| 5 | `POST /v1/messages/count_tokens` with `{"model": "{configured_anthropic_model}", "messages": [{"role": "user", "content": "Hello world"}]}` | `200` with response containing top-level `input_tokens` |
+| 6 | `GET /api/stats/requests?limit=1` | Latest log entry has non-null `input_tokens`, `output_tokens` = null, `total_tokens` = null |
+| 7 | Open frontend → Statistics page | All recent entries show token values (not "-") for requests that returned usage data |
+
+---
+
+## ST-14: Token Usage Extraction (Streaming)
+
+**Objective**: Verify token usage is correctly extracted from streaming SSE responses.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | `POST /v1/chat/completions` with `{"model": "{configured_openai_model}", "messages": [{"role": "user", "content": "Say hi"}], "max_tokens": 5, "stream": true, "stream_options": {"include_usage": true}}` | `200` SSE stream with final chunk containing `usage` |
+| 2 | `GET /api/stats/requests?limit=1` | Latest log entry has `is_stream` = true and non-null token fields |
+| 3 | `POST /v1/messages` with `{"model": "{configured_anthropic_model}", "max_tokens": 5, "messages": [{"role": "user", "content": "Say hi"}], "stream": true}` | `200` SSE stream with `message_start` and `message_delta` events containing usage |
+| 4 | `GET /api/stats/requests?limit=1` | Latest log entry has `is_stream` = true and non-null `input_tokens`, `output_tokens`, `total_tokens` |
+| 5 | Open frontend → Statistics page | Streaming entries show token values and Stream badge = "Yes" |

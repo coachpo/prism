@@ -105,6 +105,18 @@ Single user (developer/power user) running the application locally or on a local
 ### 4.8 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
 - Each request log captures: model ID, provider, endpoint used, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
+
+#### 4.8.1 Token Usage Extraction
+Token usage is extracted from upstream responses using provider-aware parsing:
+
+- **OpenAI (non-streaming)**: Extracts from `response.usage` object (`prompt_tokens`, `completion_tokens`, `total_tokens`)
+- **Anthropic Messages (non-streaming)**: Extracts from `response.usage` object (`input_tokens`, `output_tokens`); `total_tokens` is computed as `input_tokens + output_tokens`
+- **Anthropic count_tokens (non-streaming)**: Extracts `input_tokens` from the top-level response (no `usage` wrapper); `output_tokens` and `total_tokens` are null
+- **OpenAI (streaming)**: Accumulated from SSE events; the final chunk may contain a `usage` object if `stream_options.include_usage` was set. Otherwise, tokens are unavailable for streaming.
+- **Anthropic (streaming)**: Accumulated from SSE events; `message_start` event contains `message.usage.input_tokens`, `message_delta` event contains `usage.output_tokens`. `total_tokens` is computed as their sum.
+- **Fallback**: If token data cannot be extracted (unsupported format, parse error), all token fields are logged as `null`
+
+SSE streaming responses require parsing `data: {...}` lines from the accumulated stream chunks to extract usage information from the appropriate events.
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
   - Filterable request log table with columns: timestamp, model, provider, endpoint, status, response time, tokens

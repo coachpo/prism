@@ -285,6 +285,26 @@ Response: Proxied directly from upstream Anthropic API.
 
 Both endpoints support streaming when `"stream": true` is set. The response will be `text/event-stream` (SSE) with chunks proxied directly from the upstream provider.
 
+### 2.4 Token Usage Extraction
+
+The gateway extracts token usage from upstream responses and logs it to `request_logs`. Extraction is provider-aware:
+
+**Non-streaming responses:**
+| Provider | Response Format | Extraction Path |
+|---|---|---|
+| OpenAI | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` | `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` |
+| Anthropic Messages | `{"usage": {"input_tokens": N, "output_tokens": N}}` | `usage.input_tokens`, `usage.output_tokens`; `total_tokens` = sum |
+| Anthropic count_tokens | `{"input_tokens": N}` | Top-level `input_tokens`; `output_tokens` and `total_tokens` = null |
+
+**Streaming responses:**
+The gateway accumulates SSE chunks during streaming and extracts usage from the final events:
+| Provider | Usage Events | Extraction |
+|---|---|---|
+| OpenAI | Final chunk with `usage` field (requires `stream_options.include_usage: true`) | Same as non-streaming `usage` object |
+| Anthropic | `message_start` event → `message.usage.input_tokens`; `message_delta` event → `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
+
+If token data cannot be extracted, all token fields are logged as `null`.
+
 ---
 
 ## 3. Health Check
