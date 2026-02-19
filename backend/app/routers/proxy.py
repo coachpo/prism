@@ -29,22 +29,38 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["proxy"])
 
+# Custom header for routing GET/DELETE requests that have no body
+MODEL_ID_HEADER = "x-model-id"
+
 
 def _get_client_headers(request: Request) -> dict[str, str]:
     return dict(request.headers)
 
 
+def _resolve_model_id(request: Request, raw_body: bytes | None) -> str | None:
+    """Resolve model ID from body (POST/PUT/PATCH) or X-Model-Id header (GET/DELETE)."""
+    if raw_body:
+        model_id = extract_model_from_body(raw_body)
+        if model_id:
+            return model_id
+    return request.headers.get(MODEL_ID_HEADER)
+
+
 async def _handle_proxy(
     request: Request,
     db: AsyncSession,
-    raw_body: bytes,
+    raw_body: bytes | None,
     request_path: str,
 ):
-    """Core proxy logic shared between OpenAI and Anthropic endpoints."""
-    model_id = extract_model_from_body(raw_body)
+    """Core proxy logic — routes any API path to the configured upstream."""
+    model_id = _resolve_model_id(request, raw_body)
     if not model_id:
         raise HTTPException(
-            status_code=400, detail="Missing 'model' field in request body"
+            status_code=400,
+            detail=(
+                "Cannot determine model for routing. "
+                "Include 'model' in the request body or set the X-Model-Id header."
+            ),
         )
 
     model_config = await get_model_config_with_endpoints(db, model_id)
@@ -55,8 +71,9 @@ async def _handle_proxy(
 
     provider_type = model_config.provider.provider_type
     client: httpx.AsyncClient = request.app.state.http_client
-    is_streaming = extract_stream_flag(raw_body)
+    is_streaming = extract_stream_flag(raw_body) if raw_body else False
     client_headers = _get_client_headers(request)
+    method = request.method
 
     endpoint = select_endpoint(model_config)
     if not endpoint:
@@ -68,7 +85,9 @@ async def _handle_proxy(
 
     last_error = None
     for ep in endpoints_to_try:
-        upstream_url = build_upstream_url(ep, provider_type, request_path)
+        upstream_url = build_upstream_url(ep, request_path)
+        if request.url.query:
+            upstream_url = f"{upstream_url}?{request.url.query}"
         headers = build_upstream_headers(ep, provider_type, client_headers)
 
         try:
@@ -81,7 +100,7 @@ async def _handle_proxy(
                     first_chunk = True
                     try:
                         async for chunk, resp_headers, status_code in proxy_stream(
-                            client, upstream_url, headers, raw_body
+                            client, method, upstream_url, headers, raw_body
                         ):
                             if first_chunk:
                                 ct = resp_headers.get(
@@ -108,7 +127,9 @@ async def _handle_proxy(
                     },
                 )
             else:
-                response = await proxy_request(client, upstream_url, headers, raw_body)
+                response = await proxy_request(
+                    client, method, upstream_url, headers, raw_body
+                )
                 resp_headers = filter_response_headers(response.headers)
 
                 if response.status_code >= 400 and should_failover(
@@ -158,21 +179,12 @@ async def _handle_proxy(
     )
 
 
-@router.post("/v1/chat/completions")
-async def proxy_chat_completions(
+@router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_catch_all(
     request: Request,
+    path: str,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Proxy for OpenAI-compatible chat completions (OpenAI, Gemini)."""
-    raw_body = await request.body()
-    return await _handle_proxy(request, db, raw_body, "/v1/chat/completions")
-
-
-@router.post("/v1/messages")
-async def proxy_messages(
-    request: Request,
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    """Proxy for Anthropic Messages API."""
-    raw_body = await request.body()
-    return await _handle_proxy(request, db, raw_body, "/v1/messages")
+    """Catch-all transparent proxy for all /v1/* API paths."""
+    raw_body = await request.body() or None
+    return await _handle_proxy(request, db, raw_body, f"/v1/{path}")

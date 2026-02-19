@@ -130,9 +130,8 @@ export function ModelsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Model ID</TableHead>
+                <TableHead>Model</TableHead>
                 <TableHead>Provider</TableHead>
-                <TableHead>Display Name</TableHead>
                 <TableHead>Strategy</TableHead>
                 <TableHead>Endpoints</TableHead>
                 <TableHead>Status</TableHead>
@@ -150,9 +149,13 @@ export function ModelsPage() {
                     navigate(`/models/${model.id}`);
                   }}
                 >
-                  <TableCell className="font-medium">{model.model_id}</TableCell>
+                  <TableCell className="font-medium">
+                    {model.display_name || model.model_id}
+                    {model.display_name && (
+                      <div className="text-xs text-muted-foreground">{model.model_id}</div>
+                    )}
+                  </TableCell>
                   <TableCell>{model.provider.name}</TableCell>
-                  <TableCell>{model.display_name || "-"}</TableCell>
                   <TableCell className="capitalize">{model.lb_strategy.replace("_", " ")}</TableCell>
                   <TableCell>
                     <Badge variant="outline">
@@ -189,7 +192,7 @@ export function ModelsPage() {
               ))}
               {models.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     No models found. Create one to get started.
                   </TableCell>
                 </TableRow>

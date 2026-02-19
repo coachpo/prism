@@ -84,7 +84,7 @@ export function DashboardPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Model ID</TableHead>
+                <TableHead>Model</TableHead>
                 <TableHead>Provider</TableHead>
                 <TableHead>Strategy</TableHead>
                 <TableHead>Endpoints</TableHead>
@@ -94,7 +94,12 @@ export function DashboardPage() {
             <TableBody>
               {models.map((model) => (
                 <TableRow key={model.id}>
-                  <TableCell className="font-medium">{model.model_id}</TableCell>
+                  <TableCell className="font-medium">
+                    {model.display_name || model.model_id}
+                    {model.display_name && (
+                      <div className="text-xs text-muted-foreground">{model.model_id}</div>
+                    )}
+                  </TableCell>
                   <TableCell>{model.provider.name}</TableCell>
                   <TableCell className="capitalize">{model.lb_strategy.replace("_", " ")}</TableCell>
                   <TableCell>

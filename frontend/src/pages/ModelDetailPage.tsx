@@ -195,7 +195,13 @@ export function ModelDetailPage() {
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-semibold tracking-tight">Endpoints</h3>
+          <div>
+            <h3 className="text-xl font-semibold tracking-tight">Endpoints</h3>
+            <p className="text-sm text-muted-foreground">
+              {model.provider.name}
+              {model.provider.description && ` — ${model.provider.description}`}
+            </p>
+          </div>
           <Button onClick={() => handleOpenEndpointDialog()}>
             <Plus className="mr-2 h-4 w-4" /> Add Endpoint
           </Button>
@@ -206,25 +212,32 @@ export function ModelDetailPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Base URL</TableHead>
-                  <TableHead>API Key</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Health</TableHead>
-                  <TableHead>Stats (S/F)</TableHead>
-                  <TableHead>Active</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
+                   <TableHead>Base URL</TableHead>
+                   <TableHead>Provider</TableHead>
+                   <TableHead>API Key</TableHead>
+                   <TableHead>Priority</TableHead>
+                   <TableHead>Health</TableHead>
+                   <TableHead>Stats (S/F)</TableHead>
+                   <TableHead>Active</TableHead>
+                   <TableHead className="text-right">Actions</TableHead>
+                 </TableRow>
               </TableHeader>
               <TableBody>
                 {model.endpoints.map((endpoint) => (
                   <TableRow key={endpoint.id}>
-                    <TableCell className="font-medium max-w-[200px] truncate" title={endpoint.base_url}>
-                      {endpoint.base_url}
-                      {endpoint.description && (
-                        <div className="text-xs text-muted-foreground">{endpoint.description}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
+                     <TableCell className="font-medium max-w-[200px] truncate" title={endpoint.base_url}>
+                       {endpoint.base_url}
+                       {endpoint.description && (
+                         <div className="text-xs text-muted-foreground">{endpoint.description}</div>
+                       )}
+                     </TableCell>
+                     <TableCell>
+                       <div className="text-sm">{model.provider.name}</div>
+                       {model.provider.description && (
+                         <div className="text-xs text-muted-foreground">{model.provider.description}</div>
+                       )}
+                     </TableCell>
+                     <TableCell className="font-mono text-xs">
                       {maskApiKey(endpoint.api_key)}
                     </TableCell>
                     <TableCell>{endpoint.priority}</TableCell>
@@ -268,7 +281,7 @@ export function ModelDetailPage() {
                 ))}
                 {model.endpoints.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No endpoints configured. Add one to start routing requests.
                     </TableCell>
                   </TableRow>

@@ -8,16 +8,13 @@ from app.models.models import Endpoint
 
 logger = logging.getLogger(__name__)
 
-# Provider-specific configuration
-PROVIDER_CONFIG = {
+PROVIDER_AUTH = {
     "openai": {
-        "chat_path": "/v1/chat/completions",
         "auth_header": "Authorization",
         "auth_prefix": "Bearer ",
         "extra_headers": {},
     },
     "anthropic": {
-        "chat_path": "/v1/messages",
         "auth_header": "x-api-key",
         "auth_prefix": "",
         "extra_headers": {
@@ -25,15 +22,12 @@ PROVIDER_CONFIG = {
         },
     },
     "gemini": {
-        # Gemini's OpenAI-compatible endpoint
-        "chat_path": "/v1/chat/completions",
         "auth_header": "Authorization",
         "auth_prefix": "Bearer ",
         "extra_headers": {},
     },
 }
 
-# HTTP status codes that trigger failover
 FAILOVER_STATUS_CODES = {429, 500, 502, 503, 529}
 
 # Hop-by-hop headers that MUST NOT be forwarded (RFC 2616 §13.5.1)
@@ -52,19 +46,11 @@ HOP_BY_HOP_HEADERS = frozenset(
 )
 
 
-def build_upstream_url(
-    endpoint: Endpoint, provider_type: str, request_path: str
-) -> str:
-    """Build the upstream URL for a given endpoint and provider."""
+def build_upstream_url(endpoint: Endpoint, request_path: str) -> str:
+    """Forward the exact request path to the endpoint's base URL."""
     base = endpoint.base_url.rstrip("/")
-    config = PROVIDER_CONFIG.get(provider_type, PROVIDER_CONFIG["openai"])
-
-    # For Anthropic, use the messages endpoint
-    if provider_type == "anthropic" and "/messages" in request_path:
-        return f"{base}{config['chat_path']}"
-
-    # For OpenAI and Gemini (OpenAI-compatible), use chat completions
-    return f"{base}{config['chat_path']}"
+    path = request_path if request_path.startswith("/") else f"/{request_path}"
+    return f"{base}{path}"
 
 
 def build_upstream_headers(
@@ -87,8 +73,7 @@ def build_upstream_headers(
             ):
                 headers[key] = value
 
-    config = PROVIDER_CONFIG.get(provider_type, PROVIDER_CONFIG["openai"])
-    headers["Content-Type"] = "application/json"
+    config = PROVIDER_AUTH.get(provider_type, PROVIDER_AUTH["openai"])
     headers[config["auth_header"]] = f"{config['auth_prefix']}{endpoint.api_key}"
     headers.update(config["extra_headers"])
 
@@ -106,39 +91,34 @@ def filter_response_headers(response_headers: httpx.Headers) -> dict[str, str]:
 
 async def proxy_request(
     client: httpx.AsyncClient,
+    method: str,
     upstream_url: str,
     headers: dict[str, str],
-    raw_body: bytes,
+    raw_body: bytes | None,
 ) -> httpx.Response:
-    """Send a non-streaming request to the upstream provider.
-
-    Uses raw bytes to avoid any parse/re-serialize round-trip.
-    """
-    response = await client.post(
-        upstream_url,
-        content=raw_body,
-        headers=headers,
-    )
-    return response
+    """Send a non-streaming request to the upstream provider."""
+    kwargs: dict = {"headers": headers}
+    if raw_body:
+        kwargs["content"] = raw_body
+    return await client.request(method, upstream_url, **kwargs)
 
 
 async def proxy_stream(
     client: httpx.AsyncClient,
+    method: str,
     upstream_url: str,
     headers: dict[str, str],
-    raw_body: bytes,
+    raw_body: bytes | None,
 ) -> AsyncGenerator[tuple[bytes, httpx.Headers, int], None]:
     """Stream a response from the upstream provider.
 
     Yields (chunk, response_headers, status_code).
     On error, raises HTTPStatusError with the raw upstream response.
     """
-    async with client.stream(
-        "POST",
-        upstream_url,
-        content=raw_body,
-        headers=headers,
-    ) as response:
+    kwargs: dict = {"headers": headers}
+    if raw_body:
+        kwargs["content"] = raw_body
+    async with client.stream(method, upstream_url, **kwargs) as response:
         if response.status_code >= 400:
             await response.aread()
             raise httpx.HTTPStatusError(
@@ -152,7 +132,6 @@ async def proxy_stream(
 
 
 def should_failover(status_code: int) -> bool:
-    """Check if a status code should trigger failover."""
     return status_code in FAILOVER_STATUS_CODES
 
 
@@ -169,7 +148,6 @@ def extract_model_from_body(raw_body: bytes) -> str | None:
 
 
 def extract_stream_flag(raw_body: bytes) -> bool:
-    """Extract the 'stream' flag from the raw request body bytes."""
     try:
         parsed = json.loads(raw_body)
         return bool(parsed.get("stream", False))
