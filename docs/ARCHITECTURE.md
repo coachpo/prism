@@ -185,6 +185,21 @@ Health checks send a real chat completion request using the endpoint's configure
 - `healthy` — Last check succeeded (2xx or 429)
 - `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
 
+### 6.4 Endpoint Success Rate Badge
+The primary visual health indicator for endpoints is the **success rate badge**, computed from `request_logs` data (not from the manual health check status).
+
+- Success rate = `COUNT(2xx) / COUNT(*) * 100` per endpoint
+- Badge colors: ≥98% green, 75-98% yellow, <75% red, N/A gray (no data)
+- Displayed in the endpoint list on the Model Detail page, replacing the previous binary health dot
+- The manual health check still updates `health_status`/`health_detail` in the database and is shown in the tooltip
+
+### 6.5 Model Health Aggregation
+Model-level health is computed by aggregating endpoint success rates:
+
+- Weighted average across all endpoints: `SUM(success_count) / SUM(total_requests) * 100`
+- Displayed on Dashboard and Models pages as a colored badge
+- Same color thresholds as endpoint badges
+
 ### 6.4 Error Reporting
 When a health check fails, the upstream error message is extracted from the response body and stored in `health_detail`. This provides actionable diagnostics (e.g., "HTTP 503: No available channel for model X" instead of just "HTTP 503"). The detail is shown in the frontend tooltip on hover.
 
@@ -238,3 +253,12 @@ See [API_SPEC.md](./API_SPEC.md) for complete endpoint documentation.
 - CORS allows all origins (wildcard)
 - No TLS termination (run behind reverse proxy for HTTPS if needed)
 - SQLite file permissions should be restricted to owner
+
+## 11. Supported Providers
+
+The application exclusively supports three LLM providers:
+- **OpenAI** (`openai`) — GPT models
+- **Anthropic** (`anthropic`) — Claude models
+- **Google Gemini** (`gemini`) — Gemini models (via OpenAI-compatible endpoint)
+
+All UI dropdowns, filters, and selectors are limited to these three providers. No other providers (e.g., Ollama, vLLM) are available.

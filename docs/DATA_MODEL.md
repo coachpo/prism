@@ -193,3 +193,34 @@ CREATE INDEX idx_request_logs_endpoint_id ON request_logs(endpoint_id);
 - For streaming requests, token usage is extracted from the final SSE chunk if available
 - Logging is non-blocking — failures to log do not affect the proxy response
 - No automatic cleanup — logs accumulate (manual DB management for now)
+
+## 9. Computed Fields (Not Stored)
+
+### 9.1 Endpoint Success Rate
+Computed at query time from `request_logs`, not stored in the `endpoints` table.
+
+```sql
+SELECT
+  endpoint_id,
+  COUNT(*) AS total_requests,
+  SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS success_count,
+  ROUND(
+    SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+    2
+  ) AS success_rate
+FROM request_logs
+WHERE created_at >= :from_time AND created_at <= :to_time
+GROUP BY endpoint_id;
+```
+
+- Returns `null` for `success_rate` when `total_requests = 0`
+- Default time window: last 24 hours
+- Badge color thresholds: ≥98% green, 75-98% yellow, <75% red, N/A gray
+
+### 9.2 Model Health (Aggregated)
+Computed by aggregating endpoint success rates for a model's endpoints.
+
+- Weighted average: `SUM(endpoint_success_count) / SUM(endpoint_total_requests) * 100`
+- Returns `null` when no endpoints have request data
+- Included in `ModelConfigListResponse` as `health_success_rate` and `health_total_requests`
+- Same badge color thresholds as endpoint success rate

@@ -53,6 +53,8 @@ Response `200`:
     "is_enabled": true,
     "endpoint_count": 2,
     "active_endpoint_count": 2,
+    "health_success_rate": 99.5,
+    "health_total_requests": 200,
     "created_at": "2025-01-01T00:00:00Z",
     "updated_at": "2025-01-01T00:00:00Z"
   },
@@ -68,11 +70,17 @@ Response `200`:
     "is_enabled": true,
     "endpoint_count": 0,
     "active_endpoint_count": 0,
+    "health_success_rate": null,
+    "health_total_requests": 0,
     "created_at": "2025-01-01T00:00:00Z",
     "updated_at": "2025-01-01T00:00:00Z"
   }
 ]
 ```
+
+New fields in model list response:
+- `health_success_rate` (float | null): Weighted average success rate across all active endpoints. `null` if no request data exists.
+- `health_total_requests` (int): Total number of requests across all endpoints for this model.
 
 #### Create Model
 ```
@@ -304,7 +312,7 @@ Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `model_id` | string | — | Filter by model ID |
-| `provider_type` | string | — | Filter by provider type (openai, anthropic, gemini) |
+| `provider_type` | string | — | Filter by provider type (openai, anthropic, gemini only) |
 | `status_code` | integer | — | Filter by HTTP status code |
 | `success` | boolean | — | Filter by success (true = 2xx, false = non-2xx) |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
@@ -373,6 +381,45 @@ Response `200`:
   ]
 }
 ```
+
+### 4.3 Get Endpoint Success Rates
+```
+GET /api/stats/endpoint-success-rates
+```
+Returns success rate data for all endpoints, computed from `request_logs`.
+
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `from_time` | datetime | 24h ago | Start of time range |
+| `to_time` | datetime | now | End of time range |
+
+Response `200`:
+```json
+[
+  {
+    "endpoint_id": 1,
+    "total_requests": 150,
+    "success_count": 148,
+    "error_count": 2,
+    "success_rate": 98.67
+  },
+  {
+    "endpoint_id": 2,
+    "total_requests": 0,
+    "success_count": 0,
+    "error_count": 0,
+    "success_rate": null
+  }
+]
+```
+
+Fields:
+- `endpoint_id` (int): The endpoint ID
+- `total_requests` (int): Total requests routed through this endpoint
+- `success_count` (int): Requests with 2xx status codes
+- `error_count` (int): Requests with non-2xx status codes
+- `success_rate` (float | null): Success percentage (0-100), `null` if no requests
 
 ---
 

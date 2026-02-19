@@ -62,14 +62,32 @@ Single user (developer/power user) running the application locally or on a local
   - 429 → `healthy` (endpoint works, just rate-limited)
   - Connection error / timeout → `unhealthy`
   - Other errors → `unhealthy`
-- Health status per endpoint: `unknown` (default), `healthy`, `unhealthy`
-- Health status displayed in the endpoint list with color indicators:
-  - Green: healthy (last check succeeded)
-  - Yellow: unknown (never checked)
-  - Red: unhealthy (last check failed)
 - Health check available in:
   - Model Detail → Endpoints list → Actions menu ("Check Health")
   - Model Detail → Add/Edit Endpoint dialog ("Test Connection" button)
+
+### 4.5.1 Endpoint Success Rate Badge
+- Each endpoint displays a **success rate badge** computed from `request_logs` data
+- Success rate = `COUNT(2xx status codes) / COUNT(total requests) * 100` for that endpoint
+- Badge color thresholds:
+  - **Green** (≥98%): Excellent health
+  - **Yellow** (75%–97.99%): Degraded health
+  - **Red** (<75%): Poor health
+  - **Gray** (N/A): No request data available (0 total requests)
+- The success rate badge replaces the previous binary health dot (green/yellow/red for healthy/unknown/unhealthy) in the endpoint list on the Model Detail page
+- The manual health check still updates `health_status` and `health_detail` in the database, but the primary visual indicator is now the success rate badge
+- Tooltip on hover shows: success rate percentage, total requests count, success/error counts, and last health check detail (if available)
+
+### 4.5.2 Model Health Display
+- Each model displays an aggregated health indicator on the Dashboard and Models pages
+- Model health is computed by aggregating the success rates of all its active endpoints
+- Model health = weighted average of endpoint success rates (weighted by request count per endpoint)
+- If a model has no request data across any endpoint, it shows "N/A" (gray)
+- Display format: A colored badge showing the aggregated success rate percentage
+  - Same color thresholds as endpoint badges: ≥98% green, 75-98% yellow, <75% red, N/A gray
+- Shown in:
+  - **Dashboard** → Model Overview table → new "Health" column between "Endpoints" and "Status"
+  - **Models** page → Model list table → new "Health" column between "Endpoints" and "Status"
 
 ### 4.6 Web UI (Management Dashboard)
 - View all configured models and their endpoints
@@ -90,12 +108,18 @@ Single user (developer/power user) running the application locally or on a local
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
   - Filterable request log table with columns: timestamp, model, provider, endpoint, status, response time, tokens
-  - Filters: date range, model, provider, status (success/error), time range presets (last 1h, 24h, 7d, 30d)
+  - Filters: date range, model, time range presets (last 1h, 24h, 7d, 30d)
+  - Provider filter limited to supported providers only: OpenAI, Anthropic, Gemini
   - Summary statistics grouped by model and provider
 - REST API for querying statistics:
   - List request logs with pagination and filters
   - Get aggregated statistics (counts, averages, totals) with grouping
 - Statistics page accessible from sidebar navigation
+
+### 4.9 Supported Providers
+- The application exclusively supports three LLM providers: **OpenAI**, **Anthropic**, and **Google Gemini**
+- All UI dropdowns, filters, and selectors only show these three providers
+- No other providers (e.g., Ollama, vLLM) are available in any part of the application
 
 ## 5. Non-Functional Requirements
 

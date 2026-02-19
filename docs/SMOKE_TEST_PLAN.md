@@ -124,7 +124,59 @@
 
 ## Execution Notes
 
-- Tests should be run in order (ST-1 through ST-9)
+- Tests should be run in order (ST-1 through ST-12)
 - ST-3 must run before ST-4/ST-5/ST-6 to ensure log data exists
-- Frontend tests (ST-7, ST-8) require both backend and frontend running
+- ST-3 must run before ST-10 to ensure endpoint success rate data exists
+- Frontend tests (ST-7, ST-8, ST-10, ST-11, ST-12) require both backend and frontend running
 - Health check tests (ST-2) validate the specific bug fix (404 → real request)
+
+---
+
+## ST-10: Endpoint Success Rate Badge
+
+**Objective**: Verify endpoint success rate badges display correctly on Model Detail page.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | `GET /api/stats/endpoint-success-rates` | `200` with array of objects, each having `endpoint_id`, `total_requests`, `success_count`, `error_count`, `success_rate` |
+| 2 | Verify endpoints with requests have `success_rate` as a number (0-100) | `success_rate` is a float between 0 and 100 |
+| 3 | Verify endpoints with no requests have `success_rate` as `null` | `success_rate` is null, `total_requests` is 0 |
+| 4 | Open frontend → Model Detail page for a model with request data | Endpoint table shows success rate badge instead of health dot |
+| 5 | Verify badge color: endpoint with ≥98% success rate shows green badge | Green badge with percentage |
+| 6 | Verify badge color: endpoint with 75-98% success rate shows yellow badge | Yellow badge with percentage |
+| 7 | Verify badge color: endpoint with <75% success rate shows red badge | Red badge with percentage |
+| 8 | Verify badge for endpoint with no requests shows "N/A" gray badge | Gray "N/A" badge |
+| 9 | Hover over success rate badge | Tooltip shows: success rate %, total requests, success/error counts, last health check detail |
+
+---
+
+## ST-11: Model Health Display
+
+**Objective**: Verify model health badges display on Dashboard and Models pages.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | `GET /api/models` | Response includes `health_success_rate` and `health_total_requests` fields for each model |
+| 2 | Verify model with request data has `health_success_rate` as a number | `health_success_rate` is a float between 0 and 100 |
+| 3 | Verify model with no request data has `health_success_rate` as `null` | `health_success_rate` is null |
+| 4 | Open frontend → Dashboard page | Model Overview table has a "Health" column |
+| 5 | Verify health badge shows colored percentage for models with data | Badge shows percentage with appropriate color (green/yellow/red) |
+| 6 | Verify health badge shows "N/A" for models with no data | Gray "N/A" badge |
+| 7 | Open frontend → Models page | Model list table has a "Health" column |
+| 8 | Verify health badges match Dashboard display | Same badge format and colors as Dashboard |
+
+---
+
+## ST-12: Statistics Provider Filter (Supported Providers Only)
+
+**Objective**: Verify Statistics page only shows supported providers in the filter dropdown.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Open frontend → Statistics page | Page loads without errors |
+| 2 | Click the Provider Type dropdown | Dropdown opens |
+| 3 | Verify dropdown options | Only shows: "All Providers", "OpenAI", "Anthropic", "Gemini" |
+| 4 | Verify "Ollama" is NOT in the dropdown | Ollama option is absent |
+| 5 | Verify "vLLM" is NOT in the dropdown | vLLM option is absent |
+| 6 | Select "OpenAI" filter | Table filters to show only OpenAI requests |
+| 7 | Select "All Providers" filter | Table shows all requests again |
