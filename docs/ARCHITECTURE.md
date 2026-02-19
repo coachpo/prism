@@ -185,6 +185,16 @@ Health checks send a real chat completion request using the endpoint's configure
 - `healthy` — Last check succeeded (2xx or 429)
 - `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
 
+### 6.4 Error Reporting
+When a health check fails, the upstream error message is extracted from the response body and stored in `health_detail`. This provides actionable diagnostics (e.g., "HTTP 503: No available channel for model X" instead of just "HTTP 503"). The detail is shown in the frontend tooltip on hover.
+
+### 6.5 URL Path Failsafe
+To prevent the `/v1/v1` double-path bug (where `base_url` already contains `/v1` and the request path also starts with `/v1`):
+
+1. **Runtime auto-correction**: `build_upstream_url()` detects repeated version segments (e.g., `/v1/v1`, `/v2/v2`) via regex and auto-corrects them, logging a warning.
+2. **Input validation**: `validate_base_url()` rejects base URLs that already contain double version segments on endpoint create/update (HTTP 422).
+3. **Normalization**: `normalize_base_url()` strips trailing slashes from base URLs on create/update to ensure consistent path joining.
+
 ## 7. Request Statistics
 
 ### 7.1 Concept

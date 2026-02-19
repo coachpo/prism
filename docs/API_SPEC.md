@@ -209,7 +209,7 @@ Response `200` (unhealthy):
   "endpoint_id": 1,
   "health_status": "unhealthy",
   "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "Authentication failed (HTTP 401)",
+  "detail": "HTTP 503: No available channel for model claude-haiku-4-5-20251001",
   "response_time_ms": 150
 }
 ```
@@ -221,7 +221,17 @@ Health status determination:
 - Connection error / timeout → `unhealthy`
 - Other errors → `unhealthy`
 
-The endpoint's `health_status` and `last_health_check` fields are updated in the database after each check.
+For non-2xx responses, the upstream error message is extracted from the response body (JSON `error.message` field) and appended to the detail string for actionable diagnostics.
+
+The endpoint's `health_status`, `health_detail`, and `last_health_check` fields are updated in the database after each check. The `health_detail` is shown in the frontend tooltip on hover.
+
+#### Base URL Validation
+
+On endpoint create (`POST`) and update (`PUT`), the `base_url` is:
+1. **Normalized**: Trailing slashes are stripped (e.g., `https://api.example.com/v1/` → `https://api.example.com/v1`)
+2. **Validated**: Rejected with HTTP 422 if it contains a repeated version segment (e.g., `/v1/v1`) or is missing scheme/host
+
+Additionally, `build_upstream_url()` includes a runtime failsafe that auto-corrects any `/vN/vN` double-path and logs a warning.
 
 ---
 

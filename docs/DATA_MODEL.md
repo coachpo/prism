@@ -84,6 +84,7 @@ Stores BaseURL + APIKey combinations for a model configuration, with health chec
 | priority | INTEGER | NOT NULL, DEFAULT 0 | Priority for failover (lower = higher priority) |
 | description | TEXT | NULLABLE | Optional label (e.g., "Production key", "Backup key") |
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | Health status: `unknown`, `healthy`, `unhealthy` |
+| health_detail | TEXT | NULLABLE | Detail message from last health check (e.g., error message from upstream) |
 | last_health_check | DATETIME | NULLABLE | Timestamp of last health check |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -151,7 +152,7 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
    - 429 → `healthy` (rate-limited but endpoint works)
    - Connection error / timeout → `unhealthy`
    - Other errors → `unhealthy`
-6. `health_status` and `last_health_check` are updated in the database
+6. `health_status`, `health_detail`, and `last_health_check` are updated in the database
 
 ## 8. Request Logging (Telemetry)
 
