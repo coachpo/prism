@@ -373,7 +373,7 @@ GET /api/stats/summary
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `from_time` | datetime | 24h ago | Start of time range |
+| `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
 | `group_by` | string | — | Group results by: `model`, `provider`, `endpoint` |
 
@@ -411,7 +411,7 @@ Returns success rate data for all endpoints, computed from `request_logs`.
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `from_time` | datetime | 24h ago | Start of time range |
+| `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
 
 Response `200`:

@@ -93,6 +93,35 @@
 | 4 | Verify request log table displays entries | Table shows rows with timestamp, model, provider, status, response time columns |
 | 5 | Apply a model filter | Table updates to show only matching entries |
 | 6 | Apply a time range preset (e.g., "Last 24h") | Table updates to show only entries within range |
+| 7 | Click "All" time range preset | Summary cards and request log table both show ALL historical data (not just last 24h). Total requests in summary should match total count in log table. |
+
+---
+
+## ST-15: Statistics - "All" Time Range Consistency
+
+**Objective**: Verify that selecting "All" time range shows consistent data between summary cards and request log table.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Open frontend → Statistics page | Page loads with "Last 24h" selected by default |
+| 2 | Note the "Total Requests" value from summary card | Value reflects last 24h data |
+| 3 | Click "All" time range button | Both summary cards and log table update |
+| 4 | Verify "Total Requests" in summary card matches `total` from log table | Numbers are consistent — summary is not stuck at 24h window |
+| 5 | `GET /api/stats/summary` (no from_time param) | Returns stats for ALL historical data, not just last 24h |
+| 6 | `GET /api/stats/requests?limit=1` (no from_time param) | Returns `total` count matching the summary's `total_requests` |
+
+---
+
+## ST-16: Proxy Failover Logging
+
+**Objective**: Verify that failed failover attempts are logged to request_logs.
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Configure a model with 2 endpoints, first endpoint pointing to an invalid URL | First endpoint should fail with connection error |
+| 2 | Make a proxy request to the model | Request should failover to second endpoint |
+| 3 | `GET /api/stats/requests?limit=5` | Should see TWO log entries: one for the failed first endpoint (with error status/detail) and one for the successful second endpoint |
+| 4 | Verify failed attempt log has `error_detail` field populated | Error detail describes the connection/HTTP error |
 
 ---
 
@@ -124,11 +153,13 @@
 
 ## Execution Notes
 
-- Tests should be run in order (ST-1 through ST-14)
+- Tests should be run in order (ST-1 through ST-16)
 - ST-3 must run before ST-4/ST-5/ST-6 to ensure log data exists
 - ST-3 must run before ST-10 to ensure endpoint success rate data exists
 - ST-13 and ST-14 require valid API keys for configured providers
-- Frontend tests (ST-7, ST-8, ST-10, ST-11, ST-12) require both backend and frontend running
+- ST-15 validates the fix for "All" time range summary/log mismatch
+- ST-16 validates failover attempt logging (requires a model with multiple endpoints)
+- Frontend tests (ST-7, ST-8, ST-10, ST-11, ST-12, ST-15) require both backend and frontend running
 - Health check tests (ST-2) validate the specific bug fix (404 → real request)
 - Token extraction tests (ST-13, ST-14) validate provider-aware parsing of upstream responses
 

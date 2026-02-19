@@ -48,6 +48,7 @@ Single user (developer/power user) running the application locally or on a local
   - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
 - Configurable strategy per model (single, round-robin, failover)
 - Proxy is fully transparent and read-only — no state mutations during request/response handling
+- All failover attempts (including failed ones) are logged to `request_logs` for observability. When an endpoint returns a failover-triggering status code (429, 500, 502, 503, 529) or encounters a connection/timeout error, the failed attempt is logged before trying the next endpoint.
 
 ### 4.5 Endpoint Health Detection
 - Manual health check for each endpoint, triggered by user action (no periodic checks)
@@ -120,7 +121,8 @@ SSE streaming responses require parsing `data: {...}` lines from the accumulated
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
   - Filterable request log table with columns: timestamp, model, provider, endpoint, status, response time, tokens
-  - Filters: date range, model, time range presets (last 1h, 24h, 7d, 30d)
+  - Filters: date range, model, time range presets (last 1h, 24h, 7d, all)
+  - The "All" time range must query all historical data for both the summary cards and the request log table (no implicit 24h default)
   - Provider filter limited to supported providers only: OpenAI, Anthropic, Gemini
   - Summary statistics grouped by model and provider
 - REST API for querying statistics:
