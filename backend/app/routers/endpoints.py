@@ -11,7 +11,6 @@ from app.schemas.schemas import (
     EndpointCreate,
     EndpointUpdate,
     EndpointResponse,
-    EndpointHealthResponse,
 )
 
 router = APIRouter(tags=["endpoints"])
@@ -91,27 +90,3 @@ async def delete_endpoint(
     if not endpoint:
         raise HTTPException(status_code=404, detail="Endpoint not found")
     await db.delete(endpoint)
-
-
-@router.post(
-    "/api/endpoints/{endpoint_id}/reset-health", response_model=EndpointHealthResponse
-)
-async def reset_endpoint_health(
-    endpoint_id: int, db: Annotated[AsyncSession, Depends(get_db)]
-):
-    endpoint = await db.get(Endpoint, endpoint_id)
-    if not endpoint:
-        raise HTTPException(status_code=404, detail="Endpoint not found")
-
-    endpoint.health_status = "unknown"
-    endpoint.success_count = 0
-    endpoint.failure_count = 0
-    endpoint.updated_at = datetime.utcnow()
-    await db.flush()
-
-    return EndpointHealthResponse(
-        id=endpoint.id,
-        health_status=endpoint.health_status,
-        success_count=endpoint.success_count,
-        failure_count=endpoint.failure_count,
-    )

@@ -46,7 +46,7 @@ backend/
 │   │   └── proxy.py            # LLM proxy endpoints
 │   ├── services/               # Business logic
 │   │   ├── proxy_service.py    # Request forwarding, streaming
-│   │   └── loadbalancer.py     # LB strategy, failover, health tracking
+│   │   └── loadbalancer.py     # LB strategy, failover
 │   └── dependencies.py         # Shared FastAPI dependencies
 ├── requirements.txt
 └── alembic/ (future)
@@ -126,14 +126,6 @@ Failures that trigger failover:
 - HTTP 500, 502, 503, 529 (server errors)
 - Connection timeout (> 10s connect, > 120s read)
 - Connection refused / DNS failure
-
-### 4.3 Health Tracking
-
-Per-endpoint counters stored in memory (reset on restart):
-- `success_count`: Successful requests
-- `failure_count`: Failed requests
-- `last_failure_at`: Timestamp of last failure
-- `is_healthy`: Derived from recent failure rate
 
 ## 5. Database Design
 

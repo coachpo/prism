@@ -34,15 +34,14 @@ Single user (developer/power user) running the application locally or on a local
 - For models with multiple BaseURL/APIKey combinations:
   - **Round-robin** load balancing across active endpoints
   - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
-  - **Health tracking** per endpoint (success/failure counts)
 - Configurable strategy per model (single, round-robin, failover)
+- Proxy is fully transparent and read-only — no state mutations during request/response handling
 
 ### 4.4 Web UI (Management Dashboard)
 - View all configured models and their endpoints
 - Add/edit/delete model configurations
 - Add/edit/delete endpoint (BaseURL + APIKey) combinations
 - Toggle active/inactive endpoints per model
-- View endpoint health status
 - Select load balancing strategy per model
 
 ### 4.5 Configuration Persistence

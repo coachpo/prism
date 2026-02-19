@@ -7,7 +7,6 @@ import type {
   Endpoint,
   EndpointCreate,
   EndpointUpdate,
-  EndpointHealthResponse,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
@@ -67,11 +66,5 @@ export const api = {
       }),
     delete: (id: number) =>
       request<void>(`/api/endpoints/${id}`, { method: "DELETE" }),
-    resetHealth: (id: number) =>
-      request<EndpointHealthResponse>(`/api/endpoints/${id}/reset-health`, {
-        method: "POST",
-      }),
   },
-
-  health: () => request<{ status: string; version: string }>("/health"),
 };

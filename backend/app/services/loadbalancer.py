@@ -1,6 +1,4 @@
 import logging
-import time
-from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,11 +54,7 @@ def select_endpoint(model_config: ModelConfig) -> Endpoint | None:
         return active[idx]
 
     elif strategy == "failover":
-        # Return first healthy endpoint, or first endpoint if all unhealthy
-        for ep in active:
-            if ep.health_status != "unhealthy":
-                return ep
-        return active[0]  # fallback to first even if unhealthy
+        return active[0]
 
     return active[0]
 
@@ -71,22 +65,3 @@ def get_failover_candidates(
     """Get remaining endpoints for failover, excluding the failed one."""
     active = get_active_endpoints(model_config)
     return [ep for ep in active if ep.id != failed_endpoint_id]
-
-
-async def record_success(db: AsyncSession, endpoint: Endpoint) -> None:
-    """Record a successful request to an endpoint."""
-    endpoint.success_count += 1
-    endpoint.health_status = "healthy"
-    endpoint.last_used_at = datetime.utcnow()
-    await db.flush()
-
-
-async def record_failure(db: AsyncSession, endpoint: Endpoint) -> None:
-    """Record a failed request to an endpoint."""
-    endpoint.failure_count += 1
-    endpoint.last_used_at = datetime.utcnow()
-    # Mark unhealthy after threshold
-    if endpoint.failure_count > 3 and endpoint.health_status != "unhealthy":
-        endpoint.health_status = "unhealthy"
-        logger.warning(f"Endpoint {endpoint.id} ({endpoint.base_url}) marked unhealthy")
-    await db.flush()

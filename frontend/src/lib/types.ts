@@ -19,10 +19,6 @@ export interface Endpoint {
   is_active: boolean;
   priority: number;
   description: string | null;
-  health_status: string;
-  success_count: number;
-  failure_count: number;
-  last_used_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -41,13 +37,6 @@ export interface EndpointUpdate {
   is_active?: boolean;
   priority?: number;
   description?: string | null;
-}
-
-export interface EndpointHealthResponse {
-  id: number;
-  health_status: string;
-  success_count: number;
-  failure_count: number;
 }
 
 // --- Model Config ---

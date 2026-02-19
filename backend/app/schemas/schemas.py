@@ -56,19 +56,8 @@ class EndpointResponse(BaseModel):
     is_active: bool
     priority: int
     description: str | None
-    health_status: str
-    success_count: int
-    failure_count: int
-    last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime
-
-
-class EndpointHealthResponse(BaseModel):
-    id: int
-    health_status: str
-    success_count: int
-    failure_count: int
 
 
 # --- Model Config Schemas ---

@@ -56,10 +56,7 @@ Response `200`:
         "api_key": "sk-***masked***",
         "is_active": true,
         "priority": 0,
-        "description": "Primary key",
-        "health_status": "healthy",
-        "success_count": 142,
-        "failure_count": 2
+        "description": "Primary key"
       }
     ],
     "created_at": "2025-01-01T00:00:00Z",
@@ -156,20 +153,6 @@ DELETE /api/endpoints/{id}
 ```
 Response `204`: No content.
 
-#### Reset Endpoint Health
-```
-POST /api/endpoints/{id}/reset-health
-```
-Response `200`:
-```json
-{
-  "id": 1,
-  "health_status": "unknown",
-  "success_count": 0,
-  "failure_count": 0
-}
-```
-
 ---
 
 ## 2. Proxy API
@@ -246,7 +229,7 @@ All errors follow this format:
 | 404 | Resource not found |
 | 409 | Conflict (duplicate model_id) |
 | 502 | Upstream provider error |
-| 503 | No healthy endpoints available |
+| 503 | No active endpoints available |
 
 ---
 

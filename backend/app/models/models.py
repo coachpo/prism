@@ -59,12 +59,6 @@ class Endpoint(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    health_status: Mapped[str] = mapped_column(
-        String(20), default="unknown", nullable=False
-    )  # healthy, unhealthy, unknown
-    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

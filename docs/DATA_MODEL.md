@@ -13,12 +13,8 @@
 │ created_at       │       │ lb_strategy          │       │ is_active            │
 │ updated_at       │       │ is_enabled           │       │ priority             │
 └──────────────────┘       │ created_at           │       │ description          │
-                           │ updated_at           │       │ health_status        │
-                           └──────────────────────┘       │ success_count        │
-                                                          │ failure_count        │
-                                                          │ last_used_at         │
-                                                          │ created_at           │
-                                                          │ updated_at           │
+                           │ updated_at           │       │ created_at           │
+                           └──────────────────────┘       │ updated_at           │
                                                           └──────────────────────┘
 ```
 
@@ -73,10 +69,6 @@ Stores BaseURL + APIKey combinations for a model configuration.
 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this endpoint is selected for use |
 | priority | INTEGER | NOT NULL, DEFAULT 0 | Priority for failover (lower = higher priority) |
 | description | TEXT | NULLABLE | Optional label (e.g., "Production key", "Backup key") |
-| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `healthy`, `unhealthy`, `unknown` |
-| success_count | INTEGER | NOT NULL, DEFAULT 0 | Cumulative successful requests |
-| failure_count | INTEGER | NOT NULL, DEFAULT 0 | Cumulative failed requests |
-| last_used_at | DATETIME | NULLABLE | Last time this endpoint was used |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
@@ -107,6 +99,5 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 
 ### Strategy: `failover`
 - Endpoints tried in `priority` order (ascending)
-- On failure, next endpoint is tried
-- Failed endpoint marked `health_status = 'unhealthy'`
-- Unhealthy endpoints retried after cooldown period (60s default)
+- On failure (HTTP 5xx, 429, timeout, connection error), next endpoint is tried
+- All endpoints exhausted → return 502 to client

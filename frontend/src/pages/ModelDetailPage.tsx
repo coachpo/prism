@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Pencil, Trash2, RefreshCw, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -119,16 +119,6 @@ export function ModelDetailPage() {
     }
   };
 
-  const handleResetHealth = async (endpointId: number) => {
-    try {
-      await api.endpoints.resetHealth(endpointId);
-      toast.success("Health stats reset");
-      fetchModel();
-    } catch (error: any) {
-      toast.error(error.message || "Reset failed");
-    }
-  };
-
   const handleToggleActive = async (endpoint: Endpoint, checked: boolean) => {
     try {
       await api.endpoints.update(endpoint.id, { is_active: checked });
@@ -143,17 +133,6 @@ export function ModelDetailPage() {
     if (!key) return "";
     if (key.length <= 4) return key;
     return `••••${key.slice(-4)}`;
-  };
-
-  const getHealthBadge = (status: string) => {
-    switch (status) {
-      case "healthy":
-        return <Badge className="bg-green-500 hover:bg-green-600">Healthy</Badge>;
-      case "unhealthy":
-        return <Badge variant="destructive">Unhealthy</Badge>;
-      default:
-        return <Badge variant="secondary">Unknown</Badge>;
-    }
   };
 
   if (loading) return <div className="p-8">Loading model details...</div>;
@@ -216,8 +195,6 @@ export function ModelDetailPage() {
                    <TableHead>Base URL</TableHead>
                    <TableHead>API Key</TableHead>
                    <TableHead>Priority</TableHead>
-                   <TableHead>Health</TableHead>
-                   <TableHead>Stats (S/F)</TableHead>
                    <TableHead>Active</TableHead>
                    <TableHead className="text-right">Actions</TableHead>
                  </TableRow>
@@ -235,11 +212,6 @@ export function ModelDetailPage() {
                       {maskApiKey(endpoint.api_key)}
                     </TableCell>
                     <TableCell>{endpoint.priority}</TableCell>
-                    <TableCell>{getHealthBadge(endpoint.health_status)}</TableCell>
-                    <TableCell>
-                      <span className="text-green-600">{endpoint.success_count}</span> /{" "}
-                      <span className="text-red-600">{endpoint.failure_count}</span>
-                    </TableCell>
                     <TableCell>
                       <Switch
                         checked={endpoint.is_active}
@@ -258,9 +230,6 @@ export function ModelDetailPage() {
                           <DropdownMenuItem onClick={() => handleOpenEndpointDialog(endpoint)}>
                             <Pencil className="mr-2 h-4 w-4" /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleResetHealth(endpoint.id)}>
-                            <RefreshCw className="mr-2 h-4 w-4" /> Reset Health
-                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
                             className="text-destructive focus:text-destructive"
@@ -275,7 +244,7 @@ export function ModelDetailPage() {
                 ))}
                 {model.endpoints.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                       No endpoints configured. Add one to start routing requests.
                     </TableCell>
                   </TableRow>
