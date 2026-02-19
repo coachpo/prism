@@ -77,17 +77,26 @@ def build_upstream_headers(
     Starts with forwarded client headers (minus hop-by-hop),
     then layers on auth and provider-specific headers which take precedence.
     """
+    config = PROVIDER_AUTH.get(provider_type, PROVIDER_AUTH["openai"])
+
+    proxy_controlled_headers = {
+        config["auth_header"].lower(),
+        *(k.lower() for k in config["extra_headers"]),
+    }
+
     headers: dict[str, str] = {}
 
     if client_headers:
         for key, value in client_headers.items():
+            k_lower = key.lower()
             if (
-                key.lower() not in HOP_BY_HOP_HEADERS
-                and key.lower() != "content-length"
+                k_lower not in HOP_BY_HOP_HEADERS
+                and k_lower != "content-length"
+                and k_lower != "accept-encoding"
+                and k_lower not in proxy_controlled_headers
             ):
                 headers[key] = value
 
-    config = PROVIDER_AUTH.get(provider_type, PROVIDER_AUTH["openai"])
     headers[config["auth_header"]] = f"{config['auth_prefix']}{endpoint.api_key}"
     headers.update(config["extra_headers"])
 
