@@ -26,25 +26,49 @@ Single user (developer/power user) running the application locally or on a local
 
 ### 4.2 Model Configuration
 - Map any model ID to a specific provider type (openai/anthropic/gemini)
-- Assign one or more BaseURL + APIKey combinations per model
+- Two model types:
+  - **Native**: A real model with its own BaseURL + APIKey endpoint configurations
+  - **Redirect**: An alias model that redirects all requests to a target native model
+- Assign one or more BaseURL + APIKey combinations per native model
 - Select which combination is actively used for each model
 - CRUD operations for all configurations via REST API
 
-### 4.3 Load Balancing & Failover
+### 4.3 Model Redirection
+- Redirect models resolve model ID suffix variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
+- Only same-provider redirection is allowed (e.g., OpenAI model → OpenAI model, not OpenAI → Anthropic)
+- Redirect models cannot have their own endpoints — they use the target native model's endpoints
+- A redirect model cannot point to another redirect model (must target a native model)
+- All model IDs are globally unique regardless of model type
+- Proxy transparently resolves redirect chains: incoming request for redirect model → routed to target native model's endpoints
+
+### 4.4 Load Balancing & Failover
 - For models with multiple BaseURL/APIKey combinations:
   - **Round-robin** load balancing across active endpoints
   - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
 - Configurable strategy per model (single, round-robin, failover)
 - Proxy is fully transparent and read-only — no state mutations during request/response handling
 
-### 4.4 Web UI (Management Dashboard)
+### 4.5 Endpoint Health Detection
+- Manual health check for each endpoint, triggered by user action (no periodic checks)
+- Health check sends a lightweight request to the endpoint's base URL to verify connectivity and authentication
+- Health status per endpoint: `unknown` (default), `healthy`, `unhealthy`
+- Health status displayed in the endpoint list with color indicators:
+  - Green: healthy (last check succeeded)
+  - Yellow: unknown (never checked)
+  - Red: unhealthy (last check failed)
+- Health check available in:
+  - Model Detail → Endpoints list → Actions menu ("Check Health")
+  - Model Detail → Add/Edit Endpoint dialog ("Test Connection" button)
+
+### 4.6 Web UI (Management Dashboard)
 - View all configured models and their endpoints
-- Add/edit/delete model configurations
+- Add/edit/delete model configurations (native and redirect types)
 - Add/edit/delete endpoint (BaseURL + APIKey) combinations
 - Toggle active/inactive endpoints per model
 - Select load balancing strategy per model
+- Manual health check for endpoints with visual status indicators
 
-### 4.5 Configuration Persistence
+### 4.7 Configuration Persistence
 - All configuration stored in SQLite database
 - No config files to manage — everything through the UI/API
 - Database auto-created on first run

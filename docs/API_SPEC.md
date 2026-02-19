@@ -47,18 +47,27 @@ Response `200`:
     "provider": { "id": 1, "name": "OpenAI", "provider_type": "openai" },
     "model_id": "gpt-4o",
     "display_name": "GPT-4o",
+    "model_type": "native",
+    "redirect_to": null,
     "lb_strategy": "round_robin",
     "is_enabled": true,
-    "endpoints": [
-      {
-        "id": 1,
-        "base_url": "https://api.openai.com",
-        "api_key": "sk-***masked***",
-        "is_active": true,
-        "priority": 0,
-        "description": "Primary key"
-      }
-    ],
+    "endpoint_count": 2,
+    "active_endpoint_count": 2,
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:00:00Z"
+  },
+  {
+    "id": 2,
+    "provider_id": 2,
+    "provider": { "id": 2, "name": "Anthropic", "provider_type": "anthropic" },
+    "model_id": "claude-sonnet-4-5",
+    "display_name": "Claude Sonnet 4.5 (alias)",
+    "model_type": "redirect",
+    "redirect_to": "claude-sonnet-4-5-20250929",
+    "lb_strategy": "single",
+    "is_enabled": true,
+    "endpoint_count": 0,
+    "active_endpoint_count": 0,
     "created_at": "2025-01-01T00:00:00Z",
     "updated_at": "2025-01-01T00:00:00Z"
   }
@@ -70,17 +79,34 @@ Response `200`:
 POST /api/models
 Content-Type: application/json
 ```
-Request:
+Request (native model):
 ```json
 {
   "provider_id": 1,
   "model_id": "gpt-4o",
   "display_name": "GPT-4o",
+  "model_type": "native",
   "lb_strategy": "single",
   "is_enabled": true
 }
 ```
+Request (redirect model):
+```json
+{
+  "provider_id": 2,
+  "model_id": "claude-sonnet-4-5",
+  "display_name": "Claude Sonnet 4.5 (alias)",
+  "model_type": "redirect",
+  "redirect_to": "claude-sonnet-4-5-20250929",
+  "is_enabled": true
+}
+```
 Response `201`: Created model object.
+
+Validation rules:
+- `model_id` must be globally unique
+- If `model_type = "redirect"`: `redirect_to` is required, must reference an existing native model with the same provider
+- If `model_type = "native"`: `redirect_to` must be null/omitted
 
 #### Update Model
 ```
@@ -93,17 +119,18 @@ Request (all fields optional):
   "provider_id": 2,
   "model_id": "gpt-4o-updated",
   "display_name": "GPT-4o (Updated)",
+  "model_type": "native",
   "lb_strategy": "round_robin",
   "is_enabled": true
 }
 ```
-Response `200`: Updated model object. Returns `409` if `model_id` conflicts with an existing model.
+Response `200`: Updated model object. Returns `409` if `model_id` conflicts with an existing model. Returns `400` if redirect validation fails.
 
 #### Delete Model
 ```
 DELETE /api/models/{id}
 ```
-Response `204`: No content. Cascades to delete all endpoints.
+Response `204`: No content. Cascades to delete all endpoints. Returns `400` if other redirect models point to this model.
 
 ---
 
@@ -154,6 +181,34 @@ Response `200`: Updated endpoint object.
 DELETE /api/endpoints/{id}
 ```
 Response `204`: No content.
+
+#### Health Check Endpoint
+```
+POST /api/endpoints/{id}/health-check
+```
+Sends a lightweight probe request to the endpoint's base URL to verify connectivity and authentication.
+
+Response `200`:
+```json
+{
+  "endpoint_id": 1,
+  "health_status": "healthy",
+  "checked_at": "2025-01-15T10:30:00Z",
+  "detail": "Connection successful"
+}
+```
+
+Response `200` (unhealthy):
+```json
+{
+  "endpoint_id": 1,
+  "health_status": "unhealthy",
+  "checked_at": "2025-01-15T10:30:00Z",
+  "detail": "Connection refused"
+}
+```
+
+The endpoint's `health_status` and `last_health_check` fields are updated in the database after each check.
 
 ---
 

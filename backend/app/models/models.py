@@ -32,6 +32,12 @@ class ModelConfig(Base):
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), nullable=False)
     model_id: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    model_type: Mapped[str] = mapped_column(
+        String(20), default="native", nullable=False
+    )  # native, redirect
+    redirect_to: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )  # target model_id for redirect models
     lb_strategy: Mapped[str] = mapped_column(
         String(50), default="single", nullable=False
     )  # single, round_robin, failover
@@ -59,6 +65,10 @@ class Endpoint(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    health_status: Mapped[str] = mapped_column(
+        String(20), default="unknown", nullable=False
+    )  # unknown, healthy, unhealthy
+    last_health_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

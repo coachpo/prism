@@ -11,8 +11,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Pencil, Trash2, MoreHorizontal, Search } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MoreHorizontal, Search, ArrowRight, Activity, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ export function ModelDetailPage() {
   const [isEndpointDialogOpen, setIsEndpointDialogOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<Endpoint | null>(null);
   const [endpointSearch, setEndpointSearch] = useState("");
+  const [healthCheckingIds, setHealthCheckingIds] = useState<Set<number>>(new Set());
 
   // Endpoint Form State
   const [endpointForm, setEndpointForm] = useState<EndpointCreate>({
@@ -130,6 +132,23 @@ export function ModelDetailPage() {
     }
   };
 
+  const handleHealthCheck = async (endpointId: number) => {
+    setHealthCheckingIds(prev => new Set(prev).add(endpointId));
+    try {
+      const result = await api.endpoints.healthCheck(endpointId);
+      toast.success(`Health check: ${result.health_status} — ${result.detail}`);
+      fetchModel();
+    } catch (error: any) {
+      toast.error(error.message || "Health check failed");
+    } finally {
+      setHealthCheckingIds(prev => {
+        const next = new Set(prev);
+        next.delete(endpointId);
+        return next;
+      });
+    }
+  };
+
   const maskApiKey = (key: string) => {
     if (!key) return "";
     if (key.length <= 4) return key;
@@ -159,8 +178,18 @@ export function ModelDetailPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>{model.display_name || model.model_id}</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle>{model.display_name || model.model_id}</CardTitle>
+                <Badge variant={model.model_type === "native" ? "default" : "outline"} className={model.model_type === "native" ? "bg-primary/90" : ""}>
+                  {model.model_type === "native" ? "Native" : "Redirect"}
+                </Badge>
+              </div>
               <CardDescription>{model.provider.name} • {model.model_id}</CardDescription>
+              {model.model_type === "redirect" && model.redirect_to && (
+                <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground">
+                  <ArrowRight className="h-3 w-3" /> Redirects to: <span className="font-medium text-foreground">{model.redirect_to}</span>
+                </div>
+              )}
             </div>
             <Badge
               variant={model.is_enabled ? "default" : "secondary"}
@@ -197,9 +226,14 @@ export function ModelDetailPage() {
               {model.provider.description && ` — ${model.provider.description}`}
             </p>
           </div>
-          <Button onClick={() => handleOpenEndpointDialog()}>
-            <Plus className="mr-2 h-4 w-4" /> Add Endpoint
-          </Button>
+          {model.model_type === "native" && (
+            <Button onClick={() => handleOpenEndpointDialog()}>
+              <Plus className="mr-2 h-4 w-4" /> Add Endpoint
+            </Button>
+          )}
+          {model.model_type === "redirect" && (
+            <p className="text-sm text-muted-foreground italic">Redirect models use the target model's endpoints</p>
+          )}
         </div>
 
         <div className="relative max-w-sm">
@@ -215,6 +249,7 @@ export function ModelDetailPage() {
                    <TableHead>Base URL</TableHead>
                    <TableHead>API Key</TableHead>
                    <TableHead>Priority</TableHead>
+                   <TableHead>Health</TableHead>
                    <TableHead>Active</TableHead>
                    <TableHead className="text-right">Actions</TableHead>
                  </TableRow>
@@ -233,6 +268,27 @@ export function ModelDetailPage() {
                     </TableCell>
                     <TableCell>{endpoint.priority}</TableCell>
                     <TableCell>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-block h-2.5 w-2.5 rounded-full ${
+                                endpoint.health_status === "healthy" ? "bg-green-500" :
+                                endpoint.health_status === "unhealthy" ? "bg-red-500" :
+                                "bg-yellow-500"
+                              }`} />
+                              <span className="text-xs capitalize">{endpoint.health_status}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {endpoint.last_health_check
+                              ? `Last checked: ${new Date(endpoint.last_health_check).toLocaleString()}`
+                              : "Never checked"}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableCell>
+                    <TableCell>
                       <Switch
                         checked={endpoint.is_active}
                         onCheckedChange={(checked) => handleToggleActive(endpoint, checked)}
@@ -247,6 +303,18 @@ export function ModelDetailPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleHealthCheck(endpoint.id)}
+                            disabled={healthCheckingIds.has(endpoint.id)}
+                          >
+                            {healthCheckingIds.has(endpoint.id) ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Activity className="mr-2 h-4 w-4" />
+                            )}
+                            Health Check
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => handleOpenEndpointDialog(endpoint)}>
                             <Pencil className="mr-2 h-4 w-4" /> Edit
                           </DropdownMenuItem>
@@ -264,7 +332,7 @@ export function ModelDetailPage() {
                 ))}
                 {filteredEndpoints.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       {model.endpoints.length === 0 ? "No endpoints configured. Add one to start routing requests." : "No endpoints match your search."}
                     </TableCell>
                   </TableRow>

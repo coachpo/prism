@@ -56,8 +56,17 @@ class EndpointResponse(BaseModel):
     is_active: bool
     priority: int
     description: str | None
+    health_status: str
+    last_health_check: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class HealthCheckResponse(BaseModel):
+    endpoint_id: int
+    health_status: str
+    checked_at: datetime
+    detail: str
 
 
 # --- Model Config Schemas ---
@@ -67,6 +76,8 @@ class ModelConfigBase(BaseModel):
     provider_id: int
     model_id: str
     display_name: str | None = None
+    model_type: str = "native"
+    redirect_to: str | None = None
     lb_strategy: str = "single"
     is_enabled: bool = True
 
@@ -79,6 +90,8 @@ class ModelConfigUpdate(BaseModel):
     provider_id: int | None = None
     model_id: str | None = None
     display_name: str | None = None
+    model_type: str | None = None
+    redirect_to: str | None = None
     lb_strategy: str | None = None
     is_enabled: bool | None = None
 
@@ -91,6 +104,8 @@ class ModelConfigResponse(BaseModel):
     provider: ProviderResponse
     model_id: str
     display_name: str | None
+    model_type: str
+    redirect_to: str | None
     lb_strategy: str
     is_enabled: bool
     endpoints: list[EndpointResponse]
@@ -106,6 +121,8 @@ class ModelConfigListResponse(BaseModel):
     provider: ProviderResponse
     model_id: str
     display_name: str | None
+    model_type: str
+    redirect_to: str | None
     lb_strategy: str
     is_enabled: bool
     endpoint_count: int

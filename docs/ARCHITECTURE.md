@@ -79,29 +79,44 @@ frontend/
 
 ## 3. Request Flow
 
-### 3.1 Proxy Request (Non-Streaming)
+### 3.1 Proxy Request (Non-Streaming, Native Model)
 
 ```
 Client → POST /v1/chat/completions {model: "gpt-4o"}
   → Router extracts model ID from body
-  → LoadBalancer selects endpoint for model
+  → LoadBalancer looks up model config
+  → Model is native → select endpoint directly
   → ProxyService forwards request to upstream BaseURL
   → Upstream responds with JSON
   → Gateway returns JSON to client
 ```
 
-### 3.2 Proxy Request (Streaming)
+### 3.2 Proxy Request (Redirect Model)
+
+```
+Client → POST /v1/messages {model: "claude-sonnet-4-5"}
+  → Router extracts model ID from body
+  → LoadBalancer looks up model config
+  → Model is redirect → resolve redirect_to → "claude-sonnet-4-5-20250929"
+  → Look up target native model config
+  → Select endpoint from target model
+  → ProxyService forwards request to upstream BaseURL (request body unchanged)
+  → Upstream responds
+  → Gateway returns response to client
+```
+
+### 3.3 Proxy Request (Streaming)
 
 ```
 Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
   → Router extracts model ID
-  → LoadBalancer selects endpoint
+  → LoadBalancer selects endpoint (with redirect resolution if needed)
   → ProxyService opens streaming connection to upstream
   → SSE chunks piped directly to client via StreamingResponse
   → On upstream error: failover to next endpoint (if configured)
 ```
 
-### 3.3 Provider-Specific Routing
+### 3.4 Provider-Specific Routing
 
 | Provider | Proxy Path | Upstream Path | Auth Header |
 |---|---|---|---|
@@ -127,15 +142,51 @@ Failures that trigger failover:
 - Connection timeout (> 10s connect, > 120s read)
 - Connection refused / DNS failure
 
-## 5. Database Design
+## 5. Model Redirection
+
+### 5.1 Concept
+Redirect models are aliases that forward requests to a target native model. This resolves model ID suffix variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`).
+
+### 5.2 Rules
+- Only same-provider redirection (OpenAI → OpenAI, Anthropic → Anthropic)
+- Target must be a native model (no chained redirects)
+- Redirect models have no endpoints of their own
+- All model IDs are globally unique
+- The proxy does NOT modify the request body — it only uses the target model's endpoints for routing
+
+### 5.3 Resolution
+```
+resolve_model(model_id):
+  config = lookup(model_id)
+  if config.model_type == "redirect":
+    return lookup(config.redirect_to)
+  return config
+```
+
+## 6. Endpoint Health Detection
+
+### 6.1 Concept
+Manual health checks allow users to verify endpoint connectivity and authentication before relying on them for proxy traffic.
+
+### 6.2 Health Probes (Provider-Specific)
+- **OpenAI**: `GET {base_url}/v1/models` with Bearer auth
+- **Anthropic**: `POST {base_url}/v1/messages` with minimal body (400 = auth works, connection error = unhealthy)
+- **Gemini**: `GET {base_url}/v1/models` with Bearer auth
+
+### 6.3 Status Values
+- `unknown` — Never checked (default)
+- `healthy` — Last check succeeded
+- `unhealthy` — Last check failed
+
+## 7. Database Design
 
 See [DATA_MODEL.md](./DATA_MODEL.md) for complete schema.
 
-## 6. API Design
+## 8. API Design
 
 See [API_SPEC.md](./API_SPEC.md) for complete endpoint documentation.
 
-## 7. Security Considerations
+## 9. Security Considerations
 
 - No authentication (trusted local network assumption)
 - API keys stored in plaintext in SQLite (acceptable for single-user local)

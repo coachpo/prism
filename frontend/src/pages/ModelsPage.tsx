@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, MoreHorizontal, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, MoreHorizontal, Search, ArrowRight } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,12 +31,15 @@ export function ModelsPage() {
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
 
   // Form state
   const [formData, setFormData] = useState<ModelConfigCreate>({
     provider_id: 0,
     model_id: "",
     display_name: "",
+    model_type: "native",
+    redirect_to: null,
     lb_strategy: "single",
     is_enabled: true,
   });
@@ -68,6 +71,8 @@ export function ModelsPage() {
         provider_id: model.provider_id,
         model_id: model.model_id,
         display_name: model.display_name || "",
+        model_type: model.model_type,
+        redirect_to: model.redirect_to,
         lb_strategy: model.lb_strategy,
         is_enabled: model.is_enabled,
       });
@@ -77,6 +82,8 @@ export function ModelsPage() {
         provider_id: providers.length > 0 ? providers[0].id : 0,
         model_id: "",
         display_name: "",
+        model_type: "native",
+        redirect_to: null,
         lb_strategy: "single",
         is_enabled: true,
       });
@@ -92,13 +99,19 @@ export function ModelsPage() {
           provider_id: formData.provider_id,
           model_id: formData.model_id,
           display_name: formData.display_name,
+          model_type: formData.model_type,
+          redirect_to: formData.model_type === "redirect" ? formData.redirect_to : null,
           lb_strategy: formData.lb_strategy,
           is_enabled: formData.is_enabled,
         };
         await api.models.update(editingModel.id, updateData);
         toast.success("Model updated successfully");
       } else {
-        await api.models.create(formData);
+        const createData: ModelConfigCreate = {
+          ...formData,
+          redirect_to: formData.model_type === "redirect" ? formData.redirect_to : null,
+        };
+        await api.models.create(createData);
         toast.success("Model created successfully");
       }
       setIsDialogOpen(false);
@@ -126,8 +139,15 @@ export function ModelsPage() {
     const matchesSearch = !search || m.model_id.toLowerCase().includes(search.toLowerCase()) || (m.display_name?.toLowerCase().includes(search.toLowerCase()));
     const matchesProvider = providerFilter === "all" || m.provider.name === providerFilter;
     const matchesStatus = statusFilter === "all" || (statusFilter === "enabled" ? m.is_enabled : !m.is_enabled);
-    return matchesSearch && matchesProvider && matchesStatus;
+    const matchesType = typeFilter === "all" || m.model_type === typeFilter;
+    return matchesSearch && matchesProvider && matchesStatus && matchesType;
   });
+
+  // Get native models for the currently selected provider (for redirect_to selector)
+  const selectedProvider = providers.find(p => p.id === formData.provider_id);
+  const nativeModelsForProvider = models.filter(
+    m => m.model_type === "native" && m.provider_id === formData.provider_id && (!editingModel || m.model_id !== formData.model_id)
+  );
 
   return (
     <div className="space-y-6">
@@ -158,6 +178,14 @@ export function ModelsPage() {
             <SelectItem value="disabled">Disabled</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[140px]"><SelectValue placeholder="All Types" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="native">Native</SelectItem>
+            <SelectItem value="redirect">Redirect</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>
@@ -166,6 +194,7 @@ export function ModelsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Model</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Provider</TableHead>
                 <TableHead>Strategy</TableHead>
                 <TableHead>Endpoints</TableHead>
@@ -188,6 +217,16 @@ export function ModelsPage() {
                     {model.display_name && (
                       <div className="text-xs text-muted-foreground">{model.model_id}</div>
                     )}
+                    {model.model_type === "redirect" && model.redirect_to && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <ArrowRight className="h-3 w-3" /> {model.redirect_to}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={model.model_type === "native" ? "default" : "outline"} className={model.model_type === "native" ? "bg-primary/90" : ""}>
+                      {model.model_type === "native" ? "Native" : "Redirect"}
+                    </Badge>
                   </TableCell>
                   <TableCell>{model.provider.name}</TableCell>
                   <TableCell className="capitalize">{model.lb_strategy.replace("_", " ")}</TableCell>
@@ -229,7 +268,7 @@ export function ModelsPage() {
               ))}
               {filteredModels.length === 0 && (
                 <TableRow>
-                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                   <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     {models.length === 0 ? "No models found. Create one to get started." : "No models match your filters."}
                   </TableCell>
                 </TableRow>
@@ -249,7 +288,7 @@ export function ModelsPage() {
               <Label htmlFor="provider">Provider</Label>
               <Select
                 value={formData.provider_id.toString()}
-                onValueChange={(val) => setFormData({ ...formData, provider_id: parseInt(val) })}
+                onValueChange={(val) => setFormData({ ...formData, provider_id: parseInt(val), redirect_to: null })}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select provider" />
@@ -284,6 +323,50 @@ export function ModelsPage() {
                 placeholder="Optional friendly name"
               />
             </div>
+
+            <div className="grid gap-2">
+              <Label>Model Type</Label>
+              <Select
+                value={formData.model_type || "native"}
+                onValueChange={(val) => setFormData({ ...formData, model_type: val, redirect_to: val === "native" ? null : formData.redirect_to })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="native">Native</SelectItem>
+                  <SelectItem value="redirect">Redirect</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {formData.model_type === "redirect" && (
+              <div className="grid gap-2">
+                <Label>Redirect To</Label>
+                {nativeModelsForProvider.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No native models available for {selectedProvider?.name || "this provider"}. Create a native model first.
+                  </p>
+                ) : (
+                  <Select
+                    value={formData.redirect_to || ""}
+                    onValueChange={(val) => setFormData({ ...formData, redirect_to: val })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select target model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {nativeModelsForProvider.map((m) => (
+                        <SelectItem key={m.model_id} value={m.model_id}>
+                          {m.display_name || m.model_id}
+                          {m.display_name && ` (${m.model_id})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
 
             <div className="grid gap-2">
               <Label htmlFor="lb_strategy">Load Balancing Strategy</Label>

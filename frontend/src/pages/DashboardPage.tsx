@@ -4,7 +4,7 @@ import type { ModelConfigListItem } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Server, Zap, Globe } from "lucide-react";
+import { Server, Zap, Globe, ArrowRight } from "lucide-react";
 
 export function DashboardPage() {
   const [models, setModels] = useState<ModelConfigListItem[]>([]);
@@ -87,6 +87,7 @@ export function DashboardPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Model</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Provider</TableHead>
                 <TableHead>Strategy</TableHead>
                 <TableHead>Endpoints</TableHead>
@@ -101,6 +102,16 @@ export function DashboardPage() {
                     {model.display_name && (
                       <div className="text-xs text-muted-foreground">{model.model_id}</div>
                     )}
+                    {model.model_type === "redirect" && model.redirect_to && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <ArrowRight className="h-3 w-3" /> {model.redirect_to}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={model.model_type === "native" ? "default" : "outline"} className={model.model_type === "native" ? "bg-primary/90" : ""}>
+                      {model.model_type === "native" ? "Native" : "Redirect"}
+                    </Badge>
                   </TableCell>
                   <TableCell>{model.provider.name}</TableCell>
                   <TableCell className="capitalize">{model.lb_strategy.replace("_", " ")}</TableCell>
@@ -119,7 +130,7 @@ export function DashboardPage() {
               ))}
               {models.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
                     No models configured.
                   </TableCell>
                 </TableRow>

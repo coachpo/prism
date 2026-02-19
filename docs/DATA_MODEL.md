@@ -10,12 +10,16 @@
 │ name             │   └───│ provider_id (FK)     │   └───│ model_config_id (FK) │
 │ provider_type    │       │ model_id (UNIQUE)    │       │ base_url             │
 │ description      │       │ display_name         │       │ api_key              │
-│ created_at       │       │ lb_strategy          │       │ is_active            │
-│ updated_at       │       │ is_enabled           │       │ priority             │
-└──────────────────┘       │ created_at           │       │ description          │
+│ created_at       │       │ model_type           │       │ is_active            │
+│ updated_at       │       │ redirect_to          │       │ priority             │
+└──────────────────┘       │ lb_strategy          │       │ description          │
+                           │ is_enabled           │       │ health_status        │
+                           │ created_at           │       │ last_health_check    │
                            │ updated_at           │       │ created_at           │
                            └──────────────────────┘       │ updated_at           │
-                                                          └──────────────────────┘
+                                    │                     └──────────────────────┘
+                                    │ redirect_to (self-ref)
+                                    └──────▶ model_configs.model_id
 ```
 
 ## 2. Table Definitions
@@ -43,22 +47,31 @@ INSERT INTO providers (name, provider_type, description) VALUES
 
 ### 2.2 `model_configs`
 
-Maps a model ID string to a provider and load balancing configuration.
+Maps a model ID string to a provider and load balancing configuration. Supports two model types: native (real model with endpoints) and redirect (alias that forwards to a native model).
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | provider_id | INTEGER | FK → providers.id, NOT NULL | Associated provider |
-| model_id | VARCHAR(200) | NOT NULL, UNIQUE | Model identifier (e.g., "gpt-4o", "claude-sonnet-4-20250514") |
+| model_id | VARCHAR(200) | NOT NULL, UNIQUE | Model identifier (e.g., "gpt-4o", "claude-sonnet-4-5") |
 | display_name | VARCHAR(200) | NULLABLE | Human-friendly name |
-| lb_strategy | VARCHAR(50) | NOT NULL, DEFAULT 'single' | Load balancing: `single`, `round_robin`, `failover` |
+| model_type | VARCHAR(20) | NOT NULL, DEFAULT 'native' | Model type: `native` or `redirect` |
+| redirect_to | VARCHAR(200) | NULLABLE | Target model_id for redirect models (must be a native model of the same provider) |
+| lb_strategy | VARCHAR(50) | NOT NULL, DEFAULT 'single' | Load balancing: `single`, `round_robin`, `failover` (only applies to native models) |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this model is available for proxying |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
+**Constraints:**
+- `model_id` is globally unique across all model types
+- When `model_type = 'redirect'`: `redirect_to` must reference an existing native model's `model_id` with the same `provider_id`
+- When `model_type = 'native'`: `redirect_to` must be NULL
+- Redirect models cannot have endpoints (enforced at application level)
+- Redirect chains are not allowed (redirect → redirect is invalid)
+
 ### 2.3 `endpoints`
 
-Stores BaseURL + APIKey combinations for a model configuration.
+Stores BaseURL + APIKey combinations for a model configuration, with health check status.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -69,6 +82,8 @@ Stores BaseURL + APIKey combinations for a model configuration.
 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this endpoint is selected for use |
 | priority | INTEGER | NOT NULL, DEFAULT 0 | Priority for failover (lower = higher priority) |
 | description | TEXT | NULLABLE | Optional label (e.g., "Production key", "Backup key") |
+| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | Health status: `unknown`, `healthy`, `unhealthy` |
+| last_health_check | DATETIME | NULLABLE | Timestamp of last health check |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
@@ -77,6 +92,8 @@ Stores BaseURL + APIKey combinations for a model configuration.
 ```sql
 CREATE UNIQUE INDEX idx_model_configs_model_id ON model_configs(model_id);
 CREATE INDEX idx_model_configs_provider_id ON model_configs(provider_id);
+CREATE INDEX idx_model_configs_model_type ON model_configs(model_type);
+CREATE INDEX idx_model_configs_redirect_to ON model_configs(redirect_to);
 CREATE INDEX idx_endpoints_model_config_id ON endpoints(model_config_id);
 CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 ```
@@ -84,7 +101,8 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 ## 4. Relationships
 
 - `providers` 1:N `model_configs` — One provider can have many model configurations
-- `model_configs` 1:N `endpoints` — One model can have many BaseURL/APIKey combinations
+- `model_configs` 1:N `endpoints` — One native model can have many BaseURL/APIKey combinations (redirect models have zero endpoints)
+- `model_configs` self-reference via `redirect_to` → `model_id` — A redirect model points to a native model
 - Cascade delete: Deleting a model_config deletes all its endpoints
 
 ## 5. Load Balancing Behavior
@@ -101,3 +119,32 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 - Endpoints tried in `priority` order (ascending)
 - On failure (HTTP 5xx, 429, timeout, connection error), next endpoint is tried
 - All endpoints exhausted → return 502 to client
+
+## 6. Model Redirection Behavior
+
+### Resolution Flow
+1. Proxy receives request with `model` field (e.g., `claude-sonnet-4-5`)
+2. Look up `model_configs` by `model_id`
+3. If `model_type = 'redirect'`, resolve `redirect_to` to find the target native model
+4. Use the target native model's endpoints and provider config for the upstream request
+5. The original `model` field in the request body is NOT modified — the proxy is transparent
+
+### Validation Rules
+- A redirect model's `provider_id` must match the target native model's `provider_id`
+- The target model (`redirect_to`) must exist and be of type `native`
+- Circular/chained redirects are rejected at creation/update time
+
+## 7. Health Check Behavior
+
+### Check Process
+1. User triggers health check via UI or API
+2. Backend sends a lightweight request to the endpoint's `base_url` (provider-specific)
+3. Response determines status:
+   - Success (2xx) → `healthy`
+   - Any error (4xx, 5xx, timeout, connection error) → `unhealthy`
+4. `health_status` and `last_health_check` are updated in the database
+
+### Provider-Specific Health Probes
+- **OpenAI**: `GET {base_url}/v1/models` with `Authorization: Bearer {api_key}`
+- **Anthropic**: `POST {base_url}/v1/messages` with minimal body (expects 400 with valid auth, connection error = unhealthy)
+- **Gemini**: `GET {base_url}/v1/models` with `Authorization: Bearer {api_key}`

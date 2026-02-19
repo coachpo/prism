@@ -19,6 +19,8 @@ export interface Endpoint {
   is_active: boolean;
   priority: number;
   description: string | null;
+  health_status: string;
+  last_health_check: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +41,13 @@ export interface EndpointUpdate {
   description?: string | null;
 }
 
+export interface HealthCheckResponse {
+  endpoint_id: number;
+  health_status: string;
+  checked_at: string;
+  detail: string;
+}
+
 // --- Model Config ---
 export interface ModelConfig {
   id: number;
@@ -46,6 +55,8 @@ export interface ModelConfig {
   provider: Provider;
   model_id: string;
   display_name: string | null;
+  model_type: string;
+  redirect_to: string | null;
   lb_strategy: string;
   is_enabled: boolean;
   endpoints: Endpoint[];
@@ -59,6 +70,8 @@ export interface ModelConfigListItem {
   provider: Provider;
   model_id: string;
   display_name: string | null;
+  model_type: string;
+  redirect_to: string | null;
   lb_strategy: string;
   is_enabled: boolean;
   endpoint_count: number;
@@ -71,6 +84,8 @@ export interface ModelConfigCreate {
   provider_id: number;
   model_id: string;
   display_name?: string | null;
+  model_type?: string;
+  redirect_to?: string | null;
   lb_strategy?: string;
   is_enabled?: boolean;
 }
@@ -79,6 +94,8 @@ export interface ModelConfigUpdate {
   provider_id?: number;
   model_id?: string;
   display_name?: string | null;
+  model_type?: string;
+  redirect_to?: string | null;
   lb_strategy?: string;
   is_enabled?: boolean;
 }
