@@ -87,15 +87,17 @@ Response `201`: Created model object.
 PUT /api/models/{id}
 Content-Type: application/json
 ```
-Request:
+Request (all fields optional):
 ```json
 {
+  "provider_id": 2,
+  "model_id": "gpt-4o-updated",
   "display_name": "GPT-4o (Updated)",
   "lb_strategy": "round_robin",
   "is_enabled": true
 }
 ```
-Response `200`: Updated model object.
+Response `200`: Updated model object. Returns `409` if `model_id` conflicts with an existing model.
 
 #### Delete Model
 ```

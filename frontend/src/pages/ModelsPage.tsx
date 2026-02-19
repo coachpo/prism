@@ -87,6 +87,7 @@ export function ModelsPage() {
       if (editingModel) {
         const updateData: ModelConfigUpdate = {
           provider_id: formData.provider_id,
+          model_id: formData.model_id,
           display_name: formData.display_name,
           lb_strategy: formData.lb_strategy,
           is_enabled: formData.is_enabled,
@@ -235,9 +236,8 @@ export function ModelsPage() {
                 value={formData.model_id}
                 onChange={(e) => setFormData({ ...formData, model_id: e.target.value })}
                 placeholder="e.g. gpt-4-turbo"
-                disabled={!!editingModel}
+                required
               />
-              {editingModel && <p className="text-xs text-muted-foreground">Model ID cannot be changed.</p>}
             </div>
 
             <div className="grid gap-2">

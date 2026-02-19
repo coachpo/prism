@@ -2,12 +2,12 @@ from typing import Annotated
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_db
-from app.models.models import ModelConfig, Endpoint, Provider
+from app.models.models import ModelConfig, Provider
 from app.schemas.schemas import (
     ModelConfigCreate,
     ModelConfigUpdate,
@@ -122,6 +122,22 @@ async def update_model(
         raise HTTPException(status_code=404, detail="Model configuration not found")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    if "provider_id" in update_data:
+        provider = await db.get(Provider, update_data["provider_id"])
+        if not provider:
+            raise HTTPException(status_code=400, detail="Provider not found")
+
+    if "model_id" in update_data and update_data["model_id"] != config.model_id:
+        existing = await db.execute(
+            select(ModelConfig).where(ModelConfig.model_id == update_data["model_id"])
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model ID '{update_data['model_id']}' already exists",
+            )
+
     for key, value in update_data.items():
         setattr(config, key, value)
     config.updated_at = datetime.utcnow()

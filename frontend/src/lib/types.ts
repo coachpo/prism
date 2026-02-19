@@ -77,6 +77,7 @@ export interface ModelConfigCreate {
 
 export interface ModelConfigUpdate {
   provider_id?: number;
+  model_id?: string;
   display_name?: string | null;
   lb_strategy?: string;
   is_enabled?: boolean;

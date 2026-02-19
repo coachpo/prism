@@ -77,6 +77,7 @@ class ModelConfigCreate(ModelConfigBase):
 
 class ModelConfigUpdate(BaseModel):
     provider_id: int | None = None
+    model_id: str | None = None
     display_name: str | None = None
     lb_strategy: str | None = None
     is_enabled: bool | None = None
