@@ -7,13 +7,10 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
-from app.models.models import Endpoint
 from app.services.loadbalancer import (
     get_model_config_with_endpoints,
     select_endpoint,
     get_failover_candidates,
-    record_success,
-    record_failure,
 )
 from app.services.proxy_service import (
     build_upstream_url,
@@ -46,19 +43,13 @@ def _resolve_model_id(request: Request, raw_body: bytes | None) -> str | None:
 
 async def _iter_stream(
     resp: httpx.Response,
-    db: AsyncSession,
-    ep: Endpoint,
 ) -> AsyncGenerator[bytes, None]:
     try:
         async for chunk in resp.aiter_bytes():
             if chunk:
                 yield chunk
-        await record_success(db, ep)
-        await db.commit()
     except Exception as e:
-        await record_failure(db, ep)
-        await db.commit()
-        logger.error(f"Stream error on endpoint {ep.id}: {e}")
+        logger.error(f"Stream error: {e}")
     finally:
         await resp.aclose()
 
@@ -69,7 +60,6 @@ async def _handle_proxy(
     raw_body: bytes | None,
     request_path: str,
 ):
-    """Core proxy logic — routes any API path to the configured upstream."""
     model_id = _resolve_model_id(request, raw_body)
     if not model_id:
         raise HTTPException(
@@ -126,8 +116,6 @@ async def _handle_proxy(
                 if upstream_resp.status_code >= 400:
                     body = await upstream_resp.aread()
                     await upstream_resp.aclose()
-                    await record_failure(db, ep)
-                    await db.commit()
 
                     if should_failover(upstream_resp.status_code):
                         last_error = f"Upstream returned {upstream_resp.status_code}"
@@ -146,7 +134,7 @@ async def _handle_proxy(
                     "content-type", "text/event-stream"
                 )
                 return StreamingResponse(
-                    _iter_stream(upstream_resp, db, ep),
+                    _iter_stream(upstream_resp),
                     status_code=upstream_resp.status_code,
                     media_type=media_type,
                     headers={
@@ -164,7 +152,6 @@ async def _handle_proxy(
                 if response.status_code >= 400 and should_failover(
                     response.status_code
                 ):
-                    await record_failure(db, ep)
                     last_error = f"Upstream returned {response.status_code}"
                     logger.warning(
                         f"Endpoint {ep.id} failed with {response.status_code}, trying next"
@@ -172,14 +159,12 @@ async def _handle_proxy(
                     continue
 
                 if response.status_code >= 400:
-                    await record_failure(db, ep)
                     return Response(
                         content=response.content,
                         status_code=response.status_code,
                         headers=resp_headers,
                     )
 
-                await record_success(db, ep)
                 return Response(
                     content=response.content,
                     status_code=response.status_code,
@@ -187,17 +172,14 @@ async def _handle_proxy(
                 )
 
         except httpx.ConnectError as e:
-            await record_failure(db, ep)
             last_error = f"Connection error: {e}"
             logger.warning(f"Endpoint {ep.id} connection failed: {e}")
             continue
         except httpx.TimeoutException as e:
-            await record_failure(db, ep)
             last_error = f"Timeout: {e}"
             logger.warning(f"Endpoint {ep.id} timed out: {e}")
             continue
         except httpx.HTTPStatusError as e:
-            await record_failure(db, ep)
             last_error = f"HTTP error: {e}"
             logger.warning(f"Endpoint {ep.id} HTTP error: {e}")
             continue
@@ -214,6 +196,5 @@ async def proxy_catch_all(
     path: str,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Catch-all transparent proxy for all /v1/* API paths."""
     raw_body = await request.body() or None
     return await _handle_proxy(request, db, raw_body, f"/v1/{path}")
