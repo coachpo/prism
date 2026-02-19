@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.db
+.env
+
+# Virtual environments
+backend/venv/
+
+# Ruff
+.ruff_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Sisyphus agent state
+.sisyphus/
