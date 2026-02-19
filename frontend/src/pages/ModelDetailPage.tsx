@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { formatProviderType } from "@/lib/utils";
 import type { ModelConfig, Endpoint, EndpointCreate, EndpointUpdate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -187,7 +188,7 @@ export function ModelDetailPage() {
             </div>
             <div>
               <span className="font-medium text-muted-foreground">Provider Type:</span>
-              <span className="ml-2 capitalize">{model.provider.provider_type}</span>
+              <span className="ml-2">{formatProviderType(model.provider.provider_type)}</span>
             </div>
           </div>
         </CardContent>
@@ -213,7 +214,6 @@ export function ModelDetailPage() {
               <TableHeader>
                 <TableRow>
                    <TableHead>Base URL</TableHead>
-                   <TableHead>Provider</TableHead>
                    <TableHead>API Key</TableHead>
                    <TableHead>Priority</TableHead>
                    <TableHead>Health</TableHead>
@@ -229,12 +229,6 @@ export function ModelDetailPage() {
                        {endpoint.base_url}
                        {endpoint.description && (
                          <div className="text-xs text-muted-foreground">{endpoint.description}</div>
-                       )}
-                     </TableCell>
-                     <TableCell>
-                       <div className="text-sm">{model.provider.name}</div>
-                       {model.provider.description && (
-                         <div className="text-xs text-muted-foreground">{model.provider.description}</div>
                        )}
                      </TableCell>
                      <TableCell className="font-mono text-xs">
@@ -281,7 +275,7 @@ export function ModelDetailPage() {
                 ))}
                 {model.endpoints.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No endpoints configured. Add one to start routing requests.
                     </TableCell>
                   </TableRow>

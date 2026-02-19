@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
+import { formatProviderType } from "@/lib/utils";
 import type { ModelConfigListItem, Provider, ModelConfigCreate, ModelConfigUpdate } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -220,7 +221,7 @@ export function ModelsPage() {
                 <SelectContent>
                   {providers.map((p) => (
                     <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name} ({p.provider_type})
+                      {p.name} ({formatProviderType(p.provider_type)})
                     </SelectItem>
                   ))}
                 </SelectContent>
