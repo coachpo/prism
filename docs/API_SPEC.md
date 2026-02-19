@@ -62,7 +62,7 @@ Response `200`:
     "provider": { "id": 2, "name": "Anthropic", "provider_type": "anthropic" },
     "model_id": "claude-sonnet-4-5",
     "display_name": "Claude Sonnet 4.5 (alias)",
-    "model_type": "redirect",
+    "model_type": "proxy",
     "redirect_to": "claude-sonnet-4-5-20250929",
     "lb_strategy": "single",
     "is_enabled": true,
@@ -90,13 +90,13 @@ Request (native model):
   "is_enabled": true
 }
 ```
-Request (redirect model):
+Request (proxy model):
 ```json
 {
   "provider_id": 2,
   "model_id": "claude-sonnet-4-5",
   "display_name": "Claude Sonnet 4.5 (alias)",
-  "model_type": "redirect",
+  "model_type": "proxy",
   "redirect_to": "claude-sonnet-4-5-20250929",
   "is_enabled": true
 }
@@ -105,7 +105,7 @@ Response `201`: Created model object.
 
 Validation rules:
 - `model_id` must be globally unique
-- If `model_type = "redirect"`: `redirect_to` is required, must reference an existing native model with the same provider
+- If `model_type = "proxy"`: `redirect_to` is required, must reference an existing native model with the same provider. `lb_strategy` is ignored.
 - If `model_type = "native"`: `redirect_to` must be null/omitted
 
 #### Update Model
@@ -124,13 +124,13 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Response `200`: Updated model object. Returns `409` if `model_id` conflicts with an existing model. Returns `400` if redirect validation fails.
+Response `200`: Updated model object. Returns `409` if `model_id` conflicts with an existing model. Returns `400` if proxy validation fails.
 
 #### Delete Model
 ```
 DELETE /api/models/{id}
 ```
-Response `204`: No content. Cascades to delete all endpoints. Returns `400` if other redirect models point to this model.
+Response `204`: No content. Cascades to delete all endpoints. Returns `400` if other proxy models point to this model.
 
 ---
 

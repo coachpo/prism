@@ -91,13 +91,13 @@ Client → POST /v1/chat/completions {model: "gpt-4o"}
   → Gateway returns JSON to client
 ```
 
-### 3.2 Proxy Request (Redirect Model)
+### 3.2 Proxy Request (Proxy/Alias Model)
 
 ```
 Client → POST /v1/messages {model: "claude-sonnet-4-5"}
   → Router extracts model ID from body
   → LoadBalancer looks up model config
-  → Model is redirect → resolve redirect_to → "claude-sonnet-4-5-20250929"
+  → Model is proxy → resolve redirect_to → "claude-sonnet-4-5-20250929"
   → Look up target native model config
   → Select endpoint from target model
   → ProxyService forwards request to upstream BaseURL (request body unchanged)
@@ -110,7 +110,7 @@ Client → POST /v1/messages {model: "claude-sonnet-4-5"}
 ```
 Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
   → Router extracts model ID
-  → LoadBalancer selects endpoint (with redirect resolution if needed)
+  → LoadBalancer selects endpoint (with proxy alias resolution if needed)
   → ProxyService opens streaming connection to upstream
   → SSE chunks piped directly to client via StreamingResponse
   → On upstream error: failover to next endpoint (if configured)
@@ -142,23 +142,24 @@ Failures that trigger failover:
 - Connection timeout (> 10s connect, > 120s read)
 - Connection refused / DNS failure
 
-## 5. Model Redirection
+## 5. Model Proxy (Alias)
 
 ### 5.1 Concept
-Redirect models are aliases that forward requests to a target native model. This resolves model ID suffix variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`).
+Proxy models are aliases that forward requests to a target native model. This resolves model ID suffix variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`).
 
 ### 5.2 Rules
-- Only same-provider redirection (OpenAI → OpenAI, Anthropic → Anthropic)
-- Target must be a native model (no chained redirects)
-- Redirect models have no endpoints of their own
+- Only same-provider proxying (OpenAI → OpenAI, Anthropic → Anthropic)
+- Target must be a native model (no chained proxy aliases)
+- Proxy models have no endpoints of their own
+- Proxy models do not use load balancing (lb_strategy is ignored; target model's strategy applies)
 - All model IDs are globally unique
-- The proxy does NOT modify the request body — it only uses the target model's endpoints for routing
+- The gateway does NOT modify the request body — it only uses the target model's endpoints for routing
 
 ### 5.3 Resolution
 ```
 resolve_model(model_id):
   config = lookup(model_id)
-  if config.model_type == "redirect":
+  if config.model_type == "proxy":
     return lookup(config.redirect_to)
   return config
 ```

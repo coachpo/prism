@@ -28,18 +28,19 @@ Single user (developer/power user) running the application locally or on a local
 - Map any model ID to a specific provider type (openai/anthropic/gemini)
 - Two model types:
   - **Native**: A real model with its own BaseURL + APIKey endpoint configurations
-  - **Redirect**: An alias model that redirects all requests to a target native model
+  - **Proxy**: An alias model that forwards all requests to a target native model (no own endpoints, no load balancing)
 - Assign one or more BaseURL + APIKey combinations per native model
 - Select which combination is actively used for each model
 - CRUD operations for all configurations via REST API
 
-### 4.3 Model Redirection
-- Redirect models resolve model ID suffix variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
-- Only same-provider redirection is allowed (e.g., OpenAI model → OpenAI model, not OpenAI → Anthropic)
-- Redirect models cannot have their own endpoints — they use the target native model's endpoints
-- A redirect model cannot point to another redirect model (must target a native model)
+### 4.3 Model Proxying (Alias)
+- Proxy models resolve model ID suffix variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
+- Only same-provider proxying is allowed (e.g., OpenAI model → OpenAI model, not OpenAI → Anthropic)
+- Proxy models cannot have their own endpoints — they use the target native model's endpoints
+- A proxy model cannot point to another proxy model (must target a native model)
+- Proxy models do not have load balancing — they always use the target native model's load balancing configuration
 - All model IDs are globally unique regardless of model type
-- Proxy transparently resolves redirect chains: incoming request for redirect model → routed to target native model's endpoints
+- Gateway transparently resolves proxy aliases: incoming request for proxy model → routed to target native model's endpoints
 
 ### 4.4 Load Balancing & Failover
 - For models with multiple BaseURL/APIKey combinations:
@@ -62,7 +63,7 @@ Single user (developer/power user) running the application locally or on a local
 
 ### 4.6 Web UI (Management Dashboard)
 - View all configured models and their endpoints
-- Add/edit/delete model configurations (native and redirect types)
+- Add/edit/delete model configurations (native and proxy types)
 - Add/edit/delete endpoint (BaseURL + APIKey) combinations
 - Toggle active/inactive endpoints per model
 - Select load balancing strategy per model
