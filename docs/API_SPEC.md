@@ -186,7 +186,11 @@ Response `204`: No content.
 ```
 POST /api/endpoints/{id}/health-check
 ```
-Sends a lightweight probe request to the endpoint's base URL to verify connectivity and authentication.
+Sends a real chat completion request to the endpoint using the configured model ID and a simple question to validate the full request chain (URL routing, authentication, model availability). Uses the same URL-building logic as the proxy engine.
+
+Provider-specific probes:
+- **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
+- **Anthropic**: `POST {base_url}/messages` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
 
 Response `200`:
 ```json
@@ -194,7 +198,8 @@ Response `200`:
   "endpoint_id": 1,
   "health_status": "healthy",
   "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "Connection successful"
+  "detail": "Connection successful",
+  "response_time_ms": 523
 }
 ```
 
@@ -204,9 +209,17 @@ Response `200` (unhealthy):
   "endpoint_id": 1,
   "health_status": "unhealthy",
   "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "Connection refused"
+  "detail": "Authentication failed (HTTP 401)",
+  "response_time_ms": 150
 }
 ```
+
+Health status determination:
+- 2xx → `healthy`
+- 401/403 → `unhealthy` (authentication failed)
+- 429 → `healthy` (rate-limited but endpoint works)
+- Connection error / timeout → `unhealthy`
+- Other errors → `unhealthy`
 
 The endpoint's `health_status` and `last_health_check` fields are updated in the database after each check.
 
@@ -271,7 +284,89 @@ Response `200`:
 
 ---
 
-## 4. Error Responses
+## 4. Statistics API
+
+### 4.1 List Request Logs
+```
+GET /api/stats/requests
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `model_id` | string | — | Filter by model ID |
+| `provider_type` | string | — | Filter by provider type (openai, anthropic, gemini) |
+| `status_code` | integer | — | Filter by HTTP status code |
+| `success` | boolean | — | Filter by success (true = 2xx, false = non-2xx) |
+| `from_time` | datetime | — | Start of time range (ISO 8601) |
+| `to_time` | datetime | — | End of time range (ISO 8601) |
+| `limit` | integer | 50 | Max results (1-500) |
+| `offset` | integer | 0 | Pagination offset |
+
+Response `200`:
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "model_id": "gpt-4o",
+      "provider_type": "openai",
+      "endpoint_id": 1,
+      "endpoint_base_url": "https://api.openai.com",
+      "status_code": 200,
+      "response_time_ms": 1234,
+      "is_stream": false,
+      "input_tokens": 15,
+      "output_tokens": 42,
+      "total_tokens": 57,
+      "request_path": "/v1/chat/completions",
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "total": 150,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### 4.2 Get Aggregated Statistics
+```
+GET /api/stats/summary
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `from_time` | datetime | 24h ago | Start of time range |
+| `to_time` | datetime | now | End of time range |
+| `group_by` | string | — | Group results by: `model`, `provider`, `endpoint` |
+
+Response `200`:
+```json
+{
+  "total_requests": 1500,
+  "success_count": 1450,
+  "error_count": 50,
+  "success_rate": 96.67,
+  "avg_response_time_ms": 850,
+  "p95_response_time_ms": 2100,
+  "total_input_tokens": 50000,
+  "total_output_tokens": 120000,
+  "total_tokens": 170000,
+  "groups": [
+    {
+      "key": "gpt-4o",
+      "total_requests": 800,
+      "success_count": 790,
+      "error_count": 10,
+      "avg_response_time_ms": 750,
+      "total_tokens": 90000
+    }
+  ]
+}
+```
+
+---
+
+## 5. Error Responses
 
 All errors follow this format:
 ```json
@@ -290,7 +385,7 @@ All errors follow this format:
 
 ---
 
-## 5. OpenAPI Spec
+## 6. OpenAPI Spec
 
 Auto-generated at:
 - Swagger UI: `http://localhost:8000/docs`

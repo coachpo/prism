@@ -51,7 +51,17 @@ Single user (developer/power user) running the application locally or on a local
 
 ### 4.5 Endpoint Health Detection
 - Manual health check for each endpoint, triggered by user action (no periodic checks)
-- Health check sends a lightweight request to the endpoint's base URL to verify connectivity and authentication
+- Health check sends a real chat completion request using the endpoint's configured model ID and a simple question ("hi") to validate the full request chain (URL routing, authentication, model availability)
+- The request uses the same URL-building logic as the proxy engine to avoid path duplication issues
+- Provider-specific request format:
+  - **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `model`, `max_tokens: 1`, and a simple message
+  - **Anthropic**: `POST {base_url}/messages` with `model`, `max_tokens: 1`, and a simple message
+- Health status determination:
+  - 2xx response → `healthy`
+  - 401/403 → `unhealthy` (authentication failed)
+  - 429 → `healthy` (endpoint works, just rate-limited)
+  - Connection error / timeout → `unhealthy`
+  - Other errors → `unhealthy`
 - Health status per endpoint: `unknown` (default), `healthy`, `unhealthy`
 - Health status displayed in the endpoint list with color indicators:
   - Green: healthy (last check succeeded)
@@ -73,6 +83,19 @@ Single user (developer/power user) running the application locally or on a local
 - All configuration stored in SQLite database
 - No config files to manage — everything through the UI/API
 - Database auto-created on first run
+
+### 4.8 Request Statistics & Analytics
+- Automatic logging of all proxy requests with telemetry data
+- Each request log captures: model ID, provider, endpoint used, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
+- Statistics dashboard in the Web UI with:
+  - Overview cards: total requests, average response time, success rate, total tokens used
+  - Filterable request log table with columns: timestamp, model, provider, endpoint, status, response time, tokens
+  - Filters: date range, model, provider, status (success/error), time range presets (last 1h, 24h, 7d, 30d)
+  - Summary statistics grouped by model and provider
+- REST API for querying statistics:
+  - List request logs with pagination and filters
+  - Get aggregated statistics (counts, averages, totals) with grouping
+- Statistics page accessible from sidebar navigation
 
 ## 5. Non-Functional Requirements
 
@@ -100,7 +123,6 @@ Single user (developer/power user) running the application locally or on a local
 ## 7. Out of Scope (v1)
 
 - User authentication / multi-tenancy
-- Request/response logging and analytics
 - Token usage tracking and billing
 - Rate limiting on the proxy itself
 - API key encryption at rest

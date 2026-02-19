@@ -140,13 +140,55 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 
 ### Check Process
 1. User triggers health check via UI or API
-2. Backend sends a lightweight request to the endpoint's `base_url` (provider-specific)
-3. Response determines status:
-   - Success (2xx) → `healthy`
-   - Any error (4xx, 5xx, timeout, connection error) → `unhealthy`
-4. `health_status` and `last_health_check` are updated in the database
+2. Backend sends a real chat completion request using the endpoint's configured model ID and a simple question ("hi")
+3. Uses the same URL-building logic as the proxy engine (`build_upstream_url`) to avoid path duplication
+4. Provider-specific requests:
+   - **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
+   - **Anthropic**: `POST {base_url}/messages` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
+5. Response determines status:
+   - 2xx → `healthy`
+   - 401/403 → `unhealthy` (authentication failed)
+   - 429 → `healthy` (rate-limited but endpoint works)
+   - Connection error / timeout → `unhealthy`
+   - Other errors → `unhealthy`
+6. `health_status` and `last_health_check` are updated in the database
 
-### Provider-Specific Health Probes
-- **OpenAI**: `GET {base_url}/v1/models` with `Authorization: Bearer {api_key}`
-- **Anthropic**: `POST {base_url}/v1/messages` with minimal body (expects 400 with valid auth, connection error = unhealthy)
-- **Gemini**: `GET {base_url}/v1/models` with `Authorization: Bearer {api_key}`
+## 8. Request Logging (Telemetry)
+
+### 8.1 `request_logs`
+
+Stores telemetry data for every proxy request processed by the gateway.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| model_id | VARCHAR(200) | NOT NULL | Model ID from the request |
+| provider_type | VARCHAR(50) | NOT NULL | Provider type (openai, anthropic, gemini) |
+| endpoint_id | INTEGER | NULLABLE | Endpoint used (NULL if no endpoint selected) |
+| endpoint_base_url | VARCHAR(500) | NULLABLE | Base URL of the endpoint used |
+| status_code | INTEGER | NOT NULL | HTTP status code returned |
+| response_time_ms | INTEGER | NOT NULL | Response time in milliseconds |
+| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether the request was streaming |
+| input_tokens | INTEGER | NULLABLE | Input tokens (from upstream response, if available) |
+| output_tokens | INTEGER | NULLABLE | Output tokens (from upstream response, if available) |
+| total_tokens | INTEGER | NULLABLE | Total tokens (from upstream response, if available) |
+| request_path | VARCHAR(500) | NOT NULL | Request path (e.g., /v1/chat/completions) |
+| error_detail | TEXT | NULLABLE | Error message if request failed |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Request timestamp |
+
+### 8.2 Indexes
+
+```sql
+CREATE INDEX idx_request_logs_model_id ON request_logs(model_id);
+CREATE INDEX idx_request_logs_provider_type ON request_logs(provider_type);
+CREATE INDEX idx_request_logs_created_at ON request_logs(created_at);
+CREATE INDEX idx_request_logs_status_code ON request_logs(status_code);
+CREATE INDEX idx_request_logs_endpoint_id ON request_logs(endpoint_id);
+```
+
+### 8.3 Logging Behavior
+- Every proxy request (streaming and non-streaming) is logged after completion
+- Token usage is extracted from the upstream response body when available (OpenAI `usage` field, Anthropic `usage` field)
+- For streaming requests, token usage is extracted from the final SSE chunk if available
+- Logging is non-blocking — failures to log do not affect the proxy response
+- No automatic cleanup — logs accumulate (manual DB management for now)

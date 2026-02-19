@@ -34,19 +34,23 @@ backend/
 │   ├── models/                 # SQLAlchemy ORM models
 │   │   ├── provider.py         # Provider model (openai, anthropic, gemini)
 │   │   ├── model_config.py     # Model ID → provider mapping
-│   │   └── endpoint.py         # BaseURL + APIKey entries
+│   │   ├── endpoint.py         # BaseURL + APIKey entries
+│   │   └── request_log.py      # Request telemetry log entries
 │   ├── schemas/                # Pydantic request/response schemas
 │   │   ├── provider.py
 │   │   ├── model_config.py
-│   │   └── endpoint.py
+│   │   ├── endpoint.py
+│   │   └── stats.py            # Statistics query/response schemas
 │   ├── routers/                # API route handlers
 │   │   ├── providers.py        # CRUD for provider types
 │   │   ├── models.py           # CRUD for model configurations
 │   │   ├── endpoints.py        # CRUD for BaseURL/APIKey combos
-│   │   └── proxy.py            # LLM proxy endpoints
+│   │   ├── proxy.py            # LLM proxy endpoints
+│   │   └── stats.py            # Statistics query endpoints
 │   ├── services/               # Business logic
 │   │   ├── proxy_service.py    # Request forwarding, streaming
-│   │   └── loadbalancer.py     # LB strategy, failover
+│   │   ├── loadbalancer.py     # LB strategy, failover
+│   │   └── stats_service.py    # Request logging, aggregation queries
 │   └── dependencies.py         # Shared FastAPI dependencies
 ├── requirements.txt
 └── alembic/ (future)
@@ -67,7 +71,8 @@ frontend/
 │   ├── pages/
 │   │   ├── Dashboard.tsx       # Overview of all models
 │   │   ├── ModelConfig.tsx     # Model configuration page
-│   │   └── EndpointConfig.tsx  # Endpoint management
+│   │   ├── EndpointConfig.tsx  # Endpoint management
+│   │   └── StatisticsPage.tsx  # Request statistics & analytics
 │   └── types/
 │       └── api.ts              # TypeScript types matching backend schemas
 ├── components.json             # shadcn config
@@ -170,24 +175,53 @@ resolve_model(model_id):
 Manual health checks allow users to verify endpoint connectivity and authentication before relying on them for proxy traffic.
 
 ### 6.2 Health Probes (Provider-Specific)
-- **OpenAI**: `GET {base_url}/v1/models` with Bearer auth
-- **Anthropic**: `POST {base_url}/v1/messages` with minimal body (400 = auth works, connection error = unhealthy)
-- **Gemini**: `GET {base_url}/v1/models` with Bearer auth
+Health checks send a real chat completion request using the endpoint's configured model ID and a simple question. This validates the full request chain (URL routing, authentication, model availability) using the same URL-building logic as the proxy engine.
+
+- **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
+- **Anthropic**: `POST {base_url}/messages` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
 
 ### 6.3 Status Values
 - `unknown` — Never checked (default)
-- `healthy` — Last check succeeded
-- `unhealthy` — Last check failed
+- `healthy` — Last check succeeded (2xx or 429)
+- `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
 
-## 7. Database Design
+## 7. Request Statistics
+
+### 7.1 Concept
+All proxy requests are automatically logged with telemetry data for analytics and debugging.
+
+### 7.2 Logging Flow
+```
+Client → Proxy Router → LoadBalancer → ProxyService → Upstream
+                                                         ↓
+                                              Response received
+                                                         ↓
+                                              Log request to DB
+                                              (non-blocking)
+                                                         ↓
+                                              Return response to client
+```
+
+### 7.3 Data Captured
+- Model ID, provider type, endpoint used
+- HTTP status code, response time (ms)
+- Token usage (input, output, total) — extracted from upstream response
+- Stream flag, request path, error details
+
+### 7.4 Query Capabilities
+- Filter by model, provider, status, time range
+- Aggregated statistics with grouping by model/provider/endpoint
+- Pagination for request log listing
+
+## 8. Database Design
 
 See [DATA_MODEL.md](./DATA_MODEL.md) for complete schema.
 
-## 8. API Design
+## 9. API Design
 
 See [API_SPEC.md](./API_SPEC.md) for complete endpoint documentation.
 
-## 9. Security Considerations
+## 10. Security Considerations
 
 - No authentication (trusted local network assumption)
 - API keys stored in plaintext in SQLite (acceptable for single-user local)
