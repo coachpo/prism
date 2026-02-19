@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Plus, Pencil, Trash2, MoreHorizontal, Search } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +28,7 @@ export function ModelDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isEndpointDialogOpen, setIsEndpointDialogOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<Endpoint | null>(null);
+  const [endpointSearch, setEndpointSearch] = useState("");
 
   // Endpoint Form State
   const [endpointForm, setEndpointForm] = useState<EndpointCreate>({
@@ -138,6 +139,13 @@ export function ModelDetailPage() {
   if (loading) return <div className="p-8">Loading model details...</div>;
   if (!model) return <div className="p-8">Model not found</div>;
 
+  const filteredEndpoints = model.endpoints.filter(ep => {
+    if (!endpointSearch) return true;
+    const q = endpointSearch.toLowerCase();
+    return ep.base_url.toLowerCase().includes(q) || (ep.description?.toLowerCase().includes(q));
+  });
+  const activeCount = model.endpoints.filter(e => e.is_active).length;
+
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-4">
@@ -147,27 +155,34 @@ export function ModelDetailPage() {
         <h2 className="text-3xl font-bold tracking-tight">Model Details</h2>
       </div>
 
-      <Card>
+      <Card className="border-l-4 border-l-primary">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>{model.display_name || model.model_id}</CardTitle>
               <CardDescription>{model.provider.name} • {model.model_id}</CardDescription>
             </div>
-            <Badge variant={model.is_enabled ? "default" : "secondary"}>
+            <Badge
+              variant={model.is_enabled ? "default" : "secondary"}
+              className={model.is_enabled ? "bg-primary/90" : ""}
+            >
               {model.is_enabled ? "Enabled" : "Disabled"}
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-3 gap-6 text-sm">
             <div>
-              <span className="font-medium text-muted-foreground">Load Balancing Strategy:</span>
-              <span className="ml-2 capitalize">{model.lb_strategy.replace("_", " ")}</span>
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Load Balancing</div>
+              <div className="mt-1 capitalize">{model.lb_strategy.replace("_", " ")}</div>
             </div>
             <div>
-              <span className="font-medium text-muted-foreground">Provider Type:</span>
-              <span className="ml-2">{formatProviderType(model.provider.provider_type)}</span>
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Provider Type</div>
+              <div className="mt-1">{formatProviderType(model.provider.provider_type)}</div>
+            </div>
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Endpoints</div>
+              <div className="mt-1">{model.endpoints.length} total, {activeCount} active</div>
             </div>
           </div>
         </CardContent>
@@ -187,6 +202,11 @@ export function ModelDetailPage() {
           </Button>
         </div>
 
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input placeholder="Search endpoints..." value={endpointSearch} onChange={e => setEndpointSearch(e.target.value)} className="pl-9" />
+        </div>
+
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -200,7 +220,7 @@ export function ModelDetailPage() {
                  </TableRow>
               </TableHeader>
               <TableBody>
-                {model.endpoints.map((endpoint) => (
+                {filteredEndpoints.map((endpoint) => (
                   <TableRow key={endpoint.id}>
                      <TableCell className="font-medium max-w-[200px] truncate" title={endpoint.base_url}>
                        {endpoint.base_url}
@@ -242,10 +262,10 @@ export function ModelDetailPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {model.endpoints.length === 0 && (
+                {filteredEndpoints.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      No endpoints configured. Add one to start routing requests.
+                      {model.endpoints.length === 0 ? "No endpoints configured. Add one to start routing requests." : "No endpoints match your search."}
                     </TableCell>
                   </TableRow>
                 )}

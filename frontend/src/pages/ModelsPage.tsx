@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import { Plus, Pencil, Trash2, MoreHorizontal, Search } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +28,9 @@ export function ModelsPage() {
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<ModelConfigListItem | null>(null);
+  const [search, setSearch] = useState("");
+  const [providerFilter, setProviderFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // Form state
   const [formData, setFormData] = useState<ModelConfigCreate>({
@@ -118,13 +121,43 @@ export function ModelsPage() {
 
   if (loading) return <div className="p-8">Loading models...</div>;
 
+  const uniqueProviders = [...new Set(models.map(m => m.provider.name))];
+  const filteredModels = models.filter(m => {
+    const matchesSearch = !search || m.model_id.toLowerCase().includes(search.toLowerCase()) || (m.display_name?.toLowerCase().includes(search.toLowerCase()));
+    const matchesProvider = providerFilter === "all" || m.provider.name === providerFilter;
+    const matchesStatus = statusFilter === "all" || (statusFilter === "enabled" ? m.is_enabled : !m.is_enabled);
+    return matchesSearch && matchesProvider && matchesStatus;
+  });
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold tracking-tight">Models</h2>
         <Button onClick={() => handleOpenDialog()}>
           <Plus className="mr-2 h-4 w-4" /> Add Model
         </Button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input placeholder="Search models..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        </div>
+        <Select value={providerFilter} onValueChange={setProviderFilter}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Providers" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Providers</SelectItem>
+            {uniqueProviders.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]"><SelectValue placeholder="All Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="enabled">Enabled</SelectItem>
+            <SelectItem value="disabled">Disabled</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>
@@ -141,12 +174,11 @@ export function ModelsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {models.map((model) => (
+              {filteredModels.map((model) => (
                 <TableRow 
                   key={model.id} 
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={(e) => {
-                    // Prevent navigation if clicking on actions
                     if ((e.target as HTMLElement).closest("button")) return;
                     navigate(`/models/${model.id}`);
                   }}
@@ -165,7 +197,10 @@ export function ModelsPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={model.is_enabled ? "default" : "secondary"}>
+                    <Badge
+                      variant={model.is_enabled ? "default" : "secondary"}
+                      className={model.is_enabled ? "bg-primary/90" : ""}
+                    >
                       {model.is_enabled ? "Enabled" : "Disabled"}
                     </Badge>
                   </TableCell>
@@ -192,10 +227,10 @@ export function ModelsPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {models.length === 0 && (
+              {filteredModels.length === 0 && (
                 <TableRow>
                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    No models found. Create one to get started.
+                    {models.length === 0 ? "No models found. Create one to get started." : "No models match your filters."}
                   </TableCell>
                 </TableRow>
               )}
