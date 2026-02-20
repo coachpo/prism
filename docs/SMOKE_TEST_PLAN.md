@@ -1,245 +1,333 @@
-# Smoke Test Plan: LLM Proxy Gateway
+# Smoke Test Plan: LLM Proxy Gateway (Comprehensive)
 
-## Prerequisites
+## 1. Scope and Goals
 
-- Backend running at `http://localhost:8000`
-- Frontend running at `http://localhost:5173`
-- At least one model configured with active endpoints
-- Database accessible with existing data
+This smoke test plan validates all documented workflows and core function paths across:
 
----
+- Backend API contract
+- Proxy behavior (routing, aliasing, load balancing, failover, streaming)
+- Health detection
+- Statistics and token extraction
+- Audit logging and redaction
+- Configuration export/import
+- Batch data deletion semantics
+- Frontend management flows
 
-## ST-1: Backend Health Endpoint
-
-**Objective**: Verify the gateway health endpoint responds correctly.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `GET http://localhost:8000/health` | `200` with `{"status": "ok", "version": "0.1.0"}` |
+The objective is a fast but thorough confidence pass that catches regressions before release.
 
 ---
 
-## ST-2: Endpoint Health Check (Bug Fix Verification)
+## 2. Source Documents Covered
 
-**Objective**: Verify health check uses real chat completion request with configured model ID, not probe endpoints that cause 404.
+This plan is synthesized from:
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `POST /api/endpoints/{id}/health-check` for an OpenAI endpoint | `200` with `health_status` = `healthy` and `detail` containing "Connection successful" or valid response info, NOT "HTTP 404" |
-| 2 | `POST /api/endpoints/{id}/health-check` for an Anthropic endpoint | `200` with `health_status` = `healthy` and `detail` containing valid response info, NOT "HTTP 404" |
-| 3 | Verify `response_time_ms` field is present and > 0 | Field exists and is a positive integer |
-| 4 | Open frontend → Model Detail → Click Health Check on an endpoint | Toast shows "healthy" with valid detail, health dot turns green |
-| 5 | Open frontend → Edit Endpoint dialog → Click "Test Connection" | Result banner shows green "healthy" status |
-
----
-
-## ST-3: Proxy Request (Non-Streaming)
-
-**Objective**: Verify proxy forwards requests correctly.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `POST /v1/chat/completions` with `{"model": "{configured_openai_model}", "messages": [{"role": "user", "content": "Say hello"}], "max_tokens": 5}` | `200` with valid chat completion response |
-| 2 | `POST /v1/messages` with `{"model": "{configured_anthropic_model}", "max_tokens": 5, "messages": [{"role": "user", "content": "Say hello"}]}` | `200` with valid Anthropic response |
+- `docs/API_SPEC.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DATA_MODEL.md`
+- `docs/PRD.md`
+- `docs/DEPLOYMENT.md`
+- `docs/DESIGN_REQUEST_AUDIT.md`
+- `docs/DESIGN_CONFIG_EXPORT_IMPORT.md`
+- Existing `docs/SMOKE_TEST_PLAN.md` (replaced by this file)
 
 ---
 
-## ST-4: Statistics - Request Logging
+## 3. Test Strategy
 
-**Objective**: Verify proxy requests are automatically logged.
+### 3.1 Priority Tiers
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | Make a proxy request (ST-3 step 1) | Request completes successfully |
-| 2 | `GET /api/stats/requests?limit=1` | `200` with at least 1 item matching the request just made (model_id, status_code, response_time_ms > 0) |
-| 3 | Verify log entry has `model_id`, `provider_type`, `status_code`, `response_time_ms`, `request_path`, `created_at` | All fields present and non-null |
+- `P0` release gate: must pass before merge/release.
+- `P1` extended smoke: should pass in nightly/manual extended run.
 
----
+### 3.2 Execution Lanes
 
-## ST-5: Statistics - Aggregated Summary
+- API smoke lane (backend only, deterministic mock upstreams).
+- UI smoke lane (backend + frontend, browser automation/manual).
+- Destructive lane (import and delete tests in isolated DB).
 
-**Objective**: Verify statistics summary endpoint returns correct aggregations.
+### 3.3 Data Isolation
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `GET /api/stats/summary` | `200` with `total_requests` >= 1, `success_rate` between 0-100, `avg_response_time_ms` > 0 |
-| 2 | `GET /api/stats/summary?group_by=model` | `200` with `groups` array containing entries keyed by model_id |
-| 3 | `GET /api/stats/summary?group_by=provider` | `200` with `groups` array containing entries keyed by provider_type |
+- Use dedicated DB for smoke: `backend/gateway_smoke.db`.
+- Reset DB between destructive scenarios.
+- Never run destructive tests on production-like DB.
 
 ---
 
-## ST-6: Statistics - Filtering
+## 4. Environment Prerequisites
 
-**Objective**: Verify request log filtering works correctly.
+- Python `3.11+`, Node `18+`, npm `9+`.
+- Backend available at `http://localhost:8000`.
+- Frontend available at `http://localhost:5173` for UI suites.
+- Upstream behavior controlled by test doubles or known test endpoints.
+- At least one active model with endpoints for each provider path under test.
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `GET /api/stats/requests?model_id={known_model}` | Only entries for that model returned |
-| 2 | `GET /api/stats/requests?success=true` | Only entries with 2xx status codes |
-| 3 | `GET /api/stats/requests?success=false` | Only entries with non-2xx status codes (may be empty) |
-| 4 | `GET /api/stats/requests?limit=2&offset=0` | At most 2 items, `total` reflects actual count |
+Suggested startup:
 
----
+```bash
+# backend only
+./start.sh headless
 
-## ST-7: Statistics - Frontend UI
-
-**Objective**: Verify the Statistics page renders correctly in the frontend.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | Navigate to `http://localhost:5173/statistics` | Statistics page loads without errors |
-| 2 | Verify sidebar shows "Statistics" nav link | Link is present and active when on the page |
-| 3 | Verify overview cards display: Total Requests, Avg Response Time, Success Rate, Total Tokens | All 4 cards visible with numeric values |
-| 4 | Verify request log table displays entries | Table shows rows with timestamp, model, provider, status, response time columns |
-| 5 | Apply a model filter | Table updates to show only matching entries |
-| 6 | Apply a time range preset (e.g., "Last 24h") | Table updates to show only entries within range |
-| 7 | Click "All" time range preset | Summary cards and request log table both show ALL historical data (not just last 24h). Total requests in summary should match total count in log table. |
+# full stack
+./start.sh full
+```
 
 ---
 
-## ST-15: Statistics - "All" Time Range Consistency
+## 5. Baseline Fixture Setup
 
-**Objective**: Verify that selecting "All" time range shows consistent data between summary cards and request log table.
+Prepare seed state through API (not manual DB edits):
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | Open frontend → Statistics page | Page loads with "Last 24h" selected by default |
-| 2 | Note the "Total Requests" value from summary card | Value reflects last 24h data |
-| 3 | Click "All" time range button | Both summary cards and log table update |
-| 4 | Verify "Total Requests" in summary card matches `total` from log table | Numbers are consistent — summary is not stuck at 24h window |
-| 5 | `GET /api/stats/summary` (no from_time param) | Returns stats for ALL historical data, not just last 24h |
-| 6 | `GET /api/stats/requests?limit=1` (no from_time param) | Returns `total` count matching the summary's `total_requests` |
-
----
-
-## ST-16: Proxy Failover Logging
-
-**Objective**: Verify that failed failover attempts are logged to request_logs.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | Configure a model with 2 endpoints, first endpoint pointing to an invalid URL | First endpoint should fail with connection error |
-| 2 | Make a proxy request to the model | Request should failover to second endpoint |
-| 3 | `GET /api/stats/requests?limit=5` | Should see TWO log entries: one for the failed first endpoint (with error status/detail) and one for the successful second endpoint |
-| 4 | Verify failed attempt log has `error_detail` field populated | Error detail describes the connection/HTTP error |
+1. Providers exist: OpenAI, Anthropic, Gemini.
+2. Native models:
+   - one OpenAI-compatible model with 2+ active endpoints
+   - one Anthropic model
+   - one Gemini model
+3. Proxy models:
+   - same-provider alias redirecting to a native model
+4. Endpoint diversity:
+   - active + inactive
+   - differing priorities
+   - one endpoint with `custom_headers`
+   - one endpoint with `auth_type` override
+5. Audit toggles initially disabled, then enabled per-case.
 
 ---
 
-## ST-8: Frontend Navigation
+## 6. API Surface Coverage Matrix
 
-**Objective**: Verify all frontend routes work.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | Navigate to `/dashboard` | Dashboard page loads with model overview |
-| 2 | Navigate to `/models` | Models page loads with model list |
-| 3 | Navigate to `/models/{id}` | Model detail page loads with endpoints |
-| 4 | Navigate to `/statistics` | Statistics page loads with data |
-| 5 | Verify sidebar navigation links work | All links navigate correctly |
-
----
-
-## ST-9: CRUD Operations
-
-**Objective**: Verify basic CRUD still works after changes.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `GET /api/providers` | `200` with list of providers |
-| 2 | `GET /api/models` | `200` with list of models |
-| 3 | `GET /api/models/{id}` | `200` with model detail including endpoints |
-
----
-
-## Execution Notes
-
-- Tests should be run in order (ST-1 through ST-16)
-- ST-3 must run before ST-4/ST-5/ST-6 to ensure log data exists
-- ST-3 must run before ST-10 to ensure endpoint success rate data exists
-- ST-13 and ST-14 require valid API keys for configured providers
-- ST-15 validates the fix for "All" time range summary/log mismatch
-- ST-16 validates failover attempt logging (requires a model with multiple endpoints)
-- Frontend tests (ST-7, ST-8, ST-10, ST-11, ST-12, ST-15) require both backend and frontend running
-- Health check tests (ST-2) validate the specific bug fix (404 → real request)
-- Token extraction tests (ST-13, ST-14) validate provider-aware parsing of upstream responses
+| Endpoint | Coverage IDs |
+|---|---|
+| `GET /health` | A04 |
+| `GET /api/providers` | B01 |
+| `GET /api/providers/{id}` | B03 |
+| `PATCH /api/providers/{id}` | B02 |
+| `GET /api/models` | B04, E12 |
+| `GET /api/models/{id}` | B18 |
+| `POST /api/models` | B04-B10 |
+| `PUT /api/models/{id}` | B08-B10 |
+| `DELETE /api/models/{id}` | B11 |
+| `GET /api/models/{id}/endpoints` | B18 |
+| `POST /api/models/{id}/endpoints` | B12-B15 |
+| `PUT /api/endpoints/{id}` | B16-B17 |
+| `DELETE /api/endpoints/{id}` | B18 |
+| `POST /api/endpoints/{id}/health-check` | D01-D06 |
+| `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10 |
+| `POST /v1/messages` | C02, C04, E08, E10 |
+| `GET /api/stats/requests` | E01-E04 |
+| `GET /api/stats/summary` | E05-E06 |
+| `GET /api/stats/endpoint-success-rates` | E07 |
+| `DELETE /api/stats/requests` | G01-G03 |
+| `GET /api/audit/logs` | F10, F12 |
+| `GET /api/audit/logs/{id}` | F11 |
+| `DELETE /api/audit/logs` | F13, G04-G05 |
+| `GET /api/config/export` | H01-H04 |
+| `POST /api/config/import` | H05-H07 |
 
 ---
 
-## ST-10: Endpoint Success Rate Badge
+## 7. Detailed Test Cases
 
-**Objective**: Verify endpoint success rate badges display correctly on Model Detail page.
+## A. Startup and Deployment
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `GET /api/stats/endpoint-success-rates` | `200` with array of objects, each having `endpoint_id`, `total_requests`, `success_count`, `error_count`, `success_rate` |
-| 2 | Verify endpoints with requests have `success_rate` as a number (0-100) | `success_rate` is a float between 0 and 100 |
-| 3 | Verify endpoints with no requests have `success_rate` as `null` | `success_rate` is null, `total_requests` is 0 |
-| 4 | Open frontend → Model Detail page for a model with request data | Endpoint table shows success rate badge instead of health dot |
-| 5 | Verify badge color: endpoint with ≥98% success rate shows green badge | Green badge with percentage |
-| 6 | Verify badge color: endpoint with 75-98% success rate shows yellow badge | Yellow badge with percentage |
-| 7 | Verify badge color: endpoint with <75% success rate shows red badge | Red badge with percentage |
-| 8 | Verify badge for endpoint with no requests shows "N/A" gray badge | Gray "N/A" badge |
-| 9 | Hover over success rate badge | Tooltip shows: success rate %, total requests, success/error counts, last health check detail |
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| A01 | P0 | Start backend in `headless` mode | Backend process starts, API reachable |
+| A02 | P0 | Start in `full` mode | Backend + frontend reachable |
+| A03 | P0 | First boot with empty DB | DB created, providers seeded |
+| A04 | P0 | `GET /health` | `200`, JSON contains `status=ok` |
+| A05 | P1 | OpenAPI endpoints (`/docs`, `/redoc`, `/openapi.json`) | Accessible |
+| A06 | P1 | CORS preflight | Wildcard CORS headers present |
+
+## B. Configuration CRUD and Validation
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| B01 | P0 | List providers | Includes `audit_enabled`, `audit_capture_bodies` |
+| B02 | P0 | Patch provider audit fields | Fields persist; omitted field unchanged |
+| B03 | P1 | Get/patch unknown provider | `404` |
+| B04 | P0 | Create native model | `201`, model stored |
+| B05 | P0 | Create duplicate `model_id` | `409` |
+| B06 | P0 | Create valid proxy model | `201` |
+| B07 | P0 | Proxy missing/invalid `redirect_to` | `400` |
+| B08 | P0 | Cross-provider proxy target | `400` |
+| B09 | P0 | Proxy target is another proxy | `400` |
+| B10 | P0 | Native model with non-null `redirect_to` | `400` |
+| B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
+| B12 | P0 | Create endpoint on native model | `201` |
+| B13 | P0 | Create endpoint on proxy model | `400` |
+| B14 | P0 | Base URL trailing slash normalization | Stored without trailing slash |
+| B15 | P0 | Invalid base URL (`/v1/v1` or missing scheme/host) | `422` |
+| B16 | P0 | Update endpoint with `custom_headers=null/{}` | Headers removed |
+| B17 | P1 | Update endpoint omitting `custom_headers` | Existing headers retained |
+| B18 | P1 | Delete endpoint then list/get model | Endpoint absent, model still valid |
+
+## C. Proxy Routing, Aliasing, Headers, and Failover
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| C01 | P0 | OpenAI non-stream proxy call | Upstream response proxied as-is |
+| C02 | P0 | Anthropic non-stream proxy call | Upstream response proxied as-is |
+| C03 | P1 | Gemini route compatibility | Correct routing and auth behavior |
+| C04 | P0 | Proxy alias model request | Routed via target native endpoints; only model rewritten |
+| C05 | P0 | Unknown/disabled model | `404` |
+| C06 | P0 | `single` strategy | Lowest priority active endpoint used |
+| C07 | P0 | `round_robin` strategy | Endpoint rotation across calls |
+| C08 | P0 | Failover on `429/500/502/503/529` | Next endpoint attempted |
+| C09 | P0 | Failover on connection error/timeout | Next endpoint attempted |
+| C10 | P0 | All failover attempts fail | `502` with last error detail |
+| C11 | P0 | No active endpoints | `503` |
+| C12 | P1 | Header merge order with custom override | Custom headers win over provider/client headers |
+| C13 | P1 | Endpoint `auth_type` override | Effective auth header follows override |
+
+## D. Endpoint Health Check and URL Failsafe
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| D01 | P0 | Health check with 2xx | `healthy` |
+| D02 | P0 | Health check with 429 | `healthy` |
+| D03 | P0 | Health check with 401/403 | `unhealthy`, auth failure detail |
+| D04 | P0 | Health check with other non-2xx JSON error | `detail` includes extracted upstream message |
+| D05 | P0 | Health check connect error/timeout | `unhealthy` |
+| D06 | P1 | Health state persistence | `health_status`, `health_detail`, `last_health_check` updated |
+| D07 | P1 | Runtime `/vN/vN` path failsafe | URL auto-correct behavior verified |
+
+## E. Statistics and Token Extraction
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| E01 | P0 | Successful request logging | `request_logs` row exists with required fields |
+| E02 | P0 | Failover attempt logging | Both failed and successful attempts logged |
+| E03 | P0 | Request log filters (`model`, `provider`, `status`, `success`, time) | Correct subsets returned |
+| E04 | P0 | Pagination (`limit`, `offset`, `total`) | Consistent counts and windows |
+| E05 | P0 | Summary without `from_time` | Uses all historical data |
+| E06 | P1 | Summary grouping (`model/provider/endpoint`) | Groups and aggregates correct |
+| E07 | P1 | Endpoint success-rate API | Values match request logs |
+| E08 | P0 | Non-stream token extraction (OpenAI, Anthropic messages, count_tokens) | Token fields match provider format rules |
+| E09 | P1 | Unsupported/malformed usage fallback | Token fields null |
+| E10 | P0 | Stream token extraction (OpenAI include_usage, Anthropic events) | Token fields populated |
+| E11 | P1 | Streaming without usage fields | Token fields null |
+| E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
+
+## F. Audit Logging
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| F01 | P0 | Audit disabled provider | No audit row created |
+| F02 | P0 | Audit enabled + body capture enabled | Request/response metadata and bodies recorded |
+| F03 | P0 | Body capture disabled | Bodies stored as null |
+| F04 | P0 | Streaming audited request | `response_body` null; other fields recorded |
+| F05 | P0 | Failover with audit enabled | One audit row per upstream attempt |
+| F06 | P0 | Redaction exact headers (`authorization`, `x-api-key`, `x-goog-api-key`) | Values redacted before storage |
+| F07 | P1 | Redaction by name pattern (`key|secret|token|auth`) | Values redacted |
+| F08 | P1 | Non-sensitive headers | Preserved |
+| F09 | P0 | 64KB truncation | `[TRUNCATED]` appended |
+| F10 | P0 | Audit list API | `request_body_preview` max 200 chars, ordered desc |
+| F11 | P0 | Audit detail API | Full row returned; unknown id is `404` |
+| F12 | P0 | Audit filters/pagination | Correct subsets and totals |
+| F13 | P0 | Audit delete validation (both/neither params) | `400` |
+| F14 | P1 | Audit non-interference on write failure | Proxy response unaffected |
+
+## G. Batch Deletion and FK Semantics
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| G01 | P0 | Stats delete with missing/invalid `older_than_days` | `400` |
+| G02 | P0 | Stats delete with 7/15/30 | Correct `deleted_count`, cutoff semantics |
+| G03 | P0 | Delete request logs with linked audit rows | Audit rows remain, `request_log_id` becomes null |
+| G04 | P0 | Audit delete with `older_than_days` | Correct deletion |
+| G05 | P1 | Audit delete with `before` timestamp | Correct deletion; request logs unaffected |
+
+## H. Config Export and Import
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| H01 | P0 | Export schema and metadata | `version=1`, `exported_at`, providers/models arrays |
+| H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
+| H03 | P0 | Export includes provider audit policy | Fields preserved |
+| H04 | P0 | Export includes endpoint `auth_type` and `custom_headers` | Fields preserved |
+| H05 | P0 | Valid import full replacement | Existing config replaced, counts accurate |
+| H06 | P0 | Import failure rollback | Prior config remains intact |
+| H07 | P0 | Validation matrix (version/provider/model/redirect/proxy endpoints/native redirect rules) | Correct `400` errors |
+| H08 | P1 | Settings UI export filename | `gateway-config-YYYY-MM-DD.json` |
+| H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
+
+## I. Frontend Workflow Smoke
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| I01 | P0 | Sidebar navigation (`/dashboard`, `/models`, `/statistics`, `/audit`, `/settings`) | All routes load |
+| I02 | P0 | Dashboard + Models health badges | Correct color thresholds and `N/A` |
+| I03 | P0 | Model detail endpoint success badge + tooltip | Correct counts, rates, health detail |
+| I04 | P0 | Endpoint health actions (table + dialog test) | Toast/banner reflects result |
+| I05 | P0 | Statistics cards and request table | Data renders and updates |
+| I06 | P0 | Statistics "All" time range consistency | Summary totals align with table totals |
+| I07 | P0 | Statistics provider filter | Only OpenAI/Anthropic/Gemini options |
+| I08 | P0 | Audit list/filter/detail UI | Works end-to-end; stream notice shown |
+| I09 | P0 | Settings audit toggles | Persist and reflect backend |
+| I10 | P0 | Settings data management buttons | Correct API calls and toasts |
+| I11 | P1 | Endpoint custom header editor | Add/remove/persist roundtrip |
+| I12 | P1 | Frontend error details | Backend `detail` surfaced to user |
+
+## J. Non-Functional Smoke
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| J01 | P1 | 10+ concurrent proxy requests | No crashes; logs complete |
+| J02 | P1 | Added proxy latency quick check | Within acceptable envelope |
+| J03 | P1 | No-auth local operation | Expected unrestricted local usage |
+| J04 | P1 | OpenAPI sanity | Core routes present |
+| J05 | P1 | SQLite hygiene | DB files created in expected location |
 
 ---
 
-## ST-11: Model Health Display
+## 8. Recommended Execution Order
 
-**Objective**: Verify model health badges display on Dashboard and Models pages.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `GET /api/models` | Response includes `health_success_rate` and `health_total_requests` fields for each model |
-| 2 | Verify model with request data has `health_success_rate` as a number | `health_success_rate` is a float between 0 and 100 |
-| 3 | Verify model with no request data has `health_success_rate` as `null` | `health_success_rate` is null |
-| 4 | Open frontend → Dashboard page | Model Overview table has a "Health" column |
-| 5 | Verify health badge shows colored percentage for models with data | Badge shows percentage with appropriate color (green/yellow/red) |
-| 6 | Verify health badge shows "N/A" for models with no data | Gray "N/A" badge |
-| 7 | Open frontend → Models page | Model list table has a "Health" column |
-| 8 | Verify health badges match Dashboard display | Same badge format and colors as Dashboard |
+1. A (startup/health).
+2. B (CRUD and validation).
+3. C and D (proxy and health-check behavior).
+4. E and F (stats and audit).
+5. G and H in isolated destructive lane.
+6. I (frontend full-stack smoke).
+7. J (non-functional quick pass).
 
 ---
 
-## ST-12: Statistics Provider Filter (Supported Providers Only)
+## 9. Acceptance Criteria
 
-**Objective**: Verify Statistics page only shows supported providers in the filter dropdown.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | Open frontend → Statistics page | Page loads without errors |
-| 2 | Click the Provider Type dropdown | Dropdown opens |
-| 3 | Verify dropdown options | Only shows: "All Providers", "OpenAI", "Anthropic", "Gemini" |
-| 4 | Verify "Ollama" is NOT in the dropdown | Ollama option is absent |
-| 5 | Verify "vLLM" is NOT in the dropdown | vLLM option is absent |
-| 6 | Select "OpenAI" filter | Table filters to show only OpenAI requests |
-| 7 | Select "All Providers" filter | Table shows all requests again |
+- All `P0` tests pass.
+- No proxy contract regressions in routing/failover/logging/audit.
+- Any `P1` failure is triaged with reproducible payloads and logs.
 
 ---
 
-## ST-13: Token Usage Extraction (Non-Streaming)
+## 10. Test Reporting Template
 
-**Objective**: Verify token usage is correctly extracted and displayed for all provider response formats.
+Use this minimal template for each run:
 
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `POST /v1/chat/completions` with `{"model": "{configured_openai_model}", "messages": [{"role": "user", "content": "Say hi"}], "max_tokens": 5}` | `200` with response containing `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` |
-| 2 | `GET /api/stats/requests?limit=1` | Latest log entry has non-null `input_tokens`, `output_tokens`, `total_tokens` |
-| 3 | `POST /v1/messages` with `{"model": "{configured_anthropic_model}", "max_tokens": 5, "messages": [{"role": "user", "content": "Say hi"}]}` | `200` with response containing `usage.input_tokens`, `usage.output_tokens` |
-| 4 | `GET /api/stats/requests?limit=1` | Latest log entry has non-null `input_tokens`, `output_tokens`, `total_tokens` (computed sum) |
-| 5 | `POST /v1/messages/count_tokens` with `{"model": "{configured_anthropic_model}", "messages": [{"role": "user", "content": "Hello world"}]}` | `200` with response containing top-level `input_tokens` |
-| 6 | `GET /api/stats/requests?limit=1` | Latest log entry has non-null `input_tokens`, `output_tokens` = null, `total_tokens` = null |
-| 7 | Open frontend → Statistics page | All recent entries show token values (not "-") for requests that returned usage data |
+```text
+Run ID:
+Date:
+Commit:
+Environment:
+
+P0 Pass/Fail:
+P1 Pass/Fail:
+
+Failures:
+- [ID] Summary
+  - Observed:
+  - Expected:
+  - Repro:
+  - Evidence (API response / DB row / UI screenshot):
+
+Notes:
+```
 
 ---
 
-## ST-14: Token Usage Extraction (Streaming)
+## 11. Notes and Assumptions
 
-**Objective**: Verify token usage is correctly extracted from streaming SSE responses.
-
-| Step | Action | Expected Result |
-|------|--------|-----------------|
-| 1 | `POST /v1/chat/completions` with `{"model": "{configured_openai_model}", "messages": [{"role": "user", "content": "Say hi"}], "max_tokens": 5, "stream": true, "stream_options": {"include_usage": true}}` | `200` SSE stream with final chunk containing `usage` |
-| 2 | `GET /api/stats/requests?limit=1` | Latest log entry has `is_stream` = true and non-null token fields |
-| 3 | `POST /v1/messages` with `{"model": "{configured_anthropic_model}", "max_tokens": 5, "messages": [{"role": "user", "content": "Say hi"}], "stream": true}` | `200` SSE stream with `message_start` and `message_delta` events containing usage |
-| 4 | `GET /api/stats/requests?limit=1` | Latest log entry has `is_stream` = true and non-null `input_tokens`, `output_tokens`, `total_tokens` |
-| 5 | Open frontend → Statistics page | Streaming entries show token values and Stream badge = "Yes" |
+- Time cutoff tests use server UTC (`older_than_days` and `before` semantics).
+- Destructive tests (`import`, `delete`) must run against isolated smoke DB.
+- Streaming token extraction tests should include both usage-present and usage-missing streams.
+- Failover tests must verify per-attempt logging in both `request_logs` and `audit_logs` (when enabled).
