@@ -6,6 +6,7 @@ dist/
 build/
 *.db
 .env
+.git
 
 # Virtual environments
 backend/venv/
