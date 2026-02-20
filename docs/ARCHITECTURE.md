@@ -321,21 +321,21 @@ Applied at write time before INSERT — sensitive data never reaches the databas
 ## 9. Batch Data Deletion
 
 ### 9.1 Concept
-Preset-based bulk deletion of historical `request_logs` and `audit_logs` to manage database growth. Users select a preset time range (7, 15, or 30 days) and all records older than the cutoff are permanently deleted.
+Flexible bulk deletion of historical `request_logs` and `audit_logs` to manage database growth. Users can select a preset time range (7, 15, or 30 days), enter a custom day count (any integer ≥ 1), or delete all records in a section.
 
 ### 9.2 Deletion Flow
 ```
 User → Settings Page → "Data Management" section
-  → Selects "Delete request logs older than 7 days"
+  → Selects "Delete request logs older than 7 days" (or custom days, or delete all)
   → Confirmation dialog
-  → DELETE /api/stats/requests?older_than_days=7
-  → Backend computes cutoff = current_utc - 7 days
-  → DELETE FROM request_logs WHERE created_at < cutoff
+  → DELETE /api/stats/requests?older_than_days=7 (or delete_all=true)
+  → Backend computes cutoff = current_utc - 7 days (or deletes all)
+  → DELETE FROM request_logs WHERE created_at < cutoff (or no filter)
   → Returns { deleted_count: N }
   → Toast: "Deleted N request logs"
 ```
 
-Same flow for audit logs via `DELETE /api/audit/logs?older_than_days=N`.
+Same flow for audit logs via `DELETE /api/audit/logs?older_than_days=N` or `delete_all=true`.
 
 ### 9.3 Independence
 - Deleting `request_logs` does NOT cascade to `audit_logs`

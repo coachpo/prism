@@ -231,11 +231,18 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| G01 | P0 | Stats delete with missing/invalid `older_than_days` | `400` |
-| G02 | P0 | Stats delete with 7/15/30 | Correct `deleted_count`, cutoff semantics |
+| G01 | P0 | Stats delete with missing mode (neither `older_than_days` nor `delete_all`) | `400` |
+| G02 | P0 | Stats delete with preset days (7/15/30) | Correct `deleted_count`, cutoff semantics |
 | G03 | P0 | Delete request logs with linked audit rows | Audit rows remain, `request_log_id` becomes null |
 | G04 | P0 | Audit delete with `older_than_days` | Correct deletion |
 | G05 | P1 | Audit delete with `before` timestamp | Correct deletion; request logs unaffected |
+| G06 | P0 | Stats delete with custom day value (`older_than_days=45`) | `200`, correct `deleted_count` |
+| G07 | P0 | Stats delete rejects invalid day values (`0`, negative) | `422` (FastAPI validation) |
+| G08 | P0 | Stats delete rejects conflicting modes (`older_than_days` + `delete_all=true`) | `400` |
+| G09 | P0 | Stats delete all mode (`delete_all=true`) | Deletes entire `request_logs` table, returns count |
+| G10 | P0 | Audit delete with custom day value (`older_than_days=45`) | `200`, correct `deleted_count` |
+| G11 | P0 | Audit delete all mode (`delete_all=true`) | Deletes entire `audit_logs` table, returns count |
+| G12 | P0 | Audit delete rejects multiple active modes (`before` + custom, custom + all, before + all) | `400` |
 
 ## H. Config Export and Import
 
@@ -264,9 +271,12 @@ Prepare seed state through API (not manual DB edits):
 | I07 | P0 | Statistics provider filter | Only OpenAI/Anthropic/Gemini options |
 | I08 | P0 | Audit list/filter/detail UI | Works end-to-end; stream notice shown |
 | I09 | P0 | Settings audit toggles | Persist and reflect backend |
-| I10 | P0 | Settings data management buttons | Correct API calls and toasts |
+| I10 | P0 | Settings data management preset buttons | Correct API calls and toasts |
 | I11 | P1 | Endpoint custom header editor | Add/remove/persist roundtrip |
 | I12 | P1 | Frontend error details | Backend `detail` surfaced to user |
+| I13 | P0 | Settings data management custom days flow | Custom day input validates (≥1, integer), calls API correctly |
+| I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
+| I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
 
 ## J. Non-Functional Smoke
 
@@ -327,7 +337,8 @@ Notes:
 
 ## 11. Notes and Assumptions
 
-- Time cutoff tests use server UTC (`older_than_days` and `before` semantics).
+- Time cutoff tests use server UTC (`older_than_days` and `before` semantics). `older_than_days` accepts any integer ≥ 1 (not limited to presets).
+- `delete_all=true` mode deletes all records without a time cutoff.
 - Destructive tests (`import`, `delete`) must run against isolated smoke DB.
 - Streaming token extraction tests should include both usage-present and usage-missing streams.
 - Failover tests must verify per-attempt logging in both `request_logs` and `audit_logs` (when enabled).

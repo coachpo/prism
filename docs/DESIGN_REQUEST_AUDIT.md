@@ -298,9 +298,10 @@ Query parameters:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | before | datetime | — | Delete logs created before this time (ISO 8601). |
-| older_than_days | integer | — | Delete logs older than N days. Accepted values: `7`, `15`, `30`. |
+| older_than_days | integer | — | Delete logs older than N days. Must be ≥ 1. |
+| delete_all | boolean | false | Delete all audit logs. |
 
-Exactly one of `before` or `older_than_days` must be provided.
+Exactly one of `before`, `older_than_days`, or `delete_all=true` must be provided.
 
 When using `older_than_days`, the cutoff is computed server-side from UTC app time as `current_utc - N days`.
 

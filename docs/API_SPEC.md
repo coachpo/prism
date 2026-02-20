@@ -481,9 +481,12 @@ DELETE /api/stats/requests
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `older_than_days` | integer | — | Delete logs older than N days. Accepted values: `7`, `15`, `30`. **Required.** |
+| `older_than_days` | integer | — | Delete logs older than N days. Must be ≥ 1. |
+| `delete_all` | boolean | false | Delete all request logs. |
 
-The cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`. All `request_logs` with `created_at` before the cutoff are deleted.
+Exactly one of `older_than_days` or `delete_all=true` must be provided. If both are provided, returns `400`. If neither is provided, returns `400`.
+
+When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`. All `request_logs` with `created_at` before the cutoff are deleted.
 
 Response `200`:
 ```json
@@ -495,7 +498,7 @@ Response `200`:
 Response `400`:
 ```json
 {
-  "detail": "older_than_days is required and must be one of: 7, 15, 30"
+  "detail": "Provide either 'older_than_days' (integer >= 1) or 'delete_all=true'"
 }
 ```
 
@@ -588,9 +591,10 @@ Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `before` | datetime | — | Delete logs created before this time (ISO 8601). |
-| `older_than_days` | integer | — | Delete logs older than N days. Accepted values: `7`, `15`, `30`. |
+| `older_than_days` | integer | — | Delete logs older than N days. Must be ≥ 1. |
+| `delete_all` | boolean | false | Delete all audit logs. |
 
-Exactly one of `before` or `older_than_days` must be provided. If both are provided, returns `400`. If neither is provided, returns `400`.
+Exactly one of `before`, `older_than_days`, or `delete_all=true` must be provided. If multiple are provided or none are provided, returns `400`.
 
 When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`.
 

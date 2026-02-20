@@ -219,7 +219,7 @@ CREATE INDEX idx_request_logs_endpoint_id ON request_logs(endpoint_id);
 - Token usage is extracted from the upstream response body when available (OpenAI `usage` field, Anthropic `usage` field)
 - For streaming requests, token usage is extracted from the final SSE chunk if available
 - Logging is non-blocking — failures to log do not affect the proxy response
-- Batch deletion supported via `DELETE /api/stats/requests?older_than_days=N` where N is 7, 15, or 30
+- Batch deletion supported via `DELETE /api/stats/requests?older_than_days=N` (any integer ≥ 1) or `DELETE /api/stats/requests?delete_all=true`
 - Deleting request_logs does NOT delete audit_logs; linked `audit_logs.request_log_id` is set to `NULL` (`ON DELETE SET NULL`)
 
 ## 9. Audit Logging
@@ -266,7 +266,7 @@ CREATE INDEX idx_audit_logs_request_log_id ON audit_logs(request_log_id);
 - Streaming response bodies are not recorded (`response_body = NULL`)
 - Recording is non-blocking — failures are logged to console but never affect proxy behavior
 - Uses a separate DB session for streaming requests (same pattern as request_logs stream logging)
-- No automatic cleanup — batch deletion via `DELETE /api/audit/logs?older_than_days=N` (N = 7, 15, or 30) or `DELETE /api/audit/logs?before=<datetime>` for custom cutoff
+- No automatic cleanup — batch deletion via `DELETE /api/audit/logs?older_than_days=N` (any integer ≥ 1), `DELETE /api/audit/logs?delete_all=true`, or `DELETE /api/audit/logs?before=<datetime>` for custom cutoff
 - Deleting audit_logs does NOT affect linked request_logs
 
 ### 9.4 Redaction Rules

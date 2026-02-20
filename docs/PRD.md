@@ -182,16 +182,16 @@ Audit logging must never affect proxy behavior:
 
 ### 4.10 Batch Data Deletion
 
-Provide preset-based bulk deletion of historical logs and statistics data to manage database growth.
+Provide flexible bulk deletion of historical logs and statistics data to manage database growth.
 
 #### 4.10.1 Supported Data Types
 Both `request_logs` (telemetry/statistics) and `audit_logs` (request audit records) support batch deletion.
 
-#### 4.10.2 Preset Time Ranges
-Users can delete records older than:
-- **7 days** — Keep last week
-- **15 days** — Keep last two weeks
-- **30 days** — Keep last month
+#### 4.10.2 Deletion Modes
+Users can delete records using three modes:
+- **Preset time ranges**: Delete records older than 7, 15, or 30 days
+- **Custom day count**: Delete records older than any integer number of days (≥ 1)
+- **Delete all**: Delete all records in a section
 
 The cutoff is computed server-side from UTC app time as `current_utc - N days`. All records with `created_at` before the cutoff are deleted.
 
@@ -199,13 +199,16 @@ The cutoff is computed server-side from UTC app time as `current_utc - N days`. 
 Batch deletion controls are placed on the Settings page under a "Data Management" section:
 - Two subsections: "Request Logs" and "Audit Logs"
 - Each subsection has three preset buttons: "Older than 7 days", "Older than 15 days", "Older than 30 days"
-- Each button shows a confirmation dialog before executing: "This will permanently delete all [request/audit] logs older than N days. This cannot be undone. Continue?"
+- Each subsection has a custom days input with a "Delete older than custom days" button
+- Each subsection has a "Delete all" button (destructive variant)
+- Each action shows a confirmation dialog before executing with context-appropriate wording
 - After deletion, a toast shows the count of deleted records
+- All delete actions are disabled while a deletion is in progress
 - The Statistics page and Audit page data reflect the deletion immediately on next load
 
 #### 4.10.4 API
-- `DELETE /api/stats/requests` with `older_than_days` parameter (7, 15, or 30)
-- `DELETE /api/audit/logs` updated to also accept `older_than_days` parameter as an alternative to the existing `before` datetime parameter
+- `DELETE /api/stats/requests` with `older_than_days` (integer ≥ 1) or `delete_all=true` — exactly one mode required
+- `DELETE /api/audit/logs` with `before` (datetime), `older_than_days` (integer ≥ 1), or `delete_all=true` — exactly one mode required
 
 #### 4.10.5 Behavior
 - Deletion is irreversible — no soft delete or recycle bin
