@@ -88,8 +88,8 @@ Single user (developer/power user) running the application locally or on a local
 - Display format: A colored badge showing the aggregated success rate percentage
   - Same color thresholds as endpoint badges: ≥98% green, 75-98% yellow, <75% red, N/A gray
 - Shown in:
-  - **Dashboard** → Model Overview table → new "Health" column between "Endpoints" and "Status"
-  - **Models** page → Model list table → new "Health" column between "Endpoints" and "Status"
+  - **Dashboard** → Model Overview table → "Success Rate" column between "Endpoints" and "Status"
+  - **Models** page → Model list table → "Success Rate" column between "Endpoints" and "Status"
 
 ### 4.6 Web UI (Management Dashboard)
 - View all configured models and their endpoints

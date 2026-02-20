@@ -263,7 +263,7 @@ Prepare seed state through API (not manual DB edits):
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
 | I01 | P0 | Sidebar navigation (`/dashboard`, `/models`, `/statistics`, `/audit`, `/settings`) | All routes load |
-| I02 | P0 | Dashboard + Models health badges | Correct color thresholds and `N/A` |
+| I02 | P0 | Dashboard + Models success rate badges | Correct color thresholds and `N/A` |
 | I03 | P0 | Model detail endpoint success badge + tooltip | Correct counts, rates, health detail |
 | I04 | P0 | Endpoint health actions (table + dialog test) | Toast/banner reflects result |
 | I05 | P0 | Statistics cards and request table | Data renders and updates |
