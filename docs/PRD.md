@@ -130,7 +130,122 @@ SSE streaming responses require parsing `data: {...}` lines from the accumulated
   - Get aggregated statistics (counts, averages, totals) with grouping
 - Statistics page accessible from sidebar navigation
 
-### 4.9 Supported Providers
+### 4.9 Request Audit Logging
+
+Full HTTP request/response recording for proxied requests, stored in the database for auditing and debugging.
+
+#### 4.9.1 Per-Provider Audit Toggle
+- Each provider (OpenAI, Anthropic, Gemini) has:
+  - `audit_enabled` (default: off)
+  - `audit_capture_bodies` (default: on)
+- When enabled, every proxy request routed through that provider records the full HTTP request and response to the `audit_logs` table
+- Toggle is accessible from the Settings page under "Audit Configuration"
+- Toggling audit on/off takes effect immediately for new requests
+
+#### 4.9.2 What Gets Recorded
+For each audited upstream attempt (including failover attempts):
+- **Request**: HTTP method, full upstream URL, all headers (redacted), request body
+- **Response**: HTTP status code, response headers, response body (non-streaming only)
+- **Metadata**: model ID, provider, duration, stream flag, timestamp, link to corresponding `request_log` entry
+
+For streaming requests, the response body is not recorded (too large / unbounded). Response headers and status are still captured.
+
+#### 4.9.3 Sensitive Data Redaction
+All sensitive information is redacted before storage:
+- `Authorization` header values → `Bearer [REDACTED]`
+- `x-api-key` header values → `[REDACTED]`
+- Any header containing `key`, `secret`, `token`, or `auth` in its name → value replaced with `[REDACTED]`
+- Redaction happens at write time — sensitive data never reaches the database
+- Request/response bodies are not header-redacted and may contain user-provided secrets or PII
+- Body capture is configurable per provider via `audit_capture_bodies`; when disabled, `request_body` and `response_body` are stored as `NULL`
+
+#### 4.9.4 Non-Interference
+Audit logging must never affect proxy behavior:
+- Recording uses a best-effort async write path (no client-visible failure propagation)
+- Failures are logged to console but never propagated to the client
+- No modification to the request or response pipeline
+- Minimal overhead when audit is disabled for a provider (single flag check, no body/header serialization)
+
+#### 4.9.5 Audit Page (Frontend)
+- Dedicated page at `/audit` accessible from sidebar navigation
+- Filterable list of audit records: provider, model, status code, time range
+- Paginated results with preview of request body (first 200 chars)
+- Detail view (modal/slide-over) showing full request and response with:
+  - Pretty-printed JSON bodies in monospace code blocks
+  - Redacted headers clearly marked
+  - "Response body not recorded" notice for streaming requests
+- Bulk deletion controls are provided in Settings under "Data Management"
+
+#### 4.9.6 Body Size Limits
+- Request and response bodies are truncated to 64KB before storage
+- A `[TRUNCATED]` marker is appended when truncation occurs
+
+### 4.10 Batch Data Deletion
+
+Provide preset-based bulk deletion of historical logs and statistics data to manage database growth.
+
+#### 4.10.1 Supported Data Types
+Both `request_logs` (telemetry/statistics) and `audit_logs` (request audit records) support batch deletion.
+
+#### 4.10.2 Preset Time Ranges
+Users can delete records older than:
+- **7 days** — Keep last week
+- **15 days** — Keep last two weeks
+- **30 days** — Keep last month
+
+The cutoff is computed server-side from UTC app time as `current_utc - N days`. All records with `created_at` before the cutoff are deleted.
+
+#### 4.10.3 Frontend UI
+Batch deletion controls are placed on the Settings page under a "Data Management" section:
+- Two subsections: "Request Logs" and "Audit Logs"
+- Each subsection has three preset buttons: "Older than 7 days", "Older than 15 days", "Older than 30 days"
+- Each button shows a confirmation dialog before executing: "This will permanently delete all [request/audit] logs older than N days. This cannot be undone. Continue?"
+- After deletion, a toast shows the count of deleted records
+- The Statistics page and Audit page data reflect the deletion immediately on next load
+
+#### 4.10.4 API
+- `DELETE /api/stats/requests` with `older_than_days` parameter (7, 15, or 30)
+- `DELETE /api/audit/logs` updated to also accept `older_than_days` parameter as an alternative to the existing `before` datetime parameter
+
+#### 4.10.5 Behavior
+- Deletion is irreversible — no soft delete or recycle bin
+- Deletion runs synchronously within a single transaction
+- Deleting `request_logs` does NOT delete linked `audit_logs`; `audit_logs.request_log_id` is set to `NULL` via FK `ON DELETE SET NULL`
+- Deleting `audit_logs` does NOT affect `request_logs`
+- Optional maintenance: a manual `VACUUM` operation may be run to reclaim SQLite file space after large deletions
+
+### 4.11 Custom HTTP Headers per Endpoint
+
+Allow users to configure custom HTTP headers on individual endpoints. These headers are appended to upstream proxy requests, enabling per-endpoint customization (e.g., custom routing headers, organization IDs, feature flags).
+
+#### 4.11.1 Configuration
+- Each endpoint can optionally have a set of custom HTTP headers (key-value string pairs)
+- Custom headers are configured during endpoint creation or editing via the existing endpoint CRUD UI
+- Headers are stored as a JSON object (e.g., `{"X-Custom-Org": "org-123", "X-Priority": "high"}`)
+- Empty or null custom_headers means no custom headers are applied
+
+#### 4.11.2 Header Merge Order
+When building upstream request headers, the merge order is:
+1. **Client headers** (from the incoming request, minus hop-by-hop and client auth headers)
+2. **Provider auth headers** (e.g., `Authorization: Bearer {key}`, `x-api-key: {key}`)
+3. **Provider extra headers** (e.g., `anthropic-version: 2023-06-01`)
+4. **Custom endpoint headers** (from `endpoints.custom_headers`) — applied LAST
+
+Custom headers override any same-name header from earlier steps. This is intentional — the user's explicit configuration takes precedence.
+
+#### 4.11.3 Validation
+- Header names must be non-empty strings
+- Header values must be strings
+- No limit on the number of custom headers (practical limit: JSON column size)
+- Reserved header names are NOT blocked — users can override `Authorization`, `Content-Type`, etc. at their own risk. This is a power-user feature for a trusted local deployment.
+
+#### 4.11.4 UI
+- The Add/Edit Endpoint dialog includes a "Custom Headers" section
+- Key-value pair input with add/remove controls
+- Empty by default (no custom headers)
+- Headers are displayed in the endpoint detail view
+
+### 4.12 Supported Providers
 - The application exclusively supports three LLM providers: **OpenAI**, **Anthropic**, and **Google Gemini**
 - All UI dropdowns, filters, and selectors only show these three providers
 - No other providers (e.g., Ollama, vLLM) are available in any part of the application

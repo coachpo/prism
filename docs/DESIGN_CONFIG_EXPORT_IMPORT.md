@@ -20,7 +20,9 @@ Single file, version-stamped, containing all three entity types with their relat
     {
       "name": "OpenAI",
       "provider_type": "openai",
-      "description": "OpenAI API (GPT models)"
+      "description": "OpenAI API (GPT models)",
+      "audit_enabled": true,
+      "audit_capture_bodies": false
     }
   ],
   "models": [
@@ -38,7 +40,11 @@ Single file, version-stamped, containing all three entity types with their relat
           "api_key": "sk-abc123...",
           "is_active": true,
           "priority": 0,
-          "description": "Primary key"
+          "description": "Primary key",
+          "auth_type": null,
+          "custom_headers": {
+            "X-Custom-Org": "org-123"
+          }
         }
       ]
     },
@@ -62,6 +68,7 @@ Single file, version-stamped, containing all three entity types with their relat
 - **Endpoints nested under models**: Mirrors the ownership hierarchy. No orphan endpoints.
 - **API keys in plaintext**: Consistent with existing project convention (single-user local deployment, no auth).
 - **`version: 1`**: For future schema evolution if needed. Current implementation only accepts `version: 1`.
+- **Included provider audit policy**: `audit_enabled` and `audit_capture_bodies` are part of export/import so privacy and audit behavior is preserved after restore.
 - **Excluded from export**: `request_logs` (telemetry, not config), all `id` fields, all timestamps (`created_at`, `updated_at`), health check state (`health_status`, `health_detail`, `last_health_check`).
 
 ---
@@ -148,6 +155,8 @@ class ConfigEndpointExport(BaseModel):
     is_active: bool = True
     priority: int = 0
     description: str | None = None
+    auth_type: str | None = None
+    custom_headers: dict[str, str] | None = None
 
 class ConfigModelExport(BaseModel):
     provider_type: str
@@ -163,6 +172,8 @@ class ConfigProviderExport(BaseModel):
     name: str
     provider_type: str
     description: str | None = None
+    audit_enabled: bool = False
+    audit_capture_bodies: bool = True
 
 class ConfigExportResponse(BaseModel):
     version: int = 1
@@ -295,6 +306,8 @@ export interface ConfigEndpointExport {
   is_active: boolean;
   priority: number;
   description: string | null;
+  auth_type: string | null;
+  custom_headers: Record<string, string> | null;
 }
 
 export interface ConfigModelExport {
@@ -312,6 +325,8 @@ export interface ConfigProviderExport {
   name: string;
   provider_type: string;
   description: string | null;
+  audit_enabled: boolean;
+  audit_capture_bodies: boolean;
 }
 
 export interface ConfigExportResponse {
@@ -379,8 +394,10 @@ All validation happens before any database writes. First error encountered retur
 
 ## 6. Edge Cases
 
-- **Empty database**: Export returns `{"version": 1, "providers": [], "models": []}`. Import of empty config clears everything.
+- **Empty database**: Export may return an empty `models` array, but import still requires at least one provider (`providers` must be non-empty).
 - **Import over existing data**: All existing config is deleted first within the same transaction. If import fails validation, nothing is deleted.
 - **Large files**: No explicit size limit. FastAPI default body limit applies. Practical limit: thousands of models would still be < 1MB JSON.
 - **Concurrent imports**: No locking. Last write wins. Acceptable for single-user local deployment.
-- **`auth_type` field on endpoints**: The `Endpoint` ORM model has an `auth_type` field not exposed in the current frontend types. Include it in export/import schema for completeness — add `auth_type: str | None` to `ConfigEndpointExport`.
+- **`auth_type` field on endpoints**: Exported/imported. If missing in incoming JSON, defaults to `null`.
+- **Provider audit policy**: `audit_enabled` and `audit_capture_bodies` are exported/imported so restoring a backup does not silently change audit behavior.
+- **`custom_headers` field on endpoints**: Exported as a JSON object (or `null`). On import, `custom_headers` is restored as-is. If the field is missing from the import file, it defaults to `null` (no custom headers).

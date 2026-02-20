@@ -14,7 +14,9 @@
                     │  ┌────▼────────────▼─────┐          │
                     │  │     SQLite Database    │          │
                     │  │  (models, endpoints,   │          │
-                    │  │   lb_config)           │          │
+                    │  │   lb_config,           │          │
+                    │  │   request_logs,        │          │
+                    │  │   audit_logs)          │          │
                     │  └───────────────────────┘          │
                     │              Port 8000               │
                     └──────────────────────────────────────┘
@@ -46,11 +48,13 @@ backend/
 │   │   ├── models.py           # CRUD for model configurations
 │   │   ├── endpoints.py        # CRUD for BaseURL/APIKey combos
 │   │   ├── proxy.py            # LLM proxy endpoints
-│   │   └── stats.py            # Statistics query endpoints
+│   │   ├── stats.py            # Statistics query endpoints
+│   │   └── audit.py            # Audit log query/delete endpoints
 │   ├── services/               # Business logic
 │   │   ├── proxy_service.py    # Request forwarding, streaming
 │   │   ├── loadbalancer.py     # LB strategy, failover
-│   │   └── stats_service.py    # Request logging, aggregation queries
+│   │   ├── stats_service.py    # Request logging, aggregation queries
+│   │   └── audit_service.py    # Audit recording, redaction
 │   └── dependencies.py         # Shared FastAPI dependencies
 ├── requirements.txt
 └── alembic/ (future)
@@ -72,7 +76,8 @@ frontend/
 │   │   ├── Dashboard.tsx       # Overview of all models
 │   │   ├── ModelConfig.tsx     # Model configuration page
 │   │   ├── EndpointConfig.tsx  # Endpoint management
-│   │   └── StatisticsPage.tsx  # Request statistics & analytics
+│   │   ├── StatisticsPage.tsx  # Request statistics & analytics
+│   │   └── AuditPage.tsx       # Audit log browsing & detail view
 │   └── types/
 │       └── api.ts              # TypeScript types matching backend schemas
 ├── components.json             # shadcn config
@@ -130,6 +135,22 @@ Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
 | Gemini | `POST /v1/chat/completions` | `{base_url}/v1/chat/completions` | `Authorization: Bearer {key}` |
 
 Note: Gemini's OpenAI-compatible endpoint is used for simplicity.
+
+### 3.5 Custom Header Injection
+
+When an endpoint has `custom_headers` configured, they are injected into the upstream request after all other headers:
+
+```
+build_upstream_headers():
+  1. Start with client headers (minus hop-by-hop, minus client auth headers)
+  2. Add provider auth headers (Authorization/x-api-key based on provider type)
+  3. Add provider extra headers (e.g., anthropic-version)
+  4. Apply endpoint custom_headers (from endpoints.custom_headers JSON)
+     → Same-name headers from earlier steps are OVERWRITTEN
+  5. Return final header dict
+```
+
+Custom headers are a power-user feature. No header names are blocked — users can override `Authorization`, `Content-Type`, etc. at their own risk. This is acceptable for a trusted local deployment.
 
 ## 4. Load Balancing
 
@@ -221,10 +242,11 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream
                                                          ↓
                                               Response received
                                                          ↓
-                                              Log request to DB
-                                              (non-blocking)
-                                                         ↓
                                               Return response to client
+
+                              Background best-effort logging (async):
+                                - Log request attempt to request_logs
+                                - If audit_enabled: log attempt to audit_logs
 ```
 
 ### 7.3 Data Captured
@@ -238,15 +260,101 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream
 - Aggregated statistics with grouping by model/provider/endpoint
 - Pagination for request log listing
 
-## 8. Database Design
+## 8. Request Audit Logging
+
+### 8.1 Concept
+Full HTTP request/response recording for proxied requests, toggled per-provider. Captures raw upstream communication for debugging and compliance auditing. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
+Audit rows are written per upstream attempt, including failover attempts.
+
+### 8.2 Audit Flow (Non-Streaming)
+```
+Client → POST /v1/chat/completions {model: "gpt-4o"}
+  → Router resolves model + provider
+  → Check provider.audit_enabled
+  → ProxyService forwards request to upstream
+  → Upstream responds with JSON
+  → Log to request_logs (existing telemetry)
+  → If audit_enabled:
+      → One audit row for this upstream attempt
+      → Redact sensitive headers
+      → If audit_capture_bodies = TRUE: truncate bodies to 64KB
+      → If audit_capture_bodies = FALSE: store request_body/response_body as NULL
+      → INSERT into audit_logs (non-blocking, fire-and-forget)
+  → Return response to client
+```
+
+### 8.3 Audit Flow (Streaming)
+```
+Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
+  → Router resolves model + provider
+  → Check provider.audit_enabled
+  → ProxyService opens streaming connection
+  → SSE chunks piped to client
+  → On stream complete (finally block):
+      → Log to request_logs (existing)
+      → If audit_enabled:
+          → One audit row for this upstream attempt
+          → Record request headers/body + response headers/status
+          → response_body = NULL (streaming bodies are never stored)
+          → INSERT into audit_logs (separate AsyncSessionLocal)
+```
+
+### 8.4 Non-Interference Guarantees
+- Audit INSERT runs in try/except — failures logged to console, never propagated
+- Streaming audit uses its own DB session (request-scoped session is closed)
+- No modification to request or response pipeline
+- Minimal overhead when `audit_enabled = FALSE` (flag checked once, no payload serialization)
+
+### 8.5 Redaction
+Applied at write time before INSERT — sensitive data never reaches the database:
+- `authorization`, `x-api-key`, `x-goog-api-key` → `[REDACTED]`
+- Any header name containing `key`, `secret`, `token`, `auth` → value redacted
+- Body fields are not redacted and may contain sensitive user data; body capture can be disabled per provider
+
+### 8.6 Provider Toggle
+- `providers.audit_enabled` (BOOLEAN, default FALSE)
+- `providers.audit_capture_bodies` (BOOLEAN, default TRUE)
+- Toggled via `PATCH /api/providers/{id}` with `{"audit_enabled": true/false, "audit_capture_bodies": true/false}`
+- Takes effect immediately for new requests
+- Managed in frontend Settings page under "Audit Configuration"
+
+## 9. Batch Data Deletion
+
+### 9.1 Concept
+Preset-based bulk deletion of historical `request_logs` and `audit_logs` to manage database growth. Users select a preset time range (7, 15, or 30 days) and all records older than the cutoff are permanently deleted.
+
+### 9.2 Deletion Flow
+```
+User → Settings Page → "Data Management" section
+  → Selects "Delete request logs older than 7 days"
+  → Confirmation dialog
+  → DELETE /api/stats/requests?older_than_days=7
+  → Backend computes cutoff = current_utc - 7 days
+  → DELETE FROM request_logs WHERE created_at < cutoff
+  → Returns { deleted_count: N }
+  → Toast: "Deleted N request logs"
+```
+
+Same flow for audit logs via `DELETE /api/audit/logs?older_than_days=N`.
+
+### 9.3 Independence
+- Deleting `request_logs` does NOT cascade to `audit_logs`
+- Deleting `audit_logs` does NOT affect `request_logs`
+- On request log deletion, `audit_logs.request_log_id` is set to `NULL` (`ON DELETE SET NULL`), preserving audit rows without dangling FK references
+- Optional maintenance: after large deletions, operators may run SQLite `VACUUM` to reclaim file space
+
+### 9.4 Frontend Placement
+Data management controls are on the Settings page (`/settings`) under a "Data Management" section, below the existing "Audit Configuration" and "Configuration Backup" sections.
+
+## 10. Database Design
 
 See [DATA_MODEL.md](./DATA_MODEL.md) for complete schema.
 
-## 9. API Design
+## 11. API Design
 
 See [API_SPEC.md](./API_SPEC.md) for complete endpoint documentation.
 
-## 10. Security Considerations
+## 12. Security Considerations
 
 - No authentication (trusted local network assumption)
 - API keys stored in plaintext in SQLite (acceptable for single-user local)
@@ -254,7 +362,7 @@ See [API_SPEC.md](./API_SPEC.md) for complete endpoint documentation.
 - No TLS termination (run behind reverse proxy for HTTPS if needed)
 - SQLite file permissions should be restricted to owner
 
-## 11. Supported Providers
+## 13. Supported Providers
 
 The application exclusively supports three LLM providers:
 - **OpenAI** (`openai`) — GPT models

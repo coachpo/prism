@@ -27,3 +27,4 @@ frontend/dist/
 
 # Sisyphus agent state
 .sisyphus/
+.pytest_cache/

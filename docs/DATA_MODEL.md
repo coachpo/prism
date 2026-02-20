@@ -3,23 +3,45 @@
 ## 1. Entity Relationship Diagram
 
 ```
-┌──────────────────┐       ┌──────────────────────┐       ┌──────────────────────┐
-│   providers      │       │   model_configs      │       │     endpoints        │
-├──────────────────┤       ├──────────────────────┤       ├──────────────────────┤
-│ id (PK)          │◀──┐   │ id (PK)              │◀──┐   │ id (PK)              │
-│ name             │   └───│ provider_id (FK)     │   └───│ model_config_id (FK) │
-│ provider_type    │       │ model_id (UNIQUE)    │       │ base_url             │
-│ description      │       │ display_name         │       │ api_key              │
-│ created_at       │       │ model_type           │       │ is_active            │
-│ updated_at       │       │ redirect_to          │       │ priority             │
-└──────────────────┘       │ lb_strategy          │       │ description          │
-                           │ is_enabled           │       │ health_status        │
-                           │ created_at           │       │ last_health_check    │
-                           │ updated_at           │       │ created_at           │
-                           └──────────────────────┘       │ updated_at           │
-                                    │                     └──────────────────────┘
-                                    │ redirect_to (self-ref)
-                                    └──────▶ model_configs.model_id
+┌──────────────────────┐       ┌──────────────────────┐       ┌──────────────────────┐
+│      providers       │       │    model_configs     │       │      endpoints       │
+├──────────────────────┤       ├──────────────────────┤       ├──────────────────────┤
+│ id (PK)              │◀──┐   │ id (PK)              │◀──┐   │ id (PK)              │
+│ name                 │   └───│ provider_id (FK)     │   └───│ model_config_id (FK) │
+│ provider_type        │       │ model_id (UNIQUE)    │       │ base_url             │
+│ description          │       │ display_name         │       │ api_key              │
+│ audit_enabled        │       │ model_type           │       │ is_active            │
+│ audit_capture_bodies │       │ redirect_to          │       │ priority             │
+│ created_at           │       │ lb_strategy          │       │ description          │
+│ updated_at           │       │ is_enabled           │       │ custom_headers       │
+└──────┬───────────────┘       │ created_at           │       │ health_status        │
+       │                       │ updated_at           │       │ last_health_check    │
+       │                       └──────────────────────┘       │ created_at           │
+       │                                │                     │ updated_at           │
+       │                                │                     └──────────────────────┘
+       │                                │ redirect_to (self-ref)
+       │                                └──────▶ model_configs.model_id
+       │
+       │                ┌──────────────────────┐       ┌──────────────────────┐
+       │                │    request_logs      │       │      audit_logs      │
+       │                ├──────────────────────┤       ├──────────────────────┤
+       │                │ id (PK)              │◀──────│ request_log_id (FK)  │
+       │                │ model_id             │       │ id (PK)              │
+       └────────────────│ provider_type        │   ┌──▶│ provider_id (FK)     │
+                        │ endpoint_id          │   │   │ model_id             │
+                        │ status_code          │   │   │ request_method       │
+                        │ response_time_ms     │   │   │ request_url          │
+                        │ is_stream            │   │   │ request_headers      │
+                        │ input_tokens         │   │   │ request_body         │
+                        │ output_tokens        │   │   │ response_status      │
+                        │ total_tokens         │   │   │ response_headers     │
+                        │ request_path         │   │   │ response_body        │
+                        │ error_detail         │   │   │ is_stream            │
+                        │ created_at           │   │   │ duration_ms          │
+                        └──────────────────────┘   │   │ created_at           │
+                                                   │   └──────────────────────┘
+                                                   │
+                                            providers.id
 ```
 
 ## 2. Table Definitions
@@ -34,6 +56,8 @@ Represents an LLM API provider type.
 | name | VARCHAR(100) | NOT NULL, UNIQUE | Display name (e.g., "OpenAI") |
 | provider_type | VARCHAR(50) | NOT NULL | Enum: `openai`, `anthropic`, `gemini` |
 | description | TEXT | NULLABLE | Optional description |
+| audit_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether to record audit logs for this provider's proxy requests |
+| audit_capture_bodies | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether request/response bodies are stored for audited requests on this provider |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
@@ -83,6 +107,7 @@ Stores BaseURL + APIKey combinations for a model configuration, with health chec
 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this endpoint is selected for use |
 | priority | INTEGER | NOT NULL, DEFAULT 0 | Priority for failover (lower = higher priority) |
 | description | TEXT | NULLABLE | Optional label (e.g., "Production key", "Backup key") |
+| custom_headers | TEXT | NULLABLE | JSON object of custom HTTP headers to append to upstream requests (e.g., `{"X-Custom-Org": "org-123"}`). NULL or empty means no custom headers. |
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | Health status: `unknown`, `healthy`, `unhealthy` |
 | health_detail | TEXT | NULLABLE | Detail message from last health check (e.g., error message from upstream) |
 | last_health_check | DATETIME | NULLABLE | Timestamp of last health check |
@@ -103,8 +128,10 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 ## 4. Relationships
 
 - `providers` 1:N `model_configs` — One provider can have many model configurations
+- `providers` 1:N `audit_logs` — One provider can have many audit records
 - `model_configs` 1:N `endpoints` — One native model can have many BaseURL/APIKey combinations (proxy models have zero endpoints)
 - `model_configs` self-reference via `redirect_to` → `model_id` — A proxy model points to a native model
+- `request_logs` 1:0..1 `audit_logs` — Each upstream attempt log may have one linked audit log (via `request_log_id`)
 - Cascade delete: Deleting a model_config deletes all its endpoints
 
 ## 5. Load Balancing Behavior
@@ -192,11 +219,66 @@ CREATE INDEX idx_request_logs_endpoint_id ON request_logs(endpoint_id);
 - Token usage is extracted from the upstream response body when available (OpenAI `usage` field, Anthropic `usage` field)
 - For streaming requests, token usage is extracted from the final SSE chunk if available
 - Logging is non-blocking — failures to log do not affect the proxy response
-- No automatic cleanup — logs accumulate (manual DB management for now)
+- Batch deletion supported via `DELETE /api/stats/requests?older_than_days=N` where N is 7, 15, or 30
+- Deleting request_logs does NOT delete audit_logs; linked `audit_logs.request_log_id` is set to `NULL` (`ON DELETE SET NULL`)
 
-## 9. Computed Fields (Not Stored)
+## 9. Audit Logging
 
-### 9.1 Endpoint Success Rate
+### 9.1 `audit_logs`
+
+Stores full HTTP request/response data for audited proxy requests. Only populated when the provider's `audit_enabled` flag is `true`.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| request_log_id | INTEGER | FK → request_logs.id, NULLABLE, UNIQUE, ON DELETE SET NULL | Link to the corresponding request_log entry for this upstream attempt |
+| provider_id | INTEGER | FK → providers.id, NOT NULL | Provider that handled this request |
+| model_id | VARCHAR(200) | NOT NULL | Model ID from the request |
+| request_method | VARCHAR(10) | NOT NULL | HTTP method (POST, GET, etc.) |
+| request_url | VARCHAR(2000) | NOT NULL | Full upstream URL the request was sent to |
+| request_headers | TEXT | NOT NULL | JSON object of request headers (sensitive values redacted) |
+| request_body | TEXT | NULLABLE | Request body as text. NULL if no body. Truncated to 64KB. |
+| response_status | INTEGER | NOT NULL | HTTP status code from upstream |
+| response_headers | TEXT | NULLABLE | JSON object of response headers (sensitive values redacted) |
+| response_body | TEXT | NULLABLE | Response body as text. NULL for streaming requests. Truncated to 64KB. |
+| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether this was a streaming request |
+| duration_ms | INTEGER | NOT NULL | Total request duration in milliseconds |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | When the audit record was created |
+
+### 9.2 Indexes
+
+```sql
+CREATE INDEX idx_audit_logs_provider_id ON audit_logs(provider_id);
+CREATE INDEX idx_audit_logs_model_id ON audit_logs(model_id);
+CREATE INDEX idx_audit_logs_response_status ON audit_logs(response_status);
+CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX idx_audit_logs_request_log_id ON audit_logs(request_log_id);
+```
+
+### 9.3 Audit Behavior
+- Only records when `providers.audit_enabled = TRUE` for the request's provider
+- One audit row is recorded per upstream attempt (including failover attempts)
+- Sensitive header values are redacted before storage (API keys, auth tokens → `[REDACTED]`)
+- Body capture is controlled per provider via `providers.audit_capture_bodies`:
+  - `TRUE` → store request/response bodies (with truncation rules)
+  - `FALSE` → store `request_body = NULL` and `response_body = NULL`
+- Request/response bodies are truncated to 64KB with `[TRUNCATED]` marker
+- Streaming response bodies are not recorded (`response_body = NULL`)
+- Recording is non-blocking — failures are logged to console but never affect proxy behavior
+- Uses a separate DB session for streaming requests (same pattern as request_logs stream logging)
+- No automatic cleanup — batch deletion via `DELETE /api/audit/logs?older_than_days=N` (N = 7, 15, or 30) or `DELETE /api/audit/logs?before=<datetime>` for custom cutoff
+- Deleting audit_logs does NOT affect linked request_logs
+
+### 9.4 Redaction Rules
+Headers with the following names have their values replaced with `[REDACTED]`:
+- `authorization` (value becomes `Bearer [REDACTED]`)
+- `x-api-key`
+- `x-goog-api-key`
+- Any header name containing `key`, `secret`, `token`, or `auth` (case-insensitive)
+
+## 10. Computed Fields (Not Stored)
+
+### 10.1 Endpoint Success Rate
 Computed at query time from `request_logs`, not stored in the `endpoints` table.
 
 ```sql
@@ -217,7 +299,7 @@ GROUP BY endpoint_id;
 - Default time window: last 24 hours
 - Badge color thresholds: ≥98% green, 75-98% yellow, <75% red, N/A gray
 
-### 9.2 Model Health (Aggregated)
+### 10.2 Model Health (Aggregated)
 Computed by aggregating endpoint success rates for a model's endpoints.
 
 - Weighted average: `SUM(endpoint_success_count) / SUM(endpoint_total_requests) * 100`

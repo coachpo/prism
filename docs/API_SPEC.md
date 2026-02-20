@@ -18,6 +18,8 @@ Response `200`:
     "name": "OpenAI",
     "provider_type": "openai",
     "description": "OpenAI API (GPT models)",
+    "audit_enabled": false,
+    "audit_capture_bodies": true,
     "created_at": "2025-01-01T00:00:00Z",
     "updated_at": "2025-01-01T00:00:00Z"
   }
@@ -28,7 +30,27 @@ Response `200`:
 ```
 GET /api/providers/{id}
 ```
-Response `200`: Single provider object.
+Response `200`: Single provider object (same schema as list item).
+
+#### Update Provider
+```
+PATCH /api/providers/{id}
+Content-Type: application/json
+```
+Request:
+```json
+{
+  "audit_enabled": true,
+  "audit_capture_bodies": false
+}
+```
+Response `200`: Updated provider object.
+
+Mutable provider fields:
+- `audit_enabled` (enable/disable audit for this provider)
+- `audit_capture_bodies` (when false, request/response bodies are stored as `null` for this provider)
+
+Provider name, type, and description are seed data and not user-editable.
 
 ---
 
@@ -162,10 +184,16 @@ Request:
   "api_key": "sk-abc123...",
   "is_active": true,
   "priority": 0,
-  "description": "Primary production key"
+  "description": "Primary production key",
+  "custom_headers": {
+    "X-Custom-Org": "org-123",
+    "X-Priority": "high"
+  }
 }
 ```
 Response `201`: Created endpoint object.
+
+Note: `custom_headers` is optional. If omitted or `null`, no custom headers are applied. Custom headers are appended to upstream requests after all other headers, overriding same-name headers.
 
 #### Update Endpoint
 ```
@@ -179,10 +207,15 @@ Request:
   "api_key": "sk-new-key...",
   "is_active": true,
   "priority": 0,
-  "description": "Updated key"
+  "description": "Updated key",
+  "custom_headers": {
+    "X-Custom-Org": "org-456"
+  }
 }
 ```
 Response `200`: Updated endpoint object.
+
+Setting `custom_headers` to `null` or `{}` removes all custom headers. Omitting the field leaves existing custom headers unchanged.
 
 #### Delete Endpoint
 ```
@@ -441,9 +474,153 @@ Fields:
 - `error_count` (int): Requests with non-2xx status codes
 - `success_rate` (float | null): Success percentage (0-100), `null` if no requests
 
+### 4.4 Delete Request Logs (Batch)
+```
+DELETE /api/stats/requests
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `older_than_days` | integer | — | Delete logs older than N days. Accepted values: `7`, `15`, `30`. **Required.** |
+
+The cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`. All `request_logs` with `created_at` before the cutoff are deleted.
+
+Response `200`:
+```json
+{
+  "deleted_count": 5432
+}
+```
+
+Response `400`:
+```json
+{
+  "detail": "older_than_days is required and must be one of: 7, 15, 30"
+}
+```
+
+Deleting request logs does NOT cascade to `audit_logs`. Linked audit rows remain, and `audit_logs.request_log_id` is set to `null` (`ON DELETE SET NULL`).
+
 ---
 
-## 5. Error Responses
+## 5. Audit API
+
+### 5.1 List Audit Logs
+```
+GET /api/audit/logs
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `provider_id` | integer | — | Filter by provider ID |
+| `model_id` | string | — | Filter by model ID |
+| `status_code` | integer | — | Filter by response status code |
+| `from_time` | datetime | — | Start of time range (ISO 8601) |
+| `to_time` | datetime | — | End of time range (ISO 8601) |
+| `limit` | integer | 50 | Max results (1-200) |
+| `offset` | integer | 0 | Pagination offset |
+
+The list endpoint returns one row per upstream attempt. If a proxy request fails over across endpoints, each attempt has its own audit row.
+
+Response `200`:
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "request_log_id": 42,
+      "provider_id": 1,
+      "model_id": "gpt-4o",
+      "request_method": "POST",
+      "request_url": "https://api.openai.com/v1/chat/completions",
+      "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"Bearer [REDACTED]\"}",
+      "request_body_preview": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"con...",
+      "response_status": 200,
+      "is_stream": false,
+      "duration_ms": 1234,
+      "created_at": "2025-01-15T10:30:00Z"
+    }
+  ],
+  "total": 150,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The list endpoint returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail endpoint for full content.
+If provider body capture is disabled, `request_body_preview` is `null`.
+Rows are ordered by `created_at DESC`.
+
+### 5.2 Get Audit Log Detail
+```
+GET /api/audit/logs/{id}
+```
+Response `200`:
+```json
+{
+  "id": 1,
+  "request_log_id": 42,
+  "provider_id": 1,
+  "model_id": "gpt-4o",
+  "request_method": "POST",
+  "request_url": "https://api.openai.com/v1/chat/completions",
+  "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"Bearer [REDACTED]\"}",
+  "request_body": "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}],\"temperature\":0.7}",
+  "response_status": 200,
+  "response_headers": "{\"content-type\": \"application/json\", \"x-request-id\": \"req_abc123\"}",
+  "response_body": "{\"id\":\"chatcmpl-abc\",\"choices\":[...],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}",
+  "is_stream": false,
+  "duration_ms": 1234,
+  "created_at": "2025-01-15T10:30:00Z"
+}
+```
+
+For streaming requests, `response_body` is `null` (streaming response bodies are not recorded).
+If provider body capture is disabled, both `request_body` and `response_body` are `null`.
+
+Response `404`: Audit log not found.
+
+### 5.3 Delete Audit Logs (Batch)
+```
+DELETE /api/audit/logs
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `before` | datetime | — | Delete logs created before this time (ISO 8601). |
+| `older_than_days` | integer | — | Delete logs older than N days. Accepted values: `7`, `15`, `30`. |
+
+Exactly one of `before` or `older_than_days` must be provided. If both are provided, returns `400`. If neither is provided, returns `400`.
+
+When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`.
+
+Response `200`:
+```json
+{
+  "deleted_count": 1234
+}
+```
+
+Response `400`: Missing or conflicting parameters.
+
+### 5.4 Redaction Rules
+
+All audit log entries have sensitive header values redacted before storage:
+- `authorization` → `Bearer [REDACTED]`
+- `x-api-key` → `[REDACTED]`
+- `x-goog-api-key` → `[REDACTED]`
+- Any header name containing `key`, `secret`, `token`, or `auth` (case-insensitive) → value replaced with `[REDACTED]`
+
+Request and response bodies are not header-redacted and may contain user-provided secrets or PII.
+Body capture is configurable per provider via `audit_capture_bodies`; when disabled, both `request_body` and `response_body` are `null`.
+
+### 5.5 Body Size Limits
+
+When body capture is enabled for the provider, request and response bodies are truncated to 64KB before storage. A `[TRUNCATED]` marker is appended when truncation occurs.
+
+---
+
+## 6. Error Responses
 
 All errors follow this format:
 ```json
@@ -462,7 +639,7 @@ All errors follow this format:
 
 ---
 
-## 6. OpenAPI Spec
+## 7. OpenAPI Spec
 
 Auto-generated at:
 - Swagger UI: `http://localhost:8000/docs`
