@@ -370,6 +370,7 @@ Query parameters:
 | `success` | boolean | — | Filter by success (true = 2xx, false = non-2xx) |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 | `limit` | integer | 50 | Max results (1-500) |
 | `offset` | integer | 0 | Pagination offset |
 
@@ -383,6 +384,7 @@ Response `200`:
       "provider_type": "openai",
       "endpoint_id": 1,
       "endpoint_base_url": "https://api.openai.com",
+      "endpoint_description": "Primary production key",
       "status_code": 200,
       "response_time_ms": 1234,
       "is_stream": false,
@@ -409,6 +411,9 @@ Query parameters:
 | `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
 | `group_by` | string | — | Group results by: `model`, `provider`, `endpoint` |
+| `model_id` | string | — | Filter by model ID |
+| `provider_type` | string | — | Filter by provider type (openai, anthropic, gemini) |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 
 Response `200`:
 ```json
@@ -518,6 +523,7 @@ Query parameters:
 | `provider_id` | integer | — | Filter by provider ID |
 | `model_id` | string | — | Filter by model ID |
 | `status_code` | integer | — | Filter by response status code |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `limit` | integer | 50 | Max results (1-200) |
@@ -534,6 +540,9 @@ Response `200`:
       "request_log_id": 42,
       "provider_id": 1,
       "model_id": "gpt-4o",
+      "endpoint_id": 1,
+      "endpoint_base_url": "https://api.openai.com",
+      "endpoint_description": "Primary production key",
       "request_method": "POST",
       "request_url": "https://api.openai.com/v1/chat/completions",
       "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"Bearer [REDACTED]\"}",
@@ -565,6 +574,9 @@ Response `200`:
   "request_log_id": 42,
   "provider_id": 1,
   "model_id": "gpt-4o",
+  "endpoint_id": 1,
+  "endpoint_base_url": "https://api.openai.com",
+  "endpoint_description": "Primary production key",
   "request_method": "POST",
   "request_url": "https://api.openai.com/v1/chat/completions",
   "request_headers": "{\"content-type\": \"application/json\", \"authorization\": \"Bearer [REDACTED]\"}",

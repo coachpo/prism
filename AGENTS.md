@@ -14,7 +14,7 @@ LLM Proxy Gateway — a lightweight reverse proxy that routes LLM API requests t
 transparent-agents/
 ├── backend/          # FastAPI API + proxy engine (git submodule)
 ├── frontend/         # React SPA dashboard (git submodule)
-├── docs/             # Architecture, API spec, data model, PRD, deployment, smoke tests, design docs
+├── docs/             # Architecture, API spec, data model, PRD, deployment, smoke tests
 ├── .github/workflows # CI/CD: Docker image builds (GHCR) + scheduled cleanup
 ├── start.sh          # Unified dev launcher (headless | full)
 └── .gitmodules       # backend + frontend are local submodules
@@ -36,8 +36,6 @@ transparent-agents/
 | Architecture docs | `docs/ARCHITECTURE.md` | Request flows, provider routing table, design decisions |
 | API specification | `docs/API_SPEC.md` | Full endpoint documentation |
 | Data model | `docs/DATA_MODEL.md` | Database schema reference |
-| Audit design | `docs/DESIGN_REQUEST_AUDIT.md` | Audit feature design and decisions |
-| Config export design | `docs/DESIGN_CONFIG_EXPORT_IMPORT.md` | Config export/import feature design |
 
 ## CONVENTIONS
 
@@ -90,7 +88,7 @@ cd frontend && npm run build    # tsc -b && vite build
 - SQLite DB file: `backend/gateway.db` (auto-created on first run)
 - Smoke test DB: `backend/gateway_smoke.db` (separate file for manual testing)
 - Schema migrations are manual — see `_add_missing_columns()` in `main.py` for the pattern
-- Migrated columns: `auth_type`, `custom_headers` (endpoints); `audit_enabled`, `audit_capture_bodies` (providers)
+- Migrated columns: `auth_type`, `custom_headers` (endpoints); `audit_enabled`, `audit_capture_bodies` (providers); `endpoint_description` (request_logs); `endpoint_id`, `endpoint_base_url`, `endpoint_description` (audit_logs)
 - `start.sh` auto-creates venv and installs deps if missing
 - Backend port: 8000 (env: `BACKEND_PORT`), Frontend port: 5173 (env: `FRONTEND_PORT`)
 - API docs at `http://localhost:8000/docs` (Swagger) and `/redoc`

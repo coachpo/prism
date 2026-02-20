@@ -76,8 +76,9 @@ frontend/
 │   │   ├── Dashboard.tsx       # Overview of all models
 │   │   ├── ModelConfig.tsx     # Model configuration page
 │   │   ├── EndpointConfig.tsx  # Endpoint management
-│   │   ├── StatisticsPage.tsx  # Request statistics & analytics
-│   │   └── AuditPage.tsx       # Audit log browsing & detail view
+│   │   ├── StatisticsPage.tsx  # Request statistics & analytics (endpoint column + filter)
+│   │   ├── AuditPage.tsx       # Audit log browsing, endpoint filter, wide tabbed detail dialog
+│   │   └── SettingsPage.tsx    # Audit config, config backup, data management
 │   └── types/
 │       └── api.ts              # TypeScript types matching backend schemas
 ├── components.json             # shadcn config
@@ -132,9 +133,10 @@ Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
 |---|---|---|---|
 | OpenAI | `POST /v1/chat/completions` | `{base_url}/v1/chat/completions` | `Authorization: Bearer {key}` |
 | Anthropic | `POST /v1/messages` | `{base_url}/v1/messages` | `x-api-key: {key}` + `anthropic-version: 2023-06-01` |
-| Gemini | `POST /v1/chat/completions` | `{base_url}/v1/chat/completions` | `Authorization: Bearer {key}` |
+| Gemini (OpenAI-compat) | `POST /v1/chat/completions` | `{base_url}/v1/chat/completions` | `Authorization: Bearer {key}` |
+| Gemini (native) | `POST /v1beta/models/{model}:generateContent` | `{base_url}/v1beta/models/{model}:generateContent` | `x-goog-api-key: {key}` |
 
-Note: Gemini's OpenAI-compatible endpoint is used for simplicity.
+Note: Gemini's OpenAI-compatible endpoint is used by default. For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native model ID when a proxy alias is used. This ensures the upstream URL references the correct model even when the client sends a request using the alias model ID.
 
 ### 3.5 Custom Header Injection
 
@@ -250,7 +252,7 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream
 ```
 
 ### 7.3 Data Captured
-- Model ID, provider type, endpoint used
+- Model ID, provider type, endpoint used (ID, base URL, description)
 - HTTP status code, response time (ms)
 - Token usage (input, output, total) — extracted from upstream response
 - Stream flag, request path, error details
@@ -275,11 +277,13 @@ Client → POST /v1/chat/completions {model: "gpt-4o"}
   → Upstream responds with JSON
   → Log to request_logs (existing telemetry)
   → If audit_enabled:
-      → One audit row for this upstream attempt
-      → Redact sensitive headers
-      → If audit_capture_bodies = TRUE: truncate bodies to 64KB
-      → If audit_capture_bodies = FALSE: store request_body/response_body as NULL
-      → INSERT into audit_logs (non-blocking, fire-and-forget)
+       → One audit row for this upstream attempt
+       → Redact sensitive headers
+       → Record endpoint metadata (endpoint_id, base_url, description) as snapshot
+       → Link to request_log entry via request_log_id (returned from log_request)
+       → If audit_capture_bodies = TRUE: truncate bodies to 64KB
+       → If audit_capture_bodies = FALSE: store request_body/response_body as NULL
+       → INSERT into audit_logs (non-blocking, fire-and-forget)
   → Return response to client
 ```
 
@@ -292,11 +296,13 @@ Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
   → SSE chunks piped to client
   → On stream complete (finally block):
       → Log to request_logs (existing)
-      → If audit_enabled:
-          → One audit row for this upstream attempt
-          → Record request headers/body + response headers/status
-          → response_body = NULL (streaming bodies are never stored)
-          → INSERT into audit_logs (separate AsyncSessionLocal)
+       → If audit_enabled:
+           → One audit row for this upstream attempt
+           → Record request headers/body + response headers/status
+           → Record endpoint metadata (endpoint_id, base_url, description)
+           → Link to request_log entry via request_log_id
+           → response_body = NULL (streaming bodies are never stored)
+           → INSERT into audit_logs (separate AsyncSessionLocal)
 ```
 
 ### 8.4 Non-Interference Guarantees
@@ -318,6 +324,13 @@ Applied at write time before INSERT — sensitive data never reaches the databas
 - Takes effect immediately for new requests
 - Managed in frontend Settings page under "Audit Configuration"
 
+### 8.7 Audit Detail Dialog
+The audit detail view is a wide tabbed modal dialog with:
+- Summary strip: model, provider, endpoint (ID + description + base URL), status, duration, timestamp
+- Request tab: method, URL, headers (redacted), body (pretty-printed JSON)
+- Response tab: status, headers, body (pretty-printed JSON, or "not recorded" notice for streaming)
+- Endpoint identity fields (`endpoint_id`, `endpoint_base_url`, `endpoint_description`) are displayed in the summary strip
+
 ## 9. Batch Data Deletion
 
 ### 9.1 Concept
@@ -326,14 +339,17 @@ Flexible bulk deletion of historical `request_logs` and `audit_logs` to manage d
 ### 9.2 Deletion Flow
 ```
 User → Settings Page → "Data Management" section
-  → Selects "Delete request logs older than 7 days" (or custom days, or delete all)
-  → Confirmation dialog
+  → Selects data type (Request Logs or Audit Logs)
+  → Selects action (preset: 7/15/30 days, custom days, or delete all)
+  → Clicks "Delete" button → Confirmation dialog
   → DELETE /api/stats/requests?older_than_days=7 (or delete_all=true)
   → Backend computes cutoff = current_utc - 7 days (or deletes all)
   → DELETE FROM request_logs WHERE created_at < cutoff (or no filter)
   → Returns { deleted_count: N }
   → Toast: "Deleted N request logs"
 ```
+
+The UI uses a single action builder pattern: select data type → select action → execute. This replaces the previous layout of duplicated button groups per data type.
 
 Same flow for audit logs via `DELETE /api/audit/logs?older_than_days=N` or `delete_all=true`.
 

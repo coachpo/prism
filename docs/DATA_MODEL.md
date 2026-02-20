@@ -22,24 +22,27 @@
        │                                │ redirect_to (self-ref)
        │                                └──────▶ model_configs.model_id
        │
-       │                ┌──────────────────────┐       ┌──────────────────────┐
-       │                │    request_logs      │       │      audit_logs      │
-       │                ├──────────────────────┤       ├──────────────────────┤
-       │                │ id (PK)              │◀──────│ request_log_id (FK)  │
-       │                │ model_id             │       │ id (PK)              │
-       └────────────────│ provider_type        │   ┌──▶│ provider_id (FK)     │
-                        │ endpoint_id          │   │   │ model_id             │
-                        │ status_code          │   │   │ request_method       │
-                        │ response_time_ms     │   │   │ request_url          │
-                        │ is_stream            │   │   │ request_headers      │
-                        │ input_tokens         │   │   │ request_body         │
-                        │ output_tokens        │   │   │ response_status      │
-                        │ total_tokens         │   │   │ response_headers     │
-                        │ request_path         │   │   │ response_body        │
-                        │ error_detail         │   │   │ is_stream            │
-                        │ created_at           │   │   │ duration_ms          │
-                        └──────────────────────┘   │   │ created_at           │
-                                                   │   └──────────────────────┘
+        │                ┌──────────────────────┐       ┌──────────────────────┐
+        │                │    request_logs      │       │      audit_logs      │
+        │                ├──────────────────────┤       ├──────────────────────┤
+        │                │ id (PK)              │◀──────│ request_log_id (FK)  │
+        │                │ model_id             │       │ id (PK)              │
+        └────────────────│ provider_type        │   ┌──▶│ provider_id (FK)     │
+                         │ endpoint_id          │   │   │ model_id             │
+                         │ endpoint_description │   │   │ endpoint_id          │
+                         │ status_code          │   │   │ endpoint_base_url    │
+                         │ response_time_ms     │   │   │ endpoint_description │
+                         │ is_stream            │   │   │ request_method       │
+                         │ input_tokens         │   │   │ request_url          │
+                         │ output_tokens        │   │   │ request_headers      │
+                         │ total_tokens         │   │   │ request_body         │
+                         │ request_path         │   │   │ response_status      │
+                         │ error_detail         │   │   │ response_headers     │
+                         │ created_at           │   │   │ response_body        │
+                         └──────────────────────┘   │   │ is_stream            │
+                                                    │   │ duration_ms          │
+                                                    │   │ created_at           │
+                                                    │   └──────────────────────┘
                                                    │
                                             providers.id
 ```
@@ -194,6 +197,7 @@ Stores telemetry data for every proxy request processed by the gateway.
 | provider_type | VARCHAR(50) | NOT NULL | Provider type (openai, anthropic, gemini) |
 | endpoint_id | INTEGER | NULLABLE | Endpoint used (NULL if no endpoint selected) |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Base URL of the endpoint used |
+| endpoint_description | TEXT | NULLABLE | Description/label of the endpoint used (snapshot at request time) |
 | status_code | INTEGER | NOT NULL | HTTP status code returned |
 | response_time_ms | INTEGER | NOT NULL | Response time in milliseconds |
 | is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether the request was streaming |
@@ -234,6 +238,9 @@ Stores full HTTP request/response data for audited proxy requests. Only populate
 | request_log_id | INTEGER | FK → request_logs.id, NULLABLE, UNIQUE, ON DELETE SET NULL | Link to the corresponding request_log entry for this upstream attempt |
 | provider_id | INTEGER | FK → providers.id, NOT NULL | Provider that handled this request |
 | model_id | VARCHAR(200) | NOT NULL | Model ID from the request |
+| endpoint_id | INTEGER | NULLABLE | Endpoint used for this upstream attempt (NULL if no endpoint selected) |
+| endpoint_base_url | VARCHAR(500) | NULLABLE | Base URL of the endpoint used (snapshot at request time) |
+| endpoint_description | TEXT | NULLABLE | Description/label of the endpoint used (snapshot at request time) |
 | request_method | VARCHAR(10) | NOT NULL | HTTP method (POST, GET, etc.) |
 | request_url | VARCHAR(2000) | NOT NULL | Full upstream URL the request was sent to |
 | request_headers | TEXT | NOT NULL | JSON object of request headers (sensitive values redacted) |
@@ -252,6 +259,7 @@ CREATE INDEX idx_audit_logs_provider_id ON audit_logs(provider_id);
 CREATE INDEX idx_audit_logs_model_id ON audit_logs(model_id);
 CREATE INDEX idx_audit_logs_response_status ON audit_logs(response_status);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX idx_audit_logs_endpoint_id ON audit_logs(endpoint_id);
 CREATE INDEX idx_audit_logs_request_log_id ON audit_logs(request_log_id);
 ```
 

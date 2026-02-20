@@ -41,6 +41,7 @@ Single user (developer/power user) running the application locally or on a local
 - Proxy models do not have load balancing — they always use the target native model's load balancing configuration
 - All model IDs are globally unique regardless of model type
 - Gateway transparently resolves proxy aliases: incoming request for proxy model → routed to target native model's endpoints
+- For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native model ID when a proxy alias is used
 
 ### 4.4 Load Balancing & Failover
 - For models with multiple BaseURL/APIKey combinations:
@@ -105,7 +106,7 @@ Single user (developer/power user) running the application locally or on a local
 
 ### 4.8 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
-- Each request log captures: model ID, provider, endpoint used, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
+- Each request log captures: model ID, provider, endpoint used (ID, base URL, description), HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
 
 #### 4.8.1 Token Usage Extraction
 Token usage is extracted from upstream responses using provider-aware parsing:
@@ -120,8 +121,8 @@ Token usage is extracted from upstream responses using provider-aware parsing:
 SSE streaming responses require parsing `data: {...}` lines from the accumulated stream chunks to extract usage information from the appropriate events.
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
-  - Filterable request log table with columns: timestamp, model, provider, endpoint, status, response time, tokens
-  - Filters: date range, model, time range presets (last 1h, 24h, 7d, all)
+  - Filterable request log table with columns: timestamp, model, provider, endpoint (description), status, response time, tokens
+  - Filters: date range, model, endpoint, time range presets (last 1h, 24h, 7d, all)
   - The "All" time range must query all historical data for both the summary cards and the request log table (no implicit 24h default)
   - Provider filter limited to supported providers only: OpenAI, Anthropic, Gemini
   - Summary statistics grouped by model and provider
@@ -146,7 +147,7 @@ Full HTTP request/response recording for proxied requests, stored in the databas
 For each audited upstream attempt (including failover attempts):
 - **Request**: HTTP method, full upstream URL, all headers (redacted), request body
 - **Response**: HTTP status code, response headers, response body (non-streaming only)
-- **Metadata**: model ID, provider, duration, stream flag, timestamp, link to corresponding `request_log` entry
+- **Metadata**: model ID, provider, endpoint identity (endpoint ID, base URL, description), duration, stream flag, timestamp, link to corresponding `request_log` entry
 
 For streaming requests, the response body is not recorded (too large / unbounded). Response headers and status are still captured.
 
@@ -168,11 +169,13 @@ Audit logging must never affect proxy behavior:
 
 #### 4.9.5 Audit Page (Frontend)
 - Dedicated page at `/audit` accessible from sidebar navigation
-- Filterable list of audit records: provider, model, status code, time range
+- Filterable list of audit records: provider, model, endpoint, status code, time range
 - Paginated results with preview of request body (first 200 chars)
-- Detail view (modal/slide-over) showing full request and response with:
-  - Pretty-printed JSON bodies in monospace code blocks
-  - Redacted headers clearly marked
+- Endpoint column showing endpoint description (or base URL fallback) for each audit record
+- Detail view as a wide tabbed modal dialog with:
+  - Summary strip: model, provider, endpoint (ID + description + base URL), status, duration, timestamp
+  - Request tab: method, URL, headers (redacted, pretty-printed JSON), body (pretty-printed JSON)
+  - Response tab: status, headers (pretty-printed JSON), body (pretty-printed JSON)
   - "Response body not recorded" notice for streaming requests
 - Bulk deletion controls are provided in Settings under "Data Management"
 
@@ -197,10 +200,7 @@ The cutoff is computed server-side from UTC app time as `current_utc - N days`. 
 
 #### 4.10.3 Frontend UI
 Batch deletion controls are placed on the Settings page under a "Data Management" section:
-- Two subsections: "Request Logs" and "Audit Logs"
-- Each subsection has three preset buttons: "Older than 7 days", "Older than 15 days", "Older than 30 days"
-- Each subsection has a custom days input with a "Delete older than custom days" button
-- Each subsection has a "Delete all" button (destructive variant)
+- Single action builder pattern: select data type (Request Logs / Audit Logs) → select action (preset: older than 7/15/30 days, custom days, or delete all) → click "Delete"
 - Each action shows a confirmation dialog before executing with context-appropriate wording
 - After deletion, a toast shows the count of deleted records
 - All delete actions are disabled while a deletion is in progress
