@@ -29,6 +29,7 @@ This plan is synthesized from:
 - `docs/DEPLOYMENT.md`
 - `docs/DESIGN_REQUEST_AUDIT.md`
 - `docs/DESIGN_CONFIG_EXPORT_IMPORT.md`
+- Configurable Header Blocklist (CRUD API) design plan
 - Existing `docs/SMOKE_TEST_PLAN.md` (replaced by this file)
 
 ---
@@ -124,10 +125,10 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/config/export` | H01-H04 |
 | `POST /api/config/import` | H05-H07 |
 | `GET /api/config/header-blocklist-rules` | K01 |
-| `GET /api/config/header-blocklist-rules/{id}` | K05 |
-| `POST /api/config/header-blocklist-rules` | K02-K04 |
-| `PATCH /api/config/header-blocklist-rules/{id}` | K05-K07 |
-| `DELETE /api/config/header-blocklist-rules/{id}` | K08-K09 |
+| `GET /api/config/header-blocklist-rules/{id}` | K05-K06 |
+| `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15 |
+| `PATCH /api/config/header-blocklist-rules/{id}` | K07-K09 |
+| `DELETE /api/config/header-blocklist-rules/{id}` | K10-K11 |
 
 ---
 
@@ -296,28 +297,69 @@ Prepare seed state through API (not manual DB edits):
 
 ## K. Header Blocklist
 
+### K.1 CRUD API
+
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K01 | P0 | List rules returns seeded system defaults | `200`, includes `cf-*`, `x-forwarded-*`, etc. |
-| K02 | P0 | Create user rule (exact match) | `201`, rule stored |
+| K01 | P0 | List rules returns seeded system defaults | `200`, includes `cf-*`, `x-forwarded-*`, tracing headers, etc. ordered by `is_system DESC, id ASC` |
+| K02 | P0 | Create user rule (exact match) | `201`, rule stored with `is_system=false` |
 | K03 | P0 | Create user rule (prefix match ending with `-`) | `201`, rule stored |
 | K04 | P0 | Create duplicate rule (match_type + pattern) | `409` |
-| K05 | P0 | Update user rule (name/pattern/match_type/enabled) | `200`, changes persist |
-| K06 | P0 | Update system rule `enabled` only | `200`, change persists |
-| K07 | P0 | Update system rule `name` | `400` |
-| K08 | P0 | Delete user rule | `204` |
-| K09 | P0 | Delete system rule | `400` |
-| K10 | P0 | Proxy request with `cf-ray` header | Header blocked from upstream |
-| K11 | P0 | Proxy request with `x-forwarded-for` | Header blocked |
-| K12 | P0 | Proxy request with allowed header | Passes through to upstream |
-| K13 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent from upstream |
-| K14 | P0 | Provider auth headers remain correct after blocklist | `Authorization`/`x-api-key` present and correct |
-| K15 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON |
-| K16 | P0 | Config import with rules omitted | Preserves existing rules |
-| K17 | P0 | Config import with rules | Replaces user rules, applies system enabled states |
-| K18 | P1 | Disable all rules | Metadata headers flow through to upstream |
-| K19 | P1 | Header blocklist UI section loads in Settings | UI elements visible |
-| K20 | P1 | Toggle system rule enabled state via UI | State persists and reflects in API |
+| K05 | P0 | Get single rule by ID | `200`, returns full rule object |
+| K06 | P0 | Get non-existent rule ID | `404` |
+| K07 | P0 | Update user rule (name/pattern/match_type/enabled) | `200`, changes persist |
+| K08 | P0 | Update system rule `enabled` only | `200`, change persists |
+| K09 | P0 | Update system rule `name`/`pattern`/`match_type` | `400` (immutable fields) |
+| K10 | P0 | Delete user rule | `204` |
+| K11 | P0 | Delete system rule | `400` (not deletable) |
+
+### K.2 Validation
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| K12 | P0 | Create prefix rule without trailing `-` | `422` validation error |
+| K13 | P0 | Create rule with invalid header token chars | `422` validation error |
+| K14 | P0 | Pattern normalized to lowercase | Mixed-case input stored as lowercase |
+| K15 | P0 | Pattern whitespace trimmed | Leading/trailing whitespace removed |
+| K16 | P1 | Invalid `match_type` value | `422` validation error |
+
+### K.3 Proxy Runtime Integration
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| K17 | P0 | Proxy request with `cf-ray` header (prefix `cf-`) | Header blocked from upstream |
+| K18 | P0 | Proxy request with `x-forwarded-for` (exact match) | Header blocked |
+| K19 | P0 | Proxy request with tracing header (`traceparent`, `x-request-id`) | Header blocked |
+| K20 | P0 | Proxy request with allowed header (e.g. `accept`) | Passes through to upstream |
+| K21 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent from upstream after merge |
+| K22 | P0 | Provider auth headers remain correct after blocklist | `Authorization`/`x-api-key`/`x-goog-api-key` present and correct |
+| K23 | P0 | Health-check endpoint also applies blocklist rules | Blocked headers excluded from health-check request |
+| K24 | P1 | Disable all rules | Metadata headers flow through to upstream |
+
+### K.4 Config Export/Import Integration
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=1` |
+| K26 | P0 | Config import with rules omitted | Preserves existing rules (backward compat) |
+| K27 | P0 | Config import with rules provided | Replaces user rules, applies system `enabled` states |
+| K28 | P0 | Config import with unknown system pattern | `400` rejection |
+| K29 | P1 | Config import roundtrip preserves rule state | Export → import → export yields identical rules |
+
+### K.5 Frontend UI (Settings Page)
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| K30 | P0 | Header blocklist card loads in Settings | Card visible with title, description, "Add Rule" button |
+| K31 | P0 | System rules collapsible section | Expands to show system rules table with enabled toggles |
+| K32 | P0 | User rules collapsible section | Expands to show user rules table (or empty state) |
+| K33 | P0 | Toggle system rule enabled state via UI | Switch updates, state persists on reload, reflects in API |
+| K34 | P0 | Add user rule via dialog | Fill name/type/pattern → Save → rule appears in user rules table |
+| K35 | P0 | Edit user rule via dialog | Click edit → modify fields → Save → changes reflected |
+| K36 | P0 | Delete user rule via dialog | Click delete → confirm → rule removed from table |
+| K37 | P0 | System rule edit/delete buttons disabled | Pencil and trash icons disabled for system rules |
+| K38 | P1 | Add rule validation: prefix without trailing `-` | Error toast or inline validation prevents save |
+| K39 | P1 | Add rule validation: empty name or pattern | Save button behavior prevents empty submission |
 
 ---
 
@@ -327,10 +369,11 @@ Prepare seed state through API (not manual DB edits):
 2. B (CRUD and validation).
 3. C and D (proxy and health-check behavior).
 4. E and F (stats and audit).
-5. K (header blocklist).
-6. G and H in isolated destructive lane.
-7. I (frontend full-stack smoke).
-8. J (non-functional quick pass).
+5. K.1–K.2 (header blocklist CRUD and validation).
+6. K.3 (header blocklist proxy runtime integration).
+7. G, H, and K.4 in isolated destructive lane.
+8. I and K.5 (frontend full-stack smoke).
+9. J (non-functional quick pass).
 
 ---
 
@@ -374,3 +417,7 @@ Notes:
 - Destructive tests (`import`, `delete`) must run against isolated smoke DB.
 - Streaming token extraction tests should include both usage-present and usage-missing streams.
 - Failover tests must verify per-attempt logging in both `request_logs` and `audit_logs` (when enabled).
+- Header blocklist rules are resolved from DB per request (no in-memory cache); CRUD updates take effect immediately.
+- Header blocklist matching is case-insensitive (patterns and header names normalized to lowercase).
+- System blocklist rules are seeded on first boot; seed logic preserves existing `enabled` state.
+- Prefix rules must end with `-` (e.g. `cf-`, `x-cf-`); exact rules match the full header name.
