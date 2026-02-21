@@ -54,14 +54,48 @@ git submodule update --init --recursive
 
 The backend will be available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
 
-### Docker
+### Docker Compose (Recommended)
 
 ```bash
-# Pull the latest image
-docker pull ghcr.io/yourusername/prism:latest
+# Clone the repository
+git clone --recursive https://github.com/coachpo/prism.git
+cd prism
 
-# Run the container
-docker run -p 8000:8000 -v $(pwd)/data:/app/data ghcr.io/yourusername/prism:latest
+# Copy environment template
+cp .env.example .env
+
+# Start services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+```
+
+The backend will be available at `http://localhost:8000` and the frontend at `http://localhost:3000`.
+
+### Docker (Manual)
+
+```bash
+# Pull images
+docker pull ghcr.io/coachpo/prism-backend:latest
+docker pull ghcr.io/coachpo/prism-frontend:latest
+
+# Run backend
+docker run -d \
+  --name prism-backend \
+  -p 8000:8000 \
+  -v prism_data:/app/data \
+  ghcr.io/coachpo/prism-backend:latest
+
+# Run frontend
+docker run -d \
+  --name prism-frontend \
+  -p 3000:3000 \
+  -e VITE_API_BASE=http://localhost:8000 \
+  ghcr.io/coachpo/prism-frontend:latest
 ```
 
 ---

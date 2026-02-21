@@ -1,0 +1,36 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/coachpo/prism-backend:latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-/app/data/gateway.db}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - prism_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/providers || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/coachpo/prism-frontend:latest}
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --timeout=2 http://localhost:3000/healthz | grep -q '\"ok\":true' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  prism_data:
