@@ -2,25 +2,28 @@
 
 **A lightweight, self-hosted LLM proxy gateway with intelligent routing, load balancing, and comprehensive observability.**
 
-Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropic, Google Gemini), allowing you to configure, route, and load-balance requests through a single endpoint with a web-based management dashboard.
+Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropic, Gemini), allowing you to configure, route, and load-balance requests through a single endpoint with a web-based management dashboard.
 
 ---
 
 ## Features
 
 ### Core Capabilities
-- **Multi-Provider Support**: Route requests to OpenAI, Anthropic, and Google Gemini through a single `/v1/*` endpoint
+
+- **Multi-Provider Support**: Route requests to OpenAI, Anthropic, and Gemini through a single `/v1/*` endpoint
 - **Model Aliasing**: Create proxy models that resolve ID variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
 - **Load Balancing**: Single, round-robin, and failover strategies with automatic endpoint health tracking
 - **Streaming Support**: Full support for SSE streaming responses with transparent pass-through
 
 ### Observability & Management
+
 - **Request Telemetry**: Track latency, token usage, success rates, and error patterns
 - **Audit Logging**: Optional per-provider request/response body capture with header redaction
 - **Success Rate Badges**: Real-time endpoint health visualization based on 24h request data
 - **Config Export/Import**: Full configuration backup and restore
 
 ### Architecture
+
 - **Backend**: Python 3.11+ with FastAPI, async SQLAlchemy, aiosqlite
 - **Frontend**: React 19 with TypeScript, Vite, TailwindCSS, shadcn/ui
 - **Database**: SQLite (single-file, zero-config)
@@ -31,6 +34,7 @@ Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropi
 ## Quick Start
 
 ### Prerequisites
+
 - Python 3.11+
 - Node.js 18+
 - Git
@@ -109,12 +113,14 @@ Navigate to **Settings** and add API keys for your providers (OpenAI, Anthropic,
 ### 2. Create Models
 
 Go to **Models** → **Add Model**:
+
 - **Native models**: Real models with their own endpoint configurations
 - **Proxy models**: Aliases that forward to native models (for ID resolution)
 
 ### 3. Add Endpoints
 
 For native models, add one or more endpoints:
+
 - Base URL (e.g., `https://api.openai.com/v1`)
 - API Key
 - Priority (lower = tried first)
@@ -134,6 +140,7 @@ curl http://localhost:8000/v1/chat/completions \
 ```
 
 Prism will:
+
 1. Resolve the model (handle aliases if it's a proxy)
 2. Select an endpoint based on load balancing strategy
 3. Forward the request with the correct provider auth headers
@@ -216,10 +223,12 @@ See [frontend/README.md](frontend/README.md) for more details.
 ### Environment Variables
 
 **Backend:**
+
 - `BACKEND_PORT` - Server port (default: 8000)
 - `DATABASE_URL` - SQLite database path (default: `gateway.db`)
 
 **Frontend:**
+
 - `VITE_API_BASE` - Backend API URL (default: `http://localhost:8000`)
 - `FRONTEND_PORT` - Dev server port (default: 5173)
 
@@ -232,6 +241,7 @@ Prism uses SQLite with automatic schema migrations. The database file is created
 ## Security Considerations
 
 Prism is designed for **trusted local/LAN deployments**:
+
 - No authentication layer (wildcard CORS)
 - API keys stored in plaintext in SQLite
 - No rate limiting or abuse protection
@@ -243,6 +253,7 @@ Prism is designed for **trusted local/LAN deployments**:
 ## Contributing
 
 Contributions are welcome! Please:
+
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes

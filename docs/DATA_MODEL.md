@@ -53,43 +53,45 @@
 
 Represents an LLM API provider type.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| name | VARCHAR(100) | NOT NULL, UNIQUE | Display name (e.g., "OpenAI") |
-| provider_type | VARCHAR(50) | NOT NULL | Enum: `openai`, `anthropic`, `gemini` |
-| description | TEXT | NULLABLE | Optional description |
-| audit_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether to record audit logs for this provider's proxy requests |
-| audit_capture_bodies | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether request/response bodies are stored for audited requests on this provider |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| Column               | Type         | Constraints             | Description                                                                      |
+| -------------------- | ------------ | ----------------------- | -------------------------------------------------------------------------------- |
+| id                   | INTEGER      | PK, AUTOINCREMENT       | Unique identifier                                                                |
+| name                 | VARCHAR(100) | NOT NULL, UNIQUE        | Display name (e.g., "OpenAI")                                                    |
+| provider_type        | VARCHAR(50)  | NOT NULL                | Enum: `openai`, `anthropic`, `gemini`                                            |
+| description          | TEXT         | NULLABLE                | Optional description                                                             |
+| audit_enabled        | BOOLEAN      | NOT NULL, DEFAULT FALSE | Whether to record audit logs for this provider's proxy requests                  |
+| audit_capture_bodies | BOOLEAN      | NOT NULL, DEFAULT TRUE  | Whether request/response bodies are stored for audited requests on this provider |
+| created_at           | DATETIME     | NOT NULL, DEFAULT NOW   | Creation timestamp                                                               |
+| updated_at           | DATETIME     | NOT NULL, DEFAULT NOW   | Last update timestamp                                                            |
 
 Seed data:
+
 ```sql
 INSERT INTO providers (name, provider_type, description) VALUES
   ('OpenAI', 'openai', 'OpenAI API (GPT models)'),
   ('Anthropic', 'anthropic', 'Anthropic API (Claude models)'),
-  ('Google Gemini', 'gemini', 'Google Gemini API');
+  ('Gemini', 'gemini', 'Gemini API');
 ```
 
 ### 2.2 `model_configs`
 
 Maps a model ID string to a provider and load balancing configuration. Supports two model types: native (real model with endpoints) and proxy (alias that forwards to a native model).
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| provider_id | INTEGER | FK → providers.id, NOT NULL | Associated provider |
-| model_id | VARCHAR(200) | NOT NULL, UNIQUE | Model identifier (e.g., "gpt-4o", "claude-sonnet-4-5") |
-| display_name | VARCHAR(200) | NULLABLE | Human-friendly name |
-| model_type | VARCHAR(20) | NOT NULL, DEFAULT 'native' | Model type: `native` or `proxy` |
-| redirect_to | VARCHAR(200) | NULLABLE | Target model_id for proxy models (must be a native model of the same provider) |
-| lb_strategy | VARCHAR(50) | NOT NULL, DEFAULT 'single' | Load balancing: `single`, `round_robin`, `failover` (only applies to native models; ignored for proxy models) |
-| is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this model is available for proxying |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| Column       | Type         | Constraints                 | Description                                                                                                   |
+| ------------ | ------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| id           | INTEGER      | PK, AUTOINCREMENT           | Unique identifier                                                                                             |
+| provider_id  | INTEGER      | FK → providers.id, NOT NULL | Associated provider                                                                                           |
+| model_id     | VARCHAR(200) | NOT NULL, UNIQUE            | Model identifier (e.g., "gpt-4o", "claude-sonnet-4-5")                                                        |
+| display_name | VARCHAR(200) | NULLABLE                    | Human-friendly name                                                                                           |
+| model_type   | VARCHAR(20)  | NOT NULL, DEFAULT 'native'  | Model type: `native` or `proxy`                                                                               |
+| redirect_to  | VARCHAR(200) | NULLABLE                    | Target model_id for proxy models (must be a native model of the same provider)                                |
+| lb_strategy  | VARCHAR(50)  | NOT NULL, DEFAULT 'single'  | Load balancing: `single`, `round_robin`, `failover` (only applies to native models; ignored for proxy models) |
+| is_enabled   | BOOLEAN      | NOT NULL, DEFAULT TRUE      | Whether this model is available for proxying                                                                  |
+| created_at   | DATETIME     | NOT NULL, DEFAULT NOW       | Creation timestamp                                                                                            |
+| updated_at   | DATETIME     | NOT NULL, DEFAULT NOW       | Last update timestamp                                                                                         |
 
 **Constraints:**
+
 - `model_id` is globally unique across all model types
 - When `model_type = 'proxy'`: `redirect_to` must reference an existing native model's `model_id` with the same `provider_id`
 - When `model_type = 'native'`: `redirect_to` must be NULL
@@ -101,21 +103,21 @@ Maps a model ID string to a provider and load balancing configuration. Supports 
 
 Stores BaseURL + APIKey combinations for a model configuration, with health check status.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| model_config_id | INTEGER | FK → model_configs.id, NOT NULL, ON DELETE CASCADE | Parent model config |
-| base_url | VARCHAR(500) | NOT NULL | API base URL (e.g., "https://api.openai.com") |
-| api_key | VARCHAR(500) | NOT NULL | API key for this endpoint |
-| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether this endpoint is selected for use |
-| priority | INTEGER | NOT NULL, DEFAULT 0 | Priority for failover (lower = higher priority) |
-| description | TEXT | NULLABLE | Optional label (e.g., "Production key", "Backup key") |
-| custom_headers | TEXT | NULLABLE | JSON object of custom HTTP headers to append to upstream requests (e.g., `{"X-Custom-Org": "org-123"}`). NULL or empty means no custom headers. |
-| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | Health status: `unknown`, `healthy`, `unhealthy` |
-| health_detail | TEXT | NULLABLE | Detail message from last health check (e.g., error message from upstream) |
-| last_health_check | DATETIME | NULLABLE | Timestamp of last health check |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
-| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| Column            | Type         | Constraints                                        | Description                                                                                                                                     |
+| ----------------- | ------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| id                | INTEGER      | PK, AUTOINCREMENT                                  | Unique identifier                                                                                                                               |
+| model_config_id   | INTEGER      | FK → model_configs.id, NOT NULL, ON DELETE CASCADE | Parent model config                                                                                                                             |
+| base_url          | VARCHAR(500) | NOT NULL                                           | API base URL (e.g., "https://api.openai.com")                                                                                                   |
+| api_key           | VARCHAR(500) | NOT NULL                                           | API key for this endpoint                                                                                                                       |
+| is_active         | BOOLEAN      | NOT NULL, DEFAULT TRUE                             | Whether this endpoint is selected for use                                                                                                       |
+| priority          | INTEGER      | NOT NULL, DEFAULT 0                                | Priority for failover (lower = higher priority)                                                                                                 |
+| description       | TEXT         | NULLABLE                                           | Optional label (e.g., "Production key", "Backup key")                                                                                           |
+| custom_headers    | TEXT         | NULLABLE                                           | JSON object of custom HTTP headers to append to upstream requests (e.g., `{"X-Custom-Org": "org-123"}`). NULL or empty means no custom headers. |
+| health_status     | VARCHAR(20)  | NOT NULL, DEFAULT 'unknown'                        | Health status: `unknown`, `healthy`, `unhealthy`                                                                                                |
+| health_detail     | TEXT         | NULLABLE                                           | Detail message from last health check (e.g., error message from upstream)                                                                       |
+| last_health_check | DATETIME     | NULLABLE                                           | Timestamp of last health check                                                                                                                  |
+| created_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Creation timestamp                                                                                                                              |
+| updated_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Last update timestamp                                                                                                                           |
 
 ## 3. Indexes
 
@@ -140,14 +142,17 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 ## 5. Load Balancing Behavior
 
 ### Strategy: `single`
+
 - Only the endpoint with `is_active = TRUE` and lowest `priority` is used
 - If multiple are active, the lowest priority wins
 
 ### Strategy: `round_robin`
+
 - All endpoints with `is_active = TRUE` are rotated
 - State tracked in-memory (not persisted)
 
 ### Strategy: `failover`
+
 - Endpoints tried in `priority` order (ascending)
 - On failure (HTTP 5xx, 429, timeout, connection error), next endpoint is tried
 - All endpoints exhausted → return 502 to client
@@ -155,6 +160,7 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 ## 6. Model Proxy (Alias) Behavior
 
 ### Resolution Flow
+
 1. Proxy receives request with `model` field (e.g., `claude-sonnet-4-5`)
 2. Look up `model_configs` by `model_id`
 3. If `model_type = 'proxy'`, resolve `redirect_to` to find the target native model
@@ -162,6 +168,7 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 5. The original `model` field in the request body is NOT modified — the gateway is transparent
 
 ### Validation Rules
+
 - A proxy model's `provider_id` must match the target native model's `provider_id`
 - The target model (`redirect_to`) must exist and be of type `native`
 - Circular/chained proxies are rejected at creation/update time
@@ -170,6 +177,7 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 ## 7. Health Check Behavior
 
 ### Check Process
+
 1. User triggers health check via UI or API
 2. Backend sends a real chat completion request using the endpoint's configured model ID and a simple question ("hi")
 3. Uses the same URL-building logic as the proxy engine (`build_upstream_url`) to avoid path duplication
@@ -190,23 +198,23 @@ CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 
 Stores telemetry data for every proxy request processed by the gateway.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| model_id | VARCHAR(200) | NOT NULL | Model ID from the request |
-| provider_type | VARCHAR(50) | NOT NULL | Provider type (openai, anthropic, gemini) |
-| endpoint_id | INTEGER | NULLABLE | Endpoint used (NULL if no endpoint selected) |
-| endpoint_base_url | VARCHAR(500) | NULLABLE | Base URL of the endpoint used |
-| endpoint_description | TEXT | NULLABLE | Description/label of the endpoint used (snapshot at request time) |
-| status_code | INTEGER | NOT NULL | HTTP status code returned |
-| response_time_ms | INTEGER | NOT NULL | Response time in milliseconds |
-| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether the request was streaming |
-| input_tokens | INTEGER | NULLABLE | Input tokens (from upstream response, if available) |
-| output_tokens | INTEGER | NULLABLE | Output tokens (from upstream response, if available) |
-| total_tokens | INTEGER | NULLABLE | Total tokens (from upstream response, if available) |
-| request_path | VARCHAR(500) | NOT NULL | Request path (e.g., /v1/chat/completions) |
-| error_detail | TEXT | NULLABLE | Error message if request failed |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Request timestamp |
+| Column               | Type         | Constraints             | Description                                                       |
+| -------------------- | ------------ | ----------------------- | ----------------------------------------------------------------- |
+| id                   | INTEGER      | PK, AUTOINCREMENT       | Unique identifier                                                 |
+| model_id             | VARCHAR(200) | NOT NULL                | Model ID from the request                                         |
+| provider_type        | VARCHAR(50)  | NOT NULL                | Provider type (openai, anthropic, gemini)                         |
+| endpoint_id          | INTEGER      | NULLABLE                | Endpoint used (NULL if no endpoint selected)                      |
+| endpoint_base_url    | VARCHAR(500) | NULLABLE                | Base URL of the endpoint used                                     |
+| endpoint_description | TEXT         | NULLABLE                | Description/label of the endpoint used (snapshot at request time) |
+| status_code          | INTEGER      | NOT NULL                | HTTP status code returned                                         |
+| response_time_ms     | INTEGER      | NOT NULL                | Response time in milliseconds                                     |
+| is_stream            | BOOLEAN      | NOT NULL, DEFAULT FALSE | Whether the request was streaming                                 |
+| input_tokens         | INTEGER      | NULLABLE                | Input tokens (from upstream response, if available)               |
+| output_tokens        | INTEGER      | NULLABLE                | Output tokens (from upstream response, if available)              |
+| total_tokens         | INTEGER      | NULLABLE                | Total tokens (from upstream response, if available)               |
+| request_path         | VARCHAR(500) | NOT NULL                | Request path (e.g., /v1/chat/completions)                         |
+| error_detail         | TEXT         | NULLABLE                | Error message if request failed                                   |
+| created_at           | DATETIME     | NOT NULL, DEFAULT NOW   | Request timestamp                                                 |
 
 ### 8.2 Indexes
 
@@ -219,6 +227,7 @@ CREATE INDEX idx_request_logs_endpoint_id ON request_logs(endpoint_id);
 ```
 
 ### 8.3 Logging Behavior
+
 - Every proxy request (streaming and non-streaming) is logged after completion
 - Token usage is extracted from the upstream response body when available (OpenAI `usage` field, Anthropic `usage` field)
 - For streaming requests, token usage is extracted from the final SSE chunk if available
@@ -232,25 +241,25 @@ CREATE INDEX idx_request_logs_endpoint_id ON request_logs(endpoint_id);
 
 Stores full HTTP request/response data for audited proxy requests. Only populated when the provider's `audit_enabled` flag is `true`.
 
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| request_log_id | INTEGER | FK → request_logs.id, NULLABLE, UNIQUE, ON DELETE SET NULL | Link to the corresponding request_log entry for this upstream attempt |
-| provider_id | INTEGER | FK → providers.id, NOT NULL | Provider that handled this request |
-| model_id | VARCHAR(200) | NOT NULL | Model ID from the request |
-| endpoint_id | INTEGER | NULLABLE | Endpoint used for this upstream attempt (NULL if no endpoint selected) |
-| endpoint_base_url | VARCHAR(500) | NULLABLE | Base URL of the endpoint used (snapshot at request time) |
-| endpoint_description | TEXT | NULLABLE | Description/label of the endpoint used (snapshot at request time) |
-| request_method | VARCHAR(10) | NOT NULL | HTTP method (POST, GET, etc.) |
-| request_url | VARCHAR(2000) | NOT NULL | Full upstream URL the request was sent to |
-| request_headers | TEXT | NOT NULL | JSON object of request headers (sensitive values redacted) |
-| request_body | TEXT | NULLABLE | Request body as text. NULL if no body. Truncated to 64KB. |
-| response_status | INTEGER | NOT NULL | HTTP status code from upstream |
-| response_headers | TEXT | NULLABLE | JSON object of response headers (sensitive values redacted) |
-| response_body | TEXT | NULLABLE | Response body as text. NULL for streaming requests. Truncated to 64KB. |
-| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Whether this was a streaming request |
-| duration_ms | INTEGER | NOT NULL | Total request duration in milliseconds |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | When the audit record was created |
+| Column               | Type          | Constraints                                                | Description                                                            |
+| -------------------- | ------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------- |
+| id                   | INTEGER       | PK, AUTOINCREMENT                                          | Unique identifier                                                      |
+| request_log_id       | INTEGER       | FK → request_logs.id, NULLABLE, UNIQUE, ON DELETE SET NULL | Link to the corresponding request_log entry for this upstream attempt  |
+| provider_id          | INTEGER       | FK → providers.id, NOT NULL                                | Provider that handled this request                                     |
+| model_id             | VARCHAR(200)  | NOT NULL                                                   | Model ID from the request                                              |
+| endpoint_id          | INTEGER       | NULLABLE                                                   | Endpoint used for this upstream attempt (NULL if no endpoint selected) |
+| endpoint_base_url    | VARCHAR(500)  | NULLABLE                                                   | Base URL of the endpoint used (snapshot at request time)               |
+| endpoint_description | TEXT          | NULLABLE                                                   | Description/label of the endpoint used (snapshot at request time)      |
+| request_method       | VARCHAR(10)   | NOT NULL                                                   | HTTP method (POST, GET, etc.)                                          |
+| request_url          | VARCHAR(2000) | NOT NULL                                                   | Full upstream URL the request was sent to                              |
+| request_headers      | TEXT          | NOT NULL                                                   | JSON object of request headers (sensitive values redacted)             |
+| request_body         | TEXT          | NULLABLE                                                   | Request body as text. NULL if no body. Truncated to 64KB.              |
+| response_status      | INTEGER       | NOT NULL                                                   | HTTP status code from upstream                                         |
+| response_headers     | TEXT          | NULLABLE                                                   | JSON object of response headers (sensitive values redacted)            |
+| response_body        | TEXT          | NULLABLE                                                   | Response body as text. NULL for streaming requests. Truncated to 64KB. |
+| is_stream            | BOOLEAN       | NOT NULL, DEFAULT FALSE                                    | Whether this was a streaming request                                   |
+| duration_ms          | INTEGER       | NOT NULL                                                   | Total request duration in milliseconds                                 |
+| created_at           | DATETIME      | NOT NULL, DEFAULT NOW                                      | When the audit record was created                                      |
 
 ### 9.2 Indexes
 
@@ -264,6 +273,7 @@ CREATE INDEX idx_audit_logs_request_log_id ON audit_logs(request_log_id);
 ```
 
 ### 9.3 Audit Behavior
+
 - Only records when `providers.audit_enabled = TRUE` for the request's provider
 - One audit row is recorded per upstream attempt (including failover attempts)
 - Sensitive header values are redacted before storage (API keys, auth tokens → `[REDACTED]`)
@@ -278,7 +288,9 @@ CREATE INDEX idx_audit_logs_request_log_id ON audit_logs(request_log_id);
 - Deleting audit_logs does NOT affect linked request_logs
 
 ### 9.4 Redaction Rules
+
 Headers with the following names have their values replaced with `[REDACTED]`:
+
 - `authorization` (value becomes `Bearer [REDACTED]`)
 - `x-api-key`
 - `x-goog-api-key`
@@ -287,6 +299,7 @@ Headers with the following names have their values replaced with `[REDACTED]`:
 ## 10. Computed Fields (Not Stored)
 
 ### 10.1 Endpoint Success Rate
+
 Computed at query time from `request_logs`, not stored in the `endpoints` table.
 
 ```sql
@@ -308,6 +321,7 @@ GROUP BY endpoint_id;
 - Badge color thresholds: ≥98% green, 75-98% yellow, <75% red, N/A gray
 
 ### 10.2 Model Health (Aggregated)
+
 Computed by aggregating endpoint success rates for a model's endpoints.
 
 - Weighted average: `SUM(endpoint_success_count) / SUM(endpoint_total_requests) * 100`

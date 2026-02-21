@@ -2,7 +2,7 @@
 
 ## 1. Product Overview
 
-Prism is a lightweight, self-hosted application that acts as a unified proxy for multiple LLM API providers. It allows a single user to configure, route, and load-balance requests across OpenAI, Anthropic, and Google Gemini APIs through a single endpoint with a web-based management UI.
+Prism is a lightweight, self-hosted application that acts as a unified proxy for multiple LLM API providers. It allows a single user to configure, route, and load-balance requests across OpenAI, Anthropic, and Gemini APIs through a single endpoint with a web-based management UI.
 
 ## 2. Problem Statement
 
@@ -19,7 +19,7 @@ Single user (developer/power user) running the application locally or on a local
 ## 4. Core Features
 
 ### 4.1 Multi-Provider Proxy
-- Transparent proxy for OpenAI, Anthropic, and Google Gemini APIs
+- Transparent proxy for OpenAI, Anthropic, and Gemini APIs
 - Supports both streaming (SSE) and non-streaming responses
 - Preserves original API request/response formats per provider
 - Provider detection based on model ID configuration
@@ -249,7 +249,7 @@ Custom headers override any same-name header from earlier steps. This is intenti
 - Headers are displayed in the endpoint detail view
 
 ### 4.12 Supported Providers
-- The application exclusively supports three LLM providers: **OpenAI**, **Anthropic**, and **Google Gemini**
+- The application exclusively supports three LLM providers: **OpenAI**, **Anthropic**, and **Gemini**
 - All UI dropdowns, filters, and selectors only show these three providers
 - No other providers (e.g., Ollama, vLLM) are available in any part of the application
 
