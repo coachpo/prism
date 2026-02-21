@@ -1,6 +1,8 @@
 [submodule "backend"]
 	path = backend
-	url = ./backend
+	url = https://github.com/coachpo/prism-backend.git
+	branch = main
 [submodule "frontend"]
 	path = frontend
-	url = ./frontend
+	url = https://github.com/coachpo/prism-frontend.git
+	branch = main
