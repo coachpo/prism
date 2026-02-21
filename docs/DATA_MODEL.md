@@ -44,8 +44,21 @@
                                                     │   │ created_at           │
                                                     │   └──────────────────────┘
                                                    │
-                                            providers.id
+                                             providers.id
 ```
+
+┌──────────────────────────┐
+│  header_blocklist_rules  │
+├──────────────────────────┤
+│ id (PK)                  │
+│ name                     │
+│ match_type               │
+│ pattern                  │
+│ enabled                  │
+│ is_system                │
+│ created_at               │
+│ updated_at               │
+└──────────────────────────┘
 
 ## 2. Table Definitions
 
@@ -119,6 +132,54 @@ Stores BaseURL + APIKey combinations for a model configuration, with health chec
 | created_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Creation timestamp                                                                                                                              |
 | updated_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Last update timestamp                                                                                                                           |
 
+### 2.4 `header_blocklist_rules`
+
+Stores rules for blocking specific HTTP headers from being sent to upstream providers.
+
+| Column     | Type         | Constraints             | Description                                                                 |
+| ---------- | ------------ | ----------------------- | --------------------------------------------------------------------------- |
+| id         | INTEGER      | PK, AUTOINCREMENT       | Unique identifier                                                           |
+| name       | VARCHAR(200) | NOT NULL                | Rule name/description                                                       |
+| match_type | VARCHAR(20)  | NOT NULL                | Match strategy: `exact` or `prefix`                                         |
+| pattern    | VARCHAR(200) | NOT NULL                | Header name pattern to match (case-insensitive)                             |
+| enabled    | BOOLEAN      | NOT NULL, DEFAULT TRUE  | Whether the rule is active                                                  |
+| is_system  | BOOLEAN      | NOT NULL, DEFAULT FALSE | Whether this is a protected system rule (not deletable or pattern-editable) |
+| created_at | DATETIME     | NOT NULL, DEFAULT NOW   | Creation timestamp                                                          |
+| updated_at | DATETIME     | NOT NULL, DEFAULT NOW   | Last update timestamp                                                       |
+
+**Constraints:**
+- `UNIQUE(match_type, pattern)`: Prevents duplicate rules for the same pattern.
+- Prefix patterns must end with `-` (enforced at application level).
+
+Seed data (system defaults):
+```sql
+INSERT INTO header_blocklist_rules (name, match_type, pattern, enabled, is_system) VALUES
+  ('Cloudflare Ray', 'exact', 'cf-ray', 1, 1),
+  ('Cloudflare IP Country', 'exact', 'cf-ipcountry', 1, 1),
+  ('Cloudflare Visitor', 'exact', 'cf-visitor', 1, 1),
+  ('Cloudflare Metadata (Prefix)', 'prefix', 'cf-', 1, 1),
+  ('Cloudflare Metadata (X-Prefix)', 'prefix', 'x-cf-', 1, 1),
+  ('Cloudflare Access (Prefix)', 'prefix', 'cf-access-', 1, 1),
+  ('B3 Tracing (Prefix)', 'prefix', 'x-b3-', 1, 1),
+  ('Datadog Tracing (Prefix)', 'prefix', 'x-datadog-', 1, 1),
+  ('CDN Loop', 'exact', 'cdn-loop', 1, 1),
+  ('Forwarded', 'exact', 'forwarded', 1, 1),
+  ('Via', 'exact', 'via', 1, 1),
+  ('X-Forwarded-For', 'exact', 'x-forwarded-for', 1, 1),
+  ('X-Forwarded-Host', 'exact', 'x-forwarded-host', 1, 1),
+  ('X-Forwarded-Port', 'exact', 'x-forwarded-port', 1, 1),
+  ('X-Forwarded-Proto', 'exact', 'x-forwarded-proto', 1, 1),
+  ('X-Real-IP', 'exact', 'x-real-ip', 1, 1),
+  ('True-Client-IP', 'exact', 'true-client-ip', 1, 1),
+  ('Traceparent', 'exact', 'traceparent', 1, 1),
+  ('Tracestate', 'exact', 'tracestate', 1, 1),
+  ('Baggage', 'exact', 'baggage', 1, 1),
+  ('X-Request-ID', 'exact', 'x-request-id', 1, 1),
+  ('X-Correlation-ID', 'exact', 'x-correlation-id', 1, 1),
+  ('Amazon Trace ID', 'exact', 'x-amzn-trace-id', 1, 1),
+  ('Google Cloud Trace Context', 'exact', 'x-cloud-trace-context', 1, 1);
+```
+
 ## 3. Indexes
 
 ```sql
@@ -128,6 +189,8 @@ CREATE INDEX idx_model_configs_model_type ON model_configs(model_type);
 CREATE INDEX idx_model_configs_redirect_to ON model_configs(redirect_to);
 CREATE INDEX idx_endpoints_model_config_id ON endpoints(model_config_id);
 CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
+CREATE UNIQUE INDEX idx_header_blocklist_rules_match_pattern ON header_blocklist_rules(match_type, pattern);
+CREATE INDEX idx_header_blocklist_rules_enabled ON header_blocklist_rules(enabled);
 ```
 
 ## 4. Relationships

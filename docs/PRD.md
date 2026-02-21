@@ -253,6 +253,10 @@ Custom headers override any same-name header from earlier steps. This is intenti
 - All UI dropdowns, filters, and selectors only show these three providers
 - No other providers (e.g., Ollama, vLLM) are available in any part of the application
 
+### 4.13 Configurable Header Blocklist
+
+Database-backed header blocklist with CRUD API under `/api/config`. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata (`cf-*`, `x-cf-*`, `cf-access-*`, `x-b3-*`, `x-datadog-*` prefixes and exact matches for `cdn-loop`, `forwarded`, `via`, `x-forwarded-for/host/port/proto`, `x-real-ip`, `true-client-ip`, `traceparent`, `tracestate`, `baggage`, `x-request-id`, `x-correlation-id`, `x-amzn-trace-id`, `x-cloud-trace-context`). System rules are visible and toggleable but not deletable or pattern-editable. User rules are fully CRUD-manageable. Rules included in config export/import. Applied in `proxy_service.py` on every request.
+
 ## 5. Non-Functional Requirements
 
 | Requirement | Target |

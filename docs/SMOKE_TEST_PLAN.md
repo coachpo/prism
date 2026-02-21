@@ -9,6 +9,7 @@ This smoke test plan validates all documented workflows and core function paths 
 - Health detection
 - Statistics and token extraction
 - Audit logging and redaction
+- Header blocklist and sanitization
 - Configuration export/import
 - Batch data deletion semantics
 - Frontend management flows
@@ -122,6 +123,11 @@ Prepare seed state through API (not manual DB edits):
 | `DELETE /api/audit/logs` | F13, G04-G05 |
 | `GET /api/config/export` | H01-H04 |
 | `POST /api/config/import` | H05-H07 |
+| `GET /api/config/header-blocklist-rules` | K01 |
+| `GET /api/config/header-blocklist-rules/{id}` | K05 |
+| `POST /api/config/header-blocklist-rules` | K02-K04 |
+| `PATCH /api/config/header-blocklist-rules/{id}` | K05-K07 |
+| `DELETE /api/config/header-blocklist-rules/{id}` | K08-K09 |
 
 ---
 
@@ -288,6 +294,31 @@ Prepare seed state through API (not manual DB edits):
 | J04 | P1 | OpenAPI sanity | Core routes present |
 | J05 | P1 | SQLite hygiene | DB files created in expected location |
 
+## K. Header Blocklist
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| K01 | P0 | List rules returns seeded system defaults | `200`, includes `cf-*`, `x-forwarded-*`, etc. |
+| K02 | P0 | Create user rule (exact match) | `201`, rule stored |
+| K03 | P0 | Create user rule (prefix match ending with `-`) | `201`, rule stored |
+| K04 | P0 | Create duplicate rule (match_type + pattern) | `409` |
+| K05 | P0 | Update user rule (name/pattern/match_type/enabled) | `200`, changes persist |
+| K06 | P0 | Update system rule `enabled` only | `200`, change persists |
+| K07 | P0 | Update system rule `name` | `400` |
+| K08 | P0 | Delete user rule | `204` |
+| K09 | P0 | Delete system rule | `400` |
+| K10 | P0 | Proxy request with `cf-ray` header | Header blocked from upstream |
+| K11 | P0 | Proxy request with `x-forwarded-for` | Header blocked |
+| K12 | P0 | Proxy request with allowed header | Passes through to upstream |
+| K13 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent from upstream |
+| K14 | P0 | Provider auth headers remain correct after blocklist | `Authorization`/`x-api-key` present and correct |
+| K15 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON |
+| K16 | P0 | Config import with rules omitted | Preserves existing rules |
+| K17 | P0 | Config import with rules | Replaces user rules, applies system enabled states |
+| K18 | P1 | Disable all rules | Metadata headers flow through to upstream |
+| K19 | P1 | Header blocklist UI section loads in Settings | UI elements visible |
+| K20 | P1 | Toggle system rule enabled state via UI | State persists and reflects in API |
+
 ---
 
 ## 8. Recommended Execution Order
@@ -296,9 +327,10 @@ Prepare seed state through API (not manual DB edits):
 2. B (CRUD and validation).
 3. C and D (proxy and health-check behavior).
 4. E and F (stats and audit).
-5. G and H in isolated destructive lane.
-6. I (frontend full-stack smoke).
-7. J (non-functional quick pass).
+5. K (header blocklist).
+6. G and H in isolated destructive lane.
+7. I (frontend full-stack smoke).
+8. J (non-functional quick pass).
 
 ---
 

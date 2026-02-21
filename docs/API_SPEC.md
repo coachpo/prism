@@ -276,6 +276,152 @@ Additionally, `build_upstream_url()` includes a runtime failsafe that auto-corre
 
 ---
 
+### 1.4 Config Export/Import
+
+#### Export Configuration
+```
+GET /api/config/export
+```
+Response `200`:
+```json
+{
+  "version": 1,
+  "exported_at": "2025-01-15T10:30:00Z",
+  "providers": [
+    {
+      "name": "OpenAI",
+      "provider_type": "openai",
+      "description": "OpenAI API (GPT models)",
+      "audit_enabled": false,
+      "audit_capture_bodies": true
+    }
+  ],
+  "models": [
+    {
+      "provider_type": "openai",
+      "model_id": "gpt-4o",
+      "display_name": "GPT-4o",
+      "model_type": "native",
+      "redirect_to": null,
+      "lb_strategy": "round_robin",
+      "is_enabled": true,
+      "endpoints": [
+        {
+          "base_url": "https://api.openai.com",
+          "api_key": "sk-abc123...",
+          "is_active": true,
+          "priority": 0,
+          "description": "Primary production key",
+          "auth_type": null,
+          "custom_headers": {
+            "X-Custom-Org": "org-123"
+          }
+        }
+      ]
+    }
+  ],
+  "header_blocklist_rules": [
+    {
+      "name": "Cloudflare Ray",
+      "match_type": "exact",
+      "pattern": "cf-ray",
+      "enabled": true,
+      "is_system": true
+    }
+  ]
+}
+```
+The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="gateway-config-YYYY-MM-DD.json"`.
+
+#### Import Configuration
+```
+POST /api/config/import
+Content-Type: application/json
+```
+Request: Full configuration object (same schema as export, `exported_at` is optional).
+Response `200`:
+```json
+{
+  "providers_imported": 3,
+  "models_imported": 5,
+  "endpoints_imported": 10
+}
+```
+Importing is a destructive operation that replaces all existing providers, models, and endpoints. User-defined header blocklist rules are replaced, while system rules have their `enabled` state updated from the import data.
+
+---
+
+### 1.5 Header Blocklist Rules
+
+#### List Header Blocklist Rules
+```
+GET /api/config/header-blocklist-rules
+```
+Query parameters:
+- `include_disabled` (boolean, default `true`): Whether to include disabled rules in the list.
+
+Response `200`:
+```json
+[
+  {
+    "id": 1,
+    "name": "Cloudflare Ray",
+    "match_type": "exact",
+    "pattern": "cf-ray",
+    "enabled": true,
+    "is_system": true,
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:00:00Z"
+  }
+]
+```
+
+#### Get Header Blocklist Rule
+```
+GET /api/config/header-blocklist-rules/{id}
+```
+Response `200`: Single rule object.
+
+#### Create Header Blocklist Rule
+```
+POST /api/config/header-blocklist-rules
+Content-Type: application/json
+```
+Request:
+```json
+{
+  "name": "My Custom Header",
+  "match_type": "prefix",
+  "pattern": "x-custom-",
+  "enabled": true
+}
+```
+Response `201`: Created rule object. Returns `409` if a rule with the same `match_type` and `pattern` already exists. Prefix patterns must end with `-`.
+
+#### Update Header Blocklist Rule
+```
+PATCH /api/config/header-blocklist-rules/{id}
+Content-Type: application/json
+```
+Request (all fields optional):
+```json
+{
+  "name": "Updated Name",
+  "enabled": false
+}
+```
+Response `200`: Updated rule object.
+Note: For system rules (`is_system: true`), only the `enabled` field can be modified. Attempting to change other fields returns `400`.
+
+#### Delete Header Blocklist Rule
+```
+DELETE /api/config/header-blocklist-rules/{id}
+```
+Response `204`: No content.
+Note: System rules cannot be deleted. Attempting to delete a system rule returns `400`.
+
+---
+
 ## 2. Proxy API
 
 ### 2.1 OpenAI-Compatible Chat Completions

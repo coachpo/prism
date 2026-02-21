@@ -48,9 +48,10 @@ backend/
 │   │   ├── endpoints.py        # CRUD for BaseURL/APIKey combos
 │   │   ├── proxy.py            # LLM proxy endpoints
 │   │   ├── stats.py            # Statistics query endpoints
-│   │   └── audit.py            # Audit log query/delete endpoints
+│   │   ├── audit.py            # Audit log query/delete endpoints
+│   │   └── config.py           # Config export/import + header blocklist CRUD
 │   ├── services/               # Business logic
-│   │   ├── proxy_service.py    # Request forwarding, streaming
+│   │   ├── proxy_service.py    # Request forwarding, streaming, header sanitization
 │   │   ├── loadbalancer.py     # LB strategy, failover
 │   │   ├── stats_service.py    # Request logging, aggregation queries
 │   │   └── audit_service.py    # Audit recording, redaction
@@ -148,10 +149,12 @@ build_upstream_headers():
   3. Add provider extra headers (e.g., anthropic-version)
   4. Apply endpoint custom_headers (from endpoints.custom_headers JSON)
      → Same-name headers from earlier steps are OVERWRITTEN
-  5. Return final header dict
-```
+  5. Apply Header Blocklist (`sanitize_headers`):
+     → Remove any headers matching active exact or prefix rules in `header_blocklist_rules`
+     → This ensures blocked headers (like Cloudflare metadata) never reach the upstream
+  6. Return final header dict
 
-Custom headers are a power-user feature. No header names are blocked — users can override `Authorization`, `Content-Type`, etc. at their own risk. This is acceptable for a trusted local deployment.
+Custom headers are a power-user feature. While they can override most headers, they cannot be used to re-add headers that are blocked by the Header Blocklist. This is enforced by applying the blocklist last in the header construction pipeline.
 
 ## 4. Load Balancing
 
