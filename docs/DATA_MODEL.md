@@ -1,4 +1,4 @@
-# Data Model Document: LLM Proxy Gateway
+# Data Model Document: Prism
 
 ## 1. Entity Relationship Diagram
 

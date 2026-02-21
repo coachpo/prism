@@ -1,8 +1,8 @@
-# Product Requirements Document: LLM Proxy Gateway
+# Product Requirements Document: Prism
 
-## 1. Overview
+## 1. Product Overview
 
-LLM Proxy Gateway is a lightweight, self-hosted application that acts as a unified proxy for multiple LLM API providers. It allows a single user to configure, route, and load-balance requests across OpenAI, Anthropic, and Google Gemini APIs through a single endpoint with a web-based management UI.
+Prism is a lightweight, self-hosted application that acts as a unified proxy for multiple LLM API providers. It allows a single user to configure, route, and load-balance requests across OpenAI, Anthropic, and Google Gemini APIs through a single endpoint with a web-based management UI.
 
 ## 2. Problem Statement
 

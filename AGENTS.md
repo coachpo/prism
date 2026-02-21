@@ -6,12 +6,12 @@
 
 ## OVERVIEW
 
-LLM Proxy Gateway — a lightweight reverse proxy that routes LLM API requests to OpenAI, Anthropic, and Gemini with load balancing, failover, model aliasing, request telemetry, and audit logging. Python/FastAPI backend + React/TypeScript frontend.
+Prism — a lightweight reverse proxy that routes LLM API requests to OpenAI, Anthropic, and Gemini with load balancing, failover, model aliasing, request telemetry, and audit logging. Python/FastAPI backend + React/TypeScript frontend.
 
 ## STRUCTURE
 
 ```
-transparent-agents/
+prism/
 ├── backend/          # FastAPI API + proxy engine (git submodule)
 ├── frontend/         # React SPA dashboard (git submodule)
 ├── docs/             # Architecture, API spec, data model, PRD, deployment, smoke tests

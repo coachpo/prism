@@ -1,4 +1,4 @@
-# API Specification: LLM Proxy Gateway
+# API Specification: Prism
 
 Base URL: `http://localhost:8000`
 

@@ -1,12 +1,11 @@
-# Architecture Document: LLM Proxy Gateway
+# Architecture Document: Prism
 
 ## 1. System Overview
 
 ```
-┌─────────────┐     ┌──────────────────────────────────────┐     ┌──────────────┐
-│             │     │         LLM Proxy Gateway             │     │   Providers  │
-│   Web UI    │────▶│                                      │────▶│  OpenAI API  │
-│  (React)    │     │  ┌─────────┐  ┌──────────┐          │     │ Anthropic API│
+┌─────────────┐     ┌──────────────────────────────────────────┐     ┌──────────────┐
+│   Client    │     │                 Prism                    │     │   Providers  │
+│             │     │  ┌──────────┐  ┌──────────┐             │     │              │
 │  Port 5173  │◀────│  │ Config  │  │  Proxy   │          │◀────│  Gemini API  │
 │             │     │  │  API    │  │  Engine  │          │     │              │
 └─────────────┘     │  └────┬────┘  └────┬─────┘          │     └──────────────┘

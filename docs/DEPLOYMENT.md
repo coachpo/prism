@@ -1,4 +1,4 @@
-# Deployment Guide: LLM Proxy Gateway
+# Deployment Guide: Prism
 
 ## Prerequisites
 
@@ -83,7 +83,7 @@ CORS is configured to allow all origins (`*`) by default. This is suitable for l
 ## Project Structure
 
 ```
-transparent-agents/
+prism/
 ├── docs/                   # Documentation
 │   ├── PRD.md
 │   ├── ARCHITECTURE.md

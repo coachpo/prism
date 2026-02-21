@@ -1,4 +1,4 @@
-# Smoke Test Plan: LLM Proxy Gateway (Comprehensive)
+# Smoke Test Plan: Prism (Comprehensive)
 
 ## 1. Scope and Goals
 
