@@ -71,7 +71,7 @@ if [ "$START_FRONTEND" = true ]; then
     # --- Frontend setup ---
     if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
         echo "Installing frontend dependencies..."
-        (cd "$FRONTEND_DIR" && npm install)
+        (cd "$FRONTEND_DIR" && pnpm install)
     fi
 fi
 

@@ -4,7 +4,7 @@
 
 - Python 3.11+ (backend)
 - Node.js 18+ (frontend)
-- npm 9+ (frontend package manager)
+- pnpm 10.30.1 (frontend package manager)
 
 ## Quick Start
 
@@ -36,10 +36,10 @@ The backend will:
 cd frontend
 
 # Install dependencies
-npm install
+pnpm install
 
 # Run development server
-npm run dev
+pnpm run dev
 ```
 
 The frontend will be available at `http://localhost:5173`.
@@ -71,10 +71,11 @@ curl http://localhost:8000/v1/chat/completions \
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `sqlite+aiosqlite:///./gateway.db` | SQLite database path |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./data/gateway.db` | SQLite database path |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8000` | Server port |
 | `LOG_LEVEL` | `info` | Logging level |
+| `VITE_API_BASE` | *(unset, same-origin)* | Optional frontend API base URL override |
 
 ### CORS
 

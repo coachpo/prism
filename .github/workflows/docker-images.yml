@@ -36,7 +36,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME_BACKEND: ${{ github.event.repository.name }}-backend
   IMAGE_NAME_FRONTEND: ${{ github.event.repository.name }}-frontend
-  VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
 
   BUILD_PLATFORM: linux/arm64
 
@@ -106,4 +105,3 @@ jobs:
           platforms: ${{ env.BUILD_PLATFORM }}
           provenance: false
           sbom: false
-          build-args: ${{ matrix.service == 'frontend' && format('VITE_API_BASE={0}', env.VITE_API_BASE) || '' }}

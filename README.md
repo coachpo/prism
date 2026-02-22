@@ -98,9 +98,12 @@ docker run -d \
 docker run -d \
   --name prism-frontend \
   -p 3000:3000 \
-  -e VITE_API_BASE=http://localhost:8000 \
   ghcr.io/coachpo/prism-frontend:latest
 ```
+
+The frontend image defaults to **same-origin API calls**. In production, put frontend and backend behind a reverse proxy and route:
+- `/` to frontend (`:3000`)
+- `/api`, `/v1`, `/v1beta` to backend (`:8000`)
 
 ---
 
@@ -202,16 +205,16 @@ See [backend/README.md](backend/README.md) for more details.
 cd frontend
 
 # Install dependencies
-npm install
+pnpm install
 
 # Run dev server
-npm run dev
+pnpm run dev
 
 # Build for production
-npm run build
+pnpm run build
 
 # Lint
-npm run lint
+pnpm run lint
 ```
 
 See [frontend/README.md](frontend/README.md) for more details.
@@ -229,8 +232,10 @@ See [frontend/README.md](frontend/README.md) for more details.
 
 **Frontend:**
 
-- `VITE_API_BASE` - Backend API URL (default: `http://localhost:8000`)
+- `VITE_API_BASE` - Optional backend API base URL (default: same-origin `""`)
 - `FRONTEND_PORT` - Dev server port (default: 5173)
+
+When `VITE_API_BASE` is unset, local `./start.sh full` development still works because Vite proxies `/api`, `/v1`, and `/v1beta` to the backend.
 
 ### Database
 

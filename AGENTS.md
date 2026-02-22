@@ -103,7 +103,7 @@ cd frontend && pnpm run build    # tsc -b && vite build
 - `start.sh` auto-creates venv and installs deps if missing
 - Backend port: 8000 (env: `BACKEND_PORT`), Frontend dev port: 5173 (env: `FRONTEND_PORT`), Frontend Docker port: 3000
 - API docs at `http://localhost:8000/docs` (Swagger) and `/redoc`
-- Frontend API base URL configurable via `VITE_API_BASE` env var (default: `http://localhost:8000`)
+- Frontend API base URL configurable via `VITE_API_BASE` env var (default: same-origin `""`; Vite dev proxy handles local `/api` + `/v1*` forwarding)
 - Test deps (pytest, pytest-asyncio) are installed in venv but NOT listed in requirements.txt
 - CI/CD: GitHub Actions builds arm64 Docker images to GHCR (`ghcr.io/coachpo/prism-{backend|frontend}`) on push to main/tags; daily cleanup at 3am UTC
 - Docker Compose: frontend depends on backend health (`service_healthy`); backend healthcheck hits `/api/providers`
