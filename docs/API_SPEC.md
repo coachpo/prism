@@ -71,7 +71,9 @@ Response `200`:
     "display_name": "GPT-4o",
     "model_type": "native",
     "redirect_to": null,
-    "lb_strategy": "round_robin",
+    "lb_strategy": "failover",
+    "failover_recovery_enabled": true,
+    "failover_recovery_cooldown_seconds": 60,
     "is_enabled": true,
     "endpoint_count": 2,
     "active_endpoint_count": 2,
@@ -117,6 +119,8 @@ Request (native model):
   "display_name": "GPT-4o",
   "model_type": "native",
   "lb_strategy": "single",
+  "failover_recovery_enabled": true,
+  "failover_recovery_cooldown_seconds": 60,
   "is_enabled": true
 }
 ```
@@ -150,7 +154,7 @@ Request (all fields optional):
   "model_id": "gpt-4o-updated",
   "display_name": "GPT-4o (Updated)",
   "model_type": "native",
-  "lb_strategy": "round_robin",
+  "lb_strategy": "failover",
   "is_enabled": true
 }
 ```
@@ -285,7 +289,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exported_at": "2025-01-15T10:30:00Z",
   "providers": [
     {
@@ -303,7 +307,9 @@ Response `200`:
       "display_name": "GPT-4o",
       "model_type": "native",
       "redirect_to": null,
-      "lb_strategy": "round_robin",
+      "lb_strategy": "failover",
+      "failover_recovery_enabled": true,
+      "failover_recovery_cooldown_seconds": 60,
       "is_enabled": true,
       "endpoints": [
         {

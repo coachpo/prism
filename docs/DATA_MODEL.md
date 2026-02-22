@@ -98,7 +98,9 @@ Maps a model ID string to a provider and load balancing configuration. Supports 
 | display_name | VARCHAR(200) | NULLABLE                    | Human-friendly name                                                                                           |
 | model_type   | VARCHAR(20)  | NOT NULL, DEFAULT 'native'  | Model type: `native` or `proxy`                                                                               |
 | redirect_to  | VARCHAR(200) | NULLABLE                    | Target model_id for proxy models (must be a native model of the same provider)                                |
-| lb_strategy  | VARCHAR(50)  | NOT NULL, DEFAULT 'single'  | Load balancing: `single`, `round_robin`, `failover` (only applies to native models; ignored for proxy models) |
+| lb_strategy | VARCHAR(50) | NOT NULL, DEFAULT 'single' | Load balancing: `single`, `failover` (only applies to native models; ignored for proxy models) |
+| failover_recovery_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether automatic failover recovery is enabled (only applies to native models with `lb_strategy='failover'`) |
+| failover_recovery_cooldown_seconds | INTEGER | NOT NULL, DEFAULT 60 | Cooldown period (1-3600 seconds) before retrying a failed endpoint (only applies when recovery is enabled) |
 | is_enabled   | BOOLEAN      | NOT NULL, DEFAULT TRUE      | Whether this model is available for proxying                                                                  |
 | created_at   | DATETIME     | NOT NULL, DEFAULT NOW       | Creation timestamp                                                                                            |
 | updated_at   | DATETIME     | NOT NULL, DEFAULT NOW       | Last update timestamp                                                                                         |
@@ -209,16 +211,22 @@ CREATE INDEX idx_header_blocklist_rules_enabled ON header_blocklist_rules(enable
 - Only the endpoint with `is_active = TRUE` and lowest `priority` is used
 - If multiple are active, the lowest priority wins
 
-### Strategy: `round_robin`
-
-- All endpoints with `is_active = TRUE` are rotated
-- State tracked in-memory (not persisted)
-
 ### Strategy: `failover`
 
 - Endpoints tried in `priority` order (ascending)
-- On failure (HTTP 5xx, 429, timeout, connection error), next endpoint is tried
-- All endpoints exhausted → return 502 to client
+- On failure (HTTP 403, 429, 500, 502, 503, 529, timeout, connection error), next endpoint is tried
+- All endpoints exhausted -> return 502 to client
+
+### Failover Recovery
+
+When `failover_recovery_enabled = TRUE` for a model:
+
+- Failed endpoints are temporarily blocked for `failover_recovery_cooldown_seconds`
+- After cooldown expires, endpoints are retried during normal request flow (passive half-open probe)
+- Successful probe -> endpoint marked recovered and returned to rotation
+- Failed probe -> endpoint blocked for another cooldown period
+- Recovery state is in-memory (resets on backend restart)
+- No background polling - probes happen only during actual requests
 
 ## 6. Model Proxy (Alias) Behavior
 

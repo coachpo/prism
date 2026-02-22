@@ -178,8 +178,8 @@ Prepare seed state through API (not manual DB edits):
 | C04 | P0 | Proxy alias model request | Routed via target native endpoints; only model rewritten |
 | C05 | P0 | Unknown/disabled model | `404` |
 | C06 | P0 | `single` strategy | Lowest priority active endpoint used |
-| C07 | P0 | `round_robin` strategy | Endpoint rotation across calls |
-| C08 | P0 | Failover on `429/500/502/503/529` | Next endpoint attempted |
+| C07 | P0 | `failover` strategy with recovery | Endpoint cooldown and passive probe behavior |
+| C08 | P0 | Failover on `403/429/500/502/503/529` | Next endpoint attempted |
 | C09 | P0 | Failover on connection error/timeout | Next endpoint attempted |
 | C10 | P0 | All failover attempts fail | `502` with last error detail |
 | C11 | P0 | No active endpoints | `503` |
@@ -255,7 +255,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=1`, `exported_at`, providers/models arrays |
+| H01 | P0 | Export schema and metadata | `version=2`, `exported_at`, providers/models arrays |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes endpoint `auth_type` and `custom_headers` | Fields preserved |
@@ -340,7 +340,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=1` |
+| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=2` |
 | K26 | P0 | Config import with rules omitted | Preserves existing rules (backward compat) |
 | K27 | P0 | Config import with rules provided | Replaces user rules, applies system `enabled` states |
 | K28 | P0 | Config import with unknown system pattern | `400` rejection |

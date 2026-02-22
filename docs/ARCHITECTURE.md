@@ -157,21 +157,44 @@ build_upstream_headers():
 Custom headers are a power-user feature. While they can override most headers, they cannot be used to re-add headers that are blocked by the Header Blocklist. This is enforced by applying the blocklist last in the header construction pipeline.
 
 ## 4. Load Balancing
-
 ### 4.1 Strategies
 
-- **single**: Use the one active endpoint (default)
-- **round_robin**: Rotate across all active endpoints
-- **failover**: Try primary, fall back to secondary on failure
+- **single**: Use only the highest-priority active endpoint (no failover)
+- **failover**: Try endpoints in priority order with automatic recovery
 
-### 4.2 Failure Detection
+### 4.2 Failover with Passive Recovery
 
-Failures that trigger failover:
+The `failover` strategy implements intelligent endpoint selection with automatic recovery:
 
+**Endpoint Selection:**
+
+1. Healthy endpoints (not in cooldown) are tried first in priority order
+2. Cooldown-expired endpoints become probe-eligible (half-open state)
+3. Endpoints still cooling down are skipped entirely
+
+**Failure Detection:**
+
+Failures that trigger failover and start cooldown:
+
+- HTTP 403 (forbidden)
 - HTTP 429 (rate limited)
 - HTTP 500, 502, 503, 529 (server errors)
 - Connection timeout (> 10s connect, > 120s read)
 - Connection refused / DNS failure
+
+**Recovery Mechanism:**
+
+- When an endpoint fails, it enters cooldown for `failover_recovery_cooldown_seconds` (default: 60s)
+- After cooldown expires, the endpoint becomes probe-eligible
+- On first successful response, the endpoint is marked recovered and returns to healthy pool
+- Recovery is passive (no background polling) - probes happen during normal request flow
+
+**Per-Model Configuration:**
+
+- `failover_recovery_enabled`: Enable/disable automatic recovery (default: true)
+- `failover_recovery_cooldown_seconds`: Cooldown duration in seconds (range: 1-3600, default: 60)
+
+If all endpoints are in cooldown with none probe-eligible, the gateway returns `503` with cooldown detail.
 
 ## 5. Model Proxy (Alias)
 
