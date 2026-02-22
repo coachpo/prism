@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-02-22
-**Commit:** 804dea8
+**Generated:** 2026-02-23
+**Commit:** d7b7c38
 **Branch:** main
 
 ## OVERVIEW
@@ -109,9 +109,12 @@ cd frontend && pnpm run build
 
 ## NOTES
 
-- `backend/` and `frontend/` are separate git repos (submodules) — commits must be made inside each submodule
-- Round-robin LB state is in-memory — resets on backend restart
-- Audit bodies truncated at 64KB with `[TRUNCATED]` marker
-- Header blocklist rules (system + user-defined) filter proxy/CDN/tracing headers before forwarding
-- No frontend tests — lint only (`pnpm run lint`)
-- Backend test deps (pytest, pytest-asyncio) installed in venv but not in requirements.txt
+ `backend/` and `frontend/` are separate git repos (submodules) — commits must be made inside each submodule
+ Round-robin LB state is in-memory — resets on backend restart
+ Audit bodies truncated at 64KB with `[TRUNCATED]` marker
+ Header blocklist rules (system + user-defined) filter proxy/CDN/tracing headers before forwarding
+ No frontend tests — lint only (`pnpm run lint`)
+ Backend test deps (pytest, pytest-asyncio) installed in venv but not in requirements.txt
+ No docker-compose.yml in repo despite README references — use manual Docker commands or create compose file
+ Docker images are ARM64-only (`linux/arm64`) — no amd64 support
+ Frontend production uses custom Node.js server (server.mjs) instead of nginx/caddy
