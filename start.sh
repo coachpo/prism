@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
-FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 MODE="${1:-${START_MODE:-headless}}"
 CLEANED_UP=false
 
@@ -83,8 +83,10 @@ BACKEND_PID=$!
 
 if [ "$START_FRONTEND" = true ]; then
     # --- Start frontend ---
+    # Frontend calls backend directly (no dev proxy) via VITE_API_BASE
     echo "Starting frontend on port $FRONTEND_PORT..."
-    (cd "$FRONTEND_DIR" && npx vite --port "$FRONTEND_PORT" --host) &
+    (cd "$FRONTEND_DIR" && VITE_API_BASE="http://localhost:$BACKEND_PORT" \
+        pnpm exec vite --port "$FRONTEND_PORT" --host) &
     FRONTEND_PID=$!
 fi
 
