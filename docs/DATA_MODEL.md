@@ -16,49 +16,73 @@
 │ updated_at           │       │ is_enabled           │       │ custom_headers       │
 └──────┬───────────────┘       │ created_at           │       │ health_status        │
        │                       │ updated_at           │       │ last_health_check    │
-       │                       └──────────────────────┘       │ created_at           │
-       │                                │                     │ updated_at           │
-       │                                │                     └──────────────────────┘
-       │                                │ redirect_to (self-ref)
-       │                                └──────▶ model_configs.model_id
-       │
-        │                ┌──────────────────────┐       ┌──────────────────────┐
-        │                │    request_logs      │       │      audit_logs      │
-        │                ├──────────────────────┤       ├──────────────────────┤
-        │                │ id (PK)              │◀──────│ request_log_id (FK)  │
-        │                │ model_id             │       │ id (PK)              │
-        └────────────────│ provider_type        │   ┌──▶│ provider_id (FK)     │
-                         │ endpoint_id          │   │   │ model_id             │
-                         │ endpoint_description │   │   │ endpoint_id          │
-                         │ status_code          │   │   │ endpoint_base_url    │
-                         │ response_time_ms     │   │   │ endpoint_description │
-                         │ is_stream            │   │   │ request_method       │
-                         │ input_tokens         │   │   │ request_url          │
-                         │ output_tokens        │   │   │ request_headers      │
-                         │ total_tokens         │   │   │ request_body         │
-                         │ request_path         │   │   │ response_status      │
-                         │ error_detail         │   │   │ response_headers     │
-                         │ created_at           │   │   │ response_body        │
-                         └──────────────────────┘   │   │ is_stream            │
-                                                    │   │ duration_ms          │
-                                                    │   │ created_at           │
-                                                    │   └──────────────────────┘
-                                                   │
-                                             providers.id
-```
+       │                       └──────────────────────┘       │ pricing_enabled      │
+       │                                │                     │ pricing_unit         │
+       │                                │                     │ pricing_currency_code│
+       │                                │ redirect_to (self-ref)│ input_price        │
+       │                                └──────▶ model_configs.model_id│ output_price│
+       │                                                      │ cached_input_price   │
+        │                ┌──────────────────────┐             │ reasoning_price      │
+│                │    request_logs      │             │ missing_special_token_policy │
+│                ├──────────────────────┤             │ pricing_config_version │
+        │                │ id (PK)              │◀────────────┤ created_at           │
+        └────────────────│ model_id             │             │ updated_at           │
+                         │ provider_type        │             └──────────────────────┘
+                         │ endpoint_id          │
+                         │ endpoint_description │       ┌──────────────────────┐
+                         │ status_code          │       │      audit_logs      │
+                         │ response_time_ms     │       ├──────────────────────┤
+                         │ is_stream            │◀──────│ request_log_id (FK)  │
+                         │ input_tokens         │       │ id (PK)              │
+                         │ output_tokens        │   ┌──▶│ provider_id (FK)     │
+                         │ total_tokens         │   │   │ model_id             │
+                         │ success_flag         │   │   │ endpoint_id          │
+                         │ billable_flag        │   │   │ endpoint_base_url    │
+                         │ priced_flag          │   │   │ endpoint_description │
+                         │ unpriced_reason      │   │   │ request_method       │
+                         │ cached_input_tokens  │   │   │ request_url          │
+                         │ reasoning_tokens     │   │   │ request_headers      │
+                         │ input_cost_micros    │   │   │ request_body         │
+                         │ output_cost_micros   │   │   │ response_status      │
+│ cached_input_cost_micros │ │   │ response_headers     │
+                         │ reasoning_cost_micros│   │   │ response_body        │
+│ total_cost_original_micros ││   │ is_stream            │
+│ total_cost_user_currency_micros ││ │ duration_ms        │
+│ currency_code_original │   │   │ created_at           │
+│ report_currency_code │   │   └──────────────────────┘
+                         │ report_symbol        │   │
+                         │ fx_rate_used         │   │
+                         │ fx_rate_source       │   │
+                         │ pricing_snapshot_*   │   │
+│ pricing_config_version_used │ │
+                         │ request_path         │   │
+                         │ error_detail         │   │
+                         │ created_at           │   │
+                         └──────────────────────┘   │
+                                                    │
+                                              providers.id
 
-┌──────────────────────────┐
-│  header_blocklist_rules  │
-├──────────────────────────┤
-│ id (PK)                  │
-│ name                     │
-│ match_type               │
-│ pattern                  │
-│ enabled                  │
-│ is_system                │
+┌──────────────────────────┐       ┌──────────────────────────┐
+│  header_blocklist_rules  │       │      user_settings       │
+├──────────────────────────┤       ├──────────────────────────┤
+│ id (PK)                  │       │ id (PK)                  │
+│ name                     │       │ report_currency_code     │
+│ match_type               │       │ report_currency_symbol   │
+│ pattern                  │       │ created_at               │
+│ enabled                  │       │ updated_at               │
+│ is_system                │       └──────────────────────────┘
 │ created_at               │
-│ updated_at               │
-└──────────────────────────┘
+│ updated_at               │       ┌──────────────────────────┐
+└──────────────────────────┘       │ endpoint_fx_rate_settings│
+                                   ├──────────────────────────┤
+                                   │ id (PK)                  │
+                                   │ model_id                 │
+                                   │ endpoint_id              │
+                                   │ fx_rate                  │
+                                   │ created_at               │
+                                   │ updated_at               │
+                                   └──────────────────────────┘
+```
 
 ## 2. Table Definitions
 
@@ -116,7 +140,7 @@ Maps a model ID string to a provider and load balancing configuration. Supports 
 
 ### 2.3 `endpoints`
 
-Stores BaseURL + APIKey combinations for a model configuration, with health check status.
+Stores BaseURL + APIKey combinations for a model configuration, with health check status and pricing.
 
 | Column            | Type         | Constraints                                        | Description                                                                                                                                     |
 | ----------------- | ------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -131,6 +155,15 @@ Stores BaseURL + APIKey combinations for a model configuration, with health chec
 | health_status     | VARCHAR(20)  | NOT NULL, DEFAULT 'unknown'                        | Health status: `unknown`, `healthy`, `unhealthy`                                                                                                |
 | health_detail     | TEXT         | NULLABLE                                           | Detail message from last health check (e.g., error message from upstream)                                                                       |
 | last_health_check | DATETIME     | NULLABLE                                           | Timestamp of last health check                                                                                                                  |
+| pricing_enabled   | BOOLEAN      | NOT NULL, DEFAULT FALSE                            | Whether token costing is enabled for this endpoint                                                                                              |
+| pricing_unit      | VARCHAR(10)  | NULLABLE                                           | Unit for pricing: `PER_1K` or `PER_1M`                                                                                                          |
+| pricing_currency_code | VARCHAR(3) | NULLABLE                                           | Currency code for prices (e.g., "USD")                                                                                                          |
+| input_price       | VARCHAR(20)  | NULLABLE                                           | Price per unit for input tokens (decimal string)                                                                                                |
+| output_price      | VARCHAR(20)  | NULLABLE                                           | Price per unit for output tokens (decimal string)                                                                                               |
+| cached_input_price | VARCHAR(20) | NULLABLE                                           | Price per unit for cached input tokens (decimal string)                                                                                         |
+| reasoning_price   | VARCHAR(20)  | NULLABLE                                           | Price per unit for reasoning tokens (decimal string)                                                                                            |
+| missing_special_token_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | Policy for missing special token prices: `MAP_TO_OUTPUT`, `ZERO_COST`                                                                           |
+| pricing_config_version | INTEGER   | NOT NULL, DEFAULT 0                                | Incremental version of the pricing configuration                                                                                               |
 | created_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Creation timestamp                                                                                                                              |
 | updated_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Last update timestamp                                                                                                                           |
 
@@ -182,6 +215,34 @@ INSERT INTO header_blocklist_rules (name, match_type, pattern, enabled, is_syste
   ('Google Cloud Trace Context', 'exact', 'x-cloud-trace-context', 1, 1);
 ```
 
+### 2.5 `user_settings`
+
+Stores global application settings for the user.
+
+| Column                 | Type       | Constraints             | Description                                     |
+| ---------------------- | ---------- | ----------------------- | ----------------------------------------------- |
+| id                     | INTEGER    | PK, AUTOINCREMENT       | Unique identifier                               |
+| report_currency_code   | VARCHAR(3) | NOT NULL, DEFAULT 'USD' | Default currency for spending reports           |
+| report_currency_symbol | VARCHAR(5) | NOT NULL, DEFAULT '$'   | Symbol for the report currency                  |
+| created_at             | DATETIME   | NOT NULL, DEFAULT NOW   | Creation timestamp                              |
+| updated_at             | DATETIME   | NOT NULL, DEFAULT NOW   | Last update timestamp                           |
+
+### 2.6 `endpoint_fx_rate_settings`
+
+Stores custom foreign exchange rates for specific model/endpoint combinations.
+
+| Column      | Type         | Constraints                 | Description                                     |
+| ----------- | ------------ | --------------------------- | ----------------------------------------------- |
+| id          | INTEGER      | PK, AUTOINCREMENT           | Unique identifier                               |
+| model_id    | VARCHAR(100) | NOT NULL                    | Model ID the rate applies to                    |
+| endpoint_id | INTEGER      | NOT NULL                    | Endpoint ID the rate applies to                 |
+| fx_rate     | VARCHAR(20)  | NOT NULL                    | Exchange rate (decimal string)                  |
+| created_at  | DATETIME     | NOT NULL, DEFAULT NOW       | Creation timestamp                              |
+| updated_at  | DATETIME     | NOT NULL, DEFAULT NOW       | Last update timestamp                           |
+
+**Constraints:**
+- `UNIQUE(model_id, endpoint_id)`: One custom rate per model/endpoint pair.
+
 ## 3. Indexes
 
 ```sql
@@ -193,6 +254,9 @@ CREATE INDEX idx_endpoints_model_config_id ON endpoints(model_config_id);
 CREATE INDEX idx_endpoints_is_active ON endpoints(is_active);
 CREATE UNIQUE INDEX idx_header_blocklist_rules_match_pattern ON header_blocklist_rules(match_type, pattern);
 CREATE INDEX idx_header_blocklist_rules_enabled ON header_blocklist_rules(enabled);
+CREATE UNIQUE INDEX idx_endpoint_fx_rate_settings_mapping ON endpoint_fx_rate_settings(model_id, endpoint_id);
+CREATE INDEX idx_request_logs_billable_flag ON request_logs(billable_flag);
+CREATE INDEX idx_request_logs_priced_flag ON request_logs(priced_flag);
 ```
 
 ## 4. Relationships
@@ -202,6 +266,8 @@ CREATE INDEX idx_header_blocklist_rules_enabled ON header_blocklist_rules(enable
 - `model_configs` 1:N `endpoints` — One native model can have many BaseURL/APIKey combinations (proxy models have zero endpoints)
 - `model_configs` self-reference via `redirect_to` → `model_id` — A proxy model points to a native model
 - `request_logs` 1:0..1 `audit_logs` — Each upstream attempt log may have one linked audit log (via `request_log_id`)
+- `endpoints` 1:N `endpoint_fx_rate_settings` — One endpoint can have many custom FX rates (one per model)
+- `model_configs` 1:N `endpoint_fx_rate_settings` — One model can have many custom FX rates (one per endpoint)
 - Cascade delete: Deleting a model_config deletes all its endpoints
 
 ## 5. Load Balancing Behavior
@@ -283,6 +349,30 @@ Stores telemetry data for every proxy request processed by the gateway.
 | input_tokens         | INTEGER      | NULLABLE                | Input tokens (from upstream response, if available)               |
 | output_tokens        | INTEGER      | NULLABLE                | Output tokens (from upstream response, if available)              |
 | total_tokens         | INTEGER      | NULLABLE                | Total tokens (from upstream response, if available)               |
+| success_flag         | BOOLEAN      | NULLABLE                | Whether the request was successful (2xx)                          |
+| billable_flag        | BOOLEAN      | NULLABLE                | Whether the request is considered billable                        |
+| priced_flag          | BOOLEAN      | NULLABLE                | Whether cost was successfully calculated                          |
+| unpriced_reason      | VARCHAR(50)  | NULLABLE                | Reason if priced_flag is false                                    |
+| cached_input_tokens  | INTEGER      | NULLABLE                | Cached input tokens                                               |
+| reasoning_tokens     | INTEGER      | NULLABLE                | Reasoning tokens                                                  |
+| input_cost_micros    | BIGINT       | NULLABLE                | Cost of input tokens in original currency (micro-units)           |
+| output_cost_micros   | BIGINT       | NULLABLE                | Cost of output tokens in original currency (micro-units)          |
+| cached_input_cost_micros | BIGINT    | NULLABLE                | Cost of cached input tokens in original currency (micro-units)    |
+| reasoning_cost_micros | BIGINT       | NULLABLE                | Cost of reasoning tokens in original currency (micro-units)       |
+| total_cost_original_micros | BIGINT  | NULLABLE                | Total cost in original currency (micro-units)                     |
+| total_cost_user_currency_micros | BIGINT | NULLABLE                | Total cost in user's report currency (micro-units)                |
+| currency_code_original | VARCHAR(3)  | NULLABLE                | Original currency code from endpoint pricing                      |
+| report_currency_code | VARCHAR(3)   | NULLABLE                | User's report currency code at time of request                   |
+| report_currency_symbol | VARCHAR(5)  | NULLABLE                | User's report currency symbol at time of request                 |
+| fx_rate_used         | VARCHAR(20)  | NULLABLE                | Exchange rate used for conversion                                 |
+| fx_rate_source       | VARCHAR(30)  | NULLABLE                | Source of the FX rate (`ENDPOINT_SPECIFIC` or `DEFAULT_1_TO_1`)     |
+| pricing_snapshot_unit | VARCHAR(10)  | NULLABLE                | Snapshot of pricing unit used                                     |
+| pricing_snapshot_input | VARCHAR(20) | NULLABLE                | Snapshot of input price used                                      |
+| pricing_snapshot_output | VARCHAR(20) | NULLABLE                | Snapshot of output price used                                     |
+| pricing_snapshot_cached_input | VARCHAR(20) | NULLABLE              | Snapshot of cached input price used                               |
+| pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE               | Snapshot of reasoning price used                                  |
+| pricing_snapshot_policy | VARCHAR(20) | NULLABLE                | Snapshot of missing token policy used                             |
+| pricing_config_version_used | INTEGER | NULLABLE                | Version of pricing config used for this log                       |
 | request_path         | VARCHAR(500) | NOT NULL                | Request path (e.g., /v1/chat/completions)                         |
 | error_detail         | TEXT         | NULLABLE                | Error message if request failed                                   |
 | created_at           | DATETIME     | NOT NULL, DEFAULT NOW   | Request timestamp                                                 |

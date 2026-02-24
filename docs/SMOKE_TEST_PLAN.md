@@ -13,6 +13,7 @@ This smoke test plan validates all documented workflows and core function paths 
 - Configuration export/import
 - Batch data deletion semantics
 - Frontend management flows
+- Token costing and spending reports
 
 The objective is a fast but thorough confidence pass that catches regressions before release.
 
@@ -57,7 +58,7 @@ This plan is synthesized from:
 
 ## 4. Environment Prerequisites
 
-- Python `3.11+`, Node `18+`, npm `9+`.
+- Python `3.11+`, Node `18+`, pnpm `10+`.
 - Backend available at `http://localhost:8000`.
 - Frontend available at `http://localhost:5173` for UI suites.
 - Upstream behavior controlled by test doubles or known test endpoints.
@@ -91,6 +92,7 @@ Prepare seed state through API (not manual DB edits):
    - differing priorities
    - one endpoint with `custom_headers`
    - one endpoint with `auth_type` override
+   - one endpoint with `pricing_enabled=true`
 5. Audit toggles initially disabled, then enabled per-case.
 
 ---
@@ -109,26 +111,29 @@ Prepare seed state through API (not manual DB edits):
 | `PUT /api/models/{id}` | B08-B10 |
 | `DELETE /api/models/{id}` | B11 |
 | `GET /api/models/{id}/endpoints` | B18 |
-| `POST /api/models/{id}/endpoints` | B12-B15 |
-| `PUT /api/endpoints/{id}` | B16-B17 |
+| `POST /api/models/{id}/endpoints` | B12-B15, L01-L02 |
+| `PUT /api/endpoints/{id}` | B16-B17, L03 |
 | `DELETE /api/endpoints/{id}` | B18 |
 | `POST /api/endpoints/{id}/health-check` | D01-D06 |
-| `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10 |
-| `POST /v1/messages` | C02, C04, E08, E10 |
+| `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10, L08-L10 |
+| `POST /v1/messages` | C02, C04, E08, E10, L08-L10 |
 | `GET /api/stats/requests` | E01-E04 |
 | `GET /api/stats/summary` | E05-E06 |
 | `GET /api/stats/endpoint-success-rates` | E07 |
+| `GET /api/stats/spending` | L11-L13, L19-L20 |
 | `DELETE /api/stats/requests` | G01-G03 |
 | `GET /api/audit/logs` | F10, F12 |
 | `GET /api/audit/logs/{id}` | F11 |
 | `DELETE /api/audit/logs` | F13, G04-G05 |
-| `GET /api/config/export` | H01-H04 |
-| `POST /api/config/import` | H05-H07 |
+| `GET /api/config/export` | H01-H04, L14 |
+| `POST /api/config/import` | H05-H07, L15-L16 |
 | `GET /api/config/header-blocklist-rules` | K01 |
 | `GET /api/config/header-blocklist-rules/{id}` | K05-K06 |
 | `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15 |
 | `PATCH /api/config/header-blocklist-rules/{id}` | K07-K09 |
 | `DELETE /api/config/header-blocklist-rules/{id}` | K10-K11 |
+| `GET /api/settings/costing` | L04 |
+| `PUT /api/settings/costing` | L05-L07 |
 
 ---
 
@@ -255,7 +260,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=2`, `exported_at`, providers/models arrays |
+| H01 | P0 | Export schema and metadata | `version=3`, `exported_at`, providers/models arrays |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes endpoint `auth_type` and `custom_headers` | Fields preserved |
@@ -284,6 +289,11 @@ Prepare seed state through API (not manual DB edits):
 | I13 | P0 | Settings data management custom days flow | Custom day input validates (≥1, integer), calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
+| I16 | P0 | Model detail endpoint dialog token pricing section | Pricing toggle/unit/currency/policy fields save and reload correctly |
+| I17 | P0 | Settings costing and currency card | Report currency + symbol load/save; API fallback callout shown on unavailable endpoint |
+| I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, endpoint_id)` and `fx_rate > 0` |
+| I19 | P0 | Statistics spending tab filters and pagination | Preset/custom filters, grouping, top_n, limit/offset controls update data correctly |
+| I20 | P0 | Statistics operations request log costing columns | Token/cost breakdown columns and billable/priced/unpriced fields render without UI regressions |
 
 ## J. Non-Functional Smoke
 
@@ -340,7 +350,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=2` |
+| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=3` |
 | K26 | P0 | Config import with rules omitted | Preserves existing rules (backward compat) |
 | K27 | P0 | Config import with rules provided | Replaces user rules, applies system `enabled` states |
 | K28 | P0 | Config import with unknown system pattern | `400` rejection |
@@ -361,6 +371,34 @@ Prepare seed state through API (not manual DB edits):
 | K38 | P1 | Add rule validation: prefix without trailing `-` | Error toast or inline validation prevents save |
 | K39 | P1 | Add rule validation: empty name or pattern | Save button behavior prevents empty submission |
 
+## L. Token Costing and Spending Reports
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| L01 | P0 | Create endpoint with pricing enabled | `201`, pricing fields persisted in DB |
+| L02 | P0 | Create endpoint with pricing disabled | `201`, no validation on price fields |
+| L03 | P0 | Update endpoint pricing | `200`, `pricing_config_version` increments |
+| L04 | P0 | GET `/api/settings/costing` | Returns defaults (USD, $, empty mappings) |
+| L05 | P0 | PUT `/api/settings/costing` with FX mappings | `200`, settings persist |
+| L06 | P0 | PUT `/api/settings/costing` rejects `fx_rate <= 0` | `400` |
+| L07 | P0 | PUT `/api/settings/costing` rejects duplicate (model, endpoint) | `400` |
+| L08 | P0 | Proxy successful request with priced endpoint | `request_log` has cost fields populated |
+| L09 | P0 | Proxy failed request | `billable_flag=false`, all `cost_micros=0` |
+| L10 | P0 | Proxy successful request with unpriced endpoint | `priced_flag=false`, `unpriced_reason` set |
+| L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
+| L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
+| L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
+| L14 | P0 | Config export version 3 | Includes pricing and `user_settings` |
+| L15 | P0 | Config import v3 | Restores pricing and settings |
+| L16 | P0 | Config import v2 | Works with pricing defaults |
+| L17 | P1 | FX conversion with custom rate | Correct converted cost in report currency |
+| L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid for renamed model |
+| L19 | P1 | Spending report pagination | `limit`/`offset` respected |
+| L20 | P1 | Spending report `top_n` | Returns correct top spenders |
+| L21 | P1 | Legacy request logs (pre-costing) | `unpriced_reason=LEGACY_NO_COST_DATA` |
+| L22 | P1 | `MAP_TO_OUTPUT` fallback policy | Missing special tokens use output price |
+| L23 | P1 | `ZERO_COST` fallback policy | Missing special tokens use zero price |
+
 ---
 
 ## 8. Recommended Execution Order
@@ -371,9 +409,10 @@ Prepare seed state through API (not manual DB edits):
 4. E and F (stats and audit).
 5. K.1–K.2 (header blocklist CRUD and validation).
 6. K.3 (header blocklist proxy runtime integration).
-7. G, H, and K.4 in isolated destructive lane.
-8. I and K.5 (frontend full-stack smoke).
-9. J (non-functional quick pass).
+7. L (token costing and spending reports).
+8. G, H, and K.4 in isolated destructive lane.
+9. I and K.5 (frontend full-stack smoke).
+10. J (non-functional quick pass).
 
 ---
 

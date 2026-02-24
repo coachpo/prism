@@ -35,7 +35,6 @@ Response `200`: Single provider object (same schema as list item).
 #### Update Provider
 ```
 PATCH /api/providers/{id}
-Content-Type: application/json
 ```
 Request:
 ```json
@@ -109,7 +108,6 @@ New fields in model list response:
 #### Create Model
 ```
 POST /api/models
-Content-Type: application/json
 ```
 Request (native model):
 ```json
@@ -145,7 +143,6 @@ Validation rules:
 #### Update Model
 ```
 PUT /api/models/{id}
-Content-Type: application/json
 ```
 Request (all fields optional):
 ```json
@@ -179,7 +176,6 @@ Response `200`: Array of endpoint objects.
 #### Create Endpoint
 ```
 POST /api/models/{model_id}/endpoints
-Content-Type: application/json
 ```
 Request:
 ```json
@@ -192,7 +188,15 @@ Request:
   "custom_headers": {
     "X-Custom-Org": "org-123",
     "X-Priority": "high"
-  }
+  },
+  "pricing_enabled": true,
+  "pricing_unit": "PER_1M",
+  "pricing_currency_code": "USD",
+  "input_price": "5.00",
+  "output_price": "15.00",
+  "cached_input_price": "2.50",
+  "reasoning_price": "15.00",
+  "missing_special_token_policy": "MAP_TO_OUTPUT"
 }
 ```
 Response `201`: Created endpoint object.
@@ -202,7 +206,6 @@ Note: `custom_headers` is optional. If omitted or `null`, no custom headers are 
 #### Update Endpoint
 ```
 PUT /api/endpoints/{id}
-Content-Type: application/json
 ```
 Request:
 ```json
@@ -214,7 +217,15 @@ Request:
   "description": "Updated key",
   "custom_headers": {
     "X-Custom-Org": "org-456"
-  }
+  },
+  "pricing_enabled": true,
+  "pricing_unit": "PER_1M",
+  "pricing_currency_code": "USD",
+  "input_price": "2.50",
+  "output_price": "10.00",
+  "cached_input_price": "1.25",
+  "reasoning_price": "10.00",
+  "missing_special_token_policy": "ZERO_COST"
 }
 ```
 Response `200`: Updated endpoint object.
@@ -289,8 +300,19 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 2,
+  "version": 3,
   "exported_at": "2025-01-15T10:30:00Z",
+  "user_settings": {
+    "report_currency_code": "USD",
+    "report_currency_symbol": "$",
+    "endpoint_fx_mappings": [
+      {
+        "model_id": "gpt-4o",
+        "endpoint_id": 1,
+        "fx_rate": "1.0"
+      }
+    ]
+  },
   "providers": [
     {
       "name": "OpenAI",
@@ -313,6 +335,7 @@ Response `200`:
       "is_enabled": true,
       "endpoints": [
         {
+          "endpoint_id": 1,
           "base_url": "https://api.openai.com",
           "api_key": "sk-abc123...",
           "is_active": true,
@@ -321,7 +344,16 @@ Response `200`:
           "auth_type": null,
           "custom_headers": {
             "X-Custom-Org": "org-123"
-          }
+          },
+          "pricing_enabled": true,
+          "pricing_unit": "PER_1M",
+          "pricing_currency_code": "USD",
+          "input_price": "5.00",
+          "output_price": "15.00",
+          "cached_input_price": "2.50",
+          "reasoning_price": "15.00",
+          "missing_special_token_policy": "MAP_TO_OUTPUT",
+          "pricing_config_version": 3
         }
       ]
     }
@@ -342,9 +374,8 @@ The response includes a `Content-Disposition` header to trigger a file download:
 #### Import Configuration
 ```
 POST /api/config/import
-Content-Type: application/json
 ```
-Request: Full configuration object (same schema as export, `exported_at` is optional).
+Request: Full configuration object (accepts version 2 or 3).
 Response `200`:
 ```json
 {
@@ -357,7 +388,50 @@ Importing is a destructive operation that replaces all existing providers, model
 
 ---
 
-### 1.5 Header Blocklist Rules
+### 1.5 Settings API
+
+#### Get Costing Settings
+```
+GET /api/settings/costing
+```
+Response `200`:
+```json
+{
+  "report_currency_code": "USD",
+  "report_currency_symbol": "$",
+  "endpoint_fx_mappings": [
+    {
+      "model_id": "gpt-4o",
+      "endpoint_id": 1,
+      "fx_rate": "1.0"
+    }
+  ]
+}
+```
+
+#### Update Costing Settings
+```
+PUT /api/settings/costing
+```
+Request:
+```json
+{
+  "report_currency_code": "EUR",
+  "report_currency_symbol": "€",
+  "endpoint_fx_mappings": [
+    {
+      "model_id": "gpt-4o",
+      "endpoint_id": 1,
+      "fx_rate": "0.92"
+    }
+  ]
+}
+```
+Response `200`: Updated settings object.
+
+---
+
+### 1.6 Header Blocklist Rules
 
 #### List Header Blocklist Rules
 ```
@@ -391,7 +465,6 @@ Response `200`: Single rule object.
 #### Create Header Blocklist Rule
 ```
 POST /api/config/header-blocklist-rules
-Content-Type: application/json
 ```
 Request:
 ```json
@@ -407,7 +480,6 @@ Response `201`: Created rule object. Returns `409` if a rule with the same `matc
 #### Update Header Blocklist Rule
 ```
 PATCH /api/config/header-blocklist-rules/{id}
-Content-Type: application/json
 ```
 Request (all fields optional):
 ```json
@@ -433,7 +505,6 @@ Note: System rules cannot be deleted. Attempting to delete a system rule returns
 ### 2.1 OpenAI-Compatible Chat Completions
 ```
 POST /v1/chat/completions
-Content-Type: application/json
 ```
 Request (standard OpenAI format):
 ```json
@@ -452,7 +523,6 @@ Response: Proxied directly from upstream provider. Format matches the provider's
 ### 2.2 Anthropic-Compatible Messages
 ```
 POST /v1/messages
-Content-Type: application/json
 ```
 Request (standard Anthropic format):
 ```json
@@ -543,6 +613,14 @@ Response `200`:
       "input_tokens": 15,
       "output_tokens": 42,
       "total_tokens": 57,
+      "cached_input_tokens": 0,
+      "reasoning_tokens": 0,
+      "success_flag": true,
+      "billable_flag": true,
+      "priced_flag": true,
+      "total_cost_user_currency_micros": 1250,
+      "report_currency_code": "USD",
+      "report_currency_symbol": "$",
       "request_path": "/v1/chat/completions",
       "created_at": "2025-01-15T10:30:00Z"
     }
@@ -660,6 +738,72 @@ Response `400`:
 ```
 
 Deleting request logs does NOT cascade to `audit_logs`. Linked audit rows remain, and `audit_logs.request_log_id` is set to `null` (`ON DELETE SET NULL`).
+
+### 4.5 Get Spending Reports
+```
+GET /api/stats/spending
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `preset` | string | — | Time preset: `today`, `24h`, `last_7_days`, `7d`, `last_30_days`, `30d`, `custom`, `all` |
+| `from_time` | datetime | — | Start of time range (ISO 8601) |
+| `to_time` | datetime | — | End of time range (ISO 8601) |
+| `provider_type` | string | — | Filter by provider type |
+| `model_id` | string | — | Filter by model ID |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
+| `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `provider`, `model`, `endpoint`, `model_endpoint` |
+| `limit` | integer | 50 | Max results |
+| `offset` | integer | 0 | Pagination offset |
+| `top_n` | integer | 5 | Number of top spenders to return |
+
+Response `200`:
+```json
+{
+  "summary": {
+    "total_cost_micros": 1250000,
+    "successful_request_count": 1500,
+    "priced_request_count": 1450,
+    "unpriced_request_count": 50,
+    "total_input_tokens": 50000,
+    "total_output_tokens": 120000,
+    "total_cached_input_tokens": 10000,
+    "total_reasoning_tokens": 2000,
+    "total_tokens": 182000,
+    "avg_cost_per_successful_request_micros": 833
+  },
+  "groups": [
+    {
+      "key": "gpt-4o",
+      "total_cost_micros": 850000,
+      "total_requests": 800,
+      "priced_requests": 790,
+      "unpriced_requests": 10,
+      "total_tokens": 90000
+    }
+  ],
+  "groups_total": 12,
+  "top_spending_models": [
+    {
+      "model_id": "gpt-4o",
+      "total_cost_micros": 850000
+    }
+  ],
+  "top_spending_endpoints": [
+    {
+      "endpoint_id": 1,
+      "endpoint_label": "Primary production key",
+      "total_cost_micros": 740000
+    }
+  ],
+  "unpriced_breakdown": {
+    "PRICING_DISABLED": 30,
+    "LEGACY_NO_COST_DATA": 20
+  },
+  "report_currency_code": "USD",
+  "report_currency_symbol": "$"
+}
+```
 
 ---
 
