@@ -294,6 +294,11 @@ Prepare seed state through API (not manual DB edits):
 | I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, endpoint_id)` and `fx_rate > 0` |
 | I19 | P0 | Statistics spending tab filters and pagination | Preset/custom filters, grouping, top_n, limit/offset controls update data correctly |
 | I20 | P0 | Statistics operations request log costing columns | Token/cost breakdown columns and billable/priced/unpriced fields render without UI regressions |
+| I21 | P0 | Operations special-token row filter behavior | `All`, `Has cached`, `Has reasoning`, `Has any special`, `Missing special` only change request-log rows (not cards/charts) |
+| I22 | P0 | Null-vs-zero rendering in request log metrics | Null token/cost values render `N/A` with tooltip reason, while numeric zero renders as `0` |
+| I23 | P0 | Spending "Special Tokens Captured" card correctness | Card shows cached total and detail for cache-creation + reasoning totals; shows contextual zero-note when all are zero |
+| I24 | P0 | Responsive token visibility below `xl` | Compact `Usage` column shows `In/Out/Total` and `Cached/Cache Create/Reasoning` when detailed token columns are hidden |
+| I25 | P0 | No-regression check for existing costing indicators | Existing spend, billable, priced, and unpriced-reason columns still render and behave correctly |
 
 ## J. Non-Functional Smoke
 
