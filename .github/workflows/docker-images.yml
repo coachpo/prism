@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - ".github/workflows/docker-images.yml"
-      - ".gitmodules"
   pull_request:
     branches: [main]
     paths:
