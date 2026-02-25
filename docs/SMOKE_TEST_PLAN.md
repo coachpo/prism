@@ -27,11 +27,9 @@ This plan is synthesized from:
 - `docs/ARCHITECTURE.md`
 - `docs/DATA_MODEL.md`
 - `docs/PRD.md`
-- `docs/DEPLOYMENT.md`
-- `docs/DESIGN_REQUEST_AUDIT.md`
-- `docs/DESIGN_CONFIG_EXPORT_IMPORT.md`
-- Configurable Header Blocklist (CRUD API) design plan
-- Existing `docs/SMOKE_TEST_PLAN.md` (replaced by this file)
+- `docs/DEPLOYMENT_STANDARD.md`
+- `docs/PLAN.md`
+- `docs/UPGRADE_PLAN_OPENAI_USAGE_CACHE_POLICY.md`
 
 ---
 
@@ -260,7 +258,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=3`, `exported_at`, providers/models arrays |
+| H01 | P0 | Export schema and metadata | `version=4`, `exported_at`, providers/models arrays |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes endpoint `auth_type` and `custom_headers` | Fields preserved |
@@ -289,15 +287,15 @@ Prepare seed state through API (not manual DB edits):
 | I13 | P0 | Settings data management custom days flow | Custom day input validates (≥1, integer), calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
-| I16 | P0 | Model detail endpoint dialog token pricing section | Pricing toggle/unit/currency/policy fields save and reload correctly |
+| I16 | P0 | Model detail endpoint dialog token pricing section | Pricing toggle/unit/currency/price policy fields save and reload correctly |
 | I17 | P0 | Settings costing and currency card | Report currency + symbol load/save; API fallback callout shown on unavailable endpoint |
 | I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, endpoint_id)` and `fx_rate > 0` |
 | I19 | P0 | Statistics spending tab filters and pagination | Preset/custom filters, grouping, top_n, limit/offset controls update data correctly |
 | I20 | P0 | Statistics operations request log costing columns | Token/cost breakdown columns and billable/priced/unpriced fields render without UI regressions |
 | I21 | P0 | Operations special-token row filter behavior | `All`, `Has cached`, `Has reasoning`, `Has any special`, `Missing special` only change request-log rows (not cards/charts) |
 | I22 | P0 | Null-vs-zero rendering in request log metrics | Null token/cost values render `N/A` with tooltip reason, while numeric zero renders as `0` |
-| I23 | P0 | Spending "Special Tokens Captured" card correctness | Card shows cached total and detail for cache-creation + reasoning totals; shows contextual zero-note when all are zero |
-| I24 | P0 | Responsive token visibility below `xl` | Compact `Usage` column shows `In/Out/Total` and `Cached/Cache Create/Reasoning` when detailed token columns are hidden |
+| I23 | P0 | Spending "Special Tokens Captured" card correctness | Card shows cached total and detail for cache-creation-input + reasoning totals; shows contextual zero-note when all are zero |
+| I24 | P0 | Responsive token visibility below `xl` | Compact `Usage` column shows `In/Out/Total` and `Cache Read/Cache Creation/Reasoning` when detailed token columns are hidden |
 | I25 | P0 | No-regression check for existing costing indicators | Existing spend, billable, priced, and unpriced-reason columns still render and behave correctly |
 
 ## J. Non-Functional Smoke
@@ -355,7 +353,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=3` |
+| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=4` |
 | K26 | P0 | Config import with rules omitted | Preserves existing rules (backward compat) |
 | K27 | P0 | Config import with rules provided | Replaces user rules, applies system `enabled` states |
 | K28 | P0 | Config import with unknown system pattern | `400` rejection |
@@ -393,16 +391,32 @@ Prepare seed state through API (not manual DB edits):
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export version 3 | Includes pricing and `user_settings` |
-| L15 | P0 | Config import v3 | Restores pricing and settings |
-| L16 | P0 | Config import v2 | Works with pricing defaults |
+| L14 | P0 | Config export version 4 | Includes pricing and `user_settings` |
+| L15 | P0 | Config import v4 | Restores pricing and settings |
+| L16 | P0 | Config import v2/v3 rejection | `400` error (v4 required) |
 | L17 | P1 | FX conversion with custom rate | Correct converted cost in report currency |
 | L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid for renamed model |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
 | L20 | P1 | Spending report `top_n` | Returns correct top spenders |
 | L21 | P1 | Legacy request logs (pre-costing) | `unpriced_reason=LEGACY_NO_COST_DATA` |
-| L22 | P1 | `MAP_TO_OUTPUT` fallback policy | Missing special tokens use output price |
-| L23 | P1 | `ZERO_COST` fallback policy | Missing special tokens use zero price |
+| L22 | P1 | `MAP_TO_OUTPUT` fallback price policy | Missing special tokens use output price |
+| L23 | P1 | `ZERO_COST` fallback price policy | Missing special tokens use zero price |
+
+### L.2 Defect Regression (DEF013–DEF020)
+
+These scenarios validate fixes for token extraction, costing, and streaming edge cases.
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| DEF013 | P0 | Anthropic top-level `cache_read_input_tokens` fallback | `cache_read_input_tokens` extracted from `usage.cache_read_input_tokens` when nested field is absent |
+| DEF014 | P0 | Missing special token fields coerced to `0` when usage exists | JSON usage with missing special fields yields `cache_read_input_tokens=0`, `cache_creation_input_tokens=0`, `reasoning_tokens=0` |
+| DEF015 | P0 | No usage block → all token fields `null` | When upstream returns no usage block, all token fields (including special) remain `null` |
+| DEF016 | P0 | `MAP_TO_OUTPUT` applies `output_price` for all three special prices | `cached_input_price`, `cache_creation_price`, `reasoning_price` all fall back to `output_price` |
+| DEF017 | P0 | `ZERO_COST` applies `Decimal("0")` for all three special prices | Missing special prices resolve to zero cost |
+| DEF018 | P0 | Special token counts are never copied from `output_tokens` | Missing special token counts remain explicit zero/null by contract, never mirrored from output count |
+| DEF019 | P0 | `inject_stream_options` is provider-type based, not host-based | Injection triggers on `provider_type == "openai"`, not URL pattern matching |
+| DEF020 | P0 | Frontend type/build guard for renamed pricing snapshot field | `pnpm run build` succeeds with `pricing_snapshot_missing_special_token_price_policy` contract |
+
 
 ---
 

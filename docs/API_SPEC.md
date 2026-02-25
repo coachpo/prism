@@ -196,12 +196,17 @@ Request:
   "output_price": "15.00",
   "cached_input_price": "2.50",
   "reasoning_price": "15.00",
-  "missing_special_token_policy": "MAP_TO_OUTPUT"
+  "missing_special_token_price_policy": "MAP_TO_OUTPUT"
 }
 ```
 Response `201`: Created endpoint object.
 
 Note: `custom_headers` is optional. If omitted or `null`, no custom headers are applied. Custom headers are appended to upstream requests after all other headers, overriding same-name headers.
+
+> **Token field semantics in request logs:**
+> - No usage block in upstream response → all token fields are `null`.
+> - Usage block present but special fields absent → special token fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `reasoning_tokens`) are `0`, not `null`.
+> - `missing_special_token_price_policy` controls **price fallback only** — it never affects token counts. `MAP_TO_OUTPUT` uses the endpoint's `output_price` for any missing special price; `ZERO_COST` uses `0`.
 
 #### Update Endpoint
 ```
@@ -225,7 +230,7 @@ Request:
   "output_price": "10.00",
   "cached_input_price": "1.25",
   "reasoning_price": "10.00",
-  "missing_special_token_policy": "ZERO_COST"
+  "missing_special_token_price_policy": "ZERO_COST"
 }
 ```
 Response `200`: Updated endpoint object.
@@ -300,7 +305,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 3,
+  "version": 4,
   "exported_at": "2025-01-15T10:30:00Z",
   "user_settings": {
     "report_currency_code": "USD",
@@ -352,8 +357,8 @@ Response `200`:
           "output_price": "15.00",
           "cached_input_price": "2.50",
           "reasoning_price": "15.00",
-          "missing_special_token_policy": "MAP_TO_OUTPUT",
-          "pricing_config_version": 3
+          "missing_special_token_price_policy": "MAP_TO_OUTPUT",
+          "pricing_config_version": 4
         }
       ]
     }
@@ -375,7 +380,7 @@ The response includes a `Content-Disposition` header to trigger a file download:
 ```
 POST /api/config/import
 ```
-Request: Full configuration object (accepts version 2 or 3).
+Request: Full configuration object (accepts version 4).
 Response `200`:
 ```json
 {
@@ -613,7 +618,8 @@ Response `200`:
       "input_tokens": 15,
       "output_tokens": 42,
       "total_tokens": 57,
-      "cached_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0,
       "reasoning_tokens": 0,
       "success_flag": true,
       "billable_flag": true,
@@ -767,7 +773,8 @@ Response `200`:
     "unpriced_request_count": 50,
     "total_input_tokens": 50000,
     "total_output_tokens": 120000,
-    "total_cached_input_tokens": 10000,
+    "total_cache_read_input_tokens": 10000,
+    "total_cache_creation_input_tokens": 1500,
     "total_reasoning_tokens": 2000,
     "total_tokens": 182000,
     "avg_cost_per_successful_request_micros": 833

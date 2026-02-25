@@ -22,16 +22,16 @@
        │                                │ redirect_to (self-ref)│ input_price        │
        │                                └──────▶ model_configs.model_id│ output_price│
        │                                                      │ cached_input_price   │
-        │                ┌──────────────────────┐             │ reasoning_price      │
-│                │    request_logs      │             │ missing_special_token_policy │
-│                ├──────────────────────┤             │ pricing_config_version │
-        │                │ id (PK)              │◀────────────┤ created_at           │
-        └────────────────│ model_id             │             │ updated_at           │
-                         │ provider_type        │             └──────────────────────┘
-                         │ endpoint_id          │
-                         │ endpoint_description │       ┌──────────────────────┐
-                         │ status_code          │       │      audit_logs      │
-                         │ response_time_ms     │       ├──────────────────────┤
+        │                ┌──────────────────────┐             │ cache_creation_price │
+        │                │    request_logs      │             │ reasoning_price      │
+        │                ├──────────────────────┤             │ missing_special_token_price_policy │
+        │                │ id (PK)              │◀────────────┤ pricing_config_version │
+        └────────────────│ model_id             │             │ created_at           │
+                         │ provider_type        │             │ updated_at           │
+                         │ endpoint_id          │             └──────────────────────┘
+                         │ endpoint_description │
+                         │ status_code          │       ┌──────────────────────┐
+                         │ response_time_ms     │       │      audit_logs      │
                          │ is_stream            │◀──────│ request_log_id (FK)  │
                          │ input_tokens         │       │ id (PK)              │
                          │ output_tokens        │   ┌──▶│ provider_id (FK)     │
@@ -40,25 +40,27 @@
                          │ billable_flag        │   │   │ endpoint_base_url    │
                          │ priced_flag          │   │   │ endpoint_description │
                          │ unpriced_reason      │   │   │ request_method       │
-                         │ cached_input_tokens  │   │   │ request_url          │
-                         │ reasoning_tokens     │   │   │ request_headers      │
-                         │ input_cost_micros    │   │   │ request_body         │
-                         │ output_cost_micros   │   │   │ response_status      │
-│ cached_input_cost_micros │ │   │ response_headers     │
-                         │ reasoning_cost_micros│   │   │ response_body        │
-│ total_cost_original_micros ││   │ is_stream            │
-│ total_cost_user_currency_micros ││ │ duration_ms        │
-│ currency_code_original │   │   │ created_at           │
-│ report_currency_code │   │   └──────────────────────┘
-                         │ report_symbol        │   │
-                         │ fx_rate_used         │   │
-                         │ fx_rate_source       │   │
-                         │ pricing_snapshot_*   │   │
-│ pricing_config_version_used │ │
-                         │ request_path         │   │
-                         │ error_detail         │   │
-                         │ created_at           │   │
-                         └──────────────────────┘   │
+                         │ cache_read_input_tokens ││   │ request_url          │
+                         │ cache_creation_input_tokens ││ request_headers      │
+                         │ reasoning_tokens     │   │   │ request_body         │
+                         │ input_cost_micros    │   │   │ response_status      │
+                         │ output_cost_micros   │   │   │ response_headers     │
+                         │ cache_read_input_cost_micros ││ response_body        │
+                         │ cache_creation_input_cost_micros ││ is_stream       │
+                         │ reasoning_cost_micros│   │   │ duration_ms        │
+                         │ total_cost_original_micros │ │ created_at           │
+                         │ total_cost_user_currency_micros │└──────────────────────┘
+                         │ currency_code_original │
+                         │ report_currency_code │
+                         │ report_symbol        │
+                         │ fx_rate_used         │
+                         │ fx_rate_source       │
+                         │ pricing_snapshot_*   │
+                         │ pricing_config_version_used │
+                         │ request_path         │
+                         │ error_detail         │
+                         │ created_at           │
+                         └──────────────────────┘
                                                     │
                                               providers.id
 
@@ -161,8 +163,14 @@ Stores BaseURL + APIKey combinations for a model configuration, with health chec
 | input_price       | VARCHAR(20)  | NULLABLE                                           | Price per unit for input tokens (decimal string)                                                                                                |
 | output_price      | VARCHAR(20)  | NULLABLE                                           | Price per unit for output tokens (decimal string)                                                                                               |
 | cached_input_price | VARCHAR(20) | NULLABLE                                           | Price per unit for cached input tokens (decimal string)                                                                                         |
+| cache_creation_price | VARCHAR(20) | NULLABLE                                           | Price per unit for cache creation tokens (decimal string)                                                                                       |
 | reasoning_price   | VARCHAR(20)  | NULLABLE                                           | Price per unit for reasoning tokens (decimal string)                                                                                            |
-| missing_special_token_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | Policy for missing special token prices: `MAP_TO_OUTPUT`, `ZERO_COST`                                                                           |
+| missing_special_token_price_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | Policy for missing special token prices: `MAP_TO_OUTPUT`, `ZERO_COST`                                                                           |
+
+> **Token field semantics:**
+> - No usage block in upstream response → all token fields (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `reasoning_tokens`) are `NULL`.
+> - Usage block present but special fields absent → special fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `reasoning_tokens`) are `0`, not `NULL`.
+> - `missing_special_token_price_policy` affects **prices only**, never token counts. `MAP_TO_OUTPUT` falls back to `output_price`; `ZERO_COST` falls back to `0`.
 | pricing_config_version | INTEGER   | NOT NULL, DEFAULT 0                                | Incremental version of the pricing configuration                                                                                               |
 | created_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Creation timestamp                                                                                                                              |
 | updated_at        | DATETIME     | NOT NULL, DEFAULT NOW                              | Last update timestamp                                                                                                                           |
@@ -183,10 +191,12 @@ Stores rules for blocking specific HTTP headers from being sent to upstream prov
 | updated_at | DATETIME     | NOT NULL, DEFAULT NOW   | Last update timestamp                                                       |
 
 **Constraints:**
+
 - `UNIQUE(match_type, pattern)`: Prevents duplicate rules for the same pattern.
 - Prefix patterns must end with `-` (enforced at application level).
 
 Seed data (system defaults):
+
 ```sql
 INSERT INTO header_blocklist_rules (name, match_type, pattern, enabled, is_system) VALUES
   ('Cloudflare Ray', 'exact', 'cf-ray', 1, 1),
@@ -241,6 +251,7 @@ Stores custom foreign exchange rates for specific model/endpoint combinations.
 | updated_at  | DATETIME     | NOT NULL, DEFAULT NOW       | Last update timestamp                           |
 
 **Constraints:**
+
 - `UNIQUE(model_id, endpoint_id)`: One custom rate per model/endpoint pair.
 
 ## 3. Indexes
@@ -353,11 +364,16 @@ Stores telemetry data for every proxy request processed by the gateway.
 | billable_flag        | BOOLEAN      | NULLABLE                | Whether the request is considered billable                        |
 | priced_flag          | BOOLEAN      | NULLABLE                | Whether cost was successfully calculated                          |
 | unpriced_reason      | VARCHAR(50)  | NULLABLE                | Reason if priced_flag is false                                    |
-| cached_input_tokens  | INTEGER      | NULLABLE                | Cached input tokens                                               |
+| cache_read_input_tokens | INTEGER   | NULLABLE                | Cached input tokens (read from cache)                             |
+| cache_creation_input_tokens | INTEGER | NULLABLE                | Cache creation tokens (written to cache)                          |
 | reasoning_tokens     | INTEGER      | NULLABLE                | Reasoning tokens                                                  |
+
+> **Null vs zero semantics:** `NULL` means "no usage data available" (upstream didn't report). `0` means "usage block present but this token type was not used." See `missing_special_token_price_policy` on the `endpoints` table for how missing prices are resolved.
+
 | input_cost_micros    | BIGINT       | NULLABLE                | Cost of input tokens in original currency (micro-units)           |
 | output_cost_micros   | BIGINT       | NULLABLE                | Cost of output tokens in original currency (micro-units)          |
-| cached_input_cost_micros | BIGINT    | NULLABLE                | Cost of cached input tokens in original currency (micro-units)    |
+| cache_read_input_cost_micros | BIGINT | NULLABLE                | Cost of cached input tokens in original currency (micro-units)    |
+| cache_creation_input_cost_micros | BIGINT | NULLABLE             | Cost of cache creation tokens in original currency (micro-units)  |
 | reasoning_cost_micros | BIGINT       | NULLABLE                | Cost of reasoning tokens in original currency (micro-units)       |
 | total_cost_original_micros | BIGINT  | NULLABLE                | Total cost in original currency (micro-units)                     |
 | total_cost_user_currency_micros | BIGINT | NULLABLE                | Total cost in user's report currency (micro-units)                |
@@ -369,9 +385,10 @@ Stores telemetry data for every proxy request processed by the gateway.
 | pricing_snapshot_unit | VARCHAR(10)  | NULLABLE                | Snapshot of pricing unit used                                     |
 | pricing_snapshot_input | VARCHAR(20) | NULLABLE                | Snapshot of input price used                                      |
 | pricing_snapshot_output | VARCHAR(20) | NULLABLE                | Snapshot of output price used                                     |
-| pricing_snapshot_cached_input | VARCHAR(20) | NULLABLE              | Snapshot of cached input price used                               |
+| pricing_snapshot_cache_read_input | VARCHAR(20) | NULLABLE       | Snapshot of cached input price used                               |
+| pricing_snapshot_cache_creation_input | VARCHAR(20) | NULLABLE     | Snapshot of cache creation price used                             |
 | pricing_snapshot_reasoning | VARCHAR(20) | NULLABLE               | Snapshot of reasoning price used                                  |
-| pricing_snapshot_policy | VARCHAR(20) | NULLABLE                | Snapshot of missing token policy used                             |
+| pricing_snapshot_missing_special_token_price_policy | VARCHAR(20) | NULLABLE | Snapshot of missing token policy used                     |
 | pricing_config_version_used | INTEGER | NULLABLE                | Version of pricing config used for this log                       |
 | request_path         | VARCHAR(500) | NOT NULL                | Request path (e.g., /v1/chat/completions)                         |
 | error_detail         | TEXT         | NULLABLE                | Error message if request failed                                   |

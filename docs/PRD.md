@@ -114,11 +114,22 @@ Token usage is extracted from upstream responses using provider-aware parsing:
 - **OpenAI (non-streaming)**: Extracts from `response.usage` object (`prompt_tokens`, `completion_tokens`, `total_tokens`)
 - **Anthropic Messages (non-streaming)**: Extracts from `response.usage` object (`input_tokens`, `output_tokens`); `total_tokens` is computed as `input_tokens + output_tokens`
 - **Anthropic count_tokens (non-streaming)**: Extracts `input_tokens` from the top-level response (no `usage` wrapper); `output_tokens` and `total_tokens` are null
-- **OpenAI (streaming)**: Accumulated from SSE events; the final chunk may contain a `usage` object if `stream_options.include_usage` was set. Otherwise, tokens are unavailable for streaming.
+- **OpenAI (streaming)**: Accumulated from SSE events; the gateway injects `stream_options.include_usage=true` for OpenAI-provider streaming requests so the final chunk includes `usage`.
 - **Anthropic (streaming)**: Accumulated from SSE events; `message_start` event contains `message.usage.input_tokens`, `message_delta` event contains `usage.output_tokens`. `total_tokens` is computed as their sum.
 - **Fallback**: If token data cannot be extracted (unsupported format, parse error), all token fields are logged as `null`
+- **Null vs zero token semantics**:
+  - No upstream usage block: token fields remain `null`
+  - Usage block present but special fields absent: `cache_read_input_tokens`, `cache_creation_input_tokens`, and `reasoning_tokens` are logged as `0`
 
 SSE streaming responses require parsing `data: {...}` lines from the accumulated stream chunks to extract usage information from the appropriate events.
+#### 4.8.2 Token Costing
+The gateway computes the cost of each request based on the extracted token usage and the endpoint's pricing configuration.
+
+- **Pricing Fields**: Each endpoint can be configured with prices for input, output, cached input (read), cache creation (write), and reasoning tokens.
+- **Fallback Policy**: The `missing_special_token_price_policy` determines how to handle costs when a specific special token price (e.g., reasoning or cache) is missing from the configuration.
+  - `MAP_TO_OUTPUT`: Use the output token price as a fallback.
+  - `ZERO_COST`: Treat missing special token prices as zero.
+- **Semantic Note**: The fallback policy affects only the price used for cost calculation. It does not affect the token counts themselves. Regular input and output token prices are always required when pricing is enabled.
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
   - Filterable request log table with columns: timestamp, model, provider, endpoint (description), status, response time, tokens
