@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-02-24
-**Commit:** 8a2b04d
+**Generated:** 2026-02-25
+**Commit:** 1df39e6
 **Branch:** main
 
 ## OVERVIEW
@@ -24,7 +24,7 @@ prism/
 ├── frontend/             # React 19 SPA dashboard (git submodule: coachpo/prism-frontend)
 │   └── src/
 │       ├── pages/        # 6 pages: Dashboard, Models, ModelDetail, Statistics, Audit, Settings
-│       ├── components/   # 10 shared + 22 shadcn/ui primitives
+│       ├── components/   # 12 shared (8 top-level + 1 layout + 3 statistics) + 22 shadcn/ui primitives
 │       ├── lib/          # api.ts, types.ts, utils.ts, costing.ts, configImportValidation.ts
 │       └── hooks/        # useEndpointNavigation
 ├── docs/                 # Architecture, API spec, data model, PRD, deployment, smoke tests
@@ -117,6 +117,7 @@ cd frontend && pnpm run build
 - Don't use `npm`/`npx` — pnpm only
 - Don't expose Prism to public internet — no auth layer
 - Don't use `round_robin` LB strategy — removed, auto-migrated to `failover` on startup
+- Don't create endpoints for proxy models — blocked at endpoint creation and config import
 - Don't store costs as floats — always micros (int64) to avoid precision loss
 
 ## NOTES
