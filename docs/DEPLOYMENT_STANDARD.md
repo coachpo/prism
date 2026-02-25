@@ -1,5 +1,7 @@
 # Deployment Standard: SPA + API Backend
 
+> **Note for Prism**: This is a generic deployment template. Prism currently uses manual Docker deployment (pull images from GHCR and run containers). The docker-compose.yml and Caddyfile templates below are provided as examples if you want to set up orchestration, but they are not included in the repository.
+
 A reusable guideline for deploying a single-page application (SPA) frontend with an API backend. Covers local development, Docker production deployment, and reverse proxy configuration.
 
 ---
@@ -76,18 +78,19 @@ Other clients (curl, Postman, etc.) also call the backend at `http://localhost:8
 
 ---
 
-## 3. Required Files
+## 3. Required Files (Templates)
+
+> **Note**: The files listed below are templates/examples. They are not included in the Prism repository. You should create them based on your deployment needs.
 
 | File | Purpose |
 |---|---|
-| `Caddyfile` | Reverse proxy routing rules |
-| `docker-compose.yml` | Service orchestration |
+| `Caddyfile` | Reverse proxy routing rules (template below) |
+| `docker-compose.yml` | Service orchestration (template below) |
 | `.env.example` | Host-facing configuration template |
 | `data/` | Persistent storage directory (optional, for bind mounts) |
-
 ---
 
-## 4. Reverse Proxy Configuration (Caddyfile)
+## 4. Reverse Proxy Configuration (Caddyfile Template)
 
 ```caddyfile
 {$DOMAIN:localhost} {
@@ -141,7 +144,7 @@ If the frontend is not a separate container but static files copied into the Cad
 
 ---
 
-## 5. Docker Compose
+## 5. Docker Compose Template
 
 ```yaml
 services:
@@ -232,7 +235,7 @@ Only host-facing, deployment-specific values:
 
 The frontend image should:
 1. Build the SPA in a multi-stage build.
-2. Serve the static output with a lightweight HTTP server.
+2. Serve the static output with a custom Node.js server (server.mjs).
 3. Bake the server configuration into the image.
 
 ```dockerfile
@@ -245,27 +248,20 @@ COPY . .
 RUN pnpm run build
 
 # --- Runtime stage ---
-FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+FROM node:20-alpine
+WORKDIR /app
 
-# Bake nginx config into the image
-RUN printf 'server {\n\
-    listen 3000;\n\
-    server_name _;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-    location /healthz {\n\
-        access_log off;\n\
-        return 200 "{\\"ok\\":true}";\n\
-        add_header Content-Type application/json;\n\
-    }\n\
-}' > /etc/nginx/conf.d/default.conf
+# Copy built assets and server
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/server.mjs ./
+COPY --from=build /app/package.json ./
+COPY --from=build /app/pnpm-lock.yaml ./
+
+# Install production dependencies
+RUN corepack enable && pnpm install --prod --frozen-lockfile
 
 EXPOSE 3000
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.mjs"]
 ```
 
 ### SPA API Base URL
@@ -329,7 +325,7 @@ Recommendation: keep backend CORS permissive (`allow_origins=["*"]`) for simplic
 |---|---|---|
 | Backend (Python) | `python -c "import urllib.request; ..."` | `/health` |
 | Backend (with curl) | `curl -f http://localhost:PORT/health` | `/health` |
-| Frontend (nginx) | `wget -qO- http://localhost:PORT/healthz` | `/healthz` |
+| Frontend (node server) | `wget -qO- http://localhost:PORT/health` | `/health` |
 | Frontend (caddy) | `wget -qO- http://localhost:PORT/` | `/` |
 
 Tuning:

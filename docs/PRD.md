@@ -45,9 +45,8 @@ Single user (developer/power user) running the application locally or on a local
 
 ### 4.4 Load Balancing & Failover
 - For models with multiple BaseURL/APIKey combinations:
-  - **Round-robin** load balancing across active endpoints
   - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
-- Configurable strategy per model (single, round-robin, failover)
+- Configurable strategy per model (single, failover)
 - Proxy is fully transparent and read-only — no state mutations during request/response handling
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When an endpoint returns a failover-triggering status code (429, 500, 502, 503, 529) or encounters a connection/timeout error, the failed attempt is logged before trying the next endpoint.
 

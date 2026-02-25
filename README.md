@@ -12,7 +12,7 @@ Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropi
 
 - **Multi-Provider Support**: Route requests to OpenAI, Anthropic, and Gemini through a single `/v1/*` endpoint
 - **Model Aliasing**: Create proxy models that resolve ID variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
-- **Load Balancing**: Single, round-robin, and failover strategies with automatic endpoint health tracking
+- **Load Balancing**: Single and failover strategies with automatic endpoint health tracking
 - **Streaming Support**: Full support for SSE streaming responses with transparent pass-through
 
 ### Observability & Management
@@ -58,27 +58,11 @@ git submodule update --init --recursive
 
 The backend will be available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
 
-### Docker Compose (Recommended)
+### Docker Compose
 
-```bash
-# Clone the repository
-git clone --recursive https://github.com/coachpo/prism.git
-cd prism
+> **Note**: `docker-compose.yml` is not currently included in the repository. You can create your own based on the manual Docker instructions below, or use the DEPLOYMENT_STANDARD.md as a template.
 
-# Copy environment template
-cp .env.example .env
-
-# Start services
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop services
-docker compose down
-```
-
-The backend will be available at `http://localhost:8000` and the frontend at `http://localhost:3000`.
+If you create a `docker-compose.yml`, the backend will be available at `http://localhost:8000` and the frontend at `http://localhost:3000`.
 
 ### Docker (Manual)
 
@@ -170,7 +154,7 @@ prism/
 - [Architecture](docs/ARCHITECTURE.md) - Request flows, design decisions, provider routing
 - [API Specification](docs/API_SPEC.md) - Full REST API documentation
 - [Data Model](docs/DATA_MODEL.md) - Database schema reference
-- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment instructions
+- [Deployment Guide](docs/DEPLOYMENT_STANDARD.md) - Production deployment instructions
 - [PRD](docs/PRD.md) - Product requirements and feature specifications
 - [Smoke Test Plan](docs/SMOKE_TEST_PLAN.md) - Comprehensive test scenarios
 

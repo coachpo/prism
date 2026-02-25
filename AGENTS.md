@@ -128,7 +128,7 @@ cd frontend && pnpm run build
  Header blocklist rules (system + user-defined) filter proxy/CDN/tracing headers before forwarding
  No frontend tests — lint only (`pnpm run lint`)
  Backend test deps (pytest, pytest-asyncio) installed in venv but not in requirements.txt
- No docker-compose.yml in repo despite README references — use manual Docker commands or create compose file
+ Docker deployment via manual container commands (pull from GHCR, run with volumes) — no docker-compose.yml in repo
  Docker images are ARM64-only (`linux/arm64`) — no amd64 support
  Frontend production uses custom Node.js server (server.mjs) on port 3000 instead of nginx/caddy
  Failover status codes: 403, 429, 500, 502, 503, 529 — other errors returned immediately without failover

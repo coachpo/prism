@@ -28,7 +28,6 @@ This plan is synthesized from:
 - `docs/DATA_MODEL.md`
 - `docs/PRD.md`
 - `docs/DEPLOYMENT_STANDARD.md`
-- `docs/PLAN.md`
 - `docs/UPGRADE_PLAN_OPENAI_USAGE_CACHE_POLICY.md`
 
 ---

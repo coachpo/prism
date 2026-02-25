@@ -54,7 +54,8 @@ backend/
 │   │   ├── proxy_service.py    # Request forwarding, streaming, header sanitization
 │   │   ├── loadbalancer.py     # LB strategy, failover
 │   │   ├── stats_service.py    # Request logging, aggregation queries
-│   │   └── audit_service.py    # Audit recording, redaction
+│   │   ├── audit_service.py    # Audit recording, redaction
+│   │   └── costing_service.py  # Token costing, FX conversion, pricing snapshots
 │   └── dependencies.py         # Shared FastAPI dependencies
 ├── requirements.txt
 └── alembic/ (future)

@@ -243,6 +243,25 @@ DELETE /api/endpoints/{id}
 ```
 Response `204`: No content.
 
+#### Get Endpoint Owner
+```
+GET /api/endpoints/{id}/owner
+```
+Returns the model configuration that owns this endpoint.
+
+Response `200`:
+```json
+{
+  "endpoint_id": 7,
+  "model_config_id": 1,
+  "model_id": "gpt-4o",
+  "endpoint_description": "Primary endpoint",
+  "endpoint_base_url": "https://api.openai.com/v1"
+}
+```
+
+Response `404`: Endpoint not found.
+
 #### Health Check Endpoint
 ```
 POST /api/endpoints/{id}/health-check
