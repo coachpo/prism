@@ -43,6 +43,50 @@ case "$MODE" in
         ;;
 esac
 
+port_listeners() {
+    local port="$1"
+
+    if ! command -v lsof >/dev/null 2>&1; then
+        return 0
+    fi
+
+    lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+kill_running_on_port() {
+    local port="$1"
+    local name="$2"
+    local pids
+
+    pids="$(port_listeners "$port")"
+    if [ -z "$pids" ]; then
+        return
+    fi
+
+    echo "Stopping existing $name process(es) on port $port..."
+    kill $pids 2>/dev/null || true
+
+    local attempts=20
+    while [ "$attempts" -gt 0 ] && [ -n "$(port_listeners "$port")" ]; do
+        sleep 0.25
+        attempts=$((attempts - 1))
+    done
+
+    pids="$(port_listeners "$port")"
+    if [ -n "$pids" ]; then
+        echo "Force-stopping stubborn process(es) on port $port..."
+        kill -9 $pids 2>/dev/null || true
+    fi
+}
+
+kill_existing_instances() {
+    kill_running_on_port "$BACKEND_PORT" "backend"
+
+    if [ "$START_FRONTEND" = true ]; then
+        kill_running_on_port "$FRONTEND_PORT" "frontend"
+    fi
+}
+
 cleanup() {
     if [ "$CLEANED_UP" = true ]; then
         return
@@ -57,6 +101,8 @@ cleanup() {
     echo "Done."
 }
 trap cleanup EXIT INT TERM
+
+kill_existing_instances
 
 # --- Backend setup ---
 if [ ! -d "$BACKEND_DIR/venv" ]; then
