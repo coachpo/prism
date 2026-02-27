@@ -8,11 +8,12 @@
 │             │     │  ┌──────────┐  ┌──────────┐             │     │              │
 │  Port 5173  │◀────│  │ Config  │  │  Proxy   │          │◀────│  Gemini API  │
 │             │     │  │  API    │  │  Engine  │          │     │              │
-└─────────────┘     │  └────┬────┘  └────┬─────┘          │     └──────────────┘
-                    │       │            │                 │
+│             │     │  └────┬────┘  └────┬─────┘          │     └──────────────┘
+└─────────────┘     │       │            │                 │
                     │  ┌────▼────────────▼─────┐          │
                     │  │     SQLite Database    │          │
                     │  │  (models, endpoints,   │          │
+                    │  │   connections,         │          │
                     │  │   lb_config,           │          │
                     │  │   request_logs,        │          │
                     │  │   audit_logs)          │          │
@@ -35,17 +36,20 @@ backend/
 │   ├── models/                 # SQLAlchemy ORM models
 │   │   ├── provider.py         # Provider model (openai, anthropic, gemini)
 │   │   ├── model_config.py     # Model ID → provider mapping
-│   │   ├── endpoint.py         # BaseURL + APIKey entries
+│   │   ├── endpoint.py         # Global credentials (BaseURL + APIKey)
+│   │   ├── connection.py       # Model-scoped routing/costing config
 │   │   └── request_log.py      # Request telemetry log entries
 │   ├── schemas/                # Pydantic request/response schemas
 │   │   ├── provider.py
 │   │   ├── model_config.py
 │   │   ├── endpoint.py
+│   │   ├── connection.py
 │   │   └── stats.py            # Statistics query/response schemas
 │   ├── routers/                # API route handlers
 │   │   ├── providers.py        # CRUD for provider types
 │   │   ├── models.py           # CRUD for model configurations
-│   │   ├── endpoints.py        # CRUD for BaseURL/APIKey combos
+│   │   ├── endpoints.py        # CRUD for global credentials
+│   │   ├── connections.py      # CRUD for model-scoped routing config
 │   │   ├── proxy.py            # LLM proxy endpoints
 │   │   ├── stats.py            # Statistics query endpoints
 │   │   ├── audit.py            # Audit log query/delete endpoints
@@ -76,9 +80,10 @@ frontend/
 │   ├── pages/
 │   │   ├── Dashboard.tsx       # Overview of all models
 │   │   ├── ModelConfig.tsx     # Model configuration page
-│   │   ├── EndpointConfig.tsx  # Endpoint management
-│   │   ├── StatisticsPage.tsx  # Request statistics & analytics (endpoint column + filter)
-│   │   ├── AuditPage.tsx       # Audit log browsing, endpoint filter, wide tabbed detail dialog
+│   │   ├── EndpointConfig.tsx  # Global endpoint management
+│   │   ├── ModelDetail.tsx     # Model-scoped connection management
+│   │   ├── StatisticsPage.tsx  # Request statistics & analytics
+│   │   ├── AuditPage.tsx       # Audit log browsing
 │   │   └── SettingsPage.tsx    # Audit config, config backup, data management
 │   └── types/
 │       └── api.ts              # TypeScript types matching backend schemas
@@ -97,8 +102,8 @@ frontend/
 Client → POST /v1/chat/completions {model: "gpt-4o"}
   → Router extracts model ID from body
   → LoadBalancer looks up model config
-  → Model is native → select endpoint directly
-  → ProxyService forwards request to upstream BaseURL
+  → Model is native → select connection based on LB strategy
+  → ProxyService forwards request to connection's endpoint BaseURL
   → Upstream responds with JSON
   → Gateway returns JSON to client
 ```
@@ -111,8 +116,8 @@ Client → POST /v1/messages {model: "claude-sonnet-4-5"}
   → LoadBalancer looks up model config
   → Model is proxy → resolve redirect_to → "claude-sonnet-4-5-20250929"
   → Look up target native model config
-  → Select endpoint from target model
-  → ProxyService forwards request to upstream BaseURL (request body unchanged)
+  → Select connection from target model
+  → ProxyService forwards request to connection's endpoint BaseURL
   → Upstream responds
   → Gateway returns response to client
 ```
@@ -122,10 +127,10 @@ Client → POST /v1/messages {model: "claude-sonnet-4-5"}
 ```
 Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
   → Router extracts model ID
-  → LoadBalancer selects endpoint (with proxy alias resolution if needed)
-  → ProxyService opens streaming connection to upstream
+  → LoadBalancer selects connection (with proxy alias resolution if needed)
+  → ProxyService opens streaming connection to upstream endpoint
   → SSE chunks piped directly to client via StreamingResponse
-  → On upstream error: failover to next endpoint (if configured)
+  → On upstream error: failover to next connection (if configured)
 ```
 
 ### 3.4 Provider-Specific Routing
@@ -141,37 +146,39 @@ Note: Gemini's OpenAI-compatible endpoint is used by default. For Gemini native 
 
 ### 3.5 Custom Header Injection
 
-When an endpoint has `custom_headers` configured, they are injected into the upstream request after all other headers:
+When a connection has `custom_headers` configured, they are injected into the upstream request after all other headers:
 
 ```
 build_upstream_headers():
   1. Start with client headers (minus hop-by-hop, minus client auth headers)
   2. Add provider auth headers (Authorization/x-api-key based on provider type)
   3. Add provider extra headers (e.g., anthropic-version)
-  4. Apply endpoint custom_headers (from endpoints.custom_headers JSON)
+  4. Apply connection custom_headers (from connections.custom_headers JSON)
      → Same-name headers from earlier steps are OVERWRITTEN
   5. Apply Header Blocklist (`sanitize_headers`):
      → Remove any headers matching active exact or prefix rules in `header_blocklist_rules`
      → This ensures blocked headers (like Cloudflare metadata) never reach the upstream
   6. Return final header dict
+```
 
 Custom headers are a power-user feature. While they can override most headers, they cannot be used to re-add headers that are blocked by the Header Blocklist. This is enforced by applying the blocklist last in the header construction pipeline.
 
 ## 4. Load Balancing
+
 ### 4.1 Strategies
 
-- **single**: Use only the highest-priority active endpoint (no failover)
-- **failover**: Try endpoints in priority order with automatic recovery
+- **single**: Use only the highest-priority active connection (no failover)
+- **failover**: Try connections in priority order with automatic recovery
 
 ### 4.2 Failover with Passive Recovery
 
-The `failover` strategy implements intelligent endpoint selection with automatic recovery:
+The `failover` strategy implements intelligent connection selection with automatic recovery:
 
-**Endpoint Selection:**
+**Connection Selection:**
 
-1. Healthy endpoints (not in cooldown) are tried first in priority order
-2. Cooldown-expired endpoints become probe-eligible (half-open state)
-3. Endpoints still cooling down are skipped entirely
+1. Healthy connections (not in cooldown) are tried first in priority order
+2. Cooldown-expired connections become probe-eligible (half-open state)
+3. Connections still cooling down are skipped entirely
 
 **Failure Detection:**
 
@@ -185,9 +192,9 @@ Failures that trigger failover and start cooldown:
 
 **Recovery Mechanism:**
 
-- When an endpoint fails, it enters cooldown for `failover_recovery_cooldown_seconds` (default: 60s)
-- After cooldown expires, the endpoint becomes probe-eligible
-- On first successful response, the endpoint is marked recovered and returns to healthy pool
+- When a connection fails, it enters cooldown for `failover_recovery_cooldown_seconds` (default: 60s)
+- After cooldown expires, the connection becomes probe-eligible
+- On first successful response, the connection is marked recovered and returns to healthy pool
 - Recovery is passive (no background polling) - probes happen during normal request flow
 
 **Per-Model Configuration:**
@@ -195,7 +202,7 @@ Failures that trigger failover and start cooldown:
 - `failover_recovery_enabled`: Enable/disable automatic recovery (default: true)
 - `failover_recovery_cooldown_seconds`: Cooldown duration in seconds (range: 1-3600, default: 60)
 
-If all endpoints are in cooldown with none probe-eligible, the gateway returns `503` with cooldown detail.
+If all connections are in cooldown with none probe-eligible, the gateway returns `503` with cooldown detail.
 
 ## 5. Model Proxy (Alias)
 
@@ -207,10 +214,10 @@ Proxy models are aliases that forward requests to a target native model. This re
 
 - Only same-provider proxying (OpenAI → OpenAI, Anthropic → Anthropic)
 - Target must be a native model (no chained proxy aliases)
-- Proxy models have no endpoints of their own
+- Proxy models have no connections of their own
 - Proxy models do not use load balancing (lb_strategy is ignored; target model's strategy applies)
 - All model IDs are globally unique
-- The gateway does NOT modify the request body — it only uses the target model's endpoints for routing
+- The gateway does NOT modify the request body — it only uses the target model's connections for routing
 
 ### 5.3 Resolution
 
@@ -222,17 +229,17 @@ resolve_model(model_id):
   return config
 ```
 
-## 6. Endpoint Health Detection
+## 6. Connection Health Detection
 
 ### 6.1 Concept
 
-Manual health checks allow users to verify endpoint connectivity and authentication before relying on them for proxy traffic.
+Manual health checks allow users to verify connection connectivity and authentication before relying on them for proxy traffic.
 
 ### 6.2 Health Probes (Provider-Specific)
 
-Health checks send a real chat completion request using the endpoint's configured model ID and a simple question. This validates the full request chain (URL routing, authentication, model availability) using the same URL-building logic as the proxy engine.
+Health checks send a real chat completion request using the connection's configured model ID and a simple question. This validates the full request chain (URL routing, authentication, model availability) using the same URL-building logic as the proxy engine.
 
-- **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
+- **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}` where `base_url` comes from the connection's endpoint.
 - **Anthropic**: `POST {base_url}/messages` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
 
 ### 6.3 Status Values
@@ -241,22 +248,22 @@ Health checks send a real chat completion request using the endpoint's configure
 - `healthy` — Last check succeeded (2xx or 429)
 - `unhealthy` — Last check failed (401/403, connection error, timeout, other errors)
 
-### 6.4 Endpoint Success Rate Badge
+### 6.4 Connection Success Rate Badge
 
-The primary visual health indicator for endpoints is the **success rate badge**, computed from `request_logs` data (not from the manual health check status).
+The primary visual health indicator for connections is the **success rate badge**, computed from `request_logs` data (not from the manual health check status).
 
-- Success rate = `COUNT(2xx) / COUNT(*) * 100` per endpoint
+- Success rate = `COUNT(2xx) / COUNT(*) * 100` per connection
 - Badge colors: ≥98% green, 75-98% yellow, <75% red, N/A gray (no data)
-- Displayed in the endpoint list on the Model Detail page, replacing the previous binary health dot
+- Displayed in the connection list on the Model Detail page, replacing the previous binary health dot
 - The manual health check still updates `health_status`/`health_detail` in the database and is shown in the tooltip
 
 ### 6.5 Model Health Aggregation
 
-Model-level health is computed by aggregating endpoint success rates:
+Model-level health is computed by aggregating connection success rates:
 
-- Weighted average across all endpoints: `SUM(success_count) / SUM(total_requests) * 100`
+- Weighted average across all connections: `SUM(success_count) / SUM(total_requests) * 100`
 - Displayed on Dashboard and Models pages as a colored badge
-- Same color thresholds as endpoint badges
+- Same color thresholds as connection badges
 
 ### 6.4 Error Reporting
 
@@ -264,7 +271,7 @@ When a health check fails, the upstream error message is extracted from the resp
 
 ### 6.5 URL Path Failsafe
 
-To prevent the `/v1/v1` double-path bug (where `base_url` already contains `/v1` and the request path also starts with `/v1`):
+To prevent the `/v1/v1` double-path bug (where endpoint `base_url` already contains `/v1` and the request path also starts with `/v1`):
 
 1. **Runtime auto-correction**: `build_upstream_url()` detects repeated version segments (e.g., `/v1/v1`, `/v2/v2`) via regex and auto-corrects them, logging a warning.
 2. **Input validation**: `validate_base_url()` rejects base URLs that already contain double version segments on endpoint create/update (HTTP 422).
@@ -279,7 +286,7 @@ All proxy requests are automatically logged with telemetry data for analytics an
 ### 7.2 Logging Flow
 
 ```
-Client → Proxy Router → LoadBalancer → ProxyService → Upstream
+Client → Proxy Router → LoadBalancer → ProxyService → Upstream (via Connection)
                                                          ↓
                                               Response received
                                                          ↓
@@ -292,7 +299,7 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream
 
 ### 7.3 Data Captured
 
-- Model ID, provider type, endpoint used (ID, base URL, description)
+- Model ID, provider type, connection used (ID, endpoint base URL, description)
 - HTTP status code, response time (ms)
 - Token usage (input, output, total) — extracted from upstream response
 - Stream flag, request path, error details
@@ -300,7 +307,7 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream
 ### 7.4 Query Capabilities
 
 - Filter by model, provider, status, time range
-- Aggregated statistics with grouping by model/provider/endpoint
+- Aggregated statistics with grouping by model/provider/connection
 - Pagination for request log listing
 
 ## 8. Request Audit Logging
@@ -322,7 +329,7 @@ Client → POST /v1/chat/completions {model: "gpt-4o"}
   → If audit_enabled:
        → One audit row for this upstream attempt
        → Redact sensitive headers
-       → Record endpoint metadata (endpoint_id, base_url, description) as snapshot
+       → Record connection metadata (connection_id, endpoint_base_url, endpoint_description) as snapshot
        → Link to request_log entry via request_log_id (returned from log_request)
        → If audit_capture_bodies = TRUE: truncate bodies to 64KB
        → If audit_capture_bodies = FALSE: store request_body/response_body as NULL
@@ -343,7 +350,7 @@ Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
        → If audit_enabled:
            → One audit row for this upstream attempt
            → Record request headers/body + response headers/status
-           → Record endpoint metadata (endpoint_id, base_url, description)
+           → Record connection metadata (connection_id, endpoint_base_url, endpoint_description)
            → Link to request_log entry via request_log_id
            → response_body = NULL (streaming bodies are never stored)
            → INSERT into audit_logs (separate AsyncSessionLocal)
@@ -368,18 +375,16 @@ Applied at write time before INSERT — sensitive data never reaches the databas
 
 - `providers.audit_enabled` (BOOLEAN, default FALSE)
 - `providers.audit_capture_bodies` (BOOLEAN, default TRUE)
-- Toggled via `PATCH /api/providers/{id}` with `{"audit_enabled": true/false, "audit_capture_bodies": true/false}`
-- Takes effect immediately for new requests
 - Managed in frontend Settings page under "Audit Configuration"
 
 ### 8.7 Audit Detail Dialog
 
 The audit detail view is a wide tabbed modal dialog with:
 
-- Summary strip: model, provider, endpoint (ID + description + base URL), status, duration, timestamp
+- Summary strip: model, provider, connection (ID + description + endpoint base URL), status, duration, timestamp
 - Request tab: method, URL, headers (redacted), body (pretty-printed JSON)
 - Response tab: status, headers, body (pretty-printed JSON, or "not recorded" notice for streaming)
-- Endpoint identity fields (`endpoint_id`, `endpoint_base_url`, `endpoint_description`) are displayed in the summary strip
+- Connection identity fields (`connection_id`, `endpoint_base_url`, `endpoint_description`) are displayed in the summary strip
 
 ## 9. Batch Data Deletion
 
@@ -422,7 +427,7 @@ See [DATA_MODEL.md](./DATA_MODEL.md) for complete schema.
 
 ## 11. API Design
 
-See [API_SPEC.md](./API_SPEC.md) for complete endpoint documentation.
+See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 
 ## 12. Security Considerations
 

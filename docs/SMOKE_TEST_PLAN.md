@@ -28,7 +28,6 @@ This plan is synthesized from:
 - `docs/DATA_MODEL.md`
 - `docs/PRD.md`
 - `docs/DEPLOYMENT_STANDARD.md`
-- `docs/UPGRADE_PLAN_OPENAI_USAGE_CACHE_POLICY.md`
 
 ---
 
@@ -59,7 +58,7 @@ This plan is synthesized from:
 - Backend available at `http://localhost:8000`.
 - Frontend available at `http://localhost:5173` for UI suites.
 - Upstream behavior controlled by test doubles or known test endpoints.
-- At least one active model with endpoints for each provider path under test.
+- At least one active model with connections for each provider path under test.
 
 Suggested startup:
 
@@ -78,19 +77,22 @@ Suggested startup:
 Prepare seed state through API (not manual DB edits):
 
 1. Providers exist: OpenAI, Anthropic, Gemini.
-2. Native models:
-   - one OpenAI-compatible model with 2+ active endpoints
+2. Global Endpoints:
+   - one OpenAI endpoint
+   - one Anthropic endpoint
+   - one Gemini endpoint
+3. Native models:
+   - one OpenAI-compatible model with 2+ active connections
    - one Anthropic model
    - one Gemini model
-3. Proxy models:
+4. Proxy models:
    - same-provider alias redirecting to a native model
-4. Endpoint diversity:
+5. Connection diversity:
    - active + inactive
    - differing priorities
-   - one endpoint with `custom_headers`
-   - one endpoint with `auth_type` override
-   - one endpoint with `pricing_enabled=true`
-5. Audit toggles initially disabled, then enabled per-case.
+   - one connection with `custom_headers`
+   - one connection with `pricing_enabled=true`
+6. Audit toggles initially disabled, then enabled per-case.
 
 ---
 
@@ -107,16 +109,20 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/models` | B04-B10 |
 | `PUT /api/models/{id}` | B08-B10 |
 | `DELETE /api/models/{id}` | B11 |
-| `GET /api/models/{id}/endpoints` | B18 |
-| `POST /api/models/{id}/endpoints` | B12-B15, L01-L02 |
-| `PUT /api/endpoints/{id}` | B16-B17, L03 |
-| `DELETE /api/endpoints/{id}` | B18 |
-| `POST /api/endpoints/{id}/health-check` | D01-D06 |
+| `GET /api/endpoints` | B12 |
+| `POST /api/endpoints` | B13 |
+| `PUT /api/endpoints/{id}` | B14 |
+| `DELETE /api/endpoints/{id}` | B15 |
+| `GET /api/models/{id}/connections` | B18 |
+| `POST /api/models/{id}/connections` | B16-B17, L01-L02 |
+| `PUT /api/connections/{id}` | B19-B20, L03 |
+| `DELETE /api/connections/{id}` | B21 |
+| `POST /api/connections/{id}/health-check` | D01-D06 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10, L08-L10 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10 |
 | `GET /api/stats/requests` | E01-E04 |
 | `GET /api/stats/summary` | E05-E06 |
-| `GET /api/stats/endpoint-success-rates` | E07 |
+| `GET /api/stats/connection-success-rates` | E07 |
 | `GET /api/stats/spending` | L11-L13, L19-L20 |
 | `DELETE /api/stats/requests` | G01-G03 |
 | `GET /api/audit/logs` | F10, F12 |
@@ -162,13 +168,16 @@ Prepare seed state through API (not manual DB edits):
 | B09 | P0 | Proxy target is another proxy | `400` |
 | B10 | P0 | Native model with non-null `redirect_to` | `400` |
 | B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
-| B12 | P0 | Create endpoint on native model | `201` |
-| B13 | P0 | Create endpoint on proxy model | `400` |
-| B14 | P0 | Base URL trailing slash normalization | Stored without trailing slash |
-| B15 | P0 | Invalid base URL (`/v1/v1` or missing scheme/host) | `422` |
-| B16 | P0 | Update endpoint with `custom_headers=null/{}` | Headers removed |
-| B17 | P1 | Update endpoint omitting `custom_headers` | Existing headers retained |
-| B18 | P1 | Delete endpoint then list/get model | Endpoint absent, model still valid |
+| B12 | P0 | List global endpoints | `200`, returns array |
+| B13 | P0 | Create global endpoint | `201`, endpoint stored |
+| B14 | P0 | Update global endpoint | `200`, changes persist |
+| B15 | P0 | Delete global endpoint in use | `409` conflict |
+| B16 | P0 | Create connection on native model | `201` |
+| B17 | P0 | Create connection on proxy model | `400` |
+| B18 | P1 | List connections for model | `200`, returns array |
+| B19 | P0 | Update connection with `custom_headers=null/{}` | Headers removed |
+| B20 | P1 | Update connection omitting `custom_headers` | Existing headers retained |
+| B21 | P1 | Delete connection | `204`, connection removed |
 
 ## C. Proxy Routing, Aliasing, Headers, and Failover
 
@@ -177,18 +186,18 @@ Prepare seed state through API (not manual DB edits):
 | C01 | P0 | OpenAI non-stream proxy call | Upstream response proxied as-is |
 | C02 | P0 | Anthropic non-stream proxy call | Upstream response proxied as-is |
 | C03 | P1 | Gemini route compatibility | Correct routing and auth behavior |
-| C04 | P0 | Proxy alias model request | Routed via target native endpoints; only model rewritten |
+| C04 | P0 | Proxy alias model request | Routed via target native connections; only model rewritten |
 | C05 | P0 | Unknown/disabled model | `404` |
-| C06 | P0 | `single` strategy | Lowest priority active endpoint used |
-| C07 | P0 | `failover` strategy with recovery | Endpoint cooldown and passive probe behavior |
-| C08 | P0 | Failover on `403/429/500/502/503/529` | Next endpoint attempted |
-| C09 | P0 | Failover on connection error/timeout | Next endpoint attempted |
+| C06 | P0 | `single` strategy | Lowest priority active connection used |
+| C07 | P0 | `failover` strategy with recovery | Connection cooldown and passive probe behavior |
+| C08 | P0 | Failover on `403/429/500/502/503/529` | Next connection attempted |
+| C09 | P0 | Failover on connection error/timeout | Next connection attempted |
 | C10 | P0 | All failover attempts fail | `502` with last error detail |
-| C11 | P0 | No active endpoints | `503` |
+| C11 | P0 | No active connections | `503` |
 | C12 | P1 | Header merge order with custom override | Custom headers win over provider/client headers |
-| C13 | P1 | Endpoint `auth_type` override | Effective auth header follows override |
+| C13 | P1 | Connection `custom_headers` override | Effective headers follow override |
 
-## D. Endpoint Health Check and URL Failsafe
+## D. Connection Health Check and URL Failsafe
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
@@ -209,11 +218,11 @@ Prepare seed state through API (not manual DB edits):
 | E03 | P0 | Request log filters (`model`, `provider`, `status`, `success`, time) | Correct subsets returned |
 | E04 | P0 | Pagination (`limit`, `offset`, `total`) | Consistent counts and windows |
 | E05 | P0 | Summary without `from_time` | Uses all historical data |
-| E06 | P1 | Summary grouping (`model/provider/endpoint`) | Groups and aggregates correct |
-| E07 | P1 | Endpoint success-rate API | Values match request logs |
-| E08 | P0 | Non-stream token extraction (OpenAI, Anthropic messages, count_tokens) | Token fields match provider format rules |
+| E06 | P1 | Summary grouping (`model/provider/connection`) | Groups and aggregates correct |
+| E07 | P1 | Connection success-rate API | Values match request logs |
+| E08 | P0 | Non-stream token extraction | Token fields match provider format rules |
 | E09 | P1 | Unsupported/malformed usage fallback | Token fields null |
-| E10 | P0 | Stream token extraction (OpenAI include_usage, Anthropic events) | Token fields populated |
+| E10 | P0 | Stream token extraction | Token fields populated |
 | E11 | P1 | Streaming without usage fields | Token fields null |
 | E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
 
@@ -226,44 +235,44 @@ Prepare seed state through API (not manual DB edits):
 | F03 | P0 | Body capture disabled | Bodies stored as null |
 | F04 | P0 | Streaming audited request | `response_body` null; other fields recorded |
 | F05 | P0 | Failover with audit enabled | One audit row per upstream attempt |
-| F06 | P0 | Redaction exact headers (`authorization`, `x-api-key`, `x-goog-api-key`) | Values redacted before storage |
-| F07 | P1 | Redaction by name pattern (`key|secret|token|auth`) | Values redacted |
+| F06 | P0 | Redaction exact headers | Values redacted before storage |
+| F07 | P1 | Redaction by name pattern | Values redacted |
 | F08 | P1 | Non-sensitive headers | Preserved |
 | F09 | P0 | 64KB truncation | `[TRUNCATED]` appended |
 | F10 | P0 | Audit list API | `request_body_preview` max 200 chars, ordered desc |
 | F11 | P0 | Audit detail API | Full row returned; unknown id is `404` |
 | F12 | P0 | Audit filters/pagination | Correct subsets and totals |
-| F13 | P0 | Audit delete validation (both/neither params) | `400` |
+| F13 | P0 | Audit delete validation | `400` |
 | F14 | P1 | Audit non-interference on write failure | Proxy response unaffected |
 
 ## G. Batch Deletion and FK Semantics
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| G01 | P0 | Stats delete with missing mode (neither `older_than_days` nor `delete_all`) | `400` |
-| G02 | P0 | Stats delete with preset days (7/15/30) | Correct `deleted_count`, cutoff semantics |
+| G01 | P0 | Stats delete with missing mode | `400` |
+| G02 | P0 | Stats delete with preset days | Correct `deleted_count`, cutoff semantics |
 | G03 | P0 | Delete request logs with linked audit rows | Audit rows remain, `request_log_id` becomes null |
 | G04 | P0 | Audit delete with `older_than_days` | Correct deletion |
 | G05 | P1 | Audit delete with `before` timestamp | Correct deletion; request logs unaffected |
-| G06 | P0 | Stats delete with custom day value (`older_than_days=45`) | `200`, correct `deleted_count` |
-| G07 | P0 | Stats delete rejects invalid day values (`0`, negative) | `422` (FastAPI validation) |
-| G08 | P0 | Stats delete rejects conflicting modes (`older_than_days` + `delete_all=true`) | `400` |
-| G09 | P0 | Stats delete all mode (`delete_all=true`) | Deletes entire `request_logs` table, returns count |
-| G10 | P0 | Audit delete with custom day value (`older_than_days=45`) | `200`, correct `deleted_count` |
-| G11 | P0 | Audit delete all mode (`delete_all=true`) | Deletes entire `audit_logs` table, returns count |
-| G12 | P0 | Audit delete rejects multiple active modes (`before` + custom, custom + all, before + all) | `400` |
+| G06 | P0 | Stats delete with custom day value | `200`, correct `deleted_count` |
+| G07 | P0 | Stats delete rejects invalid day values | `422` |
+| G08 | P0 | Stats delete rejects conflicting modes | `400` |
+| G09 | P0 | Stats delete all mode | Deletes entire `request_logs` table |
+| G10 | P0 | Audit delete with custom day value | `200`, correct `deleted_count` |
+| G11 | P0 | Audit delete all mode | Deletes entire `audit_logs` table |
+| G12 | P0 | Audit delete rejects multiple active modes | `400` |
 
 ## H. Config Export and Import
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=4`, `exported_at`, providers/models arrays |
+| H01 | P0 | Export schema and metadata | `version=5`, `exported_at`, providers/models/endpoints arrays |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
-| H04 | P0 | Export includes endpoint `auth_type` and `custom_headers` | Fields preserved |
+| H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
 | H05 | P0 | Valid import full replacement | Existing config replaced, counts accurate |
 | H06 | P0 | Import failure rollback | Prior config remains intact |
-| H07 | P0 | Validation matrix (version/provider/model/redirect/proxy endpoints/native redirect rules) | Correct `400` errors |
+| H07 | P0 | Validation matrix | Correct `400` errors |
 | H08 | P1 | Settings UI export filename | `gateway-config-YYYY-MM-DD.json` |
 | H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
 
@@ -271,31 +280,31 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| I01 | P0 | Sidebar navigation (`/dashboard`, `/models`, `/statistics`, `/audit`, `/settings`) | All routes load |
+| I01 | P0 | Sidebar navigation | All routes load |
 | I02 | P0 | Dashboard + Models success rate badges | Correct color thresholds and `N/A` |
-| I03 | P0 | Model detail endpoint success badge + tooltip | Correct counts, rates, health detail |
-| I04 | P0 | Endpoint health actions (table + dialog test) | Toast/banner reflects result |
+| I03 | P0 | Model detail connection success badge + tooltip | Correct counts, rates, health detail |
+| I04 | P0 | Connection health actions | Toast/banner reflects result |
 | I05 | P0 | Statistics cards and request table | Data renders and updates |
 | I06 | P0 | Statistics "All" time range consistency | Summary totals align with table totals |
 | I07 | P0 | Statistics provider filter | Only OpenAI/Anthropic/Gemini options |
 | I08 | P0 | Audit list/filter/detail UI | Works end-to-end; stream notice shown |
 | I09 | P0 | Settings audit toggles | Persist and reflect backend |
 | I10 | P0 | Settings data management preset buttons | Correct API calls and toasts |
-| I11 | P1 | Endpoint custom header editor | Add/remove/persist roundtrip |
+| I11 | P1 | Connection custom header editor | Add/remove/persist roundtrip |
 | I12 | P1 | Frontend error details | Backend `detail` surfaced to user |
-| I13 | P0 | Settings data management custom days flow | Custom day input validates (≥1, integer), calls API correctly |
+| I13 | P0 | Settings data management custom days flow | Custom day input validates, calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
-| I16 | P0 | Model detail endpoint dialog token pricing section | Pricing toggle/unit/currency/price policy fields save and reload correctly |
-| I17 | P0 | Settings costing and currency card | Report currency + symbol load/save; API fallback callout shown on unavailable endpoint |
-| I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, endpoint_id)` and `fx_rate > 0` |
-| I19 | P0 | Statistics spending tab filters and pagination | Preset/custom filters, grouping, top_n, limit/offset controls update data correctly |
-| I20 | P0 | Statistics operations request log costing columns | Token/cost breakdown columns and billable/priced/unpriced fields render without UI regressions |
-| I21 | P0 | Operations special-token row filter behavior | `All`, `Has cached`, `Has reasoning`, `Has any special`, `Missing special` only change request-log rows (not cards/charts) |
-| I22 | P0 | Null-vs-zero rendering in request log metrics | Null token/cost values render `N/A` with tooltip reason, while numeric zero renders as `0` |
-| I23 | P0 | Spending "Special Tokens Captured" card correctness | Card shows cached total and detail for cache-creation-input + reasoning totals; shows contextual zero-note when all are zero |
-| I24 | P0 | Responsive token visibility below `xl` | Compact `Usage` column shows `In/Out/Total` and `Cache Read/Cache Creation/Reasoning` when detailed token columns are hidden |
-| I25 | P0 | No-regression check for existing costing indicators | Existing spend, billable, priced, and unpriced-reason columns still render and behave correctly |
+| I16 | P0 | Model detail connection dialog token pricing section | Pricing fields save and reload correctly |
+| I17 | P0 | Settings costing and currency card | Report currency + symbol load/save |
+| I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, connection_id)` |
+| I19 | P0 | Statistics spending tab filters and pagination | Controls update data correctly |
+| I20 | P0 | Statistics operations request log costing columns | Breakdown columns render without UI regressions |
+| I21 | P0 | Operations special-token row filter behavior | Filter only changes request-log rows |
+| I22 | P0 | Null-vs-zero rendering in request log metrics | Null values render `N/A`, zero renders as `0` |
+| I23 | P0 | Spending "Special Tokens Captured" card correctness | Card shows cached total and detail |
+| I24 | P0 | Responsive token visibility below `xl` | Compact `Usage` column shows summary |
+| I25 | P0 | No-regression check for existing costing indicators | Existing spend columns still render correctly |
 
 ## J. Non-Functional Smoke
 
@@ -313,17 +322,17 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K01 | P0 | List rules returns seeded system defaults | `200`, includes `cf-*`, `x-forwarded-*`, tracing headers, etc. ordered by `is_system DESC, id ASC` |
+| K01 | P0 | List rules returns seeded system defaults | `200`, includes system headers |
 | K02 | P0 | Create user rule (exact match) | `201`, rule stored with `is_system=false` |
 | K03 | P0 | Create user rule (prefix match ending with `-`) | `201`, rule stored |
-| K04 | P0 | Create duplicate rule (match_type + pattern) | `409` |
+| K04 | P0 | Create duplicate rule | `409` |
 | K05 | P0 | Get single rule by ID | `200`, returns full rule object |
 | K06 | P0 | Get non-existent rule ID | `404` |
-| K07 | P0 | Update user rule (name/pattern/match_type/enabled) | `200`, changes persist |
+| K07 | P0 | Update user rule | `200`, changes persist |
 | K08 | P0 | Update system rule `enabled` only | `200`, change persists |
-| K09 | P0 | Update system rule `name`/`pattern`/`match_type` | `400` (immutable fields) |
+| K09 | P0 | Update system rule immutable fields | `400` |
 | K10 | P0 | Delete user rule | `204` |
-| K11 | P0 | Delete system rule | `400` (not deletable) |
+| K11 | P0 | Delete system rule | `400` |
 
 ### K.2 Validation
 
@@ -339,83 +348,67 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K17 | P0 | Proxy request with `cf-ray` header (prefix `cf-`) | Header blocked from upstream |
-| K18 | P0 | Proxy request with `x-forwarded-for` (exact match) | Header blocked |
-| K19 | P0 | Proxy request with tracing header (`traceparent`, `x-request-id`) | Header blocked |
-| K20 | P0 | Proxy request with allowed header (e.g. `accept`) | Passes through to upstream |
-| K21 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent from upstream after merge |
-| K22 | P0 | Provider auth headers remain correct after blocklist | `Authorization`/`x-api-key`/`x-goog-api-key` present and correct |
-| K23 | P0 | Health-check endpoint also applies blocklist rules | Blocked headers excluded from health-check request |
-| K24 | P1 | Disable all rules | Metadata headers flow through to upstream |
+| K17 | P0 | Proxy request with `cf-ray` header | Header blocked from upstream |
+| K18 | P0 | Proxy request with `x-forwarded-for` | Header blocked |
+| K19 | P0 | Proxy request with tracing header | Header blocked |
+| K20 | P0 | Proxy request with allowed header | Passes through to upstream |
+| K21 | P0 | `custom_headers` cannot re-add blocked header names | Blocked header still absent |
+| K22 | P0 | Provider auth headers remain correct | Auth headers present and correct |
+| K23 | P0 | Health-check also applies blocklist rules | Blocked headers excluded |
+| K24 | P1 | Disable all rules | Metadata headers flow through |
 
 ### K.4 Config Export/Import Integration
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON with `version=4` |
-| K26 | P0 | Config import with rules omitted | Preserves existing rules (backward compat) |
-| K27 | P0 | Config import with rules provided | Replaces user rules, applies system `enabled` states |
+| K25 | P0 | Config export includes `header_blocklist_rules` | Rules present in export JSON |
+| K26 | P0 | Config import with rules omitted | Preserves existing rules |
+| K27 | P0 | Config import with rules provided | Replaces user rules, applies system states |
 | K28 | P0 | Config import with unknown system pattern | `400` rejection |
-| K29 | P1 | Config import roundtrip preserves rule state | Export → import → export yields identical rules |
+| K29 | P1 | Config import roundtrip preserves rule state | Identical rules after roundtrip |
 
 ### K.5 Frontend UI (Settings Page)
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| K30 | P0 | Header blocklist card loads in Settings | Card visible with title, description, "Add Rule" button |
-| K31 | P0 | System rules collapsible section | Expands to show system rules table with enabled toggles |
-| K32 | P0 | User rules collapsible section | Expands to show user rules table (or empty state) |
-| K33 | P0 | Toggle system rule enabled state via UI | Switch updates, state persists on reload, reflects in API |
-| K34 | P0 | Add user rule via dialog | Fill name/type/pattern → Save → rule appears in user rules table |
-| K35 | P0 | Edit user rule via dialog | Click edit → modify fields → Save → changes reflected |
-| K36 | P0 | Delete user rule via dialog | Click delete → confirm → rule removed from table |
-| K37 | P0 | System rule edit/delete buttons disabled | Pencil and trash icons disabled for system rules |
-| K38 | P1 | Add rule validation: prefix without trailing `-` | Error toast or inline validation prevents save |
+| K30 | P0 | Header blocklist card loads in Settings | Card visible |
+| K31 | P0 | System rules collapsible section | Expands to show system rules |
+| K32 | P0 | User rules collapsible section | Expands to show user rules |
+| K33 | P0 | Toggle system rule enabled state via UI | Switch updates, state persists |
+| K34 | P0 | Add user rule via dialog | Rule appears in user rules table |
+| K35 | P0 | Edit user rule via dialog | Changes reflected |
+| K36 | P0 | Delete user rule via dialog | Rule removed from table |
+| K37 | P0 | System rule edit/delete buttons disabled | Icons disabled for system rules |
+| K38 | P1 | Add rule validation: prefix without trailing `-` | Error toast prevents save |
 | K39 | P1 | Add rule validation: empty name or pattern | Save button behavior prevents empty submission |
 
 ## L. Token Costing and Spending Reports
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| L01 | P0 | Create endpoint with pricing enabled | `201`, pricing fields persisted in DB |
-| L02 | P0 | Create endpoint with pricing disabled | `201`, no validation on price fields |
-| L03 | P0 | Update endpoint pricing | `200`, `pricing_config_version` increments |
-| L04 | P0 | GET `/api/settings/costing` | Returns defaults (USD, $, empty mappings) |
+| L01 | P0 | Create connection with pricing enabled | `201`, pricing fields persisted |
+| L02 | P0 | Create connection with pricing disabled | `201`, no validation on price fields |
+| L03 | P0 | Update connection pricing | `200`, `pricing_config_version` increments |
+| L04 | P0 | GET `/api/settings/costing` | Returns defaults |
 | L05 | P0 | PUT `/api/settings/costing` with FX mappings | `200`, settings persist |
 | L06 | P0 | PUT `/api/settings/costing` rejects `fx_rate <= 0` | `400` |
-| L07 | P0 | PUT `/api/settings/costing` rejects duplicate (model, endpoint) | `400` |
-| L08 | P0 | Proxy successful request with priced endpoint | `request_log` has cost fields populated |
+| L07 | P0 | PUT `/api/settings/costing` rejects duplicate (model, connection) | `400` |
+| L08 | P0 | Proxy successful request with priced connection | `request_log` has cost fields populated |
 | L09 | P0 | Proxy failed request | `billable_flag=false`, all `cost_micros=0` |
-| L10 | P0 | Proxy successful request with unpriced endpoint | `priced_flag=false`, `unpriced_reason` set |
+| L10 | P0 | Proxy successful request with unpriced connection | `priced_flag=false`, `unpriced_reason` set |
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export version 4 | Includes pricing and `user_settings` |
-| L15 | P0 | Config import v4 | Restores pricing and settings |
-| L16 | P0 | Config import v2/v3 rejection | `400` error (v4 required) |
-| L17 | P1 | FX conversion with custom rate | Correct converted cost in report currency |
-| L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid for renamed model |
+| L14 | P0 | Config export version 5 | Includes pricing and `user_settings` |
+| L15 | P0 | Config import v5 | Restores pricing and settings |
+| L16 | P0 | Config import v2/v3/v4 rejection | `400` error (v5 required) |
+| L17 | P1 | FX conversion with custom rate | Correct converted cost |
+| L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
 | L20 | P1 | Spending report `top_n` | Returns correct top spenders |
 | L21 | P1 | Legacy request logs (pre-costing) | `unpriced_reason=LEGACY_NO_COST_DATA` |
 | L22 | P1 | `MAP_TO_OUTPUT` fallback price policy | Missing special tokens use output price |
 | L23 | P1 | `ZERO_COST` fallback price policy | Missing special tokens use zero price |
-
-### L.2 Defect Regression (DEF013–DEF020)
-
-These scenarios validate fixes for token extraction, costing, and streaming edge cases.
-
-| ID | Pri | Scenario | Expected Result |
-|---|---|---|---|
-| DEF013 | P0 | Anthropic top-level `cache_read_input_tokens` fallback | `cache_read_input_tokens` extracted from `usage.cache_read_input_tokens` when nested field is absent |
-| DEF014 | P0 | Missing special token fields coerced to `0` when usage exists | JSON usage with missing special fields yields `cache_read_input_tokens=0`, `cache_creation_input_tokens=0`, `reasoning_tokens=0` |
-| DEF015 | P0 | No usage block → all token fields `null` | When upstream returns no usage block, all token fields (including special) remain `null` |
-| DEF016 | P0 | `MAP_TO_OUTPUT` applies `output_price` for all three special prices | `cached_input_price`, `cache_creation_price`, `reasoning_price` all fall back to `output_price` |
-| DEF017 | P0 | `ZERO_COST` applies `Decimal("0")` for all three special prices | Missing special prices resolve to zero cost |
-| DEF018 | P0 | Special token counts are never copied from `output_tokens` | Missing special token counts remain explicit zero/null by contract, never mirrored from output count |
-| DEF019 | P0 | `inject_stream_options` is provider-type based, not host-based | Injection triggers on `provider_type == "openai"`, not URL pattern matching |
-| DEF020 | P0 | Frontend type/build guard for renamed pricing snapshot field | `pnpm run build` succeeds with `pricing_snapshot_missing_special_token_price_policy` contract |
-
 
 ---
 
@@ -469,12 +462,12 @@ Notes:
 
 ## 11. Notes and Assumptions
 
-- Time cutoff tests use server UTC (`older_than_days` and `before` semantics). `older_than_days` accepts any integer ≥ 1 (not limited to presets).
+- Time cutoff tests use server UTC (`older_than_days` and `before` semantics).
 - `delete_all=true` mode deletes all records without a time cutoff.
 - Destructive tests (`import`, `delete`) must run against isolated smoke DB.
 - Streaming token extraction tests should include both usage-present and usage-missing streams.
 - Failover tests must verify per-attempt logging in both `request_logs` and `audit_logs` (when enabled).
-- Header blocklist rules are resolved from DB per request (no in-memory cache); CRUD updates take effect immediately.
-- Header blocklist matching is case-insensitive (patterns and header names normalized to lowercase).
-- System blocklist rules are seeded on first boot; seed logic preserves existing `enabled` state.
-- Prefix rules must end with `-` (e.g. `cf-`, `x-cf-`); exact rules match the full header name.
+- Header blocklist rules are resolved from DB per request (no in-memory cache).
+- Header blocklist matching is case-insensitive.
+- System blocklist rules are seeded on first boot.
+- Prefix rules must end with `-` (e.g. `cf-`, `x-cf-`).

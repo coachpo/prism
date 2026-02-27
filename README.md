@@ -12,15 +12,15 @@ Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropi
 
 - **Multi-Provider Support**: Route requests to OpenAI, Anthropic, and Gemini through a single `/v1/*` endpoint
 - **Model Aliasing**: Create proxy models that resolve ID variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
-- **Load Balancing**: Single and failover strategies with automatic endpoint health tracking
+- **Load Balancing**: Single and failover strategies with automatic connection health tracking
 - **Streaming Support**: Full support for SSE streaming responses with transparent pass-through
 
 ### Observability & Management
 
 - **Request Telemetry**: Track latency, token usage, success rates, and error patterns
 - **Audit Logging**: Optional per-provider request/response body capture with header redaction
-- **Success Rate Badges**: Real-time endpoint health visualization based on 24h request data
-- **Config Export/Import**: Full configuration backup and restore
+- **Success Rate Badges**: Real-time connection health visualization based on 24h request data
+- **Config Export/Import**: Full configuration backup and restore (version 5)
 
 ### Architecture
 
@@ -101,17 +101,15 @@ Navigate to **Settings** and add API keys for your providers (OpenAI, Anthropic,
 
 Go to **Models** → **Add Model**:
 
-- **Native models**: Real models with their own endpoint configurations
+- **Native models**: Real models with their own routing and costing configurations
 - **Proxy models**: Aliases that forward to native models (for ID resolution)
 
-### 3. Add Endpoints
+### 3. Add Endpoints & Connections
 
-For native models, add one or more endpoints:
+For native models, add one or more connections:
 
-- Base URL (e.g., `https://api.openai.com/v1`)
-- API Key
-- Priority (lower = tried first)
-- Optional custom headers
+- **Endpoints**: Global reusable credentials (Base URL + API Key)
+- **Connections**: Model-scoped routing config (Priority, Custom Headers, Pricing)
 
 ### 4. Route Requests
 
@@ -121,7 +119,7 @@ Send requests to Prism's `/v1/*` endpoint using any OpenAI-compatible client:
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4-turbo",
+    "model": "gpt-4o",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
@@ -129,7 +127,7 @@ curl http://localhost:8000/v1/chat/completions \
 Prism will:
 
 1. Resolve the model (handle aliases if it's a proxy)
-2. Select an endpoint based on load balancing strategy
+2. Select a connection based on load balancing strategy
 3. Forward the request with the correct provider auth headers
 4. Log telemetry and audit data (if enabled)
 

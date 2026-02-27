@@ -74,8 +74,8 @@ Response `200`:
     "failover_recovery_enabled": true,
     "failover_recovery_cooldown_seconds": 60,
     "is_enabled": true,
-    "endpoint_count": 2,
-    "active_endpoint_count": 2,
+    "connection_count": 2,
+    "active_connection_count": 2,
     "health_success_rate": 99.5,
     "health_total_requests": 200,
     "created_at": "2025-01-01T00:00:00Z",
@@ -91,8 +91,8 @@ Response `200`:
     "redirect_to": "claude-sonnet-4-5-20250929",
     "lb_strategy": "single",
     "is_enabled": true,
-    "endpoint_count": 0,
-    "active_endpoint_count": 0,
+    "connection_count": 0,
+    "active_connection_count": 0,
     "health_success_rate": null,
     "health_total_requests": 0,
     "created_at": "2025-01-01T00:00:00Z",
@@ -102,8 +102,8 @@ Response `200`:
 ```
 
 New fields in model list response:
-- `health_success_rate` (float | null): Weighted average success rate across all active endpoints. `null` if no request data exists.
-- `health_total_requests` (int): Total number of requests across all endpoints for this model.
+- `health_success_rate` (float | null): Weighted average success rate across all active connections. `null` if no request data exists.
+- `health_total_requests` (int): Total number of requests across all connections for this model.
 
 #### Create Model
 ```
@@ -161,33 +161,73 @@ Response `200`: Updated model object. Returns `409` if `model_id` conflicts with
 ```
 DELETE /api/models/{id}
 ```
-Response `204`: No content. Cascades to delete all endpoints. Returns `400` if other proxy models point to this model.
+Response `204`: No content. Cascades to delete all connections. Returns `400` if other proxy models point to this model.
 
 ---
 
-### 1.3 Endpoints
+### 1.3 Endpoints (Global Credentials)
 
-#### List Endpoints for Model
+#### List Endpoints
 ```
-GET /api/models/{model_id}/endpoints
+GET /api/endpoints
 ```
 Response `200`: Array of endpoint objects.
 
 #### Create Endpoint
 ```
-POST /api/models/{model_id}/endpoints
+POST /api/endpoints
 ```
 Request:
 ```json
 {
+  "name": "Primary OpenAI",
   "base_url": "https://api.openai.com",
-  "api_key": "sk-abc123...",
+  "api_key": "sk-abc123..."
+}
+```
+Response `201`: Created endpoint object.
+
+#### Update Endpoint
+```
+PUT /api/endpoints/{id}
+```
+Request:
+```json
+{
+  "name": "Updated OpenAI",
+  "base_url": "https://api.openai.com",
+  "api_key": "sk-new-key..."
+}
+```
+Response `200`: Updated endpoint object.
+
+#### Delete Endpoint
+```
+DELETE /api/endpoints/{id}
+```
+Response `204`: No content. Returns `409` if any connections still reference this endpoint.
+
+### 1.4 Connections (Model-Scoped Routing)
+
+#### List Connections for Model
+```
+GET /api/models/{model_id}/connections
+```
+Response `200`: Array of connection objects.
+
+#### Create Connection
+```
+POST /api/models/{model_id}/connections
+```
+Request (using existing endpoint):
+```json
+{
+  "endpoint_id": 1,
   "is_active": true,
   "priority": 0,
   "description": "Primary production key",
   "custom_headers": {
-    "X-Custom-Org": "org-123",
-    "X-Priority": "high"
+    "X-Custom-Org": "org-123"
   },
   "pricing_enabled": true,
   "pricing_unit": "PER_1M",
@@ -199,111 +239,50 @@ Request:
   "missing_special_token_price_policy": "MAP_TO_OUTPUT"
 }
 ```
-Response `201`: Created endpoint object.
-
-Note: `custom_headers` is optional. If omitted or `null`, no custom headers are applied. Custom headers are appended to upstream requests after all other headers, overriding same-name headers.
-
-> **Token field semantics in request logs:**
-> - No usage block in upstream response → all token fields are `null`.
-> - Usage block present but special fields absent → special token fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `reasoning_tokens`) are `0`, not `null`.
-> - `missing_special_token_price_policy` controls **price fallback only** — it never affects token counts. `MAP_TO_OUTPUT` uses the endpoint's `output_price` for any missing special price; `ZERO_COST` uses `0`.
-
-#### Update Endpoint
-```
-PUT /api/endpoints/{id}
-```
-Request:
+Request (inline endpoint creation):
 ```json
 {
-  "base_url": "https://api.openai.com",
-  "api_key": "sk-new-key...",
+  "endpoint_create": {
+    "name": "New Endpoint",
+    "base_url": "https://api.openai.com",
+    "api_key": "sk-abc123..."
+  },
   "is_active": true,
   "priority": 0,
-  "description": "Updated key",
-  "custom_headers": {
-    "X-Custom-Org": "org-456"
-  },
-  "pricing_enabled": true,
-  "pricing_unit": "PER_1M",
-  "pricing_currency_code": "USD",
-  "input_price": "2.50",
-  "output_price": "10.00",
-  "cached_input_price": "1.25",
-  "reasoning_price": "10.00",
-  "missing_special_token_price_policy": "ZERO_COST"
+  "pricing_enabled": false
 }
 ```
-Response `200`: Updated endpoint object.
+Response `201`: Created connection object.
 
-Setting `custom_headers` to `null` or `{}` removes all custom headers. Omitting the field leaves existing custom headers unchanged.
-
-#### Delete Endpoint
+#### Update Connection
 ```
-DELETE /api/endpoints/{id}
+PUT /api/connections/{id}
+```
+Request: Same fields as Create Connection (except `endpoint_create`).
+Response `200`: Updated connection object.
+
+#### Delete Connection
+```
+DELETE /api/connections/{id}
 ```
 Response `204`: No content.
 
-#### Get Endpoint Owner
+#### Health Check Connection
 ```
-GET /api/endpoints/{id}/owner
+POST /api/connections/{id}/health-check
 ```
-Returns the model configuration that owns this endpoint.
+Sends a real chat completion request to the connection using the configured model ID and a simple question to validate the full request chain.
 
 Response `200`:
 ```json
 {
-  "endpoint_id": 7,
-  "model_config_id": 1,
-  "model_id": "gpt-4o",
-  "endpoint_description": "Primary endpoint",
-  "endpoint_base_url": "https://api.openai.com/v1"
-}
-```
-
-Response `404`: Endpoint not found.
-
-#### Health Check Endpoint
-```
-POST /api/endpoints/{id}/health-check
-```
-Sends a real chat completion request to the endpoint using the configured model ID and a simple question to validate the full request chain (URL routing, authentication, model availability). Uses the same URL-building logic as the proxy engine.
-
-Provider-specific probes:
-- **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
-- **Anthropic**: `POST {base_url}/messages` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
-
-Response `200`:
-```json
-{
-  "endpoint_id": 1,
+  "connection_id": 1,
   "health_status": "healthy",
   "checked_at": "2025-01-15T10:30:00Z",
   "detail": "Connection successful",
   "response_time_ms": 523
 }
 ```
-
-Response `200` (unhealthy):
-```json
-{
-  "endpoint_id": 1,
-  "health_status": "unhealthy",
-  "checked_at": "2025-01-15T10:30:00Z",
-  "detail": "HTTP 503: No available channel for model claude-haiku-4-5-20251001",
-  "response_time_ms": 150
-}
-```
-
-Health status determination:
-- 2xx → `healthy`
-- 401/403 → `unhealthy` (authentication failed)
-- 429 → `healthy` (rate-limited but endpoint works)
-- Connection error / timeout → `unhealthy`
-- Other errors → `unhealthy`
-
-For non-2xx responses, the upstream error message is extracted from the response body (JSON `error.message` field) and appended to the detail string for actionable diagnostics.
-
-The endpoint's `health_status`, `health_detail`, and `last_health_check` fields are updated in the database after each check. The `health_detail` is shown in the frontend tooltip on hover.
 
 #### Base URL Validation
 
@@ -315,7 +294,7 @@ Additionally, `build_upstream_url()` includes a runtime failsafe that auto-corre
 
 ---
 
-### 1.4 Config Export/Import
+### 1.5 Config Export/Import
 
 #### Export Configuration
 ```
@@ -324,7 +303,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 4,
+  "version": 5,
   "exported_at": "2025-01-15T10:30:00Z",
   "user_settings": {
     "report_currency_code": "USD",
@@ -332,18 +311,17 @@ Response `200`:
     "endpoint_fx_mappings": [
       {
         "model_id": "gpt-4o",
-        "endpoint_id": 1,
+        "connection_id": 1,
         "fx_rate": "1.0"
       }
     ]
   },
-  "providers": [
+  "endpoints": [
     {
-      "name": "OpenAI",
-      "provider_type": "openai",
-      "description": "OpenAI API (GPT models)",
-      "audit_enabled": false,
-      "audit_capture_bodies": true
+      "id": 1,
+      "name": "Primary OpenAI",
+      "base_url": "https://api.openai.com",
+      "api_key": "sk-abc123..."
     }
   ],
   "models": [
@@ -357,15 +335,13 @@ Response `200`:
       "failover_recovery_enabled": true,
       "failover_recovery_cooldown_seconds": 60,
       "is_enabled": true,
-      "endpoints": [
+      "connections": [
         {
+          "connection_id": 1,
           "endpoint_id": 1,
-          "base_url": "https://api.openai.com",
-          "api_key": "sk-abc123...",
           "is_active": true,
           "priority": 0,
           "description": "Primary production key",
-          "auth_type": null,
           "custom_headers": {
             "X-Custom-Org": "org-123"
           },
@@ -399,20 +375,21 @@ The response includes a `Content-Disposition` header to trigger a file download:
 ```
 POST /api/config/import
 ```
-Request: Full configuration object (accepts version 4).
+Request: Full configuration object (accepts version 5).
 Response `200`:
 ```json
 {
   "providers_imported": 3,
   "models_imported": 5,
-  "endpoints_imported": 10
+  "endpoints_imported": 2,
+  "connections_imported": 10
 }
 ```
 Importing is a destructive operation that replaces all existing providers, models, and endpoints. User-defined header blocklist rules are replaced, while system rules have their `enabled` state updated from the import data.
 
 ---
 
-### 1.5 Settings API
+### 1.6 Settings API
 
 #### Get Costing Settings
 ```
@@ -426,7 +403,7 @@ Response `200`:
   "endpoint_fx_mappings": [
     {
       "model_id": "gpt-4o",
-      "endpoint_id": 1,
+      "connection_id": 1,
       "fx_rate": "1.0"
     }
   ]
@@ -445,7 +422,7 @@ Request:
   "endpoint_fx_mappings": [
     {
       "model_id": "gpt-4o",
-      "endpoint_id": 1,
+      "connection_id": 1,
       "fx_rate": "0.92"
     }
   ]
@@ -455,7 +432,7 @@ Response `200`: Updated settings object.
 
 ---
 
-### 1.6 Header Blocklist Rules
+### 1.7 Header Blocklist Rules
 
 #### List Header Blocklist Rules
 ```
@@ -562,7 +539,7 @@ Response: Proxied directly from upstream Anthropic API.
 
 ### 2.3 Streaming
 
-Both endpoints support streaming when `"stream": true` is set. The response will be `text/event-stream` (SSE) with chunks proxied directly from the upstream provider.
+Both routes support streaming when `"stream": true` is set. The response will be `text/event-stream` (SSE) with chunks proxied directly from the upstream provider.
 
 ### 2.4 Token Usage Extraction
 
@@ -616,7 +593,7 @@ Query parameters:
 | `success` | boolean | — | Filter by success (true = 2xx, false = non-2xx) |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
-| `endpoint_id` | integer | — | Filter by endpoint ID |
+| `connection_id` | integer | — | Filter by connection ID |
 | `limit` | integer | 50 | Max results (1-500) |
 | `offset` | integer | 0 | Pagination offset |
 
@@ -628,7 +605,7 @@ Response `200`:
       "id": 1,
       "model_id": "gpt-4o",
       "provider_type": "openai",
-      "endpoint_id": 1,
+      "connection_id": 1,
       "endpoint_base_url": "https://api.openai.com",
       "endpoint_description": "Primary production key",
       "status_code": 200,
@@ -665,10 +642,10 @@ Query parameters:
 |---|---|---|---|
 | `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
-| `group_by` | string | — | Group results by: `model`, `provider`, `endpoint` |
+| `group_by` | string | — | Group results by: `model`, `provider`, `connection` |
 | `model_id` | string | — | Filter by model ID |
 | `provider_type` | string | — | Filter by provider type (openai, anthropic, gemini) |
-| `endpoint_id` | integer | — | Filter by endpoint ID |
+| `connection_id` | integer | — | Filter by connection ID |
 
 Response `200`:
 ```json
@@ -695,11 +672,11 @@ Response `200`:
 }
 ```
 
-### 4.3 Get Endpoint Success Rates
+### 4.3 Get Connection Success Rates
 ```
-GET /api/stats/endpoint-success-rates
+GET /api/stats/connection-success-rates
 ```
-Returns success rate data for all endpoints, computed from `request_logs`.
+Returns success rate data for all connections, computed from `request_logs`.
 
 Query parameters:
 | Parameter | Type | Default | Description |
@@ -711,14 +688,14 @@ Response `200`:
 ```json
 [
   {
-    "endpoint_id": 1,
+    "connection_id": 1,
     "total_requests": 150,
     "success_count": 148,
     "error_count": 2,
     "success_rate": 98.67
   },
   {
-    "endpoint_id": 2,
+    "connection_id": 2,
     "total_requests": 0,
     "success_count": 0,
     "error_count": 0,
@@ -728,8 +705,8 @@ Response `200`:
 ```
 
 Fields:
-- `endpoint_id` (int): The endpoint ID
-- `total_requests` (int): Total requests routed through this endpoint
+- `connection_id` (int): The connection ID
+- `total_requests` (int): Total requests routed through this connection
 - `success_count` (int): Requests with 2xx status codes
 - `error_count` (int): Requests with non-2xx status codes
 - `success_rate` (float | null): Success percentage (0-100), `null` if no requests
@@ -776,8 +753,8 @@ Query parameters:
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `provider_type` | string | — | Filter by provider type |
 | `model_id` | string | — | Filter by model ID |
-| `endpoint_id` | integer | — | Filter by endpoint ID |
-| `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `provider`, `model`, `endpoint`, `model_endpoint` |
+| `connection_id` | integer | — | Filter by connection ID |
+| `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `provider`, `model`, `connection`, `model_connection` |
 | `limit` | integer | 50 | Max results |
 | `offset` | integer | 0 | Pagination offset |
 | `top_n` | integer | 5 | Number of top spenders to return |
@@ -815,10 +792,10 @@ Response `200`:
       "total_cost_micros": 850000
     }
   ],
-  "top_spending_endpoints": [
+  "top_spending_connections": [
     {
-      "endpoint_id": 1,
-      "endpoint_label": "Primary production key",
+      "connection_id": 1,
+      "endpoint_description": "Primary production key",
       "total_cost_micros": 740000
     }
   ],
@@ -845,13 +822,13 @@ Query parameters:
 | `provider_id` | integer | — | Filter by provider ID |
 | `model_id` | string | — | Filter by model ID |
 | `status_code` | integer | — | Filter by response status code |
-| `endpoint_id` | integer | — | Filter by endpoint ID |
+| `connection_id` | integer | — | Filter by connection ID |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `limit` | integer | 50 | Max results (1-200) |
 | `offset` | integer | 0 | Pagination offset |
 
-The list endpoint returns one row per upstream attempt. If a proxy request fails over across endpoints, each attempt has its own audit row.
+The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row.
 
 Response `200`:
 ```json
@@ -862,7 +839,7 @@ Response `200`:
       "request_log_id": 42,
       "provider_id": 1,
       "model_id": "gpt-4o",
-      "endpoint_id": 1,
+      "connection_id": 1,
       "endpoint_base_url": "https://api.openai.com",
       "endpoint_description": "Primary production key",
       "request_method": "POST",
@@ -881,7 +858,7 @@ Response `200`:
 }
 ```
 
-The list endpoint returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail endpoint for full content.
+The list API returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail API for full content.
 If provider body capture is disabled, `request_body_preview` is `null`.
 Rows are ordered by `created_at DESC`.
 
@@ -896,7 +873,7 @@ Response `200`:
   "request_log_id": 42,
   "provider_id": 1,
   "model_id": "gpt-4o",
-  "endpoint_id": 1,
+  "connection_id": 1,
   "endpoint_base_url": "https://api.openai.com",
   "endpoint_description": "Primary production key",
   "request_method": "POST",
@@ -971,9 +948,9 @@ All errors follow this format:
 |---|---|
 | 400 | Bad request (invalid input) |
 | 404 | Resource not found |
-| 409 | Conflict (duplicate model_id) |
+| 409 | Conflict (duplicate model_id or endpoint in use) |
 | 502 | Upstream provider error |
-| 503 | No active endpoints available |
+| 503 | No active connections available |
 
 ---
 
