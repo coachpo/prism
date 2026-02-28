@@ -3,23 +3,22 @@
 ## 1. System Overview
 
 ```
-┌─────────────┐     ┌──────────────────────────────────────────┐     ┌──────────────┐
-│   Client    │     │                 Prism                    │     │   Providers  │
-│             │     │  ┌──────────┐  ┌──────────┐             │     │              │
-│  Port 5173  │◀────│  │ Config  │  │  Proxy   │          │◀────│  Gemini API  │
-│             │     │  │  API    │  │  Engine  │          │     │              │
-│             │     │  └────┬────┘  └────┬─────┘          │     └──────────────┘
-└─────────────┘     │       │            │                 │
-                    │  ┌────▼────────────▼─────┐          │
-                    │  │     SQLite Database    │          │
-                    │  │  (models, endpoints,   │          │
-                    │  │   connections,         │          │
-                    │  │   lb_config,           │          │
-                    │  │   request_logs,        │          │
-                    │  │   audit_logs)          │          │
-                    │  └───────────────────────┘          │
-                    │              Port 8000               │
-                    └──────────────────────────────────────┘
+┌─────────────┐     ┌──────────────────────────────────────────────┐     ┌──────────────┐
+│   Client    │     │                    Prism                     │     │   Providers  │
+│             │     │  ┌────────────┐  ┌──────────┐               │     │              │
+│  Port 5173  │◀────│  │ Management │  │  Proxy   │          │◀────│  OpenAI API  │
+│             │     │  │   APIs     │  │  Engine  │          │     │  Anthropic   │
+│             │     │  └─────┬──────┘  └────┬─────┘          │     │  Gemini API  │
+└─────────────┘     │        │              │                │     └──────────────┘
+                    │  ┌─────▼──────────────▼─────┐          │
+                    │  │    PostgreSQL Database    │          │
+                    │  │ (profiles, models,        │          │
+                    │  │  endpoints, connections,  │          │
+                    │  │  settings, request_logs,  │          │
+                    │  │  audit_logs)              │          │
+                    │  └───────────────────────────┘          │
+                    │                Port 8000                │
+                    └──────────────────────────────────────────┘
 ```
 
 ## 2. Component Architecture
@@ -36,7 +35,7 @@ backend/
 │   ├── models/                 # SQLAlchemy ORM models
 │   │   ├── provider.py         # Provider model (openai, anthropic, gemini)
 │   │   ├── model_config.py     # Model ID → provider mapping
-│   │   ├── endpoint.py         # Global credentials (BaseURL + APIKey)
+│   │   ├── endpoint.py         # Profile-scoped credentials (BaseURL + APIKey)
 │   │   ├── connection.py       # Model-scoped routing/costing config
 │   │   └── request_log.py      # Request telemetry log entries
 │   ├── schemas/                # Pydantic request/response schemas
@@ -48,7 +47,7 @@ backend/
 │   ├── routers/                # API route handlers
 │   │   ├── providers.py        # CRUD for provider types
 │   │   ├── models.py           # CRUD for model configurations
-│   │   ├── endpoints.py        # CRUD for global credentials
+│   │   ├── endpoints.py        # CRUD for profile-scoped credentials
 │   │   ├── connections.py      # CRUD for model-scoped routing config
 │   │   ├── proxy.py            # LLM proxy endpoints
 │   │   ├── stats.py            # Statistics query endpoints
@@ -62,7 +61,7 @@ backend/
 │   │   └── costing_service.py  # Token costing, FX conversion, pricing snapshots
 │   └── dependencies.py         # Shared FastAPI dependencies
 ├── requirements.txt
-└── alembic/ (future)
+└── alembic/                    # Active migration chain (startup-applied)
 ```
 
 ### 2.2 Frontend (React + Vite)
@@ -80,7 +79,7 @@ frontend/
 │   ├── pages/
 │   │   ├── Dashboard.tsx       # Overview of all models
 │   │   ├── ModelConfig.tsx     # Model configuration page
-│   │   ├── EndpointConfig.tsx  # Global endpoint management
+│   │   ├── EndpointConfig.tsx  # Profile-scoped endpoint management
 │   │   ├── ModelDetail.tsx     # Model-scoped connection management
 │   │   ├── StatisticsPage.tsx  # Request statistics & analytics
 │   │   ├── AuditPage.tsx       # Audit log browsing
@@ -99,38 +98,38 @@ frontend/
 ### 3.1 Proxy Request (Non-Streaming, Native Model)
 
 ```
-Client → POST /v1/chat/completions {model: "gpt-4o"}
-  → Router extracts model ID from body
-  → LoadBalancer looks up model config
-  → Model is native → select connection based on LB strategy
-  → ProxyService forwards request to connection's endpoint BaseURL
-  → Upstream responds with JSON
-  → Gateway returns JSON to client
+Client -> POST /v1/chat/completions {model: "gpt-4o"}
+  -> Router captures active profile snapshot at request start
+  -> LoadBalancer looks up model config in active profile scope
+  -> Model is native -> select connection based on LB strategy (active profile only)
+  -> ProxyService forwards request to selected endpoint
+  -> Upstream responds with JSON
+  -> Gateway returns JSON to client and logs with immutable profile attribution
 ```
 
 ### 3.2 Proxy Request (Proxy/Alias Model)
 
 ```
-Client → POST /v1/messages {model: "claude-sonnet-4-5"}
-  → Router extracts model ID from body
-  → LoadBalancer looks up model config
-  → Model is proxy → resolve redirect_to → "claude-sonnet-4-5-20250929"
-  → Look up target native model config
-  → Select connection from target model
-  → ProxyService forwards request to connection's endpoint BaseURL
-  → Upstream responds
-  → Gateway returns response to client
+Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
+  -> Router captures active profile snapshot
+  -> LoadBalancer looks up model config in active profile scope
+  -> Model is proxy -> resolve redirect_to within same profile
+  -> Look up target native model config in same profile
+  -> Select connection from target model (same profile)
+  -> ProxyService forwards request
+  -> Upstream responds
+  -> Gateway returns response to client
 ```
 
 ### 3.3 Proxy Request (Streaming)
 
 ```
-Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
-  → Router extracts model ID
-  → LoadBalancer selects connection (with proxy alias resolution if needed)
-  → ProxyService opens streaming connection to upstream endpoint
-  → SSE chunks piped directly to client via StreamingResponse
-  → On upstream error: failover to next connection (if configured)
+Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
+  -> Router captures active profile snapshot
+  -> LoadBalancer selects connection in active profile scope (with proxy alias resolution if needed)
+  -> ProxyService opens streaming connection to upstream endpoint
+  -> SSE chunks piped directly to client via StreamingResponse
+  -> On upstream error: failover to next connection in same profile (if configured)
 ```
 
 ### 3.4 Provider-Specific Routing
@@ -143,6 +142,12 @@ Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
 | Gemini (native)        | `POST /v1beta/models/{model}:generateContent` | `{base_url}/v1beta/models/{model}:generateContent` | `x-goog-api-key: {key}`                              |
 
 Note: Gemini's OpenAI-compatible endpoint is used by default. For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native model ID when a proxy alias is used. This ensures the upstream URL references the correct model even when the client sends a request using the alias model ID.
+
+### 3.6 Management API Profile Scoping
+- `X-Profile-Id` may be supplied on management endpoints (`/api/*`) to select explicit scope.
+- If header is absent, management endpoints use the active profile as default scope.
+- Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.
+- Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 
 ### 3.5 Custom Header Injection
 
@@ -196,6 +201,7 @@ Failures that trigger failover and start cooldown:
 - After cooldown expires, the connection becomes probe-eligible
 - On first successful response, the connection is marked recovered and returns to healthy pool
 - Recovery is passive (no background polling) - probes happen during normal request flow
+- Recovery state is namespaced by `(profile_id, connection_id)` to prevent cross-profile cooldown leakage
 
 **Per-Model Configuration:**
 
@@ -216,16 +222,16 @@ Proxy models are aliases that forward requests to a target native model. This re
 - Target must be a native model (no chained proxy aliases)
 - Proxy models have no connections of their own
 - Proxy models do not use load balancing (lb_strategy is ignored; target model's strategy applies)
-- All model IDs are globally unique
+- Model IDs are unique within a profile (same model ID may exist in other profiles)
 - The gateway does NOT modify the request body — it only uses the target model's connections for routing
 
 ### 5.3 Resolution
 
 ```
-resolve_model(model_id):
-  config = lookup(model_id)
+resolve_model(profile_id, model_id):
+  config = lookup(profile_id, model_id)
   if config.model_type == "proxy":
-    return lookup(config.redirect_to)
+    return lookup(profile_id, config.redirect_to)
   return config
 ```
 
@@ -299,7 +305,7 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream (via Conn
 
 ### 7.3 Data Captured
 
-- Model ID, provider type, connection used (ID, endpoint base URL, description)
+- Profile ID attribution, model ID, provider type, connection used (ID, endpoint base URL, description)
 - HTTP status code, response time (ms)
 - Token usage (input, output, total) — extracted from upstream response
 - Stream flag, request path, error details
@@ -320,40 +326,42 @@ Audit rows are written per upstream attempt, including failover attempts.
 ### 8.2 Audit Flow (Non-Streaming)
 
 ```
-Client → POST /v1/chat/completions {model: "gpt-4o"}
-  → Router resolves model + provider
-  → Check provider.audit_enabled
-  → ProxyService forwards request to upstream
-  → Upstream responds with JSON
-  → Log to request_logs (existing telemetry)
-  → If audit_enabled:
-       → One audit row for this upstream attempt
-       → Redact sensitive headers
-       → Record connection metadata (connection_id, endpoint_base_url, endpoint_description) as snapshot
-       → Link to request_log entry via request_log_id (returned from log_request)
-       → If audit_capture_bodies = TRUE: truncate bodies to 64KB
-       → If audit_capture_bodies = FALSE: store request_body/response_body as NULL
-       → INSERT into audit_logs (non-blocking, fire-and-forget)
-  → Return response to client
+Client -> POST /v1/chat/completions {model: "gpt-4o"}
+  -> Router resolves model + provider using active profile snapshot
+  -> Check provider.audit_enabled
+  -> ProxyService forwards request to upstream
+  -> Upstream responds with JSON
+  -> Log to request_logs (including profile_id)
+  -> If audit_enabled:
+       -> One audit row for this upstream attempt
+       -> Redact sensitive headers
+       -> Record connection metadata (connection_id, endpoint_base_url, endpoint_description) as snapshot
+       -> Link to request_log entry via request_log_id
+       -> Store immutable profile_id attribution
+       -> If audit_capture_bodies = TRUE: truncate bodies to 64KB
+       -> If audit_capture_bodies = FALSE: store request_body/response_body as NULL
+       -> INSERT into audit_logs (non-blocking, fire-and-forget)
+  -> Return response to client
 ```
 
 ### 8.3 Audit Flow (Streaming)
 
 ```
-Client → POST /v1/chat/completions {model: "gpt-4o", stream: true}
-  → Router resolves model + provider
-  → Check provider.audit_enabled
-  → ProxyService opens streaming connection
-  → SSE chunks piped to client
-  → On stream complete (finally block):
-      → Log to request_logs (existing)
-       → If audit_enabled:
-           → One audit row for this upstream attempt
-           → Record request headers/body + response headers/status
-           → Record connection metadata (connection_id, endpoint_base_url, endpoint_description)
-           → Link to request_log entry via request_log_id
-           → response_body = NULL (streaming bodies are never stored)
-           → INSERT into audit_logs (separate AsyncSessionLocal)
+Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
+  -> Router resolves model + provider using active profile snapshot
+  -> Check provider.audit_enabled
+  -> ProxyService opens streaming connection
+  -> SSE chunks piped to client
+  -> On stream complete (finally block):
+      -> Log to request_logs (including profile_id)
+       -> If audit_enabled:
+           -> One audit row for this upstream attempt
+           -> Record request headers/body + response headers/status
+           -> Record connection metadata (connection_id, endpoint_base_url, endpoint_description)
+           -> Link to request_log entry via request_log_id
+           -> Store immutable profile_id attribution
+           -> response_body = NULL (streaming bodies are never stored)
+           -> INSERT into audit_logs (separate AsyncSessionLocal)
 ```
 
 ### 8.4 Non-Interference Guarantees
@@ -399,7 +407,7 @@ User → Settings Page → "Data Management" section
   → Selects data type (Request Logs or Audit Logs)
   → Selects action (preset: 7/15/30 days, custom days, or delete all)
   → Clicks "Delete" button → Confirmation dialog
-  → DELETE /api/stats/requests?older_than_days=7 (or delete_all=true)
+  -> DELETE /api/stats/requests?older_than_days=7 (optionally scoped via X-Profile-Id, or active profile by default)
   → Backend computes cutoff = current_utc - 7 days (or deletes all)
   → DELETE FROM request_logs WHERE created_at < cutoff (or no filter)
   → Returns { deleted_count: N }
@@ -415,7 +423,7 @@ Same flow for audit logs via `DELETE /api/audit/logs?older_than_days=N` or `dele
 - Deleting `request_logs` does NOT cascade to `audit_logs`
 - Deleting `audit_logs` does NOT affect `request_logs`
 - On request log deletion, `audit_logs.request_log_id` is set to `NULL` (`ON DELETE SET NULL`), preserving audit rows without dangling FK references
-- Optional maintenance: after large deletions, operators may run SQLite `VACUUM` to reclaim file space
+- Optional maintenance: after large deletions, operators may run PostgreSQL `VACUUM (ANALYZE)` as part of DB maintenance
 
 ### 9.4 Frontend Placement
 
@@ -432,10 +440,10 @@ See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 ## 12. Security Considerations
 
 - No authentication (trusted local network assumption)
-- API keys stored in plaintext in SQLite (acceptable for single-user local)
+- API keys stored in plaintext in PostgreSQL (acceptable for single-user trusted-network deployments)
 - CORS allows all origins (wildcard)
 - No TLS termination (run behind reverse proxy for HTTPS if needed)
-- SQLite file permissions should be restricted to owner
+- PostgreSQL instance and credentials should be restricted to trusted local/LAN access
 
 ## 13. Supported Providers
 

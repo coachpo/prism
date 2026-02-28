@@ -2,7 +2,71 @@
 
 Base URL: `http://localhost:8000`
 
-## 1. Configuration API
+## 0. Profile Context Semantics
+- Management endpoints (`/api/*`) accept optional `X-Profile-Id` to select an explicit profile scope.
+- If `X-Profile-Id` is omitted, management endpoints use the current active profile as effective scope.
+- Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
+- Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
+
+
+## 1. Management API (`/api/*`)
+
+### 1.0 Profiles
+#### List Profiles
+```
+GET /api/profiles
+```
+Response `200`: Array of non-deleted profile objects.
+
+#### Get Active Profile
+```
+GET /api/profiles/active
+```
+Response `200`: Active profile object.
+
+#### Create Profile
+```
+POST /api/profiles
+```
+Request:
+```json
+{
+  "name": "Profile A",
+  "description": "OpenAI workspace"
+}
+```
+Response `201`: Created profile object.
+Returns `409` if 10 non-deleted profiles already exist.
+
+#### Update Profile
+```
+PATCH /api/profiles/{id}
+```
+Request fields: `name` (optional), `description` (optional).
+Response `200`: Updated profile object.
+
+#### Activate Profile (CAS)
+```
+POST /api/profiles/{id}/activate
+```
+Request:
+```json
+{
+  "expected_active_profile_id": 1,
+  "expected_active_profile_version": 4
+}
+```
+Response `200`: Updated active profile object.
+Returns `409` on stale expected version (conflict-safe activation).
+
+#### Delete Profile
+```
+DELETE /api/profiles/{id}
+```
+Response `204`: Soft-delete succeeds for inactive profile.
+Returns `400` if the target profile is currently active.
+
+---
 
 ### 1.1 Providers
 
@@ -50,6 +114,8 @@ Mutable provider fields:
 - `audit_capture_bodies` (when false, request/response bodies are stored as `null` for this provider)
 
 Provider name, type, and description are seed data and not user-editable.
+
+Provider records are global/shared and are not profile-scoped in this phase.
 
 ---
 
@@ -136,7 +202,7 @@ Request (proxy model):
 Response `201`: Created model object.
 
 Validation rules:
-- `model_id` must be globally unique
+- `model_id` must be unique within the effective profile scope
 - If `model_type = "proxy"`: `redirect_to` is required, must reference an existing native model with the same provider. `lb_strategy` is ignored.
 - If `model_type = "native"`: `redirect_to` must be null/omitted
 
@@ -155,7 +221,7 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Response `200`: Updated model object. Returns `409` if `model_id` conflicts with an existing model. Returns `400` if proxy validation fails.
+Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if proxy validation fails.
 
 #### Delete Model
 ```
@@ -165,13 +231,13 @@ Response `204`: No content. Cascades to delete all connections. Returns `400` if
 
 ---
 
-### 1.3 Endpoints (Global Credentials)
+### 1.3 Endpoints (Profile-Scoped Credentials)
 
 #### List Endpoints
 ```
 GET /api/endpoints
 ```
-Response `200`: Array of endpoint objects.
+Response `200`: Array of endpoint objects in the effective profile scope.
 
 #### Create Endpoint
 ```
@@ -302,7 +368,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 6,
+  "version": 7,
   "exported_at": "2025-01-15T10:30:00Z",
   "user_settings": {
     "report_currency_code": "USD",
@@ -317,7 +383,7 @@ Response `200`:
   },
   "endpoints": [
     {
-      "id": 1,
+      "endpoint_ref": "primary-openai",
       "name": "Primary OpenAI",
       "base_url": "https://api.openai.com",
       "api_key": "sk-abc123..."
@@ -336,8 +402,8 @@ Response `200`:
       "is_enabled": true,
       "connections": [
         {
-          "connection_id": 1,
-          "endpoint_id": 1,
+          "connection_ref": "primary-production",
+          "endpoint_ref": "primary-openai",
           "is_active": true,
           "priority": 0,
           "description": "Primary production key",
@@ -373,7 +439,7 @@ The response includes a `Content-Disposition` header to trigger a file download:
 ```
 POST /api/config/import
 ```
-Request: Full configuration object (accepts version 6).
+Request: Full configuration object (accepts version 6 or 7).
 Response `200`:
 ```json
 {
@@ -383,11 +449,16 @@ Response `200`:
   "connections_imported": 10
 }
 ```
-Importing is a destructive operation that replaces all existing providers, models, and endpoints. User-defined header blocklist rules are replaced, while system rules have their `enabled` state updated from the import data.
+Importing is profile-targeted and replaces configuration in the effective profile only. Other profiles are not deleted or mutated. Providers remain global and are never globally deleted by import.
+
+Compatibility and versioning semantics:
+- Version 7 is the canonical export format and uses logical references (`endpoint_ref`, `connection_ref`) for ID-agnostic import.
+- Version 6 is import-compatible; legacy numeric references are treated as source-local and remapped server-side into target profile rows.
+- Import defaults to `replace` behavior for the target profile in this phase.
 
 ---
 
-### 1.6 Settings API
+### 1.6 Settings API (Profile-Scoped)
 
 #### Get Costing Settings
 ```
@@ -407,6 +478,8 @@ Response `200`:
   ]
 }
 ```
+
+Settings are scoped to the effective profile (`X-Profile-Id` or active profile fallback).
 
 #### Update Costing Settings
 ```
@@ -430,7 +503,7 @@ Response `200`: Updated settings object.
 
 ---
 
-### 1.7 Header Blocklist Rules
+### 1.7 Header Blocklist Rules (System Global + User Profile-Scoped)
 
 #### List Header Blocklist Rules
 ```
@@ -474,7 +547,7 @@ Request:
   "enabled": true
 }
 ```
-Response `201`: Created rule object. Returns `409` if a rule with the same `match_type` and `pattern` already exists. Prefix patterns must end with `-`.
+Response `201`: Created rule object. Returns `409` if a user rule with the same `match_type` and `pattern` already exists in the effective profile. Prefix patterns must end with `-`.
 
 #### Update Header Blocklist Rule
 ```
@@ -578,6 +651,8 @@ Response `200`:
 
 ## 4. Statistics API
 
+Stats APIs are profile-scoped by effective profile context (`X-Profile-Id` or active profile fallback).
+
 ### 4.1 List Request Logs
 ```
 GET /api/stats/requests
@@ -601,6 +676,7 @@ Response `200`:
   "items": [
     {
       "id": 1,
+      "profile_id": 2,
       "model_id": "gpt-4o",
       "provider_type": "openai",
       "connection_id": 1,
@@ -810,6 +886,8 @@ Response `200`:
 
 ## 5. Audit API
 
+Audit APIs are profile-scoped by effective profile context (`X-Profile-Id` or active profile fallback).
+
 ### 5.1 List Audit Logs
 ```
 GET /api/audit/logs
@@ -834,6 +912,7 @@ Response `200`:
   "items": [
     {
       "id": 1,
+      "profile_id": 2,
       "request_log_id": 42,
       "provider_id": 1,
       "model_id": "gpt-4o",
@@ -868,6 +947,7 @@ Response `200`:
 ```json
 {
   "id": 1,
+  "profile_id": 2,
   "request_log_id": 42,
   "provider_id": 1,
   "model_id": "gpt-4o",
@@ -946,7 +1026,7 @@ All errors follow this format:
 |---|---|
 | 400 | Bad request (invalid input) |
 | 404 | Resource not found |
-| 409 | Conflict (duplicate model_id or endpoint in use) |
+| 409 | Conflict (stale activation CAS version, profile capacity reached, or duplicate scoped identifier) |
 | 502 | Upstream provider error |
 | 503 | No active connections available |
 

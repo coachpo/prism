@@ -14,7 +14,7 @@ Developers and power users working with multiple LLM providers face:
 
 ## 3. Target User
 
-Single user (developer/power user) running the application locally or on a local network. No multi-tenancy or authentication required.
+Single operator (developer/power user) running the application locally or on a local network. No authentication required. Prism supports profile-based configuration isolation for one operator (selected profile vs active profile); this is not auth multi-tenancy.
 
 ## 4. Core Features
 
@@ -39,7 +39,7 @@ Single user (developer/power user) running the application locally or on a local
 - Proxy models cannot have their own connections — they use the target native model's connections
 - A proxy model cannot point to another proxy model (must target a native model)
 - Proxy models do not have load balancing — they always use the target native model's load balancing configuration
-- All model IDs are globally unique regardless of model type
+- Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
 - Gateway transparently resolves proxy aliases: incoming request for proxy model → routed to target native model's connections
 - For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native model ID when a proxy alias is used
 
@@ -50,11 +50,12 @@ Single user (developer/power user) running the application locally or on a local
 - Proxy is fully transparent and read-only — no state mutations during request/response handling
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When a connection returns a failover-triggering status code (429, 500, 502, 503, 529) or encounters a connection/timeout error, the failed attempt is logged before trying the next connection.
 
-### 4.5 Global Endpoints & Model Connections
-- **Endpoints**: Global reusable credential objects containing a name, base URL, and API key.
-- **Connections**: Model-specific routing, costing, and health configurations that reference a global endpoint.
-- Endpoints can be reused across multiple models via different connections.
-- Deleting an endpoint is blocked if any connections still reference it.
+### 4.5 Profile-Scoped Endpoints & Model Connections
+- **Providers** remain global seed records shared across profiles.
+- **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
+- **Connections** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
+- Endpoints can be reused across multiple models within the same profile.
+- Deleting an endpoint is blocked if any connections in that profile still reference it.
 
 ### 4.6 Connection Health Detection
 - Manual health check for each connection, triggered by user action (no periodic checks)
@@ -99,21 +100,24 @@ Single user (developer/power user) running the application locally or on a local
 ### 4.7 Web UI (Management Dashboard)
 - View all configured models and their connections
 - Add/edit/delete model configurations (native and proxy types)
-- Add/edit/delete global endpoints
+- Add/edit/delete profile-scoped endpoints
 - Add/edit/delete model connections
 - Toggle active/inactive connections per model
 - Select load balancing strategy per model
 - Manual health check for connections with visual status indicators
+- Global profile selector in the app shell controls the selected profile (management scope).
+- Active profile indicator is shown globally; runtime activation is an explicit action.
+- Profile create/edit/delete dialogs include active-profile delete guardrails and capacity guidance.
 
 ### 4.8 Configuration Persistence
-- All configuration stored in SQLite database
+- Configuration is stored in PostgreSQL with Alembic-managed schema migrations applied at startup
 - No config files to manage — everything through the UI/API
-- Database auto-created on first run
-- Config export/import supports version 6 (includes endpoints and connections)
-
+- Existing installs are backfilled into a default profile during profile-isolation migration
+- Config export uses version 7 (profile-aware, ID-agnostic logical references)
+- Config import accepts v6 and v7; v6 numeric references are compatibility-remapped, and v7 is canonical
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
-- Each request log captures: model ID, provider, connection used (ID, endpoint base URL, description), HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
+- Each request log captures: profile ID attribution, model ID, provider, connection used (ID, endpoint base URL, description), HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
 
 #### 4.9.1 Token Usage Extraction
 Token usage is extracted from upstream responses using provider-aware parsing:
@@ -196,6 +200,16 @@ Allow users to configure custom HTTP headers on individual connections. These he
 ### 4.14 Configurable Header Blocklist
 Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied in `proxy_service.py` on every request.
 
+### 4.15 Profile Isolation & Management
+- Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
+- Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
+- Management APIs support optional `X-Profile-Id`; if omitted, scope defaults to the active profile
+- Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
+- Active profile deletion is rejected; activation uses optimistic CAS guard (`expected_active_profile_id`, `expected_active_profile_version`) and returns `409` on conflict
+- Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted
+- Observability rows (`request_logs`, `audit_logs`) carry immutable `profile_id` attribution for historical correctness
+
+
 ## 5. Non-Functional Requirements
 
 | Requirement | Target |
@@ -204,7 +218,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 | Authentication | None (single-user, trusted network) |
 | Latency overhead | < 50ms added to proxy requests |
 | Concurrent requests | Support 10+ simultaneous proxy requests |
-| Database | SQLite (file-based, zero config) |
+| Database | PostgreSQL (Alembic-managed schema, startup migrations) |
 | API standard | OpenAPI 3.0 spec auto-generated |
 | CORS | Wildcard allowed (`*`) |
 
@@ -212,16 +226,16 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 | Component | Technology |
 |---|---|
-| Backend | Python 3.11+, FastAPI, SQLAlchemy (async), aiosqlite |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy (async), asyncpg |
 | HTTP Client | httpx (async, streaming) |
-| Database | SQLite via aiosqlite |
+| Database | PostgreSQL via asyncpg |
 | Frontend | React 19, Vite, TypeScript, Tailwind CSS, shadcn/ui |
 | API Contract | OpenAPI 3.0 (auto-generated by FastAPI) |
 | Communication | REST API with JSON, SSE for streaming proxy |
 
 ## 7. Out of Scope (v1)
 
-- User authentication / multi-tenancy
+- User authentication / auth-based multi-tenancy (profile namespace isolation for one operator is in scope)
 - Token usage tracking and billing
 - Rate limiting on the proxy itself
 - API key encryption at rest

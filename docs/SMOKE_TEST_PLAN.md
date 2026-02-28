@@ -76,23 +76,25 @@ Suggested startup:
 
 Prepare seed state through API (not manual DB edits):
 
-1. Providers exist: OpenAI, Anthropic, Gemini.
-2. Global Endpoints:
-   - one OpenAI endpoint
-   - one Anthropic endpoint
-   - one Gemini endpoint
-3. Native models:
-   - one OpenAI-compatible model with 2+ active connections
-   - one Anthropic model
-   - one Gemini model
-4. Proxy models:
-   - same-provider alias redirecting to a native model
-5. Connection diversity:
+1. Providers exist: OpenAI, Anthropic, Gemini (global).
+2. Profiles exist: A, B, C; start with A as active runtime profile.
+3. Profile-scoped Endpoints (credentials):
+   - in profile A: one OpenAI endpoint
+   - in profile B: one Anthropic endpoint
+   - in profile C: one Gemini endpoint
+4. Profile-scoped native models:
+   - in profile A: one OpenAI-compatible model with 2+ active connections
+   - in profile B: one Anthropic model
+   - in profile C: one Gemini model
+5. Proxy models:
+   - same-provider alias redirecting to a native model in the same profile
+6. Connection diversity per profile:
    - active + inactive
    - differing priorities
    - one connection with `custom_headers`
    - one connection with `pricing_enabled=true`
-6. Audit toggles initially disabled, then enabled per-case.
+7. Audit toggles initially disabled, then enabled per-case.
+8. At least one duplicated `model_id` and endpoint `name` across A/B to validate scoped uniqueness.
 
 ---
 
@@ -101,42 +103,48 @@ Prepare seed state through API (not manual DB edits):
 | Endpoint | Coverage IDs |
 |---|---|
 | `GET /health` | A04 |
+| `GET /api/profiles` | M01, M03, M08, M09 |
+| `GET /api/profiles/active` | M02, M11 |
+| `POST /api/profiles` | M04, M10 |
+| `PATCH /api/profiles/{id}` | M05 |
+| `POST /api/profiles/{id}/activate` | M06-M07 |
+| `DELETE /api/profiles/{id}` | M08-M09 |
 | `GET /api/providers` | B01 |
 | `GET /api/providers/{id}` | B03 |
 | `PATCH /api/providers/{id}` | B02 |
-| `GET /api/models` | B04, E12 |
-| `GET /api/models/{id}` | B18 |
-| `POST /api/models` | B04-B10 |
-| `PUT /api/models/{id}` | B08-B10 |
-| `DELETE /api/models/{id}` | B11 |
-| `GET /api/endpoints` | B12 |
-| `POST /api/endpoints` | B13 |
-| `PUT /api/endpoints/{id}` | B14 |
-| `DELETE /api/endpoints/{id}` | B15 |
-| `GET /api/models/{id}/connections` | B18 |
-| `POST /api/models/{id}/connections` | B16-B17, L01-L02 |
-| `PUT /api/connections/{id}` | B19-B20, L03 |
-| `DELETE /api/connections/{id}` | B21 |
+| `GET /api/models` | B04, E12, M03, M12 |
+| `GET /api/models/{id}` | B18, M03 |
+| `POST /api/models` | B04-B10, M12 |
+| `PUT /api/models/{id}` | B08-B10, M03 |
+| `DELETE /api/models/{id}` | B11, M03 |
+| `GET /api/endpoints` | B12, M03 |
+| `POST /api/endpoints` | B13, M03 |
+| `PUT /api/endpoints/{id}` | B14, M03 |
+| `DELETE /api/endpoints/{id}` | B15, M03 |
+| `GET /api/models/{id}/connections` | B18, M03 |
+| `POST /api/models/{id}/connections` | B16-B17, L01-L02, M03 |
+| `PUT /api/connections/{id}` | B19-B20, L03, M03 |
+| `DELETE /api/connections/{id}` | B21, M03 |
 | `POST /api/connections/{id}/health-check` | D01-D06 |
-| `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10, L08-L10 |
-| `POST /v1/messages` | C02, C04, E08, E10, L08-L10 |
-| `GET /api/stats/requests` | E01-E04 |
-| `GET /api/stats/summary` | E05-E06 |
+| `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10, L08-L10, M11-M13, M21 |
+| `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
+| `GET /api/stats/requests` | E01-E04, M14 |
+| `GET /api/stats/summary` | E05-E06, M14 |
 | `GET /api/stats/connection-success-rates` | E07 |
-| `GET /api/stats/spending` | L11-L13, L19-L20 |
-| `DELETE /api/stats/requests` | G01-G03 |
-| `GET /api/audit/logs` | F10, F12 |
-| `GET /api/audit/logs/{id}` | F11 |
-| `DELETE /api/audit/logs` | F13, G04-G05 |
-| `GET /api/config/export` | H01-H04, L14 |
-| `POST /api/config/import` | H05-H07, L15-L16 |
-| `GET /api/config/header-blocklist-rules` | K01 |
-| `GET /api/config/header-blocklist-rules/{id}` | K05-K06 |
-| `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15 |
-| `PATCH /api/config/header-blocklist-rules/{id}` | K07-K09 |
-| `DELETE /api/config/header-blocklist-rules/{id}` | K10-K11 |
-| `GET /api/settings/costing` | L04 |
-| `PUT /api/settings/costing` | L05-L07 |
+| `GET /api/stats/spending` | L11-L13, L19-L20, M19 |
+| `DELETE /api/stats/requests` | G01-G03, M14 |
+| `GET /api/audit/logs` | F10, F12, M15 |
+| `GET /api/audit/logs/{id}` | F11, M15 |
+| `DELETE /api/audit/logs` | F13, G04-G05, M15 |
+| `GET /api/config/export` | H01-H04, L14, M16 |
+| `POST /api/config/import` | H05-H07, L15-L16, M17-M18 |
+| `GET /api/config/header-blocklist-rules` | K01, M20 |
+| `GET /api/config/header-blocklist-rules/{id}` | K05-K06, M20 |
+| `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15, M20 |
+| `PATCH /api/config/header-blocklist-rules/{id}` | K07-K09, M20 |
+| `DELETE /api/config/header-blocklist-rules/{id}` | K10-K11, M20 |
+| `GET /api/settings/costing` | L04, M19 |
+| `PUT /api/settings/costing` | L05-L07, M19 |
 
 ---
 
@@ -161,17 +169,17 @@ Prepare seed state through API (not manual DB edits):
 | B02 | P0 | Patch provider audit fields | Fields persist; omitted field unchanged |
 | B03 | P1 | Get/patch unknown provider | `404` |
 | B04 | P0 | Create native model | `201`, model stored |
-| B05 | P0 | Create duplicate `model_id` | `409` |
+| B05 | P0 | Create duplicate `model_id` in same effective profile | `409` |
 | B06 | P0 | Create valid proxy model | `201` |
 | B07 | P0 | Proxy missing/invalid `redirect_to` | `400` |
 | B08 | P0 | Cross-provider proxy target | `400` |
 | B09 | P0 | Proxy target is another proxy | `400` |
 | B10 | P0 | Native model with non-null `redirect_to` | `400` |
 | B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
-| B12 | P0 | List global endpoints | `200`, returns array |
-| B13 | P0 | Create global endpoint | `201`, endpoint stored |
-| B14 | P0 | Update global endpoint | `200`, changes persist |
-| B15 | P0 | Delete global endpoint in use | `409` conflict |
+| B12 | P0 | List profile-scoped endpoints | `200`, returns array scoped to effective profile |
+| B13 | P0 | Create profile-scoped endpoint | `201`, endpoint stored in effective profile |
+| B14 | P0 | Update profile-scoped endpoint | `200`, changes persist in effective profile |
+| B15 | P0 | Delete profile-scoped endpoint in use | `409` conflict |
 | B16 | P0 | Create connection on native model | `201` |
 | B17 | P0 | Create connection on proxy model | `400` |
 | B18 | P1 | List connections for model | `200`, returns array |
@@ -266,11 +274,11 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=6`, `exported_at`, providers/models/endpoints arrays |
+| H01 | P0 | Export schema and metadata | `version=7`, `exported_at`, profile-targeted payload with logical refs |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
-| H05 | P0 | Valid import full replacement | Existing config replaced, counts accurate |
+| H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
 | H06 | P0 | Import failure rollback | Prior config remains intact |
 | H07 | P0 | Validation matrix | Correct `400` errors |
 | H08 | P1 | Settings UI export filename | `gateway-config-YYYY-MM-DD.json` |
@@ -314,7 +322,7 @@ Prepare seed state through API (not manual DB edits):
 | J02 | P1 | Added proxy latency quick check | Within acceptable envelope |
 | J03 | P1 | No-auth local operation | Expected unrestricted local usage |
 | J04 | P1 | OpenAPI sanity | Core routes present |
-| J05 | P1 | SQLite hygiene | DB files created in expected location |
+| J05 | P1 | PostgreSQL hygiene | DB schema and migration state are valid for smoke environment |
 
 ## K. Header Blocklist
 
@@ -399,9 +407,9 @@ Prepare seed state through API (not manual DB edits):
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export version 6 | Includes pricing and `user_settings` |
-| L15 | P0 | Config import v6 | Restores pricing and settings |
-| L16 | P0 | Config import v2/v3/v4/v5 rejection | `400` error (v6 required) |
+| L14 | P0 | Config export version 7 | Includes pricing and profile-scoped `user_settings` |
+| L15 | P0 | Config import v7 | Restores pricing and settings into target profile |
+| L16 | P0 | Config import v2/v3/v4/v5 rejection | `400` error (`v6` and `v7` only) |
 | L17 | P1 | FX conversion with custom rate | Correct converted cost |
 | L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
@@ -410,20 +418,46 @@ Prepare seed state through API (not manual DB edits):
 | L22 | P1 | `MAP_TO_OUTPUT` fallback price policy | Missing special tokens use output price |
 | L23 | P1 | `ZERO_COST` fallback price policy | Missing special tokens use zero price |
 
+## M. Profile Isolation and Context Semantics
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| M01 | P0 | List profiles | `200`, excludes soft-deleted profiles from normal listing |
+| M02 | P0 | Get active profile | Exactly one active profile returned |
+| M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Absent uses active profile; header scopes to selected profile |
+| M04 | P0 | Create profile under capacity | `201`, profile created as inactive by default |
+| M05 | P0 | Update profile metadata | `200`, name/description persisted |
+| M06 | P0 | Activate profile with correct CAS payload | Activation succeeds atomically; active profile/version updated |
+| M07 | P0 | Activate profile with stale CAS payload | `409` conflict; previous active profile unchanged |
+| M08 | P0 | Delete inactive profile | Soft-delete succeeds; profile omitted from default listings |
+| M09 | P0 | Delete active profile | Rejected (`400` or `409`), active profile remains unchanged |
+| M10 | P0 | Create 11th non-deleted profile | `409` with actionable delete-before-create error |
+| M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses active profile context only |
+| M12 | P0 | Same `model_id` exists in A/B with different connections | Routing uses active profile mappings only; no cross-profile resolution |
+| M13 | P0 | Proxy alias target exists only in another profile | Alias resolution fails (`404`) under current active profile |
+| M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
+| M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=7` and uses logical refs (`endpoint_ref`, `connection_ref`) |
+| M17 | P0 | Config import v7 replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
+| M18 | P0 | Config import v6 compatibility | v6 accepted and remapped to target-profile-owned resources |
+| M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
+| M20 | P0 | Header blocklist scope merge | Runtime/effective rules include global system rules + selected profile user rules only |
+| M21 | P1 | Failover recovery-state isolation by profile | Cooldown/recovery state in profile A does not affect profile B |
 ---
 
 ## 8. Recommended Execution Order
 
 1. A (startup/health).
-2. B (CRUD and validation).
-3. C and D (proxy and health-check behavior).
-4. E and F (stats and audit).
-5. K.1–K.2 (header blocklist CRUD and validation).
-6. K.3 (header blocklist proxy runtime integration).
-7. L (token costing and spending reports).
-8. G, H, and K.4 in isolated destructive lane.
-9. I and K.5 (frontend full-stack smoke).
-10. J (non-functional quick pass).
+2. M01-M10 (profile lifecycle, capacity, and switch safety).
+3. B (CRUD and validation).
+4. M11-M13 (runtime profile isolation checks).
+5. C and D (proxy and health-check behavior).
+6. E and F plus M14-M15 (stats/audit with attribution scope).
+7. K.1-K.3 plus M20 (header blocklist, including profile scope).
+8. L plus M19 (token costing and spending reports with profile isolation).
+9. G, H, K.4, and M16-M18 in isolated destructive lane.
+10. I and K.5 (frontend full-stack smoke, including selected vs active profile behavior).
+11. J and M21 (non-functional quick pass + failover memory isolation).
 
 ---
 
@@ -471,3 +505,43 @@ Notes:
 - Header blocklist matching is case-insensitive.
 - System blocklist rules are seeded on first boot.
 - Prefix rules must end with `-` (e.g. `cf-`, `x-cf-`).
+- Management APIs use selected/effective profile scope; proxy runtime always uses active profile scope.
+
+
+## 12. Latest Frontend Verification Snapshot (Profile Isolation F1-F4)
+
+```text
+Run ID: FRONTEND-PROFILE-ISOLATION-2026-02-28
+Date: 2026-02-28 20:25:56 EET
+Commit: a2c86c7
+Environment: local frontend (pnpm)
+
+P0 Pass/Fail: Partial (build passes; lint currently fails due to pre-existing unrelated errors)
+P1 Pass/Fail: Partial
+
+Results:
+- pnpm run build: PASS
+- pnpm run lint: FAIL
+
+Failures:
+- [lint] src/components/layout/AppLayout.tsx:180
+  - Observed: no-useless-escape for escaped quotes
+  - Expected: no lint errors
+  - Repro: cd frontend && pnpm run lint
+  - Evidence: ESLint output
+
+- [lint] src/context/ProfileContext.tsx:238
+  - Observed: react-refresh/only-export-components
+  - Expected: no lint errors
+  - Repro: cd frontend && pnpm run lint
+  - Evidence: ESLint output
+
+Warnings:
+- src/hooks/useConnectionNavigation.ts:26 unnecessary dependency warning
+- src/pages/ModelDetailPage.tsx:181 warning resolved in follow-up change (fetch effect now keyed by revision via useEffect dependency)
+
+Notes:
+- Frontend profile-isolation wiring completed for revision-driven refresh on: ModelDetail, Endpoints, Statistics, RequestLogs, Audit, and Settings pages.
+- Settings import/export copy now states selected-profile scope and confirm dialog clarifies only selected profile is replaced.
+- Config import validation supports v6 and v7 with optional mode and v7 default mode=replace.
+```
