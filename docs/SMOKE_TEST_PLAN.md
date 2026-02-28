@@ -266,7 +266,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=5`, `exported_at`, providers/models/endpoints arrays |
+| H01 | P0 | Export schema and metadata | `version=6`, `exported_at`, providers/models/endpoints arrays |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
