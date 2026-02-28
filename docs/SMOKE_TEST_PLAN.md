@@ -399,9 +399,9 @@ Prepare seed state through API (not manual DB edits):
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export version 5 | Includes pricing and `user_settings` |
-| L15 | P0 | Config import v5 | Restores pricing and settings |
-| L16 | P0 | Config import v2/v3/v4 rejection | `400` error (v5 required) |
+| L14 | P0 | Config export version 6 | Includes pricing and `user_settings` |
+| L15 | P0 | Config import v6 | Restores pricing and settings |
+| L16 | P0 | Config import v2/v3/v4/v5 rejection | `400` error (v6 required) |
 | L17 | P1 | FX conversion with custom rate | Correct converted cost |
 | L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |

@@ -34,17 +34,17 @@
                         │ is_stream            │◀──┐   │ health_status        │
                         │ input_tokens         │   │   │ last_health_check    │
                         │ output_tokens        │   │   │ pricing_enabled      │
-                        │ total_tokens         │   │   │ pricing_unit         │
-                        │ success_flag         │   │   │ pricing_currency_code│
-                        │ billable_flag        │   │   │ input_price        │
-                        │ priced_flag          │   │   │ output_price       │
-                        │ unpriced_reason      │   │   │ cached_input_price   │
-                        │ cache_read_input_tokens ││   │ cache_creation_price │
-                        │ cache_creation_input_tokens ││ reasoning_price      │
-                        │ reasoning_tokens     │   │   │ missing_special_token_price_policy │
-                        │ input_cost_micros    │   │   │ pricing_config_version │
-                        │ output_cost_micros   │   │   │ created_at           │
-                        │ cache_read_input_cost_micros ││ updated_at           │
+                        │ total_tokens         │   │   │ pricing_currency_code│
+                        │ success_flag         │   │   │ input_price          │
+                        │ billable_flag        │   │   │ output_price         │
+                        │ priced_flag          │   │   │ cached_input_price   │
+                        │ unpriced_reason      │   │   │ cache_creation_price │
+                        │ cache_read_input_tokens ││   │ reasoning_price      │
+                        │ cache_creation_input_tokens ││ missing_special_token_price_policy │
+                        │ reasoning_tokens     │   │   │ pricing_config_version │
+                        │ input_cost_micros    │   │   │ created_at           │
+                        │ output_cost_micros   │   │   │ updated_at           │
+                        │ cache_read_input_cost_micros ││                      │
                         │ cache_creation_input_cost_micros │└──────────────────────┘
                         │ reasoning_cost_micros│   │
                         │ total_cost_original_micros │ ┌──────────────────────┐
@@ -175,7 +175,6 @@ Stores model-scoped routing, costing, and health configuration, referencing a gl
 | health_detail     | TEXT         | NULLABLE                                           | Detail message from last health check (e.g., error message from upstream)                                                                       |
 | last_health_check | DATETIME     | NULLABLE                                           | Timestamp of last health check                                                                                                                  |
 | pricing_enabled   | BOOLEAN      | NOT NULL, DEFAULT FALSE                            | Whether token costing is enabled for this connection                                                                                            |
-| pricing_unit      | VARCHAR(10)  | NULLABLE                                           | Unit for pricing: `PER_1K` or `PER_1M`                                                                                                          |
 | pricing_currency_code | VARCHAR(3) | NULLABLE                                           | Currency code for prices (e.g., "USD")                                                                                                          |
 | input_price       | VARCHAR(20)  | NULLABLE                                           | Price per unit for input tokens (decimal string)                                                                                                |
 | output_price      | VARCHAR(20)  | NULLABLE                                           | Price per unit for output tokens (decimal string)                                                                                               |

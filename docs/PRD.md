@@ -109,7 +109,7 @@ Single user (developer/power user) running the application locally or on a local
 - All configuration stored in SQLite database
 - No config files to manage — everything through the UI/API
 - Database auto-created on first run
-- Config export/import supports version 5 (includes endpoints and connections)
+- Config export/import supports version 6 (includes endpoints and connections)
 
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data

@@ -230,7 +230,6 @@ Request (using existing endpoint):
     "X-Custom-Org": "org-123"
   },
   "pricing_enabled": true,
-  "pricing_unit": "PER_1M",
   "pricing_currency_code": "USD",
   "input_price": "5.00",
   "output_price": "15.00",
@@ -303,7 +302,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 5,
+  "version": 6,
   "exported_at": "2025-01-15T10:30:00Z",
   "user_settings": {
     "report_currency_code": "USD",
@@ -346,7 +345,6 @@ Response `200`:
             "X-Custom-Org": "org-123"
           },
           "pricing_enabled": true,
-          "pricing_unit": "PER_1M",
           "pricing_currency_code": "USD",
           "input_price": "5.00",
           "output_price": "15.00",
@@ -375,7 +373,7 @@ The response includes a `Content-Disposition` header to trigger a file download:
 ```
 POST /api/config/import
 ```
-Request: Full configuration object (accepts version 5).
+Request: Full configuration object (accepts version 6).
 Response `200`:
 ```json
 {
