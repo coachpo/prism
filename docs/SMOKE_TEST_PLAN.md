@@ -545,3 +545,35 @@ Notes:
 - Settings import/export copy now states selected-profile scope and confirm dialog clarifies only selected profile is replaced.
 - Config import validation supports v6 and v7 with optional mode and v7 default mode=replace.
 ```
+
+## 13. Profile Isolation Revision Evidence Matrix (2026-02-28)
+
+Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION_UPGRADE_PLAN.md`, `docs/PROFILE_ISOLATION_FRONTEND_ITERATION_PLAN.md`, `docs/PROFILE_ISOLATION_RESEARCH_REFERENCES.md`, and `docs/PROFILE_ISOLATION_SUPPORTING_EVIDENCE.md`.
+
+
+This appendix provides a provenance map between smoke scenarios, requirement IDs, and implementation revisions for the profile-isolation rollout.
+
+### 13.1 Commit-to-Test Mapping
+
+| Revision | Areas validated by this plan | Primary smoke IDs |
+|---|---|---|
+| Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, v7/v6 config behavior, failover memory namespace | M01-M21, C01-C13, E01-E12, F01-F14, H01-H07, L04-L16 |
+| Frontend `02c70ce` | Profile context bootstrap, selected-vs-active UX, header propagation, revision-based scoped refetch, settings import copy/flow | I01-I25, M03, M11, M16-M19 |
+| Root/docs `f6f0106` | Documentation/bootstrap alignment for profile-isolated operation model | A01-A06, documentation trace checks in release review |
+
+### 13.2 Requirement Trace Anchors
+
+| Requirement | Smoke IDs |
+|---|---|
+| FR-001 Profile lifecycle and limits | M01-M10 |
+| FR-002 Scoped data model behavior | M03, M12, B04-B21 |
+| FR-003 Runtime isolation | M11-M13, C01-C11 |
+| FR-004 CAS-safe activation | M06-M07 |
+| FR-005 In-memory failover isolation | M21, C07-C09 |
+| FR-006 API scope semantics | M03, M11, M14-M15 |
+| FR-007 Config export/import isolation | M16-M18, H01-H07, L14-L16 |
+| FR-008 Costing/settings isolation | M19, L04-L13 |
+| FR-009 Immutable observability attribution | M14-M15, E01-E07, F10-F13 |
+| FR-010 Frontend selected-vs-active behavior | I01-I15, M03, M11 |
+
+Execution note: this appendix is traceability metadata only; it does not replace the authoritative scenario definitions in sections A-M.

@@ -454,3 +454,27 @@ The application exclusively supports three LLM providers:
 - **Gemini** (`gemini`) — Gemini models (via OpenAI-compatible endpoint)
 
 All UI dropdowns, filters, and selectors are limited to these three providers. No other providers (e.g., Ollama, vLLM) are available.
+
+
+## 14. Revision Provenance (Profile Isolation, 2026-02-28)
+
+Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION_UPGRADE_PLAN.md`, `docs/PROFILE_ISOLATION_FRONTEND_ITERATION_PLAN.md`, `docs/PROFILE_ISOLATION_RESEARCH_REFERENCES.md`, and `docs/PROFILE_ISOLATION_SUPPORTING_EVIDENCE.md`.
+
+
+This appendix ties architecture behavior in this document to the delivered profile-isolation revisions and planning artifacts.
+
+Commit alignment:
+
+- Backend `c0f2daa`: separated active-profile runtime dependencies from effective-profile management dependencies; added profile lifecycle APIs; namespaced failover recovery memory by profile; updated config import/export and scoped settings/logging paths.
+- Frontend `02c70ce`: introduced `ProfileContext` bootstrap, selected-profile transport for management APIs, explicit activation flow for active runtime profile, and revision-driven refetch across scoped pages.
+- Root/docs `f6f0106`: updated architecture and bootstrap documentation so operational guidance matches profile-isolated behavior.
+
+Architecture invariants reflected in request flow sections:
+
+- Runtime data plane (`/v1/*`, `/v1beta/*`) is bound to active profile snapshot at request start.
+- Control plane (`/api/*`) resolves one effective profile context and scopes list/detail/mutation operations accordingly.
+- Profile switches are explicit control-plane operations and do not retroactively rewrite historical attribution.
+- Failover cooldown/recovery state is isolated per profile namespace.
+- Config export/import contracts use v7 logical references as canonical representation, with v6 compatibility translation on import.
+
+Requirement trace anchors: `FR-003`, `FR-004`, `FR-005`, `FR-006`, `FR-007`, `FR-009`, `FR-010`.

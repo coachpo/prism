@@ -357,3 +357,28 @@ CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_s
 - Canonical export format is config version `7` with ID-agnostic logical references.
 - Import accepts `v6` and `v7`; `v6` numeric references are treated as source-local and remapped to target profile rows.
 - Import replace semantics are profile-targeted by effective profile context and do not globally delete other profiles.
+
+
+## 8. Revision Provenance and Invariant Notes (Profile Isolation, 2026-02-28)
+
+Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION_UPGRADE_PLAN.md`, `docs/PROFILE_ISOLATION_FRONTEND_ITERATION_PLAN.md`, `docs/PROFILE_ISOLATION_RESEARCH_REFERENCES.md`, and `docs/PROFILE_ISOLATION_SUPPORTING_EVIDENCE.md`.
+
+
+This appendix captures the implemented revision mapping for the profile-isolated schema described above.
+
+Commit alignment:
+
+- Backend `c0f2daa`: establishes profile ownership boundaries for scoped entities, immutable `profile_id` attribution in telemetry/audit rows, and profile-aware routing/import semantics that depend on these relational guarantees.
+- Frontend `02c70ce`: consumes profile-scoped data contracts through selected-profile API context and active-profile runtime activation UX.
+- Root/docs `f6f0106`: synchronized architecture and operational documentation to current migration/bootstrap behavior.
+
+Schema invariants emphasized by the profile-isolation requirement set:
+
+- Exactly one non-deleted active profile at a time (partial active uniqueness).
+- Capacity limit enforced at application layer: maximum 10 rows where `deleted_at IS NULL`.
+- Scoped uniqueness is composite by `profile_id` for model IDs, endpoint names, and FX mapping keys.
+- Runtime ownership checks must prevent cross-profile joins for model/endpoint/connection mutation paths.
+- Observability rows keep immutable profile attribution after profile activation changes.
+- In-memory failover state must be namespaced by `(profile_id, connection_id)` so DB and runtime isolation semantics remain consistent.
+
+Requirement trace anchors: `FR-001`, `FR-002`, `FR-005`, `FR-008`, `FR-009`, `FR-011`.

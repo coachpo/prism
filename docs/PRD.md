@@ -239,3 +239,26 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - Token usage tracking and billing
 - Rate limiting on the proxy itself
 - API key encryption at rest
+
+
+## 8. Revision Traceability (Profile Isolation, 2026-02-28)
+
+Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION_UPGRADE_PLAN.md`, `docs/PROFILE_ISOLATION_FRONTEND_ITERATION_PLAN.md`, `docs/PROFILE_ISOLATION_RESEARCH_REFERENCES.md`, and `docs/PROFILE_ISOLATION_SUPPORTING_EVIDENCE.md`.
+
+
+This appendix records how the profile-isolation requirement package is represented in implemented behavior and product documentation updates.
+
+- Backend reference (`c0f2daa`, `feat: add profile-scoped routing and config isolation`): runtime routing is active-profile-only; management scope is effective profile (`X-Profile-Id` or active fallback); profile lifecycle includes CAS activation and inactive-only soft delete; config import/export supports v7 logical references with v6 compatibility remap.
+- Frontend reference (`02c70ce`, `feat: add profile context and profile-aware dashboard flows`): selected profile drives management scope, active profile remains explicit runtime state, global shell exposes selector plus activation affordance, and profile revision triggers scoped page refetch.
+- Root/docs reference (`f6f0106`, `docs: update architecture docs and bootstrap script`): documentation set and startup/bootstrap narrative were aligned to profile-isolation architecture and migration-aware initialization.
+
+Requirement coverage anchors:
+
+- `FR-001` / `FR-004`: profile lifecycle, single active profile, CAS-safe activation, and active-delete rejection.
+- `FR-002` / `FR-003`: profile-scoped config entities and active-profile runtime routing isolation.
+- `FR-006`: management API effective-scope semantics with explicit override header.
+- `FR-007`: profile-targeted config replace behavior and v7 canonical format with logical refs.
+- `FR-008` / `FR-009`: profile-scoped costing/settings and immutable profile attribution in observability.
+- `FR-010`: selected-profile versus active-profile UX with explicit activation action.
+
+These revisions preserve single-operator product intent and do not introduce authentication multi-tenancy.

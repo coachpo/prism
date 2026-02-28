@@ -1038,3 +1038,28 @@ Auto-generated at:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 - JSON spec: `http://localhost:8000/openapi.json`
+
+
+## 8. Revision Provenance (Profile Isolation, 2026-02-28)
+
+Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION_UPGRADE_PLAN.md`, `docs/PROFILE_ISOLATION_FRONTEND_ITERATION_PLAN.md`, `docs/PROFILE_ISOLATION_RESEARCH_REFERENCES.md`, and `docs/PROFILE_ISOLATION_SUPPORTING_EVIDENCE.md`.
+
+
+This appendix links the API surface in this document to the profile-isolation delivery revisions and requirement sources.
+
+Commit alignment:
+
+- Backend `c0f2daa`: introduced active-vs-effective profile dependency split, profile lifecycle endpoints, profile-scoped routing/config behavior, and v7 config logical-reference handling with v6 compatibility import translation.
+- Frontend `02c70ce`: introduced management-scope propagation via `X-Profile-Id`, selected/active profile shell behavior, and profile-aware refetch flows that consume these APIs.
+- Root/docs `f6f0106`: aligned architecture/docs and bootstrap narrative to the profile-isolated API model.
+
+Normative API invariants in this spec:
+
+- `/api/*` uses effective profile context: explicit `X-Profile-Id` when provided, otherwise active profile fallback.
+- `/v1/*` and `/v1beta/*` always use active profile context and ignore management profile overrides.
+- Cross-profile detail access resolves as `404` under effective profile scope.
+- Profile activation is conflict-safe via CAS payload and returns `409` on stale state.
+- Profile creation is capped at 10 non-deleted profiles and returns `409` at capacity.
+- Config export is canonical `version=7` with logical `endpoint_ref` and `connection_ref`; import accepts `v6 | v7` and applies target-profile replace semantics in this phase.
+
+Requirement trace anchors: `FR-001`, `FR-003`, `FR-004`, `FR-006`, `FR-007`, `FR-009`, `FR-010`.
