@@ -226,7 +226,7 @@ Prepare seed state through API (not manual DB edits):
 | E03 | P0 | Request log filters (`model`, `provider`, `status`, `success`, time) | Correct subsets returned |
 | E04 | P0 | Pagination (`limit`, `offset`, `total`) | Consistent counts and windows |
 | E05 | P0 | Summary without `from_time` | Uses all historical data |
-| E06 | P1 | Summary grouping (`model/provider/connection`) | Groups and aggregates correct |
+| E06 | P1 | Summary grouping (`model/provider/endpoint`) | Groups and aggregates correct |
 | E07 | P1 | Connection success-rate API | Values match request logs |
 | E08 | P0 | Non-stream token extraction | Token fields match provider format rules |
 | E09 | P1 | Unsupported/malformed usage fallback | Token fields null |
@@ -274,7 +274,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=7`, `exported_at`, profile-targeted payload with logical refs |
+| H01 | P0 | Export schema and metadata | `version=1`, `exported_at`, profile-targeted payload with logical refs |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
@@ -305,7 +305,7 @@ Prepare seed state through API (not manual DB edits):
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
 | I16 | P0 | Model detail connection dialog token pricing section | Pricing fields save and reload correctly |
 | I17 | P0 | Settings costing and currency card | Report currency + symbol load/save |
-| I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, connection_id)` |
+| I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, endpoint_id)` |
 | I19 | P0 | Statistics spending tab filters and pagination | Controls update data correctly |
 | I20 | P0 | Statistics operations request log costing columns | Breakdown columns render without UI regressions |
 | I21 | P0 | Operations special-token row filter behavior | Filter only changes request-log rows |
@@ -400,7 +400,7 @@ Prepare seed state through API (not manual DB edits):
 | L04 | P0 | GET `/api/settings/costing` | Returns defaults |
 | L05 | P0 | PUT `/api/settings/costing` with FX mappings | `200`, settings persist |
 | L06 | P0 | PUT `/api/settings/costing` rejects `fx_rate <= 0` | `400` |
-| L07 | P0 | PUT `/api/settings/costing` rejects duplicate (model, connection) | `400` |
+| L07 | P0 | PUT `/api/settings/costing` rejects duplicate (model, endpoint) | `400` |
 | L08 | P0 | Proxy successful request with priced connection | `request_log` has cost fields populated |
 | L09 | P0 | Proxy failed request | `billable_flag=false`, all `cost_micros=0` |
 | L10 | P0 | Proxy successful request with unpriced connection | `priced_flag=false`, `unpriced_reason` set |

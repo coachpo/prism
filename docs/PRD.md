@@ -47,8 +47,8 @@ Single operator (developer/power user) running the application locally or on a l
 - For models with multiple connections:
   - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
 - Configurable strategy per model (single, failover)
-- Proxy is fully transparent and read-only — no state mutations during request/response handling
-- All failover attempts (including failed ones) are logged to `request_logs` for observability. When a connection returns a failover-triggering status code (429, 500, 502, 503, 529) or encounters a connection/timeout error, the failed attempt is logged before trying the next connection.
+- Proxy request forwarding may apply compatibility normalizations (for example alias model rewriting and optional stream-options stripping based on connection settings) while preserving provider response formats
+- All failover attempts (including failed ones) are logged to `request_logs` for observability. When a connection returns a failover-triggering status code (`403`, `429`, `500`, `502`, `503`, `529`) or encounters a connection/timeout error, the failed attempt is logged before trying the next connection.
 
 ### 4.5 Profile-Scoped Endpoints & Model Connections
 - **Providers** remain global seed records shared across profiles.
@@ -236,7 +236,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ## 7. Out of Scope (v1)
 
 - User authentication / auth-based multi-tenancy (profile namespace isolation for one operator is in scope)
-- Token usage tracking and billing
+- Usage-based billing/accounting integrations beyond Prism's built-in telemetry and costing reports
 - Rate limiting on the proxy itself
 - API key encryption at rest
 

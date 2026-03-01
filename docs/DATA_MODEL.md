@@ -41,7 +41,7 @@ connections (profile-scoped)
   health_status, health_detail, last_health_check
   pricing_* fields, pricing_config_version
   created_at, updated_at
-  UNIQUE(model_config_id, endpoint_id)
+  INDEX(profile_id, model_config_id, is_active, priority)
 
 profiles
   id PK
@@ -141,7 +141,7 @@ Profiles are isolated configuration namespaces. One profile is active for runtim
 | name | VARCHAR(120) | NOT NULL, UNIQUE | Profile name |
 | description | TEXT | NULLABLE | Optional description |
 | is_active | BOOLEAN | NOT NULL, DEFAULT FALSE | Runtime-active marker |
-| version | INTEGER | NOT NULL, DEFAULT 1 | Optimistic concurrency token for activation CAS |
+| version | INTEGER | NOT NULL, DEFAULT 0 | Optimistic concurrency token for activation CAS |
 | deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive profiles |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -217,7 +217,7 @@ Model-to-endpoint routing objects within one profile.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-Constraint: `UNIQUE(model_config_id, endpoint_id)`.
+Indexes include `idx_connections_profile_model_active_priority` for routing lookups by `(profile_id, model_config_id, is_active, priority)`.
 
 ### 2.6 `header_blocklist_rules` (mixed scope)
 

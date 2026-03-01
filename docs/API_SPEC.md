@@ -323,7 +323,7 @@ Response `201`: Created connection object.
 ```
 PUT /api/connections/{id}
 ```
-Request: Same fields as Create Connection (except `endpoint_create`).
+Request: Same fields as Create Connection. `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`.
 Response `200`: Updated connection object.
 
 #### Delete Connection
@@ -368,7 +368,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 7,
+  "version": 1,
   "exported_at": "2025-01-15T10:30:00Z",
   "user_settings": {
     "report_currency_code": "USD",
@@ -376,7 +376,7 @@ Response `200`:
     "endpoint_fx_mappings": [
       {
         "model_id": "gpt-4o",
-        "connection_id": 1,
+        "endpoint_ref": "primary-openai",
         "fx_rate": "1.0"
       }
     ]
@@ -469,10 +469,11 @@ Response `200`:
 {
   "report_currency_code": "USD",
   "report_currency_symbol": "$",
+  "timezone_preference": "Europe/Helsinki",
   "endpoint_fx_mappings": [
     {
       "model_id": "gpt-4o",
-      "connection_id": 1,
+      "endpoint_id": 1,
       "fx_rate": "1.0"
     }
   ]
@@ -490,10 +491,11 @@ Request:
 {
   "report_currency_code": "EUR",
   "report_currency_symbol": "€",
+  "timezone_preference": "Europe/Helsinki",
   "endpoint_fx_mappings": [
     {
       "model_id": "gpt-4o",
-      "connection_id": 1,
+      "endpoint_id": 1,
       "fx_rate": "0.92"
     }
   ]
@@ -666,6 +668,7 @@ Query parameters:
 | `success` | boolean | — | Filter by success (true = 2xx, false = non-2xx) |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 | `connection_id` | integer | — | Filter by connection ID |
 | `limit` | integer | 50 | Max results (1-500) |
 | `offset` | integer | 0 | Pagination offset |
@@ -679,6 +682,7 @@ Response `200`:
       "profile_id": 2,
       "model_id": "gpt-4o",
       "provider_type": "openai",
+      "endpoint_id": 12,
       "connection_id": 1,
       "endpoint_base_url": "https://api.openai.com",
       "endpoint_description": "Primary production key",
@@ -716,9 +720,10 @@ Query parameters:
 |---|---|---|---|
 | `from_time` | datetime | — | Start of time range. If omitted, returns all historical data. |
 | `to_time` | datetime | now | End of time range |
-| `group_by` | string | — | Group results by: `model`, `provider`, `connection` |
+| `group_by` | string | — | Group results by: `model`, `provider`, `endpoint` |
 | `model_id` | string | — | Filter by model ID |
 | `provider_type` | string | — | Filter by provider type (openai, anthropic, gemini) |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 | `connection_id` | integer | — | Filter by connection ID |
 
 Response `200`:
@@ -827,11 +832,12 @@ Query parameters:
 | `to_time` | datetime | — | End of time range (ISO 8601) |
 | `provider_type` | string | — | Filter by provider type |
 | `model_id` | string | — | Filter by model ID |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 | `connection_id` | integer | — | Filter by connection ID |
-| `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `provider`, `model`, `connection`, `model_connection` |
-| `limit` | integer | 50 | Max results |
+| `group_by` | string | `none` | Group by: `none`, `day`, `week`, `month`, `provider`, `model`, `endpoint`, `model_endpoint` |
+| `limit` | integer | 50 | Max results (1-500) |
 | `offset` | integer | 0 | Pagination offset |
-| `top_n` | integer | 5 | Number of top spenders to return |
+| `top_n` | integer | 5 | Number of top spenders to return (1-50) |
 
 Response `200`:
 ```json
@@ -866,10 +872,10 @@ Response `200`:
       "total_cost_micros": 850000
     }
   ],
-  "top_spending_connections": [
+  "top_spending_endpoints": [
     {
-      "connection_id": 1,
-      "endpoint_description": "Primary production key",
+      "endpoint_id": 12,
+      "endpoint_label": "Primary OpenAI",
       "total_cost_micros": 740000
     }
   ],
@@ -898,6 +904,7 @@ Query parameters:
 | `provider_id` | integer | — | Filter by provider ID |
 | `model_id` | string | — | Filter by model ID |
 | `status_code` | integer | — | Filter by response status code |
+| `endpoint_id` | integer | — | Filter by endpoint ID |
 | `connection_id` | integer | — | Filter by connection ID |
 | `from_time` | datetime | — | Start of time range (ISO 8601) |
 | `to_time` | datetime | — | End of time range (ISO 8601) |
@@ -916,6 +923,7 @@ Response `200`:
       "request_log_id": 42,
       "provider_id": 1,
       "model_id": "gpt-4o",
+      "endpoint_id": 12,
       "connection_id": 1,
       "endpoint_base_url": "https://api.openai.com",
       "endpoint_description": "Primary production key",
@@ -951,6 +959,7 @@ Response `200`:
   "request_log_id": 42,
   "provider_id": 1,
   "model_id": "gpt-4o",
+  "endpoint_id": 12,
   "connection_id": 1,
   "endpoint_base_url": "https://api.openai.com",
   "endpoint_description": "Primary production key",

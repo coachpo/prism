@@ -155,15 +155,15 @@ When a connection has `custom_headers` configured, they are injected into the up
 
 ```
 build_upstream_headers():
-  1. Start with client headers (minus hop-by-hop, minus client auth headers)
-  2. Add provider auth headers (Authorization/x-api-key based on provider type)
-  3. Add provider extra headers (e.g., anthropic-version)
-  4. Apply connection custom_headers (from connections.custom_headers JSON)
-     → Same-name headers from earlier steps are OVERWRITTEN
-  5. Apply Header Blocklist (`sanitize_headers`):
-     → Remove any headers matching active exact or prefix rules in `header_blocklist_rules`
-     → This ensures blocked headers (like Cloudflare metadata) never reach the upstream
-  6. Return final header dict
+  1. Start with client headers (minus hop-by-hop, minus client auth headers, minus proxy-controlled auth/version headers)
+  2. Apply blocklist sanitization to client-supplied headers
+  3. Add provider auth headers
+  4. Add provider extra headers (e.g., anthropic-version)
+  5. Apply connection custom_headers (from `connections.custom_headers` JSON)
+     -> Same-name headers from earlier steps are overwritten
+  6. Apply final blocklist pass (with provider auth/version headers protected)
+     -> Blocked headers cannot be reintroduced by custom headers
+  7. Return final header dict
 ```
 
 Custom headers are a power-user feature. While they can override most headers, they cannot be used to re-add headers that are blocked by the Header Blocklist. This is enforced by applying the blocklist last in the header construction pipeline.
@@ -223,7 +223,7 @@ Proxy models are aliases that forward requests to a target native model. This re
 - Proxy models have no connections of their own
 - Proxy models do not use load balancing (lb_strategy is ignored; target model's strategy applies)
 - Model IDs are unique within a profile (same model ID may exist in other profiles)
-- The gateway does NOT modify the request body — it only uses the target model's connections for routing
+- The gateway may normalize proxy request payloads before forwarding (for example: alias model rewrite and optional `stream_options` stripping per connection settings)
 
 ### 5.3 Resolution
 
@@ -313,7 +313,7 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream (via Conn
 ### 7.4 Query Capabilities
 
 - Filter by model, provider, status, time range
-- Aggregated statistics with grouping by model/provider/connection
+- Aggregated statistics with grouping by model/provider/endpoint
 - Pagination for request log listing
 
 ## 8. Request Audit Logging
