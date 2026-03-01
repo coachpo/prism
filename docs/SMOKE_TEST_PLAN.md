@@ -414,7 +414,7 @@ Prepare seed state through API (not manual DB edits):
 | L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
 | L20 | P1 | Spending report `top_n` | Returns correct top spenders |
-| L21 | P1 | Legacy request logs (pre-costing) | `unpriced_reason=LEGACY_NO_COST_DATA` |
+| L21 | P1 | Legacy request logs (pre-costing) | Unpriced rows aggregate under `UNKNOWN` bucket when reason is null/empty |
 | L22 | P1 | `MAP_TO_OUTPUT` fallback price policy | Missing special tokens use output price |
 | L23 | P1 | `ZERO_COST` fallback price policy | Missing special tokens use zero price |
 

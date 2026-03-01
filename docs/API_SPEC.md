@@ -881,7 +881,7 @@ Response `200`:
   ],
   "unpriced_breakdown": {
     "PRICING_DISABLED": 30,
-    "LEGACY_NO_COST_DATA": 20
+    "UNKNOWN": 20
   },
   "report_currency_code": "USD",
   "report_currency_symbol": "$"

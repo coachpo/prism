@@ -45,10 +45,10 @@ Reference set used for taxonomy alignment:
 | B06 | config_migration | `backend/app/schemas/schemas.py:661`, `backend/app/schemas/schemas.py:673` | Config export/import schema pins version to `1` (`Literal["1"]`). |
 | B07 | config_migration | `backend/app/routers/config.py:222` | Config export explicitly emits `version=1`. |
 | B08 | deprecation_signaling | `backend/app/schemas/schemas.py:633` | `round_robin` is rejected by schema validation (`lb_strategy` only allows `single`/`failover`). |
-| B09 | config_migration | `backend/alembic/versions/0002_profiles_additive.py:46` | Additive migration introduces nullable `profile_id` columns/indexes/FKs across existing tables (non-breaking first step). |
-| B10 | config_migration | `backend/alembic/versions/0003_profiles_backfill.py:62` | Backfill migration assigns legacy NULL `profile_id` rows to default profile and deduplicates profile-scoped settings. |
+| B09 | config_migration | `backend/alembic/versions/0005_drop_forward_stream_options.py:16` | [resolved] Additive nullable-`profile_id` migration path removed by squash; baseline now starts from final profile-scoped schema. |
+| B10 | config_migration | `backend/alembic/versions/0005_drop_forward_stream_options.py:16` | [resolved] Legacy backfill/dedup migration step removed by squash; compatibility backfill phase no longer exists as active revisions. |
 | B11 | behavioral_fallback | `backend/app/services/costing_service.py:240` | Missing special-token prices fall back via policy: `MAP_TO_OUTPUT` or `ZERO_COST`. |
-| B12 | behavioral_fallback | `backend/app/services/stats_service.py:969` | Null `unpriced_reason` values are grouped as `LEGACY_NO_COST_DATA` for legacy request rows. |
+| B12 | behavioral_fallback | `backend/app/services/stats_service.py:995` | [resolved] Synthetic `LEGACY_NO_COST_DATA` grouping removed; null/empty `unpriced_reason` values now map to `UNKNOWN`. |
 | B13 | behavioral_fallback | `backend/app/dependencies.py:63` | Missing `X-Profile-Id` falls back to active profile resolution instead of failing requests. |
 | B14 | schema_data_compatibility | `backend/app/routers/models.py:31` | Proxy validation enforces non-chained aliasing (`redirect_to` must target native model), preserving old alias behavior safely. |
 
@@ -64,16 +64,16 @@ Reference set used for taxonomy alignment:
 | F06 | behavioral_fallback | `frontend/src/lib/api.ts:43` | API base normalizes trailing slashes; empty base keeps same-origin behavior for older deployment assumptions. |
 | F07 | behavioral_fallback | `frontend/src/lib/api.ts:71` | Error parsing falls back to `statusText` if JSON decode fails. |
 | F08 | behavioral_fallback | `frontend/src/lib/api.ts:74` | HTTP 204 responses are handled gracefully (`undefined` return). |
-| F09 | client_fallback_ui | `frontend/src/context/ProfileContext.tsx:97` | Profile selection fallback chain: persisted profile -> active profile -> first profile. |
+| F09 | client_fallback_ui | `frontend/src/context/ProfileContext.tsx:97` | Profile selection fallback chain is persisted profile -> active profile -> no selection. |
 | F10 | schema_data_compatibility | `frontend/src/context/ProfileContext.tsx:163` | Profile activation carries expected profile version for optimistic concurrency with stale-tab safety. |
 | F11 | client_fallback_ui | `frontend/src/pages/StatisticsPage.tsx:134` | Query parameter parsers clamp/validate and fallback to safe defaults for enum/int filters. |
 | F12 | client_fallback_ui | `frontend/src/pages/RequestLogsPage.tsx:252` | Request log URL parameter parsers preserve old/bad URL states by coercing to defaults. |
 | F13 | client_fallback_ui | `frontend/src/pages/StatisticsPage.tsx:182`, `frontend/src/pages/RequestLogsPage.tsx:303` | Connection label fallback chain: name -> description -> synthetic `Connection #id`. |
-| F14 | client_fallback_ui | `frontend/src/lib/costing.ts:13` | Legacy unpriced reason token maps to user label `Legacy (no cost data)`. |
-| F15 | client_fallback_ui | `frontend/src/lib/costing.ts:25` | Generic enum formatter returns raw value when no label mapping exists (forward-compatible display). |
-| F16 | client_fallback_ui | `frontend/src/lib/utils.ts:20` | Unknown provider types fall back to original string instead of breaking display. |
-| F17 | behavioral_fallback | `frontend/src/lib/timezone.ts:7`, `frontend/src/hooks/useTimezone.ts:11` | Timezone preference fetch falls back to browser timezone on error or missing user setting. |
-| F18 | schema_data_compatibility | `frontend/src/components/StatusBadge.tsx:17` | Deprecated type alias `StatusBadgeIntent` is retained for compatibility with older imports. |
+| F14 | client_fallback_ui | `frontend/src/lib/costing.ts:12` | [resolved] Legacy unpriced-reason token label mapping was removed from frontend labels. |
+| F15 | client_fallback_ui | `frontend/src/lib/costing.ts:32` | [resolved] Generic enum formatter no longer returns raw unknown values; unknown/empty now render as `-`. |
+| F16 | client_fallback_ui | `frontend/src/lib/utils.ts:21` | [resolved] Unknown provider types no longer render raw strings; unknown values now render as `-`. |
+| F17 | behavioral_fallback | `frontend/src/hooks/useTimezone.ts:34` | [resolved] Browser-timezone fallback removed; missing timezone preference now renders `-`. |
+| F18 | schema_data_compatibility | `frontend/src/components/StatusBadge.tsx:15` | [resolved] Deprecated `StatusBadgeIntent` alias removed; `BadgeIntent` is the only exported badge intent type. |
 | F19 | client_fallback_ui | `frontend/src/pages/ModelDetailPage.tsx:1184` | (Removed) Stream-options forwarding control is no longer part of the UI contract. |
 | F20 | protocol_versioning | `frontend/vite.config.ts:6` | Health payload includes explicit version metadata for external checks (`{"status":"ok","version":"0.1.0"}`). |
 
@@ -129,11 +129,12 @@ Reference set used for taxonomy alignment:
 ## 6) Quick Index by Compatibility Type
 
 - `protocol_versioning`: B01, F20
-- `schema_data_compatibility`: B02, B06, B07, B09, B14, B20, F02, F10, F18
-- `config_migration`: B10, B11, B12, B15, B16, F01, F03, F05
-- `behavioral_fallback`: B04, B05, B08, B17, B18, B19, F06, F07, F08, F17
-- `deprecation_signaling`: B13, F04
-- `client_fallback_ui`: F09, F11, F12, F13, F14, F15, F16, F19
+- `schema_data_compatibility`: B02, B03, B04, B14, F02, F10
+- `config_migration`: B05, B06, B07, F01, F03, F05
+- `behavioral_fallback`: B11, B13, F06, F07, F08
+- `deprecation_signaling`: B08, F04
+- `client_fallback_ui`: F09, F11, F12, F13, F19
+- `resolved_items`: B09, B10, B12, F14, F15, F16, F17, F18
 
 ---
 
