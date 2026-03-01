@@ -39,24 +39,18 @@ Reference set used for taxonomy alignment:
 |---|---|---|---|
 | B01 | protocol_versioning | `backend/app/routers/proxy.py:745`, `backend/app/routers/proxy.py:757` | Both `/v1/{path}` and `/v1beta/{path}` routes are supported and routed through the same handler. |
 | B02 | schema_data_compatibility | `backend/app/routers/proxy.py:159`, `backend/app/routers/proxy.py:165` | Request body/path model IDs are rewritten to upstream target IDs so proxy aliases keep working. |
-| B03 | schema_data_compatibility | `backend/app/services/proxy_service.py:310` | `inject_stream_options()` strips `stream_options` from payloads by default to support upstreams that reject that field. |
-| B04 | behavioral_fallback | `backend/app/routers/proxy.py:246` | Per-connection `forward_stream_options` allows opting out of stripping to preserve provider-specific behavior. |
-| B05 | behavioral_fallback | `backend/app/services/proxy_service.py:59`, `backend/app/services/proxy_service.py:112` | Double version segments in paths (e.g. `/v1/v1`) are auto-corrected to a single segment. |
-| B06 | schema_data_compatibility | `backend/app/services/loadbalancer.py:75` | `build_attempt_plan(*args)` accepts both legacy `(model_config, now)` and current `(profile_id, model_config, now)` signatures. |
-| B07 | schema_data_compatibility | `backend/app/services/loadbalancer.py:159`, `backend/app/services/loadbalancer.py:165`, `backend/app/services/loadbalancer.py:169` | Legacy endpoint-named shim functions (`get_model_config_with_endpoints`, `get_active_endpoints`, `mark_endpoint_failed/recovered`) map to connection-based logic. |
-| B08 | behavioral_fallback | `backend/app/services/loadbalancer.py:155` | Recovery state cleanup includes legacy key shape for `profile_id == 1`. |
-| B09 | schema_data_compatibility | `backend/app/routers/connections.py:328` | Delete path falls back to `legacy_connection` lookup when profile-scoped lookup misses, then validates profile ownership. |
-| B10 | config_migration | `backend/app/routers/config.py:44` | Default config import mode remains `replace`, preserving prior import semantics. |
-| B11 | config_migration | `backend/app/schemas/schemas.py:716`, `backend/app/schemas/schemas.py:726` | Config export/import schema pins version to `1` (`Literal[1]`). |
-| B12 | config_migration | `backend/app/routers/config.py:222` | Config export explicitly emits `version=1`. |
-| B13 | deprecation_signaling | `backend/app/routers/config.py:447` | `round_robin` is explicitly rejected with migration guidance (`single`/`failover`). |
-| B14 | schema_data_compatibility | `backend/app/schemas/schemas.py:132`, `backend/app/schemas/schemas.py:219` | Connection validators normalize `name`/`description` in both create/update requests to accept legacy payload shapes. |
-| B15 | config_migration | `backend/alembic/versions/0002_profiles_additive.py:46` | Additive migration introduces nullable `profile_id` columns/indexes/FKs across existing tables (non-breaking first step). |
-| B16 | config_migration | `backend/alembic/versions/0003_profiles_backfill.py:62` | Backfill migration assigns legacy NULL `profile_id` rows to default profile and deduplicates profile-scoped settings. |
-| B17 | behavioral_fallback | `backend/app/services/costing_service.py:240` | Missing special-token prices fall back via policy: `MAP_TO_OUTPUT` or `ZERO_COST`. |
-| B18 | behavioral_fallback | `backend/app/services/stats_service.py:969` | Null `unpriced_reason` values are grouped as `LEGACY_NO_COST_DATA` for legacy request rows. |
-| B19 | behavioral_fallback | `backend/app/dependencies.py:63` | Missing `X-Profile-Id` falls back to active profile resolution instead of failing requests. |
-| B20 | schema_data_compatibility | `backend/app/routers/models.py:31` | Proxy validation enforces non-chained aliasing (`redirect_to` must target native model), preserving old alias behavior safely. |
+| B03 | schema_data_compatibility | `backend/app/services/proxy_service.py:59`, `backend/app/services/proxy_service.py:112` | Double version segments in paths (e.g. `/v1/v1`) are auto-corrected to a single segment. |
+| B04 | schema_data_compatibility | `backend/app/routers/connections.py:328` | Delete path falls back to `legacy_connection` lookup when profile-scoped lookup misses, then validates profile ownership. |
+| B05 | config_migration | `backend/app/routers/config.py:44` | Default config import mode remains `replace`, preserving prior import semantics. |
+| B06 | config_migration | `backend/app/schemas/schemas.py:661`, `backend/app/schemas/schemas.py:673` | Config export/import schema pins version to `1` (`Literal["1"]`). |
+| B07 | config_migration | `backend/app/routers/config.py:222` | Config export explicitly emits `version=1`. |
+| B08 | deprecation_signaling | `backend/app/schemas/schemas.py:633` | `round_robin` is rejected by schema validation (`lb_strategy` only allows `single`/`failover`). |
+| B09 | config_migration | `backend/alembic/versions/0002_profiles_additive.py:46` | Additive migration introduces nullable `profile_id` columns/indexes/FKs across existing tables (non-breaking first step). |
+| B10 | config_migration | `backend/alembic/versions/0003_profiles_backfill.py:62` | Backfill migration assigns legacy NULL `profile_id` rows to default profile and deduplicates profile-scoped settings. |
+| B11 | behavioral_fallback | `backend/app/services/costing_service.py:240` | Missing special-token prices fall back via policy: `MAP_TO_OUTPUT` or `ZERO_COST`. |
+| B12 | behavioral_fallback | `backend/app/services/stats_service.py:969` | Null `unpriced_reason` values are grouped as `LEGACY_NO_COST_DATA` for legacy request rows. |
+| B13 | behavioral_fallback | `backend/app/dependencies.py:63` | Missing `X-Profile-Id` falls back to active profile resolution instead of failing requests. |
+| B14 | schema_data_compatibility | `backend/app/routers/models.py:31` | Proxy validation enforces non-chained aliasing (`redirect_to` must target native model), preserving old alias behavior safely. |
 
 ### 3.2 Frontend
 
@@ -64,7 +58,7 @@ Reference set used for taxonomy alignment:
 |---|---|---|---|
 | F01 | config_migration | `frontend/src/lib/configImportValidation.ts:80` | Import schema requires `version: 1` and supports optional `mode: "replace"` for legacy exports. |
 | F02 | schema_data_compatibility | `frontend/src/lib/configImportValidation.ts:41` | Import transform auto-normalizes `name` and `description` if one side is missing. |
-| F03 | config_migration | `frontend/src/lib/configImportValidation.ts:27` | Optional import fields get defaults (`pricing_enabled`, `pricing_config_version`, `forward_stream_options`, policy). |
+| F03 | config_migration | `frontend/src/lib/configImportValidation.ts:27` | Optional import fields get defaults (`pricing_enabled`, `pricing_config_version`, policy). |
 | F04 | deprecation_signaling | `frontend/src/pages/SettingsPage.tsx:861` | UI blocks invalid imports with explicit message: only schema version 1 + replace mode accepted. |
 | F05 | config_migration | `frontend/src/lib/types.ts:406`, `frontend/src/lib/types.ts:416`, `frontend/src/lib/types.ts:423` | Type definitions keep config contract pinned to v1 and optional replace mode. |
 | F06 | behavioral_fallback | `frontend/src/lib/api.ts:43` | API base normalizes trailing slashes; empty base keeps same-origin behavior for older deployment assumptions. |
@@ -80,7 +74,7 @@ Reference set used for taxonomy alignment:
 | F16 | client_fallback_ui | `frontend/src/lib/utils.ts:20` | Unknown provider types fall back to original string instead of breaking display. |
 | F17 | behavioral_fallback | `frontend/src/lib/timezone.ts:7`, `frontend/src/hooks/useTimezone.ts:11` | Timezone preference fetch falls back to browser timezone on error or missing user setting. |
 | F18 | schema_data_compatibility | `frontend/src/components/StatusBadge.tsx:17` | Deprecated type alias `StatusBadgeIntent` is retained for compatibility with older imports. |
-| F19 | client_fallback_ui | `frontend/src/pages/ModelDetailPage.tsx:1184` | Forward-stream-options control defaults to `false` when field is absent. |
+| F19 | client_fallback_ui | `frontend/src/pages/ModelDetailPage.tsx:1184` | (Removed) Stream-options forwarding control is no longer part of the UI contract. |
 | F20 | protocol_versioning | `frontend/vite.config.ts:6` | Health payload includes explicit version metadata for external checks (`{"status":"ok","version":"0.1.0"}`). |
 
 ## 4) Regression Tests Locking Compatibility Behavior
@@ -89,8 +83,8 @@ Reference set used for taxonomy alignment:
 |---|---|---|
 | `test_lb_strategy_rejects_round_robin` | `backend/tests/test_smoke_defect_regressions.py:854` | Rejects deprecated `round_robin` strategy. |
 | `test_config_import_rejects_round_robin_in_models` | `backend/tests/test_smoke_defect_regressions.py:908` | Config import blocks legacy unsupported strategy values. |
-| `TestDEF009_StreamOptionsCompatibility` | `backend/tests/test_smoke_defect_regressions.py:1475` | Stream options stripping/forwarding compatibility behavior. |
-| `TestDEF019_StripStreamOptionsHostAgnostic` | `backend/tests/test_smoke_defect_regressions.py:2254` | Host-agnostic stream-options compatibility for OpenAI provider type. |
+| `TestDEF009_ConnectionDefaultsPersist` | `backend/tests/test_smoke_defect_regressions.py:1451` | Connection config defaults and create-path persistence stay stable after compatibility cleanup. |
+| (removed) | `TestDEF019_StripStreamOptionsHostAgnostic` | (Removed from active regression set after stream-options toggle cleanup.) |
 | Route dependency check (`/v1` + `/v1beta`) | `backend/tests/test_smoke_defect_regressions.py:2594` | Both proxy route families preserve active-profile dependency behavior. |
 
 ## 5) Git History Index (Compatibility-Relevant Commits)

@@ -223,7 +223,7 @@ Proxy models are aliases that forward requests to a target native model. This re
 - Proxy models have no connections of their own
 - Proxy models do not use load balancing (lb_strategy is ignored; target model's strategy applies)
 - Model IDs are unique within a profile (same model ID may exist in other profiles)
-- The gateway may normalize proxy request payloads before forwarding (for example: alias model rewrite and optional `stream_options` stripping per connection settings)
+- The gateway may normalize proxy request payloads before forwarding (for example: alias model rewrite)
 
 ### 5.3 Resolution
 

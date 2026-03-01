@@ -629,7 +629,7 @@ The gateway extracts token usage from upstream responses and logs it to `request
 The gateway accumulates SSE chunks during streaming and extracts usage from the final events:
 | Provider | Usage Events | Extraction |
 |---|---|---|
-| OpenAI | Final chunk with `usage` field (requires `stream_options.include_usage: true`) | Same as non-streaming `usage` object |
+| OpenAI | Final chunk/event containing a `usage` object (when provided by upstream) | Same as non-streaming `usage` object |
 | Anthropic | `message_start` event → `message.usage.input_tokens`; `message_delta` event → `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
 
 If token data cannot be extracted, all token fields are logged as `null`.

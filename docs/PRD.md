@@ -47,7 +47,7 @@ Single operator (developer/power user) running the application locally or on a l
 - For models with multiple connections:
   - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
 - Configurable strategy per model (single, failover)
-- Proxy request forwarding may apply compatibility normalizations (for example alias model rewriting and optional stream-options stripping based on connection settings) while preserving provider response formats
+- Proxy request forwarding may apply compatibility normalizations (for example alias model rewriting) while preserving provider response formats
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When a connection returns a failover-triggering status code (`403`, `429`, `500`, `502`, `503`, `529`) or encounters a connection/timeout error, the failed attempt is logged before trying the next connection.
 
 ### 4.5 Profile-Scoped Endpoints & Model Connections
