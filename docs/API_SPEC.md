@@ -3,8 +3,8 @@
 Base URL: `http://localhost:8000`
 
 ## 0. Profile Context Semantics
-- Management endpoints (`/api/*`) accept optional `X-Profile-Id` to select an explicit profile scope.
-- If `X-Profile-Id` is omitted, management endpoints use the current active profile as effective scope.
+- Profile routes (`/api/profiles/*`) are global and do not require `X-Profile-Id`.
+- Other management endpoints (`/api/*`) require `X-Profile-Id` to select explicit profile scope.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 
@@ -480,7 +480,7 @@ Response `200`:
 }
 ```
 
-Settings are scoped to the effective profile (`X-Profile-Id` or active profile fallback).
+Settings APIs are profile-scoped by explicit `X-Profile-Id` (required header).
 
 #### Update Costing Settings
 ```
@@ -653,7 +653,7 @@ Response `200`:
 
 ## 4. Statistics API
 
-Stats APIs are profile-scoped by effective profile context (`X-Profile-Id` or active profile fallback).
+Stats APIs are profile-scoped by explicit `X-Profile-Id` (required header).
 
 ### 4.1 List Request Logs
 ```
@@ -892,7 +892,7 @@ Response `200`:
 
 ## 5. Audit API
 
-Audit APIs are profile-scoped by effective profile context (`X-Profile-Id` or active profile fallback).
+Audit APIs are profile-scoped by explicit `X-Profile-Id` (required header).
 
 ### 5.1 List Audit Logs
 ```
@@ -1064,7 +1064,7 @@ Commit alignment:
 
 Normative API invariants in this spec:
 
-- `/api/*` uses effective profile context: explicit `X-Profile-Id` when provided, otherwise active profile fallback.
+- `/api/*` profile-scoped endpoints require explicit `X-Profile-Id`; profile lifecycle endpoints under `/api/profiles/*` are global.
 - `/v1/*` and `/v1beta/*` always use active profile context and ignore management profile overrides.
 - Cross-profile detail access resolves as `404` under effective profile scope.
 - Profile activation is conflict-safe via CAS payload and returns `409` on stale state.

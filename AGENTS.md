@@ -36,7 +36,7 @@ prism/
 
 ## RUNTIME MODEL
 
-- Management plane (`/api/*`) uses effective profile: explicit `X-Profile-Id` or active-profile fallback.
+- Management plane (`/api/*`) uses effective profile: explicit `X-Profile-Id` on profile-scoped routes (`/api/profiles/*` are global).
 - Data plane (`/v1/*`, `/v1beta/*`) always uses active profile and ignores management overrides.
 - Profile lifecycle: create, update, CAS activate, soft-delete inactive profile, max 10 non-deleted profiles.
 

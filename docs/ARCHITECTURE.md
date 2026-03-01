@@ -144,8 +144,8 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 Note: Gemini's OpenAI-compatible endpoint is used by default. For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native model ID when a proxy alias is used. This ensures the upstream URL references the correct model even when the client sends a request using the alias model ID.
 
 ### 3.6 Management API Profile Scoping
-- `X-Profile-Id` may be supplied on management endpoints (`/api/*`) to select explicit scope.
-- If header is absent, management endpoints use the active profile as default scope.
+- Profile routes (`/api/profiles/*`) are global and do not require `X-Profile-Id`.
+- Other management endpoints (`/api/*`) require explicit `X-Profile-Id` scope selection.
 - Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 

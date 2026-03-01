@@ -424,7 +424,7 @@ Prepare seed state through API (not manual DB edits):
 |---|---|---|---|
 | M01 | P0 | List profiles | `200`, excludes soft-deleted profiles from normal listing |
 | M02 | P0 | Get active profile | Exactly one active profile returned |
-| M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Absent uses active profile; header scopes to selected profile |
+| M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Profile-scoped `/api/*` rejects missing header (`400`); valid header scopes requests to selected profile |
 | M04 | P0 | Create profile under capacity | `201`, profile created as inactive by default |
 | M05 | P0 | Update profile metadata | `200`, name/description persisted |
 | M06 | P0 | Activate profile with correct CAS payload | Activation succeeds atomically; active profile/version updated |

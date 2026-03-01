@@ -203,7 +203,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ### 4.15 Profile Isolation & Management
 - Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
 - Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs support optional `X-Profile-Id`; if omitted, scope defaults to the active profile
+- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes (profile lifecycle routes under `/api/profiles/*` are global)
 - Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
 - Active profile deletion is rejected; activation uses optimistic CAS guard (`expected_active_profile_id`, `expected_active_profile_version`) and returns `409` on conflict
 - Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted
@@ -248,7 +248,7 @@ Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION
 
 This appendix records how the profile-isolation requirement package is represented in implemented behavior and product documentation updates.
 
-- Backend reference (`c0f2daa`, `feat: add profile-scoped routing and config isolation`): runtime routing is active-profile-only; management scope is effective profile (`X-Profile-Id` or active fallback); profile lifecycle includes CAS activation and inactive-only soft delete; config import/export now uses strict v1 logical references.
+- Backend reference (`c0f2daa`, `feat: add profile-scoped routing and config isolation`): runtime routing is active-profile-only; management scope is effective profile (explicit `X-Profile-Id` on profile-scoped `/api/*` routes); profile lifecycle includes CAS activation and inactive-only soft delete; config import/export now uses strict v1 logical references.
 - Frontend reference (`02c70ce`, `feat: add profile context and profile-aware dashboard flows`): selected profile drives management scope, active profile remains explicit runtime state, global shell exposes selector plus activation affordance, and profile revision triggers scoped page refetch.
 - Root/docs reference (`f6f0106`, `docs: update architecture docs and bootstrap script`): documentation set and startup/bootstrap narrative were aligned to profile-isolation architecture and migration-aware initialization.
 

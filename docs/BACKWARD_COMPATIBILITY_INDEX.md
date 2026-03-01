@@ -1,6 +1,6 @@
 # Backward Compatibility Index
 
-Generated: 2026-03-01  
+Generated: 2026-03-02  
 Repo: `prism` (root + `backend/` submodule + `frontend/` submodule)
 
 ## 1) Scan Coverage
@@ -37,45 +37,32 @@ Reference set used for taxonomy alignment:
 
 | ID | Type | Location | Compatibility behavior preserved |
 |---|---|---|---|
-| B01 | protocol_versioning | `backend/app/routers/proxy.py:745`, `backend/app/routers/proxy.py:757` | Both `/v1/{path}` and `/v1beta/{path}` routes are supported and routed through the same handler. |
-| B02 | schema_data_compatibility | `backend/app/routers/proxy.py:159`, `backend/app/routers/proxy.py:165` | Request body/path model IDs are rewritten to upstream target IDs so proxy aliases keep working. |
-| B03 | schema_data_compatibility | `backend/app/services/proxy_service.py:59`, `backend/app/services/proxy_service.py:112` | Double version segments in paths (e.g. `/v1/v1`) are auto-corrected to a single segment. |
-| B04 | schema_data_compatibility | `backend/app/routers/connections.py:328` | Delete path falls back to `legacy_connection` lookup when profile-scoped lookup misses, then validates profile ownership. |
-| B05 | config_migration | `backend/app/routers/config.py:44` | Default config import mode remains `replace`, preserving prior import semantics. |
+| B01 | protocol_versioning | `backend/app/routers/proxy.py:736`, `backend/app/routers/proxy.py:747` | Both `/v1/{path}` and `/v1beta/{path}` routes are supported and routed through the same handler. |
+| B02 | schema_data_compatibility | `backend/app/routers/proxy.py:154`, `backend/app/routers/proxy.py:162` | Request body/path model IDs are rewritten to upstream target IDs so proxy aliases keep working. |
+| B03 | schema_data_compatibility | `backend/app/services/proxy_service.py:92`, `backend/app/services/proxy_service.py:108` | Upstream URL joining prevents duplicate version segments (for example `/v1/v1`) when `base_url` already carries a version prefix. |
+| B05 | config_migration | `backend/app/schemas/schemas.py:662`, `backend/app/schemas/schemas.py:680` | Config contract is pinned to replace-mode imports (`mode: "replace"`). |
 | B06 | config_migration | `backend/app/schemas/schemas.py:661`, `backend/app/schemas/schemas.py:673` | Config export/import schema pins version to `1` (`Literal["1"]`). |
-| B07 | config_migration | `backend/app/routers/config.py:222` | Config export explicitly emits `version=1`. |
+| B07 | config_migration | `backend/app/routers/config.py:219` | Config export explicitly emits `config_version="1"`. |
 | B08 | deprecation_signaling | `backend/app/schemas/schemas.py:633` | `round_robin` is rejected by schema validation (`lb_strategy` only allows `single`/`failover`). |
-| B09 | config_migration | `backend/alembic/versions/0005_drop_forward_stream_options.py:16` | [resolved] Additive nullable-`profile_id` migration path removed by squash; baseline now starts from final profile-scoped schema. |
-| B10 | config_migration | `backend/alembic/versions/0005_drop_forward_stream_options.py:16` | [resolved] Legacy backfill/dedup migration step removed by squash; compatibility backfill phase no longer exists as active revisions. |
 | B11 | behavioral_fallback | `backend/app/services/costing_service.py:240` | Missing special-token prices fall back via policy: `MAP_TO_OUTPUT` or `ZERO_COST`. |
-| B12 | behavioral_fallback | `backend/app/services/stats_service.py:995` | [resolved] Synthetic `LEGACY_NO_COST_DATA` grouping removed; null/empty `unpriced_reason` values now map to `UNKNOWN`. |
-| B13 | behavioral_fallback | `backend/app/dependencies.py:63` | Missing `X-Profile-Id` falls back to active profile resolution instead of failing requests. |
-| B14 | schema_data_compatibility | `backend/app/routers/models.py:31` | Proxy validation enforces non-chained aliasing (`redirect_to` must target native model), preserving old alias behavior safely. |
+| B14 | schema_data_compatibility | `backend/app/routers/models.py:31` | Proxy validation enforces non-chained aliasing (`redirect_to` must target native model), preserving alias behavior safely. |
 
 ### 3.2 Frontend
 
 | ID | Type | Location | Compatibility behavior preserved |
 |---|---|---|---|
-| F01 | config_migration | `frontend/src/lib/configImportValidation.ts:80` | Import schema requires `version: 1` and supports optional `mode: "replace"` for legacy exports. |
-| F02 | schema_data_compatibility | `frontend/src/lib/configImportValidation.ts:41` | Import transform auto-normalizes `name` and `description` if one side is missing. |
-| F03 | config_migration | `frontend/src/lib/configImportValidation.ts:27` | Optional import fields get defaults (`pricing_enabled`, `pricing_config_version`, policy). |
+| F01 | config_migration | `frontend/src/lib/configImportValidation.ts:73`, `frontend/src/lib/configImportValidation.ts:80` | Import schema requires `config_version: "1"` and `mode: "replace"`. |
+| F03 | config_migration | `frontend/src/lib/configImportValidation.ts:26`, `frontend/src/lib/configImportValidation.ts:37` | Optional connection import fields get defaults (`pricing_enabled`, `pricing_config_version`, policy). |
 | F04 | deprecation_signaling | `frontend/src/pages/SettingsPage.tsx:861` | UI blocks invalid imports with explicit message: only schema version 1 + replace mode accepted. |
-| F05 | config_migration | `frontend/src/lib/types.ts:406`, `frontend/src/lib/types.ts:416`, `frontend/src/lib/types.ts:423` | Type definitions keep config contract pinned to v1 and optional replace mode. |
+| F05 | config_migration | `frontend/src/lib/types.ts:398`, `frontend/src/lib/types.ts:409`, `frontend/src/lib/types.ts:416` | Type definitions keep config contract pinned to v1 and replace mode. |
 | F06 | behavioral_fallback | `frontend/src/lib/api.ts:43` | API base normalizes trailing slashes; empty base keeps same-origin behavior for older deployment assumptions. |
-| F07 | behavioral_fallback | `frontend/src/lib/api.ts:71` | Error parsing falls back to `statusText` if JSON decode fails. |
-| F08 | behavioral_fallback | `frontend/src/lib/api.ts:74` | HTTP 204 responses are handled gracefully (`undefined` return). |
+| F07 | behavioral_fallback | `frontend/src/lib/api.ts:99` | Error parsing falls back to `statusText` if JSON decode fails. |
+| F08 | behavioral_fallback | `frontend/src/lib/api.ts:103` | HTTP 204 responses are handled gracefully (`undefined` return). |
 | F09 | client_fallback_ui | `frontend/src/context/ProfileContext.tsx:97` | Profile selection fallback chain is persisted profile -> active profile -> no selection. |
 | F10 | schema_data_compatibility | `frontend/src/context/ProfileContext.tsx:163` | Profile activation carries expected profile version for optimistic concurrency with stale-tab safety. |
 | F11 | client_fallback_ui | `frontend/src/pages/StatisticsPage.tsx:134` | Query parameter parsers clamp/validate and fallback to safe defaults for enum/int filters. |
 | F12 | client_fallback_ui | `frontend/src/pages/RequestLogsPage.tsx:252` | Request log URL parameter parsers preserve old/bad URL states by coercing to defaults. |
-| F13 | client_fallback_ui | `frontend/src/pages/StatisticsPage.tsx:182`, `frontend/src/pages/RequestLogsPage.tsx:303` | Connection label fallback chain: name -> description -> synthetic `Connection #id`. |
-| F14 | client_fallback_ui | `frontend/src/lib/costing.ts:12` | [resolved] Legacy unpriced-reason token label mapping was removed from frontend labels. |
-| F15 | client_fallback_ui | `frontend/src/lib/costing.ts:32` | [resolved] Generic enum formatter no longer returns raw unknown values; unknown/empty now render as `-`. |
-| F16 | client_fallback_ui | `frontend/src/lib/utils.ts:21` | [resolved] Unknown provider types no longer render raw strings; unknown values now render as `-`. |
-| F17 | behavioral_fallback | `frontend/src/hooks/useTimezone.ts:34` | [resolved] Browser-timezone fallback removed; missing timezone preference now renders `-`. |
-| F18 | schema_data_compatibility | `frontend/src/components/StatusBadge.tsx:15` | [resolved] Deprecated `StatusBadgeIntent` alias removed; `BadgeIntent` is the only exported badge intent type. |
-| F19 | client_fallback_ui | `frontend/src/pages/ModelDetailPage.tsx:1184` | (Removed) Stream-options forwarding control is no longer part of the UI contract. |
-| F20 | protocol_versioning | `frontend/vite.config.ts:6` | Health payload includes explicit version metadata for external checks (`{"status":"ok","version":"0.1.0"}`). |
+| F13 | client_fallback_ui | `frontend/src/pages/StatisticsPage.tsx:182`, `frontend/src/pages/RequestLogsPage.tsx:303` | Connection label fallback chain: name -> synthetic `Connection #id`. |
 
 ## 4) Regression Tests Locking Compatibility Behavior
 
@@ -85,7 +72,7 @@ Reference set used for taxonomy alignment:
 | `test_config_import_rejects_round_robin_in_models` | `backend/tests/test_smoke_defect_regressions.py:908` | Config import blocks legacy unsupported strategy values. |
 | `TestDEF009_ConnectionDefaultsPersist` | `backend/tests/test_smoke_defect_regressions.py:1451` | Connection config defaults and create-path persistence stay stable after compatibility cleanup. |
 | (removed) | `TestDEF019_StripStreamOptionsHostAgnostic` | (Removed from active regression set after stream-options toggle cleanup.) |
-| Route dependency check (`/v1` + `/v1beta`) | `backend/tests/test_smoke_defect_regressions.py:2594` | Both proxy route families preserve active-profile dependency behavior. |
+| Route dependency check (`/v1` + `/v1beta`) | `backend/tests/test_smoke_defect_regressions.py:2410` | Both proxy route families preserve active-profile dependency behavior. |
 
 ## 5) Git History Index (Compatibility-Relevant Commits)
 
@@ -128,13 +115,13 @@ Reference set used for taxonomy alignment:
 
 ## 6) Quick Index by Compatibility Type
 
-- `protocol_versioning`: B01, F20
-- `schema_data_compatibility`: B02, B03, B04, B14, F02, F10
+- `protocol_versioning`: B01
+- `schema_data_compatibility`: B02, B03, B14, F10
 - `config_migration`: B05, B06, B07, F01, F03, F05
-- `behavioral_fallback`: B11, B13, F06, F07, F08
+- `behavioral_fallback`: B11, F06, F07, F08
 - `deprecation_signaling`: B08, F04
-- `client_fallback_ui`: F09, F11, F12, F13, F19
-- `resolved_items`: B09, B10, B12, F14, F15, F16, F17, F18
+- `client_fallback_ui`: F09, F11, F12, F13
+- `historical_resolved_or_removed`: B04, B09, B10, B12, B13, F02, F14, F15, F16, F17, F18, F19, F20
 
 ---
 
