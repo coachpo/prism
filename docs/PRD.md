@@ -113,8 +113,8 @@ Single operator (developer/power user) running the application locally or on a l
 - Configuration is stored in PostgreSQL with Alembic-managed schema migrations applied at startup
 - No config files to manage — everything through the UI/API
 - Existing installs are backfilled into a default profile during profile-isolation migration
-- Config export uses version 7 (profile-aware, ID-agnostic logical references)
-- Config import accepts v6 and v7; v6 numeric references are compatibility-remapped, and v7 is canonical
+- Config export uses version 1 (profile-aware, ID-agnostic logical references)
+- Config import accepts v1 only (strict schema)
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
 - Each request log captures: profile ID attribution, model ID, provider, connection used (ID, endpoint base URL, description), HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
@@ -248,7 +248,7 @@ Source inputs: `docs/PROFILE_ISOLATION_REQUIREMENTS.md`, `docs/PROFILE_ISOLATION
 
 This appendix records how the profile-isolation requirement package is represented in implemented behavior and product documentation updates.
 
-- Backend reference (`c0f2daa`, `feat: add profile-scoped routing and config isolation`): runtime routing is active-profile-only; management scope is effective profile (`X-Profile-Id` or active fallback); profile lifecycle includes CAS activation and inactive-only soft delete; config import/export supports v7 logical references with v6 compatibility remap.
+- Backend reference (`c0f2daa`, `feat: add profile-scoped routing and config isolation`): runtime routing is active-profile-only; management scope is effective profile (`X-Profile-Id` or active fallback); profile lifecycle includes CAS activation and inactive-only soft delete; config import/export now uses strict v1 logical references.
 - Frontend reference (`02c70ce`, `feat: add profile context and profile-aware dashboard flows`): selected profile drives management scope, active profile remains explicit runtime state, global shell exposes selector plus activation affordance, and profile revision triggers scoped page refetch.
 - Root/docs reference (`f6f0106`, `docs: update architecture docs and bootstrap script`): documentation set and startup/bootstrap narrative were aligned to profile-isolation architecture and migration-aware initialization.
 
@@ -257,7 +257,7 @@ Requirement coverage anchors:
 - `FR-001` / `FR-004`: profile lifecycle, single active profile, CAS-safe activation, and active-delete rejection.
 - `FR-002` / `FR-003`: profile-scoped config entities and active-profile runtime routing isolation.
 - `FR-006`: management API effective-scope semantics with explicit override header.
-- `FR-007`: profile-targeted config replace behavior and v7 canonical format with logical refs.
+- `FR-007`: profile-targeted config replace behavior and v1 canonical format with logical refs.
 - `FR-008` / `FR-009`: profile-scoped costing/settings and immutable profile attribution in observability.
 - `FR-010`: selected-profile versus active-profile UX with explicit activation action.
 

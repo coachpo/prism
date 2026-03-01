@@ -20,7 +20,7 @@ Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropi
 - **Request Telemetry**: Track latency, token usage, success rates, and error patterns
 - **Audit Logging**: Optional per-provider request/response body capture with header redaction
 - **Success Rate Badges**: Real-time connection health visualization based on 24h request data
-- **Config Export/Import**: Full configuration backup and restore (version 6)
+- **Config Export/Import**: Full configuration backup and restore (version 1, replace-mode import)
 
 ### Architecture
 

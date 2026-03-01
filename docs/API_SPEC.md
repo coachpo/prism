@@ -439,7 +439,7 @@ The response includes a `Content-Disposition` header to trigger a file download:
 ```
 POST /api/config/import
 ```
-Request: Full configuration object (accepts version 6 or 7).
+Request: Full configuration object (accepts version 1 only).
 Response `200`:
 ```json
 {
@@ -452,8 +452,8 @@ Response `200`:
 Importing is profile-targeted and replaces configuration in the effective profile only. Other profiles are not deleted or mutated. Providers remain global and are never globally deleted by import.
 
 Compatibility and versioning semantics:
-- Version 7 is the canonical export format and uses logical references (`endpoint_ref`, `connection_ref`) for ID-agnostic import.
-- Version 6 is import-compatible; legacy numeric references are treated as source-local and remapped server-side into target profile rows.
+- Version 1 is the canonical and only accepted format.
+- Export/import uses logical references (`endpoint_ref`, `connection_ref`) for ID-agnostic import.
 - Import defaults to `replace` behavior for the target profile in this phase.
 
 ---
@@ -1049,7 +1049,7 @@ This appendix links the API surface in this document to the profile-isolation de
 
 Commit alignment:
 
-- Backend `c0f2daa`: introduced active-vs-effective profile dependency split, profile lifecycle endpoints, profile-scoped routing/config behavior, and v7 config logical-reference handling with v6 compatibility import translation.
+- Backend `c0f2daa`: introduced active-vs-effective profile dependency split, profile lifecycle endpoints, profile-scoped routing/config behavior, and v1 config logical-reference handling with strict version validation.
 - Frontend `02c70ce`: introduced management-scope propagation via `X-Profile-Id`, selected/active profile shell behavior, and profile-aware refetch flows that consume these APIs.
 - Root/docs `f6f0106`: aligned architecture/docs and bootstrap narrative to the profile-isolated API model.
 
@@ -1060,6 +1060,6 @@ Normative API invariants in this spec:
 - Cross-profile detail access resolves as `404` under effective profile scope.
 - Profile activation is conflict-safe via CAS payload and returns `409` on stale state.
 - Profile creation is capped at 10 non-deleted profiles and returns `409` at capacity.
-- Config export is canonical `version=7` with logical `endpoint_ref` and `connection_ref`; import accepts `v6 | v7` and applies target-profile replace semantics in this phase.
+- Config export is canonical `version=1` with logical `endpoint_ref` and `connection_ref`; import accepts only `v1` and applies target-profile replace semantics in this phase.
 
 Requirement trace anchors: `FR-001`, `FR-003`, `FR-004`, `FR-006`, `FR-007`, `FR-009`, `FR-010`.

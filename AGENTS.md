@@ -108,7 +108,7 @@ cd frontend && pnpm run build
 - Docker: ARM64-only builds (`linux/arm64`), images on GHCR
 - Security: trusted LAN only — no auth, wildcard CORS, plaintext API keys in PostgreSQL
 - Costs stored as micros (int64) — `total_cost_micros / 1_000_000 = decimal amount`
-- Config export/import version 6 — includes user_settings, endpoint_fx_mappings, header_blocklist_rules
+- Config export/import version 1 — ref-only schema (`endpoint_ref`, `connection_ref`) with replace-mode import
 
 ## ANTI-PATTERNS
 

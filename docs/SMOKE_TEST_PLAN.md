@@ -407,9 +407,9 @@ Prepare seed state through API (not manual DB edits):
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export version 7 | Includes pricing and profile-scoped `user_settings` |
-| L15 | P0 | Config import v7 | Restores pricing and settings into target profile |
-| L16 | P0 | Config import v2/v3/v4/v5 rejection | `400` error (`v6` and `v7` only) |
+| L14 | P0 | Config export version 1 | Includes pricing and profile-scoped `user_settings` |
+| L15 | P0 | Config import v1 | Restores pricing and settings into target profile |
+| L16 | P0 | Config import non-v1 rejection | `400` error (only `v1` is accepted) |
 | L17 | P1 | FX conversion with custom rate | Correct converted cost |
 | L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
@@ -437,9 +437,9 @@ Prepare seed state through API (not manual DB edits):
 | M13 | P0 | Proxy alias target exists only in another profile | Alias resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=7` and uses logical refs (`endpoint_ref`, `connection_ref`) |
-| M17 | P0 | Config import v7 replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
-| M18 | P0 | Config import v6 compatibility | v6 accepted and remapped to target-profile-owned resources |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=1` and uses logical refs (`endpoint_ref`, `connection_ref`) |
+| M17 | P0 | Config import v1 replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
+| M18 | P0 | Config import non-v1 rejection | Non-v1 payloads are rejected with `400` |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
 | M20 | P0 | Header blocklist scope merge | Runtime/effective rules include global system rules + selected profile user rules only |
 | M21 | P1 | Failover recovery-state isolation by profile | Cooldown/recovery state in profile A does not affect profile B |
@@ -543,7 +543,7 @@ Warnings:
 Notes:
 - Frontend profile-isolation wiring completed for revision-driven refresh on: ModelDetail, Endpoints, Statistics, RequestLogs, Audit, and Settings pages.
 - Settings import/export copy now states selected-profile scope and confirm dialog clarifies only selected profile is replaced.
-- Config import validation supports v6 and v7 with optional mode and v7 default mode=replace.
+- Config import validation supports version 1 only with optional mode and default mode=replace.
 ```
 
 ## 13. Profile Isolation Revision Evidence Matrix (2026-02-28)
@@ -557,7 +557,7 @@ This appendix provides a provenance map between smoke scenarios, requirement IDs
 
 | Revision | Areas validated by this plan | Primary smoke IDs |
 |---|---|---|
-| Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, v7/v6 config behavior, failover memory namespace | M01-M21, C01-C13, E01-E12, F01-F14, H01-H07, L04-L16 |
+| Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, strict v1 config behavior, failover memory namespace | M01-M21, C01-C13, E01-E12, F01-F14, H01-H07, L04-L16 |
 | Frontend `02c70ce` | Profile context bootstrap, selected-vs-active UX, header propagation, revision-based scoped refetch, settings import copy/flow | I01-I25, M03, M11, M16-M19 |
 | Root/docs `f6f0106` | Documentation/bootstrap alignment for profile-isolated operation model | A01-A06, documentation trace checks in release review |
 

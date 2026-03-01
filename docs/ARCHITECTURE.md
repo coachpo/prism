@@ -475,6 +475,6 @@ Architecture invariants reflected in request flow sections:
 - Control plane (`/api/*`) resolves one effective profile context and scopes list/detail/mutation operations accordingly.
 - Profile switches are explicit control-plane operations and do not retroactively rewrite historical attribution.
 - Failover cooldown/recovery state is isolated per profile namespace.
-- Config export/import contracts use v7 logical references as canonical representation, with v6 compatibility translation on import.
+- Config export/import contracts use v1 logical references as canonical representation with strict v1 import validation.
 
 Requirement trace anchors: `FR-003`, `FR-004`, `FR-005`, `FR-006`, `FR-007`, `FR-009`, `FR-010`.

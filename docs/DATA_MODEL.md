@@ -354,8 +354,8 @@ CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_s
 
 ## 7. Config Import/Export Versioning
 
-- Canonical export format is config version `7` with ID-agnostic logical references.
-- Import accepts `v6` and `v7`; `v6` numeric references are treated as source-local and remapped to target profile rows.
+- Canonical export format is config version `1` with ID-agnostic logical references.
+- Import accepts `v1` only and validates strict schema compatibility.
 - Import replace semantics are profile-targeted by effective profile context and do not globally delete other profiles.
 
 
