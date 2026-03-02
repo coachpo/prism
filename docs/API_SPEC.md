@@ -352,10 +352,15 @@ Response `200`:
 #### Base URL Validation
 
 On endpoint create (`POST`) and update (`PUT`), the `base_url` is:
-1. **Normalized**: Trailing slashes are stripped (e.g., `https://api.example.com/v1/` → `https://api.example.com/v1`)
-2. **Validated**: Rejected with HTTP 422 if it contains a repeated version segment (e.g., `/v1/v1`) or is missing scheme/host
+1. **Normalized**: Trailing slashes are stripped (e.g., `https://api.example.com/` → `https://api.example.com`)
+2. **Validated**: Rejected with HTTP 422 if scheme/host is missing.
+3. **Version path is not allowed**: Rejected with HTTP 422 if `base_url` includes provider API version segments such as `/v1` or `/v1beta`.
 
-Additionally, `build_upstream_url()` includes a runtime failsafe that auto-corrects any `/vN/vN` double-path and logs a warning.
+Use host-root base URLs only:
+- ✅ `https://api.openai.com`
+- ✅ `https://generativelanguage.googleapis.com`
+- ❌ `https://api.openai.com/v1`
+- ❌ `https://generativelanguage.googleapis.com/v1beta`
 
 ---
 
