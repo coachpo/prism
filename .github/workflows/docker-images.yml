@@ -84,6 +84,12 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Resolve frontend git revision
+        id: frontend_git_revision
+        if: matrix.service == 'frontend'
+        run: |
+          echo "value=$(git -C frontend rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image (linux/arm64)
         uses: docker/build-push-action@v6
         with:
@@ -93,6 +99,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.service == 'frontend' && format('VITE_GIT_REVISION={0}', steps.frontend_git_revision.outputs.value) || '' }}
           cache-from: |
             type=gha,scope=${{ matrix.service }}
           cache-to: |
