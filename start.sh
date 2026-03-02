@@ -5,16 +5,23 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
-FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-MODE="${1:-headless}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+MODE="${1:-full}"
+DEFAULT_DATABASE_URL="postgresql+asyncpg://prism:prism@localhost:5432/prism"
+DATABASE_URL_FROM_ENV=true
+if [[ -z "${DATABASE_URL:-}" ]]; then
+    DATABASE_URL_FROM_ENV=false
+fi
+DATABASE_URL="${DATABASE_URL:-$DEFAULT_DATABASE_URL}"
+export DATABASE_URL
 CLEANED_UP=false
 
 usage() {
     echo "Usage: $0 [headless|full]"
     echo ""
     echo "Modes:"
-    echo "  headless  Start backend only (default)"
-    echo "  full      Start backend + frontend"
+    echo "  headless  Start backend only"
+    echo "  full      Start backend + frontend (default)"
 }
 
 if [[ "${MODE}" == "-h" || "${MODE}" == "--help" ]]; then
@@ -42,10 +49,6 @@ case "$MODE" in
 esac
 
 read_backend_database_url() {
-    if [[ -z "${DATABASE_URL:-}" ]]; then
-        echo "Error: DATABASE_URL must be set in the shell environment."
-        exit 1
-    fi
     echo "$DATABASE_URL"
 }
 
@@ -90,10 +93,14 @@ PY
 
 ensure_backend_database_ready() {
     local database_url
+    local host_port
     local db_host
     local db_port
 
     database_url="$(read_backend_database_url)"
+    if [ "$DATABASE_URL_FROM_ENV" = false ]; then
+        echo "DATABASE_URL is not set; using default: $database_url"
+    fi
     echo "Backend database URL: $database_url"
 
     case "$database_url" in
@@ -106,8 +113,20 @@ ensure_backend_database_ready() {
             ;;
     esac
 
-    if ! read -r db_host db_port <<<"$(parse_database_host_port "$database_url")"; then
+    if ! host_port="$(parse_database_host_port "$database_url")"; then
         echo "Error: DATABASE_URL must include both host and port."
+        echo "Current value: $database_url"
+        exit 1
+    fi
+
+    if ! read -r db_host db_port <<<"$host_port"; then
+        echo "Error: DATABASE_URL must include both host and port."
+        echo "Current value: $database_url"
+        exit 1
+    fi
+    if [[ -z "$db_host" || -z "$db_port" ]]; then
+        echo "Error: DATABASE_URL must include both host and port."
+        echo "Current value: $database_url"
         exit 1
     fi
 
@@ -116,7 +135,7 @@ ensure_backend_database_ready() {
     fi
 
     echo "PostgreSQL is not reachable at $db_host:$db_port."
-    echo "Start your database first, then retry."
+    echo "Start your database first, then retry (example: cd backend && docker compose up -d postgres)."
     exit 1
 }
 
