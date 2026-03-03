@@ -1,6 +1,6 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-01
+**Generated:** 2026-03-03
 **Branch:** main
 
 ## OVERVIEW
@@ -14,7 +14,7 @@ Monorepo layout: root repo + `backend/` and `frontend/` git submodules.
 ```
 prism/
 ├── backend/                  # FastAPI + async SQLAlchemy + PostgreSQL (submodule)
-│   ├── app/main.py           # Lifespan: validate DB URL, run migrations, seed providers/settings/blocklist
+│   ├── app/main.py           # Lifespan: validate DB URL, run migrations, seed providers/profile invariants/settings/blocklist, create shared httpx client
 │   ├── app/dependencies.py   # Active vs effective profile dependencies
 │   ├── app/models/models.py  # ORM models (profiles, routing config, logs, costing settings)
 │   ├── app/routers/          # /api/* management + /v1/* and /v1beta/* proxy routes
@@ -44,7 +44,7 @@ prism/
 
 - Database is PostgreSQL via `asyncpg` (not SQLite).
 - Migrations run on startup (`run_migrations()` in lifespan).
-- Startup seeds default providers, default user settings, and system header blocklist rules.
+- Startup seeds default providers, enforces profile invariants, seeds default user settings, and system header blocklist rules.
 - Supported providers are hardcoded: `openai`, `anthropic`, `gemini`.
 - Failover trigger statuses: `403, 429, 500, 502, 503, 529`.
 - Failover recovery state is in-memory and keyed per profile/connection; resets on process restart.
