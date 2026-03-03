@@ -92,7 +92,7 @@ Prepare seed state through API (not manual DB edits):
    - active + inactive
    - differing priorities
    - one connection with `custom_headers`
-   - one connection with `pricing_enabled=true`
+   - one connection assigned a `pricing_template_id`
 7. Audit toggles initially disabled, then enabled per-case.
 8. At least one duplicated `model_id` and endpoint `name` across A/B to validate scoped uniqueness.
 
@@ -123,7 +123,8 @@ Prepare seed state through API (not manual DB edits):
 | `DELETE /api/endpoints/{id}` | B15, M03 |
 | `GET /api/models/{id}/connections` | B18, M03 |
 | `POST /api/models/{id}/connections` | B16-B17, L01-L02, M03 |
-| `PUT /api/connections/{id}` | B19-B20, L03, M03 |
+| `PUT /api/connections/{id}` | B19-B20, M03 |
+| `PUT /api/connections/{id}/pricing-template` | L03, L24, M03 |
 | `DELETE /api/connections/{id}` | B21, M03 |
 | `POST /api/connections/{id}/health-check` | D01-D06 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10, L08-L10, M11-M13, M21 |
@@ -144,6 +145,11 @@ Prepare seed state through API (not manual DB edits):
 | `PATCH /api/config/header-blocklist-rules/{id}` | K07-K09, M20 |
 | `DELETE /api/config/header-blocklist-rules/{id}` | K10-K11, M20 |
 | `GET /api/settings/costing` | L04, M19 |
+| `GET /api/pricing-templates/{id}/connections` | L26, L28 |
+| `DELETE /api/pricing-templates/{id}` | L26-L27 |
+| `PUT /api/pricing-templates/{id}` | L02, L25 |
+| `POST /api/pricing-templates` | L01, L25 |
+| `GET /api/pricing-templates` | L01, L25 |
 | `PUT /api/settings/costing` | L05-L07, M19 |
 
 ---
@@ -274,7 +280,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=1`, `exported_at`, profile-targeted payload with logical refs |
+| H01 | P0 | Export schema and metadata | `version=2`, `exported_at`, profile-targeted payload with explicit IDs and pricing templates |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
@@ -303,7 +309,7 @@ Prepare seed state through API (not manual DB edits):
 | I13 | P0 | Settings data management custom days flow | Custom day input validates, calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
-| I16 | P0 | Model detail connection dialog token pricing section | Pricing fields save and reload correctly |
+| I16 | P0 | Model detail connection pricing template selector | Template assignment saves and reloads correctly |
 | I17 | P0 | Settings costing and currency card | Report currency + symbol load/save |
 | I18 | P0 | Settings FX mapping editor | Add/remove mapping enforces unique `(model_id, endpoint_id)` |
 | I19 | P0 | Statistics spending tab filters and pagination | Controls update data correctly |
@@ -394,9 +400,9 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| L01 | P0 | Create connection with pricing enabled | `201`, pricing fields persisted |
-| L02 | P0 | Create connection with pricing disabled | `201`, no validation on price fields |
-| L03 | P0 | Update connection pricing | `200`, `pricing_config_version` increments |
+| L01 | P0 | Create pricing template | `201`, template persisted with expected version and policy defaults |
+| L02 | P0 | Update pricing template pricing fields | `200`, template `version` increments |
+| L03 | P0 | Update connection pricing template assignment | `200`, `pricing_template_id` updates |
 | L04 | P0 | GET `/api/settings/costing` | Returns defaults |
 | L05 | P0 | PUT `/api/settings/costing` with FX mappings | `200`, settings persist |
 | L06 | P0 | PUT `/api/settings/costing` rejects `fx_rate <= 0` | `400` |
@@ -407,9 +413,9 @@ Prepare seed state through API (not manual DB edits):
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export version 1 | Includes pricing and profile-scoped `user_settings` |
-| L15 | P0 | Config import v1 | Restores pricing and settings into target profile |
-| L16 | P0 | Config import non-v1 rejection | `400` error (only `v1` is accepted) |
+| L14 | P0 | Config export version 2 | Includes `pricing_templates`, template references, and profile-scoped `user_settings` |
+| L15 | P0 | Config import v2 | Restores templates, connections, and settings into target profile |
+| L16 | P0 | Config import non-v2 rejection | `400` error (only `v2` is accepted) |
 | L17 | P1 | FX conversion with custom rate | Correct converted cost |
 | L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
@@ -418,6 +424,11 @@ Prepare seed state through API (not manual DB edits):
 | L22 | P1 | `MAP_TO_OUTPUT` fallback price policy | Missing special tokens use output price |
 | L23 | P1 | `ZERO_COST` fallback price policy | Missing special tokens use zero price |
 
+| L28 | P1 | Pricing template usage endpoint | `/connections` response matches current assignments |
+| L27 | P0 | Delete pricing template not in use | `200`/success response and template removed from list |
+| L26 | P0 | Delete pricing template in-use conflict | `409` conflict returns connection dependencies and UI shows them |
+| L25 | P0 | Pricing templates CRUD UI in Settings | List/create/edit actions persist and render correctly |
+| L24 | P0 | Clear connection pricing template assignment | `200`, `pricing_template_id=null` accepted |
 ## M. Profile Isolation and Context Semantics
 
 | ID | Pri | Scenario | Expected Result |
@@ -437,9 +448,9 @@ Prepare seed state through API (not manual DB edits):
 | M13 | P0 | Proxy alias target exists only in another profile | Alias resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=1` and uses logical refs (`endpoint_ref`, `connection_ref`) |
-| M17 | P0 | Config import v1 replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
-| M18 | P0 | Config import non-v1 rejection | Non-v1 payloads are rejected with `400` |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=2` and includes explicit IDs + pricing templates |
+| M17 | P0 | Config import v2 replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
+| M18 | P0 | Config import non-v2 rejection | Non-v2 payloads are rejected with `400` |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
 | M20 | P0 | Header blocklist scope merge | Runtime/effective rules include global system rules + selected profile user rules only |
 | M21 | P1 | Failover recovery-state isolation by profile | Cooldown/recovery state in profile A does not affect profile B |
@@ -543,7 +554,7 @@ Warnings:
 Notes:
 - Frontend profile-isolation wiring completed for revision-driven refresh on: ModelDetail, Endpoints, Statistics, RequestLogs, Audit, and Settings pages.
 - Settings import/export copy now states selected-profile scope and confirm dialog clarifies only selected profile is replaced.
-- Config import validation supports version 1 only with optional mode and default mode=replace.
+- Config import validation supports version 2 only with default mode=replace.
 ```
 
 ## 13. Profile Isolation Revision Evidence Matrix (2026-02-28)
@@ -557,7 +568,7 @@ This appendix provides a provenance map between smoke scenarios, requirement IDs
 
 | Revision | Areas validated by this plan | Primary smoke IDs |
 |---|---|---|
-| Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, strict v1 config behavior, failover memory namespace | M01-M21, C01-C13, E01-E12, F01-F14, H01-H07, L04-L16 |
+- Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, strict v2 config behavior, failover memory namespace | M01-M21, C01-C13, E01-E12, F01-F14, H01-H07, L01-L28 |
 | Frontend `02c70ce` | Profile context bootstrap, selected-vs-active UX, header propagation, revision-based scoped refetch, settings import copy/flow | I01-I25, M03, M11, M16-M19 |
 | Root/docs `f6f0106` | Documentation/bootstrap alignment for profile-isolated operation model | A01-A06, documentation trace checks in release review |
 

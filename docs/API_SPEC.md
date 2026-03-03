@@ -295,13 +295,7 @@ Request (using existing endpoint):
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
-  "pricing_enabled": true,
-  "pricing_currency_code": "USD",
-  "input_price": "5.00",
-  "output_price": "15.00",
-  "cached_input_price": "2.50",
-  "reasoning_price": "15.00",
-  "missing_special_token_price_policy": "MAP_TO_OUTPUT"
+  "pricing_template_id": 2
 }
 ```
 Request (inline endpoint creation):
@@ -314,7 +308,7 @@ Request (inline endpoint creation):
   },
   "is_active": true,
   "priority": 0,
-  "pricing_enabled": false
+  "pricing_template_id": null
 }
 ```
 Response `201`: Created connection object.
@@ -323,7 +317,21 @@ Response `201`: Created connection object.
 ```
 PUT /api/connections/{id}
 ```
-Request: Same fields as Create Connection. `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`.
+Request: Same fields as Create Connection. `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. Legacy per-connection pricing fields are rejected with `422`.
+Response `200`: Updated connection object.
+
+#### Update Connection Pricing Template
+```
+PUT /api/connections/{id}/pricing-template
+```
+Request:
+```json
+{
+  "pricing_template_id": 2
+}
+```
+Set to `null` to detach the template from the connection.
+
 Response `200`: Updated connection object.
 
 #### Delete Connection
@@ -362,9 +370,56 @@ Use host-root base URLs only:
 - ❌ `https://api.openai.com/v1`
 - ❌ `https://generativelanguage.googleapis.com/v1beta`
 
+### 1.5 Pricing Templates
+
+#### List Pricing Templates
+```
+GET /api/pricing-templates
+```
+Response `200`: Array of pricing template list items in the effective profile scope.
+
+#### Create Pricing Template
+```
+POST /api/pricing-templates
+```
+Request:
+```json
+{
+  "name": "GPT-4o Standard",
+  "description": "Default OpenAI pricing",
+  "pricing_currency_code": "USD",
+  "input_price": "5.00",
+  "output_price": "15.00",
+  "cached_input_price": "2.50",
+  "cache_creation_price": null,
+  "reasoning_price": "15.00",
+  "missing_special_token_price_policy": "MAP_TO_OUTPUT"
+}
+```
+Response `201`: Created pricing template object.
+
+#### Update Pricing Template
+```
+PUT /api/pricing-templates/{id}
+```
+Request: Any mutable pricing template fields.
+Response `200`: Updated pricing template object.
+
+#### Delete Pricing Template
+```
+DELETE /api/pricing-templates/{id}
+```
+Response `200`: `{ "deleted": true }`.
+Returns `409` when the template is still referenced by connections; response `detail` includes a `connections` array with dependency details.
+
+#### List Connections Using Template
+```
+GET /api/pricing-templates/{id}/connections
+```
+Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`, `connection_name`, `model_config_id`, `model_id`, `endpoint_id`, `endpoint_name`).
 ---
 
-### 1.5 Config Export/Import
+### 1.6 Config Export/Import
 
 #### Export Configuration
 ```
@@ -373,7 +428,7 @@ GET /api/config/export
 Response `200`:
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exported_at": "2025-01-15T10:30:00Z",
   "user_settings": {
     "report_currency_code": "USD",
@@ -381,17 +436,33 @@ Response `200`:
     "endpoint_fx_mappings": [
       {
         "model_id": "gpt-4o",
-        "endpoint_ref": "primary-openai",
+        "endpoint_id": 1,
         "fx_rate": "1.0"
       }
     ]
   },
   "endpoints": [
     {
-      "endpoint_ref": "primary-openai",
+      "endpoint_id": 1,
       "name": "Primary OpenAI",
       "base_url": "https://api.openai.com",
       "api_key": "sk-abc123..."
+    }
+  ],
+  "pricing_templates": [
+    {
+      "pricing_template_id": 2,
+      "name": "GPT-4o Standard",
+      "description": "Default OpenAI pricing",
+      "pricing_unit": "PER_1M",
+      "pricing_currency_code": "USD",
+      "input_price": "5.00",
+      "output_price": "15.00",
+      "cached_input_price": "2.50",
+      "cache_creation_price": null,
+      "reasoning_price": "15.00",
+      "missing_special_token_price_policy": "MAP_TO_OUTPUT",
+      "version": 3
     }
   ],
   "models": [
@@ -407,22 +478,15 @@ Response `200`:
       "is_enabled": true,
       "connections": [
         {
-          "connection_ref": "primary-production",
-          "endpoint_ref": "primary-openai",
+          "connection_id": 11,
+          "endpoint_id": 1,
           "is_active": true,
           "priority": 0,
           "description": "Primary production key",
           "custom_headers": {
             "X-Custom-Org": "org-123"
           },
-          "pricing_enabled": true,
-          "pricing_currency_code": "USD",
-          "input_price": "5.00",
-          "output_price": "15.00",
-          "cached_input_price": "2.50",
-          "reasoning_price": "15.00",
-          "missing_special_token_price_policy": "MAP_TO_OUTPUT",
-          "pricing_config_version": 4
+          "pricing_template_id": 2
         }
       ]
     }
@@ -444,26 +508,26 @@ The response includes a `Content-Disposition` header to trigger a file download:
 ```
 POST /api/config/import
 ```
-Request: Full configuration object (accepts version 1 only).
+Request: Full configuration object (accepts version 2 only).
 Response `200`:
 ```json
 {
-  "providers_imported": 3,
-  "models_imported": 5,
   "endpoints_imported": 2,
+  "pricing_templates_imported": 4,
+  "models_imported": 5,
   "connections_imported": 10
 }
 ```
 Importing is profile-targeted and replaces configuration in the effective profile only. Other profiles are not deleted or mutated. Providers remain global and are never globally deleted by import.
 
 Compatibility and versioning semantics:
-- Version 1 is the canonical and only accepted format.
-- Export/import uses logical references (`endpoint_ref`, `connection_ref`) for ID-agnostic import.
+- Version 2 is the canonical and only accepted format.
+- Export/import uses explicit IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) and validates all references.
 - Import defaults to `replace` behavior for the target profile in this phase.
 
 ---
 
-### 1.6 Settings API (Profile-Scoped)
+### 1.7 Settings API (Profile-Scoped)
 
 #### Get Costing Settings
 ```
@@ -510,7 +574,7 @@ Response `200`: Updated settings object.
 
 ---
 
-### 1.7 Header Blocklist Rules (System Global + User Profile-Scoped)
+### 1.8 Header Blocklist Rules (System Global + User Profile-Scoped)
 
 #### List Header Blocklist Rules
 ```
@@ -1063,7 +1127,7 @@ This appendix links the API surface in this document to the profile-isolation de
 
 Commit alignment:
 
-- Backend `c0f2daa`: introduced active-vs-effective profile dependency split, profile lifecycle endpoints, profile-scoped routing/config behavior, and v1 config logical-reference handling with strict version validation.
+- Backend `c0f2daa`: introduced active-vs-effective profile dependency split, profile lifecycle endpoints, profile-scoped routing/config behavior, and v2 config import/export with pricing template references.
 - Frontend `02c70ce`: introduced management-scope propagation via `X-Profile-Id`, selected/active profile shell behavior, and profile-aware refetch flows that consume these APIs.
 - Root/docs `f6f0106`: aligned architecture/docs and bootstrap narrative to the profile-isolated API model.
 
@@ -1074,6 +1138,6 @@ Normative API invariants in this spec:
 - Cross-profile detail access resolves as `404` under effective profile scope.
 - Profile activation is conflict-safe via CAS payload and returns `409` on stale state.
 - Profile creation is capped at 10 non-deleted profiles and returns `409` at capacity.
-- Config export is canonical `version=1` with logical `endpoint_ref` and `connection_ref`; import accepts only `v1` and applies target-profile replace semantics in this phase.
+- Config export is canonical `version=2` with explicit endpoint/connection IDs and `pricing_templates`; import accepts only `version=2` and applies target-profile replace semantics in this phase.
 
 Requirement trace anchors: `FR-001`, `FR-003`, `FR-004`, `FR-006`, `FR-007`, `FR-009`, `FR-010`.

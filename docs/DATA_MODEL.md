@@ -39,9 +39,10 @@ connections (profile-scoped)
   is_active, priority
   description, custom_headers
   health_status, health_detail, last_health_check
-  pricing_* fields, pricing_config_version
+  pricing_template_id
   created_at, updated_at
   INDEX(profile_id, model_config_id, is_active, priority)
+  INDEX(pricing_template_id)
 
 profiles
   id PK
@@ -192,7 +193,7 @@ Reusable credential objects scoped to one profile.
 
 Constraint: `UNIQUE(profile_id, name)`.
 
-### 2.5 `connections` (profile-scoped routing/costing)
+### 2.5 `connections` (profile-scoped routing)
 
 Model-to-endpoint routing objects within one profile.
 
@@ -209,17 +210,38 @@ Model-to-endpoint routing objects within one profile.
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
 | health_detail | TEXT | NULLABLE | Last health-check detail |
 | last_health_check | DATETIME | NULLABLE | Last probe timestamp |
-| pricing_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Pricing toggle |
-| pricing_currency_code | VARCHAR(3) | NULLABLE | Pricing currency |
-| input_price/output_price/cached_input_price/cache_creation_price/reasoning_price | VARCHAR(20) | NULLABLE | Decimal prices |
-| missing_special_token_price_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | `MAP_TO_OUTPUT` or `ZERO_COST` |
-| pricing_config_version | INTEGER | NOT NULL, DEFAULT 0 | Pricing config version |
+| pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-Indexes include `idx_connections_profile_model_active_priority` for routing lookups by `(profile_id, model_config_id, is_active, priority)`.
+Indexes include `idx_connections_profile_model_active_priority` for routing lookups by `(profile_id, model_config_id, is_active, priority)` and `idx_connections_pricing_template_id` for template dependency checks.
 
-### 2.6 `header_blocklist_rules` (mixed scope)
+### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
+
+Reusable token pricing definitions that can be attached to many connections within a profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| name | VARCHAR(200) | NOT NULL | Template name (profile-unique) |
+| description | TEXT | NULLABLE | Optional notes |
+| pricing_unit | VARCHAR(20) | NOT NULL, DEFAULT 'PER_1M' | Billing unit |
+| pricing_currency_code | VARCHAR(3) | NOT NULL | Template currency code |
+| input_price | VARCHAR(20) | NOT NULL | Input token price |
+| output_price | VARCHAR(20) | NOT NULL | Output token price |
+| cached_input_price | VARCHAR(20) | NULLABLE | Cached input token price |
+| cache_creation_price | VARCHAR(20) | NULLABLE | Cache write token price |
+| reasoning_price | VARCHAR(20) | NULLABLE | Reasoning token price |
+| missing_special_token_price_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | `MAP_TO_OUTPUT` or `ZERO_COST` |
+| version | INTEGER | NOT NULL, DEFAULT 1 | Auto-incremented on pricing-impacting changes |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraint: `UNIQUE(profile_id, name)`.
+
+
+### 2.7 `header_blocklist_rules` (mixed scope)
 
 Header blocklist is split between global system rules and profile-scoped user rules.
 
@@ -240,7 +262,7 @@ Constraints:
 - User rule: `is_system = FALSE` implies `profile_id IS NOT NULL`.
 - User rule uniqueness: `UNIQUE(profile_id, match_type, pattern)`.
 
-### 2.7 `user_settings` (profile-scoped singleton)
+### 2.8 `user_settings` (profile-scoped singleton)
 
 Per-profile costing/report display preferences.
 
@@ -253,7 +275,7 @@ Per-profile costing/report display preferences.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-### 2.8 `endpoint_fx_rate_settings` (profile-scoped)
+### 2.9 `endpoint_fx_rate_settings` (profile-scoped)
 
 Custom FX mappings used by costing within one profile.
 
@@ -269,7 +291,7 @@ Custom FX mappings used by costing within one profile.
 
 Constraint: `UNIQUE(profile_id, model_id, endpoint_id)`.
 
-### 2.9 `request_logs` (immutable profile attribution)
+### 2.10 `request_logs` (immutable profile attribution)
 
 Telemetry rows for every proxy attempt with immutable profile attribution captured at request start.
 
@@ -290,7 +312,7 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | error_detail | TEXT | NULLABLE | Error details for failed attempts |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Attempt timestamp |
 
-### 2.10 `audit_logs` (immutable profile attribution)
+### 2.11 `audit_logs` (immutable profile attribution)
 
 Audit rows for upstream attempts with immutable profile attribution.
 
@@ -326,6 +348,7 @@ CREATE UNIQUE INDEX idx_user_settings_profile_id ON user_settings(profile_id);
 -- Performance indexes
 CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id, model_id, is_enabled);
 CREATE INDEX idx_connections_profile_model_active_priority ON connections(profile_id, model_config_id, is_active, priority);
+CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
 CREATE INDEX idx_request_logs_profile_created_at ON request_logs(profile_id, created_at);
 CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created_at);
 CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
@@ -354,8 +377,8 @@ CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_s
 
 ## 7. Config Import/Export Versioning
 
-- Canonical export format is config version `1` with ID-agnostic logical references.
-- Import accepts `v1` only and validates strict schema compatibility.
+- Canonical export format is config version `2` with explicit IDs and pricing template definitions.
+- Import accepts `v2` only and validates strict schema compatibility, including template references.
 - Import replace semantics are profile-targeted by effective profile context and do not globally delete other profiles.
 
 
