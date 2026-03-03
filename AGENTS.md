@@ -22,12 +22,12 @@ prism/
 │   └── tests/                # pytest defect-driven regressions
 ├── frontend/                 # React 19 + TypeScript + Vite dashboard (submodule)
 │   └── src/
-│       ├── App.tsx           # 8 lazy routes in AppLayout
+│       ├── App.tsx           # 9 lazy routes in AppLayout (includes /pricing-templates)
 │       ├── components/layout/AppLayout.tsx
 │       ├── context/ProfileContext.tsx
 │       ├── hooks/useConnectionNavigation.ts
 │       ├── lib/api.ts        # Typed API client + X-Profile-Id injection for /api/*
-│       └── pages/            # Dashboard, Models, ModelDetail, Endpoints, Statistics, RequestLogs, Audit, Settings
+│       └── pages/            # Dashboard, Models, ModelDetail, Endpoints, Statistics, RequestLogs, Audit, Settings, PricingTemplates
 ├── docs/                     # Architecture, API, data model, PRD, smoke tests
 ├── .github/workflows/        # Docker image build + cleanup
 ├── start.sh                  # `full` or `headless` local startup
@@ -48,7 +48,7 @@ prism/
 - Supported providers are hardcoded: `openai`, `anthropic`, `gemini`.
 - Failover trigger statuses: `403, 429, 500, 502, 503, 529`.
 - Failover recovery state is in-memory and keyed per profile/connection; resets on process restart.
-- Config export/import canonical format is `version: 1` with logical refs (`endpoint_ref`, `connection_ref`) and replace semantics.
+- Config export/import canonical format is `version: 2` with explicit IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) and replace semantics.
 - Costing stores integer micros (`*_micros`) and records pricing snapshots in request logs.
 
 ## KEY FRONTEND FACTS

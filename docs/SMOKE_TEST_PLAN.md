@@ -46,7 +46,7 @@ This plan is synthesized from:
 
 ### 3.3 Data Isolation
 
-- Use dedicated DB for smoke: `backend/gateway_smoke.db`.
+- Use dedicated PostgreSQL database/schema for smoke runs (isolated from dev/prod data).
 - Reset DB between destructive scenarios.
 - Never run destructive tests on production-like DB.
 
@@ -197,7 +197,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| C01 | P0 | OpenAI non-stream proxy call | Upstream response proxied as-is |
+| C01 | P0 | OpenAI-compatible proxy call | Upstream response proxied as-is |
 | C02 | P0 | Anthropic non-stream proxy call | Upstream response proxied as-is |
 | C03 | P1 | Gemini route compatibility | Correct routing and auth behavior |
 | C04 | P0 | Proxy alias model request | Routed via target native connections; only model rewritten |

@@ -7,6 +7,8 @@
 - Migrate existing per-connection pricing into deduplicated templates automatically.
 - Move config export/import to v2-only template-aware schema.
 
+## Implementation status
+Implemented in the current codebase (backend models/routers/migration, frontend integration, and strict config `version=2` import/export). Treat this file as historical design context.
 ## Locked product decisions
 - Template application: exclusive attach, no per-connection overrides.
 - Migration: auto-generate templates from existing distinct pricing configs.

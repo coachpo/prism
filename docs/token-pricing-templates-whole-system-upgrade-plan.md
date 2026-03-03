@@ -5,6 +5,8 @@
 - Ship as a coordinated hard-break release (backend + frontend together), with DB migration preserving existing effective pricing via auto-created templates.
 - Move configuration import/export to strict `version=2` only and reject legacy payloads.
 
+## Implementation status
+Implemented in the current codebase. Keep this document as rollout/design history rather than pending work.
 ## Workstream 1 - Backend Data Model + Migration (authoritative)
 - Update `backend/app/models/models.py`:
   - Add `PricingTemplate` ORM with profile scope, `(profile_id, name)` uniqueness, `pricing_unit="PER_1M"`, policy enum, `version`, timestamps.

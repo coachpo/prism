@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-> Scope: Profile-isolation upgrade model (selected profile vs active profile).
+Scope: profile-isolated runtime/management model with pricing templates and strict config v2 semantics.
 
 ## 1. Entity Relationship Diagram
 
@@ -39,7 +39,7 @@ connections (profile-scoped)
   is_active, priority
   description, custom_headers
   health_status, health_detail, last_health_check
-  pricing_template_id
+  pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
   created_at, updated_at
   INDEX(profile_id, model_config_id, is_active, priority)
   INDEX(pricing_template_id)
@@ -79,7 +79,7 @@ header_blocklist_rules
 user_settings (profile-scoped singleton)
   id PK
   profile_id FK -> profiles.id
-  report_currency_code
+  report_currency_code, timezone_preference
   report_currency_symbol
   created_at, updated_at
   UNIQUE(profile_id)
@@ -274,6 +274,7 @@ Per-profile costing/report display preferences.
 | report_currency_symbol | VARCHAR(5) | NOT NULL, DEFAULT '$' | Currency symbol |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+| timezone_preference | VARCHAR(100) | NULLABLE | Preferred timezone for UI/report rendering |
 
 ### 2.9 `endpoint_fx_rate_settings` (profile-scoped)
 

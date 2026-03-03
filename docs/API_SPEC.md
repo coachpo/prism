@@ -344,7 +344,7 @@ Response `204`: No content.
 ```
 POST /api/connections/{id}/health-check
 ```
-Sends a real chat completion request to the connection using the configured model ID and a simple question to validate the full request chain.
+Sends a provider-specific lightweight request using the configured model ID to validate URL routing, authentication, and model availability end to end.
 
 Response `200`:
 ```json
@@ -356,6 +356,10 @@ Response `200`:
   "response_time_ms": 523
 }
 ```
+Provider-specific health-check probes:
+- OpenAI: `POST {base_url}/v1/responses` with `input: "hi"` (with legacy fallback to `/v1/chat/completions` when needed).
+- Anthropic: `POST {base_url}/v1/messages` with a one-token user prompt.
+- Gemini: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload.
 
 #### Base URL Validation
 

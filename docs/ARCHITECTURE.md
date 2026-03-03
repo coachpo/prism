@@ -29,37 +29,33 @@
 backend/
 ├── app/
 │   ├── main.py                 # App factory, lifespan, CORS, router mounting
+│   ├── dependencies.py         # Shared FastAPI dependencies (active/effective profile scope)
 │   ├── core/
 │   │   ├── config.py           # App settings (pydantic-settings)
-│   │   └── database.py         # Async engine, session factory, Base
-│   ├── models/                 # SQLAlchemy ORM models
-│   │   ├── provider.py         # Provider model (openai, anthropic, gemini)
-│   │   ├── model_config.py     # Model ID → provider mapping
-│   │   ├── endpoint.py         # Profile-scoped credentials (BaseURL + APIKey)
-│   │   ├── connection.py       # Model-scoped routing/costing config
-│   │   └── request_log.py      # Request telemetry log entries
-│   ├── schemas/                # Pydantic request/response schemas
-│   │   ├── provider.py
-│   │   ├── model_config.py
-│   │   ├── endpoint.py
-│   │   ├── connection.py
-│   │   └── stats.py            # Statistics query/response schemas
+│   │   ├── database.py         # Async engine, session factory, Base
+│   │   └── migrations.py       # Programmatic Alembic runner
+│   ├── models/
+│   │   └── models.py           # ORM models (Profile, Provider, ModelConfig, Endpoint, Connection, PricingTemplate, logs)
+│   ├── schemas/
+│   │   └── schemas.py          # Pydantic request/response schemas
 │   ├── routers/                # API route handlers
-│   │   ├── providers.py        # CRUD for provider types
-│   │   ├── models.py           # CRUD for model configurations
-│   │   ├── endpoints.py        # CRUD for profile-scoped credentials
-│   │   ├── connections.py      # CRUD for model-scoped routing config
-│   │   ├── proxy.py            # LLM proxy endpoints
-│   │   ├── stats.py            # Statistics query endpoints
-│   │   ├── audit.py            # Audit log query/delete endpoints
-│   │   └── config.py           # Config export/import + header blocklist CRUD
-│   ├── services/               # Business logic
-│   │   ├── proxy_service.py    # Request forwarding, streaming, header sanitization
-│   │   ├── loadbalancer.py     # LB strategy, failover
-│   │   ├── stats_service.py    # Request logging, aggregation queries
-│   │   ├── audit_service.py    # Audit recording, redaction
-│   │   └── costing_service.py  # Token costing, FX conversion, pricing snapshots
-│   └── dependencies.py         # Shared FastAPI dependencies
+│   │   ├── profiles.py         # /api/profiles CRUD + CAS activation
+│   │   ├── providers.py        # /api/providers list/get/patch audit flags
+│   │   ├── models.py           # /api/models CRUD
+│   │   ├── endpoints.py        # /api/endpoints CRUD
+│   │   ├── connections.py      # /api/models/{id}/connections CRUD + health-check + owner
+│   │   ├── pricing_templates.py # /api/pricing-templates CRUD + usage
+│   │   ├── stats.py            # /api/stats requests/summary/success-rates/spending + batch delete
+│   │   ├── audit.py            # /api/audit/logs list/detail/batch delete
+│   │   ├── settings.py         # /api/settings/costing get/update
+│   │   ├── config.py           # /api/config export/import + header blocklist CRUD
+│   │   └── proxy.py            # /v1/* and /v1beta/* catch-all proxy handlers
+│   └── services/               # Business logic
+│       ├── proxy_service.py    # Request forwarding, streaming, header sanitization
+│       ├── loadbalancer.py     # LB strategy, failover recovery state
+│       ├── stats_service.py    # Request logging, aggregation queries
+│       ├── audit_service.py    # Audit recording, redaction
+│       └── costing_service.py  # Token costing, FX conversion, pricing snapshots
 ├── requirements.txt
 └── alembic/                    # Active migration chain (startup-applied)
 ```
@@ -69,23 +65,31 @@ backend/
 ```
 frontend/
 ├── src/
-│   ├── App.tsx                 # Root with router
 │   ├── main.tsx                # Entry point
+│   ├── App.tsx                 # BrowserRouter + AppLayout + 9 lazy routes
+│   ├── context/
+│   │   └── ProfileContext.tsx  # Selected profile vs active profile state
 │   ├── lib/
-│   │   ├── api.ts              # API client (fetch wrapper)
-│   │   └── utils.ts            # Utility functions
+│   │   ├── api.ts              # Typed API client + /api scoped X-Profile-Id injection
+│   │   ├── types.ts            # TypeScript contracts aligned with backend schemas
+│   │   ├── costing.ts          # Micros and currency formatting helpers
+│   │   └── configImportValidation.ts # Config import validation (version 2)
+│   ├── hooks/
+│   │   └── useConnectionNavigation.ts # Resolve connection owner + navigate to model detail
 │   ├── components/
+│   │   ├── layout/AppLayout.tsx # Sidebar shell + profile mismatch UX
+│   │   ├── statistics/         # Spending and token visualization helpers
 │   │   └── ui/                 # shadcn/ui components
-│   ├── pages/
-│   │   ├── Dashboard.tsx       # Overview of all models
-│   │   ├── ModelConfig.tsx     # Model configuration page
-│   │   ├── EndpointConfig.tsx  # Profile-scoped endpoint management
-│   │   ├── ModelDetail.tsx     # Model-scoped connection management
-│   │   ├── StatisticsPage.tsx  # Request statistics & analytics
-│   │   ├── AuditPage.tsx       # Audit log browsing
-│   │   └── SettingsPage.tsx    # Audit config, config backup, data management
-│   └── types/
-│       └── api.ts              # TypeScript types matching backend schemas
+│   └── pages/
+│       ├── DashboardPage.tsx
+│       ├── ModelsPage.tsx
+│       ├── ModelDetailPage.tsx
+│       ├── EndpointsPage.tsx
+│       ├── StatisticsPage.tsx
+│       ├── RequestLogsPage.tsx
+│       ├── AuditPage.tsx
+│       ├── SettingsPage.tsx
+│       └── PricingTemplatesPage.tsx
 ├── components.json             # shadcn config
 ├── package.json
 ├── vite.config.ts
@@ -243,10 +247,11 @@ Manual health checks allow users to verify connection connectivity and authentic
 
 ### 6.2 Health Probes (Provider-Specific)
 
-Health checks send a real chat completion request using the connection's configured model ID and a simple question. This validates the full request chain (URL routing, authentication, model availability) using the same URL-building logic as the proxy engine.
+Health checks send provider-specific lightweight requests using the connection's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
 
-- **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}` where `base_url` comes from the connection's endpoint.
-- **Anthropic**: `POST {base_url}/messages` with `{"model": "{model_id}", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}`
+- **OpenAI**: `POST {base_url}/v1/responses` with `{"model":"{model_id}","input":"hi"}` (with fallback to `/v1/chat/completions` when required by upstream).
+- **Anthropic**: `POST {base_url}/v1/messages` with `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+- **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload and `maxOutputTokens: 1`.
 
 ### 6.3 Status Values
 
@@ -451,7 +456,7 @@ The application exclusively supports three LLM providers:
 
 - **OpenAI** (`openai`) — GPT models
 - **Anthropic** (`anthropic`) — Claude models
-- **Gemini** (`gemini`) — Gemini models (via OpenAI-compatible endpoint)
+- **Gemini** (`gemini`) — Gemini models (OpenAI-compatible and native `/v1beta/*` paths)
 
 All UI dropdowns, filters, and selectors are limited to these three providers. No other providers (e.g., Ollama, vLLM) are available.
 

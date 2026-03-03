@@ -4,6 +4,8 @@
 Upgrade failover auto-recovery to reduce endpoint flapping, recover primary endpoints more predictably, and avoid premature circuit opens, while keeping external API behavior stable.  
 This plan targets internal routing logic only (no breaking HTTP contract changes).
 
+### Implementation status
+Planned design document only. This v2 failover algorithm is not the current runtime behavior yet; current implementation remains the existing in-memory cooldown model.
 ### Goals
 - Improve stability under transient upstream failures.
 - Reduce unnecessary cooldowns from one-off errors.

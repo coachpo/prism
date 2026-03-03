@@ -59,12 +59,12 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.6 Connection Health Detection
 - Manual health check for each connection, triggered by user action (no periodic checks)
-- Health check sends a real chat completion request using the connection's configured model ID and a simple question ("hi") to validate the full request chain (URL routing, authentication, model availability)
+- Health check sends a provider-specific lightweight request using the connection's configured model ID and a simple prompt ("hi") to validate full-chain URL routing, authentication, and model availability
 - The request uses the same URL-building logic as the proxy engine to avoid path duplication issues
 - Provider-specific request format:
-  - **OpenAI/Gemini**: `POST {base_url}/chat/completions` with `model`, `max_tokens: 1`, and a simple message
-  - **Anthropic**: `POST {base_url}/messages` with `model`, `max_tokens: 1`, and a simple message
-- Health status determination:
+  - **OpenAI**: `POST {base_url}/v1/responses` with `model` and `input: "hi"` (legacy fallback to `/v1/chat/completions` when needed)
+  - **Anthropic**: `POST {base_url}/v1/messages` with `model`, `max_tokens: 1`, and a simple message
+  - **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload
   - 2xx response → `healthy`
   - 401/403 → `unhealthy` (authentication failed)
   - 429 → `healthy` (connection works, just rate-limited)
