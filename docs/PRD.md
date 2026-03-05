@@ -45,11 +45,13 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.4 Load Balancing & Failover
 - For models with multiple connections:
-  - **Automatic failover** on request failure (HTTP 5xx, timeout, rate limit)
+  - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `429`, `500`, `502`, `503`, `529`) or raises connection/timeout errors
+  - `failover` strategy uses adaptive auto-recovery: consecutive failure tracking per connection, thresholded exponential backoff from base cooldown, jitter, and passive probe re-entry after cooldown expiry
+  - `403` responses classified as auth-like use a longer cooldown than transient failures
+  - Non-failover client errors (for example `400`, `404`, `422`) do not force-clear existing recovery state
 - Configurable strategy per model (single, failover)
 - Proxy request forwarding may apply compatibility normalizations (for example alias model rewriting) while preserving provider response formats
 - All failover attempts (including failed ones) are logged to `request_logs` for observability. When a connection returns a failover-triggering status code (`403`, `429`, `500`, `502`, `503`, `529`) or encounters a connection/timeout error, the failed attempt is logged before trying the next connection.
-
 ### 4.5 Profile-Scoped Endpoints & Model Connections
 - **Providers** remain global seed records shared across profiles.
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.

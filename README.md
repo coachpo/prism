@@ -10,7 +10,7 @@ Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropi
 
 ### Core Capabilities
 
-- **Multi-Provider Support**: Route requests to OpenAI, Anthropic, and Gemini through a single `/v1/*` endpoint
+- **Multi-Provider Support**: Route requests to OpenAI, Anthropic, and Gemini through `/v1/*` and `/v1beta/*` proxy endpoints
 - **Model Aliasing**: Create proxy models that resolve ID variations (e.g., `claude-sonnet-4-5` → `claude-sonnet-4-5-20250929`)
 - **Load Balancing**: Single and failover strategies with automatic connection health tracking
 - **Streaming Support**: Full support for SSE streaming responses with transparent pass-through
@@ -20,13 +20,13 @@ Prism acts as a unified gateway for multiple LLM API providers (OpenAI, Anthropi
 - **Request Telemetry**: Track latency, token usage, success rates, and error patterns
 - **Audit Logging**: Optional per-provider request/response body capture with header redaction
 - **Success Rate Badges**: Real-time connection health visualization based on 24h request data
-- **Config Export/Import**: Full configuration backup and restore (version 1, replace-mode import)
+- **Config Export/Import**: Full configuration backup and restore (version `2`, profile-scoped replace-mode import)
 
 ### Architecture
 
-- **Backend**: Python 3.11+ with FastAPI, async SQLAlchemy, aiosqlite
+- **Backend**: Python 3.11+ with FastAPI, async SQLAlchemy, `asyncpg`
 - **Frontend**: React 19 with TypeScript, Vite, TailwindCSS, shadcn/ui
-- **Database**: SQLite (single-file, zero-config)
+- **Database**: PostgreSQL with Alembic migrations
 - **Deployment**: Docker images published to GHCR, or run locally with `./start.sh`
 
 ---
@@ -108,7 +108,7 @@ Go to **Models** → **Add Model**:
 
 For native models, add one or more connections:
 
-- **Endpoints**: Global reusable credentials (Base URL + API Key)
+- **Endpoints**: Profile-scoped reusable credentials (Base URL + API Key)
 - **Connections**: Model-scoped routing config (Priority, Custom Headers, Pricing)
 
 ### 4. Route Requests
@@ -210,18 +210,18 @@ See [frontend/README.md](frontend/README.md) for more details.
 **Backend:**
 
 - `BACKEND_PORT` - Server port (default: 8000)
-- `DATABASE_URL` - SQLite database path (default: `gateway.db`)
+- `DATABASE_URL` - PostgreSQL DSN (default: `postgresql+asyncpg://prism:prism@localhost:5432/prism`)
 
 **Frontend:**
 
 - `VITE_API_BASE` - Optional backend API base URL (default: same-origin `""`)
 - `FRONTEND_PORT` - Dev server port (default: 5173)
 
-When `VITE_API_BASE` is unset, local `./start.sh full` development still works because Vite proxies `/api`, `/v1`, and `/v1beta` to the backend.
+When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` sets `VITE_API_BASE` to the backend URL automatically.
 
 ### Database
 
-Prism uses SQLite with automatic schema migrations. The database file is created on first run at `backend/gateway.db`.
+Prism uses PostgreSQL with Alembic migrations applied automatically on backend startup.
 
 ---
 
@@ -230,7 +230,7 @@ Prism uses SQLite with automatic schema migrations. The database file is created
 Prism is designed for **trusted local/LAN deployments**:
 
 - No authentication layer (wildcard CORS)
-- API keys stored in plaintext in SQLite
+- API keys stored in plaintext in PostgreSQL
 - No rate limiting or abuse protection
 
 **Do not expose Prism directly to the public internet.** Use a reverse proxy with authentication if remote access is needed.

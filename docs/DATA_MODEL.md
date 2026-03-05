@@ -374,6 +374,9 @@ CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_s
 
 - Proxy routing always resolves against the active profile snapshot.
 - Failover recovery in memory is namespaced by `(profile_id, connection_id)` to avoid cross-profile cooldown leakage.
+- Runtime failover recovery state tracks `consecutive_failures`, `blocked_until_mono`, `last_cooldown_seconds`, `last_failure_kind`, and `probe_eligible_logged` for each `(profile_id, connection_id)` entry.
+- Failures are classified as `transient_http`, `auth_like`, `connect_error`, or `timeout`; auth-like failures use dedicated cooldown settings while transient failures use threshold/backoff/jitter policy.
+- Non-failover client errors do not force-clear existing recovery state; successful responses (`2xx`/`3xx`) clear recovery state for the connection.
 - Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for active profile.
 
 ## 7. Config Import/Export Versioning

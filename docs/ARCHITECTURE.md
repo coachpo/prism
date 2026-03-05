@@ -179,40 +179,52 @@ Custom headers are a power-user feature. While they can override most headers, t
 - **single**: Use only the highest-priority active connection (no failover)
 - **failover**: Try connections in priority order with automatic recovery
 
-### 4.2 Failover with Passive Recovery
+### 4.2 Failover with Adaptive Auto-Recovery (V2)
 
-The `failover` strategy implements intelligent connection selection with automatic recovery:
+The `failover` strategy uses a profile-scoped in-memory recovery state and adaptive cooldown logic to avoid flapping while still probing failed endpoints during normal traffic.
 
 **Connection Selection:**
 
-1. Healthy connections (not in cooldown) are tried first in priority order
-2. Cooldown-expired connections become probe-eligible (half-open state)
-3. Connections still cooling down are skipped entirely
+1. Active connections are ordered by `(health_status != "unhealthy", priority, id)` so known unhealthy connections are deprioritized.
+2. With recovery enabled, only currently blocked connections are skipped.
+3. Cooldown-expired connections are marked probe-eligible and re-enter the normal ordered attempt plan (passive half-open behavior).
 
-**Failure Detection:**
+**Failure Detection and Classification:**
 
-Failures that trigger failover and start cooldown:
+Failures that trigger failover and update recovery state:
 
-- HTTP 403 (forbidden)
-- HTTP 429 (rate limited)
-- HTTP 500, 502, 503, 529 (server errors)
-- Connection timeout (> 10s connect, > 120s read)
-- Connection refused / DNS failure
+- HTTP `403`, `429`, `500`, `502`, `503`, `529`
+- Connection errors
+- Timeouts
 
-**Recovery Mechanism:**
+Internal failure kinds are tracked as `transient_http`, `auth_like`, `connect_error`, or `timeout`.
+`auth_like` is applied only for `403` responses whose upstream error text matches auth/permission heuristics.
 
-- When a connection fails, it enters cooldown for `failover_recovery_cooldown_seconds` (default: 60s)
-- After cooldown expires, the connection becomes probe-eligible
-- On first successful response, the connection is marked recovered and returns to healthy pool
-- Recovery is passive (no background polling) - probes happen during normal request flow
-- Recovery state is namespaced by `(profile_id, connection_id)` to prevent cross-profile cooldown leakage
+**Recovery and Cooldown Behavior:**
+
+- `failover_recovery_cooldown_seconds` is the per-model base cooldown.
+- Transient failures use thresholded exponential backoff: first failure increments counters only; circuit opens from threshold (default `2`) onward.
+- Formula: `min(base * multiplier^(n-threshold), max_cooldown)` with jitter (`+/- failover_jitter_ratio`) before writing block-until.
+- `auth_like` failures use `FAILOVER_AUTH_ERROR_COOLDOWN_SECONDS` directly (default `1800s`).
+- `2xx/3xx` responses clear recovery state (`mark_connection_recovered`).
+- Non-failover `4xx` responses (for example `400/404/422`) do not force-clear existing failover state.
+- Successful manual health checks also clear recovery state immediately for that connection.
+- Recovery state is namespaced by `(profile_id, connection_id)` to prevent cross-profile leakage.
 
 **Per-Model Configuration:**
 
-- `failover_recovery_enabled`: Enable/disable automatic recovery (default: true)
-- `failover_recovery_cooldown_seconds`: Cooldown duration in seconds (range: 1-3600, default: 60)
+- `failover_recovery_enabled`: Enable/disable adaptive auto-recovery (default: `true`)
+- `failover_recovery_cooldown_seconds`: Base cooldown in seconds (range: `1-3600`, default: `60`)
 
-If all connections are in cooldown with none probe-eligible, the gateway returns `503` with cooldown detail.
+**Global Runtime Tuning (Environment):**
+
+- `FAILOVER_FAILURE_THRESHOLD` (default: `2`)
+- `FAILOVER_BACKOFF_MULTIPLIER` (default: `2.0`)
+- `FAILOVER_MAX_COOLDOWN_SECONDS` (default: `900`)
+- `FAILOVER_JITTER_RATIO` (default: `0.2`)
+- `FAILOVER_AUTH_ERROR_COOLDOWN_SECONDS` (default: `1800`)
+
+If all candidate connections are currently blocked, the gateway returns `503` with a failover availability detail.
 
 ## 5. Model Proxy (Alias)
 

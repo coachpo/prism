@@ -127,7 +127,7 @@ Prepare seed state through API (not manual DB edits):
 | `PUT /api/connections/{id}/pricing-template` | L03, L24, M03 |
 | `DELETE /api/connections/{id}` | B21, M03 |
 | `POST /api/connections/{id}/health-check` | D01-D06 |
-| `POST /v1/chat/completions` | C01, C03, C04, C06-C13, E08, E10, L08-L10, M11-M13, M21 |
+| `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
 | `GET /api/stats/requests` | E01-E04, M14 |
 | `GET /api/stats/summary` | E05-E06, M14 |
@@ -203,14 +203,14 @@ Prepare seed state through API (not manual DB edits):
 | C04 | P0 | Proxy alias model request | Routed via target native connections; only model rewritten |
 | C05 | P0 | Unknown/disabled model | `404` |
 | C06 | P0 | `single` strategy | Lowest priority active connection used |
-| C07 | P0 | `failover` strategy with recovery | Connection cooldown and passive probe behavior |
-| C08 | P0 | Failover on `403/429/500/502/503/529` | Next connection attempted |
-| C09 | P0 | Failover on connection error/timeout | Next connection attempted |
-| C10 | P0 | All failover attempts fail | `502` with last error detail |
-| C11 | P0 | No active connections | `503` |
-| C12 | P1 | Header merge order with custom override | Custom headers win over provider/client headers |
-| C13 | P1 | Connection `custom_headers` override | Effective headers follow override |
-
+| C07 | P0 | `failover` strategy with adaptive recovery | First transient failure increments counters without blocking; threshold hit opens cooldown with backoff+jitter; cooldown-expired endpoints re-enter as probes in normal priority order |
+| C08 | P0 | Failover on `403/429/500/502/503/529` | Next connection attempted; auth-like `403` applies longer cooldown than transient failures |
+| C09 | P0 | Failover on connection error/timeout | Next connection attempted; failure kind classified (`connect_error` / `timeout`) for recovery state |
+| C10 | P0 | Non-failover client error while recovery state exists | Request returns upstream error; existing recovery state is not force-cleared |
+| C11 | P0 | All failover attempts fail | `502` with last error detail |
+| C12 | P0 | No active connections | `503` |
+| C13 | P1 | Header merge order with custom override | Custom headers win over provider/client headers |
+| C14 | P1 | Connection `custom_headers` override | Effective headers follow override |
 ## D. Connection Health Check and URL Failsafe
 
 | ID | Pri | Scenario | Expected Result |
@@ -568,7 +568,7 @@ This appendix provides a provenance map between smoke scenarios, requirement IDs
 
 | Revision | Areas validated by this plan | Primary smoke IDs |
 |---|---|---|
-- Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, strict v2 config behavior, failover memory namespace | M01-M21, C01-C13, E01-E12, F01-F14, H01-H07, L01-L28 |
+- Backend `c0f2daa` | Active/effective scope split, profile CRUD/activation/delete guards, profile-attributed routing/logging/audit, strict v2 config behavior, failover memory namespace | M01-M21, C01-C14, E01-E12, F01-F14, H01-H07, L01-L28 |
 | Frontend `02c70ce` | Profile context bootstrap, selected-vs-active UX, header propagation, revision-based scoped refetch, settings import copy/flow | I01-I25, M03, M11, M16-M19 |
 | Root/docs `f6f0106` | Documentation/bootstrap alignment for profile-isolated operation model | A01-A06, documentation trace checks in release review |
 
