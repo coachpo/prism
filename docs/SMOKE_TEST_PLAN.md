@@ -120,6 +120,7 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/endpoints` | B12, M03 |
 | `POST /api/endpoints` | B13, M03 |
 | `PUT /api/endpoints/{id}` | B14, M03 |
+| `PATCH /api/endpoints/{id}/position` | B14A, M03 |
 | `DELETE /api/endpoints/{id}` | B15, M03 |
 | `GET /api/models/{id}/connections` | B18, M03 |
 | `POST /api/models/{id}/connections` | B16-B17, L01-L02, M03 |
@@ -183,9 +184,13 @@ Prepare seed state through API (not manual DB edits):
 | B10 | P0 | Native model with non-null `redirect_to` | `400` |
 | B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
 | B12 | P0 | List profile-scoped endpoints | `200`, returns array scoped to effective profile |
+| B12A | P0 | List profile-scoped endpoints preserves persisted order | Response order follows `position ASC, id ASC` |
 | B13 | P0 | Create profile-scoped endpoint | `201`, endpoint stored in effective profile |
+| B13A | P0 | Create profile-scoped endpoint appends position | New endpoint gets the next contiguous `position` |
 | B14 | P0 | Update profile-scoped endpoint | `200`, changes persist in effective profile |
+| B14A | P0 | Move profile-scoped endpoint | `200`, returns reordered list; no-op stays stable; out-of-range `to_index` returns `422` |
 | B15 | P0 | Delete profile-scoped endpoint in use | `409` conflict |
+| B15A | P0 | Delete profile-scoped endpoint compacts later positions | Remaining endpoints are renumbered to contiguous `0..N-1` |
 | B16 | P0 | Create connection on native model | `201` |
 | B17 | P0 | Create connection on proxy model | `400` |
 | B18 | P1 | List connections for model | `200`, returns array |
@@ -281,10 +286,13 @@ Prepare seed state through API (not manual DB edits):
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
 | H01 | P0 | Export schema and metadata | `version=2`, `exported_at`, profile-targeted payload with explicit IDs and pricing templates |
+| H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Export includes provider audit policy | Fields preserved |
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
 | H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
+| H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
+| H05B | P0 | Import legacy v2 payload without endpoint position | Imported endpoint order follows file order and remains valid |
 | H06 | P0 | Import failure rollback | Prior config remains intact |
 | H07 | P0 | Validation matrix | Correct `400` errors |
 | H08 | P1 | Settings UI export filename | `gateway-config-YYYY-MM-DD.json` |

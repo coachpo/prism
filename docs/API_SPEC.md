@@ -237,7 +237,17 @@ Response `204`: No content. Cascades to delete all connections. Returns `400` if
 ```
 GET /api/endpoints
 ```
-Response `200`: Array of endpoint objects in the effective profile scope.
+Response `200`: Array of endpoint objects in the effective profile scope, ordered by `position ASC, id ASC`.
+
+Endpoint object fields include:
+- `id`
+- `profile_id`
+- `name`
+- `base_url`
+- `api_key`
+- `position` (zero-based contiguous ordering index within the effective profile)
+- `created_at`
+- `updated_at`
 
 #### Create Endpoint
 ```
@@ -267,11 +277,30 @@ Request:
 ```
 Response `200`: Updated endpoint object.
 
+#### Move Endpoint Position
+```
+PATCH /api/endpoints/{id}/position
+```
+Request:
+```json
+{
+  "to_index": 0
+}
+```
+Response `200`: Ordered array of endpoint objects after the move.
+
+Behavior:
+- `to_index` must be in the range `0..(endpoint_count - 1)` or the API returns `422`.
+- A no-op move returns the current ordered list unchanged.
+- The backend rewrites endpoint positions to contiguous `0..N-1` values after every successful move.
+
 #### Delete Endpoint
 ```
 DELETE /api/endpoints/{id}
 ```
-Response `204`: No content. Returns `409` if any connections still reference this endpoint.
+Response `200`: `{ "deleted": true }`.
+Returns `409` if any connections still reference this endpoint.
+After a successful delete, later endpoints in the same profile are compacted so `position` remains contiguous.
 
 ### 1.4 Connections (Model-Scoped Routing)
 
@@ -450,7 +479,8 @@ Response `200`:
       "endpoint_id": 1,
       "name": "Primary OpenAI",
       "base_url": "https://api.openai.com",
-      "api_key": "sk-abc123..."
+      "api_key": "sk-abc123...",
+      "position": 0
     }
   ],
   "pricing_templates": [
@@ -523,6 +553,7 @@ Response `200`:
 }
 ```
 Importing is profile-targeted and replaces configuration in the effective profile only. Other profiles are not deleted or mutated. Providers remain global and are never globally deleted by import.
+When endpoint `position` is present, import uses it as the ordering hint; when omitted, import falls back to endpoint file order. Persisted endpoint positions are always normalized to contiguous `0..N-1` values.
 
 Compatibility and versioning semantics:
 - Version 2 is the canonical and only accepted format.

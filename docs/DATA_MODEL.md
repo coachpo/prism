@@ -60,8 +60,10 @@ endpoints (profile-scoped)
   name
   base_url
   api_key
+  position
   created_at, updated_at
   UNIQUE(profile_id, name)
+  INDEX(profile_id, position)
 
 header_blocklist_rules
   id PK
@@ -188,10 +190,13 @@ Reusable credential objects scoped to one profile.
 | name | VARCHAR(200) | NOT NULL | Endpoint label |
 | base_url | VARCHAR(500) | NOT NULL | Upstream base URL |
 | api_key | VARCHAR(500) | NOT NULL | API key |
+| position | INTEGER | NOT NULL | Zero-based contiguous ordering index within profile |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-Constraint: `UNIQUE(profile_id, name)`.
+Constraints and indexes:
+- `UNIQUE(profile_id, name)`.
+- `INDEX(profile_id, position)` for ordered reads.
 
 ### 2.5 `connections` (profile-scoped routing)
 
@@ -348,6 +353,7 @@ CREATE UNIQUE INDEX idx_user_settings_profile_id ON user_settings(profile_id);
 
 -- Performance indexes
 CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id, model_id, is_enabled);
+CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, position);
 CREATE INDEX idx_connections_profile_model_active_priority ON connections(profile_id, model_config_id, is_active, priority);
 CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
 CREATE INDEX idx_request_logs_profile_created_at ON request_logs(profile_id, created_at);
