@@ -37,7 +37,7 @@ connections (profile-scoped)
   model_config_id FK -> model_configs.id
   endpoint_id FK -> endpoints.id
   is_active, priority
-  description, custom_headers
+  name, custom_headers
   health_status, health_detail, last_health_check
   pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
   created_at, updated_at
@@ -209,8 +209,8 @@ Model-to-endpoint routing objects within one profile.
 | model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Parent model config |
 | endpoint_id | INTEGER | FK -> endpoints.id, NOT NULL | Referenced endpoint |
 | is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active routing candidate |
-| priority | INTEGER | NOT NULL, DEFAULT 0 | Lower value = higher failover priority |
-| description | TEXT | NULLABLE | Optional label |
+| priority | INTEGER | NOT NULL, DEFAULT 0 | Zero-based contiguous ordering index within `(profile_id, model_config_id)`; lower value = higher failover priority |
+| name | TEXT | NULLABLE | Optional connection label |
 | custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
 | health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
 | health_detail | TEXT | NULLABLE | Last health-check detail |
@@ -220,6 +220,11 @@ Model-to-endpoint routing objects within one profile.
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Indexes include `idx_connections_profile_model_active_priority` for routing lookups by `(profile_id, model_config_id, is_active, priority)` and `idx_connections_pricing_template_id` for template dependency checks.
+
+Connection ordering invariants:
+- Priorities are normalized to contiguous `0..N-1` per `(profile_id, model_config_id)`.
+- Deterministic reads use `(priority, id)` ordering for both management responses and runtime connection selection.
+- Connection create/update contracts do not allow client-written `priority`; ordering changes flow through the dedicated move API.
 
 ### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
 

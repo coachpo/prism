@@ -308,7 +308,7 @@ After a successful delete, later endpoints in the same profile are compacted so 
 ```
 GET /api/models/{model_id}/connections
 ```
-Response `200`: Array of connection objects.
+Response `200`: Array of connection objects ordered by `priority ASC, id ASC`.
 
 #### Create Connection
 ```
@@ -319,8 +319,7 @@ Request (using existing endpoint):
 {
   "endpoint_id": 1,
   "is_active": true,
-  "priority": 0,
-  "description": "Primary production key",
+  "name": "Primary production key",
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
@@ -336,18 +335,39 @@ Request (inline endpoint creation):
     "api_key": "sk-abc123..."
   },
   "is_active": true,
-  "priority": 0,
+  "name": "Regional fallback",
   "pricing_template_id": null
 }
 ```
 Response `201`: Created connection object.
+New connections always append at the end of the ordered list (`priority == current_connection_count`).
+Create payloads that include `priority` are rejected with `422`.
 
 #### Update Connection
 ```
 PUT /api/connections/{id}
 ```
-Request: Same fields as Create Connection. `endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`. Legacy per-connection pricing fields are rejected with `422`.
+Request: Mutable connection metadata only: `endpoint_id`, `endpoint_create`, `is_active`, `name`, `auth_type`, `custom_headers`, `pricing_template_id`.
+`endpoint_create` is supported on update and is mutually exclusive with `endpoint_id`.
+`priority` is not accepted on update and any payload that includes it is rejected with `422`.
 Response `200`: Updated connection object.
+
+#### Move Connection Priority
+```
+PATCH /api/models/{model_id}/connections/{connection_id}/priority
+```
+Request:
+```json
+{
+  "to_index": 0
+}
+```
+Response `200`: Ordered array of connection objects after the move.
+
+Behavior:
+- `to_index` must be in the range `0..(connection_count - 1)` or the API returns `422`.
+- A no-op move returns the current ordered list unchanged.
+- The backend rewrites connection priorities to contiguous `0..N-1` values after every successful move.
 
 #### Update Connection Pricing Template
 ```
@@ -367,7 +387,8 @@ Response `200`: Updated connection object.
 ```
 DELETE /api/connections/{id}
 ```
-Response `204`: No content.
+Response `200`: `{ "deleted": true }`.
+After a successful delete, later connections for the same `(profile_id, model_config_id)` are compacted so `priority` remains contiguous.
 
 #### Health Check Connection
 ```
@@ -516,7 +537,7 @@ Response `200`:
           "endpoint_id": 1,
           "is_active": true,
           "priority": 0,
-          "description": "Primary production key",
+          "name": "Primary production key",
           "custom_headers": {
             "X-Custom-Org": "org-123"
           },
@@ -554,6 +575,7 @@ Response `200`:
 ```
 Importing is profile-targeted and replaces configuration in the effective profile only. Other profiles are not deleted or mutated. Providers remain global and are never globally deleted by import.
 When endpoint `position` is present, import uses it as the ordering hint; when omitted, import falls back to endpoint file order. Persisted endpoint positions are always normalized to contiguous `0..N-1` values.
+Exported model connections are ordered by `(priority, id)`. During import, each model's connection priorities are normalized to contiguous `0..N-1` values while preserving relative order by imported `priority` and payload order.
 
 Compatibility and versioning semantics:
 - Version 2 is the canonical and only accepted format.

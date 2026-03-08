@@ -125,8 +125,9 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/models/{id}/connections` | B18, M03 |
 | `POST /api/models/{id}/connections` | B16-B17, L01-L02, M03 |
 | `PUT /api/connections/{id}` | B19-B20, M03 |
+| `PATCH /api/models/{id}/connections/{connection_id}/priority` | B20A, M03 |
 | `PUT /api/connections/{id}/pricing-template` | L03, L24, M03 |
-| `DELETE /api/connections/{id}` | B21, M03 |
+| `DELETE /api/connections/{id}` | B21-B21A, M03 |
 | `POST /api/connections/{id}/health-check` | D01-D06 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
@@ -192,11 +193,15 @@ Prepare seed state through API (not manual DB edits):
 | B15 | P0 | Delete profile-scoped endpoint in use | `409` conflict |
 | B15A | P0 | Delete profile-scoped endpoint compacts later positions | Remaining endpoints are renumbered to contiguous `0..N-1` |
 | B16 | P0 | Create connection on native model | `201` |
+| B16A | P0 | Create connection appends at end | New connection gets `priority == count_before` |
 | B17 | P0 | Create connection on proxy model | `400` |
-| B18 | P1 | List connections for model | `200`, returns array |
+| B18 | P1 | List connections for model | `200`, returns array ordered by `priority ASC, id ASC` |
 | B19 | P0 | Update connection with `custom_headers=null/{}` | Headers removed |
 | B20 | P1 | Update connection omitting `custom_headers` | Existing headers retained |
-| B21 | P1 | Delete connection | `204`, connection removed |
+| B20A | P0 | Move connection priority | `200`, returns reordered list; no-op stays stable; wrong model/profile combo returns `404`; out-of-range `to_index` returns `422` |
+| B20B | P0 | Create/update payload containing `priority` | `422` validation error |
+| B21 | P1 | Delete connection | `200`, connection removed |
+| B21A | P0 | Delete connection compacts later priorities | Remaining connections are renumbered to contiguous `0..N-1` |
 
 ## C. Proxy Routing, Aliasing, Headers, and Failover
 
@@ -293,6 +298,7 @@ Prepare seed state through API (not manual DB edits):
 | H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
 | H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
 | H05B | P0 | Import legacy v2 payload without endpoint position | Imported endpoint order follows file order and remains valid |
+| H05C | P0 | Import with duplicate/gapped connection priorities | Imported connections are normalized to contiguous `0..N-1` while preserving relative order by imported priority then payload order |
 | H06 | P0 | Import failure rollback | Prior config remains intact |
 | H07 | P0 | Validation matrix | Correct `400` errors |
 | H08 | P1 | Settings UI export filename | `gateway-config-YYYY-MM-DD.json` |
@@ -314,6 +320,9 @@ Prepare seed state through API (not manual DB edits):
 | I10 | P0 | Settings data management preset buttons | Correct API calls and toasts |
 | I11 | P1 | Connection custom header editor | Add/remove/persist roundtrip |
 | I12 | P1 | Frontend error details | Backend `detail` surfaced to user |
+| I12A | P0 | Connection drag reorder in Model Detail | Drop updates badges immediately, persists after refresh, and rollback toast appears on API failure |
+| I12B | P0 | Connection reorder disabled during active filter | Drag handles disable and helper text explains how to re-enable ordering |
+| I12C | P0 | Connection dialog priority UX | Dialog exposes no numeric priority field and explains that new connections append as fallbacks |
 | I13 | P0 | Settings data management custom days flow | Custom day input validates, calls API correctly |
 | I14 | P0 | Settings data management delete-all flow | Confirmation dialog shows "ALL", calls `delete_all=true` API |
 | I15 | P0 | Settings data management in-flight disable | All delete buttons disabled during active deletion |
