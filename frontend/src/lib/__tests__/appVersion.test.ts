@@ -25,11 +25,11 @@ describe("appVersion", () => {
     expect(appVersionModule.APP_VERSION).toBe(TEST_APP_VERSION);
   });
 
-  it("formats the visible label with git metadata as secondary details", async () => {
+  it("formats the visible label as a dot-separated version string with build metadata", async () => {
     const appVersionModule = await loadAppVersionModule();
 
     expect(appVersionModule.formatVersionLabel(TEST_APP_VERSION, TEST_GIT_RUN_NUMBER, TEST_GIT_REVISION)).toBe(
-      "9.8.7 (123 - deadbee)"
+      "9.8.7.123.deadbee"
     );
   });
 });

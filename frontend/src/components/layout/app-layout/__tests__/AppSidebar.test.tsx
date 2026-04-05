@@ -95,10 +95,10 @@ describe("AppSidebar", () => {
     expect(separator?.className).not.toContain("w-auto");
   });
 
-  it("renders the version label with the app version first and git metadata second", async () => {
+  it("renders the version label as a dot-separated version string", async () => {
     const { VERSION_LABEL } = await renderSidebar();
 
-    expect(VERSION_LABEL).toBe("9.8.7 (123 - deadbee)");
+    expect(VERSION_LABEL).toBe("9.8.7.123.deadbee");
     expect(screen.getByText(VERSION_LABEL)).toBeInTheDocument();
   });
 
