@@ -6,6 +6,7 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 BACKEND_UV_BIN="${BACKEND_UV_BIN:-uv}"
+BACKEND_PYTHON_BIN="${BACKEND_PYTHON_BIN:-python3.13}"
 FRONTEND_PNPM_BIN="${FRONTEND_PNPM_BIN:-pnpm}"
 DRY_RUN=false
 ASSUME_YES=false
@@ -373,8 +374,11 @@ update_version_surfaces() {
 }
 
 run_release_verification() {
+    log "Syncing backend environment"
+    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" sync --locked --python "$BACKEND_PYTHON_BIN"
+
     log "Verifying backend version metadata"
-    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" run pytest tests/test_backend_version_metadata.py
+    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" run --locked --no-sync --python "$BACKEND_PYTHON_BIN" -m pytest tests/test_backend_version_metadata.py
 
     log "Verifying frontend build"
     run_in_dir "$FRONTEND_DIR" "$FRONTEND_PNPM_BIN" run build
