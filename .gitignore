@@ -5,21 +5,20 @@ __pycache__/
 dist/
 build/
 *.db
+
+# Local environment
 .env
-.git
-.vite
 
 # Virtual environments
 backend/.venv/
 backend/venv/
 
-# Ruff
-.ruff_cache
+# Tool caches
 .ruff_cache/
+.pytest_cache/
 
 # Node
 frontend/node_modules/
-frontend/dist/
 
 # IDE
 .vscode/
@@ -36,7 +35,6 @@ frontend/dist/
 .sisyphus/plans/*
 !.sisyphus/plans/2026-04-04-frontend-autofill-semantics.md
 !.sisyphus/plans/2026-04-05-settings-statistics-cleanup.md
-.pytest_cache/
 
 # AI Agents
 .opencode/

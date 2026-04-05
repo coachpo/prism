@@ -1,7 +1,17 @@
+# Python bytecode and packaging
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
+build/
+dist/
+
+# Local environment and runtime artifacts
 *.db
 .env
 .venv/
 venv/
+
+# Test and coverage outputs
+.pytest_cache/
+.coverage*
+htmlcov/
