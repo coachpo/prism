@@ -1,0 +1,867 @@
+# Data Model Document: Prism
+
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, durable monitoring history, UNLOGGED routing hot state, and the current v2 split-bundle configuration format.
+
+## 1. Entity Relationship Diagram
+
+```
+vendors (global)
+  id PK
+  name UNIQUE
+  key UNIQUE
+  description
+  icon_key NULLABLE
+  created_at, updated_at
+  created_at, updated_at
+      | 1:N
+      v
+model_configs (profile-scoped)
+  id PK
+  profile_id FK -> profiles.id
+  vendor_id FK -> vendors.id
+  api_family (fixed enum)
+  model_id
+  display_name
+  model_type (native|proxy)
+  loadbalance_strategy_id FK -> loadbalance_strategies.id (native only)
+  is_enabled
+  created_at, updated_at
+  UNIQUE(profile_id, model_id)
+      |
+      v
+model_proxy_targets (profile-scoped, ordered)
+  id PK
+  source_model_config_id FK -> model_configs.id (proxy only)
+  target_model_config_id FK -> model_configs.id (native only)
+  position
+  UNIQUE(source_model_config_id, position)
+  UNIQUE(source_model_config_id, target_model_config_id)
+      |
+      v
+loadbalance_strategies (profile-scoped)
+  id PK
+  profile_id FK -> profiles.id
+  name
+  routing_policy JSONB
+  created_at, updated_at
+  UNIQUE(profile_id, name)
+      | 1:N
+      v
+connections (profile-scoped)
+  id PK
+  profile_id FK -> profiles.id
+  model_config_id FK -> model_configs.id
+  endpoint_id FK -> endpoints.id
+  is_active, priority
+  qps_limit, max_in_flight_non_stream, max_in_flight_stream
+  name, custom_headers, openai_probe_endpoint_variant
+  health_status, health_detail, last_health_check
+  pricing_template_id FK -> pricing_templates.id (nullable, RESTRICT)
+  created_at, updated_at
+  INDEX(profile_id, model_config_id, is_active, priority)
+  INDEX(pricing_template_id)
+
+routing_connection_runtime_state (profile-scoped runtime state, UNLOGGED)
+  id PK
+  profile_id FK -> profiles.id
+  connection_id FK -> connections.id
+  window_started_at
+  window_request_count
+  in_flight_non_stream
+  in_flight_stream
+  circuit_state, open_until_at, probe_available_at
+  live_p95_latency_ms, last_probe_status, last_probe_at
+  endpoint_ping_ewma_ms, conversation_delay_ewma_ms
+  created_at, updated_at
+  UNIQUE(profile_id, connection_id)
+
+routing_connection_runtime_leases (profile-scoped runtime repair table, UNLOGGED)
+  lease_token PK
+  profile_id FK -> profiles.id
+  connection_id FK -> connections.id
+  lease_kind (stream|non_stream|half_open_probe)
+  expires_at, heartbeat_at
+  created_at, updated_at
+  INDEX(profile_id, connection_id)
+  INDEX(expires_at)
+
+profiles
+  id PK
+  name UNIQUE
+  description
+  is_active
+  is_default
+  is_editable
+  version
+  deleted_at NULL
+  created_at, updated_at
+  partial UNIQUE where is_active = TRUE
+
+endpoints (profile-scoped)
+  id PK
+  profile_id FK -> profiles.id
+  name
+  base_url
+  api_key
+  position
+  created_at, updated_at
+  UNIQUE(profile_id, name)
+  INDEX(profile_id, position)
+
+header_blocklist_rules
+  id PK
+  profile_id FK -> profiles.id NULLABLE
+  name
+  match_type (exact|prefix)
+  pattern
+  enabled
+  is_system
+  created_at, updated_at
+  - system rule: is_system = TRUE, profile_id IS NULL
+  - user rule:   is_system = FALSE, profile_id IS NOT NULL
+  - user UNIQUE(profile_id, match_type, pattern)
+
+user_settings (profile-scoped singleton)
+  id PK
+  profile_id FK -> profiles.id
+  report_currency_code, report_currency_symbol
+  timezone_preference, monitoring_probe_interval_seconds
+  created_at, updated_at
+  UNIQUE(profile_id)
+
+endpoint_fx_rate_settings (profile-scoped)
+  id PK
+  profile_id FK -> profiles.id
+  model_id
+  endpoint_id
+  fx_rate
+  created_at, updated_at
+  UNIQUE(profile_id, model_id, endpoint_id)
+
+request_logs (immutable attribution)
+  id PK
+  profile_id FK -> profiles.id
+  model_id, resolved_target_model_id, api_family
+  ingress_request_id, attempt_number, provider_correlation_id
+  connection_id, endpoint_base_url, endpoint_description
+  status_code, response_time_ms, is_stream
+  usage token fields
+  costing snapshot fields
+  request_path, error_detail
+  created_at
+
+usage_request_events (immutable usage attribution)
+  id PK
+  profile_id FK -> profiles.id
+  ingress_request_id UNIQUE per profile
+  model_id, resolved_target_model_id, api_family
+  endpoint_id, connection_id
+  proxy_api_key_id, proxy_api_key_name_snapshot
+  status_code, success_flag
+  usage token fields
+  costing snapshot fields
+  created_at
+
+audit_logs (immutable attribution)
+  id PK
+  profile_id FK -> profiles.id
+  request_log_id FK -> request_logs.id ON DELETE SET NULL
+  vendor_id FK -> vendors.id
+  model_id, connection_id, endpoint_base_url, endpoint_description
+  request/response payload fields
+  is_stream, duration_ms
+  created_at
+
+monitoring_connection_probe_results (durable monitoring history)
+  id PK
+  profile_id FK -> profiles.id
+  vendor_id FK -> vendors.id
+  model_config_id FK -> model_configs.id
+  connection_id FK -> connections.id
+  endpoint_id
+  endpoint_ping_status, endpoint_ping_ms
+  conversation_status, conversation_delay_ms
+  failure_kind, detail
+  checked_at
+
+loadbalance_events (immutable attribution)
+  id PK
+  profile_id FK -> profiles.id
+  connection_id
+  event_type (opened|extended|max_cooldown_strike|banned|probe_eligible|recovered|not_opened)
+  failure_kind (transient_http|connect_error|timeout)
+  consecutive_failures
+  cooldown_seconds, failure_threshold, backoff_multiplier, max_cooldown_seconds
+  max_cooldown_strikes, ban_mode, banned_until_at
+  blocked_until_mono
+  model_id, endpoint_id, vendor_id
+  created_at
+
+app_auth_settings (singleton)
+  id PK
+  singleton_key UNIQUE
+  auth_enabled
+  username, email, pending_email, password_hash
+  email_bound_at, email_verification_code_hash, email_verification_expires_at
+  email_verification_attempt_count, must_change_password, last_login_at, token_version
+  created_at, updated_at
+
+refresh_tokens
+  id PK
+  auth_subject_id FK -> app_auth_settings.id
+  token_hash UNIQUE
+  session_duration, expires_at, rotated_from_id, revoked_at, last_used_at
+  user_agent, ip_address
+  created_at
+
+password_reset_challenges
+  id PK
+  auth_subject_id FK -> app_auth_settings.id
+  otp_hash
+  expires_at, consumed_at, attempt_count
+  requested_ip
+  created_at
+
+webauthn_challenges
+  id PK
+  challenge_key UNIQUE
+  challenge
+  expires_at
+  created_at
+
+proxy_api_keys
+  id PK
+  name, key_prefix UNIQUE, key_hash, last_four
+  is_active, expires_at, last_used_at, last_used_ip
+  created_by_auth_subject_id FK -> app_auth_settings.id, notes, rotated_from_id
+  created_at, updated_at
+
+webauthn_credentials
+  id PK
+  auth_subject_id FK -> app_auth_settings.id
+  credential_id UNIQUE, public_key, sign_count
+  device_name, aaguid, transports
+  backup_eligible, backup_state
+  last_used_at, last_used_ip, created_at, updated_at
+```
+
+## 2. Table Definitions
+
+### 2.1 `vendors` (global/shared)
+
+Vendor records remain global and are shared across all profiles.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| name | VARCHAR(100) | NOT NULL, UNIQUE | Display name (`OpenAI`, `Anthropic`, `Gemini`) |
+| key | VARCHAR(100) | NOT NULL, UNIQUE | Stable vendor key |
+| description | TEXT | NULLABLE | Optional description |
+| icon_key | VARCHAR(100) | NULLABLE | Optional presentation-only vendor icon key (`zhipu` for Z.ai, `azure` for Microsoft/Azure) |
+| audit_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Vendor-level audit toggle |
+| audit_capture_bodies | BOOLEAN | NOT NULL, DEFAULT TRUE | Vendor-level body capture toggle |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Lifecycle notes:
+- Vendor rows are managed globally from Settings → Global.
+- Vendor catalog import/export now lives under `/api/config/vendors/*` and is the authoritative bundle path for shared vendor metadata.
+- Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` and never mutate existing global vendor metadata from profile-bundle hint drift.
+- `icon_key` is shared global metadata and is presentation-only; runtime routing and compatibility continue to use `api_family` on model rows.
+- `model_configs.vendor_id` references these shared rows; deleting a vendor never cascades into model deletion.
+- `GET /api/vendors/{id}/models` returns the profile-scoped referencing model rows used by the UI to explain blocked deletes.
+- `DELETE /api/vendors/{id}` returns `409` while references remain and `204` only when the vendor is unused.
+
+### 2.2 `profiles`
+
+Profiles are isolated configuration namespaces. One profile is active for runtime routing at any time.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| name | VARCHAR(120) | NOT NULL, UNIQUE | Profile name |
+| description | TEXT | NULLABLE | Optional description |
+| is_active | BOOLEAN | NOT NULL, DEFAULT FALSE | Runtime-active marker |
+| is_default | BOOLEAN | NOT NULL, DEFAULT FALSE | Seeded default marker |
+| is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag (false for system default) |
+| version | INTEGER | NOT NULL, DEFAULT 0 | Optimistic concurrency token for activation CAS |
+| deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive profiles |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraints and lifecycle rules:
+- Exactly one non-deleted profile is active at any time (partial unique index).
+- Routine delete is soft-delete (`deleted_at`) and only allowed for inactive profiles.
+- Capacity limit: maximum 10 non-deleted profiles (`deleted_at IS NULL`) enforced at application level.
+
+### 2.3 `model_configs` (profile-scoped)
+
+Maps a model ID to a vendor, fixed api family, and routing behavior within one profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| vendor_id | INTEGER | FK -> vendors.id, NOT NULL | Vendor reference |
+| api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
+| model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
+| display_name | VARCHAR(200) | NULLABLE | Human-readable name |
+| model_type | VARCHAR(20) | NOT NULL, DEFAULT 'native' | `native` or `proxy` |
+| loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Required for native models; null for proxy models |
+| is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraints:
+- `UNIQUE(profile_id, model_id)`.
+- Proxy models route through ordered rows in `model_proxy_targets` instead of a singular redirect field.
+- Proxy targets must resolve to native models in the same profile and same `api_family`.
+- Native models must attach one profile-scoped loadbalance strategy; proxy models must not attach one.
+
+### 2.3A `model_proxy_targets` (profile-scoped ordered proxy routing)
+
+Ordered proxy-model targets. One proxy model can point to multiple native targets in contiguous priority order.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Proxy model owning the target list |
+| target_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE RESTRICT | Native model target |
+| position | INTEGER | NOT NULL | Zero-based target priority |
+
+Constraints:
+- `UNIQUE(source_model_config_id, position)`.
+- `UNIQUE(source_model_config_id, target_model_config_id)`.
+- Database-level trigger enforcement rejects self-reference, cross-profile targets, cross-api-family targets, and proxy-to-proxy chains.
+
+### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
+
+Reusable routing strategy objects attached by native models within one profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
+| strategy_type | VARCHAR(20) | NOT NULL, CHECK IN (`legacy`, `adaptive`) | Strategy family discriminator |
+| legacy_strategy_type | VARCHAR(20) | NULLABLE, CHECK IN (`single`, `fill-first`, `round-robin`) | Legacy-only routing subtype |
+| auto_recovery | JSONB | NULLABLE | Legacy-only retry/cooldown/ban document |
+| routing_policy | JSONB | NULLABLE | Adaptive-only routing document with `routing_objective`, `deadline_budget_ms`, `hedge`, `circuit_breaker`, `admission`, and `monitoring` branches |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraints and lifecycle rules:
+- `UNIQUE(profile_id, name)`.
+- Strategy rows are shape-checked: `legacy` rows require `legacy_strategy_type` and `auto_recovery` with no `routing_policy`, while `adaptive` rows require `routing_policy` with no legacy-only fields.
+- Effective runtime policy resolves once per request from the attached strategy row.
+- The adaptive `circuit_breaker` branch carries failure status codes, threshold/backoff/jitter tuning, and optional ban escalation.
+- The adaptive `monitoring` branch controls how fresh probe signals influence routing.
+- Fresh deployments receive two editable default-profile preset strategies named `Default legacy routing` and `Default adaptive routing`.
+- Strategies cannot be deleted while attached to one or more native models.
+
+### 2.5 `endpoints` (profile-scoped credentials)
+
+Reusable credential objects scoped to one profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| name | VARCHAR(200) | NOT NULL | Endpoint label |
+| base_url | VARCHAR(500) | NOT NULL | Upstream base URL |
+| api_key | VARCHAR(500) | NOT NULL | Prism-at-rest encrypted endpoint secret |
+| position | INTEGER | NOT NULL | Zero-based contiguous ordering index within profile |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraints and indexes:
+- `UNIQUE(profile_id, name)`.
+- `INDEX(profile_id, position)` for ordered reads.
+- Profile config export never emits plaintext `api_key`; the v2 bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
+- Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
+
+### 2.5 `connections` (profile-scoped routing)
+
+Model-to-endpoint routing objects within one profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Parent model config |
+| endpoint_id | INTEGER | FK -> endpoints.id, NOT NULL | Referenced endpoint |
+| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active routing candidate |
+| priority | INTEGER | NOT NULL, DEFAULT 0 | Zero-based contiguous ordering index within `(profile_id, model_config_id)`; lower value = higher failover priority |
+| name | TEXT | NULLABLE | Optional connection label |
+| custom_headers | TEXT | NULLABLE | JSON headers applied before blocklist filtering |
+| health_status | VARCHAR(20) | NOT NULL, DEFAULT 'unknown' | `unknown`, `healthy`, `unhealthy` |
+| health_detail | TEXT | NULLABLE | Last health-check detail |
+| last_health_check | DATETIME | NULLABLE | Last probe timestamp |
+| pricing_template_id | INTEGER | FK -> pricing_templates.id, NULLABLE, ON DELETE RESTRICT | Assigned pricing template |
+| qps_limit | INTEGER | NULLABLE | Per-connection QPS cap; `NULL` means unlimited |
+| max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
+| max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
+| openai_probe_endpoint_variant | VARCHAR(30) | NOT NULL, DEFAULT `responses` | OpenAI-family probe target: `responses` or `chat_completions` |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Indexes include `idx_connections_profile_model_active_priority` for routing lookups by `(profile_id, model_config_id, is_active, priority)` and `idx_connections_pricing_template_id` for template dependency checks.
+
+Connection ordering invariants:
+- Priorities are normalized to contiguous `0..N-1` per `(profile_id, model_config_id)`.
+- Deterministic reads use `(priority, id)` ordering for both management responses and runtime connection selection.
+- Connection create/update contracts do not allow client-written `priority`; ordering changes flow through the dedicated move API.
+
+### 2.6 `pricing_templates` (profile-scoped reusable token pricing)
+
+Reusable token pricing definitions that can be attached to many connections within a profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| name | VARCHAR(200) | NOT NULL | Template name (profile-unique) |
+| description | TEXT | NULLABLE | Optional notes |
+| pricing_unit | VARCHAR(20) | NOT NULL, DEFAULT 'PER_1M' | Billing unit |
+| pricing_currency_code | VARCHAR(3) | NOT NULL | Template currency code |
+| input_price | VARCHAR(20) | NOT NULL | Input token price |
+| output_price | VARCHAR(20) | NOT NULL | Output token price |
+| cached_input_price | VARCHAR(20) | NULLABLE | Cached input token price |
+| cache_creation_price | VARCHAR(20) | NULLABLE | Cache write token price |
+| reasoning_price | VARCHAR(20) | NULLABLE | Reasoning token price |
+| missing_special_token_price_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | `MAP_TO_OUTPUT` or `ZERO_COST` |
+| version | INTEGER | NOT NULL, DEFAULT 1 | Auto-incremented on pricing-impacting changes |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraint: `UNIQUE(profile_id, name)`.
+
+
+### 2.7 `header_blocklist_rules` (mixed scope)
+
+Header blocklist is split between global system rules and profile-scoped user rules.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NULLABLE | NULL for system rules; profile FK for user rules |
+| name | VARCHAR(200) | NOT NULL | Rule label |
+| match_type | VARCHAR(20) | NOT NULL | `exact` or `prefix` |
+| pattern | VARCHAR(200) | NOT NULL | Header match token (case-insensitive) |
+| enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Rule enabled flag |
+| is_system | BOOLEAN | NOT NULL, DEFAULT FALSE | Protected global rule |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraints:
+- System rule: `is_system = TRUE` implies `profile_id IS NULL`.
+- User rule: `is_system = FALSE` implies `profile_id IS NOT NULL`.
+- User rule uniqueness: `UNIQUE(profile_id, match_type, pattern)`.
+
+### 2.8 `user_settings` (profile-scoped singleton)
+
+Per-profile costing/report display preferences plus the backend-owned monitoring cadence.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL, UNIQUE | One row per profile |
+| report_currency_code | VARCHAR(3) | NOT NULL, DEFAULT 'USD' | Spending report currency |
+| report_currency_symbol | VARCHAR(5) | NOT NULL, DEFAULT '$' | Currency symbol |
+| timezone_preference | VARCHAR(100) | NULLABLE | Preferred timezone for UI/report rendering |
+| monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Backend scheduler cadence for synthetic monitoring probes |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+### 2.9 `endpoint_fx_rate_settings` (profile-scoped)
+
+Custom FX mappings used by costing within one profile.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| model_id | VARCHAR(100) | NOT NULL | Model identifier in profile scope |
+| endpoint_id | INTEGER | NOT NULL | Endpoint reference in profile scope |
+| fx_rate | VARCHAR(20) | NOT NULL | Decimal exchange rate |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Constraint: `UNIQUE(profile_id, model_id, endpoint_id)`.
+
+### 2.10 `request_logs` (immutable profile attribution)
+
+Telemetry rows for every proxy attempt with immutable profile attribution captured at request start.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
+| model_id | VARCHAR(200) | NOT NULL | Model ID used for attempt |
+| resolved_target_model_id | VARCHAR(200) | NULLABLE | Native target model chosen for a proxy-model request |
+| api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
+| ingress_request_id | VARCHAR(36) | NULLABLE | Prism-generated incoming request grouping ID |
+| attempt_number | INTEGER | NULLABLE | Per-ingress attempt order, starting at 1 |
+| provider_correlation_id | VARCHAR(255) | NULLABLE | Best-effort provider-visible correlation ID |
+| connection_id | INTEGER | NULLABLE | Connection used |
+| proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot used for the request |
+| proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Display-name snapshot for the proxy key at request time |
+| endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
+| endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
+| status_code | INTEGER | NOT NULL | Upstream status code |
+| response_time_ms | INTEGER | NOT NULL | Latency in ms |
+| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
+| usage + costing snapshot fields | mixed | NULLABLE | Token/cost telemetry and pricing snapshots |
+| request_path | VARCHAR(500) | NOT NULL | Requested route path |
+| error_detail | TEXT | NULLABLE | Error details for failed attempts |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Attempt timestamp |
+
+Request-log semantics:
+- One row is written per upstream attempt, not per incoming runtime request.
+- `ingress_request_id` groups the rows created by one incoming runtime request.
+- `attempt_number` preserves retry/failover ordering within that group.
+- For proxy traffic, `model_id` stays the requested proxy identifier while `resolved_target_model_id` records the chosen native target for that attempt.
+
+### 2.11 `usage_request_events` (immutable usage attribution)
+
+Usage-event rows are the finalized source for the unified statistics snapshot.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
+| ingress_request_id | VARCHAR(36) | NOT NULL, UNIQUE per profile | Incoming request grouping ID preserved for aggregate attribution and cross-table correlation |
+| model_id | VARCHAR(200) | NOT NULL | Requested model ID |
+| resolved_target_model_id | VARCHAR(200) | NULLABLE | Native target selected for the request |
+| api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
+| endpoint_id | INTEGER | NULLABLE | Endpoint snapshot |
+| connection_id | INTEGER | NULLABLE | Connection snapshot |
+| proxy_api_key_id | INTEGER | NULLABLE | Proxy API key snapshot |
+| proxy_api_key_name_snapshot | VARCHAR(200) | NULLABLE | Proxy key name at event time |
+| attempt_count | INTEGER | NOT NULL | Number of upstream attempts that contributed to the finalized event |
+| status_code | INTEGER | NOT NULL | HTTP status code |
+| success_flag | BOOLEAN | NOT NULL | Success indicator |
+| usage + costing snapshot fields | mixed | NULLABLE | Token and cost telemetry snapshots |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
+
+Usage-event semantics:
+- One row captures the finalized usage event that feeds the statistics snapshot.
+- `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
+- `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
+
+### 2.12 `audit_logs` (immutable profile attribution)
+
+Audit rows for upstream attempts with immutable profile attribution.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
+| request_log_id | INTEGER | FK -> request_logs.id, NULLABLE, ON DELETE SET NULL | Optional telemetry linkage |
+| vendor_id | INTEGER | FK -> vendors.id, NOT NULL | Vendor reference |
+| model_id | VARCHAR(200) | NOT NULL | Model ID |
+| connection_id | INTEGER | NULLABLE | Connection snapshot |
+| endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
+| endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
+| request_method/request_url/request_headers/request_body | mixed | request fields | Upstream request snapshot |
+| response_status/response_headers/response_body | mixed | response fields | Upstream response snapshot |
+| is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
+| duration_ms | INTEGER | NOT NULL | Request duration |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Audit timestamp |
+
+### 2.13 `loadbalance_events` (immutable profile attribution)
+
+Persistent record of failover, recovery, and health transitions.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | BIGINT | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
+| connection_id | INTEGER | NOT NULL | Connection ID |
+| event_type | VARCHAR(20) | NOT NULL | `opened`, `extended`, `max_cooldown_strike`, `banned`, `probe_eligible`, `recovered`, `not_opened` |
+| failure_kind | VARCHAR(20) | NULLABLE | `transient_http`, `connect_error`, `timeout` |
+| consecutive_failures | INTEGER | NOT NULL | Failure count |
+| cooldown_seconds | NUMERIC | NOT NULL | Applied cooldown |
+| failure_threshold | INTEGER | NULLABLE | Threshold snapshot used for the event |
+| backoff_multiplier | NUMERIC | NULLABLE | Backoff multiplier snapshot |
+| max_cooldown_seconds | INTEGER | NULLABLE | Maximum cooldown snapshot |
+| max_cooldown_strikes | INTEGER | NULLABLE | Strike counter snapshot when relevant |
+| ban_mode | VARCHAR(20) | NULLABLE | `off`, `temporary`, or `manual` when relevant |
+| banned_until_at | DATETIME | NULLABLE | Temporary-ban expiry when relevant |
+| blocked_until_mono | NUMERIC | NULLABLE | Monotonic block timestamp |
+| model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
+| endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
+| vendor_id | INTEGER | FK -> vendors.id | Vendor snapshot |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
+
+### 2.14 `monitoring_connection_probe_results` (durable monitoring history)
+
+Durable synthetic-probe history used by the monitoring UI and by routing feedback.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| vendor_id | INTEGER | FK -> vendors.id, NOT NULL | Vendor snapshot for grouped monitoring queries |
+| model_config_id | INTEGER | FK -> model_configs.id, NOT NULL | Parent model config |
+| connection_id | INTEGER | FK -> connections.id, NOT NULL | Probed connection |
+| endpoint_id | INTEGER | NOT NULL | Endpoint snapshot |
+| endpoint_ping_status | VARCHAR(20) | NOT NULL | `healthy`, `degraded`, or `unhealthy` |
+| endpoint_ping_ms | INTEGER | NULLABLE | Endpoint handshake latency |
+| conversation_status | VARCHAR(20) | NOT NULL | `healthy`, `degraded`, or `unhealthy` |
+| conversation_delay_ms | INTEGER | NULLABLE | Conversation probe latency |
+| failure_kind | VARCHAR(50) | NULLABLE | Failure classification when probe work fails |
+| detail | TEXT | NULLABLE | Human-readable failure detail |
+| checked_at | DATETIME | NOT NULL, DEFAULT NOW | Probe timestamp |
+
+Constraints:
+- Status fields are restricted to `healthy`, `degraded`, or `unhealthy`.
+
+### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
+
+Ephemeral hot-state row for per-connection admission, circuit state, and fused monitoring signals. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| connection_id | INTEGER | FK -> connections.id, NOT NULL | Connection under adaptive-routing tracking |
+| window_started_at | DATETIME | NULLABLE | Current QPS window start |
+| window_request_count | INTEGER | NOT NULL, DEFAULT 0 | Requests admitted in current one-second window |
+| in_flight_non_stream | INTEGER | NOT NULL, DEFAULT 0 | Current non-stream reservations |
+| in_flight_stream | INTEGER | NOT NULL, DEFAULT 0 | Current stream reservations |
+| circuit_state | VARCHAR(20) | NOT NULL, DEFAULT `closed` | `closed`, `open`, or `half_open` |
+| probe_available_at | DATETIME | NULLABLE | Next synthetic probe eligibility time |
+| open_until_at | DATETIME | NULLABLE | Wall-clock circuit-open expiry |
+| live_p95_latency_ms | INTEGER | NULLABLE | Passive-request latency signal |
+| last_probe_status | VARCHAR(20) | NULLABLE | Latest fused probe status |
+| last_probe_at | DATETIME | NULLABLE | Latest probe timestamp |
+| endpoint_ping_ewma_ms | NUMERIC | NULLABLE | EWMA endpoint ping signal |
+| conversation_delay_ewma_ms | NUMERIC | NULLABLE | EWMA conversation delay signal |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Row creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last mutation timestamp |
+
+Constraints:
+- `UNIQUE(profile_id, connection_id)`.
+- Counter and strike fields are non-negative.
+- `circuit_state` is restricted to `closed`, `open`, or `half_open`.
+
+### 2.16 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
+
+Ephemeral lease rows used for non-stream attempts, streaming heartbeats, and half-open probes.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| lease_token | VARCHAR(64) | PK | Lease identifier |
+| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
+| connection_id | INTEGER | FK -> connections.id, NOT NULL | Connection under adaptive-routing tracking |
+| lease_kind | VARCHAR(20) | NOT NULL | `stream`, `non_stream`, or `half_open_probe` |
+| expires_at | DATETIME | NOT NULL | Lease expiry for repair/reconciliation |
+| heartbeat_at | DATETIME | NULLABLE | Latest stream or probe heartbeat |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Row creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last mutation timestamp |
+
+Constraints:
+- `lease_kind` is restricted to `stream`, `non_stream`, or `half_open_probe`.
+
+### 2.17 `app_auth_settings` (singleton)
+
+Global operator authentication settings and credentials.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| singleton_key | VARCHAR(20) | NOT NULL, UNIQUE | `app` |
+| auth_enabled | BOOLEAN | NOT NULL, DEFAULT FALSE | Auth toggle |
+| username | VARCHAR(200) | NULLABLE | Operator username |
+| email | VARCHAR(320) | NULLABLE | Verified email |
+| pending_email | VARCHAR(320) | NULLABLE | Email awaiting OTP confirmation |
+| password_hash | TEXT | NULLABLE | Argon2 password hash |
+| email_bound_at | DATETIME | NULLABLE | When the verified email was bound |
+| email_verification_code_hash | VARCHAR(64) | NULLABLE | Hashed OTP for email verification |
+| email_verification_expires_at | DATETIME | NULLABLE | Email verification expiry |
+| email_verification_attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Failed email-verification attempts |
+| must_change_password | BOOLEAN | NOT NULL, DEFAULT FALSE | First-login/reset follow-up flag |
+| last_login_at | DATETIME | NULLABLE | Most recent successful login |
+| token_version | INTEGER | NOT NULL, DEFAULT 0 | Global token revocation version |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+### 2.18 `refresh_tokens`
+
+Cookie-backed management sessions with family rotation and revocation.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Singleton operator auth subject |
+| token_hash | VARCHAR(64) | NOT NULL, UNIQUE | SHA-256 hash of the refresh token |
+| session_duration | VARCHAR(20) | NOT NULL, DEFAULT `7_days` | Requested session lifetime bucket |
+| expires_at | DATETIME | NOT NULL | Refresh-token expiry |
+| rotated_from_id | INTEGER | FK -> refresh_tokens.id, NULLABLE | Previous token in the family |
+| revoked_at | DATETIME | NULLABLE | Revocation timestamp |
+| last_used_at | DATETIME | NULLABLE | Most recent redemption time |
+| user_agent | TEXT | NULLABLE | Client user-agent snapshot |
+| ip_address | VARCHAR(100) | NULLABLE | Client IP snapshot |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+
+### 2.19 `proxy_api_keys`
+
+Runtime data-plane credentials.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| name | VARCHAR(200) | NOT NULL | Key label |
+| key_prefix | VARCHAR(200) | NOT NULL, UNIQUE | Public prefix |
+| key_hash | VARCHAR(64) | NOT NULL | SHA-256 hash |
+| last_four | VARCHAR(4) | NOT NULL | Display suffix |
+| is_active | BOOLEAN | NOT NULL, DEFAULT TRUE | Active flag |
+| expires_at | DATETIME | NULLABLE | Expiration timestamp |
+| last_used_at | DATETIME | NULLABLE | Most recent proxy use |
+| last_used_ip | VARCHAR(100) | NULLABLE | Most recent proxy client IP |
+| created_by_auth_subject_id | INTEGER | FK -> app_auth_settings.id, NULLABLE | Operator who created the key |
+| notes | TEXT | NULLABLE | Operator notes |
+| rotated_from_id | INTEGER | FK -> proxy_api_keys.id, NULLABLE | Previous key in a rotation chain |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+### 2.20 `password_reset_challenges`
+
+Password-reset OTP challenges for the singleton operator account.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Operator auth subject |
+| otp_hash | VARCHAR(64) | NOT NULL | Hashed OTP |
+| expires_at | DATETIME | NOT NULL | Challenge expiry |
+| consumed_at | DATETIME | NULLABLE | Consumption timestamp |
+| attempt_count | INTEGER | NOT NULL, DEFAULT 0 | Failed-attempt counter |
+| requested_ip | VARCHAR(100) | NULLABLE | Request origin IP |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+
+### 2.21 `webauthn_challenges`
+
+Challenge storage for passkey registration and authentication ceremonies.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| challenge_key | VARCHAR(100) | NOT NULL, UNIQUE | Lookup key |
+| challenge | BYTEA | NOT NULL | Raw challenge bytes |
+| expires_at | DATETIME | NOT NULL | Challenge expiry |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+
+### 2.21 `webauthn_credentials`
+
+Stored passkey credentials for the singleton operator account.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
+| auth_subject_id | INTEGER | FK -> app_auth_settings.id, NOT NULL | Singleton operator auth subject |
+| credential_id | BYTEA | NOT NULL, UNIQUE | Raw credential ID |
+| public_key | BYTEA | NOT NULL | Credential public key |
+| sign_count | BIGINT | NOT NULL, DEFAULT 0 | Authenticator signature counter |
+| device_name | VARCHAR(200) | NULLABLE | Operator-provided device label |
+| aaguid | BYTEA | NULLABLE | Authenticator AAGUID |
+| transports | TEXT[] | NULLABLE | Reported authenticator transports |
+| backup_eligible | BOOLEAN | NULLABLE, DEFAULT FALSE | Backup eligibility flag |
+| backup_state | BOOLEAN | NULLABLE, DEFAULT FALSE | Current backup/sync state |
+| last_used_at | DATETIME | NULLABLE | Most recent assertion time |
+| last_used_ip | VARCHAR(45) | NULLABLE | Most recent assertion IP |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+## 3. Indexes and Constraints (Profile Isolation)
+
+```sql
+-- Profiles
+CREATE UNIQUE INDEX idx_profiles_single_active ON profiles(is_active) WHERE is_active = TRUE;
+CREATE UNIQUE INDEX idx_profiles_single_default ON profiles(is_default) WHERE is_default = TRUE;
+CREATE INDEX idx_profiles_not_deleted ON profiles(deleted_at);
+
+-- Scoped uniqueness
+CREATE UNIQUE INDEX idx_model_configs_profile_model_id ON model_configs(profile_id, model_id);
+CREATE UNIQUE INDEX idx_model_proxy_targets_source_position ON model_proxy_targets(source_model_config_id, position);
+CREATE UNIQUE INDEX idx_model_proxy_targets_source_target ON model_proxy_targets(source_model_config_id, target_model_config_id);
+CREATE UNIQUE INDEX idx_endpoints_profile_name ON endpoints(profile_id, name);
+CREATE UNIQUE INDEX idx_endpoint_fx_profile_model_endpoint ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
+CREATE UNIQUE INDEX idx_user_settings_profile_id ON user_settings(profile_id);
+
+-- Performance indexes
+CREATE INDEX idx_model_configs_profile_model_enabled ON model_configs(profile_id, model_id, is_enabled);
+CREATE INDEX idx_model_proxy_targets_target_model ON model_proxy_targets(target_model_config_id);
+CREATE INDEX idx_endpoints_profile_position ON endpoints(profile_id, position);
+CREATE INDEX idx_connections_profile_model_active_priority ON connections(profile_id, model_config_id, is_active, priority);
+CREATE INDEX idx_connections_pricing_template_id ON connections(pricing_template_id);
+CREATE INDEX idx_request_logs_profile_created_at ON request_logs(profile_id, created_at);
+CREATE INDEX idx_request_logs_ingress_request_id ON request_logs(ingress_request_id);
+CREATE INDEX idx_audit_logs_profile_created_at ON audit_logs(profile_id, created_at);
+CREATE INDEX idx_loadbalance_events_profile_created ON loadbalance_events(profile_id, created_at);
+CREATE INDEX idx_loadbalance_events_connection ON loadbalance_events(connection_id, created_at);
+CREATE INDEX idx_loadbalance_events_event_type ON loadbalance_events(event_type);
+CREATE INDEX idx_connection_limiter_state_profile_connection ON connection_limiter_state(profile_id, connection_id);
+CREATE INDEX idx_connection_limiter_leases_profile_connection ON connection_limiter_leases(profile_id, connection_id);
+CREATE INDEX idx_connection_limiter_leases_expires_at ON connection_limiter_leases(expires_at);
+CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
+
+-- Auth and passkeys
+CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
+CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
+CREATE INDEX idx_password_reset_challenges_expires_at ON password_reset_challenges(expires_at);
+CREATE INDEX idx_password_reset_challenges_consumed_at ON password_reset_challenges(consumed_at);
+CREATE INDEX idx_webauthn_challenges_expires_at ON webauthn_challenges(expires_at);
+CREATE INDEX idx_webauthn_challenges_challenge_key ON webauthn_challenges(challenge_key);
+CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_subject_id);
+CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
+```
+
+## 4. Relationship and Ownership Rules
+
+- `vendors` are global and shared across all profiles.
+- `model_configs` reference shared vendor rows without vendor-owned delete cascade semantics; deleting a vendor must not delete profile-scoped model rows.
+- `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
+- `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, `password_reset_challenges`, and `webauthn_credentials`.
+- `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
+- `connection_limiter_state` and `connection_limiter_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
+- Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.
+- Connection create/update must enforce profile consistency between model and endpoint references.
+
+## 5. Deletion and Retention Semantics
+
+- Routine profile deletion (`DELETE /api/profiles/{id}`) is soft-delete of inactive profile (`deleted_at` set).
+- Active profile deletion is rejected.
+- Vendor deletion is hard-delete only for unused shared vendor rows; in-use deletes are rejected and surfaced through the vendor-usage contract instead of cascading to `model_configs`.
+- Profile-scoped config entities are removable through explicit profile-targeted replace/purge workflows.
+- Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
+
+## 6. Runtime Isolation Notes
+
+- Proxy routing always resolves against the active profile snapshot.
+- Failover current state is persisted in `loadbalance_current_state` and namespaced by `(profile_id, connection_id)` to avoid cross-profile cooldown leakage.
+- Ban escalation state is persisted on the same `loadbalance_current_state` row via `max_cooldown_strikes`, `ban_mode`, and `banned_until_at`.
+- Connection limiter state is persisted in `connection_limiter_state` plus `connection_limiter_leases` and namespaced by `(profile_id, connection_id)` to avoid cross-profile admission leakage.
+- Runtime failover current-state rows track `consecutive_failures`, `blocked_until_at`, `last_cooldown_seconds`, `last_failure_kind`, `max_cooldown_strikes`, `ban_mode`, `banned_until_at`, and `probe_eligible_logged` for each `(profile_id, connection_id)` entry.
+- Runtime connection limiter rows reset after crash or unclean shutdown because the limiter tables are `UNLOGGED`; startup reconciliation recreates or compacts state from fresh traffic and surviving leases.
+- Failures are classified as `transient_http`, `connect_error`, or `timeout`; failover-worthy HTTP responses use the same threshold/backoff/jitter policy path as transport failures.
+- Ban escalation counts only failure transitions that newly hit the resolved max-cooldown cap under the explicit strategy policy.
+- Non-failover client errors do not force-clear existing persisted current state; successful responses (`2xx`/`3xx`) clear persisted current state for the connection.
+- Resetting current state deletes the row and therefore clears cooldown, strike, and ban state together.
+- Header blocklist at runtime is resolved as: all enabled system rules + enabled user rules for active profile.
+
+## 7. Config Import/Export Versioning
+
+- Canonical profile export format is config version `2` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, model `vendor_key`, and model `api_family`.
+- Canonical global vendor export format is config version `2` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
+- Profile import accepts `v2` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
+- Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
+- Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
+- Persisted rows created by import always receive fresh database IDs; the v2 profile-bundle contract omits internal IDs entirely and relies on name-based references.
+- Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
+- Profile import reuses exact global vendor keys, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
+
+
+## 8. Invariant Notes

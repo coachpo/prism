@@ -1,0 +1,573 @@
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .common import ApiFamily, AuthType, _HEADER_TOKEN_RE
+from .connection_model import AutoRecovery, RoutingPolicy
+
+# --- Config Export/Import Schemas ---
+
+
+class _ConfigLoadbalanceStrategyBase(BaseModel):
+    name: str
+    strategy_type: Literal["legacy", "adaptive"]
+    legacy_strategy_type: Literal["single", "fill-first", "round-robin"] | None = None
+    auto_recovery: AutoRecovery | None = None
+    routing_policy: RoutingPolicy | None = None
+
+    @model_validator(mode="after")
+    def validate_strategy_shape(self):
+        if self.strategy_type == "legacy":
+            if self.legacy_strategy_type is None:
+                raise ValueError(
+                    "legacy_strategy_type is required for legacy strategies"
+                )
+            if self.auto_recovery is None:
+                raise ValueError("auto_recovery is required for legacy strategies")
+            if self.routing_policy is not None:
+                raise ValueError("routing_policy must be null for legacy strategies")
+            return self
+
+        if self.routing_policy is None:
+            raise ValueError("routing_policy is required for adaptive strategies")
+        if self.legacy_strategy_type is not None:
+            raise ValueError(
+                "legacy_strategy_type must be null for adaptive strategies"
+            )
+        if self.auto_recovery is not None:
+            raise ValueError("auto_recovery must be null for adaptive strategies")
+        return self
+
+
+class ConfigEndpointExport(BaseModel):
+    name: str
+    base_url: str
+    api_key_secret_ref: str | None = None
+    position: int | None = Field(default=None, ge=0)
+
+    @field_validator("api_key_secret_ref")
+    @classmethod
+    def validate_api_key_secret_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("api_key_secret_ref must not be empty")
+        return normalized
+
+
+class ConfigEndpointImport(ConfigEndpointExport):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ConfigPricingTemplateExport(BaseModel):
+    name: str
+    description: str | None = None
+    pricing_unit: Literal["PER_1M"] = "PER_1M"
+    pricing_currency_code: str
+    input_price: str
+    output_price: str
+    cached_input_price: str | None = None
+    cache_creation_price: str | None = None
+    reasoning_price: str | None = None
+    missing_special_token_price_policy: Literal["MAP_TO_OUTPUT", "ZERO_COST"] = (
+        "MAP_TO_OUTPUT"
+    )
+    version: int = 1
+
+
+class ConfigPricingTemplateImport(ConfigPricingTemplateExport):
+    model_config = ConfigDict(extra="forbid")
+
+    pass
+
+
+class ConfigLoadbalanceStrategyExport(_ConfigLoadbalanceStrategyBase):
+    pass
+
+
+class ConfigLoadbalanceStrategyImport(_ConfigLoadbalanceStrategyBase):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ConfigVendorExport(BaseModel):
+    key: str
+    name: str
+    description: str | None = None
+    icon_key: str | None
+    audit_enabled: bool = False
+    audit_capture_bodies: bool = True
+
+
+class ConfigVendorRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    name_hint: str | None = None
+    description_hint: str | None = None
+    icon_key_hint: str | None = None
+
+    @field_validator("key")
+    @classmethod
+    def validate_ref_key(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("key must not be empty")
+        return normalized
+
+    @field_validator("name_hint")
+    @classmethod
+    def validate_name_hint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("description_hint")
+    @classmethod
+    def validate_description_hint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("icon_key_hint")
+    @classmethod
+    def validate_icon_key_hint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        return normalized or None
+
+
+class ConfigVendorImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    name: str
+    description: str | None = None
+    icon_key: str | None
+    audit_enabled: bool = False
+    audit_capture_bodies: bool = True
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("key must not be empty")
+        return normalized
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name must not be empty")
+        return normalized
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("icon_key")
+    @classmethod
+    def validate_icon_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            raise ValueError("icon_key must not be empty")
+        return normalized
+
+
+class ConfigConnectionExport(BaseModel):
+    endpoint_name: str
+    pricing_template_name: str | None = None
+    is_active: bool = True
+    priority: int = Field(default=0, ge=0)
+    name: str | None = None
+    auth_type: AuthType | None = None
+    custom_headers: dict[str, str] | None = None
+    qps_limit: int | None = Field(default=None, ge=1)
+    max_in_flight_non_stream: int | None = Field(default=None, ge=1)
+    max_in_flight_stream: int | None = Field(default=None, ge=1)
+
+
+class ConfigConnectionImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint_name: str
+    pricing_template_name: str | None = None
+    is_active: bool = True
+    priority: int = Field(default=0, ge=0)
+    name: str | None = None
+    auth_type: AuthType | None = None
+    custom_headers: dict[str, str] | None = None
+    qps_limit: int | None = Field(default=None, ge=1)
+    max_in_flight_non_stream: int | None = Field(default=None, ge=1)
+    max_in_flight_stream: int | None = Field(default=None, ge=1)
+
+
+class ConfigProxyTargetExport(BaseModel):
+    target_model_id: str
+    position: int = Field(ge=0)
+
+
+class ConfigProxyTargetImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_model_id: str
+    position: int = Field(ge=0)
+
+
+class ConfigModelExport(BaseModel):
+    vendor_key: str
+    api_family: ApiFamily
+    model_id: str
+    display_name: str | None = None
+    model_type: Literal["native", "proxy"] = "native"
+    proxy_targets: list[ConfigProxyTargetExport] = Field(default_factory=list)
+    loadbalance_strategy_name: str | None = None
+    is_enabled: bool = True
+    connections: list[ConfigConnectionExport] = Field(default_factory=list)
+
+
+class ConfigModelImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_key: str
+    api_family: ApiFamily
+    model_id: str
+    display_name: str | None = None
+    model_type: Literal["native", "proxy"] = "native"
+    proxy_targets: list[ConfigProxyTargetImport] = Field(default_factory=list)
+    loadbalance_strategy_name: str | None = None
+    is_enabled: bool = True
+    connections: list[ConfigConnectionImport] = Field(default_factory=list)
+
+
+class ConfigEndpointFxRateExport(BaseModel):
+    model_id: str
+    endpoint_name: str
+    fx_rate: str
+
+
+class ConfigEndpointFxRateImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: str
+    endpoint_name: str
+    fx_rate: str
+
+
+class ConfigUserSettingsExport(BaseModel):
+    report_currency_code: str = "USD"
+    report_currency_symbol: str = "$"
+    timezone_preference: str | None = None
+    endpoint_fx_mappings: list[ConfigEndpointFxRateExport] = Field(default_factory=list)
+
+
+class ConfigUserSettingsImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    report_currency_code: str = "USD"
+    report_currency_symbol: str = "$"
+    timezone_preference: str | None = None
+    endpoint_fx_mappings: list[ConfigEndpointFxRateImport] = Field(default_factory=list)
+
+
+class ConfigSecretPayloadEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ref: str
+    ciphertext: str
+
+    @field_validator("ref", "ciphertext")
+    @classmethod
+    def validate_non_empty_value(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be empty")
+        return normalized
+
+
+class ConfigSecretPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["encrypted"] = "encrypted"
+    cipher: Literal["fernet-v1"] = "fernet-v1"
+    key_id: str
+    entries: list[ConfigSecretPayloadEntry] = Field(default_factory=list)
+
+    @field_validator("key_id")
+    @classmethod
+    def validate_key_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("key_id must not be empty")
+        return normalized
+
+
+class ConfigExportResponse(BaseModel):
+    version: Literal[2] = 2
+    bundle_kind: Literal["profile_config"] = "profile_config"
+    exported_at: datetime
+    vendor_refs: list[ConfigVendorRef] = Field(default_factory=list)
+    endpoints: list[ConfigEndpointExport]
+    pricing_templates: list[ConfigPricingTemplateExport]
+    loadbalance_strategies: list[ConfigLoadbalanceStrategyExport]
+    models: list[ConfigModelExport]
+    profile_settings: ConfigUserSettingsExport | None = None
+    header_blocklist_rules: list["HeaderBlocklistRuleExport"] = Field(
+        default_factory=list
+    )
+    secret_payload: ConfigSecretPayload
+
+
+class ConfigImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[2] = 2
+    bundle_kind: Literal["profile_config"] = "profile_config"
+    exported_at: datetime | None = None
+    vendor_refs: list[ConfigVendorRef] = Field(default_factory=list)
+    endpoints: list[ConfigEndpointImport]
+    pricing_templates: list[ConfigPricingTemplateImport]
+    loadbalance_strategies: list[ConfigLoadbalanceStrategyImport]
+    models: list[ConfigModelImport]
+    profile_settings: ConfigUserSettingsImport | None = None
+    header_blocklist_rules: list["HeaderBlocklistRuleExport"] = Field(
+        default_factory=list
+    )
+    secret_payload: ConfigSecretPayload
+
+
+class ConfigImportResponse(BaseModel):
+    endpoints_imported: int
+    pricing_templates_imported: int
+    strategies_imported: int
+    models_imported: int
+    connections_imported: int
+
+
+class ConfigImportVendorResolution(BaseModel):
+    vendor_key: str
+    resolution: Literal["reuse", "create"]
+    warning: str | None = None
+
+
+class ConfigImportPreviewResponse(BaseModel):
+    ready: bool
+    version: Literal[2] = 2
+    bundle_kind: Literal["profile_config"] = "profile_config"
+    endpoints_imported: int
+    pricing_templates_imported: int
+    strategies_imported: int
+    models_imported: int
+    connections_imported: int
+    vendor_resolutions: list[ConfigImportVendorResolution] = Field(default_factory=list)
+    secret_key_id: str
+    decryptable_secret_refs: list[str] = Field(default_factory=list)
+    blocking_errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ConfigVendorCatalogExportResponse(BaseModel):
+    version: Literal[2] = 2
+    bundle_kind: Literal["vendor_catalog"] = "vendor_catalog"
+    exported_at: datetime
+    vendors: list[ConfigVendorExport] = Field(default_factory=list)
+
+
+class ConfigVendorCatalogImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal[2] = 2
+    bundle_kind: Literal["vendor_catalog"] = "vendor_catalog"
+    exported_at: datetime | None = None
+    vendors: list[ConfigVendorImport] = Field(default_factory=list)
+
+
+class ConfigVendorCatalogImportPreviewResponse(BaseModel):
+    ready: bool
+    version: Literal[2] = 2
+    bundle_kind: Literal["vendor_catalog"] = "vendor_catalog"
+    create_count: int
+    update_count: int
+    blocking_errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ConfigVendorCatalogImportResponse(BaseModel):
+    created_count: int
+    updated_count: int
+
+
+# --- Audit Log Schemas ---
+
+
+class AuditLogListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    request_log_id: int | None
+    profile_id: int
+    vendor_id: int
+    model_id: str
+    endpoint_id: int | None = None
+    connection_id: int | None = None
+    endpoint_base_url: str | None = None
+    endpoint_description: str | None = None
+    request_method: str
+    request_url: str
+    request_headers: str
+    request_body_preview: str | None
+    response_status: int
+    is_stream: bool
+    duration_ms: int
+    created_at: datetime
+
+
+class AuditLogDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    request_log_id: int | None
+    profile_id: int
+    vendor_id: int
+    model_id: str
+    endpoint_id: int | None = None
+    connection_id: int | None = None
+    endpoint_base_url: str | None = None
+    endpoint_description: str | None = None
+    request_method: str
+    request_url: str
+    request_headers: str
+    request_body: str | None
+    response_status: int
+    response_headers: str | None
+    response_body: str | None
+    is_stream: bool
+    duration_ms: int
+    created_at: datetime
+
+
+class AuditLogListResponse(BaseModel):
+    items: list[AuditLogListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class AuditLogDeleteResponse(BaseModel):
+    accepted: bool
+
+
+# --- Batch Delete Schemas ---
+
+
+class BatchDeleteResponse(BaseModel):
+    accepted: bool
+
+
+# --- Header Blocklist Rule Schemas ---
+
+
+class HeaderBlocklistRuleCreate(BaseModel):
+    name: str
+    match_type: str
+    pattern: str
+    enabled: bool = True
+
+    @field_validator("match_type")
+    @classmethod
+    def validate_match_type(cls, v: str) -> str:
+        if v not in ("exact", "prefix"):
+            raise ValueError("match_type must be 'exact' or 'prefix'")
+        return v
+
+    @field_validator("pattern")
+    @classmethod
+    def validate_pattern(cls, v: str, info) -> str:
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("pattern must not be empty")
+        if not _HEADER_TOKEN_RE.match(v):
+            raise ValueError(
+                "pattern must contain only lowercase alphanumeric characters and hyphens, "
+                "and must start with an alphanumeric character"
+            )
+        return v
+
+    @field_validator("pattern")
+    @classmethod
+    def validate_prefix_ends_with_dash(cls, v: str, info) -> str:
+        match_type = info.data.get("match_type")
+        if match_type == "prefix" and not v.endswith("-"):
+            raise ValueError("prefix pattern must end with '-'")
+        return v
+
+
+class HeaderBlocklistRuleUpdate(BaseModel):
+    name: str | None = None
+    match_type: str | None = None
+    pattern: str | None = None
+    enabled: bool | None = None
+
+    @field_validator("match_type")
+    @classmethod
+    def validate_match_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("exact", "prefix"):
+            raise ValueError("match_type must be 'exact' or 'prefix'")
+        return v
+
+    @field_validator("pattern")
+    @classmethod
+    def validate_pattern(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("pattern must not be empty")
+        if not _HEADER_TOKEN_RE.match(v):
+            raise ValueError(
+                "pattern must contain only lowercase alphanumeric characters and hyphens, "
+                "and must start with an alphanumeric character"
+            )
+        return v
+
+
+class HeaderBlocklistRuleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    match_type: str
+    pattern: str
+    enabled: bool
+    is_system: bool
+    profile_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class HeaderBlocklistRuleExport(HeaderBlocklistRuleCreate):
+    pass
+
+
+class ConnectionDropdownItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    endpoint_id: int
+    name: str | None
+
+
+class ConnectionDropdownResponse(BaseModel):
+    items: list[ConnectionDropdownItem]

@@ -1,0 +1,552 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Any, Literal, cast
+
+from app.core.config import get_settings
+from app.services.proxy_support.constants import DEFAULT_FAILOVER_STATUS_CODES
+
+BanMode = Literal["off", "temporary", "manual"]
+LoadbalanceStrategyType = Literal["legacy", "adaptive"]
+LegacyStrategyType = Literal["single", "fill-first", "round-robin"]
+RoutingObjective = Literal["minimize_latency", "maximize_availability"]
+
+_DEFAULT_DEADLINE_BUDGET_MS = 30_000
+_DEFAULT_HEDGE_DELAY_MS = 1_500
+_DEFAULT_MAX_ADDITIONAL_ATTEMPTS = 1
+
+
+@dataclass(slots=True, frozen=True)
+class EffectiveLoadbalancePolicy:
+    strategy_type: LoadbalanceStrategyType
+    legacy_strategy_type: LegacyStrategyType | None
+    routing_objective: RoutingObjective
+    deadline_budget_ms: int
+    hedge_enabled: bool
+    hedge_delay_ms: int
+    max_additional_attempts: int
+    failover_recovery_enabled: bool
+    failover_status_codes: tuple[int, ...]
+    failover_cooldown_seconds: float
+    failover_failure_threshold: int
+    failover_backoff_multiplier: float
+    failover_max_cooldown_seconds: int
+    failover_jitter_ratio: float
+    failover_ban_mode: BanMode
+    failover_max_cooldown_strikes_before_ban: int
+    failover_ban_duration_seconds: int
+    admission_respect_qps_limit: bool
+    admission_respect_in_flight_limits: bool
+
+    @property
+    def kind(self) -> str:
+        return self.strategy_type
+
+
+def _resolve_bool(value: object, *, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _resolve_int(value: object, *, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _resolve_float(value: object, *, default: float) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return default
+
+
+def _resolve_ban_mode(value: object, *, default: BanMode) -> BanMode:
+    if value == "off":
+        return "off"
+    if value == "temporary":
+        return "temporary"
+    if value == "manual":
+        return "manual"
+    return default
+
+
+def _resolve_strategy_type(strategy: object) -> LoadbalanceStrategyType:
+    explicit = getattr(strategy, "strategy_type", None)
+    if explicit == "legacy":
+        return "legacy"
+    if explicit == "adaptive":
+        return "adaptive"
+    if getattr(strategy, "routing_policy", None) is not None:
+        return "adaptive"
+    raise ValueError("strategy_type must be one of 'legacy' or 'adaptive'")
+
+
+def _resolve_legacy_strategy_type(value: object) -> LegacyStrategyType:
+    if value == "round-robin":
+        return "round-robin"
+    if value == "fill-first":
+        return "fill-first"
+    if value == "single":
+        return "single"
+    raise ValueError(
+        "legacy_strategy_type must be one of 'single', 'fill-first', or 'round-robin'"
+    )
+
+
+def _resolve_routing_objective(
+    value: object,
+    *,
+    default: RoutingObjective,
+) -> RoutingObjective:
+    if value == "maximize_availability":
+        return "maximize_availability"
+    return default
+
+
+def _get_object_member(value: object, key: str, default: object = None) -> object:
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def normalize_failover_status_codes(value: object) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        raise ValueError("failover_status_codes must be a list of HTTP status codes")
+
+    items = list(value)
+    normalized: set[int] = set()
+    for item in items:
+        if not isinstance(item, int) or isinstance(item, bool):
+            raise ValueError("failover_status_codes must contain integers only")
+        if item < 100 or item > 599:
+            raise ValueError(
+                "failover_status_codes must contain valid HTTP status codes"
+            )
+        normalized.add(item)
+
+    if len(normalized) != len(items):
+        raise ValueError("failover_status_codes must not contain duplicates")
+    if not normalized:
+        raise ValueError("failover_status_codes must contain at least one status code")
+
+    return tuple(sorted(normalized))
+
+
+def _resolve_status_codes(value: object) -> tuple[int, ...]:
+    if value is None:
+        return tuple(DEFAULT_FAILOVER_STATUS_CODES)
+    return normalize_failover_status_codes(value)
+
+
+def validate_strategy_ban_policy(
+    *,
+    ban_mode: BanMode,
+    max_open_strikes_before_ban: int,
+    ban_duration_seconds: int,
+) -> None:
+    if ban_mode == "off":
+        if max_open_strikes_before_ban != 0:
+            raise ValueError(
+                "failover_ban_mode='off' requires failover_max_cooldown_strikes_before_ban=0"
+            )
+        if ban_duration_seconds != 0:
+            raise ValueError(
+                "failover_ban_mode='off' requires failover_ban_duration_seconds=0"
+            )
+        return
+
+    if max_open_strikes_before_ban < 1:
+        raise ValueError(
+            "failover_ban_mode requires failover_max_cooldown_strikes_before_ban >= 1"
+        )
+
+    if ban_mode == "temporary":
+        if ban_duration_seconds < 1:
+            raise ValueError(
+                "failover_ban_mode='temporary' requires failover_ban_duration_seconds >= 1"
+            )
+        return
+
+    if ban_duration_seconds != 0:
+        raise ValueError(
+            "failover_ban_mode='manual' requires failover_ban_duration_seconds=0"
+        )
+
+
+def canonicalize_auto_recovery_document(
+    auto_recovery: object | None,
+) -> dict[str, object]:
+    if auto_recovery is None:
+        raise ValueError("auto_recovery is required for legacy strategies")
+    mode = _get_object_member(auto_recovery, "mode", "enabled")
+    if mode == "disabled":
+        return {"mode": "disabled"}
+
+    settings = get_settings()
+    cooldown = _get_object_member(auto_recovery, "cooldown", {})
+    ban = _get_object_member(auto_recovery, "ban", {})
+    normalized_ban_mode = _resolve_ban_mode(
+        _get_object_member(ban, "mode", None),
+        default="off",
+    )
+    max_open_strikes_before_ban = _resolve_int(
+        _get_object_member(ban, "max_cooldown_strikes_before_ban", None),
+        default=0,
+    )
+    ban_duration_seconds = _resolve_int(
+        _get_object_member(ban, "ban_duration_seconds", None),
+        default=0,
+    )
+    validate_strategy_ban_policy(
+        ban_mode=normalized_ban_mode,
+        max_open_strikes_before_ban=max_open_strikes_before_ban,
+        ban_duration_seconds=ban_duration_seconds,
+    )
+
+    return {
+        "mode": "enabled",
+        "status_codes": list(
+            _resolve_status_codes(
+                _get_object_member(auto_recovery, "status_codes", None)
+            )
+        ),
+        "cooldown": {
+            "base_seconds": _resolve_int(
+                _get_object_member(cooldown, "base_seconds", None),
+                default=settings.failover_cooldown_seconds,
+            ),
+            "failure_threshold": _resolve_int(
+                _get_object_member(cooldown, "failure_threshold", None),
+                default=settings.failover_failure_threshold,
+            ),
+            "backoff_multiplier": _resolve_float(
+                _get_object_member(cooldown, "backoff_multiplier", None),
+                default=settings.failover_backoff_multiplier,
+            ),
+            "max_cooldown_seconds": _resolve_int(
+                _get_object_member(cooldown, "max_cooldown_seconds", None),
+                default=settings.failover_max_cooldown_seconds,
+            ),
+            "jitter_ratio": _resolve_float(
+                _get_object_member(cooldown, "jitter_ratio", None),
+                default=settings.failover_jitter_ratio,
+            ),
+        },
+        "ban": {
+            "mode": normalized_ban_mode,
+            "max_cooldown_strikes_before_ban": (
+                max_open_strikes_before_ban
+                if normalized_ban_mode in {"manual", "temporary"}
+                else 0
+            ),
+            "ban_duration_seconds": (
+                ban_duration_seconds if normalized_ban_mode == "temporary" else 0
+            ),
+        },
+    }
+
+
+def canonicalize_routing_policy_document(
+    routing_policy: object | None,
+) -> dict[str, object]:
+    routing_policy = {} if routing_policy is None else routing_policy
+
+    settings = get_settings()
+    hedge = _get_object_member(routing_policy, "hedge", {})
+    circuit_breaker = _get_object_member(routing_policy, "circuit_breaker", {})
+    admission = _get_object_member(routing_policy, "admission", {})
+    normalized_ban_mode = _resolve_ban_mode(
+        _get_object_member(circuit_breaker, "ban_mode", None),
+        default="off",
+    )
+    max_open_strikes_before_ban = _resolve_int(
+        _get_object_member(circuit_breaker, "max_open_strikes_before_ban", None),
+        default=0,
+    )
+    ban_duration_seconds = _resolve_int(
+        _get_object_member(circuit_breaker, "ban_duration_seconds", None),
+        default=0,
+    )
+    validate_strategy_ban_policy(
+        ban_mode=normalized_ban_mode,
+        max_open_strikes_before_ban=max_open_strikes_before_ban,
+        ban_duration_seconds=ban_duration_seconds,
+    )
+
+    return {
+        "kind": "adaptive",
+        "routing_objective": _resolve_routing_objective(
+            _get_object_member(routing_policy, "routing_objective", None),
+            default="minimize_latency",
+        ),
+        "deadline_budget_ms": _resolve_int(
+            _get_object_member(routing_policy, "deadline_budget_ms", None),
+            default=_DEFAULT_DEADLINE_BUDGET_MS,
+        ),
+        "hedge": {
+            "enabled": _resolve_bool(
+                _get_object_member(hedge, "enabled", None),
+                default=False,
+            ),
+            "delay_ms": _resolve_int(
+                _get_object_member(hedge, "delay_ms", None),
+                default=_DEFAULT_HEDGE_DELAY_MS,
+            ),
+            "max_additional_attempts": _resolve_int(
+                _get_object_member(hedge, "max_additional_attempts", None),
+                default=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
+            ),
+        },
+        "circuit_breaker": {
+            "failure_status_codes": list(
+                _resolve_status_codes(
+                    _get_object_member(circuit_breaker, "failure_status_codes", None)
+                )
+            ),
+            "base_open_seconds": _resolve_int(
+                _get_object_member(circuit_breaker, "base_open_seconds", None),
+                default=settings.failover_cooldown_seconds,
+            ),
+            "failure_threshold": _resolve_int(
+                _get_object_member(circuit_breaker, "failure_threshold", None),
+                default=settings.failover_failure_threshold,
+            ),
+            "backoff_multiplier": _resolve_float(
+                _get_object_member(circuit_breaker, "backoff_multiplier", None),
+                default=settings.failover_backoff_multiplier,
+            ),
+            "max_open_seconds": _resolve_int(
+                _get_object_member(circuit_breaker, "max_open_seconds", None),
+                default=settings.failover_max_cooldown_seconds,
+            ),
+            "jitter_ratio": _resolve_float(
+                _get_object_member(circuit_breaker, "jitter_ratio", None),
+                default=settings.failover_jitter_ratio,
+            ),
+            "ban_mode": normalized_ban_mode,
+            "max_open_strikes_before_ban": max_open_strikes_before_ban,
+            "ban_duration_seconds": ban_duration_seconds,
+        },
+        "admission": {
+            "respect_qps_limit": _resolve_bool(
+                _get_object_member(admission, "respect_qps_limit", None),
+                default=True,
+            ),
+            "respect_in_flight_limits": _resolve_bool(
+                _get_object_member(admission, "respect_in_flight_limits", None),
+                default=True,
+            ),
+        },
+    }
+
+
+def serialize_auto_recovery(policy: EffectiveLoadbalancePolicy) -> dict[str, object]:
+    if policy.strategy_type != "legacy":
+        raise ValueError("auto_recovery is only available for legacy strategies")
+    if not policy.failover_recovery_enabled:
+        return {"mode": "disabled"}
+
+    return {
+        "mode": "enabled",
+        "status_codes": list(policy.failover_status_codes),
+        "cooldown": {
+            "base_seconds": int(policy.failover_cooldown_seconds),
+            "failure_threshold": policy.failover_failure_threshold,
+            "backoff_multiplier": policy.failover_backoff_multiplier,
+            "max_cooldown_seconds": policy.failover_max_cooldown_seconds,
+            "jitter_ratio": policy.failover_jitter_ratio,
+        },
+        "ban": {
+            "mode": policy.failover_ban_mode,
+            "max_cooldown_strikes_before_ban": (
+                policy.failover_max_cooldown_strikes_before_ban
+                if policy.failover_ban_mode in {"manual", "temporary"}
+                else 0
+            ),
+            "ban_duration_seconds": (
+                policy.failover_ban_duration_seconds
+                if policy.failover_ban_mode == "temporary"
+                else 0
+            ),
+        },
+    }
+
+
+def serialize_routing_policy(policy: EffectiveLoadbalancePolicy) -> dict[str, object]:
+    return {
+        "kind": "adaptive",
+        "routing_objective": policy.routing_objective,
+        "deadline_budget_ms": policy.deadline_budget_ms,
+        "hedge": {
+            "enabled": policy.hedge_enabled,
+            "delay_ms": policy.hedge_delay_ms,
+            "max_additional_attempts": policy.max_additional_attempts,
+        },
+        "circuit_breaker": {
+            "failure_status_codes": list(policy.failover_status_codes),
+            "base_open_seconds": int(policy.failover_cooldown_seconds),
+            "failure_threshold": policy.failover_failure_threshold,
+            "backoff_multiplier": policy.failover_backoff_multiplier,
+            "max_open_seconds": policy.failover_max_cooldown_seconds,
+            "jitter_ratio": policy.failover_jitter_ratio,
+            "ban_mode": policy.failover_ban_mode,
+            "max_open_strikes_before_ban": policy.failover_max_cooldown_strikes_before_ban,
+            "ban_duration_seconds": policy.failover_ban_duration_seconds,
+        },
+        "admission": {
+            "respect_qps_limit": policy.admission_respect_qps_limit,
+            "respect_in_flight_limits": policy.admission_respect_in_flight_limits,
+        },
+    }
+
+
+def _build_legacy_policy(
+    auto_recovery: dict[str, object], strategy: object
+) -> EffectiveLoadbalancePolicy:
+    settings = get_settings()
+    legacy_strategy_type = _resolve_legacy_strategy_type(
+        getattr(strategy, "legacy_strategy_type", None)
+    )
+    if auto_recovery.get("mode") == "disabled":
+        return EffectiveLoadbalancePolicy(
+            strategy_type="legacy",
+            legacy_strategy_type=legacy_strategy_type,
+            routing_objective="minimize_latency",
+            deadline_budget_ms=_DEFAULT_DEADLINE_BUDGET_MS,
+            hedge_enabled=False,
+            hedge_delay_ms=_DEFAULT_HEDGE_DELAY_MS,
+            max_additional_attempts=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
+            failover_recovery_enabled=False,
+            failover_status_codes=tuple(DEFAULT_FAILOVER_STATUS_CODES),
+            failover_cooldown_seconds=float(settings.failover_cooldown_seconds),
+            failover_failure_threshold=settings.failover_failure_threshold,
+            failover_backoff_multiplier=settings.failover_backoff_multiplier,
+            failover_max_cooldown_seconds=settings.failover_max_cooldown_seconds,
+            failover_jitter_ratio=settings.failover_jitter_ratio,
+            failover_ban_mode="off",
+            failover_max_cooldown_strikes_before_ban=0,
+            failover_ban_duration_seconds=0,
+            admission_respect_qps_limit=True,
+            admission_respect_in_flight_limits=True,
+        )
+
+    cooldown = cast(dict[str, Any], auto_recovery["cooldown"])
+    ban = cast(dict[str, Any], auto_recovery["ban"])
+    return EffectiveLoadbalancePolicy(
+        strategy_type="legacy",
+        legacy_strategy_type=legacy_strategy_type,
+        routing_objective="minimize_latency",
+        deadline_budget_ms=_DEFAULT_DEADLINE_BUDGET_MS,
+        hedge_enabled=False,
+        hedge_delay_ms=_DEFAULT_HEDGE_DELAY_MS,
+        max_additional_attempts=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
+        failover_recovery_enabled=True,
+        failover_status_codes=tuple(cast(list[int], auto_recovery["status_codes"])),
+        failover_cooldown_seconds=float(cooldown["base_seconds"]),
+        failover_failure_threshold=cast(int, cooldown["failure_threshold"]),
+        failover_backoff_multiplier=float(cooldown["backoff_multiplier"]),
+        failover_max_cooldown_seconds=cast(int, cooldown["max_cooldown_seconds"]),
+        failover_jitter_ratio=float(cooldown["jitter_ratio"]),
+        failover_ban_mode=cast(BanMode, ban["mode"]),
+        failover_max_cooldown_strikes_before_ban=cast(
+            int,
+            ban.get("max_cooldown_strikes_before_ban", 0),
+        ),
+        failover_ban_duration_seconds=cast(int, ban.get("ban_duration_seconds", 0)),
+        admission_respect_qps_limit=True,
+        admission_respect_in_flight_limits=True,
+    )
+
+
+def resolve_effective_loadbalance_policy(
+    strategy: object,
+) -> EffectiveLoadbalancePolicy:
+    strategy_type = _resolve_strategy_type(strategy)
+    if strategy_type == "legacy":
+        auto_recovery = canonicalize_auto_recovery_document(
+            getattr(strategy, "auto_recovery", None)
+        )
+        return _build_legacy_policy(auto_recovery, strategy)
+
+    routing_policy = canonicalize_routing_policy_document(
+        getattr(strategy, "routing_policy", None)
+    )
+    hedge = cast(dict[str, Any], routing_policy["hedge"])
+    circuit_breaker = cast(dict[str, Any], routing_policy["circuit_breaker"])
+    admission = cast(dict[str, Any], routing_policy["admission"])
+
+    return EffectiveLoadbalancePolicy(
+        strategy_type="adaptive",
+        legacy_strategy_type=None,
+        routing_objective=cast(RoutingObjective, routing_policy["routing_objective"]),
+        deadline_budget_ms=cast(int, routing_policy["deadline_budget_ms"]),
+        hedge_enabled=cast(bool, hedge["enabled"]),
+        hedge_delay_ms=cast(int, hedge["delay_ms"]),
+        max_additional_attempts=cast(int, hedge["max_additional_attempts"]),
+        failover_recovery_enabled=True,
+        failover_status_codes=tuple(
+            cast(list[int], circuit_breaker["failure_status_codes"])
+        ),
+        failover_cooldown_seconds=float(circuit_breaker["base_open_seconds"]),
+        failover_failure_threshold=cast(int, circuit_breaker["failure_threshold"]),
+        failover_backoff_multiplier=float(circuit_breaker["backoff_multiplier"]),
+        failover_max_cooldown_seconds=cast(int, circuit_breaker["max_open_seconds"]),
+        failover_jitter_ratio=float(circuit_breaker["jitter_ratio"]),
+        failover_ban_mode=cast(BanMode, circuit_breaker["ban_mode"]),
+        failover_max_cooldown_strikes_before_ban=cast(
+            int,
+            circuit_breaker["max_open_strikes_before_ban"],
+        ),
+        failover_ban_duration_seconds=cast(
+            int,
+            circuit_breaker["ban_duration_seconds"],
+        ),
+        admission_respect_qps_limit=cast(bool, admission["respect_qps_limit"]),
+        admission_respect_in_flight_limits=cast(
+            bool,
+            admission["respect_in_flight_limits"],
+        ),
+    )
+
+
+def build_default_auto_recovery_document() -> dict[str, object]:
+    return canonicalize_auto_recovery_document({"mode": "enabled"})
+
+
+def build_default_routing_policy_document() -> dict[str, object]:
+    return canonicalize_routing_policy_document(
+        SimpleNamespace(
+            kind="adaptive",
+            routing_objective="minimize_latency",
+            deadline_budget_ms=_DEFAULT_DEADLINE_BUDGET_MS,
+            hedge={
+                "enabled": False,
+                "delay_ms": _DEFAULT_HEDGE_DELAY_MS,
+                "max_additional_attempts": _DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
+            },
+            circuit_breaker={
+                "failure_status_codes": list(DEFAULT_FAILOVER_STATUS_CODES),
+                "ban_mode": "off",
+            },
+            admission={
+                "respect_qps_limit": True,
+                "respect_in_flight_limits": True,
+            },
+        )
+    )
+
+
+__all__ = [
+    "BanMode",
+    "build_default_auto_recovery_document",
+    "build_default_routing_policy_document",
+    "canonicalize_auto_recovery_document",
+    "canonicalize_routing_policy_document",
+    "EffectiveLoadbalancePolicy",
+    "LegacyStrategyType",
+    "LoadbalanceStrategyType",
+    "normalize_failover_status_codes",
+    "resolve_effective_loadbalance_policy",
+    "RoutingObjective",
+    "serialize_auto_recovery",
+    "serialize_routing_policy",
+    "validate_strategy_ban_policy",
+]

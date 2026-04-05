@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.db
+.env
+.git
+.vite
+
+# Virtual environments
+backend/.venv/
+backend/venv/
+
+# Ruff
+.ruff_cache
+.ruff_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Sisyphus agent state
+.sisyphus/
+!.sisyphus/
+.sisyphus/*.md
+!.sisyphus/plans/
+.sisyphus/plans/*
+!.sisyphus/plans/2026-04-04-frontend-autofill-semantics.md
+!.sisyphus/plans/2026-04-05-settings-statistics-cleanup.md
+.pytest_cache/
+
+# AI Agents
+.opencode/
+.playwright-mcp
