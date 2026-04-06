@@ -359,8 +359,8 @@ class AuditLog(Base):
         unique=True,
         index=True,
     )
-    vendor_id: Mapped[int] = mapped_column(
-        ForeignKey("vendors.id"), nullable=False, index=True
+    vendor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True, index=True
     )
     model_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     endpoint_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -604,7 +604,7 @@ class LoadbalanceEvent(Base):
     model_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     endpoint_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     vendor_id: Mapped[int | None] = mapped_column(
-        ForeignKey("vendors.id"), nullable=True
+        ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True
     )
     failure_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
     backoff_multiplier: Mapped[float | None] = mapped_column(

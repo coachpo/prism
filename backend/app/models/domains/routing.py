@@ -120,7 +120,9 @@ class ModelConfig(Base):
     profile_id: Mapped[int] = mapped_column(
         ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    vendor_id: Mapped[int] = mapped_column(ForeignKey("vendors.id"), nullable=False)
+    vendor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True
+    )
     api_family: Mapped[str] = mapped_column(String(50), nullable=False)
     model_id: Mapped[str] = mapped_column(String(200), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
