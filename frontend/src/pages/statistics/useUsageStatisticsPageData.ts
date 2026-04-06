@@ -337,3 +337,5 @@ export function useUsageStatisticsPageData({
     tokenUsageTrendSeries,
   };
 }
+
+export type UsageStatisticsPageDataResult = ReturnType<typeof useUsageStatisticsPageData>;

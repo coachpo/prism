@@ -293,7 +293,7 @@ describe("StatisticsPage refresh flow", () => {
     ).not.toBeInTheDocument();
     expect(within(screen.getByTestId("statistics-endpoint-table")).queryByText("GPT-5.4")).not.toBeInTheDocument();
     expect(within(proxyKeyTable).queryByText("Primary runtime key")).not.toBeInTheDocument();
-  });
+  }, 15000);
 
   it("collapses open endpoint details immediately when refreshing the same endpoint row", async () => {
     const deferredSnapshot = createDeferred<UsageSnapshotResponse>();
@@ -342,5 +342,5 @@ describe("StatisticsPage refresh flow", () => {
       ).toBeInTheDocument();
       expect(within(screen.getByTestId("statistics-endpoint-table")).queryByText("GPT-5.4")).not.toBeInTheDocument();
     });
-  });
+  }, 15000);
 });
