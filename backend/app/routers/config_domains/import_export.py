@@ -92,6 +92,9 @@ async def import_profile_config(
     return result.response
 
 
+import_config = import_profile_config
+
+
 @router.get("/vendors/export", response_model=ConfigVendorCatalogExportResponse)
 async def export_vendor_catalog(
     db: Annotated[AsyncSession, Depends(get_db)],

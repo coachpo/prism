@@ -296,6 +296,110 @@ class TestProxyUpstreamUrlComposition:
             == "https://api.example.com/v1/chat/completions?foo=bar&baz=qux"
         )
 
+    @pytest.mark.asyncio
+    async def test_prepare_proxy_request_allows_vendorless_models_and_keeps_vendor_identity_null(
+        self,
+    ):
+        from fastapi import FastAPI
+        from starlette.requests import Request
+
+        from app.routers.proxy_domains.request_setup import prepare_proxy_request
+
+        app = FastAPI()
+        app.state.http_client = object()
+        request = Request(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "POST",
+                "path": "/v1/chat/completions",
+                "raw_path": b"/v1/chat/completions",
+                "query_string": b"",
+                "headers": [
+                    (b"host", b"testserver"),
+                    (b"content-type", b"application/json"),
+                ],
+                "client": ("testclient", 50000),
+                "server": ("testserver", 80),
+                "scheme": "http",
+                "app": app,
+            }
+        )
+
+        raw_body = json.dumps(
+            {
+                "model": "vendorless-model",
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+        ).encode("utf-8")
+
+        strategy = SimpleNamespace(
+            strategy_type="legacy",
+            legacy_strategy_type="single",
+            auto_recovery={"mode": "disabled"},
+        )
+        connection = SimpleNamespace(endpoint_id=501)
+        resolved_model_config = SimpleNamespace(
+            vendor=None,
+            api_family="openai",
+            model_id="vendorless-model",
+            loadbalance_strategy=strategy,
+        )
+        requested_model_config = SimpleNamespace(
+            vendor=None,
+            api_family="openai",
+            model_id="vendorless-model",
+            is_enabled=True,
+        )
+
+        mock_requested_model_result = MagicMock()
+        mock_requested_model_result.scalars.return_value.one_or_none.return_value = (
+            requested_model_config
+        )
+        mock_rules_result = MagicMock()
+        mock_rules_result.scalars.return_value.all.return_value = []
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(
+            side_effect=[mock_requested_model_result, mock_rules_result]
+        )
+
+        with (
+            patch(
+                "app.routers.proxy_domains.request_setup.get_model_config_with_connections",
+                AsyncMock(return_value=resolved_model_config),
+            ),
+            patch(
+                "app.routers.proxy_domains.request_setup.build_attempt_plan",
+                AsyncMock(
+                    return_value=SimpleNamespace(
+                        connections=[connection], probe_eligible_connection_ids=[]
+                    )
+                ),
+            ),
+            patch(
+                "app.routers.proxy_domains.request_setup.load_costing_settings",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "app.routers.proxy_domains.request_setup.compute_cost_fields",
+                return_value={},
+            ),
+        ):
+            setup = await prepare_proxy_request(
+                request=request,
+                db=mock_db,
+                raw_body=raw_body,
+                request_path="/v1/chat/completions",
+                profile_id=1,
+            )
+
+        assert setup.api_family == "openai"
+        assert setup.vendor_id is None
+        assert setup.vendor_key is None
+        assert setup.vendor_name is None
+        assert setup.audit_enabled is False
+        assert setup.audit_capture_bodies is False
+
 
 class TestDEF005_GeminiPathModelRewrite:
     """DEF-005 (P0): proxy must rewrite model ID in Gemini-style URL paths."""

@@ -72,7 +72,7 @@ class ProxyRequestSetup:
     model_id: str
     request_deadline_at_monotonic: float
     resolved_target_model_id: str
-    vendor_id: int
+    vendor_id: int | None
     vendor_key: str | None
     vendor_name: str | None
     api_family: str
@@ -94,7 +94,7 @@ class ProxyRoutingRejection(Exception):
     model_id: str
     proxy_api_key_id: int | None
     proxy_api_key_name: str | None
-    vendor_id: int
+    vendor_id: int | None
     vendor_key: str | None
     vendor_name: str | None
 
@@ -153,16 +153,11 @@ async def prepare_proxy_request(
         model_config = await get_model_config_with_connections(db, profile_id, model_id)
     except ProxyTargetsUnroutableError as exc:
         requested_vendor = cast(
-            Vendor,
-            getattr(requested_model_config, "vendor", None),
+            Vendor | None, getattr(requested_model_config, "vendor", None)
         )
-        if requested_vendor is None:
-            raise HTTPException(
-                status_code=500, detail="Model vendor metadata is missing"
-            ) from exc
-
         raw_vendor_key = getattr(requested_vendor, "key", None)
         raw_vendor_name = getattr(requested_vendor, "name", None)
+        raw_vendor_id = getattr(requested_vendor, "id", None)
         raise ProxyRoutingRejection(
             api_family=requested_model_config.api_family,
             detail=str(exc),
@@ -171,7 +166,7 @@ async def prepare_proxy_request(
             model_id=model_id,
             proxy_api_key_id=proxy_api_key_id,
             proxy_api_key_name=proxy_api_key_name,
-            vendor_id=requested_vendor.id,
+            vendor_id=raw_vendor_id if isinstance(raw_vendor_id, int) else None,
             vendor_key=raw_vendor_key if isinstance(raw_vendor_key, str) else None,
             vendor_name=raw_vendor_name if isinstance(raw_vendor_name, str) else None,
         ) from exc
@@ -181,33 +176,27 @@ async def prepare_proxy_request(
             status_code=404, detail=f"Model '{model_id}' not configured or disabled"
         )
 
-    request_metadata_model = model_config
-    requested_vendor = getattr(requested_model_config, "vendor", None)
-    requested_vendor_id = getattr(requested_vendor, "id", None)
+    requested_vendor = cast(
+        Vendor | None, getattr(requested_model_config, "vendor", None)
+    )
+    raw_vendor_id = getattr(requested_vendor, "id", None)
+    raw_vendor_key = getattr(requested_vendor, "key", None)
+    raw_vendor_name = getattr(requested_vendor, "name", None)
     requested_audit_enabled = getattr(requested_vendor, "audit_enabled", None)
     requested_audit_capture_bodies = getattr(
         requested_vendor, "audit_capture_bodies", None
     )
-    if (
-        isinstance(requested_vendor_id, int)
-        and isinstance(requested_audit_enabled, bool)
-        and isinstance(requested_audit_capture_bodies, bool)
-    ):
-        request_metadata_model = requested_model_config
-
-    vendor = cast(
-        Vendor,
-        getattr(request_metadata_model, "vendor", None),
-    )
-    if vendor is None:
-        raise HTTPException(status_code=500, detail="Model vendor metadata is missing")
     api_family = model_config.api_family
     validate_api_family_path_compatibility(api_family, request_path)
-    audit_enabled = vendor.audit_enabled
-    audit_capture_bodies = vendor.audit_capture_bodies
-    vendor_id = vendor.id
-    raw_vendor_key = getattr(vendor, "key", None)
-    raw_vendor_name = getattr(vendor, "name", None)
+    audit_enabled = (
+        requested_audit_enabled if isinstance(requested_audit_enabled, bool) else False
+    )
+    audit_capture_bodies = (
+        requested_audit_capture_bodies
+        if isinstance(requested_audit_capture_bodies, bool)
+        else False
+    )
+    vendor_id = raw_vendor_id if isinstance(raw_vendor_id, int) else None
     vendor_key = raw_vendor_key if isinstance(raw_vendor_key, str) else None
     vendor_name = raw_vendor_name if isinstance(raw_vendor_name, str) else None
     app = cast(_RequestAppWithClientState, request.app)

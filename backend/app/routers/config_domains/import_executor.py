@@ -522,7 +522,9 @@ async def execute_import_payload(
         is_proxy = model.model_type == "proxy"
         model_config = ModelConfig(
             id=model_config_id_allocator.take(),
-            vendor_id=vendor_map[model.vendor_key],
+            vendor_id=(
+                vendor_map[model.vendor_key] if model.vendor_key is not None else None
+            ),
             profile_id=profile_id,
             api_family=model.api_family,
             model_id=model.model_id,

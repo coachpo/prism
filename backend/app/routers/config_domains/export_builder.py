@@ -131,7 +131,9 @@ async def build_export_payload(
         .all()
     )
 
-    vendor_ids = {model.vendor_id for model in model_configs}
+    vendor_ids = {
+        model.vendor_id for model in model_configs if model.vendor_id is not None
+    }
     vendors_by_id: dict[int, Vendor] = {}
     if vendor_ids:
         vendors = (
@@ -271,7 +273,11 @@ async def build_export_payload(
             )
         exported_models.append(
             ConfigModelExport(
-                vendor_key=vendors_by_id[model.vendor_id].key,
+                vendor_key=(
+                    vendors_by_id[model.vendor_id].key
+                    if model.vendor_id is not None
+                    else None
+                ),
                 api_family=cast(
                     Literal["openai", "anthropic", "gemini"], model.api_family
                 ),

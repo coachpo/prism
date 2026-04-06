@@ -206,7 +206,7 @@ def validate_import_payload(data: ConfigImportRequest) -> None:
                 detail=f"Unknown api family: '{model.api_family}'",
             )
 
-        if model.vendor_key not in vendor_keys_in_file:
+        if model.vendor_key is not None and model.vendor_key not in vendor_keys_in_file:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown vendor key: '{model.vendor_key}'",

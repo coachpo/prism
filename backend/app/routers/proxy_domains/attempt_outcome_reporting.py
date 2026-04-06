@@ -310,7 +310,7 @@ class StreamFinalizationSnapshot:
     profile_id: int
     proxy_api_key_id: int | None
     proxy_api_key_name_snapshot: str | None
-    vendor_id: int
+    vendor_id: int | None
     vendor_key: str | None
     vendor_name: str | None
     provider_correlation_id: str | None
@@ -513,9 +513,7 @@ async def _finalize_stream_observability(
     try:
         await _persist_stream_usage_request_event(snapshot)
     except asyncio.CancelledError:
-        logger.debug(
-            "Streaming usage-event finalization cancelled before completion"
-        )
+        logger.debug("Streaming usage-event finalization cancelled before completion")
         raise
     except Exception:
         logger.exception("Failed to log final usage request event")
