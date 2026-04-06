@@ -16,7 +16,8 @@ export function useEndpointsPageData() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<Endpoint | null>(null);
   const [duplicatingEndpointId, setDuplicatingEndpointId] = useState<number | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Endpoint | null>(null);
+  const [deleteTarget, setDeleteTargetState] = useState<Endpoint | null>(null);
+  const [deleteDialogTarget, setDeleteDialogTarget] = useState<Endpoint | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const { revision } = useProfileContext();
@@ -53,6 +54,14 @@ export function useEndpointsPageData() {
     setEndpoints,
     filtersActive: hasActiveReviewFilters,
   });
+
+  const setDeleteTarget = (target: Endpoint | null) => {
+    if (target) {
+      setDeleteDialogTarget(target);
+    }
+
+    setDeleteTargetState(target);
+  };
 
   const handleCreate = async (values: EndpointFormValues) => {
     const messages = getStaticMessages();
@@ -150,6 +159,7 @@ export function useEndpointsPageData() {
 
   return {
     deleteTarget,
+    deleteDialogTarget,
     duplicatingEndpointId,
     editingEndpoint,
     endpointModels,

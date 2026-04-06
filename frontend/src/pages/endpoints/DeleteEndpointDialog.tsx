@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import type { Endpoint } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
@@ -13,6 +12,7 @@ import {
 
 interface DeleteEndpointDialogProps {
   deleteTarget: Endpoint | null;
+  displayTarget?: Endpoint | null;
   isDeletingEndpoint: boolean;
   onConfirm: (id: number) => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
@@ -20,20 +20,13 @@ interface DeleteEndpointDialogProps {
 
 export function DeleteEndpointDialog({
   deleteTarget,
+  displayTarget = deleteTarget,
   isDeletingEndpoint,
   onConfirm,
   onOpenChange,
 }: DeleteEndpointDialogProps) {
   const { messages } = useLocale();
   const copy = messages.endpointsUi;
-  const [displayTarget, setDisplayTarget] = useState<Endpoint | null>(deleteTarget);
-
-  useEffect(() => {
-    if (deleteTarget) {
-      setDisplayTarget(deleteTarget);
-    }
-  }, [deleteTarget]);
-
   const dialogTarget = deleteTarget ?? displayTarget;
 
   return (
@@ -49,12 +42,12 @@ export function DeleteEndpointDialog({
           </Button>
           <Button
             variant="destructive"
-            disabled={isDeletingEndpoint || !dialogTarget}
+            disabled={isDeletingEndpoint || !deleteTarget}
             onClick={() => {
-              if (!dialogTarget) {
+              if (!deleteTarget) {
                 return;
               }
-              void onConfirm(dialogTarget.id);
+              void onConfirm(deleteTarget.id);
             }}
           >
             {isDeletingEndpoint ? messages.settingsDialogs.deleting : messages.settingsDialogs.delete}

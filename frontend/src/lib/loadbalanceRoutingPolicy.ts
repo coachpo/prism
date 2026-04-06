@@ -78,8 +78,9 @@ export function createDefaultAdaptiveRoutingPolicy(
 }
 
 export function getDefaultAutoRecovery(
-  _strategyType: LegacyLoadbalanceStrategyType,
+  strategyType: LegacyLoadbalanceStrategyType,
 ): LoadbalanceAutoRecovery {
+  void strategyType;
   return createDefaultEnabledAutoRecovery();
 }
 

@@ -14,6 +14,11 @@ export interface FilterOptions {
   endpoints: Endpoint[];
 }
 
+const EMPTY_FILTER_OPTIONS: FilterOptions = {
+  models: [],
+  endpoints: [],
+};
+
 interface UseRequestLogsPageDataParams {
   enabled?: boolean;
   revision: number;
@@ -26,10 +31,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
-    models: [],
-    endpoints: [],
-  });
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
   const [filterOptionsLoaded, setFilterOptionsLoaded] = useState(false);
 
   const fetchIdRef = useRef(0);
@@ -120,12 +122,6 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     }
 
     fetchIdRef.current += 1;
-    setItems([]);
-    setTotal(0);
-    setError(null);
-    setLoading(false);
-    setFilterOptions({ models: [], endpoints: [] });
-    setFilterOptionsLoaded(false);
   }, [enabled]);
 
   useEffect(() => {
@@ -150,12 +146,12 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   }, [enabled, fetchData]);
 
   return {
-    items,
-    total,
-    loading,
-    error,
-    filterOptions,
-    filterOptionsLoaded,
+    items: enabled ? items : [],
+    total: enabled ? total : 0,
+    loading: enabled ? loading : false,
+    error: enabled ? error : null,
+    filterOptions: enabled ? filterOptions : EMPTY_FILTER_OPTIONS,
+    filterOptionsLoaded: enabled ? filterOptionsLoaded : false,
     refresh,
   };
 }

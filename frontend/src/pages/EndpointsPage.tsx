@@ -159,6 +159,7 @@ export function EndpointsPage() {
 
       <DeleteEndpointDialog
         deleteTarget={data.deleteTarget}
+        displayTarget={data.deleteDialogTarget ?? data.deleteTarget}
         isDeletingEndpoint={data.isDeletingEndpoint}
         onOpenChange={data.handleDeleteDialogOpenChange}
         onConfirm={data.handleDelete}

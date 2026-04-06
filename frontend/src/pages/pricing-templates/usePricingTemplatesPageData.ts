@@ -34,9 +34,18 @@ export function usePricingTemplatesPageData(revision: number) {
   const [pricingTemplateUsageRows, setPricingTemplateUsageRows] = useState<PricingTemplateConnectionUsageItem[]>([]);
   const [pricingTemplateUsageLoading, setPricingTemplateUsageLoading] = useState(false);
   const [pricingTemplateUsageTemplate, setPricingTemplateUsageTemplate] = useState<PricingTemplate | null>(null);
-  const [deletePricingTemplateConfirm, setDeletePricingTemplateConfirm] = useState<PricingTemplate | null>(null);
+  const [deletePricingTemplateConfirm, setDeletePricingTemplateConfirmState] = useState<PricingTemplate | null>(null);
+  const [deletePricingTemplateDisplay, setDeletePricingTemplateDisplay] = useState<PricingTemplate | null>(null);
   const [deletePricingTemplateConflict, setDeletePricingTemplateConflict] = useState<PricingTemplateConnectionUsageItem[] | null>(null);
   const [pricingTemplateDeleting, setPricingTemplateDeleting] = useState(false);
+
+  const setDeletePricingTemplateConfirm = (template: PricingTemplate | null) => {
+    if (template) {
+      setDeletePricingTemplateDisplay(template);
+    }
+
+    setDeletePricingTemplateConfirmState(template);
+  };
 
   const commitPricingTemplates = useCallback(
     (updater: (current: PricingTemplate[]) => PricingTemplate[]) => {
@@ -244,6 +253,7 @@ export function usePricingTemplatesPageData(revision: number) {
   return {
     closePricingTemplateDialog,
     deletePricingTemplateConfirm,
+    deletePricingTemplateDisplay,
     deletePricingTemplateConflict,
     editingPricingTemplate,
     handleDeletePricingTemplate,

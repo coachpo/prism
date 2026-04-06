@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSidebar } from "@/components/ui/sidebar-context";
 import {
   Sidebar,
   SidebarContent,
@@ -13,7 +14,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";

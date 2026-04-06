@@ -66,6 +66,7 @@ describe("DeleteEndpointDialog i18n", () => {
       <LocaleProvider>
         <DeleteEndpointDialog
           deleteTarget={deleteTarget}
+          displayTarget={deleteTarget}
           isDeletingEndpoint={false}
           onConfirm={vi.fn()}
           onOpenChange={vi.fn()}
@@ -79,6 +80,7 @@ describe("DeleteEndpointDialog i18n", () => {
       <LocaleProvider>
         <DeleteEndpointDialog
           deleteTarget={null}
+          displayTarget={deleteTarget}
           isDeletingEndpoint={false}
           onConfirm={vi.fn()}
           onOpenChange={vi.fn()}

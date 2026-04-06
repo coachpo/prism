@@ -12,17 +12,20 @@ export function createRealtimeWebSocketUrl(
   }
 
   const rawApiBase = apiBase ?? import.meta.env.VITE_API_BASE;
+  const defaultProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const fallbackUrl = `${defaultProtocol}//${location.host}/api/realtime/ws`;
 
   if (typeof rawApiBase === "string" && rawApiBase.trim().length > 0) {
     try {
       const apiUrl = new URL(rawApiBase.trim(), `${location.protocol}//${location.host}`);
       const protocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
       return `${protocol}//${apiUrl.host}/api/realtime/ws`;
-    } catch {}
+    } catch {
+      return fallbackUrl;
+    }
   }
 
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${location.host}/api/realtime/ws`;
+  return fallbackUrl;
 }
 
 export function getInitialConnectionState({

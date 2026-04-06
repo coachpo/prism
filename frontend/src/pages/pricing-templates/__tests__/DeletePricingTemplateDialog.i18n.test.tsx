@@ -82,6 +82,7 @@ describe("DeletePricingTemplateDialog i18n", () => {
       <LocaleProvider>
         <DeletePricingTemplateDialog
           deletePricingTemplateConfirm={template}
+          displayTemplate={template}
           deletePricingTemplateConflict={null}
           onClose={vi.fn()}
           onDelete={vi.fn()}
@@ -98,6 +99,7 @@ describe("DeletePricingTemplateDialog i18n", () => {
       <LocaleProvider>
         <DeletePricingTemplateDialog
           deletePricingTemplateConfirm={null}
+          displayTemplate={template}
           deletePricingTemplateConflict={null}
           onClose={vi.fn()}
           onDelete={vi.fn()}

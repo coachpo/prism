@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useProfileContext } from "@/context/ProfileContext";
@@ -13,7 +13,6 @@ import { RequestLogsTable } from "./request-logs/RequestLogsTable";
 import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { SearchX, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { RequestLogDetail } from "@/lib/types";
 import type { DetailTab } from "./request-logs/queryParams";
 import type {
   RequestLogEndpointResolver,
@@ -26,8 +25,6 @@ export function RequestLogsPage() {
   const { messages } = useLocale();
   const [tableSelectedRequestId, setTableSelectedRequestId] = useState<number | null>(null);
   const [tableSelectedTab, setTableSelectedTab] = useState<DetailTab>("overview");
-  const [sheetRequest, setSheetRequest] = useState<RequestLogDetail | null>(null);
-  const [sheetActiveTab, setSheetActiveTab] = useState<DetailTab>("overview");
   const actions = useRequestLogPageState();
   const { state, isExactMode } = actions;
 
@@ -72,13 +69,6 @@ export function RequestLogsPage() {
     () => new Map(filterOptions.endpoints.map((endpoint) => [endpoint.id, endpoint.name || endpoint.base_url])),
     [filterOptions.endpoints],
   );
-
-  useEffect(() => {
-    if (selectedRequest) {
-      setSheetRequest(selectedRequest);
-      setSheetActiveTab(currentActiveTab);
-    }
-  }, [currentActiveTab, selectedRequest]);
 
   const resolveModelLabel = useMemo<RequestLogModelResolver>(() => {
     return Object.assign(
@@ -195,9 +185,9 @@ export function RequestLogsPage() {
         )}
 
         <RequestLogDetailSheet
-          request={sheetRequest}
+          request={selectedRequest}
           open={sheetOpen}
-          activeTab={sheetOpen ? currentActiveTab : sheetActiveTab}
+          activeTab={currentActiveTab}
           onTabChange={handleTabChange}
           onClose={handleCloseRequest}
           formatTimestamp={format}

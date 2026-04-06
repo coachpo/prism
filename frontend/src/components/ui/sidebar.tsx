@@ -9,6 +9,13 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import {
+  SidebarContext,
+  type SidebarContextProps,
+  type SidebarState,
+  useSidebar,
+  useSidebarContext,
+} from "@/components/ui/sidebar-context"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -26,24 +33,6 @@ const MOBILE_MEDIA_QUERY = "(max-width: 1023px)"
 const SIDEBAR_WIDTH = "20rem"
 const SIDEBAR_WIDTH_MOBILE = "min(88vw, 20rem)"
 const SIDEBAR_WIDTH_ICON = "4.5rem"
-
-type SidebarState = "expanded" | "collapsed"
-
-type SidebarContextProps = {
-  state: SidebarState
-  open: boolean
-  setOpen: (open: boolean) => void
-  openMobile: boolean
-  setOpenMobile: (open: boolean) => void
-  isMobile: boolean
-  toggleSidebar: () => void
-}
-
-const SidebarContext = React.createContext<SidebarContextProps | null>(null)
-
-function useSidebarContext() {
-  return React.useContext(SidebarContext)
-}
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState(() => {
@@ -74,15 +63,6 @@ function useIsMobile() {
   }, [])
 
   return isMobile
-}
-
-function useSidebar() {
-  const context = useSidebarContext()
-  if (!context) {
-    throw new Error("useSidebar must be used within a SidebarProvider.")
-  }
-
-  return context
 }
 
 function SidebarProvider({
@@ -534,5 +514,4 @@ export {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
-  useSidebar,
 }
