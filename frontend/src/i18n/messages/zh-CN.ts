@@ -60,6 +60,7 @@ export const zhCNMessages: Messages = {
   },
   dashboard: {
     activeModels: "活跃模型",
+    analyticsTab: "分析",
     averageRpm: "平均 RPM",
     avgLatency: "平均延迟",
     dashboardDescription: "系统总览和健康状态",
@@ -74,6 +75,7 @@ export const zhCNMessages: Messages = {
     noApiFamilyActivity: "暂无 API 家族活动",
     noApiFamilyActivityDescription: "处理过流量后，这里会显示按 API 家族统计的请求分布。",
     openStatistics: "打开统计",
+    overviewTab: "概览",
     performanceSnapshot: "性能概览",
     performanceSnapshotDescription: "当前运行配置概览（24 小时）",
     routingDiagramLoadFailed: "路由图数据加载失败。仪表盘其余部分仍可正常使用。",

@@ -58,6 +58,7 @@ export interface Messages {
   };
   dashboard: {
     activeModels: string;
+    analyticsTab: string;
     averageRpm: string;
     avgLatency: string;
     errorRate: string;
@@ -72,6 +73,7 @@ export interface Messages {
     noSpendingData: string;
     noSpendingDataDescription: string;
     openStatistics: string;
+    overviewTab: string;
     performanceSnapshot: string;
     performanceSnapshotDescription: string;
     routingDiagramLoadFailed: string;
@@ -1532,6 +1534,7 @@ export const enMessages: Messages = {
   },
   dashboard: {
     activeModels: "Active Models",
+    analyticsTab: "Analytics",
     averageRpm: "Average RPM",
     avgLatency: "Avg Latency",
     dashboardDescription: "System overview and health status",
@@ -1543,9 +1546,10 @@ export const enMessages: Messages = {
     noRecentActivityDescription: "Requests will appear here once processed.",
     noSpendingData: "No spending data",
     noSpendingDataDescription: "Cost data will appear here once requests are priced.",
-  noApiFamilyActivity: "No API family activity",
+    noApiFamilyActivity: "No API family activity",
     noApiFamilyActivityDescription: "API family request distribution appears after traffic is processed.",
     openStatistics: "Open Statistics",
+    overviewTab: "Overview",
     performanceSnapshot: "Performance Snapshot",
     performanceSnapshotDescription: "Current operational profile (24h)",
     routingDiagramLoadFailed:
