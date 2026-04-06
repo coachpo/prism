@@ -57,9 +57,8 @@ def _build_attempt_target(
         connection,
         setup.effective_request_path,
         endpoint=connection.endpoint_rel,
+        request_query=request_query,
     )
-    if request_query:
-        upstream_url = f"{upstream_url}?{request_query}"
 
     return ProxyAttemptTarget(
         attempt_number=attempt_number,

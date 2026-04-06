@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from types import SimpleNamespace
 from typing import AsyncGenerator, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -11,6 +12,8 @@ from fastapi import HTTPException
 from app.services.proxy_service import (
     extract_model_from_body,
     build_upstream_headers,
+    build_upstream_url,
+    validate_base_url,
 )
 from app.services.stats_service import log_request
 
@@ -211,6 +214,87 @@ class TestDEF003_AuthHeaderPerEndpoint:
         assert headers["x-api-key"] == "sk-test"
         assert headers["anthropic-version"] == "2023-06-01"
         assert "Authorization" not in headers
+
+
+class TestProxyUpstreamUrlComposition:
+    def test_validate_base_url_rejects_query_string(self):
+        warnings = validate_base_url("https://api.example.com/v1?foo=bar")
+
+        assert warnings == ["base_url must not include a query string or fragment"]
+
+    def test_build_upstream_url_merges_existing_query_with_request_query(self):
+        endpoint = MagicMock()
+        endpoint.base_url = "https://api.example.com/v1?foo=bar"
+
+        upstream_url = build_upstream_url(
+            endpoint,
+            "/chat/completions",
+            request_query="baz=qux",
+        )
+
+        assert (
+            upstream_url
+            == "https://api.example.com/v1/chat/completions?foo=bar&baz=qux"
+        )
+
+    def test_build_attempt_target_passes_request_query_to_url_builder(self):
+        from app.routers.proxy_domains.attempt_execution import _build_attempt_target
+        from app.routers.proxy_domains.attempt_types import ProxyRuntimeDependencies
+        from app.routers.proxy_domains.request_setup import ProxyRequestSetup
+        from app.models.models import Connection
+
+        connection = cast(
+            Connection,
+            SimpleNamespace(
+                endpoint_rel=SimpleNamespace(
+                    base_url="https://api.example.com/v1?foo=bar"
+                ),
+                name="Primary",
+                id=7,
+            ),
+        )
+        build_upstream_url_fn = MagicMock(
+            return_value="https://api.example.com/v1/chat/completions?foo=bar&baz=qux"
+        )
+        deps = cast(
+            ProxyRuntimeDependencies,
+            SimpleNamespace(
+                build_upstream_headers_fn=MagicMock(return_value={}),
+                build_upstream_url_fn=build_upstream_url_fn,
+            ),
+        )
+        setup = cast(
+            ProxyRequestSetup,
+            SimpleNamespace(
+                effective_request_path="/chat/completions",
+                rewritten_body=None,
+                api_family="openai",
+                client_headers=None,
+                blocklist_rules=None,
+                request_compressed=True,
+            ),
+        )
+
+        target = _build_attempt_target(
+            attempt_number=1,
+            connection=connection,
+            limiter_lease_token=None,
+            limiter_lease_ttl_seconds=None,
+            request_query="baz=qux",
+            setup=setup,
+            deps=deps,
+        )
+
+        build_upstream_url_fn.assert_called_once_with(
+            connection,
+            "/chat/completions",
+            endpoint=connection.endpoint_rel,
+            request_query="baz=qux",
+        )
+        assert (
+            target.upstream_url
+            == "https://api.example.com/v1/chat/completions?foo=bar&baz=qux"
+        )
 
 
 class TestDEF005_GeminiPathModelRewrite:
