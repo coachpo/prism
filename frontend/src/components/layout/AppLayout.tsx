@@ -66,7 +66,7 @@ export function AppLayout() {
           />
 
           <main className="flex-1 overflow-y-auto scrollbar-thin">
-            <div className="shell-page mx-auto max-w-screen-xl">
+            <div className="shell-frame shell-page">
               <Outlet />
             </div>
           </main>

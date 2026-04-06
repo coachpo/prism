@@ -240,5 +240,10 @@ describe("AppLayout shell bootstrap contract", () => {
     expect(screen.getByTestId("shell-breadcrumb-current")).toHaveTextContent("#42");
     expect(screen.getByTestId("shell-profile-switcher")).toBeInTheDocument();
     expect(screen.getByTestId("protected-route-child")).toBeInTheDocument();
+
+    expect(screen.getByTestId("shell-breadcrumb").closest(".shell-frame")).toBeInTheDocument();
+    expect(screen.getByTestId("shell-breadcrumb").closest(".shell-frame")).not.toHaveClass("max-w-screen-xl");
+    expect(screen.getByTestId("protected-route-child").parentElement).toHaveClass("shell-frame");
+    expect(screen.getByTestId("protected-route-child").parentElement).not.toHaveClass("max-w-screen-xl");
   });
 });

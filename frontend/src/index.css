@@ -258,6 +258,9 @@
     .shell-section {
         gap: var(--density-page-gap);
     }
+    .shell-frame {
+        @apply mx-auto w-full max-w-screen-2xl;
+    }
     .shell-page {
         padding-inline: var(--density-page-pad-x);
         padding-block: var(--density-page-pad-y);

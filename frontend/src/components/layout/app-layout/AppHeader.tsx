@@ -95,7 +95,7 @@ export function AppHeader({
 
   return (
     <header className="shell-header sticky top-0 z-30 border-b bg-background/95 backdrop-blur-sm">
-      <div className="mx-auto flex w-full max-w-screen-xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="shell-frame flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-2.5">
           <SidebarTrigger
             aria-label={messages.shell.openSidebar}
