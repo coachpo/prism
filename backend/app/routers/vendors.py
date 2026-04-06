@@ -2,7 +2,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utc_now
@@ -10,14 +9,12 @@ from app.dependencies import get_db
 from app.models.models import ModelConfig, Profile, Vendor
 from app.schemas.schemas import (
     VendorCreate,
-    VendorDeleteConflictDetail,
     VendorModelUsageItem,
     VendorResponse,
     VendorUpdate,
 )
 
 router = APIRouter(prefix="/api/vendors", tags=["vendors"])
-_VENDOR_DELETE_IN_USE_MESSAGE = "Cannot delete vendor that is referenced by models"
 
 
 def _normalize_vendor_payload(payload: dict[str, object]) -> dict[str, object]:
@@ -99,17 +96,6 @@ async def _list_vendor_model_usage_rows(
     return [VendorModelUsageItem.model_validate(row) for row in result.mappings().all()]
 
 
-def _build_vendor_delete_conflict_detail(
-    models: list[VendorModelUsageItem],
-    *,
-    message: str,
-) -> dict[str, object]:
-    return VendorDeleteConflictDetail(
-        message=message,
-        models=models,
-    ).model_dump(mode="json")
-
-
 @router.get("", response_model=list[VendorResponse])
 async def list_vendors(db: Annotated[AsyncSession, Depends(get_db)]):
     result = await db.execute(select(Vendor).order_by(Vendor.id.asc()))
@@ -185,28 +171,7 @@ async def delete_vendor(
 ):
     vendor = await _get_vendor_or_404(db, vendor_id)
 
-    usage_rows = await _list_vendor_model_usage_rows(db, vendor_id=vendor_id)
-    if usage_rows:
-        raise HTTPException(
-            status_code=409,
-            detail=_build_vendor_delete_conflict_detail(
-                usage_rows,
-                message=_VENDOR_DELETE_IN_USE_MESSAGE,
-            ),
-        )
-
     await db.delete(vendor)
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        usage_rows = await _list_vendor_model_usage_rows(db, vendor_id=vendor_id)
-        raise HTTPException(
-            status_code=409,
-            detail=_build_vendor_delete_conflict_detail(
-                usage_rows,
-                message=_VENDOR_DELETE_IN_USE_MESSAGE,
-            ),
-        ) from exc
+    await db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

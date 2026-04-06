@@ -43,7 +43,11 @@ def build_model_list_response(
         id=config.id,
         profile_id=config.profile_id,
         vendor_id=config.vendor_id,
-        vendor=VendorResponse.model_validate(config.vendor),
+        vendor=(
+            VendorResponse.model_validate(config.vendor)
+            if config.vendor is not None
+            else None
+        ),
         api_family=cast(Literal["openai", "anthropic", "gemini"], config.api_family),
         model_id=config.model_id,
         display_name=config.display_name,

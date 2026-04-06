@@ -336,6 +336,79 @@ class TestConfigExportImportIsolation:
         assert other_models[0].model_type == "native"
 
     @pytest.mark.asyncio
+    async def test_import_config_allows_vendorless_proxy_model(self):
+        from app.core.database import AsyncSessionLocal, get_engine
+        from app.routers.config import import_config
+        from app.schemas.schemas import ConfigImportRequest
+
+        await get_engine().dispose()
+
+        suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        profile_name = f"vendorless-import-{suffix}"
+        imported_proxy_model_id = f"vendorless-proxy-{suffix}"
+
+        async with AsyncSessionLocal() as db:
+            profile = Profile(
+                name=profile_name,
+                description="Target profile for vendorless import",
+                is_active=False,
+                is_default=False,
+                is_editable=True,
+                version=0,
+            )
+            db.add(profile)
+            await db.commit()
+            profile_id = profile.id
+
+        payload = ConfigImportRequest.model_validate(
+            {
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [],
+                "endpoints": [],
+                "pricing_templates": [],
+                "loadbalance_strategies": [],
+                "models": [
+                    {
+                        "vendor_key": None,
+                        "api_family": "openai",
+                        "model_id": imported_proxy_model_id,
+                        "display_name": "Vendorless Proxy",
+                        "model_type": "proxy",
+                        "proxy_targets": [],
+                        "connections": [],
+                    }
+                ],
+                "header_blocklist_rules": [],
+                "secret_payload": _build_secret_payload({}),
+            }
+        )
+
+        async with AsyncSessionLocal() as db:
+            response = await import_config(
+                data=payload,
+                db=db,
+                profile_id=profile_id,
+            )
+            await db.commit()
+
+        assert response.models_imported == 1
+
+        async with AsyncSessionLocal() as db:
+            imported_model = (
+                await db.execute(
+                    select(ModelConfig).where(
+                        ModelConfig.profile_id == profile_id,
+                        ModelConfig.model_id == imported_proxy_model_id,
+                    )
+                )
+            ).scalar_one()
+
+        assert imported_model.vendor_id is None
+        assert imported_model.api_family == "openai"
+        assert imported_model.model_type == "proxy"
+
+    @pytest.mark.asyncio
     async def test_export_config_filters_by_profile(self):
         """Config export returns only data for the specified profile."""
         from app.routers.config import export_config
@@ -413,13 +486,33 @@ class TestConfigExportImportIsolation:
             created_at=now,
             updated_at=now,
         )
+        vendorless_model = SimpleNamespace(
+            id=22,
+            profile_id=1,
+            vendor_id=None,
+            api_family="anthropic",
+            model_id="claude-vendorless",
+            display_name="Claude Vendorless",
+            model_type="proxy",
+            loadbalance_strategy_id=None,
+            loadbalance_strategy=None,
+            proxy_targets=[],
+            is_enabled=True,
+            connections=[],
+            created_at=now,
+            updated_at=now,
+        )
 
         # Mock query results
         endpoint_result = MagicMock()
         endpoint_result.scalars.return_value.all.return_value = [endpoint]
 
         model_result = MagicMock()
-        model_result.scalars.return_value.all.return_value = [model, proxy_model]
+        model_result.scalars.return_value.all.return_value = [
+            model,
+            proxy_model,
+            vendorless_model,
+        ]
 
         pricing_templates_result = MagicMock()
         pricing_templates_result.scalars.return_value.all.return_value = []
@@ -478,7 +571,7 @@ class TestConfigExportImportIsolation:
         ]
         assert len(payload["endpoints"]) == 1
         assert len(payload["loadbalance_strategies"]) == 1
-        assert len(payload["models"]) == 2
+        assert len(payload["models"]) == 3
         assert payload["profile_settings"]["timezone_preference"] is None
         assert payload["secret_payload"]["kind"] == "encrypted"
         assert payload["secret_payload"]["cipher"] == "fernet-v1"
@@ -510,9 +603,16 @@ class TestConfigExportImportIsolation:
         exported_proxy = next(
             item for item in payload["models"] if item["model_type"] == "proxy"
         )
+        vendorless_export = next(
+            item
+            for item in payload["models"]
+            if item["model_id"] == "claude-vendorless"
+        )
         assert exported_proxy["proxy_targets"] == [
             {"target_model_id": "gpt-4", "position": 0}
         ]
+        assert vendorless_export["vendor_key"] is None
+        assert vendorless_export["api_family"] == "anthropic"
         assert all(
             "icon_key" not in exported_model for exported_model in payload["models"]
         )

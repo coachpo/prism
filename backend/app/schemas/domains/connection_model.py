@@ -433,7 +433,7 @@ def normalize_display_name_input(value: str | None) -> str | None:
 
 
 class ModelConfigBase(BaseModel):
-    vendor_id: int
+    vendor_id: int | None = None
     api_family: ApiFamily
     model_id: str
     display_name: str | None = None
@@ -492,8 +492,8 @@ class ModelConfigResponse(BaseModel):
 
     id: int
     profile_id: int
-    vendor_id: int
-    vendor: VendorResponse
+    vendor_id: int | None
+    vendor: VendorResponse | None
     api_family: ApiFamily
     model_id: str
     display_name: str | None
@@ -512,8 +512,8 @@ class ModelConfigListResponse(BaseModel):
 
     id: int
     profile_id: int
-    vendor_id: int
-    vendor: VendorResponse
+    vendor_id: int | None
+    vendor: VendorResponse | None
     api_family: ApiFamily
     model_id: str
     display_name: str | None

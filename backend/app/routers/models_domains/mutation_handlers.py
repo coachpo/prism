@@ -38,7 +38,8 @@ async def create_model_config_record(
     body: ModelConfigCreate,
     profile_id: int,
 ) -> ModelConfig:
-    await ensure_vendor_exists(db, body.vendor_id)
+    if body.vendor_id is not None:
+        await ensure_vendor_exists(db, body.vendor_id)
     if body.model_type == "native" and body.loadbalance_strategy_id is not None:
         await ensure_loadbalance_strategy_exists(
             db,
@@ -107,7 +108,7 @@ async def update_model_config_record(
     original_model_id = config.model_id
     update_data = body.model_dump(exclude_unset=True)
 
-    if "vendor_id" in update_data:
+    if "vendor_id" in update_data and update_data["vendor_id"] is not None:
         await ensure_vendor_exists(db, update_data["vendor_id"])
 
     if "model_id" in update_data and update_data["model_id"] != config.model_id:

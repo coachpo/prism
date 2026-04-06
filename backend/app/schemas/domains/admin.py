@@ -227,7 +227,7 @@ class ConfigProxyTargetImport(BaseModel):
 
 
 class ConfigModelExport(BaseModel):
-    vendor_key: str
+    vendor_key: str | None = None
     api_family: ApiFamily
     model_id: str
     display_name: str | None = None
@@ -241,7 +241,7 @@ class ConfigModelExport(BaseModel):
 class ConfigModelImport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    vendor_key: str
+    vendor_key: str | None = None
     api_family: ApiFamily
     model_id: str
     display_name: str | None = None
@@ -418,7 +418,7 @@ class AuditLogListItem(BaseModel):
     id: int
     request_log_id: int | None
     profile_id: int
-    vendor_id: int
+    vendor_id: int | None
     model_id: str
     endpoint_id: int | None = None
     connection_id: int | None = None
@@ -440,7 +440,7 @@ class AuditLogDetail(BaseModel):
     id: int
     request_log_id: int | None
     profile_id: int
-    vendor_id: int
+    vendor_id: int | None
     model_id: str
     endpoint_id: int | None = None
     connection_id: int | None = None

@@ -120,7 +120,7 @@ def ensure_proxy_update_preconditions(
 def build_model_create_values(
     *,
     profile_id: int,
-    vendor_id: int,
+    vendor_id: int | None,
     api_family: str,
     model_id: str,
     display_name: str | None,

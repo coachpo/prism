@@ -4,11 +4,11 @@ from app.core.database import Base
 
 
 class TestDEF080_VendorApiFamilySchemaContract:
-    def test_model_config_contract_uses_vendor_id_and_api_family(self):
+    def test_model_config_contract_keeps_api_family_required_and_vendor_optional(self):
         from app.schemas.schemas import ModelConfigCreate, ModelConfigResponse
 
         payload = {
-            "vendor_id": 1,
+            "vendor_id": None,
             "api_family": "openai",
             "model_id": "gpt-4.1",
             "model_type": "native",
@@ -19,8 +19,31 @@ class TestDEF080_VendorApiFamilySchemaContract:
         validated = ModelConfigCreate.model_validate(payload)
         create_fields = set(ModelConfigCreate.model_fields)
         response_fields = set(ModelConfigResponse.model_fields)
-        assert validated.vendor_id == 1
+        response = ModelConfigResponse.model_validate(
+            {
+                "id": 8,
+                "profile_id": 2,
+                "vendor_id": None,
+                "vendor": None,
+                "api_family": "openai",
+                "model_id": "gpt-4.1",
+                "display_name": "GPT-4.1",
+                "model_type": "native",
+                "proxy_targets": [],
+                "loadbalance_strategy_id": 3,
+                "loadbalance_strategy": None,
+                "is_enabled": True,
+                "connections": [],
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        )
+
+        assert validated.vendor_id is None
         assert validated.api_family == "openai"
+        assert response.vendor_id is None
+        assert response.vendor is None
+        assert response.api_family == "openai"
         assert {"vendor_id", "api_family"}.issubset(create_fields)
         assert {"vendor_id", "api_family", "vendor"}.issubset(response_fields)
 

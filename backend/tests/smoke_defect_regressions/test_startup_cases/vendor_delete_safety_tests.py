@@ -3,10 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.exc import IntegrityError
-from unittest.mock import AsyncMock
 
 from tests.loadbalance_strategy_helpers import make_loadbalance_strategy
 from tests.smoke_defect_regressions.test_startup_cases.auth_management_flows_tests import (
@@ -18,7 +15,6 @@ from tests.smoke_defect_regressions.test_startup_cases.auth_management_flows_tes
 from app.core.database import AsyncSessionLocal, get_engine
 from app.main import app
 from app.models.models import ModelConfig, Profile, Vendor
-from app.routers.vendors import delete_vendor
 
 
 async def _create_profile(session, *, name: str) -> Profile:
@@ -162,7 +158,7 @@ class TestDEF084_VendorDeleteSafety:
             await _cleanup_auth_state()
 
     @pytest.mark.asyncio
-    async def test_delete_vendor_in_use_returns_409_with_model_rows(self):
+    async def test_delete_vendor_in_use_succeeds_and_nulls_live_model_vendor_rows(self):
         await get_engine().dispose()
         await _reset_auth_state()
         transport = ASGITransport(app=app)
@@ -194,24 +190,18 @@ class TestDEF084_VendorDeleteSafety:
                 await _login(client)
                 response = await client.delete(f"/api/vendors/{vendor.id}")
 
-            assert response.status_code == 409
-            assert response.json() == {
-                "detail": {
-                    "message": "Cannot delete vendor that is referenced by models",
-                    "models": [
-                        {
-                            "model_config_id": model.id,
-                            "profile_id": profile.id,
-                            "profile_name": profile.name,
-                            "model_id": model.model_id,
-                            "display_name": model.display_name,
-                            "model_type": model.model_type,
-                            "api_family": model.api_family,
-                            "is_enabled": model.is_enabled,
-                        }
-                    ],
-                }
-            }
+            assert response.status_code == 204
+            assert response.content == b""
+
+            async with AsyncSessionLocal() as session:
+                deleted_vendor = await session.get(Vendor, vendor.id)
+                persisted_model = await session.get(ModelConfig, model.id)
+
+            assert deleted_vendor is None
+            assert persisted_model is not None
+            assert persisted_model.vendor_id is None
+            assert persisted_model.api_family == model.api_family
+            assert persisted_model.model_id == model.model_id
         finally:
             await _cleanup_auth_state()
 
@@ -271,40 +261,3 @@ class TestDEF084_VendorDeleteSafety:
 
         assert "delete" not in cascade
         assert "delete-orphan" not in cascade
-
-    @pytest.mark.asyncio
-    async def test_delete_vendor_translates_commit_time_integrity_error_to_409(self):
-        await get_engine().dispose()
-        suffix = uuid4().hex[:8]
-
-        async with AsyncSessionLocal() as session:
-            vendor = await _create_vendor(
-                session,
-                suffix=suffix,
-                label="commit-failure-vendor",
-            )
-            vendor_id = vendor.id
-            await session.commit()
-
-        async with AsyncSessionLocal() as session:
-            setattr(
-                session,
-                "commit",
-                AsyncMock(
-                    side_effect=IntegrityError(
-                        "DELETE FROM vendors", {}, Exception("fk")
-                    )
-                ),
-            )
-
-            try:
-                with pytest.raises(HTTPException) as exc_info:
-                    await delete_vendor(vendor_id=vendor_id, db=session)
-            finally:
-                await session.rollback()
-
-        assert exc_info.value.status_code == 409
-        assert exc_info.value.detail == {
-            "message": "Cannot delete vendor that is referenced by models",
-            "models": [],
-        }
