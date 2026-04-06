@@ -105,7 +105,7 @@ class TestDEF078_RuntimeHotStateUsesUnloggedPersistence:
             "audit_logs",
             "loadbalance_events",
             "usage_request_events",
-            "monitoring_connection_probe_results",
+            "loadbalance_round_robin_state",
         )
         unlogged_tables = (
             "routing_connection_runtime_state",
@@ -115,7 +115,6 @@ class TestDEF078_RuntimeHotStateUsesUnloggedPersistence:
             "connection_limiter_state",
             "connection_limiter_leases",
             "loadbalance_current_state",
-            "loadbalance_round_robin_state",
         )
         current_head_revision = _get_current_head_revision(migration_database_url)
 

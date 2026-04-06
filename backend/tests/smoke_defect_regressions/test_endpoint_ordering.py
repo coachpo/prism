@@ -139,6 +139,7 @@ async def test_endpoint_position_crud_flow():
 @pytest.mark.asyncio
 async def test_endpoint_position_export_import_and_profile_isolation():
     from app.core.database import AsyncSessionLocal, get_engine
+    from app.core.crypto import get_bundle_secret_key_id
     from app.models.models import Profile
     from app.routers.config import export_config, import_config
     from app.routers.endpoints import (
@@ -223,25 +224,30 @@ async def test_endpoint_position_export_import_and_profile_isolation():
 
         ordered_import = ConfigImportRequest.model_validate(
             {
-                "version": 1,
-                "vendors": [],
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [],
                 "endpoints": [
                     {
                         "name": f"DEF063 Import Later {suffix}",
                         "base_url": f"https://def063-import-later.{suffix}.example.com",
-                        "api_key": "sk-import-later",
+                        "api_key_secret_ref": None,
                         "position": 1,
                     },
                     {
                         "name": f"DEF063 Import First {suffix}",
                         "base_url": f"https://def063-import-first.{suffix}.example.com",
-                        "api_key": "sk-import-first",
+                        "api_key_secret_ref": None,
                         "position": 0,
                     },
                 ],
                 "pricing_templates": [],
                 "loadbalance_strategies": [],
                 "models": [],
+                "secret_payload": {
+                    "key_id": get_bundle_secret_key_id(),
+                    "entries": [],
+                },
             }
         )
 
@@ -259,23 +265,28 @@ async def test_endpoint_position_export_import_and_profile_isolation():
 
         import_payload = ConfigImportRequest.model_validate(
             {
-                "version": 1,
-                "vendors": [],
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [],
                 "endpoints": [
                     {
                         "name": f"DEF063 Imported One {suffix}",
                         "base_url": f"https://def063-imported-one.{suffix}.example.com",
-                        "api_key": "sk-imported-one",
+                        "api_key_secret_ref": None,
                     },
                     {
                         "name": f"DEF063 Imported Two {suffix}",
                         "base_url": f"https://def063-imported-two.{suffix}.example.com",
-                        "api_key": "sk-imported-two",
+                        "api_key_secret_ref": None,
                     },
                 ],
                 "pricing_templates": [],
                 "loadbalance_strategies": [],
                 "models": [],
+                "secret_payload": {
+                    "key_id": get_bundle_secret_key_id(),
+                    "entries": [],
+                },
             }
         )
 

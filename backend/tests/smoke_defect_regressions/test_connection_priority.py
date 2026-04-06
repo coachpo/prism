@@ -280,6 +280,7 @@ def test_connection_priority_validation_and_loadbalancer_tie_break():
 @pytest.mark.asyncio
 async def test_connection_priority_import_normalizes_and_preserves_payload_order():
     from app.core.database import AsyncSessionLocal, get_engine
+    from app.core.crypto import get_bundle_secret_key_id
     from app.models.models import Profile
     from app.routers.config import export_config, import_config
     from app.schemas.schemas import ConfigImportRequest
@@ -303,38 +304,31 @@ async def test_connection_priority_import_normalizes_and_preserves_payload_order
 
         payload = ConfigImportRequest.model_validate(
             {
-                "version": 1,
-                "vendors": [
-                    {
-                        "key": vendor.key,
-                        "name": vendor.name,
-                        "description": vendor.description,
-                        "icon_key": vendor.icon_key,
-                        "audit_enabled": vendor.audit_enabled,
-                        "audit_capture_bodies": vendor.audit_capture_bodies,
-                    }
-                ],
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [{"key": vendor.key}],
                 "endpoints": [
                     {
                         "name": f"DEF068 E0 {suffix}",
                         "base_url": f"https://def068-e0.{suffix}.example.com",
-                        "api_key": "sk-def068-e0",
+                        "api_key_secret_ref": None,
                     },
                     {
                         "name": f"DEF068 E1 {suffix}",
                         "base_url": f"https://def068-e1.{suffix}.example.com",
-                        "api_key": "sk-def068-e1",
+                        "api_key_secret_ref": None,
                     },
                     {
                         "name": f"DEF068 E2 {suffix}",
                         "base_url": f"https://def068-e2.{suffix}.example.com",
-                        "api_key": "sk-def068-e2",
+                        "api_key_secret_ref": None,
                     },
                 ],
                 "pricing_templates": [],
                 "loadbalance_strategies": [
                     {
                         "name": "adaptive-primary",
+                        "strategy_type": "adaptive",
                         "routing_policy": make_routing_policy_adaptive(
                             routing_objective="maximize_availability",
                             failure_status_codes=[429, 503],
@@ -370,6 +364,10 @@ async def test_connection_priority_import_normalizes_and_preserves_payload_order
                         ],
                     }
                 ],
+                "secret_payload": {
+                    "key_id": get_bundle_secret_key_id(),
+                    "entries": [],
+                },
             }
         )
 

@@ -88,7 +88,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
 
         from app.core.database import AsyncSessionLocal, get_engine
         from app.models.models import Connection, Endpoint, ModelConfig, Profile, Vendor
-        from app.services.monitoring.probe_runner import ProbeCheckOutcome
         from tests.loadbalance_strategy_helpers import make_loadbalance_strategy
 
         await get_engine().dispose()
@@ -150,41 +149,22 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             endpoint_id = endpoint.id
             model_config_id = model.id
 
-        probe_mock = AsyncMock(
-            return_value=ProbeCheckOutcome(
-                endpoint_ping_status="healthy",
-                endpoint_ping_ms=12,
-                conversation_status="healthy",
-                conversation_delay_ms=18,
-                fused_status="healthy",
-                failure_kind=None,
-                detail="probe ok",
-                log_url="https://api.openai.com/v1/responses",
-            )
-        )
+        async with lifespan(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                response = await client.post(
+                    f"/api/models/{model_config_id}/connections",
+                    headers={"X-Profile-Id": str(profile_id)},
+                    json={
+                        "endpoint_id": endpoint_id,
+                        "name": connection_name,
+                    },
+                )
 
-        with patch(
-            "app.services.monitoring.probe_runner._execute_monitoring_probe_checks",
-            probe_mock,
-        ):
-            async with lifespan(app):
-                transport = ASGITransport(app=app)
-                async with AsyncClient(
-                    transport=transport,
-                    base_url="http://testserver",
-                ) as client:
-                    response = await client.post(
-                        f"/api/models/{model_config_id}/connections",
-                        headers={"X-Profile-Id": str(profile_id)},
-                        json={
-                            "endpoint_id": endpoint_id,
-                            "name": connection_name,
-                            "openai_probe_endpoint_variant": "chat_completions_reasoning_none",
-                        },
-                    )
-
-                    assert response.status_code == 201
-                    await app.state.background_task_manager.wait_for_idle()
+                assert response.status_code == 201
 
         async with AsyncSessionLocal() as db:
             connection = (
@@ -196,19 +176,9 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                 )
             ).scalar_one()
 
-        matching_probe_calls = [
-            call
-            for call in probe_mock.await_args_list
-            if getattr(call.kwargs.get("connection"), "id", None) == connection.id
-        ]
-        assert len(matching_probe_calls) == 1
-        assert (
-            matching_probe_calls[0].kwargs["openai_variant"]
-            == "chat_completions_reasoning_none"
-        )
-        assert connection.health_status == "healthy"
-        assert connection.health_detail == "probe ok"
-        assert connection.last_health_check is not None
+        assert connection.health_status == "unknown"
+        assert connection.health_detail is None
+        assert connection.last_health_check is None
 
     @pytest.mark.asyncio
     async def test_import_config_endpoint_starts_one_immediate_probe_per_imported_connection(
@@ -218,7 +188,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
 
         from app.core.database import AsyncSessionLocal, get_engine
         from app.models.models import Connection, Profile
-        from app.services.monitoring.probe_runner import ProbeCheckOutcome
 
         await get_engine().dispose()
 
@@ -271,7 +240,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                         {
                             "endpoint_name": endpoint_name,
                             "name": first_connection_name,
-                            "openai_probe_endpoint_variant": "responses_reasoning_none",
                         }
                     ],
                 },
@@ -285,44 +253,25 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                         {
                             "endpoint_name": endpoint_name,
                             "name": second_connection_name,
-                            "openai_probe_endpoint_variant": "chat_completions_reasoning_none",
                         }
                     ],
                 },
             ],
         )
 
-        probe_mock = AsyncMock(
-            return_value=ProbeCheckOutcome(
-                endpoint_ping_status="healthy",
-                endpoint_ping_ms=9,
-                conversation_status="healthy",
-                conversation_delay_ms=15,
-                fused_status="healthy",
-                failure_kind=None,
-                detail="import probe ok",
-                log_url="https://api.openai.com/v1/responses",
-            )
-        )
+        async with lifespan(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                response = await client.post(
+                    "/api/config/profile/import",
+                    headers={"X-Profile-Id": str(profile_id)},
+                    json=payload,
+                )
 
-        with patch(
-            "app.services.monitoring.probe_runner._execute_monitoring_probe_checks",
-            probe_mock,
-        ):
-            async with lifespan(app):
-                transport = ASGITransport(app=app)
-                async with AsyncClient(
-                    transport=transport,
-                    base_url="http://testserver",
-                ) as client:
-                    response = await client.post(
-                        "/api/config/profile/import",
-                        headers={"X-Profile-Id": str(profile_id)},
-                        json=payload,
-                    )
-
-                    assert response.status_code == 200
-                    await app.state.background_task_manager.wait_for_idle()
+                assert response.status_code == 200
 
         async with AsyncSessionLocal() as db:
             imported_connections = list(
@@ -336,34 +285,18 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             )
 
         assert len(imported_connections) == 2
-        imported_connection_ids = {connection.id for connection in imported_connections}
-        matching_probe_calls = [
-            call
-            for call in probe_mock.await_args_list
-            if getattr(call.kwargs.get("connection"), "id", None)
-            in imported_connection_ids
-        ]
-        assert len(matching_probe_calls) == 2
-        assert sorted(
-            call.kwargs["openai_variant"] for call in matching_probe_calls
-        ) == [
-            "chat_completions_reasoning_none",
-            "responses_reasoning_none",
-        ]
         assert all(
-            connection.health_status == "healthy" for connection in imported_connections
+            connection.health_status == "unknown" for connection in imported_connections
         )
         assert all(
-            connection.health_detail == "import probe ok"
-            for connection in imported_connections
+            connection.health_detail is None for connection in imported_connections
         )
         assert all(
-            connection.last_health_check is not None
-            for connection in imported_connections
+            connection.last_health_check is None for connection in imported_connections
         )
 
     @pytest.mark.asyncio
-    async def test_create_and_update_connection_preserve_limiter_fields_probe_interval_and_probe_preset(
+    async def test_create_and_update_connection_preserve_limiter_fields(
         self,
     ):
         from sqlalchemy import select
@@ -432,8 +365,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                 body=ConnectionCreate(
                     endpoint_id=endpoint.id,
                     name=f"def024-limiter-connection-{suffix}",
-                    monitoring_probe_interval_seconds=180,
-                    openai_probe_endpoint_variant="chat_completions_reasoning_none",
                     qps_limit=3,
                     max_in_flight_non_stream=5,
                     max_in_flight_stream=2,
@@ -445,17 +376,10 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             assert created.qps_limit == 3
             assert created.max_in_flight_non_stream == 5
             assert created.max_in_flight_stream == 2
-            assert created.monitoring_probe_interval_seconds == 180
-            assert (
-                created.openai_probe_endpoint_variant
-                == "chat_completions_reasoning_none"
-            )
 
             updated = await update_connection(
                 connection_id=created.id,
                 body=ConnectionUpdate(
-                    monitoring_probe_interval_seconds=240,
-                    openai_probe_endpoint_variant="responses_reasoning_none",
                     qps_limit=4,
                     max_in_flight_non_stream=None,
                     max_in_flight_stream=6,
@@ -467,8 +391,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             assert updated.qps_limit == 4
             assert updated.max_in_flight_non_stream is None
             assert updated.max_in_flight_stream == 6
-            assert updated.monitoring_probe_interval_seconds == 240
-            assert updated.openai_probe_endpoint_variant == "responses_reasoning_none"
 
     @pytest.mark.asyncio
     async def test_import_export_roundtrip_omits_id_fields(self):
@@ -523,7 +445,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                             {
                                 "endpoint_name": endpoint_name,
                                 "name": connection_name,
-                                "openai_probe_endpoint_variant": "chat_completions_reasoning_none",
                                 "qps_limit": 3,
                                 "max_in_flight_non_stream": 5,
                                 "max_in_flight_stream": 2,
@@ -615,10 +536,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             assert connection.qps_limit == 3
             assert connection.max_in_flight_non_stream == 5
             assert connection.max_in_flight_stream == 2
-            assert (
-                connection.openai_probe_endpoint_variant
-                == "chat_completions_reasoning_none"
-            )
             assert fx_row is not None
 
             export_response = await export_config(db=db, profile_id=profile_id)
@@ -639,10 +556,6 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
         assert "endpoint_id" not in exported_connection
         assert "pricing_template_id" not in exported_connection
         assert exported_connection["endpoint_name"] == endpoint_name
-        assert (
-            exported_connection["openai_probe_endpoint_variant"]
-            == "chat_completions_reasoning_none"
-        )
         assert exported_connection["qps_limit"] == 3
         assert exported_connection["max_in_flight_non_stream"] == 5
         assert exported_connection["max_in_flight_stream"] == 2

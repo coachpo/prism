@@ -1,10 +1,10 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
-from app.models.models import LoadbalanceStrategy, Profile
+from app.models.models import LoadbalanceStrategy, ModelConfig, Profile
 from app.services.loadbalancer.policy import (
     build_default_auto_recovery_document,
     build_default_routing_policy_document,
@@ -28,6 +28,9 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
     ) -> None:
         default_profile = await self._get_default_profile()
         async with AsyncSessionLocal() as session:
+            await session.execute(
+                delete(ModelConfig).where(ModelConfig.profile_id == default_profile.id)
+            )
             existing = list(
                 (
                     await session.execute(

@@ -24,6 +24,7 @@ from app.main import app
 from app.models.models import (
     Connection,
     Endpoint,
+    LoadbalanceStrategy,
     ModelConfig,
     PasswordResetChallenge,
     Vendor,
@@ -96,6 +97,18 @@ async def _reset_auth_state() -> int:
         await session.execute(delete(RefreshToken))
         await session.execute(delete(PasswordResetChallenge))
         await session.execute(delete(ProxyApiKey))
+        await session.execute(
+            delete(Connection).where(Connection.profile_id == profile.id)
+        )
+        await session.execute(delete(Endpoint).where(Endpoint.profile_id == profile.id))
+        await session.execute(
+            delete(ModelConfig).where(ModelConfig.profile_id == profile.id)
+        )
+        await session.execute(
+            delete(LoadbalanceStrategy).where(
+                LoadbalanceStrategy.profile_id == profile.id
+            )
+        )
         await session.commit()
         invalidate_app_auth_settings_snapshot_cache()
         return profile.id
@@ -118,6 +131,19 @@ async def _cleanup_auth_state() -> None:
         await session.execute(delete(RefreshToken))
         await session.execute(delete(PasswordResetChallenge))
         await session.execute(delete(ProxyApiKey))
+        profile = await ensure_profile_invariants(session)
+        await session.execute(
+            delete(Connection).where(Connection.profile_id == profile.id)
+        )
+        await session.execute(delete(Endpoint).where(Endpoint.profile_id == profile.id))
+        await session.execute(
+            delete(ModelConfig).where(ModelConfig.profile_id == profile.id)
+        )
+        await session.execute(
+            delete(LoadbalanceStrategy).where(
+                LoadbalanceStrategy.profile_id == profile.id
+            )
+        )
         await session.commit()
         invalidate_app_auth_settings_snapshot_cache()
     await get_engine().dispose()

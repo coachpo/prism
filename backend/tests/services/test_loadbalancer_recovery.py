@@ -194,7 +194,8 @@ class TestLoadbalancerRecovery:
         assert policy.failover_ban_mode == "off"
         assert policy.failover_max_cooldown_strikes_before_ban == 0
         assert policy.failover_ban_duration_seconds == 0
-        assert policy.monitoring_enabled is True
+        assert policy.admission_respect_qps_limit is True
+        assert policy.admission_respect_in_flight_limits is True
 
     @pytest.mark.asyncio
     async def test_record_loadbalance_event_persists_max_cooldown_strike_and_banned(
@@ -568,7 +569,7 @@ class TestLoadbalancerRecovery:
         assert current_state is None
 
     @pytest.mark.asyncio
-    async def test_record_connection_recovery_preserves_monitoring_fields_when_runtime_row_is_not_empty(
+    async def test_record_connection_recovery_preserves_live_runtime_fields_when_runtime_row_is_not_empty(
         self,
     ):
         from datetime import datetime, timedelta, timezone
@@ -591,10 +592,10 @@ class TestLoadbalancerRecovery:
                     probe_eligible_logged=False,
                     circuit_state="open",
                     probe_available_at=now_at,
-                    last_probe_status="healthy",
-                    last_probe_at=now_at - timedelta(minutes=5),
-                    endpoint_ping_ewma_ms=120.0,
-                    conversation_delay_ewma_ms=240.0,
+                    live_p95_latency_ms=120,
+                    last_live_failure_kind="timeout",
+                    last_live_failure_at=now_at - timedelta(minutes=5),
+                    last_live_success_at=now_at - timedelta(minutes=1),
                 )
             )
             await session.commit()
@@ -626,12 +627,10 @@ class TestLoadbalancerRecovery:
         assert runtime_state.banned_until_at is None
         assert runtime_state.circuit_state == "closed"
         assert runtime_state.probe_available_at is None
-        assert runtime_state.last_probe_status == "healthy"
-        assert runtime_state.last_probe_at == now_at - timedelta(minutes=5)
-        assert runtime_state.endpoint_ping_ewma_ms is not None
-        assert runtime_state.conversation_delay_ewma_ms is not None
-        assert float(runtime_state.endpoint_ping_ewma_ms) == pytest.approx(120.0)
-        assert float(runtime_state.conversation_delay_ewma_ms) == pytest.approx(240.0)
+        assert runtime_state.live_p95_latency_ms == 120
+        assert runtime_state.last_live_failure_kind == "timeout"
+        assert runtime_state.last_live_failure_at == now_at - timedelta(minutes=5)
+        assert runtime_state.last_live_success_at == now_at - timedelta(minutes=1)
 
     @pytest.mark.asyncio
     async def test_reset_connection_current_state_clears_ban_and_strike_state(self):

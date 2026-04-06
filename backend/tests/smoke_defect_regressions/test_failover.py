@@ -193,27 +193,19 @@ class TestLoadbalanceStrategyFieldValidation:
 
         assert "unexpected_cooldown_seconds" in str(exc_info.value)
 
-    def test_config_export_version_1_allows_adaptive_max_availability_policy(self):
+    def test_config_export_version_2_allows_adaptive_max_availability_policy(self):
         from datetime import datetime, timezone
 
         from app.schemas.schemas import (
             ConfigExportResponse,
             ConfigLoadbalanceStrategyExport,
-            ConfigVendorExport,
+            ConfigSecretPayload,
         )
 
         config = ConfigExportResponse(
+            bundle_kind="profile_config",
             exported_at=datetime.now(timezone.utc),
-            vendors=[
-                ConfigVendorExport(
-                    key="openai",
-                    name="OpenAI",
-                    description=None,
-                    icon_key=None,
-                    audit_enabled=False,
-                    audit_capture_bodies=True,
-                )
-            ],
+            vendor_refs=[],
             endpoints=[],
             pricing_templates=[],
             loadbalance_strategies=[
@@ -235,37 +227,30 @@ class TestLoadbalanceStrategyFieldValidation:
                 )
             ],
             models=[],
+            secret_payload=ConfigSecretPayload(key_id="test-key-id", entries=[]),
         )
 
         exported = config.model_dump(mode="json")
 
-        assert exported["version"] == 1
+        assert exported["version"] == 2
         assert (
             exported["loadbalance_strategies"][0]["routing_policy"]["routing_objective"]
             == "maximize_availability"
         )
 
-    def test_config_export_version_1_preserves_adaptive_circuit_breaker_policy(self):
+    def test_config_export_version_2_preserves_adaptive_circuit_breaker_policy(self):
         from datetime import datetime, timezone
 
         from app.schemas.schemas import (
             ConfigExportResponse,
             ConfigLoadbalanceStrategyExport,
-            ConfigVendorExport,
+            ConfigSecretPayload,
         )
 
         config = ConfigExportResponse(
+            bundle_kind="profile_config",
             exported_at=datetime.now(timezone.utc),
-            vendors=[
-                ConfigVendorExport(
-                    key="openai",
-                    name="OpenAI",
-                    description=None,
-                    icon_key=None,
-                    audit_enabled=False,
-                    audit_capture_bodies=True,
-                )
-            ],
+            vendor_refs=[],
             endpoints=[],
             pricing_templates=[],
             loadbalance_strategies=[
@@ -286,11 +271,12 @@ class TestLoadbalanceStrategyFieldValidation:
                 )
             ],
             models=[],
+            secret_payload=ConfigSecretPayload(key_id="test-key-id", entries=[]),
         )
 
         exported = config.model_dump(mode="json")
 
-        assert exported["version"] == 1
+        assert exported["version"] == 2
         assert (
             exported["loadbalance_strategies"][0]["routing_policy"]["circuit_breaker"][
                 "ban_mode"
@@ -303,12 +289,14 @@ class TestLoadbalanceStrategyFieldValidation:
 
         validation = ConfigImportRequest.model_validate(
             {
-                "version": 1,
-                "vendors": [],
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [],
                 "endpoints": [],
                 "pricing_templates": [],
                 "loadbalance_strategies": [],
                 "models": [],
+                "secret_payload": {"key_id": "test-key-id", "entries": []},
             }
         )
         assert validation.endpoints == []
@@ -324,22 +312,14 @@ class TestLoadbalanceStrategyFieldValidation:
         with pytest.raises(ValidationError):
             ConfigImportRequest.model_validate(
                 {
-                    "version": 1,
-                    "vendors": [
-                        {
-                            "key": "openai",
-                            "name": "OpenAI",
-                            "description": None,
-                            "icon_key": None,
-                            "audit_enabled": False,
-                            "audit_capture_bodies": True,
-                        }
-                    ],
+                    "version": 2,
+                    "bundle_kind": "profile_config",
+                    "vendor_refs": [{"key": "openai"}],
                     "endpoints": [
                         {
                             "name": "openai-main",
                             "base_url": "https://api.openai.com",
-                            "api_key": "sk-test",
+                            "api_key_secret_ref": None,
                         }
                     ],
                     "pricing_templates": [],
@@ -358,6 +338,7 @@ class TestLoadbalanceStrategyFieldValidation:
                             "connections": [{"endpoint_name": "openai-main"}],
                         }
                     ],
+                    "secret_payload": {"key_id": "test-key-id", "entries": []},
                 }
             )
 
@@ -367,22 +348,14 @@ class TestLoadbalanceStrategyFieldValidation:
 
         data = ConfigImportRequest.model_validate(
             {
-                "version": 1,
-                "vendors": [
-                    {
-                        "key": "openai",
-                        "name": "OpenAI",
-                        "description": None,
-                        "icon_key": None,
-                        "audit_enabled": False,
-                        "audit_capture_bodies": True,
-                    }
-                ],
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [{"key": "openai"}],
                 "endpoints": [
                     {
                         "name": "openai-main",
                         "base_url": "https://api.openai.com",
-                        "api_key": "sk-test",
+                        "api_key_secret_ref": None,
                         "position": 0,
                     }
                 ],
@@ -403,6 +376,7 @@ class TestLoadbalanceStrategyFieldValidation:
                         ],
                     }
                 ],
+                "secret_payload": {"key_id": "test-key-id", "entries": []},
             }
         )
 
@@ -418,22 +392,14 @@ class TestLoadbalanceStrategyFieldValidation:
 
         data = ConfigImportRequest.model_validate(
             {
-                "version": 1,
-                "vendors": [
-                    {
-                        "key": "openai",
-                        "name": "OpenAI",
-                        "description": None,
-                        "icon_key": None,
-                        "audit_enabled": False,
-                        "audit_capture_bodies": True,
-                    }
-                ],
+                "version": 2,
+                "bundle_kind": "profile_config",
+                "vendor_refs": [{"key": "openai"}],
                 "endpoints": [
                     {
                         "name": "openai-main",
                         "base_url": "https://api.openai.com",
-                        "api_key": "sk-test",
+                        "api_key_secret_ref": None,
                         "position": 0,
                     }
                 ],
@@ -471,6 +437,7 @@ class TestLoadbalanceStrategyFieldValidation:
                         ],
                     },
                 ],
+                "secret_payload": {"key_id": "test-key-id", "entries": []},
             }
         )
 
@@ -484,27 +451,19 @@ class TestLoadbalanceStrategyFieldValidation:
             ConfigImportRequest,
             ConfigLoadbalanceStrategyExport,
             ConfigModelExport,
-            ConfigVendorExport,
+            ConfigSecretPayload,
         )
         from datetime import datetime, timezone
 
         config = ConfigExportResponse(
+            bundle_kind="profile_config",
             exported_at=datetime.now(timezone.utc),
-            vendors=[
-                ConfigVendorExport(
-                    key="openai",
-                    name="OpenAI",
-                    description=None,
-                    icon_key=None,
-                    audit_enabled=False,
-                    audit_capture_bodies=True,
-                )
-            ],
+            vendor_refs=[],
             endpoints=[
                 ConfigEndpointExport(
                     name="openai-main",
                     base_url="https://api.openai.com",
-                    api_key="sk-test",
+                    api_key_secret_ref=None,
                     position=0,
                 )
             ],
@@ -534,6 +493,7 @@ class TestLoadbalanceStrategyFieldValidation:
                     ],
                 )
             ],
+            secret_payload=ConfigSecretPayload(key_id="test-key-id", entries=[]),
         )
         exported = config.model_dump(mode="json")
         reimported = ConfigImportRequest(**exported)

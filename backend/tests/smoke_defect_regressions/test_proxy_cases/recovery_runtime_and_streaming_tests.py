@@ -16,7 +16,10 @@ from app.services.loadbalancer.types import (
     AttemptPlan,
 )
 from app.services.background_tasks import BackgroundTaskManager
-from tests.loadbalance_strategy_helpers import make_routing_policy_adaptive
+from tests.loadbalance_strategy_helpers import (
+    make_auto_recovery_disabled,
+    make_routing_policy_adaptive,
+)
 
 
 def _legacy_single_strategy() -> SimpleNamespace:
@@ -45,10 +48,6 @@ def _attempt_candidate(connection: object) -> AttemptCandidate:
             last_live_failure_kind=None,
             last_live_failure_at=None,
             last_live_success_at=None,
-            last_probe_status=None,
-            last_probe_at=None,
-            endpoint_ping_ewma_ms=None,
-            conversation_delay_ewma_ms=None,
         ),
         score=0.0,
         sort_key=(0.0, getattr(connection, "priority", 0), connection_id),
@@ -114,14 +113,15 @@ class TestDEF062_NonFailover4xxRecoveryState:
             id=1,
         )
         strategy = SimpleNamespace(
-            strategy_type="failover",
-            failover_recovery_enabled=True,
-            failover_cooldown_seconds=45,
-            failover_failure_threshold=4,
-            failover_backoff_multiplier=3.5,
-            failover_max_cooldown_seconds=720,
-            failover_jitter_ratio=0.35,
-            failover_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
+            strategy_type="adaptive",
+            routing_policy=make_routing_policy_adaptive(
+                base_open_seconds=45,
+                failure_threshold=4,
+                backoff_multiplier=3.5,
+                max_open_seconds=720,
+                jitter_ratio=0.35,
+                failure_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
+            ),
         )
         connection = SimpleNamespace(endpoint_id=501)
         model_config = SimpleNamespace(
@@ -231,14 +231,15 @@ class TestDEF062_NonFailover4xxRecoveryState:
             id=1,
         )
         strategy = SimpleNamespace(
-            strategy_type="failover",
-            failover_recovery_enabled=True,
-            failover_cooldown_seconds=45,
-            failover_failure_threshold=4,
-            failover_backoff_multiplier=3.5,
-            failover_max_cooldown_seconds=720,
-            failover_jitter_ratio=0.35,
-            failover_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
+            strategy_type="adaptive",
+            routing_policy=make_routing_policy_adaptive(
+                base_open_seconds=45,
+                failure_threshold=4,
+                backoff_multiplier=3.5,
+                max_open_seconds=720,
+                jitter_ratio=0.35,
+                failure_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
+            ),
         )
         connection = SimpleNamespace(endpoint_id=501)
         model_config = SimpleNamespace(
@@ -330,17 +331,9 @@ class TestDEF062_NonFailover4xxRecoveryState:
             id=1,
         )
         strategy = SimpleNamespace(
-            strategy_type="fill-first",
-            failover_recovery_enabled=True,
-            failover_cooldown_seconds=45,
-            failover_failure_threshold=2,
-            failover_backoff_multiplier=2.0,
-            failover_max_cooldown_seconds=300,
-            failover_jitter_ratio=0.1,
-            failover_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
-            failover_ban_mode="off",
-            failover_max_cooldown_strikes_before_ban=0,
-            failover_ban_duration_seconds=0,
+            strategy_type="legacy",
+            legacy_strategy_type="fill-first",
+            auto_recovery=make_auto_recovery_disabled(),
         )
         connection = SimpleNamespace(endpoint_id=501)
         resolved_model_config = SimpleNamespace(
@@ -901,7 +894,7 @@ class TestDEF062_NonFailover4xxRecoveryState:
 
         assert response.status_code == 200
         assert app.state.http_client.sent_urls == [
-            "https://second.example.com/v1/v1/chat/completions"
+            "https://second.example.com/v1/v1/chat/completions?"
         ]
 
     @pytest.mark.asyncio
@@ -1409,8 +1402,8 @@ class TestDEF062_NonFailover4xxRecoveryState:
                 b"data: [DONE]\n\n",
             ]
             assert app.state.http_client.sent_urls == [
-                "https://first.example.com/v1/v1/chat/completions",
-                "https://second.example.com/v1/v1/chat/completions",
+                "https://first.example.com/v1/v1/chat/completions?",
+                "https://second.example.com/v1/v1/chat/completions?",
             ]
             assert app.state.http_client.success_response.closed is True
             assert log_request.await_count == 2
@@ -2135,8 +2128,9 @@ class TestFillFirstRuntimeBehavior:
             api_family="openai",
             model_id="gpt-4o-mini",
             loadbalance_strategy=SimpleNamespace(
-                strategy_type="fill-first",
-                failover_recovery_enabled=False,
+                strategy_type="legacy",
+                legacy_strategy_type="fill-first",
+                auto_recovery=make_auto_recovery_disabled(),
             ),
             connections=[secondary_connection, primary_connection],
         )
@@ -2210,13 +2204,13 @@ class TestFillFirstRuntimeBehavior:
         assert [response.status_code for response in responses] == [200, 200, 200, 200]
         assert (
             app.state.http_client.sent_urls.count(
-                "https://primary.example.com/v1/v1/chat/completions"
+                "https://primary.example.com/v1/v1/chat/completions?"
             )
             == 3
         )
         assert (
             app.state.http_client.sent_urls.count(
-                "https://secondary.example.com/v1/v1/chat/completions"
+                "https://secondary.example.com/v1/v1/chat/completions?"
             )
             == 1
         )
@@ -2310,8 +2304,9 @@ class TestFillFirstRuntimeBehavior:
             api_family="openai",
             model_id="gpt-4o-mini",
             loadbalance_strategy=SimpleNamespace(
-                strategy_type="fill-first",
-                failover_recovery_enabled=False,
+                strategy_type="legacy",
+                legacy_strategy_type="fill-first",
+                auto_recovery=make_auto_recovery_disabled(),
             ),
             connections=[secondary_connection, primary_connection],
         )
@@ -2356,7 +2351,7 @@ class TestFillFirstRuntimeBehavior:
 
         assert response.status_code == 200
         assert app.state.http_client.sent_urls == [
-            "https://secondary.example.com/v1/v1/chat/completions"
+            "https://secondary.example.com/v1/v1/chat/completions?"
         ]
 
 
@@ -2435,14 +2430,27 @@ class TestDEF021_StreamingCancellationResilience:
         model_config.model_id = model_id
         model_config.loadbalance_strategy = _legacy_single_strategy()
 
+        TestDEF021_StreamingCancellationResilience._last_requested_model_config = (
+            model_config
+        )
         return model_config, connection
 
     @staticmethod
     def _build_db_mock():
+        requested_model_result = MagicMock()
+        requested_model_result.scalars.return_value.one_or_none.side_effect = (
+            lambda: getattr(
+                TestDEF021_StreamingCancellationResilience,
+                "_last_requested_model_config",
+                None,
+            )
+        )
         mock_rules_result = MagicMock()
         mock_rules_result.scalars.return_value.all.return_value = []
         mock_db = AsyncMock()
-        mock_db.execute = AsyncMock(return_value=mock_rules_result)
+        mock_db.execute = AsyncMock(
+            side_effect=[requested_model_result, mock_rules_result]
+        )
         return mock_db
 
     @staticmethod

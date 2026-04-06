@@ -39,10 +39,6 @@ def _make_candidate_input(
     last_live_failure_kind: str | None = None,
     last_live_failure_at: datetime | None = None,
     last_live_success_at: datetime | None = None,
-    last_probe_status: str | None = None,
-    last_probe_at: datetime | None = None,
-    endpoint_ping_ewma_ms: float | None = None,
-    conversation_delay_ewma_ms: float | None = None,
 ) -> AttemptCandidateScoreInput:
     connection = cast(
         Connection,
@@ -72,10 +68,6 @@ def _make_candidate_input(
         last_live_failure_kind=last_live_failure_kind,
         last_live_failure_at=last_live_failure_at,
         last_live_success_at=last_live_success_at,
-        last_probe_status=last_probe_status,
-        last_probe_at=last_probe_at,
-        endpoint_ping_ewma_ms=endpoint_ping_ewma_ms,
-        conversation_delay_ewma_ms=conversation_delay_ewma_ms,
     )
 
 
@@ -92,10 +84,6 @@ class TestLoadbalancerScoring:
             max_in_flight_non_stream=10,
             qps_window_count=1,
             in_flight_non_stream=1,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=10),
-            endpoint_ping_ewma_ms=110.0,
-            conversation_delay_ewma_ms=160.0,
         )
         saturated = _make_candidate_input(
             12,
@@ -104,10 +92,6 @@ class TestLoadbalancerScoring:
             max_in_flight_non_stream=10,
             qps_window_count=10,
             in_flight_non_stream=10,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=10),
-            endpoint_ping_ewma_ms=110.0,
-            conversation_delay_ewma_ms=160.0,
         )
 
         ranked = rank_candidates(
@@ -126,20 +110,12 @@ class TestLoadbalancerScoring:
         healthy = _make_candidate_input(
             21,
             priority=1,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=10),
-            endpoint_ping_ewma_ms=90.0,
-            conversation_delay_ewma_ms=140.0,
         )
         recent_failure = _make_candidate_input(
             22,
             priority=0,
             last_live_failure_kind="timeout",
             last_live_failure_at=now_at - timedelta(seconds=5),
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=10),
-            endpoint_ping_ewma_ms=90.0,
-            conversation_delay_ewma_ms=140.0,
         )
 
         ranked = rank_candidates(
@@ -150,99 +126,79 @@ class TestLoadbalancerScoring:
 
         assert [candidate.connection.id for candidate in ranked] == [21, 22]
 
-    def test_rank_candidates_uses_endpoint_ping_and_conversation_delay(self):
+    def test_rank_candidates_uses_live_latency(self):
         from app.services.loadbalancer.scoring import rank_candidates
 
         now_at = datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)
-        policy = _make_policy(endpoint_ping_weight=1.0, conversation_delay_weight=1.0)
-        faster_probe = _make_candidate_input(
+        policy = _make_policy()
+        faster_connection = _make_candidate_input(
             31,
             priority=1,
-            live_p95_latency_ms=120.0,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=10),
-            endpoint_ping_ewma_ms=45.0,
-            conversation_delay_ewma_ms=85.0,
+            live_p95_latency_ms=80.0,
         )
-        slower_probe = _make_candidate_input(
+        slower_connection = _make_candidate_input(
             32,
             priority=0,
-            live_p95_latency_ms=120.0,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=10),
-            endpoint_ping_ewma_ms=250.0,
-            conversation_delay_ewma_ms=420.0,
+            live_p95_latency_ms=220.0,
         )
 
         ranked = rank_candidates(
             policy=policy,
-            candidate_inputs=[slower_probe, faster_probe],
+            candidate_inputs=[slower_connection, faster_connection],
             now_at=now_at,
         )
 
         assert [candidate.connection.id for candidate in ranked] == [31, 32]
 
-    def test_rank_candidates_penalizes_stale_monitoring_state(self):
+    def test_rank_candidates_penalizes_open_circuit_state(self):
         from app.services.loadbalancer.scoring import rank_candidates
 
         now_at = datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)
-        policy = _make_policy(stale_after_seconds=300)
-        fresh = _make_candidate_input(
+        policy = _make_policy()
+        closed = _make_candidate_input(
             41,
             priority=1,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=20),
-            endpoint_ping_ewma_ms=80.0,
-            conversation_delay_ewma_ms=120.0,
+            live_p95_latency_ms=100.0,
         )
-        stale = _make_candidate_input(
+        open_circuit = _make_candidate_input(
             42,
             priority=0,
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=600),
-            endpoint_ping_ewma_ms=80.0,
-            conversation_delay_ewma_ms=120.0,
+            circuit_state="open",
+            live_p95_latency_ms=50.0,
         )
 
         ranked = rank_candidates(
             policy=policy,
-            candidate_inputs=[stale, fresh],
+            candidate_inputs=[open_circuit, closed],
             now_at=now_at,
         )
 
         assert [candidate.connection.id for candidate in ranked] == [41, 42]
 
-    def test_rank_candidates_prioritizes_fresh_live_signals_over_conflicting_probe_signals(
+    def test_rank_candidates_recent_success_clears_recent_failure_penalty(
         self,
     ):
         from app.services.loadbalancer.scoring import rank_candidates
 
         now_at = datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)
-        policy = _make_policy(endpoint_ping_weight=1.0, conversation_delay_weight=1.0)
-        better_live = _make_candidate_input(
+        policy = _make_policy()
+        recovered = _make_candidate_input(
             43,
             priority=1,
-            live_p95_latency_ms=90.0,
+            live_p95_latency_ms=140.0,
+            last_live_failure_at=now_at - timedelta(seconds=10),
             last_live_success_at=now_at - timedelta(seconds=5),
-            last_probe_status="unhealthy",
-            last_probe_at=now_at - timedelta(seconds=5),
-            endpoint_ping_ewma_ms=320.0,
-            conversation_delay_ewma_ms=700.0,
         )
-        better_probe_only = _make_candidate_input(
+        still_failing = _make_candidate_input(
             44,
             priority=0,
-            live_p95_latency_ms=150.0,
-            last_live_success_at=now_at - timedelta(seconds=5),
-            last_probe_status="healthy",
-            last_probe_at=now_at - timedelta(seconds=5),
-            endpoint_ping_ewma_ms=25.0,
-            conversation_delay_ewma_ms=35.0,
+            live_p95_latency_ms=80.0,
+            last_live_failure_at=now_at - timedelta(seconds=5),
         )
 
         ranked = rank_candidates(
             policy=policy,
-            candidate_inputs=[better_probe_only, better_live],
+            candidate_inputs=[still_failing, recovered],
             now_at=now_at,
         )
 
@@ -255,7 +211,7 @@ class TestLoadbalancerScoring:
         )
 
         now_at = datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)
-        policy = _make_policy(monitoring_enabled=False)
+        policy = _make_policy()
         lower_priority = _make_candidate_input(
             51, priority=0, live_p95_latency_ms=100.0
         )

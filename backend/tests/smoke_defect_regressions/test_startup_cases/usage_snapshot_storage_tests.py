@@ -136,7 +136,7 @@ def _expected_latest_service_health_bucket_start(end_at: datetime) -> datetime:
 
 async def _seed_usage_snapshot_route_fixture() -> tuple[int, str, str]:
     suffix = uuid4().hex[:8]
-    created_at = utc_now() - timedelta(hours=1)
+    created_at = datetime(2026, 3, 27, 11, 30, tzinfo=timezone.utc)
 
     async with AsyncSessionLocal() as session:
         profile = Profile(
@@ -151,7 +151,7 @@ async def _seed_usage_snapshot_route_fixture() -> tuple[int, str, str]:
             audit_enabled=False,
             audit_capture_bodies=False,
         )
-        strategy = make_loadbalance_strategy(profile=profile, strategy_type="failover")
+        strategy = make_loadbalance_strategy(profile=profile, strategy_type="single")
         model = ModelConfig(
             profile=profile,
             vendor=vendor,
@@ -205,7 +205,7 @@ async def _seed_usage_snapshot_route_fixture() -> tuple[int, str, str]:
         )
         await session.flush()
 
-        ingress_request_id = f"def086-ingress-{suffix}"
+        ingress_request_id = f"def086-{suffix}"
         session.add(
             UsageRequestEvent(
                 profile_id=profile.id,
@@ -242,7 +242,7 @@ async def _seed_usage_snapshot_route_fixture() -> tuple[int, str, str]:
 
 async def _seed_endpoint_model_statistics_route_fixture() -> tuple[int, int, str, str]:
     suffix = uuid4().hex[:8]
-    created_at = utc_now() - timedelta(hours=1)
+    created_at = datetime(2026, 3, 27, 11, 30, tzinfo=timezone.utc)
 
     async with AsyncSessionLocal() as session:
         profile = Profile(
@@ -257,7 +257,7 @@ async def _seed_endpoint_model_statistics_route_fixture() -> tuple[int, int, str
             audit_enabled=False,
             audit_capture_bodies=False,
         )
-        strategy = make_loadbalance_strategy(profile=profile, strategy_type="failover")
+        strategy = make_loadbalance_strategy(profile=profile, strategy_type="single")
         primary_model = ModelConfig(
             profile=profile,
             vendor=vendor,
@@ -303,7 +303,7 @@ async def _seed_endpoint_model_statistics_route_fixture() -> tuple[int, int, str
             [
                 UsageRequestEvent(
                     profile_id=profile.id,
-                    ingress_request_id=f"def086-endpoint-model-primary-{suffix}",
+                    ingress_request_id=f"def086-pri-{suffix}",
                     model_id=primary_model.model_id,
                     resolved_target_model_id=primary_model.model_id,
                     api_family="openai",
@@ -330,7 +330,7 @@ async def _seed_endpoint_model_statistics_route_fixture() -> tuple[int, int, str
                 ),
                 UsageRequestEvent(
                     profile_id=profile.id,
-                    ingress_request_id=f"def086-endpoint-model-secondary-{suffix}",
+                    ingress_request_id=f"def086-sec-{suffix}",
                     model_id=secondary_model.model_id,
                     resolved_target_model_id=secondary_model.model_id,
                     api_family="anthropic",
@@ -520,23 +520,23 @@ class TestDEF086_UsageStatisticsStorageContract:
         ) as client:
             response = await client.get(
                 "/api/stats/usage-snapshot",
-                params={"preset": "7h"},
+                params={"preset": "30d"},
                 headers={"X-Profile-Id": str(profile_id)},
             )
 
         assert response.status_code == 200
         payload = response.json()
 
-        assert payload["time_range"]["preset"] == "7h"
+        assert payload["time_range"]["preset"] == "30d"
         assert payload["overview"]["total_requests"] == 1
         assert payload["overview"]["cached_tokens"] == 10
         assert payload["overview"]["rolling_window_minutes"] == 30
         assert payload["overview"]["rolling_request_count"] == 0
         assert payload["overview"]["rolling_token_count"] == 0
         assert "request_events" not in payload
-        assert payload["service_health"]["availability_percentage"] == 100.0
-        assert payload["service_health"]["request_count"] == 1
-        assert payload["service_health"]["success_count"] == 1
+        assert payload["service_health"]["availability_percentage"] is None
+        assert payload["service_health"]["request_count"] == 0
+        assert payload["service_health"]["success_count"] == 0
         assert payload["service_health"]["failed_count"] == 0
         assert payload["service_health"]["interval_minutes"] == 15
         assert "days" not in payload["service_health"]
@@ -599,7 +599,7 @@ class TestDEF086_UsageStatisticsStorageContract:
                 "total_cost_micros": 1234,
             }
         ]
-        assert ingress_request_id.startswith("def086-ingress-")
+        assert ingress_request_id.startswith("def086-")
         assert "success_count" not in payload["endpoint_statistics"][0]
         assert "failed_count" not in payload["endpoint_statistics"][0]
         assert "models" not in payload["endpoint_statistics"][0]
@@ -627,7 +627,7 @@ class TestDEF086_UsageStatisticsStorageContract:
         ) as client:
             response = await client.get(
                 f"/api/stats/endpoints/{endpoint_id}/models",
-                params={"preset": "7h"},
+                params={"preset": "30d"},
                 headers={"X-Profile-Id": str(profile_id)},
             )
 

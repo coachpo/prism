@@ -36,7 +36,9 @@ def register_after_commit_action(
 
 
 def _clear_after_commit_actions(session: AsyncSession) -> None:
-    session.info.pop(_AFTER_COMMIT_ACTIONS_KEY, None)
+    session_info = getattr(session, "info", None)
+    if isinstance(session_info, dict):
+        session_info.pop(_AFTER_COMMIT_ACTIONS_KEY, None)
 
 
 def _run_after_commit_actions(session: AsyncSession) -> None:

@@ -238,16 +238,20 @@ class TestHeaderBlocklist:
         """HBL-012 (P1): ConfigExportResponse schema includes header_blocklist_rules field."""
         from app.schemas.schemas import (
             ConfigExportResponse,
+            ConfigSecretPayload,
             HeaderBlocklistRuleExport,
         )
         from datetime import datetime, timezone
 
         config = ConfigExportResponse(
+            bundle_kind="profile_config",
             exported_at=datetime.now(timezone.utc),
+            vendor_refs=[],
             endpoints=[],
             models=[],
             pricing_templates=[],
             loadbalance_strategies=[],
+            secret_payload=ConfigSecretPayload(key_id="test-key-id", entries=[]),
             header_blocklist_rules=[
                 HeaderBlocklistRuleExport(
                     name="Block Custom",

@@ -278,12 +278,12 @@ class TestDEF059_HealthCheckRequestBuilder:
         assert (
             execute_probe_request_fn.await_args_list[0]
             .kwargs["upstream_url"]
-            .endswith("/v1/messages")
+            .endswith("/v1/messages?")
         )
         assert (
             execute_probe_request_fn.await_args_list[1]
             .kwargs["upstream_url"]
-            .endswith("/v1/messages")
+            .endswith("/v1/messages?")
         )
 
     @pytest.mark.asyncio
@@ -338,12 +338,12 @@ class TestDEF059_HealthCheckRequestBuilder:
         assert (
             execute_probe_request_fn.await_args_list[0]
             .kwargs["upstream_url"]
-            .endswith("/v1/chat/completions")
+            .endswith("/v1/chat/completions?")
         )
         assert (
             execute_probe_request_fn.await_args_list[1]
             .kwargs["upstream_url"]
-            .endswith("/v1/chat/completions")
+            .endswith("/v1/chat/completions?")
         )
         assert execute_probe_request_fn.await_args_list[0].kwargs["body"] == (
             _expected_openai_chat_completions_reasoning_none_probe_body("gpt-5.4-mini")
@@ -575,17 +575,17 @@ class TestDEF066_OpenAIHealthCheckUsesMonitoringProbeSemantics:
         assert health_status == "healthy"
         assert detail == "Connection successful"
         assert response_time_ms == 6
-        assert log_url == "https://api.openai.com/v1/responses"
+        assert log_url == "https://api.openai.com/v1/responses?"
         assert execute_mock.await_count == 2
         assert (
             execute_mock.await_args_list[0]
             .kwargs["upstream_url"]
-            .endswith("/v1/responses")
+            .endswith("/v1/responses?")
         )
         assert (
             execute_mock.await_args_list[1]
             .kwargs["upstream_url"]
-            .endswith("/v1/responses")
+            .endswith("/v1/responses?")
         )
         assert execute_mock.await_args_list[0].kwargs["body"] == (
             _expected_openai_responses_probe_body("gpt-4o-mini")
@@ -628,7 +628,7 @@ class TestDEF066_OpenAIHealthCheckUsesMonitoringProbeSemantics:
         assert health_status == "healthy"
         assert detail == "Connection successful"
         assert response_time_ms == 5
-        assert log_url == "https://api.openai.com/v1/chat/completions"
+        assert log_url == "https://api.openai.com/v1/chat/completions?"
         assert execute_mock.await_count == 2
         assert execute_mock.await_args_list[0].kwargs["body"] == (
             _expected_openai_chat_completions_reasoning_none_probe_body("gpt-5.4-mini")
@@ -670,12 +670,12 @@ class TestDEF066_OpenAIHealthCheckUsesMonitoringProbeSemantics:
         assert health_status == "unhealthy"
         assert detail == "HTTP 404"
         assert response_time_ms == 8
-        assert log_url == "https://api.openai.com/v1/responses"
+        assert log_url == "https://api.openai.com/v1/responses?"
         assert execute_mock.await_count == 1
         assert (
             execute_mock.await_args_list[0]
             .kwargs["upstream_url"]
-            .endswith("/v1/responses")
+            .endswith("/v1/responses?")
         )
         assert execute_mock.await_args_list[0].kwargs["body"] == (
             _expected_openai_responses_reasoning_none_probe_body("gpt-4o-mini")
@@ -713,12 +713,12 @@ class TestDEF066_OpenAIHealthCheckUsesMonitoringProbeSemantics:
         assert health_status == "unhealthy"
         assert detail == "HTTP 404"
         assert response_time_ms == 8
-        assert log_url == "https://api.openai.com/v1/responses"
+        assert log_url == "https://api.openai.com/v1/responses?"
         assert execute_mock.await_count == 1
         assert (
             execute_mock.await_args_list[0]
             .kwargs["upstream_url"]
-            .endswith("/v1/responses")
+            .endswith("/v1/responses?")
         )
 
     @pytest.mark.asyncio
@@ -751,7 +751,7 @@ class TestDEF066_OpenAIHealthCheckUsesMonitoringProbeSemantics:
         assert health_status == "unhealthy"
         assert detail == "HTTP 500"
         assert response_time_ms == 7
-        assert log_url == "https://api.anthropic.com/v1/messages"
+        assert log_url == "https://api.anthropic.com/v1/messages?"
         assert execute_mock.await_count == 1
 
 

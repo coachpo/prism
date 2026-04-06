@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from starlette.requests import Request
 
 from app.services.loadbalancer.types import AttemptPlan
+from tests.loadbalance_strategy_helpers import make_routing_policy_adaptive
 
 
 def _attempt_plan(*connections):
@@ -190,17 +191,8 @@ class TestDEF083_ProxyTargetRuntimeSelection:
             id=1,
         )
         strategy = SimpleNamespace(
-            strategy_type="failover",
-            failover_recovery_enabled=True,
-            failover_cooldown_seconds=45,
-            failover_failure_threshold=4,
-            failover_backoff_multiplier=3.5,
-            failover_max_cooldown_seconds=720,
-            failover_jitter_ratio=0.35,
-            failover_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
-            failover_ban_mode="off",
-            failover_max_cooldown_strikes_before_ban=0,
-            failover_ban_duration_seconds=0,
+            strategy_type="adaptive",
+            routing_policy=make_routing_policy_adaptive(),
         )
         target_endpoint = MagicMock()
         target_endpoint.base_url = "https://target-a.example.com/v1"
@@ -264,7 +256,7 @@ class TestDEF083_ProxyTargetRuntimeSelection:
 
         assert exc_info.value.status_code == 502
         assert app.state.http_client.sent_urls == [
-            "https://target-a.example.com/v1/v1/chat/completions"
+            "https://target-a.example.com/v1/v1/chat/completions?"
         ]
         log_request.assert_awaited_once()
         log_call = log_request.await_args

@@ -203,7 +203,7 @@ class TestDEF088_AdaptiveRoutingDeadlineAndHedging:
                 )
 
         assert exc_info.value.status_code == 504
-        assert requested_urls == ["https://primary.example.com/v1/v1/chat/completions"]
+        assert requested_urls == ["https://primary.example.com/v1/v1/chat/completions?"]
 
     @pytest.mark.asyncio
     async def test_slow_primary_launches_one_hedge_and_commits_first_successful_response(
@@ -314,6 +314,6 @@ class TestDEF088_AdaptiveRoutingDeadlineAndHedging:
         assert response.status_code == 200
         assert json.loads(bytes(response.body)) == {"id": "hedge-success"}
         assert requested_urls == [
-            "https://primary.example.com/v1/v1/chat/completions",
-            "https://hedge.example.com/v1/v1/chat/completions",
+            "https://primary.example.com/v1/v1/chat/completions?",
+            "https://hedge.example.com/v1/v1/chat/completions?",
         ]

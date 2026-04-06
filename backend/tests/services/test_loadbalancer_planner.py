@@ -63,10 +63,6 @@ def _make_runtime_state(
     last_live_failure_kind: str | None = None,
     last_live_failure_at: datetime | None = None,
     last_live_success_at: datetime | None = None,
-    last_probe_status: str | None = None,
-    last_probe_at: datetime | None = None,
-    endpoint_ping_ewma_ms: float | None = None,
-    conversation_delay_ewma_ms: float | None = None,
 ):
     return SimpleNamespace(
         circuit_state=circuit_state,
@@ -81,10 +77,6 @@ def _make_runtime_state(
         last_live_failure_kind=last_live_failure_kind,
         last_live_failure_at=last_live_failure_at,
         last_live_success_at=last_live_success_at,
-        last_probe_status=last_probe_status,
-        last_probe_at=last_probe_at,
-        endpoint_ping_ewma_ms=endpoint_ping_ewma_ms,
-        conversation_delay_ewma_ms=conversation_delay_ewma_ms,
     )
 
 
@@ -145,10 +137,6 @@ def _make_ranked_candidate(connection: Connection) -> AttemptCandidate:
         last_live_failure_kind=None,
         last_live_failure_at=None,
         last_live_success_at=None,
-        last_probe_status=None,
-        last_probe_at=None,
-        endpoint_ping_ewma_ms=None,
-        conversation_delay_ewma_ms=None,
     )
     return AttemptCandidate(
         connection=connection,
@@ -204,25 +192,9 @@ class TestLoadbalancerPlanner:
                 live_p95_latency_ms=260,
                 last_live_failure_kind="transient_http",
                 last_live_failure_at=now_at - timedelta(seconds=5),
-                endpoint_ping_ewma_ms=240.0,
-                conversation_delay_ewma_ms=380.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=20),
             ),
-            12: _make_runtime_state(
-                live_p95_latency_ms=140,
-                endpoint_ping_ewma_ms=120.0,
-                conversation_delay_ewma_ms=180.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=20),
-            ),
-            13: _make_runtime_state(
-                live_p95_latency_ms=70,
-                endpoint_ping_ewma_ms=40.0,
-                conversation_delay_ewma_ms=85.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=20),
-            ),
+            12: _make_runtime_state(live_p95_latency_ms=140),
+            13: _make_runtime_state(live_p95_latency_ms=70),
         }
 
         with patch(
@@ -267,22 +239,12 @@ class TestLoadbalancerPlanner:
                 blocked_until_at=now_at + timedelta(minutes=5),
                 probe_available_at=now_at + timedelta(minutes=5),
             ),
-            22: _make_runtime_state(
-                live_p95_latency_ms=120,
-                endpoint_ping_ewma_ms=100.0,
-                conversation_delay_ewma_ms=150.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=5),
-            ),
+            22: _make_runtime_state(live_p95_latency_ms=120),
             23: _make_runtime_state(
                 circuit_state="open",
                 blocked_until_at=now_at - timedelta(seconds=1),
                 probe_available_at=now_at - timedelta(seconds=1),
                 live_p95_latency_ms=110,
-                endpoint_ping_ewma_ms=90.0,
-                conversation_delay_ewma_ms=140.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=5),
             ),
             24: _make_runtime_state(
                 banned_until_at=now_at + timedelta(minutes=10),
@@ -333,38 +295,16 @@ class TestLoadbalancerPlanner:
         )
 
         first_state = {
-            31: _make_runtime_state(
-                live_p95_latency_ms=80,
-                endpoint_ping_ewma_ms=55.0,
-                conversation_delay_ewma_ms=90.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=5),
-            ),
-            32: _make_runtime_state(
-                live_p95_latency_ms=180,
-                endpoint_ping_ewma_ms=160.0,
-                conversation_delay_ewma_ms=220.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at - timedelta(seconds=5),
-            ),
+            31: _make_runtime_state(live_p95_latency_ms=80),
+            32: _make_runtime_state(live_p95_latency_ms=180),
         }
         second_state = {
             31: _make_runtime_state(
                 live_p95_latency_ms=240,
                 last_live_failure_kind="timeout",
                 last_live_failure_at=now_at + timedelta(seconds=5),
-                endpoint_ping_ewma_ms=260.0,
-                conversation_delay_ewma_ms=320.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at + timedelta(seconds=5),
             ),
-            32: _make_runtime_state(
-                live_p95_latency_ms=75,
-                endpoint_ping_ewma_ms=45.0,
-                conversation_delay_ewma_ms=85.0,
-                last_probe_status="healthy",
-                last_probe_at=now_at + timedelta(seconds=5),
-            ),
+            32: _make_runtime_state(live_p95_latency_ms=75),
         }
 
         with patch(

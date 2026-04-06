@@ -141,10 +141,6 @@ class TestLoadbalanceStrategies:
             deadline_budget_ms=12_000,
             hedge_enabled=True,
             hedge_delay_ms=900,
-            endpoint_ping_weight=1.5,
-            conversation_delay_weight=0.75,
-            failure_penalty_weight=2.5,
-            stale_after_seconds=180,
         )
         adaptive = _make_strategy_create(
             name="adaptive-primary",
@@ -206,10 +202,6 @@ class TestLoadbalanceStrategies:
                 hedge_enabled=True,
                 hedge_delay_ms=900,
                 failure_status_codes=[429, 503],
-                endpoint_ping_weight=1.5,
-                conversation_delay_weight=0.75,
-                failure_penalty_weight=2.5,
-                stale_after_seconds=180,
             )
             updated_legacy_auto_recovery = make_auto_recovery_enabled(
                 status_codes=[403, 429, 503],
@@ -225,10 +217,6 @@ class TestLoadbalanceStrategies:
                 hedge_enabled=False,
                 hedge_delay_ms=1_500,
                 failure_status_codes=[403, 429, 503],
-                endpoint_ping_weight=1.0,
-                conversation_delay_weight=1.0,
-                failure_penalty_weight=2.0,
-                stale_after_seconds=300,
             )
 
             created_legacy = await create_strategy(
@@ -409,10 +397,6 @@ class TestLoadbalanceStrategies:
                     hedge_enabled=True,
                     hedge_delay_ms=900,
                     failure_status_codes=[429, 503],
-                    endpoint_ping_weight=1.5,
-                    conversation_delay_weight=0.75,
-                    failure_penalty_weight=2.5,
-                    stale_after_seconds=180,
                 ),
             )
         )
@@ -429,7 +413,8 @@ class TestLoadbalanceStrategies:
         assert adaptive_policy.routing_objective == "maximize_availability"
         assert adaptive_policy.deadline_budget_ms == 12_000
         assert adaptive_policy.hedge_enabled is True
-        assert adaptive_policy.monitoring_enabled is True
+        assert adaptive_policy.admission_respect_qps_limit is True
+        assert adaptive_policy.admission_respect_in_flight_limits is True
 
     def test_policy_resolver_rejects_missing_or_inconsistent_dual_strategy_shapes(self):
         from app.services.loadbalancer.policy import (

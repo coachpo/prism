@@ -238,24 +238,6 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
                     .scalars()
                     .all()
                 )
-                connection_columns = set(
-                    (
-                        await conn.execute(
-                            text(
-                                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'connections'"
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                connection_probe_variant_constraint = (
-                    await conn.execute(
-                        text(
-                            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'connections'::regclass AND conname = 'ck_connections_openai_probe_endpoint_variant'"
-                        )
-                    )
-                ).scalar_one()
             await engine.dispose()
 
             assert version == [current_head_revision]
@@ -267,14 +249,6 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
             assert "strategy_type" in strategy_columns
             assert "legacy_strategy_type" in strategy_columns
             assert "auto_recovery" in strategy_columns
-            assert "monitoring_probe_interval_seconds" in connection_columns
-            assert "openai_probe_endpoint_variant" in connection_columns
-            assert "responses_minimal" in connection_probe_variant_constraint
-            assert "responses_reasoning_none" in connection_probe_variant_constraint
-            assert "chat_completions_minimal" in connection_probe_variant_constraint
-            assert (
-                "chat_completions_reasoning_none" in connection_probe_variant_constraint
-            )
         finally:
             await _drop_database(drift_database_url)
 
@@ -343,10 +317,6 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
                 "last_live_failure_kind",
                 "last_live_failure_at",
                 "last_live_success_at",
-                "last_probe_status",
-                "last_probe_at",
-                "endpoint_ping_ewma_ms",
-                "conversation_delay_ewma_ms",
             }.issubset(runtime_state_columns)
         finally:
             await _drop_database(legacy_database_url)

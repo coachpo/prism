@@ -105,7 +105,7 @@ class TestLoadbalancerRuntimeStore:
                 connection_id=connection_id,
                 now_at=now_at,
             )
-            state_row.last_probe_status = "healthy"
+            state_row.live_p95_latency_ms = 123
             await session.commit()
             first_row_id = state_row.id
 
@@ -117,7 +117,7 @@ class TestLoadbalancerRuntimeStore:
                 now_at=now_at + timedelta(seconds=5),
             )
             assert state_row.id == first_row_id
-            assert state_row.last_probe_status == "healthy"
+            assert state_row.live_p95_latency_ms == 123
             await session.rollback()
 
         async with AsyncSessionLocal() as session:
@@ -324,71 +324,48 @@ class TestLoadbalancerRuntimeStore:
         assert state_row.circuit_state == "half_open"
 
     @pytest.mark.asyncio
-    async def test_acquire_monitoring_probe_lease_denies_recently_probed_closed_connection(
+    async def test_acquire_half_open_probe_lease_denies_closed_connection_without_open_circuit(
         self,
     ):
         from app.services.loadbalancer.runtime_store import (
-            acquire_monitoring_probe_lease,
-            apply_fused_monitoring_update,
+            acquire_half_open_probe_lease,
         )
 
         profile_id, connection_id = await _create_connection_fixture()
         checked_at = datetime(2026, 3, 29, 12, 30, tzinfo=timezone.utc)
 
         async with AsyncSessionLocal() as session:
-            _ = await apply_fused_monitoring_update(
-                session=session,
-                profile_id=profile_id,
-                connection_id=connection_id,
-                last_probe_status="healthy",
-                last_probe_at=checked_at,
-                endpoint_ping_ewma_ms=50.0,
-                conversation_delay_ewma_ms=75.0,
-                live_p95_latency_ms=None,
-                last_live_failure_kind=None,
-                last_live_failure_at=None,
-                last_live_success_at=checked_at,
-                now_at=checked_at,
-            )
-            await session.commit()
-
-        async with AsyncSessionLocal() as session:
-            denied = await acquire_monitoring_probe_lease(
+            denied = await acquire_half_open_probe_lease(
                 session=session,
                 profile_id=profile_id,
                 connection_id=connection_id,
                 lease_ttl_seconds=10,
-                interval_seconds=45,
-                now_at=checked_at + timedelta(seconds=1),
+                now_at=checked_at,
             )
             await session.commit()
 
         assert denied.admitted is False
-        assert denied.deny_reason == "probe_not_due"
+        assert denied.deny_reason == "probe_not_ready"
 
     @pytest.mark.asyncio
-    async def test_apply_fused_monitoring_update_records_synthetic_monitoring_fields(
+    async def test_apply_live_runtime_observation_update_records_live_runtime_fields(
         self,
     ):
         from app.services.loadbalancer.runtime_store import (
-            apply_fused_monitoring_update,
+            apply_live_runtime_observation_update,
         )
 
         profile_id, connection_id = await _create_connection_fixture()
         checked_at = datetime(2026, 3, 29, 13, 0, tzinfo=timezone.utc)
 
         async with AsyncSessionLocal() as session:
-            _ = await apply_fused_monitoring_update(
+            _ = await apply_live_runtime_observation_update(
                 session=session,
                 profile_id=profile_id,
                 connection_id=connection_id,
-                last_probe_status="healthy",
-                last_probe_at=checked_at,
-                endpoint_ping_ewma_ms=123.5,
-                conversation_delay_ewma_ms=456.5,
-                live_p95_latency_ms=None,
-                last_live_failure_kind=None,
-                last_live_failure_at=None,
+                live_p95_latency_ms=124,
+                last_live_failure_kind="timeout",
+                last_live_failure_at=checked_at - timedelta(seconds=30),
                 last_live_success_at=checked_at,
                 now_at=checked_at,
             )
@@ -404,12 +381,9 @@ class TestLoadbalancerRuntimeStore:
                 )
             ).scalar_one()
 
-        assert state_row.last_probe_status == "healthy"
-        assert state_row.last_probe_at == checked_at
-        assert state_row.endpoint_ping_ewma_ms is not None
-        assert state_row.conversation_delay_ewma_ms is not None
-        assert float(state_row.endpoint_ping_ewma_ms) == pytest.approx(123.5)
-        assert float(state_row.conversation_delay_ewma_ms) == pytest.approx(456.5)
+        assert state_row.live_p95_latency_ms == 124
+        assert state_row.last_live_failure_kind == "timeout"
+        assert state_row.last_live_failure_at == checked_at - timedelta(seconds=30)
         assert state_row.last_live_success_at == checked_at
 
     @pytest.mark.asyncio
