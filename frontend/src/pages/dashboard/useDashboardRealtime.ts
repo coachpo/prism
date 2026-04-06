@@ -112,10 +112,10 @@ export function useDashboardRealtime({
   );
 
   const handleReconnect = useCallback(() => {
-    queueMicrotask(() => {
+    void fetchDashboardData({ forceRefresh: true, silent: true }).finally(() => {
       markSyncCompleteRef.current();
     });
-  }, []);
+  }, [fetchDashboardData]);
 
   const refreshDashboard = useCallback(async () => {
     setIsRefreshing(true);

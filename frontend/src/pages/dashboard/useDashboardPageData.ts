@@ -86,6 +86,10 @@ export function useDashboardPageData({
   }, [models]);
 
   useEffect(() => {
+    latestDashboardRequestIdRef.current = 0;
+  }, [latestDashboardRequestIdRef, selectedProfileId]);
+
+  useEffect(() => {
     void fetchDashboardData({ reuseInFlight: true });
   }, [fetchDashboardData]);
 

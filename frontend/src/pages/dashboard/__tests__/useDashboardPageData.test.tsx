@@ -431,4 +431,199 @@ describe("useDashboardPageData", () => {
     expect(result.current.routingDiagramError).toBeNull();
     expect(result.current.routingDiagramData?.nodes).toHaveLength(0);
   });
+
+  it("accepts lower request ids after switching selected profiles", async () => {
+    const { result, rerender } = renderHook(
+      ({ selectedProfileId }: { selectedProfileId: number | null }) =>
+        useDashboardPageData({
+          revision: 1,
+          selectedProfileId,
+        }),
+      {
+        initialProps: { selectedProfileId: 1 },
+        wrapper: StrictWrapper,
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.recentRequests[0]?.id).toBe(9001);
+    });
+
+    api.stats.summary
+      .mockResolvedValueOnce({
+        total_requests: 4,
+        success_count: 4,
+        error_count: 0,
+        success_rate: 100,
+        avg_response_time_ms: 120,
+        p95_response_time_ms: 180,
+        total_input_tokens: 40,
+        total_output_tokens: 60,
+        total_tokens: 100,
+        groups: [],
+      })
+      .mockResolvedValueOnce({
+        total_requests: 4,
+        success_count: 4,
+        error_count: 0,
+        success_rate: 100,
+        avg_response_time_ms: 120,
+        p95_response_time_ms: 180,
+        total_input_tokens: 40,
+        total_output_tokens: 60,
+        total_tokens: 100,
+        groups: [],
+      });
+    api.stats.spending
+      .mockResolvedValueOnce({
+        summary: {
+          total_cost_micros: 500,
+          successful_request_count: 4,
+          priced_request_count: 4,
+          unpriced_request_count: 0,
+          total_input_tokens: 40,
+          total_output_tokens: 60,
+          total_cache_read_input_tokens: 0,
+          total_cache_creation_input_tokens: 0,
+          total_reasoning_tokens: 0,
+          total_tokens: 100,
+          avg_cost_per_successful_request_micros: 125,
+        },
+        groups: [],
+        groups_total: 0,
+        top_spending_models: [{ model_id: "gpt-5.4", total_cost_micros: 500 }],
+        top_spending_endpoints: [],
+        unpriced_breakdown: {},
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+      })
+      .mockResolvedValueOnce({
+        summary: {
+          total_cost_micros: 500,
+          successful_request_count: 4,
+          priced_request_count: 4,
+          unpriced_request_count: 0,
+          total_input_tokens: 40,
+          total_output_tokens: 60,
+          total_cache_read_input_tokens: 0,
+          total_cache_creation_input_tokens: 0,
+          total_reasoning_tokens: 0,
+          total_tokens: 100,
+          avg_cost_per_successful_request_micros: 125,
+        },
+        groups: [],
+        groups_total: 0,
+        top_spending_models: [],
+        top_spending_endpoints: [],
+        unpriced_breakdown: {},
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+      });
+    api.stats.throughput.mockResolvedValueOnce({
+      average_rpm: 0.2,
+      peak_rpm: 1,
+      current_rpm: 0,
+      total_requests: 4,
+      time_window_seconds: 1440,
+      buckets: [],
+    });
+    api.stats.requests.mockResolvedValueOnce({
+      items: [
+        {
+          id: 5,
+          model_id: "gpt-5.4",
+          profile_id: 2,
+          api_family: "openai",
+          endpoint_id: 500,
+          connection_id: 101,
+          endpoint_base_url: "https://api.openai.com",
+          endpoint_description: "Primary",
+          status_code: 200,
+          response_time_ms: 180,
+          is_stream: false,
+          input_tokens: null,
+          output_tokens: null,
+          total_tokens: null,
+          success_flag: true,
+          billable_flag: true,
+          priced_flag: true,
+          unpriced_reason: null,
+          cache_read_input_tokens: null,
+          cache_creation_input_tokens: null,
+          reasoning_tokens: null,
+          input_cost_micros: null,
+          output_cost_micros: null,
+          cache_read_input_cost_micros: null,
+          cache_creation_input_cost_micros: null,
+          reasoning_cost_micros: null,
+          total_cost_original_micros: null,
+          total_cost_user_currency_micros: null,
+          currency_code_original: null,
+          report_currency_code: null,
+          report_currency_symbol: null,
+          fx_rate_used: null,
+          fx_rate_source: null,
+          pricing_snapshot_unit: null,
+          pricing_snapshot_input: null,
+          pricing_snapshot_output: null,
+          pricing_snapshot_cache_read_input: null,
+          pricing_snapshot_cache_creation_input: null,
+          pricing_snapshot_reasoning: null,
+          pricing_snapshot_missing_special_token_price_policy: null,
+          pricing_config_version_used: null,
+          request_path: "/v1/chat/completions",
+          error_detail: null,
+          created_at: "",
+        },
+      ],
+      total: 1,
+      limit: 12,
+      offset: 0,
+    });
+    api.connections.byModels.mockResolvedValueOnce({
+      items: [
+        {
+          model_config_id: 10,
+          connections: [
+            {
+              id: 101,
+              model_config_id: 10,
+              endpoint_id: 500,
+              endpoint: {
+                id: 500,
+                profile_id: 2,
+                name: "Primary",
+                base_url: "https://api.openai.com",
+                has_api_key: true,
+                masked_api_key: "****",
+                position: 0,
+                created_at: "",
+                updated_at: "",
+              },
+              is_active: true,
+              priority: 0,
+              name: null,
+              auth_type: null,
+              custom_headers: null,
+              pricing_template_id: null,
+              pricing_template: null,
+              health_status: "healthy",
+              health_detail: null,
+              last_health_check: null,
+              created_at: "",
+              updated_at: "",
+            },
+          ],
+        },
+      ],
+    });
+
+    rerender({ selectedProfileId: 2 });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.recentRequests[0]?.id).toBe(5);
+    });
+  });
 });

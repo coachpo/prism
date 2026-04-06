@@ -11,6 +11,11 @@ import { useDashboardRealtime } from "../useDashboardRealtime";
 import type { RoutingDiagramData } from "../routingDiagram";
 
 let capturedOptions: Record<string, unknown> | null = null;
+const { realtimeState } = vi.hoisted(() => ({
+  realtimeState: {
+    markSyncComplete: vi.fn(),
+  },
+}));
 
 vi.mock("@/hooks/useRealtimeData", () => ({
   useRealtimeData: (options: Record<string, unknown>) => {
@@ -23,7 +28,7 @@ vi.mock("@/hooks/useRealtimeData", () => ({
       isSyncing: false,
       lastData: null,
       lastMessage: null,
-      markSyncComplete: vi.fn(),
+      markSyncComplete: realtimeState.markSyncComplete,
     };
   },
 }));
@@ -176,6 +181,7 @@ describe("useDashboardRealtime", () => {
   beforeEach(() => {
     capturedOptions = null;
     vi.clearAllMocks();
+    realtimeState.markSyncComplete.mockReset();
     vi.useFakeTimers();
   });
 
@@ -291,5 +297,36 @@ describe("useDashboardRealtime", () => {
     });
     expect(result.current.isRefreshing).toBe(false);
     expect(result.current.metricsHighlighted).toBe(true);
+  });
+
+  it("reconciles with a silent refresh before completing reconnect sync", async () => {
+    const fetchDashboardData = vi.fn().mockResolvedValue(undefined);
+
+    renderHook(() =>
+      useDashboardRealtime({
+        fetchDashboardData,
+        latestDashboardRequestIdRef: { current: 0 },
+        selectedProfileId: 1,
+        setApiFamilyStats: vi.fn(),
+        setRecentRequests: vi.fn(),
+        setRoutingDiagramData: vi.fn(),
+        setRoutingDiagramError: vi.fn(),
+        setSpending: vi.fn(),
+        setStats: vi.fn(),
+        setThroughput: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      (capturedOptions?.onReconnect as () => void)();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchDashboardData).toHaveBeenCalledWith({
+      forceRefresh: true,
+      silent: true,
+    });
+    expect(realtimeState.markSyncComplete).toHaveBeenCalledTimes(1);
   });
 });
