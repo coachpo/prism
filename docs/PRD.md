@@ -25,7 +25,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Runtime compatibility is fixed by `api_family`
 
 ### 4.2 Model Configuration
-- Map each model to `vendor_id` metadata plus a fixed runtime `api_family`
+- Map each model to optional `vendor_id` metadata plus a fixed runtime `api_family`
 - Two model types:
   - **Native**: A real model with its own routing and costing configurations (connections)
   - **Proxy**: An ordered routing model that selects one native target per request (no own connections, no own strategy)
@@ -60,7 +60,7 @@ Single operator (developer/power user) running the application locally or on a l
 ### 4.5 Profile-Scoped Endpoints & Model Connections
 - **Vendors** remain global publisher metadata shared across profiles.
 - **Endpoints** are profile-scoped credential objects containing a name, base URL, and API key.
-- **Models** carry `vendor_id` plus fixed `api_family` metadata.
+- **Models** carry optional `vendor_id` metadata plus fixed `api_family` metadata.
 - **Connections** are profile-scoped model routing, costing, and health configurations that reference endpoints in the same profile.
 - Endpoints can be reused across multiple models within the same profile.
 - Deleting an endpoint is blocked if any connections in that profile still reference it.
@@ -129,7 +129,7 @@ Single operator (developer/power user) running the application locally or on a l
 - No config files to manage — everything through the UI/API
 - The default profile exists from the first startup and remains editable after initialization
 - Config export/import uses a breaking `version: 2` split-bundle contract: profile bundles are `bundle_kind: profile_config`, vendor catalog bundles are `bundle_kind: vendor_catalog`
-- Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, ordered `proxy_targets`, `vendor_key`, and `api_family`
+- Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, ordered `proxy_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
 - Database setup applies the checked-in Alembic migration chain in `backend/app/alembic/versions/`, including the current dual-strategy and legacy-upgrade revisions required by the live backend
 ### 4.9 Request Statistics & Analytics
@@ -173,6 +173,7 @@ Full HTTP request/response recording for proxied requests, stored in the databas
 
 #### 4.10.1 Per-Vendor Audit Toggle
 - Each vendor has `audit_enabled` and `audit_capture_bodies` flags
+- Vendorless models do not synthesize audit defaults from `api_family`; they simply skip vendor-scoped audit logging
 - Toggling audit on/off takes effect immediately for new requests
 
 #### 4.10.2 What Gets Recorded

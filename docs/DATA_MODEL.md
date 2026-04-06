@@ -266,11 +266,11 @@ Vendor records remain global and are shared across all profiles.
 Lifecycle notes:
 - Vendor rows are managed globally from Settings → Global.
 - Vendor catalog import/export now lives under `/api/config/vendors/*` and is the authoritative bundle path for shared vendor metadata.
-- Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` and never mutate existing global vendor metadata from profile-bundle hint drift.
+- Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` when present and never mutate existing global vendor metadata from profile-bundle hint drift.
 - `icon_key` is shared global metadata and is presentation-only; runtime routing and compatibility continue to use `api_family` on model rows.
-- `model_configs.vendor_id` references these shared rows; deleting a vendor never cascades into model deletion.
-- `GET /api/vendors/{id}/models` returns the profile-scoped referencing model rows used by the UI to explain blocked deletes.
-- `DELETE /api/vendors/{id}` returns `409` while references remain and `204` only when the vendor is unused.
+- `model_configs.vendor_id` references these shared rows as optional metadata; deleting a vendor never cascades into model deletion.
+- `GET /api/vendors/{id}/models` returns the current profile-scoped referencing model rows as informational delete context.
+- `DELETE /api/vendors/{id}` hard-deletes the vendor and clears `model_configs.vendor_id` plus delete-safe observability vendor foreign keys to `NULL`.
 
 ### 2.2 `profiles`
 
@@ -296,13 +296,13 @@ Constraints and lifecycle rules:
 
 ### 2.3 `model_configs` (profile-scoped)
 
-Maps a model ID to a vendor, fixed api family, and routing behavior within one profile.
+Maps a model ID to optional vendor metadata, fixed api family, and routing behavior within one profile.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| vendor_id | INTEGER | FK -> vendors.id, NOT NULL | Vendor reference |
+| vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor metadata reference |
 | api_family | VARCHAR(50) | NOT NULL | Fixed runtime compatibility family |
 | model_id | VARCHAR(200) | NOT NULL | Model identifier (scoped by profile) |
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
@@ -558,7 +558,7 @@ Audit rows for upstream attempts with immutable profile attribution.
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
 | request_log_id | INTEGER | FK -> request_logs.id, NULLABLE, ON DELETE SET NULL | Optional telemetry linkage |
-| vendor_id | INTEGER | FK -> vendors.id, NOT NULL | Vendor reference |
+| vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor reference |
 | model_id | VARCHAR(200) | NOT NULL | Model ID |
 | connection_id | INTEGER | NULLABLE | Connection snapshot |
 | endpoint_base_url | VARCHAR(500) | NULLABLE | Endpoint base URL snapshot |
@@ -591,7 +591,7 @@ Persistent record of failover, recovery, and health transitions.
 | blocked_until_mono | NUMERIC | NULLABLE | Monotonic block timestamp |
 | model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
 | endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
-| vendor_id | INTEGER | FK -> vendors.id | Vendor snapshot |
+| vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor snapshot |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
 
 ### 2.14 `monitoring_connection_probe_results` (durable monitoring history)
@@ -834,7 +834,7 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 - Routine profile deletion (`DELETE /api/profiles/{id}`) is soft-delete of inactive profile (`deleted_at` set).
 - Active profile deletion is rejected.
-- Vendor deletion is hard-delete only for unused shared vendor rows; in-use deletes are rejected and surfaced through the vendor-usage contract instead of cascading to `model_configs`.
+- Vendor deletion hard-deletes the shared vendor row and nulls `model_configs.vendor_id` plus delete-safe observability vendor foreign keys instead of rejecting the delete or cascading to model rows.
 - Profile-scoped config entities are removable through explicit profile-targeted replace/purge workflows.
 - Historical telemetry/audit retention is independent; routine profile delete does not erase historical attribution rows.
 
@@ -854,14 +854,14 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is config version `2` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, model `vendor_key`, and model `api_family`.
+- Canonical profile export format is config version `2` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is config version `2` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v2` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
+- Profile import accepts `v2` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the v2 profile-bundle contract omits internal IDs entirely and relies on name-based references.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
-- Profile import reuses exact global vendor keys, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
+- Profile import reuses exact global vendor keys when provided, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
 
 
 ## 8. Invariant Notes

@@ -189,7 +189,7 @@ Response `200`:
 ]
 ```
 
-Returns the profile-scoped model rows currently referencing the vendor. The Settings → Global delete flow uses this endpoint to explain blocked deletes before operators confirm removal.
+Returns the profile-scoped model rows currently referencing the vendor. The Settings → Global delete flow uses this endpoint as informational context before operators confirm removal; deleting the vendor clears those models' `vendor_id`/`vendor` metadata instead of blocking the delete.
 
 #### Update Vendor
 ```
@@ -217,27 +217,7 @@ Mutable vendor fields:
 DELETE /api/vendors/{id}
 ```
 Response `204`: Vendor deleted.
-
-If the vendor is still referenced, response `409`:
-```json
-{
-  "message": "Cannot delete vendor that is referenced by models",
-  "models": [
-    {
-      "model_config_id": 12,
-      "profile_id": 3,
-      "profile_name": "Default",
-      "model_id": "gpt-4o",
-      "display_name": "GPT-4o",
-      "model_type": "native",
-      "api_family": "openai",
-      "is_enabled": true
-    }
-  ]
-}
-```
-
-The route prechecks live model references and keeps the same `{message, models}` contract if the database still rejects the delete later. In that fallback case, `models` may be empty when the blocking record is not one of the currently queryable model rows.
+If the vendor is still referenced by live model rows, the delete still returns `204`. The backend nulls those models' `vendor_id` and returns `vendor: null` on later model reads. Runtime compatibility continues to come from each model's required `api_family`.
 
 Vendor name, key, and description are part of the global vendor catalog.
 
@@ -258,7 +238,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with vendor, `api_family`, and ordered connections in the effective profile scope. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
+Response `200`: Full model object with nullable vendor metadata, required `api_family`, and ordered connections in the effective profile scope. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -285,7 +265,7 @@ POST /api/models
 Request (native model):
 ```json
 {
-  "vendor_id": 1,
+  "vendor_id": null,
   "api_family": "openai",
   "model_id": "gpt-4o",
   "display_name": "GPT-4o",
@@ -319,7 +299,8 @@ Response `201`: Created model object.
 
 Validation rules:
 - `model_id` must be unique within the effective profile scope
-- `vendor_id` and `api_family` are required on every model contract.
+- `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
+- `vendor_id` is optional metadata and may be `null`.
 - If `model_type = "proxy"`: `proxy_targets` is required, must be non-empty, must contain unique native target model IDs from the same profile and same `api_family`, and must use contiguous `position` values starting at `0`. `loadbalance_strategy_id` must be null/omitted.
 - If `model_type = "native"`: `proxy_targets` must be empty/omitted and `loadbalance_strategy_id` is required.
 - Proxy target self-reference is rejected.
@@ -332,7 +313,7 @@ PUT /api/models/{id}
 Request (all fields optional):
 ```json
 {
-  "vendor_id": 2,
+  "vendor_id": null,
   "api_family": "anthropic",
   "model_id": "gpt-4o-updated",
   "display_name": "GPT-4o (Updated)",
@@ -691,7 +672,8 @@ The response includes a `Content-Disposition` header to trigger a file download:
 
 Profile export semantics:
 - `bundle_kind` is always `profile_config`.
-- `vendor_refs` are non-authoritative hints keyed by `vendor_key`.
+- `vendor_refs` are non-authoritative hints keyed by actual referenced `vendor_key` values only.
+- Vendorless models export `vendor_key: null` and do not add entries to `vendor_refs`.
 - Export never includes plaintext `endpoints[].api_key`.
 - Endpoints without an API key export `api_key_secret_ref: null` and do not contribute an entry to `secret_payload.entries[]`.
 - Endpoint secrets are exported only through `secret_payload.entries[]`.
@@ -756,6 +738,8 @@ Response `200`:
 Profile import semantics:
 - Import is profile-targeted and replaces configuration in the effective profile only.
 - Other profiles are not deleted or mutated.
+- `models[].vendor_key` is optional; when omitted or `null`, the imported model persists with `vendor_id = null` and `vendor = null`.
+- When `models[].vendor_key` is present, the backend resolves or creates the matching shared vendor row by that key only.
 - Global vendor rows are resolved by `vendor_key` only.
 - If a referenced `vendor_key` already exists globally, import reuses that vendor row.
 - If vendor hints differ from existing global metadata, import does not fail and does not mutate the existing global vendor row.

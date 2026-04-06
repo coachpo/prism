@@ -189,7 +189,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 Note: Gemini requests use native `/v1beta/models/{model}:...` paths only. When a Gemini proxy model resolves to a different native model ID, the proxy rewrites the model ID segment in the URL path to the resolved native target model ID before forwarding upstream.
 For Gemini, the `:streamGenerateContent` path is authoritative for stream classification even when the request body omits `stream: true`.
 
-Vendor rows are global publisher metadata. The runtime compatibility and redirect checks use `api_family`, which is a fixed enum on the model contract, not the vendor row. The frontend owns vendor icon rendering through a locally vendored registry sourced from pinned `cc-switch` presets, and it falls back to a monogram or placeholder when icon data is missing or unknown. The Models page groups rows by vendor identity while each row still renders its own `api_family` metadata.
+Vendor rows are global publisher metadata. Models may keep `vendor_id = null` and `vendor = null`, while runtime compatibility and redirect checks still use the model's required `api_family`, not the vendor row. The frontend owns vendor icon rendering through a locally vendored registry sourced from pinned `cc-switch` presets, and it falls back to a monogram or placeholder only at render time when icon data or vendor metadata is missing or unknown. The Models page still renders each row's `api_family` metadata even when vendor identity is absent.
 
 ### 3.5 Management API Profile Scoping
 - Profile-scoped management routes use explicit `X-Profile-Id` and effective-profile resolution.
@@ -207,7 +207,7 @@ The v2 config workflow also mirrors that ownership split:
 - vendor catalog export/import uses `bundle_kind = vendor_catalog` and is authoritative only for shared vendor metadata
 - profile bundles never export plaintext endpoint API keys; endpoint secrets move through an encrypted `secret_payload`
 - endpoints without upstream credentials export `api_key_secret_ref = null` and do not create a bundle secret entry
-- profile import resolves vendors by `vendor_key`, reuses existing global vendors, and never mutates existing global vendor metadata from profile-bundle hint drift
+- profile import resolves vendors by `vendor_key` when present, keeps vendorless models vendorless when `vendor_key` is null, reuses existing global vendors, and never mutates existing global vendor metadata from profile-bundle hint drift
 
 ### 3.6 Custom Header Injection
 
@@ -292,7 +292,7 @@ Proxy models are ordered routing records that choose one native target model per
 - Once one target model is selected for a request, retries stay inside that target model's native connection plan; there is no cross-target retry in the same request.
 - The gateway may normalize proxy request payloads before forwarding (for example: requested proxy model ID rewritten to the resolved native target model ID for upstream compatibility).
 
-Model contracts require both `vendor_id` and `api_family`. Vendor CRUD remains global, while proxy compatibility is checked against `api_family` only.
+Model contracts require `api_family`; `vendor_id` is optional metadata. Vendor CRUD remains global, while proxy compatibility is checked against `api_family` only.
 
 ### 5.3 Resolution
 
@@ -397,15 +397,15 @@ Request-log semantics are per-attempt: one incoming runtime request can create m
 
 ### 8.1 Concept
 
-Full HTTP request/response recording for proxied requests, toggled per vendor. Captures raw upstream communication for debugging and compliance auditing. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
+Full HTTP request/response recording for proxied requests, toggled per vendor when vendor metadata exists. Vendorless models do not synthesize audit defaults from `api_family`. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
 Audit rows are written per upstream attempt, including failover attempts.
 
 ### 8.2 Audit Flow (Non-Streaming)
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o"}
-  -> Router resolves the requested model vendor separately from runtime api_family state
-  -> Check vendor.audit_enabled
+  -> Router resolves optional requested-model vendor metadata separately from runtime api_family state
+  -> If vendor metadata exists: check vendor.audit_enabled; otherwise skip vendor-scoped audit
   -> ProxyService forwards request to upstream
   -> Upstream responds with JSON
   -> Log to request_logs (including profile_id)
@@ -425,8 +425,8 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
-  -> Router resolves the requested model vendor separately from runtime api_family state
-  -> Check vendor.audit_enabled
+  -> Router resolves optional requested-model vendor metadata separately from runtime api_family state
+  -> If vendor metadata exists: check vendor.audit_enabled; otherwise skip vendor-scoped audit
   -> ProxyService opens streaming connection
   -> SSE chunks piped to client
   -> On stream complete (finally block):
@@ -572,4 +572,4 @@ The runtime plane exclusively supports three fixed API families:
 - **Anthropic** (`anthropic`) — Claude-style request and response contracts
 - **Gemini** (`gemini`) — Gemini-native `/v1beta/models/*` contracts
 
-The vendor catalog is separate and global. Models carry both `vendor_id` and `api_family`, so operators may create additional vendor metadata rows such as `OpenRouter` while runtime compatibility stays limited to those three API families. The Global settings tab now exposes vendor create/edit/delete flows, and deletes are blocked when profile-scoped models still reference the vendor.
+The vendor catalog is separate and global. Models always carry required `api_family`, while `vendor_id` remains optional metadata, so operators may create additional vendor metadata rows such as `OpenRouter` without changing runtime compatibility. The Global settings tab exposes vendor create/edit/delete flows, and deleting a vendor clears live model vendor metadata instead of blocking the delete.
