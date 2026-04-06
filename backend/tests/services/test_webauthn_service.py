@@ -85,19 +85,23 @@ async def test_verify_registration_passes_raw_credential_dict_to_webauthn():
         credential_backed_up=False,
     )
 
-    with patch.object(
-        webauthn_service,
-        "_get_challenge",
-        AsyncMock(return_value=b"registration-challenge"),
-    ), patch.object(
-        webauthn_service,
-        "_clear_challenge",
-        AsyncMock(),
-    ) as clear_challenge_mock, patch.object(
-        webauthn_service,
-        "verify_registration_response",
-        return_value=verification,
-    ) as verify_mock:
+    with (
+        patch.object(
+            webauthn_service,
+            "_get_challenge",
+            AsyncMock(return_value=b"registration-challenge"),
+        ),
+        patch.object(
+            webauthn_service,
+            "_clear_challenge",
+            AsyncMock(),
+        ) as clear_challenge_mock,
+        patch.object(
+            webauthn_service,
+            "verify_registration_response",
+            return_value=verification,
+        ) as verify_mock,
+    ):
         result = await webauthn_service.verify_and_save_registration(
             db,
             auth_subject_id=1,
@@ -168,19 +172,23 @@ async def test_verify_authentication_uses_shared_challenge_key():
     store_challenge_mock.assert_awaited_once()
     stored_challenge = store_challenge_mock.await_args.args[2]
 
-    with patch.object(
-        webauthn_service,
-        "_get_challenge",
-        AsyncMock(return_value=stored_challenge),
-    ), patch.object(
-        webauthn_service,
-        "_clear_challenge",
-        AsyncMock(),
-    ) as clear_challenge_mock, patch.object(
-        webauthn_service,
-        "verify_authentication_response",
-        return_value=verification,
-    ) as verify_mock:
+    with (
+        patch.object(
+            webauthn_service,
+            "_get_challenge",
+            AsyncMock(return_value=stored_challenge),
+        ),
+        patch.object(
+            webauthn_service,
+            "_clear_challenge",
+            AsyncMock(),
+        ) as clear_challenge_mock,
+        patch.object(
+            webauthn_service,
+            "verify_authentication_response",
+            return_value=verification,
+        ) as verify_mock,
+    ):
         (
             result_credential,
             auth_subject_id,
@@ -201,6 +209,138 @@ async def test_verify_authentication_uses_shared_challenge_key():
         verify_db, webauthn_service._AUTHENTICATION_CHALLENGE_KEY
     )
     assert stored_challenge == webauthn_service.base64url_to_bytes(options["challenge"])
+
+
+@pytest.mark.asyncio
+async def test_verify_authentication_rejects_non_incrementing_sign_count():
+    db_credential = SimpleNamespace(
+        credential_id=b"credential-id",
+        public_key=b"public-key",
+        sign_count=7,
+        auth_subject_id=1,
+        last_used_at=None,
+        last_used_ip=None,
+        backup_state=False,
+    )
+    verify_db = AsyncMock()
+    verify_db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=db_credential))
+    )
+    verify_db.flush = AsyncMock()
+
+    verification = SimpleNamespace(new_sign_count=7, credential_backed_up=True)
+    raw_id = bytes_to_base64url(b"credential-id")
+    credential = {
+        "id": raw_id,
+        "rawId": raw_id,
+        "response": {
+            "clientDataJSON": "client-data",
+            "authenticatorData": "authenticator-data",
+            "signature": "signature",
+            "userHandle": "",
+        },
+        "type": "public-key",
+    }
+
+    with (
+        patch.object(
+            webauthn_service,
+            "_get_challenge",
+            AsyncMock(return_value=b"authentication-challenge"),
+        ),
+        patch.object(
+            webauthn_service,
+            "_clear_challenge",
+            AsyncMock(),
+        ) as clear_challenge_mock,
+        patch.object(
+            webauthn_service,
+            "verify_authentication_response",
+            return_value=verification,
+        ),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="Response sign count of 7 was not greater than current count of 7",
+        ):
+            await webauthn_service.verify_authentication(
+                verify_db,
+                credential=credential,
+                auth_subject_id=None,
+                client_ip="127.0.0.1",
+            )
+
+    clear_challenge_mock.assert_awaited_once_with(
+        verify_db, webauthn_service._AUTHENTICATION_CHALLENGE_KEY
+    )
+    verify_db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verify_authentication_allows_zero_sign_count_when_current_count_is_zero():
+    db_credential = SimpleNamespace(
+        credential_id=b"credential-id",
+        public_key=b"public-key",
+        sign_count=0,
+        auth_subject_id=1,
+        last_used_at=None,
+        last_used_ip=None,
+        backup_state=False,
+    )
+    verify_db = AsyncMock()
+    verify_db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=db_credential))
+    )
+    verify_db.flush = AsyncMock()
+
+    verification = SimpleNamespace(new_sign_count=0, credential_backed_up=True)
+    raw_id = bytes_to_base64url(b"credential-id")
+    credential = {
+        "id": raw_id,
+        "rawId": raw_id,
+        "response": {
+            "clientDataJSON": "client-data",
+            "authenticatorData": "authenticator-data",
+            "signature": "signature",
+            "userHandle": "",
+        },
+        "type": "public-key",
+    }
+
+    with (
+        patch.object(
+            webauthn_service,
+            "_get_challenge",
+            AsyncMock(return_value=b"authentication-challenge"),
+        ),
+        patch.object(
+            webauthn_service,
+            "_clear_challenge",
+            AsyncMock(),
+        ) as clear_challenge_mock,
+        patch.object(
+            webauthn_service,
+            "verify_authentication_response",
+            return_value=verification,
+        ),
+    ):
+        (
+            result_credential,
+            auth_subject_id,
+        ) = await webauthn_service.verify_authentication(
+            verify_db,
+            credential=credential,
+            auth_subject_id=None,
+            client_ip="127.0.0.1",
+        )
+
+    assert auth_subject_id == 1
+    assert result_credential.sign_count == 0
+    assert result_credential.last_used_ip == "127.0.0.1"
+    assert result_credential.backup_state is True
+    clear_challenge_mock.assert_awaited_once_with(
+        verify_db, webauthn_service._AUTHENTICATION_CHALLENGE_KEY
+    )
 
 
 @pytest.mark.asyncio
@@ -225,7 +365,9 @@ async def test_list_credentials():
         )
     )
 
-    credentials = await webauthn_service.list_credentials_for_user(db, auth_subject_id=1)
+    credentials = await webauthn_service.list_credentials_for_user(
+        db, auth_subject_id=1
+    )
 
     assert len(credentials) == 1
     assert credentials[0].device_name == "Device 1"

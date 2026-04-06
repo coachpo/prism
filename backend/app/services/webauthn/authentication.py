@@ -114,10 +114,14 @@ async def verify_authentication(
             require_user_verification=True,
         )
 
-        await clear_challenge_fn(db, authentication_challenge_key)
+        if (
+            verification.new_sign_count > 0 or db_credential.sign_count > 0
+        ) and verification.new_sign_count <= db_credential.sign_count:
+            raise ValueError(
+                f"Response sign count of {verification.new_sign_count} was not greater than current count of {db_credential.sign_count}"
+            )
 
-        if verification.new_sign_count <= db_credential.sign_count:
-            pass
+        await clear_challenge_fn(db, authentication_challenge_key)
 
         db_credential.sign_count = verification.new_sign_count
         db_credential.last_used_at = utc_now()
