@@ -58,13 +58,36 @@ const AUTH_REFRESH_EXEMPT_PATHS = new Set([
   "/api/auth/password-reset/confirm",
 ]);
 
+function getRequestPathname(path: string): string {
+  const separatorIndex = path.search(/[?#]/);
+  return separatorIndex === -1 ? path : path.slice(0, separatorIndex);
+}
+
+function shouldAttachProfileHeader(path: string): boolean {
+  const pathname = getRequestPathname(path);
+
+  if (!pathname.startsWith("/api/") || currentProfileId === null) {
+    return false;
+  }
+
+  if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) {
+    return false;
+  }
+
+  if (pathname === "/api/settings/auth" || pathname.startsWith("/api/settings/auth/")) {
+    return false;
+  }
+
+  return true;
+}
+
 function buildHeaders(path: string, init?: RequestInit): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string>),
   };
 
-  if (path.startsWith("/api/") && currentProfileId !== null) {
+  if (shouldAttachProfileHeader(path)) {
     headers["X-Profile-Id"] = String(currentProfileId);
   }
 
