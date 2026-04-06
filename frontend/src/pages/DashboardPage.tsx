@@ -3,18 +3,36 @@ import { useNavigate } from "react-router-dom";
 import { WebSocketStatusIndicator } from "@/components/WebSocketStatusIndicator";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
-import { DashboardHighlightsGrid } from "@/pages/dashboard/DashboardHighlightsGrid";
-import { DashboardMetricsGrid } from "@/pages/dashboard/DashboardMetricsGrid";
-import { DashboardPageSkeleton } from "@/pages/dashboard/DashboardPageSkeleton";
-import { RecentActivityCard } from "@/pages/dashboard/RecentActivityCard";
-import { RoutingDiagramCard } from "@/pages/dashboard/RoutingDiagramCard";
-import { TopSpendingModelsCard } from "@/pages/dashboard/TopSpendingModelsCard";
+import { DashboardAnalyticsContent } from "@/pages/dashboard/DashboardAnalyticsContent";
+import { DashboardOverviewTab } from "@/pages/dashboard/DashboardOverviewTab";
+import { DASHBOARD_TAB_OPTIONS, type DashboardTab } from "@/pages/dashboard/queryParams";
+import { useDashboardPageState } from "@/pages/dashboard/useDashboardPageState";
 import { useDashboardPageData } from "@/pages/dashboard/useDashboardPageData";
 
+function isDashboardTab(value: string): value is DashboardTab {
+  return DASHBOARD_TAB_OPTIONS.some((tab) => tab === value);
+}
+
 export function DashboardPage() {
+  const pageState = useDashboardPageState();
+  const activeTab = pageState.state.tab;
+
+  return (
+    <div className="flex flex-col gap-6">
+      {activeTab === "overview" ? (
+        <DashboardOverviewSection pageState={pageState} />
+      ) : (
+        <DashboardAnalyticsSection pageState={pageState} />
+      )}
+    </div>
+  );
+}
+
+function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof useDashboardPageState> }) {
   const navigate = useNavigate();
   const { revision, selectedProfile } = useProfileContext();
   const { format: formatTime } = useTimezone();
@@ -24,12 +42,8 @@ export function DashboardPage() {
     selectedProfileId: selectedProfile?.id ?? null,
   });
 
-  if (data.loading) {
-    return <DashboardPageSkeleton />;
-  }
-
   return (
-    <div className="space-y-6">
+    <>
       <PageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription}>
         <Button
           variant="outline"
@@ -42,55 +56,81 @@ export function DashboardPage() {
         >
           <RefreshCw className={`h-4 w-4 ${data.isRefreshing ? "animate-spin" : ""}`} />
         </Button>
-        <WebSocketStatusIndicator
-          connectionState={data.connectionState}
-          isSyncing={data.isSyncing}
-        />
+        <WebSocketStatusIndicator connectionState={data.connectionState} isSyncing={data.isSyncing} />
       </PageHeader>
 
-      <DashboardMetricsGrid
-        snapshot={data.metricSnapshot}
-        highlighted={data.metricsHighlighted}
-      />
+      <DashboardTabs pageState={pageState} />
 
-      <DashboardHighlightsGrid
-        snapshot={data.metricSnapshot}
+      <DashboardOverviewTab
         apiFamilyRows={data.apiFamilyRows}
+        clearRecentRequestHighlight={data.clearRecentRequestHighlight}
+        loading={data.loading}
+        metricSnapshot={data.metricSnapshot}
+        metricsHighlighted={data.metricsHighlighted}
+        modelDisplayNames={data.modelDisplayNames}
+        recentNewIds={data.recentNewIds}
+        recentRequests={data.recentRequests}
+        routingDiagramData={data.routingDiagramData}
+        routingDiagramError={data.routingDiagramError}
+        routingDiagramLoading={data.routingDiagramLoading}
         strategyFamilySummary={data.strategyFamilySummary}
-        highlighted={data.metricsHighlighted}
+        topSpendingModels={data.topSpendingModels}
+        formatTime={formatTime}
         onOpenStatistics={() => navigate("/statistics")}
         onInspectSpending={() => navigate("/statistics?tab=spending")}
         onReviewRequests={() => navigate("/request-logs")}
-      />
-
-      <RoutingDiagramCard
-        data={data.routingDiagramData}
-        loading={data.routingDiagramLoading}
-        error={data.routingDiagramError}
         onSelectModel={(modelConfigId) => navigate(`/models/${modelConfigId}`)}
         onDrillDownRequests={(params) => {
-          const sp = new URLSearchParams();
-          if (params.endpoint_id) sp.set("endpoint_id", String(params.endpoint_id));
-          if (params.model_id) sp.set("model_id", params.model_id);
-          navigate(`/request-logs?${sp.toString()}`);
+          const searchParams = new URLSearchParams();
+
+          if (params.endpoint_id) {
+            searchParams.set("endpoint_id", String(params.endpoint_id));
+          }
+
+          if (params.model_id) {
+            searchParams.set("model_id", params.model_id);
+          }
+
+          navigate(`/request-logs?${searchParams.toString()}`);
         }}
       />
+    </>
+  );
+}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <RecentActivityCard
-          recentRequests={data.recentRequests}
-          recentNewIds={data.recentNewIds}
-          clearRecentRequestHighlight={data.clearRecentRequestHighlight}
-          modelDisplayNames={data.modelDisplayNames}
-          formatTime={formatTime}
-        />
+function DashboardAnalyticsSection({ pageState }: { pageState: ReturnType<typeof useDashboardPageState> }) {
+  const { messages } = useLocale();
 
-        <TopSpendingModelsCard
-          topSpendingModels={data.topSpendingModels}
-          modelDisplayNames={data.modelDisplayNames}
-          onViewFullReport={() => navigate("/statistics?tab=spending")}
-        />
-      </div>
-    </div>
+  return (
+    <>
+      <PageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription} />
+      <DashboardTabs pageState={pageState} />
+      <DashboardAnalyticsContent />
+    </>
+  );
+}
+
+function DashboardTabs({ pageState }: { pageState: ReturnType<typeof useDashboardPageState> }) {
+  const { messages } = useLocale();
+
+  return (
+    <Tabs
+      value={pageState.state.tab}
+      onValueChange={(value) => {
+        if (isDashboardTab(value)) {
+          pageState.setTab(value);
+        }
+      }}
+      className="flex flex-col gap-4"
+    >
+      <TabsList className="grid h-10 w-full max-w-sm grid-cols-2 rounded-xl bg-muted/70 p-0.5">
+        <TabsTrigger value="overview" className="rounded-lg text-sm font-medium">
+          {messages.dashboard.overviewTab}
+        </TabsTrigger>
+        <TabsTrigger value="analytics" className="rounded-lg text-sm font-medium">
+          {messages.dashboard.analyticsTab}
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
   );
 }
