@@ -6,7 +6,7 @@ from typing import Literal, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from fastapi import WebSocket
+from fastapi import WebSocket, status
 
 import app.services.stats.logging as stats_logging
 from app.models.models import ModelConfig, RequestLog
@@ -197,6 +197,113 @@ async def test_websocket_endpoint_returns_after_failed_initial_control_send():
     connection.send_json.assert_awaited_once_with(
         {"type": "authenticated", "username": "operator"}
     )
+    disconnect_mock.assert_awaited_once_with("c1")
+    websocket.receive_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_endpoint_rejects_missing_auth_when_auth_is_enabled():
+    websocket = as_websocket(MockWebSocket())
+    websocket.close = AsyncMock()
+    websocket.receive_json = AsyncMock(
+        side_effect=AssertionError(
+            "route should stop before reading websocket messages"
+        )
+    )
+
+    connection = MagicMock()
+    connection.authenticated = False
+    connection.send_json = AsyncMock(return_value=True)
+    db = AsyncMock()
+    settings_row = SimpleNamespace(
+        auth_enabled=True,
+        username="operator",
+        id=1,
+        token_version=1,
+    )
+
+    with (
+        patch(
+            "app.routers.realtime.connection_manager.connect",
+            AsyncMock(return_value="c1"),
+        ),
+        patch(
+            "app.routers.realtime.connection_manager.get_connection",
+            MagicMock(return_value=connection),
+        ),
+        patch(
+            "app.routers.realtime.connection_manager.disconnect", AsyncMock()
+        ) as disconnect_mock,
+        patch(
+            "app.routers.realtime.get_settings",
+            MagicMock(return_value=SimpleNamespace(auth_cookie_name="auth_cookie")),
+        ),
+        patch(
+            "app.routers.realtime.get_or_create_app_auth_settings",
+            AsyncMock(return_value=settings_row),
+        ),
+        patch(
+            "app.routers.realtime.authenticate_websocket", AsyncMock(return_value=None)
+        ),
+    ):
+        await websocket_endpoint(websocket=websocket, db=db)
+
+    websocket.close.assert_awaited_once_with(code=status.WS_1008_POLICY_VIOLATION)
+    connection.send_json.assert_not_awaited()
+    disconnect_mock.assert_awaited_once_with("c1")
+    websocket.receive_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_endpoint_rejects_token_version_mismatch():
+    websocket = as_websocket(MockWebSocket())
+    websocket.close = AsyncMock()
+    websocket.receive_json = AsyncMock(
+        side_effect=AssertionError(
+            "route should stop before reading websocket messages"
+        )
+    )
+
+    connection = MagicMock()
+    connection.authenticated = False
+    connection.send_json = AsyncMock(return_value=True)
+    db = AsyncMock()
+    settings_row = SimpleNamespace(
+        auth_enabled=True,
+        username="operator",
+        id=1,
+        token_version=1,
+    )
+
+    with (
+        patch(
+            "app.routers.realtime.connection_manager.connect",
+            AsyncMock(return_value="c1"),
+        ),
+        patch(
+            "app.routers.realtime.connection_manager.get_connection",
+            MagicMock(return_value=connection),
+        ),
+        patch(
+            "app.routers.realtime.connection_manager.disconnect", AsyncMock()
+        ) as disconnect_mock,
+        patch(
+            "app.routers.realtime.get_settings",
+            MagicMock(return_value=SimpleNamespace(auth_cookie_name="auth_cookie")),
+        ),
+        patch(
+            "app.routers.realtime.get_or_create_app_auth_settings",
+            AsyncMock(return_value=settings_row),
+        ),
+        patch(
+            "app.routers.realtime.authenticate_websocket",
+            AsyncMock(return_value={"sub": "1", "token_version": "2"}),
+        ),
+    ):
+        await websocket_endpoint(websocket=websocket, db=db)
+
+    websocket.close.assert_awaited_once_with(code=status.WS_1008_POLICY_VIOLATION)
+    connection.send_json.assert_not_awaited()
     disconnect_mock.assert_awaited_once_with("c1")
     websocket.receive_json.assert_not_awaited()
 
