@@ -13,6 +13,7 @@ from app.dependencies import (
 )
 from app.models.models import Vendor
 from app.schemas.schemas import (
+    ConfigExportResponse,
     ConfigImportPreviewResponse,
     ConfigImportRequest,
     ConfigImportResponse,
@@ -53,7 +54,7 @@ def _build_preview_error_response(
     )
 
 
-@router.get("/profile/export")
+@router.get("/profile/export", response_model=ConfigExportResponse)
 async def export_profile_config(
     db: Annotated[AsyncSession, Depends(get_db)],
     profile_id: Annotated[int, Depends(get_effective_profile_id)],
