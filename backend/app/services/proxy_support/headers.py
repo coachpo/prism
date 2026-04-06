@@ -106,6 +106,12 @@ def build_upstream_headers(
             custom = json.loads(custom_headers)
             if isinstance(custom, dict):
                 for key, raw_value in custom.items():
+                    if key.lower() in proxy_controlled_headers:
+                        logger.warning(
+                            "Skipping custom header '%s' because it is proxy controlled",
+                            key,
+                        )
+                        continue
                     normalized_custom_value = _normalize_header_value(raw_value)
                     if normalized_custom_value is None:
                         logger.warning(

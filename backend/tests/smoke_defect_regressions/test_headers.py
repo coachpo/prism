@@ -170,6 +170,19 @@ class TestHeaderBlocklist:
         assert headers["x-api-key"] == "sk-test"
         assert headers["x-trace"] == "trace-1"
 
+    def test_build_upstream_headers_skips_valid_custom_auth_override(self):
+        from app.services.proxy_service import build_upstream_headers
+
+        ep = MagicMock()
+        ep.auth_type = None
+        ep.api_key = "sk-test"
+        ep.custom_headers = '{"x-api-key":"override-key","x-trace":"trace-1"}'
+
+        headers = build_upstream_headers(ep, "anthropic")
+
+        assert headers["x-api-key"] == "sk-test"
+        assert headers["x-trace"] == "trace-1"
+
     def test_header_blocklist_rule_create_validates_prefix_ends_with_dash(self):
         """HBL-009 (P1): HeaderBlocklistRuleCreate validates prefix pattern must end with '-'."""
         from app.schemas.schemas import HeaderBlocklistRuleCreate
