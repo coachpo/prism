@@ -117,7 +117,7 @@ const ProxyTargetImportSchema = z.strictObject({
 });
 
 const ModelImportSchema = z.strictObject({
-  vendor_key: z.string(),
+  vendor_key: z.string().nullable().optional(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   model_id: z.string(),
   display_name: z.string().nullable().optional(),

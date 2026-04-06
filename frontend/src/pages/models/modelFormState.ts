@@ -7,7 +7,6 @@ import type {
   ProxyTarget,
   Vendor,
 } from "@/lib/types";
-import { getStaticMessages } from "@/i18n/staticMessages";
 
 export type SubmitEventLike = Pick<Event, "preventDefault">;
 export type ModelFormData = ModelConfigCreate & {
@@ -16,59 +15,20 @@ export type ModelFormData = ModelConfigCreate & {
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
 
-function vendorKeyToApiFamily(key: string | undefined): ApiFamily {
-  if (key === "anthropic") {
-    return "anthropic";
-  }
-
-  if (key === "google") {
-    return "gemini";
-  }
-
-  return "openai";
-}
-
 export function resolveModelApiFamily(
   model: Pick<ModelConfigListItem, "api_family"> | Pick<ModelConfig, "api_family">,
 ): ApiFamily {
-  return model.api_family ?? DEFAULT_API_FAMILY;
+  return model.api_family;
 }
 
 function resolveModelVendorId(
   model: Pick<ModelConfigListItem, "vendor_id"> | Pick<ModelConfig, "vendor_id">,
-  existing?: Pick<ModelConfigListItem, "vendor_id" | "vendor">,
-): number {
-  return model.vendor_id ?? existing?.vendor_id ?? existing?.vendor?.id ?? 0;
-}
-
-function resolveModelVendor(
-  model: Pick<ModelConfigListItem, "vendor"> | Pick<ModelConfig, "vendor">,
-  vendorId: number,
-  existing?: Pick<ModelConfigListItem, "vendor">,
-) {
-  if (model.vendor) {
-    return model.vendor;
-  }
-
-  if (existing?.vendor) {
-    return existing.vendor;
-  }
-
-  return {
-    id: vendorId,
-    key: "unknown-vendor",
-    name: getStaticMessages().modelsUi.unknownVendor,
-    description: null,
-    icon_key: null,
-    audit_enabled: false,
-    audit_capture_bodies: false,
-    created_at: "",
-    updated_at: "",
-  };
+): number | null {
+  return model.vendor_id ?? null;
 }
 
 export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
-  vendor_id: 0,
+  vendor_id: null,
   api_family: DEFAULT_API_FAMILY,
   model_id: "",
   display_name: "",
@@ -172,16 +132,11 @@ export function createEditModelFormData(model: ModelConfigListItem): ModelFormDa
 }
 
 export function createNewModelFormData(
-  vendors: Vendor[],
+  _vendors: Vendor[],
   loadbalanceStrategyId: number | null,
 ): ModelFormData {
-  const firstVendor = vendors[0];
-  const vendorId = firstVendor?.id ?? 0;
-
   return {
     ...DEFAULT_MODEL_FORM_DATA,
-    vendor_id: vendorId,
-    api_family: vendorKeyToApiFamily(firstVendor?.key),
     loadbalance_strategy_id: loadbalanceStrategyId,
   };
 }
@@ -190,7 +145,7 @@ export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate
   const normalizedDisplayName = formData.display_name?.trim() || formData.model_id.trim();
 
   return {
-    vendor_id: formData.vendor_id,
+    vendor_id: formData.vendor_id ?? null,
     api_family: formData.api_family,
     model_id: formData.model_id,
     display_name: normalizedDisplayName,
@@ -202,7 +157,7 @@ export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate
 
 export function toModelUpdatePayload(formData: ModelFormData): ModelConfigUpdate {
   return {
-    vendor_id: formData.vendor_id,
+    vendor_id: formData.vendor_id ?? null,
     api_family: formData.api_family,
     display_name: formData.display_name || null,
     model_id: formData.model_id,
@@ -261,24 +216,20 @@ export function getNativeModelsForApiFamily(
   return models.filter(
     (model) =>
       model.model_type === "native" &&
-      resolveModelApiFamily(model) === apiFamily &&
+      model.api_family === apiFamily &&
       (!excludedModelId || model.model_id !== excludedModelId),
   );
 }
 
 export function toModelListItem(
   model: ModelConfig,
-  existing?: ModelConfigListItem,
+  _existing?: ModelConfigListItem,
 ): ModelConfigListItem {
-  const vendorId = resolveModelVendorId(model, existing);
-  const apiFamily = resolveModelApiFamily(model);
-  const vendor = resolveModelVendor(model, vendorId, existing);
-
   return {
     id: model.id,
-    vendor_id: vendorId,
-    vendor,
-    api_family: apiFamily,
+    vendor_id: resolveModelVendorId(model),
+    vendor: model.vendor,
+    api_family: model.api_family,
     model_id: model.model_id,
     display_name: model.display_name,
     model_type: model.model_type,
@@ -288,8 +239,8 @@ export function toModelListItem(
     is_enabled: model.is_enabled,
     connection_count: model.connections.length,
     active_connection_count: model.connections.filter((connection) => connection.is_active).length,
-    health_success_rate: existing?.health_success_rate ?? null,
-    health_total_requests: existing?.health_total_requests ?? 0,
+    health_success_rate: _existing?.health_success_rate ?? null,
+    health_total_requests: _existing?.health_total_requests ?? 0,
     created_at: model.created_at,
     updated_at: model.updated_at,
   };

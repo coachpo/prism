@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { getSharedVendors, setSharedVendors } from "@/lib/referenceData";
 import type { Vendor, VendorModelUsageItem } from "@/lib/types";
@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   DEFAULT_VENDOR_FORM,
   normalizeVendorPayload,
-  parseVendorUsageRows,
   vendorFormStateFromVendor,
   type VendorFormState,
 } from "./vendorManagementFormState";
@@ -66,6 +65,7 @@ export function useVendorManagementData({ revision }: UseVendorManagementDataInp
   const closeDeleteVendorDialog = () => {
     setDeleteVendorDialogOpen(false);
     setDeleteVendorConfirm(null);
+    setDeleteVendorConflict(null);
   };
 
   const openCreateVendorDialog = () => {
@@ -150,13 +150,7 @@ export function useVendorManagementData({ revision }: UseVendorManagementDataInp
       toast.success(messages.vendorManagement.vendorDeleted);
       closeDeleteVendorDialog();
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        const conflictRows = parseVendorUsageRows(error.detail);
-        setDeleteVendorConflict(conflictRows);
-        toast.error(messages.vendorManagement.vendorInUseDeleteBlocked);
-      } else {
-        toast.error(error instanceof Error ? error.message : messages.vendorManagement.vendorDeleteFailed);
-      }
+      toast.error(error instanceof Error ? error.message : messages.vendorManagement.vendorDeleteFailed);
     } finally {
       setVendorDeleting(false);
     }

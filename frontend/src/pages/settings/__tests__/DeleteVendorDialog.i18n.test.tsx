@@ -40,7 +40,7 @@ describe("DeleteVendorDialog i18n", () => {
     localStorage.clear();
   });
 
-  it("renders localized blocked-delete copy and dependency rows", () => {
+  it("renders localized informational usage copy and keeps delete enabled", () => {
     localStorage.setItem("prism.locale", "zh-CN");
 
     render(
@@ -58,13 +58,15 @@ describe("DeleteVendorDialog i18n", () => {
     );
 
     expect(screen.getByText("删除供应商")).toBeInTheDocument();
-    expect(screen.getByText("此供应商已被 1 个模型引用，当前无法删除。"));
+    expect(
+      screen.getByText("此供应商当前被 1 个模型引用。删除后这些模型会保留，但其供应商元数据会被清空。"),
+    ).toBeInTheDocument();
     expect(screen.getByText("配置档案")).toBeInTheDocument();
     expect(screen.getByText("模型 ID")).toBeInTheDocument();
     expect(screen.getByText("API 家族")).toBeInTheDocument();
     expect(screen.getByText("模型类型")).toBeInTheDocument();
     expect(screen.getByText("Team Blue")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除" })).toBeEnabled();
   });
 
   it("renders the simple irreversible warning when the vendor is unused", () => {

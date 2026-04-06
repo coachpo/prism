@@ -47,8 +47,8 @@ export function DeleteVendorDialog({
   const dialogOpen = open ?? deleteVendorConfirm !== null;
   const modelTypeLabel = (modelType: string) =>
     modelType === "proxy" ? messages.modelDetail.typeProxy : messages.modelDetail.typeNative;
-  const blockedRows = deleteVendorConflict?.length ? deleteVendorConflict : vendorUsageRows;
-  const isBlocked = blockedRows.length > 0;
+  const referencedRows = vendorUsageRows.length > 0 ? vendorUsageRows : (deleteVendorConflict ?? []);
+  const hasReferences = referencedRows.length > 0;
 
   return (
     <Dialog open={dialogOpen} onOpenChange={(open) => !open && onClose()}>
@@ -64,10 +64,10 @@ export function DeleteVendorDialog({
           <div className="py-4">
             <div className="h-10 animate-pulse rounded-md bg-muted/50" />
           </div>
-        ) : isBlocked ? (
+        ) : hasReferences ? (
           <div className="space-y-4 py-4">
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {messages.vendorManagement.deleteInUse(String(blockedRows.length))}
+            <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              {messages.vendorManagement.deleteInUse(String(referencedRows.length))}
             </div>
 
             <div className="max-h-[220px] overflow-y-auto rounded-md border">
@@ -81,7 +81,7 @@ export function DeleteVendorDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {blockedRows.map((row) => (
+                  {referencedRows.map((row) => (
                     <TableRow key={`${row.model_config_id}-${row.profile_id}`}>
                       <TableCell>{row.profile_name}</TableCell>
                       <TableCell className="font-medium">{row.model_id}</TableCell>
@@ -106,7 +106,7 @@ export function DeleteVendorDialog({
           <Button
             variant="destructive"
             onClick={() => void onDelete()}
-            disabled={vendorDeleting || vendorUsageLoading || isBlocked}
+            disabled={vendorDeleting || vendorUsageLoading}
           >
             {vendorDeleting ? messages.vendorManagement.saving : messages.vendorManagement.delete}
           </Button>

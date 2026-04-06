@@ -100,12 +100,13 @@ export function ModelDialog({
               <VendorSelect
                 value={String(formData.vendor_id ?? "")}
                 onValueChange={(value) => {
-                  const nextVendorId = Number.parseInt(value, 10);
+                  const nextVendorId = value ? Number.parseInt(value, 10) : null;
                   setFormData((prev) => ({
                     ...prev,
                     vendor_id: nextVendorId,
                   }));
                 }}
+                allowEmpty={true}
                 valueType="vendor_id"
                 vendors={vendors}
                 showAll={false}

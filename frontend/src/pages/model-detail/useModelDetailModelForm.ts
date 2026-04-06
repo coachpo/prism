@@ -73,13 +73,9 @@ export function useModelDetailModelForm({
       }
 
       const formData = new FormData(event.currentTarget);
-      const vendorId = Number.parseInt(String(formData.get("vendor_id") ?? ""), 10);
+      const rawVendorId = String(formData.get("vendor_id") ?? "").trim();
+      const vendorId = rawVendorId ? Number.parseInt(rawVendorId, 10) : null;
       const apiFamily = String(formData.get("api_family") ?? "").trim();
-
-      if (!vendorId) {
-        toast.error(getStaticMessages().modelDetailData.selectVendor);
-        return;
-      }
 
       if (!apiFamily) {
         toast.error(getStaticMessages().modelDetailData.selectApiFamily);

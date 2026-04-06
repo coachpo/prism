@@ -238,6 +238,28 @@ describe("ConfigImportSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts vendorless models in the v2 profile bundle", () => {
+    const result = ConfigImportSchema.safeParse({
+      ...buildV2ProfileBundle(),
+      vendor_refs: [],
+      models: [
+        {
+          vendor_key: null,
+          api_family: "openai",
+          model_id: "vendorless-proxy",
+          display_name: "Vendorless Proxy",
+          model_type: "proxy",
+          proxy_targets: [],
+          loadbalance_strategy_name: null,
+          is_enabled: true,
+          connections: [],
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("accepts adaptive routing_policy imports in the v2 profile bundle", () => {
     const result = ConfigImportSchema.safeParse({
       ...buildV2ProfileBundle(),

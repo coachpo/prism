@@ -361,7 +361,7 @@ export const zhCNMessages: Messages = {
     createVendor: "新增供应商",
     delete: "删除",
     deleteDescription: (name) => `确定要删除供应商“${name}”吗？`,
-    deleteInUse: (count) => `此供应商已被 ${count} 个模型引用，当前无法删除。`,
+    deleteInUse: (count) => `此供应商当前被 ${count} 个模型引用。删除后这些模型会保留，但其供应商元数据会被清空。`,
     deleteTitle: "删除供应商",
     dependencyApiFamily: "API 家族",
     dependencyModelId: "模型 ID",

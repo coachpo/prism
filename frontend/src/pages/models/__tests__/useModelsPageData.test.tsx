@@ -195,7 +195,7 @@ describe("useModelsPageData", () => {
     expect(result.current.modelSpend30dMicros[1]).toBe(123456);
   });
 
-  it("refreshes new-model vendors from shared cache before opening the dialog", async () => {
+  it("refreshes new-model vendors without deriving vendor metadata into the form", async () => {
     const { result } = renderHook(() => useModelsPageData(1), { wrapper: StrictWrapper });
 
     await waitFor(() => {
@@ -214,8 +214,8 @@ describe("useModelsPageData", () => {
     });
 
     expect(result.current.vendors.map((vendor) => vendor.id)).toEqual([20, 10]);
-    expect(result.current.formData.vendor_id).toBe(20);
-    expect(result.current.formData.api_family).toBe("gemini");
+    expect(result.current.formData.vendor_id).toBeNull();
+    expect(result.current.formData.api_family).toBe("openai");
     expect(result.current.isDialogOpen).toBe(true);
   });
 
@@ -275,12 +275,12 @@ describe("useModelsPageData", () => {
     });
   });
 
-  it("creates proxy models with separate vendor and api family fields and a neutral fallback vendor", async () => {
+  it("creates vendorless proxy models without synthesizing fallback vendor metadata", async () => {
     api.models.create.mockResolvedValue(
       buildModelConfig({
         id: 3,
-        vendor_id: 30,
-        vendor: undefined,
+        vendor_id: null,
+        vendor: null,
         api_family: "openai",
         model_id: "friendly-proxy",
         display_name: "Friendly Proxy",
@@ -306,7 +306,7 @@ describe("useModelsPageData", () => {
         (current) =>
           ({
             ...current,
-            vendor_id: 30,
+            vendor_id: null,
             api_family: "openai",
             model_id: "friendly-proxy",
             display_name: "Friendly Proxy",
@@ -326,7 +326,7 @@ describe("useModelsPageData", () => {
     const createPayload = api.models.create.mock.calls[0]?.[0];
 
     expect(createPayload).toMatchObject({
-      vendor_id: 30,
+      vendor_id: null,
       api_family: "openai",
       model_id: "friendly-proxy",
       display_name: "Friendly Proxy",
@@ -338,11 +338,8 @@ describe("useModelsPageData", () => {
     const createdModel = result.current.models.find((model) => model.id === 3);
 
     expect(createdModel).toBeDefined();
-    expect(createdModel?.vendor).toMatchObject({
-      name: "Unknown vendor",
-      icon_key: null,
-    });
-    expect(createdModel?.vendor?.name).not.toBe("OpenAI");
+    expect(createdModel?.vendor_id).toBeNull();
+    expect(createdModel?.vendor).toBeNull();
   });
 
   it("defaults create payload display name to the model id when the field is left blank", async () => {
@@ -639,7 +636,7 @@ describe("useModelsPageData", () => {
     expect(api.models.update.mock.calls.at(-1)?.[1]).not.toHaveProperty("proxy_targets");
   });
 
-  it("emits localized validation and success toasts when the locale is Chinese", async () => {
+  it("emits localized api-family validation toasts when the locale is Chinese", async () => {
     document.documentElement.lang = "zh-CN";
     api.models.create.mockResolvedValue(buildModelConfig({ id: 3, model_id: "new-model" }));
 
@@ -654,13 +651,19 @@ describe("useModelsPageData", () => {
     });
 
     act(() => {
-      result.current.setFormData((current) => ({ ...current, vendor_id: 0 }));
+      result.current.setFormData(
+        (current) =>
+          ({
+            ...current,
+            api_family: "" as unknown as typeof current.api_family,
+          }) as unknown as typeof current,
+      );
     });
 
     await act(async () => {
       await result.current.handleSubmit(createSubmitEvent());
     });
 
-    expect((await import("sonner")).toast.error).toHaveBeenCalledWith("请选择供应商");
+    expect((await import("sonner")).toast.error).toHaveBeenCalledWith("请选择 API 家族");
   });
 });

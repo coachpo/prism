@@ -78,7 +78,7 @@ export interface ConfigConnectionImport {
 }
 
 export interface ConfigModelExport {
-  vendor_key: string;
+  vendor_key: string | null;
   api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
@@ -90,7 +90,7 @@ export interface ConfigModelExport {
 }
 
 export interface ConfigModelImport {
-  vendor_key: string;
+  vendor_key?: string | null;
   api_family: ApiFamily;
   model_id: string;
   display_name?: string | null;

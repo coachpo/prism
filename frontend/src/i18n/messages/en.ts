@@ -1852,7 +1852,7 @@ export const enMessages: Messages = {
     createVendor: "Add Vendor",
     delete: "Delete",
     deleteDescription: (name) => `Are you sure you want to delete the vendor "${name}"?`,
-    deleteInUse: (count) => `This vendor is referenced by ${count} model${count === "1" ? "" : "s"} and cannot be deleted yet.`,
+    deleteInUse: (count) => `This vendor is referenced by ${count} model${count === "1" ? "" : "s"}. Deleting it will keep those models and clear their vendor metadata.`,
     deleteTitle: "Delete Vendor",
     dependencyApiFamily: "API Family",
     dependencyModelId: "Model ID",

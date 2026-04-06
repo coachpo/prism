@@ -17,14 +17,13 @@ import type { HeaderRow } from "./useModelDetailDialogState";
 function resolveApiFamily(
   model: Pick<ModelConfig, "api_family"> | Pick<ModelConfigListItem, "api_family">,
 ): ApiFamily {
-  return model.api_family ?? "openai";
+  return model.api_family;
 }
 
 function resolveVendorId(
   model: Pick<ModelConfig, "vendor_id"> | Pick<ModelConfigListItem, "vendor_id">,
-  fallback?: Pick<ModelConfigListItem, "vendor_id" | "vendor">,
 ) {
-  return model.vendor_id ?? fallback?.vendor_id ?? fallback?.vendor?.id ?? 0;
+  return model.vendor_id ?? null;
 }
 
 export const createDefaultEndpointForm = (): EndpointCreate => ({
@@ -286,9 +285,9 @@ export function patchModelListItemFromDetail(
 
     return {
       ...item,
-      vendor_id: resolveVendorId(model, item),
-      vendor: model.vendor ?? item.vendor,
-      api_family: model.api_family ?? item.api_family ?? resolveApiFamily(model),
+      vendor_id: resolveVendorId(model),
+      vendor: model.vendor,
+      api_family: resolveApiFamily(model),
       model_id: model.model_id,
       display_name: model.display_name,
       model_type: model.model_type,

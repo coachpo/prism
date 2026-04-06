@@ -174,7 +174,7 @@ export function useModelDetailData(id: string | undefined) {
     const seenVendorIds = new Set<number>();
     const nextVendors: Vendor[] = [];
 
-    const pushVendor = (vendor: Vendor | undefined) => {
+    const pushVendor = (vendor: Vendor | null | undefined) => {
       if (!vendor || seenVendorIds.has(vendor.id)) {
         return;
       }

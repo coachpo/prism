@@ -13,9 +13,9 @@ export interface ProxyTarget {
 
 export interface ModelConfig {
   id: number;
-  vendor_id?: number;
-  vendor?: Vendor;
-  api_family?: ApiFamily;
+  vendor_id: number | null;
+  vendor: Vendor | null;
+  api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
   model_type: ModelType;
@@ -30,9 +30,9 @@ export interface ModelConfig {
 
 export interface ModelConfigListItem {
   id: number;
-  vendor_id?: number;
-  vendor?: Vendor;
-  api_family?: ApiFamily;
+  vendor_id: number | null;
+  vendor: Vendor | null;
+  api_family: ApiFamily;
   model_id: string;
   display_name: string | null;
   model_type: ModelType;
@@ -49,8 +49,8 @@ export interface ModelConfigListItem {
 }
 
 export interface ModelConfigCreate {
-  vendor_id?: number;
-  api_family?: ApiFamily;
+  vendor_id?: number | null;
+  api_family: ApiFamily;
   model_id: string;
   display_name?: string | null;
   model_type?: ModelType;
@@ -60,7 +60,7 @@ export interface ModelConfigCreate {
 }
 
 export interface ModelConfigUpdate {
-  vendor_id?: number;
+  vendor_id?: number | null;
   api_family?: ApiFamily;
   model_id?: string;
   display_name?: string | null;

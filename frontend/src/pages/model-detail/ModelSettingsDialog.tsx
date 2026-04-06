@@ -183,6 +183,7 @@ function ModelSettingsForm({
             <VendorSelect
               value={selectedVendorId}
               onValueChange={setSelectedVendorId}
+              allowEmpty={true}
               valueType="vendor_id"
               vendors={vendors}
               showAll={false}

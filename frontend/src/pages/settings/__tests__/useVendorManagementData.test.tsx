@@ -152,17 +152,12 @@ describe("useVendorManagementData", () => {
     expect(result.current.vendorUsageLoading).toBe(false);
   });
 
-  it("parses blocked delete conflicts and keeps the vendor in local state", async () => {
+  it("treats vendor usage rows as informational and still deletes the vendor", async () => {
     const vendor = buildVendor();
     const usageRow = buildUsageRow();
     referenceData.getSharedVendors.mockResolvedValue([vendor]);
-    api.vendors.models.mockResolvedValue([]);
-    api.vendors.delete.mockRejectedValue(
-      new MockApiError("Conflict", 409, {
-        message: "Cannot delete vendor that is referenced by models",
-        models: [usageRow],
-      }),
-    );
+    api.vendors.models.mockResolvedValue([usageRow]);
+    api.vendors.delete.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useVendorManagementData({ revision: 7 }));
 
@@ -178,10 +173,12 @@ describe("useVendorManagementData", () => {
       await result.current.handleDeleteVendor();
     });
 
-    expect(result.current.vendors).toEqual([vendor]);
-    expect(result.current.deleteVendorConflict).toEqual([usageRow]);
-    expect(toast.error).toHaveBeenCalled();
-    expect(referenceData.setSharedVendors).not.toHaveBeenCalled();
+    expect(result.current.vendorUsageRows).toEqual([usageRow]);
+    expect(result.current.vendors).toEqual([]);
+    expect(result.current.deleteVendorConflict).toBeNull();
+    expect(api.vendors.delete).toHaveBeenCalledWith(vendor.id);
+    expect(referenceData.setSharedVendors).toHaveBeenCalledWith(7, []);
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it("updates the shared vendor cache after create, edit, and successful delete", async () => {

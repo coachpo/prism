@@ -26,18 +26,8 @@ vi.mock("@/lib/referenceData", () => ({
 function buildProxyModel() {
   return {
     id: 9,
-    vendor_id: 1,
-    vendor: {
-      id: 1,
-      key: "openai",
-      name: "OpenAI",
-      description: null,
-      icon_key: "openai",
-      audit_enabled: false,
-      audit_capture_bodies: false,
-      created_at: "",
-      updated_at: "",
-    },
+    vendor_id: null,
+    vendor: null,
     api_family: "openai" as const,
     model_id: "gateway-proxy",
     display_name: "Gateway Proxy",
@@ -64,7 +54,7 @@ describe("useModelDetailModelForm", () => {
     vi.clearAllMocks();
   });
 
-  it("does not submit proxy target assignments through the model settings dialog flow", async () => {
+  it("allows vendorless model updates and does not submit proxy targets through the settings dialog", async () => {
     const proxyModel = buildProxyModel();
     vi.mocked(api.models.update).mockResolvedValue(proxyModel);
 
@@ -75,7 +65,7 @@ describe("useModelDetailModelForm", () => {
     const form = document.createElement("form");
 
     for (const [name, value] of [
-      ["vendor_id", "1"],
+      ["vendor_id", ""],
       ["api_family", "openai"],
       ["display_name", "Gateway Proxy"],
       ["model_id", "gateway-proxy"],
@@ -107,7 +97,7 @@ describe("useModelDetailModelForm", () => {
     expect(api.models.update).toHaveBeenCalledWith(
       9,
       expect.objectContaining({
-        vendor_id: 1,
+        vendor_id: null,
         api_family: "openai",
         display_name: "Gateway Proxy",
         model_id: "gateway-proxy",

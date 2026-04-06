@@ -122,10 +122,6 @@ export function useModelsPageData(revision: number) {
   const handleSubmit = async (event: SubmitEventLike) => {
     const messages = getStaticMessages();
     event.preventDefault();
-    if (!formData.vendor_id) {
-      toast.error(messages.modelsData.selectVendor);
-      return;
-    }
     if (!formData.api_family) {
       toast.error(messages.modelsData.selectApiFamily);
       return;
