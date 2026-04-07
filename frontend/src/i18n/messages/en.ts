@@ -333,6 +333,8 @@ export interface Messages {
     cancel: string;
     currencyCodeLabel: string;
     currencyCodePlaceholder: string;
+    detailsSectionDescription: string;
+    detailsSectionTitle: string;
     description: string;
     descriptionLabel: string;
     descriptionPlaceholder: string;
@@ -343,11 +345,16 @@ export interface Messages {
     missingSpecialTokenPolicyLabel: string;
     nameLabel: string;
     namePlaceholder: string;
+    optionalRatesSectionDescription: string;
+    optionalRatesSectionTitle: string;
     outputPriceLabel: string;
     pricePlaceholder: string;
+    primaryRatesSectionDescription: string;
+    primaryRatesSectionTitle: string;
     reasoningPriceLabel: string;
     save: string;
     saving: string;
+    specialTokenPolicySectionTitle: string;
     zeroCost: string;
   };
   vendorManagement: {
@@ -935,6 +942,7 @@ export interface Messages {
     proxyTargets: string;
     proxyTargetsHint: string;
     qpsLimit: string;
+    removeHeader: string;
     recoveryBlocked: string;
     recoveryCounting: string;
     resetRecoveryState: string;
@@ -1833,6 +1841,8 @@ export const enMessages: Messages = {
     cancel: "Cancel",
     currencyCodeLabel: "Currency Code",
     currencyCodePlaceholder: "USD",
+    detailsSectionDescription: "Name the template and choose the currency used for every price in this schedule.",
+    detailsSectionTitle: "Template details",
     description: "Configure pricing rates per 1M tokens.",
     descriptionLabel: "Description (Optional)",
     descriptionPlaceholder: "Optional details about this template",
@@ -1844,11 +1854,17 @@ export const enMessages: Messages = {
     missingSpecialTokenPolicyLabel: "Missing Special Token Policy",
     nameLabel: "Name",
     namePlaceholder: "e.g., GPT-4o Standard",
+    optionalRatesSectionDescription:
+      "Only add these prices when cached, cache-creation, or reasoning tokens should bill differently from the primary schedule.",
+    optionalRatesSectionTitle: "Optional rate overrides",
     outputPriceLabel: "Output Price (per 1M tokens)",
     pricePlaceholder: "0.00",
+    primaryRatesSectionDescription: "Set the default billing rates used for standard input and output tokens.",
+    primaryRatesSectionTitle: "Primary rate schedule",
     reasoningPriceLabel: "Reasoning Price (Optional)",
     save: "Save Template",
     saving: "Saving...",
+    specialTokenPolicySectionTitle: "Special-token fallback policy",
     zeroCost: "Zero Cost",
   },
   vendorManagement: {
@@ -2413,6 +2429,7 @@ export const enMessages: Messages = {
     proxyTargetsHint:
       "Manage ordered proxy targets from the dedicated card on this page. Proxy targets must stay on the same API family even when the vendor metadata changes.",
     qpsLimit: "QPS Limit",
+    removeHeader: "Remove header",
     recoveryBlocked: "Recovery Blocked",
     recoveryCounting: "Recovery Counting",
     resetRecoveryState: "Reset Recovery State",
