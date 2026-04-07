@@ -31,23 +31,21 @@ function createMemoryStorage(): StorageLike {
   };
 }
 
-function isStorageLike(value: unknown): value is StorageLike {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as StorageLike).clear === "function" &&
-    typeof (value as StorageLike).getItem === "function" &&
-    typeof (value as StorageLike).key === "function" &&
-    typeof (value as StorageLike).length === "number" &&
-    typeof (value as StorageLike).removeItem === "function" &&
-    typeof (value as StorageLike).setItem === "function"
-  );
-}
+const testLocalStorage = createMemoryStorage();
 
-const testLocalStorage =
-  typeof window !== "undefined" && isStorageLike(window.localStorage)
-    ? window.localStorage
-    : createMemoryStorage();
+const canvasContextStub = {
+  beginPath: () => {},
+  fillRect: () => {},
+  lineCap: "round",
+  lineJoin: "round",
+  lineTo: () => {},
+  lineWidth: 1,
+  moveTo: () => {},
+  setTransform: () => {},
+  stroke: () => {},
+  strokeStyle: "",
+  fillStyle: "",
+} as unknown as CanvasRenderingContext2D;
 
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
@@ -58,6 +56,26 @@ if (typeof window !== "undefined") {
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: testLocalStorage,
+  });
+}
+
+if (typeof HTMLCanvasElement !== "undefined") {
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => canvasContextStub,
+  });
+}
+
+if (typeof ResizeObserver === "undefined") {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: ResizeObserverStub,
   });
 }
 

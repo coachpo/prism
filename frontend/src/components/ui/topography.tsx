@@ -31,7 +31,14 @@ export function TopographyBackground({
       return;
     }
 
-    const context = canvas.getContext("2d");
+    let context: CanvasRenderingContext2D | null = null;
+
+    try {
+      context = canvas.getContext("2d");
+    } catch {
+      return;
+    }
+
     if (!context) {
       return;
     }
