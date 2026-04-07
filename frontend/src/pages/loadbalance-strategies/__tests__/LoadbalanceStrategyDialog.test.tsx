@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,6 +10,7 @@ import {
   type LoadbalanceStrategyFormState,
 } from "../loadbalanceStrategyFormState";
 
+type AdaptiveFormState = Extract<LoadbalanceStrategyFormState, { strategy_type: "adaptive" }>;
 type LegacyFormState = Extract<LoadbalanceStrategyFormState, { strategy_type: "legacy" }>;
 
 function buildAdaptiveRoutingPolicy(overrides: Record<string, unknown> = {}) {
@@ -53,6 +55,18 @@ function buildForm(
   };
 }
 
+function buildAdaptiveForm(
+  overrides: Partial<AdaptiveFormState> = {},
+): AdaptiveFormState {
+  return {
+    name: "Adaptive availability",
+    strategy_type: "adaptive",
+    routing_policy: buildAdaptiveRoutingPolicy(),
+    circuit_breaker_status_code_input: "",
+    ...overrides,
+  };
+}
+
 describe("LoadbalanceStrategyDialog", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -85,12 +99,51 @@ describe("LoadbalanceStrategyDialog", () => {
     );
 
     expect(screen.getByText("Strategy Family")).toBeInTheDocument();
+    expect(screen.getByText("Basics")).toBeInTheDocument();
+    expect(screen.getByText("Strategy Behavior")).toBeInTheDocument();
+    expect(screen.getByText("Reliability Controls")).toBeInTheDocument();
     expect(screen.getByText("Legacy Strategy Type")).toBeInTheDocument();
     expect(screen.getByText("Auto Recovery")).toBeInTheDocument();
 
     const familySelect = screen.getByRole("combobox", { name: "Strategy Family" });
     expect(familySelect).toHaveTextContent("Legacy strategy");
     expect(familySelect).toHaveClass("w-full", "min-w-0", "max-w-full");
+  });
+
+  it("shows the default adaptive routing objective after switching families inside the open dialog", async () => {
+    function TestHarness() {
+      const [formState, setFormState] = useState<LoadbalanceStrategyFormState>(
+        DEFAULT_LOADBALANCE_STRATEGY_FORM,
+      );
+
+      return (
+        <LocaleProvider>
+          <TooltipProvider>
+            <LoadbalanceStrategyDialog
+              editingLoadbalanceStrategy={null}
+              loadbalanceStrategyForm={formState}
+              loadbalanceStrategySaving={false}
+              onClose={vi.fn()}
+              onOpenChange={vi.fn()}
+              onSave={vi.fn().mockResolvedValue(undefined)}
+              open
+              setLoadbalanceStrategyForm={setFormState}
+            />
+          </TooltipProvider>
+        </LocaleProvider>
+      );
+    }
+
+    render(<TestHarness />);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Strategy Family" }));
+    fireEvent.click(screen.getByRole("option", { name: "Adaptive strategy" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Routing Policy" })).toHaveTextContent(
+        "Minimize latency",
+      );
+    });
   });
 
   it("renders localized dual-strategy dialog copy when the saved locale is Chinese", () => {
@@ -116,6 +169,9 @@ describe("LoadbalanceStrategyDialog", () => {
     expect(screen.getByText("新增负载均衡策略")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存策略" })).toBeInTheDocument();
     expect(screen.getByText("策略家族")).toBeInTheDocument();
+    expect(screen.getByText("基础信息")).toBeInTheDocument();
+    expect(screen.getByText("策略行为")).toBeInTheDocument();
+    expect(screen.getByText("可靠性控制")).toBeInTheDocument();
     expect(screen.getByText("传统策略类型")).toBeInTheDocument();
   });
 
@@ -127,11 +183,7 @@ describe("LoadbalanceStrategyDialog", () => {
         <TooltipProvider>
           <LoadbalanceStrategyDialog
             editingLoadbalanceStrategy={null}
-            loadbalanceStrategyForm={{
-              name: "Adaptive availability",
-              strategy_type: "adaptive",
-              routing_policy: buildAdaptiveRoutingPolicy(),
-            }}
+            loadbalanceStrategyForm={buildAdaptiveForm()}
             loadbalanceStrategySaving={false}
             onClose={vi.fn()}
             onOpenChange={vi.fn()}
@@ -144,6 +196,9 @@ describe("LoadbalanceStrategyDialog", () => {
     );
 
     expect(screen.getByLabelText("Name")).toHaveAttribute("name", "name");
+    expect(screen.getByText("Basics")).toBeInTheDocument();
+    expect(screen.getByText("Strategy Behavior")).toBeInTheDocument();
+    expect(screen.getByText("Reliability Controls")).toBeInTheDocument();
     expect(screen.getByText("Routing Policy")).toBeInTheDocument();
     expect(screen.getAllByText("Minimize latency").length).toBeGreaterThan(0);
     expect(screen.queryByText("Auto Recovery")).not.toBeInTheDocument();
@@ -156,7 +211,7 @@ describe("LoadbalanceStrategyDialog", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
-  it("shows legacy failover controls for legacy strategies and hides them for adaptive strategies", () => {
+  it("shows legacy failover controls for legacy strategies and adaptive circuit-breaker controls for adaptive strategies", () => {
     const { rerender } = render(
       <LocaleProvider>
         <TooltipProvider>
@@ -201,11 +256,21 @@ describe("LoadbalanceStrategyDialog", () => {
         <TooltipProvider>
           <LoadbalanceStrategyDialog
             editingLoadbalanceStrategy={null}
-            loadbalanceStrategyForm={{
-              name: "Adaptive availability",
-              strategy_type: "adaptive",
-              routing_policy: buildAdaptiveRoutingPolicy(),
-            }}
+            loadbalanceStrategyForm={buildAdaptiveForm({
+              routing_policy: buildAdaptiveRoutingPolicy({
+                circuit_breaker: {
+                  failure_status_codes: [429, 503],
+                  base_open_seconds: 30,
+                  failure_threshold: 3,
+                  backoff_multiplier: 1.5,
+                  max_open_seconds: 600,
+                  jitter_ratio: 0.15,
+                  ban_mode: "temporary",
+                  max_open_strikes_before_ban: 4,
+                  ban_duration_seconds: 1800,
+                },
+              }),
+            })}
             loadbalanceStrategySaving={false}
             onClose={vi.fn()}
             onOpenChange={vi.fn()}
@@ -217,8 +282,15 @@ describe("LoadbalanceStrategyDialog", () => {
       </LocaleProvider>,
     );
 
-    expect(screen.queryByLabelText("Failure Status Codes")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Ban Duration (seconds)")).not.toBeInTheDocument();
     expect(screen.getByText("Routing Policy")).toBeInTheDocument();
+    expect(screen.getByLabelText("Failure Status Codes")).toBeInTheDocument();
+    expect(screen.getByLabelText("Base Open Window (seconds)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Failure Threshold")).toBeInTheDocument();
+    expect(screen.getByLabelText("Backoff Multiplier")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max Open Window (seconds)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Jitter Ratio")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ban Mode")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ban Duration (seconds)")).toBeInTheDocument();
+    expect(screen.queryByText("Auto Recovery")).not.toBeInTheDocument();
   });
 });
