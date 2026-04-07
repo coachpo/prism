@@ -32,7 +32,7 @@ export interface LocalizedShellSidebarItem extends ShellSidebarItemDefinition {
 }
 
 export interface ShellNavigationState {
-  activeSidebarItem: LocalizedShellSidebarItem;
+  activeSidebarItem: LocalizedShellSidebarItem | null;
   breadcrumbs: ShellBreadcrumbItem[];
   isProfileScopedPage: boolean;
   matchedRoute: ShellRouteMetadata;
@@ -101,9 +101,13 @@ function matchShellRoute(pathname: string): MatchedShellRoute {
 
 function getTopLevelLabel(
   messages: Messages,
-  sidebarItemId: ShellRouteMetadata["sidebarItemId"]
+  route: ShellRouteMetadata,
 ): string {
-  const sidebarItem = SHELL_SIDEBAR_ITEMS.find((item) => item.id === sidebarItemId);
+  if (route.routeLabelKey) {
+    return messages.nav[route.routeLabelKey];
+  }
+
+  const sidebarItem = route.sidebarItem ?? SHELL_SIDEBAR_ITEMS.find((item) => item.id === route.sidebarItemId);
   return sidebarItem ? messages.nav[sidebarItem.labelKey] : messages.nav.dashboard;
 }
 
@@ -113,7 +117,7 @@ function buildBreadcrumbs(
   hash: string,
   search: string
 ): ShellBreadcrumbItem[] {
-  const routeLabel = getTopLevelLabel(messages, matchedRoute.route.sidebarItemId);
+  const routeLabel = getTopLevelLabel(messages, matchedRoute.route);
 
   switch (matchedRoute.route.id) {
     case "model-detail":
@@ -195,8 +199,7 @@ export function useShellNavigation(): ShellNavigationState {
       current: item.id === matchedRoute.route.sidebarItemId,
       label: messages.nav[item.labelKey],
     }));
-    const activeSidebarItem =
-      sidebarItems.find((item) => item.id === matchedRoute.route.sidebarItemId) ?? sidebarItems[0];
+    const activeSidebarItem = sidebarItems.find((item) => item.id === matchedRoute.route.sidebarItemId) ?? null;
 
     return {
       activeSidebarItem,

@@ -26,7 +26,7 @@ describe("useShellNavigation", () => {
     const navigation = getNavigation("/models/5");
 
     expect(navigation.matchedRoute.id).toBe("model-detail");
-    expect(navigation.activeSidebarItem.id).toBe("models");
+    expect(navigation.activeSidebarItem?.id).toBe("models");
     expect(navigation.isProfileScopedPage).toBe(true);
     expect(navigation.breadcrumbs).toEqual([
       { current: false, href: "/models", id: "models", label: "Models" },
@@ -38,7 +38,7 @@ describe("useShellNavigation", () => {
     const navigation = getNavigation("/models/5/proxy");
 
     expect(navigation.matchedRoute.id).toBe("proxy-model-detail");
-    expect(navigation.activeSidebarItem.id).toBe("models");
+    expect(navigation.activeSidebarItem?.id).toBe("models");
     expect(navigation.isProfileScopedPage).toBe(true);
     expect(navigation.breadcrumbs).toEqual([
       { current: false, href: "/models", id: "models", label: "Models" },
@@ -51,7 +51,7 @@ describe("useShellNavigation", () => {
     const navigation = getNavigation("/settings#authentication");
 
     expect(navigation.matchedRoute.id).toBe("settings");
-    expect(navigation.activeSidebarItem.id).toBe("settings");
+    expect(navigation.activeSidebarItem?.id).toBe("settings");
     expect(navigation.isProfileScopedPage).toBe(false);
     expect(navigation.breadcrumbs).toEqual([
       { current: false, href: "/settings", id: "settings", label: "Settings" },
@@ -64,7 +64,7 @@ describe("useShellNavigation", () => {
     const navigation = getNavigation("/settings#monitoring");
 
     expect(navigation.matchedRoute.id).toBe("settings");
-    expect(navigation.activeSidebarItem.id).toBe("settings");
+    expect(navigation.activeSidebarItem?.id).toBe("settings");
     expect(navigation.breadcrumbs).toEqual([
       { current: true, href: null, id: "settings", label: "Settings" },
     ]);
@@ -74,12 +74,24 @@ describe("useShellNavigation", () => {
     const navigation = getNavigation("/request-logs?request_id=42&detail_tab=audit");
 
     expect(navigation.matchedRoute.id).toBe("request-logs");
-    expect(navigation.activeSidebarItem.id).toBe("request-logs");
+    expect(navigation.activeSidebarItem?.id).toBe("request-logs");
     expect(navigation.isProfileScopedPage).toBe(true);
     expect(navigation.breadcrumbs).toEqual([
       { current: false, href: "/request-logs", id: "request-logs", label: "Request Logs" },
       { current: true, href: null, id: "request-logs-request", label: "#42" },
     ]);
     expect(navigation.sidebarItems.some((item) => item.to.includes("request_id="))).toBe(false);
+  });
+
+  it("keeps the statistics route mounted in breadcrumbs without showing a sidebar entry", () => {
+    const navigation = getNavigation("/statistics");
+
+    expect(navigation.matchedRoute.id).toBe("statistics");
+    expect(navigation.breadcrumbs).toEqual([
+      { current: true, href: null, id: "statistics", label: "Statistics" },
+    ]);
+    expect(navigation.activeSidebarItem).toBeNull();
+    expect(navigation.sidebarItems.some((item) => item.id === "statistics")).toBe(false);
+    expect(navigation.sidebarItems.some((item) => item.current)).toBe(false);
   });
 });
