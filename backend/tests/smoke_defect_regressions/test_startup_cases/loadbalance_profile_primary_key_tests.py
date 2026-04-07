@@ -121,6 +121,17 @@ async def _mutate_database_to_legacy_runtime_cleanup_shape(database_url: str) ->
     await engine.dispose()
 
 
+async def _stamp_database_to_missing_widen_ingress_revision(database_url: str) -> None:
+    engine = create_async_engine(database_url)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE alembic_version SET version_num = '0014_widen_ingress_request_id'"
+            )
+        )
+    await engine.dispose()
+
+
 class TestDEF075_LoadbalancePrimaryKeyContract:
     def test_dual_strategy_migration_only_recreates_round_robin_table_when_missing(
         self,
@@ -320,3 +331,41 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
             }.issubset(runtime_state_columns)
         finally:
             await _drop_database(legacy_database_url)
+
+    @pytest.mark.asyncio
+    async def test_missing_widen_ingress_revision_stamp_upgrades_to_current_head(
+        self, test_database_url: str
+    ):
+        compatibility_database_url = _database_url_with_name(
+            test_database_url, f"prism_def075_missing_{uuid4().hex[:12]}"
+        )
+        current_head_revision = _get_current_head_revision(compatibility_database_url)
+
+        await _create_database(compatibility_database_url)
+        try:
+            await asyncio.to_thread(
+                _upgrade_database, compatibility_database_url, "head"
+            )
+            await _stamp_database_to_missing_widen_ingress_revision(
+                compatibility_database_url
+            )
+            await asyncio.to_thread(
+                _upgrade_database, compatibility_database_url, "head"
+            )
+
+            engine = create_async_engine(compatibility_database_url)
+            async with engine.connect() as conn:
+                version = (
+                    (
+                        await conn.execute(
+                            text("SELECT version_num FROM alembic_version")
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            await engine.dispose()
+
+            assert version == [current_head_revision]
+        finally:
+            await _drop_database(compatibility_database_url)
