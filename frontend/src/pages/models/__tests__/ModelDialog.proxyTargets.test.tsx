@@ -266,7 +266,8 @@ describe("ModelDialog proxy target editing", () => {
   it("renders proxy dialog selects as full-width controls inside a scroll-safe dialog", () => {
     render(<Harness />);
 
-    expect(screen.getByRole("dialog")).toHaveClass("max-h-[90vh]", "max-w-2xl", "overflow-y-auto");
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-[90vh]", "sm:max-w-2xl");
+    expect(document.querySelector('[data-slot="dialog-body"]')).toHaveClass("overflow-y-auto");
     screen.getAllByRole("combobox").forEach((combobox) => {
       expect(combobox).toHaveClass("w-full", "min-w-0", "max-w-full");
     });

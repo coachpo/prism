@@ -7,6 +7,7 @@ import type { Endpoint } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -90,64 +92,93 @@ export function EndpointDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{copy.configureDetails}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{copy.name}</FormLabel>
-                  <FormControl>
-                    <Input autoComplete="off" placeholder={copy.namePlaceholder} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="base_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{copy.baseUrl}</FormLabel>
-                  <FormControl>
-                    <Input autoComplete="off" placeholder={copy.baseUrlPlaceholder} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="api_key"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{messages.proxyApiKeys.apiKey}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="off"
-                      placeholder={initialValues?.masked_api_key || messages.modelDetail.endpointApiKeyPlaceholder}
-                      {...field}
-                    />
-                  </FormControl>
-                  {initialValues ? (
-                    <p className="text-xs text-muted-foreground">
-                      {copy.keepStoredKey}
-                    </p>
-                  ) : null}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button type="submit">{submitLabel}</Button>
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="flex min-h-0 flex-col gap-5">
+            <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{copy.name}</FormLabel>
+                      <FormControl>
+                        <Input autoComplete="off" placeholder={copy.namePlaceholder} {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="base_url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{copy.baseUrl}</FormLabel>
+                      <FormControl>
+                        <Input autoComplete="off" placeholder={copy.baseUrlPlaceholder} {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="flex flex-col gap-4 rounded-lg border p-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-foreground">{messages.proxyApiKeys.apiKey}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {initialValues ? copy.keepStoredKey : copy.apiKeyRequired}
+                  </p>
+                </div>
+
+                {initialValues?.masked_api_key ? (
+                  <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{initialValues.masked_api_key}</span>
+                  </div>
+                ) : null}
+
+                <FormField
+                  control={form.control}
+                  name="api_key"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{messages.proxyApiKeys.apiKey}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          autoComplete="off"
+                          placeholder={initialValues?.masked_api_key || messages.modelDetail.endpointApiKeyPlaceholder}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {initialValues ? copy.keepStoredKey : copy.apiKeyRequired}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </DialogBody>
+
+            <DialogFooter className="sm:justify-between">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={form.formState.isSubmitting}
+                onClick={() => onOpenChange(false)}
+              >
+                {messages.settingsDialogs.cancel}
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {submitLabel}
+              </Button>
             </DialogFooter>
           </form>
         </Form>

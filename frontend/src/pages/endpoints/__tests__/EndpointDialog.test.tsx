@@ -22,11 +22,10 @@ describe("EndpointDialog i18n", () => {
       </LocaleProvider>,
     );
 
-    expect(screen.getByText("名称")).toBeInTheDocument();
-    expect(screen.getByText("基础 URL")).toBeInTheDocument();
-    expect(screen.getByText("API 密钥")).toBeInTheDocument();
     expect(screen.getByLabelText("名称")).toHaveAttribute("autocomplete", "off");
     expect(screen.getByLabelText("基础 URL")).toHaveAttribute("autocomplete", "off");
     expect(screen.getByLabelText("API 密钥")).toHaveAttribute("autocomplete", "off");
+    expect(screen.getAllByText("API 密钥").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("API 密钥为必填项").length).toBeGreaterThan(0);
   });
 });
