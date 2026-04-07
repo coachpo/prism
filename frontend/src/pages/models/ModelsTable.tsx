@@ -206,7 +206,6 @@ function ModelRow({
   const title = model.display_name || model.model_id;
   const proxyTargetSummary = getProxyTargetSummary(model, copy, formatNumber);
   const apiFamilyLabel = formatApiFamily(resolveApiFamily(model));
-  const vendorLabel = resolveVendorName(model, copy.unknownVendor);
   const typeLabel = model.model_type === "proxy" ? detailCopy.typeProxy : detailCopy.typeNative;
   const typeIntent = model.model_type === "proxy" ? "accent" : "info";
   const statusLabel = model.is_enabled ? detailCopy.enabled : detailCopy.disabled;
@@ -285,7 +284,6 @@ function ModelRow({
             ) : null}
 
             {model.model_type === "native" ? <CompactMetaBadge>{strategySummary}</CompactMetaBadge> : null}
-            <CompactMetaBadge>{vendorLabel}</CompactMetaBadge>
             <CompactMetaBadge>{apiFamilyLabel}</CompactMetaBadge>
             <TypeBadge label={typeLabel} intent={typeIntent} />
             <StatusBadge label={statusLabel} intent={statusIntent} />

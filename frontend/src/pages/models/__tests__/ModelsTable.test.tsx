@@ -324,7 +324,7 @@ describe("ModelsTable", () => {
     }
   });
 
-  it("groups models by vendor while keeping api family visible on each row", () => {
+  it("groups models by vendor while keeping api family visible on each row without repeating vendor badges", () => {
     renderTable({
       filtered: [
         buildModel({
@@ -359,6 +359,7 @@ describe("ModelsTable", () => {
     expect(screen.getByRole("button", { name: /^OpenAI 1 model$/i }).querySelector("img")).toBeNull();
     expect(screen.getByText("GPT-4o Mini")).toBeInTheDocument();
     expect(screen.getByText("GLM 4.6")).toBeInTheDocument();
+    expect(screen.getAllByText("Z.ai")).toHaveLength(1);
     expect(screen.getAllByText("OpenAI").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Anthropic").length).toBeGreaterThan(0);
   });
