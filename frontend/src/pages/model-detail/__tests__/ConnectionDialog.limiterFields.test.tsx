@@ -305,7 +305,7 @@ describe("ConnectionDialog limiter fields", () => {
     expect(screen.queryByLabelText("Probe interval (seconds)")).not.toBeInTheDocument();
     expect(screen.queryByText("OpenAI probe endpoint")).not.toBeInTheDocument();
     expect(screen.getByLabelText("QPS Limit")).toBeInTheDocument();
-    expect(screen.getAllByText("Leave blank for unlimited.")).toHaveLength(3);
+    expect(screen.getAllByText("Leave blank for unlimited.")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Save Connection" })).toBeInTheDocument();
   });
 
@@ -360,12 +360,15 @@ describe("ConnectionDialog limiter fields", () => {
     const scrollArea = document.querySelector('[data-slot="scroll-area"]');
     const scrollBody = screen.getByTestId("connection-dialog-scroll-body");
     const endpointSourceSection = screen.getByTestId("connection-dialog-endpoint-source-section");
+    const configurationSection = screen.getByTestId("connection-dialog-configuration-section");
 
     expect(dialogContent).toHaveClass("max-w-5xl", "overflow-hidden");
     expect(dialogContent).toHaveClass("h-[min(94vh,64rem)]");
     expect(scrollArea).toHaveClass("min-h-0", "flex-1");
-    expect(scrollBody).toHaveClass("grid", "gap-6", "px-6", "py-5", "sm:px-7");
-    expect(endpointSourceSection).toHaveClass("space-y-4", "bg-muted/20", "p-4", "sm:p-5");
+    expect(scrollBody).toHaveClass("flex", "flex-col", "gap-6", "px-6", "py-5", "sm:px-7");
+    expect(endpointSourceSection).toHaveClass("flex", "flex-col", "gap-4", "bg-muted/20", "p-4", "sm:p-5");
+    expect(configurationSection).toHaveTextContent("Configuration");
+    expect(screen.queryByTestId("connection-dialog-custom-headers-scroll-area")).not.toBeInTheDocument();
 
     const leftColumn = screen.getByTestId("connection-dialog-left-column");
     expect(within(leftColumn).getByLabelText("Name (Optional)")).toBeInTheDocument();

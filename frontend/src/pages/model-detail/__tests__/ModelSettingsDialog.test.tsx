@@ -88,11 +88,20 @@ describe("ModelSettingsDialog", () => {
       </LocaleProvider>,
     );
 
-    expect(screen.getByText("Vendor")).toBeInTheDocument();
-    expect(screen.getByText("API Family")).toBeInTheDocument();
+    const vendorLabels = screen.getAllByText("Vendor");
+    const apiFamilyLabels = screen.getAllByText("API Family");
+
+    expect(vendorLabels.length).toBeGreaterThan(0);
+    expect(apiFamilyLabels.length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("friendly-proxy")).toBeInTheDocument();
-    expect(screen.getByText("Vendor").parentElement).toHaveClass("min-w-0");
-    expect(screen.getByText("API Family").parentElement).toHaveClass("min-w-0");
+    const dialogContent = document.querySelector('[data-slot="dialog-content"]');
+    const scrollBody = screen.getByTestId("model-settings-scroll-body");
+    expect(dialogContent).toHaveClass("h-[min(92vh,48rem)]", "max-w-2xl", "overflow-hidden");
+    expect(scrollBody).toHaveClass("min-h-0", "flex-1", "overflow-y-auto", "px-6", "py-5", "sm:px-7");
+    expect(screen.getByTestId("model-settings-basics-section")).toHaveTextContent("Configuration");
+    expect(screen.getByTestId("model-settings-routing-section")).toHaveTextContent("Proxy Targets");
+    expect(vendorLabels[0].parentElement).toHaveClass("min-w-0");
+    expect(apiFamilyLabels[0].parentElement).toHaveClass("min-w-0");
   });
 
   it("renders model settings copy from the Chinese locale catalog", () => {
@@ -143,7 +152,7 @@ describe("ModelSettingsDialog", () => {
 
     expect(screen.getByText("模型设置")).toBeInTheDocument();
     expect(screen.getByText("显示名称")).toBeInTheDocument();
-    expect(screen.getByText("代理目标")).toBeInTheDocument();
+    expect(screen.getAllByText("代理目标").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "保存更改" })).toBeInTheDocument();
   });
 

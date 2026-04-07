@@ -4,6 +4,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -57,8 +58,8 @@ interface StrategyDialogSectionProps {
 
 function StrategyDialogSection({ children, className, title }: StrategyDialogSectionProps) {
   return (
-    <section className={cn("space-y-4 rounded-2xl border bg-muted/20 p-4 sm:p-5", className)}>
-      <div className="space-y-1">
+    <section className={cn("flex flex-col gap-4 rounded-2xl border bg-muted/20 p-4 sm:p-5", className)}>
+      <div className="flex flex-col gap-1">
         <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
       {children}
@@ -73,7 +74,7 @@ interface StrategyDialogSubsectionProps {
 
 function StrategyDialogSubsection({ children, className }: StrategyDialogSubsectionProps) {
   return (
-    <div className={cn("space-y-3 rounded-xl border bg-background/80 p-4", className)}>
+    <div className={cn("flex flex-col gap-3 rounded-xl border bg-background/80 p-4", className)}>
       {children}
     </div>
   );
@@ -95,7 +96,7 @@ function StrategyDialogField({
   label,
 }: StrategyDialogFieldProps) {
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("flex flex-col gap-2", className)}>
       <Label htmlFor={id}>{label}</Label>
       {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
       {children}
@@ -192,9 +193,40 @@ export function LoadbalanceStrategyDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="grid gap-6 px-6 py-5 sm:px-7">
+          <DialogBody className="min-h-0 flex-1 p-0">
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="flex flex-col gap-6 px-6 py-5 sm:px-7" data-testid="loadbalance-strategy-scroll-body">
               <StrategyDialogSection title={dialogMessages.basicsSectionTitle}>
+                <div
+                  className="grid gap-3 rounded-xl border bg-background/80 p-4 sm:grid-cols-3"
+                  data-testid="loadbalance-strategy-summary-card"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                      {dialogMessages.nameLabel}
+                    </p>
+                    <p className="truncate text-sm text-foreground">{loadbalanceStrategyForm.name || "-"}</p>
+                  </div>
+
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                      {dialogMessages.strategyFamilyLabel}
+                    </p>
+                    <p className="text-sm text-foreground">
+                      {loadbalanceStrategyForm.strategy_type === "adaptive"
+                        ? strategyCopy.adaptiveFamilyLabel
+                        : strategyCopy.legacyFamilyLabel}
+                    </p>
+                  </div>
+
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                      {strategyBehaviorLabel}
+                    </p>
+                    <p className="text-sm text-foreground">{strategyBehaviorSummary ?? "-"}</p>
+                  </div>
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <StrategyDialogField
                     id="loadbalance-strategy-name"
@@ -1016,8 +1048,9 @@ export function LoadbalanceStrategyDialog({
                   </>
                 ) : null}
               </StrategyDialogSection>
-            </div>
-          </ScrollArea>
+              </div>
+            </ScrollArea>
+          </DialogBody>
 
           <DialogFooter className="shrink-0 border-t bg-background px-6 py-4 sm:px-7">
             <Button type="button" variant="outline" onClick={onClose}>

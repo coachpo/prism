@@ -1,5 +1,6 @@
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -141,209 +142,235 @@ export function ConnectionDialog({
             name="pricing_template_id"
             value={connectionForm.pricing_template_id === null ? "" : String(connectionForm.pricing_template_id)}
           />
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="grid gap-6 px-6 py-5 sm:px-7" data-testid="connection-dialog-scroll-body">
-              <div
-                className="space-y-4 rounded-2xl border bg-muted/20 p-4 sm:p-5"
-                data-testid="connection-dialog-endpoint-source-section"
-              >
-                <div className="flex items-start justify-between gap-2.5">
-                  <div>
-                    <Label className="text-sm font-medium">{copy.endpointSource}</Label>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {editingConnection ? copy.endpointSourceEditHint : copy.endpointSourceCreateHint}
-                    </p>
-                  </div>
-                  {editingConnection && <StatusBadge label={copy.editable} intent="info" />}
-                </div>
-
-                <Tabs
-                  value={createMode}
-                  onValueChange={(value) => setCreateMode(value as "select" | "new")}
-                  className="gap-4"
+          <DialogBody className="min-h-0 flex-1 p-0">
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="flex flex-col gap-6 px-6 py-5 sm:px-7" data-testid="connection-dialog-scroll-body">
+                <div
+                  className="flex flex-col gap-4 rounded-2xl border bg-muted/20 p-4 sm:p-5"
+                  data-testid="connection-dialog-endpoint-source-section"
                 >
-                  <TabsList className="grid w-full md:max-w-md grid-cols-2">
-                    <TabsTrigger value="select">{copy.selectExisting}</TabsTrigger>
-                    <TabsTrigger value="new">{copy.createNew}</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="select" className="space-y-2.5">
-                    <div className="space-y-2">
-                      <Label htmlFor="conn-selected-endpoint">{copy.selectEndpoint}</Label>
-                      <Select value={selectedEndpointId} onValueChange={setSelectedEndpointId}>
-                        <SelectTrigger id="conn-selected-endpoint">
-                          <SelectValue placeholder={copy.selectEndpointPlaceholder} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {globalEndpoints.map((endpoint) => (
-                            <SelectItem key={endpoint.id} value={String(endpoint.id)}>
-                              {endpoint.name} ({endpoint.base_url})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {selectedEndpoint ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {copy.selectedEndpoint(selectedEndpoint.name)}
-                        </span>
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div>
+                      <Label className="text-sm font-medium">{copy.endpointSource}</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {editingConnection ? copy.endpointSourceEditHint : copy.endpointSourceCreateHint}
                       </p>
-                    ) : null}
-                    {globalEndpoints.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">{copy.noProfileEndpointsFound}</p>
-                    ) : null}
-                  </TabsContent>
-
-                  <TabsContent value="new" className="grid gap-3 md:grid-cols-2" data-testid="connection-dialog-create-new-grid">
-                    <div className="space-y-2">
-                      <Label htmlFor="endpoint-name">{copy.endpointName}</Label>
-                      <Input
-                        id="endpoint-name"
-                        name="endpoint_name"
-                        autoComplete="off"
-                        placeholder={copy.endpointNamePlaceholder}
-                        value={newEndpointForm.name}
-                        onChange={(e) => setNewEndpointForm({ ...newEndpointForm, name: e.target.value })}
-                        required={createMode === "new"}
-                      />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="endpoint-base-url">{copy.endpointBaseUrl}</Label>
-                      <Input
-                        id="endpoint-base-url"
-                        name="endpoint_base_url"
-                        autoComplete="off"
-                        placeholder={copy.endpointBaseUrlPlaceholder}
-                        value={newEndpointForm.base_url}
-                        onChange={(e) => setNewEndpointForm({ ...newEndpointForm, base_url: e.target.value })}
-                        required={createMode === "new"}
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="endpoint-api-key">{copy.endpointApiKey}</Label>
-                      <Input
-                        id="endpoint-api-key"
-                        name="endpoint_api_key"
-                        type="password"
-                        autoComplete="off"
-                        placeholder={copy.endpointApiKeyPlaceholder}
-                        value={newEndpointForm.api_key}
-                        onChange={(e) => setNewEndpointForm({ ...newEndpointForm, api_key: e.target.value })}
-                        required={createMode === "new"}
-                      />
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </div>
-
-              <div
-                className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(19rem,0.9fr)]"
-                data-testid="connection-dialog-main-grid"
-              >
-                <div className="space-y-5" data-testid="connection-dialog-left-column">
-                  <div className="space-y-2">
-                    <Label htmlFor="conn-name">{copy.connectionNameOptional}</Label>
-                    <Input
-                      id="conn-name"
-                      name="name"
-                      autoComplete="off"
-                      placeholder={copy.connectionDisplayNamePlaceholder}
-                      value={connectionForm.name || ""}
-                      onChange={(e) => setConnectionForm({ ...connectionForm, name: e.target.value })}
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      {copy.useEndpointNameFallback(endpointSourceDefaultName)}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">{copy.routingPriorityHint}</p>
+                    {editingConnection ? <StatusBadge label={copy.editable} intent="info" /> : null}
                   </div>
 
-                  <div>
-                    <SwitchController
-                      label={copy.active}
-                      description={copy.includeInLoadBalancing}
-                      checked={connectionForm.is_active ?? true}
-                      onCheckedChange={(checked) => setConnectionForm({ ...connectionForm, is_active: checked })}
-                    />
-                  </div>
+                  <Tabs
+                    value={createMode}
+                    onValueChange={(value) => setCreateMode(value as "select" | "new")}
+                    className="gap-4"
+                  >
+                    <TabsList className="grid w-full grid-cols-2 md:max-w-md">
+                      <TabsTrigger value="select">{copy.selectExisting}</TabsTrigger>
+                      <TabsTrigger value="new">{copy.createNew}</TabsTrigger>
+                    </TabsList>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="conn-pricing-template">{copy.pricingTemplate}</Label>
-                    <Select
-                      value={connectionForm.pricing_template_id ? String(connectionForm.pricing_template_id) : "unpriced"}
-                      onValueChange={(value) => {
-                        setConnectionForm({
-                          ...connectionForm,
-                          pricing_template_id: value === "unpriced" ? null : parseInt(value, 10),
-                        });
-                      }}
+                    <TabsContent value="select" className="flex flex-col gap-2.5">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="conn-selected-endpoint">{copy.selectEndpoint}</Label>
+                        <Select value={selectedEndpointId} onValueChange={setSelectedEndpointId}>
+                          <SelectTrigger id="conn-selected-endpoint">
+                            <SelectValue placeholder={copy.selectEndpointPlaceholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {globalEndpoints.map((endpoint) => (
+                              <SelectItem key={endpoint.id} value={String(endpoint.id)}>
+                                {endpoint.name} ({endpoint.base_url})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {selectedEndpoint ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {copy.selectedEndpoint(selectedEndpoint.name)}
+                          </span>
+                        </p>
+                      ) : null}
+
+                      {globalEndpoints.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">{copy.noProfileEndpointsFound}</p>
+                      ) : null}
+                    </TabsContent>
+
+                    <TabsContent
+                      value="new"
+                      className="grid gap-3 md:grid-cols-2"
+                      data-testid="connection-dialog-create-new-grid"
                     >
-                      <SelectTrigger id="conn-pricing-template">
-                        <SelectValue placeholder={copy.pricingTemplatePlaceholder} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unpriced">{copy.unpricedNoCostTracking}</SelectItem>
-                        {pricingTemplates.map((template) => (
-                          <SelectItem key={template.id} value={String(template.id)}>
-                            {template.name} v{template.version}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[11px] text-muted-foreground">{copy.pricingTemplateHint}</p>
-                  </div>
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="endpoint-name">{copy.endpointName}</Label>
+                        <Input
+                          id="endpoint-name"
+                          name="endpoint_name"
+                          autoComplete="off"
+                          placeholder={copy.endpointNamePlaceholder}
+                          value={newEndpointForm.name}
+                          onChange={(e) => setNewEndpointForm({ ...newEndpointForm, name: e.target.value })}
+                          required={createMode === "new"}
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="endpoint-base-url">{copy.endpointBaseUrl}</Label>
+                        <Input
+                          id="endpoint-base-url"
+                          name="endpoint_base_url"
+                          autoComplete="off"
+                          placeholder={copy.endpointBaseUrlPlaceholder}
+                          value={newEndpointForm.base_url}
+                          onChange={(e) => setNewEndpointForm({ ...newEndpointForm, base_url: e.target.value })}
+                          required={createMode === "new"}
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-2 md:col-span-2">
+                        <Label htmlFor="endpoint-api-key">{copy.endpointApiKey}</Label>
+                        <Input
+                          id="endpoint-api-key"
+                          name="endpoint_api_key"
+                          type="password"
+                          autoComplete="off"
+                          placeholder={copy.endpointApiKeyPlaceholder}
+                          value={newEndpointForm.api_key}
+                          onChange={(e) => setNewEndpointForm({ ...newEndpointForm, api_key: e.target.value })}
+                          required={createMode === "new"}
+                        />
+                      </div>
+                    </TabsContent>
+                  </Tabs>
                 </div>
 
-                <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-right-column">
-                  <div className="rounded-2xl border bg-muted/15 p-4" data-testid="connection-dialog-limiter-card">
-                    <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                      {limiterFields.map((field) => (
-                        <div key={field.field} className="grid content-start gap-1.5">
-                          <div className="min-h-14 space-y-1">
-                            <Label htmlFor={field.id}>{field.label}</Label>
-                            <p className="text-[11px] text-muted-foreground">{copy.leaveBlankForUnlimited}</p>
-                          </div>
-                          <Input
-                            id={field.id}
-                            name={field.field}
-                            type="number"
-                            autoComplete="off"
-                            min="0"
-                            value={field.value ?? ""}
-                            onChange={(e) => handleLimiterChange(field.field, e.target.value)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex min-h-0 flex-col gap-3 rounded-2xl border bg-muted/10 p-4"
-                    data-testid="connection-dialog-custom-headers-card"
+                <div
+                  className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(19rem,0.9fr)]"
+                  data-testid="connection-dialog-main-grid"
+                >
+                  <section
+                    className="flex flex-col gap-5 rounded-2xl border p-4 sm:p-5"
+                    data-testid="connection-dialog-configuration-section"
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <Label>{copy.customHeaders}</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setHeaderRows([...headerRows, createHeaderRow()])}
-                      >
-                        <Plus className="mr-1.5 h-3 w-3" />
-                        {copy.addHeader}
-                      </Button>
+                    <div className="flex flex-col gap-1">
+                      <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.configuration}</h2>
+                      <p className="text-sm text-muted-foreground">{copy.routingPriorityHint}</p>
                     </div>
-                    <div className="min-h-0 overflow-hidden rounded-xl border border-dashed bg-background/70">
-                      <ScrollArea
-                        className="max-h-[min(32vh,22rem)] w-full"
-                        data-testid="connection-dialog-custom-headers-scroll-area"
-                      >
-                        <div className="space-y-2 p-2 sm:p-3">
+
+                    <div className="flex flex-col gap-5" data-testid="connection-dialog-left-column">
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="conn-name">{copy.connectionNameOptional}</Label>
+                        <Input
+                          id="conn-name"
+                          name="name"
+                          autoComplete="off"
+                          placeholder={copy.connectionDisplayNamePlaceholder}
+                          value={connectionForm.name || ""}
+                          onChange={(e) => setConnectionForm({ ...connectionForm, name: e.target.value })}
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          {copy.useEndpointNameFallback(endpointSourceDefaultName)}
+                        </p>
+                      </div>
+
+                      <SwitchController
+                        label={copy.active}
+                        description={copy.includeInLoadBalancing}
+                        checked={connectionForm.is_active ?? true}
+                        onCheckedChange={(checked) => setConnectionForm({ ...connectionForm, is_active: checked })}
+                      />
+
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="conn-pricing-template">{copy.pricingTemplate}</Label>
+                        <Select
+                          value={connectionForm.pricing_template_id ? String(connectionForm.pricing_template_id) : "unpriced"}
+                          onValueChange={(value) => {
+                            setConnectionForm({
+                              ...connectionForm,
+                              pricing_template_id: value === "unpriced" ? null : parseInt(value, 10),
+                            });
+                          }}
+                        >
+                          <SelectTrigger id="conn-pricing-template">
+                            <SelectValue placeholder={copy.pricingTemplatePlaceholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unpriced">{copy.unpricedNoCostTracking}</SelectItem>
+                            {pricingTemplates.map((template) => (
+                              <SelectItem key={template.id} value={String(template.id)}>
+                                {template.name} v{template.version}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">{copy.pricingTemplateHint}</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="flex min-h-0 flex-col gap-4" data-testid="connection-dialog-right-column">
+                    <section
+                      className="flex flex-col gap-4 rounded-2xl border bg-muted/15 p-4"
+                      data-testid="connection-dialog-limiter-card"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.qpsLimit}</h2>
+                        <p className="text-sm text-muted-foreground">{copy.leaveBlankForUnlimited}</p>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                        {limiterFields.map((field) => (
+                          <div key={field.field} className="grid content-start gap-1.5">
+                            <div className="flex min-h-14 flex-col gap-1">
+                              <Label htmlFor={field.id}>{field.label}</Label>
+                              <p className="text-[11px] text-muted-foreground">{copy.leaveBlankForUnlimited}</p>
+                            </div>
+                            <Input
+                              id={field.id}
+                              name={field.field}
+                              type="number"
+                              autoComplete="off"
+                              min="0"
+                              value={field.value ?? ""}
+                              onChange={(e) => handleLimiterChange(field.field, e.target.value)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    <section
+                      className="flex flex-col gap-3 rounded-2xl border bg-muted/10 p-4"
+                      data-testid="connection-dialog-custom-headers-card"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.customHeaders}</h2>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3">
+                        <Label>{copy.customHeaders}</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHeaderRows([...headerRows, createHeaderRow()])}
+                        >
+                          <Plus data-icon="inline-start" />
+                          {copy.addHeader}
+                        </Button>
+                      </div>
+
+                      <div className="rounded-xl border border-dashed bg-background/70">
+                        <div className="flex flex-col gap-2 p-2 sm:p-3">
                           {headerRows.length === 0 ? (
                             <p className="px-1 py-2 text-xs italic text-muted-foreground">
                               {copy.noCustomHeadersConfigured}
                             </p>
                           ) : null}
+
                           {headerRows.map((row, index) => (
                             <div
                               key={row.id}
@@ -381,24 +408,25 @@ export function ConnectionDialog({
                                 type="button"
                                 variant="ghost"
                                 size="icon"
+                                aria-label={copy.removeHeader}
                                 onClick={() => {
                                   const newRows = [...headerRows];
                                   newRows.splice(index, 1);
                                   setHeaderRows(newRows);
                                 }}
                               >
-                                <X className="h-4 w-4" />
+                                <X />
                               </Button>
                             </div>
                           ))}
                         </div>
-                      </ScrollArea>
-                    </div>
+                      </div>
+                    </section>
                   </div>
                 </div>
               </div>
-            </div>
-          </ScrollArea>
+            </ScrollArea>
+          </DialogBody>
 
           <div className="shrink-0 border-t bg-background px-6 py-4 sm:px-7">
             {dialogTestResult ? (
@@ -417,7 +445,7 @@ export function ConnectionDialog({
               </div>
             ) : null}
 
-            <DialogFooter className="gap-2">
+            <DialogFooter className="pt-0 sm:items-center sm:justify-between">
               <Button
                 type="button"
                 variant="outline"
@@ -426,18 +454,20 @@ export function ConnectionDialog({
               >
                 {dialogTestingConnection ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
                     {copy.testingConnection}
                   </>
                 ) : (
                   copy.testConnection
                 )}
               </Button>
-              <div className="flex-1" />
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                {copy.cancel}
-              </Button>
-              <Button type="submit">{copy.saveConnection}</Button>
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  {copy.cancel}
+                </Button>
+                <Button type="submit">{copy.saveConnection}</Button>
+              </div>
             </DialogFooter>
           </div>
         </form>

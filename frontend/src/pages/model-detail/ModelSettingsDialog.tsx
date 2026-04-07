@@ -3,11 +3,12 @@ import { ApiFamilySelect } from "@/components/ApiFamilySelect";
 import { VendorSelect } from "@/components/VendorSelect";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,8 +52,8 @@ export function ModelSettingsDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent>
-        {model && (
+      <DialogContent className="flex h-[min(92vh,48rem)] max-h-[92vh] max-w-2xl flex-col overflow-hidden p-0 sm:max-w-2xl">
+        {model ? (
           <ModelSettingsForm
             key={`${model.id}:${model.updated_at}`}
             editLoadbalanceStrategyId={editLoadbalanceStrategyId}
@@ -66,7 +67,7 @@ export function ModelSettingsDialog({
             strategyCopy={strategyCopy}
             vendors={vendors}
           />
-        )}
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -75,8 +76,10 @@ export function ModelSettingsDialog({
 type ModelSettingsFormProps = {
   copy: {
     cancel: string;
+    configuration: string;
     displayName: string;
     displayNamePlaceholder: string;
+    loadbalanceStrategy: string;
     loadbalanceStrategyLabel: string;
     modelIdLabel: string;
     modelSettingsDescription: string;
@@ -88,11 +91,12 @@ type ModelSettingsFormProps = {
     selectApiFamily: string;
     selectStrategy: string;
     selectVendor: string;
+    targets: (count: string) => string;
   };
   editLoadbalanceStrategyId: string;
   fieldCopy: {
-    vendor: string;
     apiFamily: string;
+    vendor: string;
   };
   handleEditModelSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   loadbalanceStrategies: LoadbalanceStrategy[];
@@ -128,9 +132,7 @@ function ModelSettingsForm({
   const [selectedVendorId, setSelectedVendorId] = useState(
     String(model.vendor_id ?? model.vendor?.id ?? ""),
   );
-  const [selectedApiFamily, setSelectedApiFamily] = useState(
-    model.api_family ?? "openai",
-  );
+  const [selectedApiFamily, setSelectedApiFamily] = useState(model.api_family ?? "openai");
 
   const handleApiFamilyChange = (value: string) => {
     setSelectedApiFamily(value as "openai" | "anthropic" | "gemini");
@@ -155,93 +157,145 @@ function ModelSettingsForm({
 
   return (
     <>
-      <DialogHeader>
+      <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
         <DialogTitle>{copy.modelSettingsTitle}</DialogTitle>
         <DialogDescription>{copy.modelSettingsDescription}</DialogDescription>
       </DialogHeader>
-      <form onSubmit={handleEditModelSubmit} className="min-w-0 space-y-4">
+
+      <form onSubmit={handleEditModelSubmit} className="flex min-h-0 flex-1 flex-col">
         <input type="hidden" name="vendor_id" value={selectedVendorId} />
         <input type="hidden" name="api_family" value={selectedApiFamily} />
 
-        <div className="space-y-2">
-          <Label htmlFor="edit-display-name">{copy.displayName}</Label>
-          <Input
-            id="edit-display-name"
-            name="display_name"
-            autoComplete="off"
-            defaultValue={model.display_name || ""}
-            placeholder={copy.displayNamePlaceholder}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-model-id">{copy.modelIdLabel}</Label>
-          <Input id="edit-model-id" name="model_id" autoComplete="off" defaultValue={model.model_id} required />
-        </div>
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-          <div className="min-w-0 space-y-2">
-            <Label>{fieldCopy.vendor}</Label>
-            <VendorSelect
-              value={selectedVendorId}
-              onValueChange={setSelectedVendorId}
-              allowEmpty={true}
-              valueType="vendor_id"
-              vendors={vendors}
-              showAll={false}
-              className="w-full"
-              placeholder={copy.selectVendor}
-            />
-          </div>
-          <div className="min-w-0 space-y-2">
-            <Label>{fieldCopy.apiFamily}</Label>
-            <ApiFamilySelect
-              value={selectedApiFamily}
-              onValueChange={handleApiFamilyChange}
-              showAll={false}
-              className="w-full"
-              placeholder={copy.selectApiFamily}
-            />
-          </div>
-        </div>
-        {model.model_type === "proxy" && (
-          <div className="space-y-2">
-            <Label>{copy.proxyTargets}</Label>
-            <p className="text-sm text-muted-foreground">{copy.proxyTargetsHint}</p>
-          </div>
-        )}
-        {model.model_type === "native" && (
-          <div className="min-w-0 space-y-2">
-            <Label htmlFor="edit-loadbalance-strategy">{copy.loadbalanceStrategyLabel}</Label>
-            {loadbalanceStrategies.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{copy.noLoadbalanceStrategiesAvailable}</p>
+        <DialogBody className="min-h-0 flex-1 overflow-y-auto px-6 py-5 sm:px-7" data-testid="model-settings-scroll-body">
+          <section
+            className="flex flex-col gap-4 rounded-2xl border bg-muted/20 p-4 sm:p-5"
+            data-testid="model-settings-basics-section"
+          >
+            <div className="flex flex-col gap-1">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.configuration}</h2>
+              <p className="text-sm text-muted-foreground">{copy.modelSettingsDescription}</p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
+                <Label htmlFor="edit-display-name">{copy.displayName}</Label>
+                <Input
+                  id="edit-display-name"
+                  name="display_name"
+                  autoComplete="off"
+                  defaultValue={model.display_name || ""}
+                  placeholder={copy.displayNamePlaceholder}
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
+                <Label htmlFor="edit-model-id">{copy.modelIdLabel}</Label>
+                <Input
+                  id="edit-model-id"
+                  name="model_id"
+                  autoComplete="off"
+                  defaultValue={model.model_id}
+                  required
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-2">
+                <Label>{fieldCopy.vendor}</Label>
+                <VendorSelect
+                  value={selectedVendorId}
+                  onValueChange={setSelectedVendorId}
+                  allowEmpty={true}
+                  valueType="vendor_id"
+                  vendors={vendors}
+                  showAll={false}
+                  className="w-full"
+                  placeholder={copy.selectVendor}
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-2">
+                <Label>{fieldCopy.apiFamily}</Label>
+                <ApiFamilySelect
+                  value={selectedApiFamily}
+                  onValueChange={handleApiFamilyChange}
+                  showAll={false}
+                  className="w-full"
+                  placeholder={copy.selectApiFamily}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section
+            className="flex flex-col gap-4 rounded-2xl border p-4 sm:p-5"
+            data-testid="model-settings-routing-section"
+          >
+            <div className="flex flex-col gap-1">
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">
+                {model.model_type === "proxy" ? copy.proxyTargets : copy.loadbalanceStrategy}
+              </h2>
+              {model.model_type === "proxy" ? (
+                <p className="text-sm text-muted-foreground">{copy.proxyTargetsHint}</p>
+              ) : null}
+            </div>
+
+            {model.model_type === "proxy" ? (
+              <div className="grid gap-3 rounded-xl border border-dashed bg-muted/15 p-4 sm:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    {copy.proxyTargets}
+                  </p>
+                  <p className="text-sm text-foreground">{copy.targets(String(model.proxy_targets.length))}</p>
+                </div>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    {fieldCopy.apiFamily}
+                  </p>
+                  <p className="text-sm text-foreground">{selectedApiFamily}</p>
+                </div>
+              </div>
             ) : (
-                <Select
-                  value={editLoadbalanceStrategyId || undefined}
-                  onValueChange={setEditLoadbalanceStrategyId}
-                >
-                  <SelectTrigger id="edit-loadbalance-strategy" className="w-full min-w-0 max-w-full">
-                    <SelectValue placeholder={copy.selectStrategy}>
-                      {selectedLoadbalanceStrategy ? (
-                        <span className="block min-w-0 max-w-full truncate">
-                          {getStrategyOptionText(selectedLoadbalanceStrategy)}
-                        </span>
-                      ) : null}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent
-                    position="popper"
-                    className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]"
-                  >
-                    {loadbalanceStrategies.map((strategy) => (
-                      <SelectItem key={strategy.id} value={String(strategy.id)}>
-                        {getStrategyOptionText(strategy)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex min-w-0 flex-col gap-4">
+                {selectedLoadbalanceStrategy ? (
+                  <div className="rounded-xl border bg-muted/15 p-4 text-sm text-foreground">
+                    {getStrategyOptionText(selectedLoadbalanceStrategy)}
+                  </div>
+                ) : null}
+
+                <div className="flex min-w-0 flex-col gap-2">
+                  <Label htmlFor="edit-loadbalance-strategy">{copy.loadbalanceStrategyLabel}</Label>
+                  {loadbalanceStrategies.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{copy.noLoadbalanceStrategiesAvailable}</p>
+                  ) : (
+                    <Select value={editLoadbalanceStrategyId || undefined} onValueChange={setEditLoadbalanceStrategyId}>
+                      <SelectTrigger id="edit-loadbalance-strategy" className="w-full min-w-0 max-w-full">
+                        <SelectValue placeholder={copy.selectStrategy}>
+                          {selectedLoadbalanceStrategy ? (
+                            <span className="block min-w-0 max-w-full truncate">
+                              {getStrategyOptionText(selectedLoadbalanceStrategy)}
+                            </span>
+                          ) : null}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent
+                        position="popper"
+                        className="min-w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-trigger-width)]"
+                      >
+                        {loadbalanceStrategies.map((strategy) => (
+                          <SelectItem key={strategy.id} value={String(strategy.id)}>
+                            {getStrategyOptionText(strategy)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
             )}
-          </div>
-        )}
-        <DialogFooter>
+          </section>
+        </DialogBody>
+
+        <DialogFooter className="shrink-0 border-t bg-background px-6 py-4 sm:justify-between sm:px-7">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {copy.cancel}
           </Button>
