@@ -289,6 +289,7 @@ class TestDEF069_AuthSessionLifecycle:
     ):
         await _reset_auth_state()
         transport = ASGITransport(app=app)
+        access_ttl = get_settings().auth_access_token_ttl_seconds
         try:
             async with AsyncClient(
                 transport=transport, base_url="http://testserver"
@@ -312,6 +313,12 @@ class TestDEF069_AuthSessionLifecycle:
                     )
                     is None
                 )
+                session_access_max_age = _get_cookie_max_age(
+                    session_set_cookie_headers,
+                    get_settings().auth_cookie_name,
+                )
+                assert session_access_max_age is not None
+                assert access_ttl - 5 <= session_access_max_age <= access_ttl
 
                 session_refresh = await client.post("/api/auth/refresh")
                 assert session_refresh.status_code == 200
@@ -323,6 +330,12 @@ class TestDEF069_AuthSessionLifecycle:
                     )
                     is None
                 )
+                rotated_session_access_max_age = _get_cookie_max_age(
+                    rotated_session_headers,
+                    get_settings().auth_cookie_name,
+                )
+                assert rotated_session_access_max_age is not None
+                assert access_ttl - 5 <= rotated_session_access_max_age <= access_ttl
 
                 await client.post("/api/auth/logout")
 
@@ -341,6 +354,12 @@ class TestDEF069_AuthSessionLifecycle:
                 )
                 assert default_max_age is not None
                 assert 604_700 <= default_max_age <= 604_800
+                default_access_max_age = _get_cookie_max_age(
+                    default_headers,
+                    get_settings().auth_cookie_name,
+                )
+                assert default_access_max_age is not None
+                assert access_ttl - 5 <= default_access_max_age <= access_ttl
 
                 default_refresh = await client.post("/api/auth/refresh")
                 assert default_refresh.status_code == 200
@@ -363,6 +382,12 @@ class TestDEF069_AuthSessionLifecycle:
                 )
                 assert remembered_max_age is not None
                 assert 2_591_900 <= remembered_max_age <= 2_592_000
+                remembered_access_max_age = _get_cookie_max_age(
+                    remembered_headers,
+                    get_settings().auth_cookie_name,
+                )
+                assert remembered_access_max_age is not None
+                assert access_ttl - 5 <= remembered_access_max_age <= access_ttl
 
                 remembered_refresh = await client.post("/api/auth/refresh")
                 assert remembered_refresh.status_code == 200
@@ -374,6 +399,12 @@ class TestDEF069_AuthSessionLifecycle:
                     and "Max-Age=" in header
                     for header in rotated_remembered_headers
                 )
+                rotated_remembered_access_max_age = _get_cookie_max_age(
+                    rotated_remembered_headers,
+                    get_settings().auth_cookie_name,
+                )
+                assert rotated_remembered_access_max_age is not None
+                assert access_ttl - 5 <= rotated_remembered_access_max_age <= access_ttl
 
             async with AsyncSessionLocal() as session:
                 refresh_tokens = list(

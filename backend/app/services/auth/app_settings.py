@@ -17,9 +17,6 @@ class AppAuthSettingsSnapshot:
     token_version: int
 
 
-_app_auth_settings_snapshot_cache: AppAuthSettingsSnapshot | None = None
-
-
 def _build_app_auth_settings_snapshot(
     settings_row: AppAuthSettings,
 ) -> AppAuthSettingsSnapshot:
@@ -32,8 +29,7 @@ def _build_app_auth_settings_snapshot(
 
 
 def invalidate_app_auth_settings_snapshot_cache() -> None:
-    global _app_auth_settings_snapshot_cache
-    _app_auth_settings_snapshot_cache = None
+    return None
 
 
 async def get_or_create_app_auth_settings(db: AsyncSession) -> AppAuthSettings:
@@ -55,14 +51,8 @@ async def get_or_create_app_auth_settings(db: AsyncSession) -> AppAuthSettings:
 async def get_app_auth_settings_snapshot(
     db: AsyncSession,
 ) -> AppAuthSettingsSnapshot:
-    global _app_auth_settings_snapshot_cache
-
-    if _app_auth_settings_snapshot_cache is not None:
-        return _app_auth_settings_snapshot_cache
-
     settings_row = await get_or_create_app_auth_settings(db)
-    _app_auth_settings_snapshot_cache = _build_app_auth_settings_snapshot(settings_row)
-    return _app_auth_settings_snapshot_cache
+    return _build_app_auth_settings_snapshot(settings_row)
 
 
 def require_password(value: str | None) -> str:

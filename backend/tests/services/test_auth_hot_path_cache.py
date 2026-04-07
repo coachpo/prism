@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, event
+from sqlalchemy import delete
 
 from app.core.auth import create_access_token
 from app.core.config import get_settings
@@ -136,41 +136,28 @@ async def _wait_for_proxy_key_usage(key_id: int) -> tuple[object, object]:
 
 class TestAuthHotPathCache:
     @pytest.mark.asyncio
-    async def test_repeated_management_auth_requests_reuse_cached_auth_settings(self):
+    async def test_out_of_band_auth_settings_mutation_is_visible_on_next_request(
+        self,
+    ):
         await _reset_auth_state()
         transport = ASGITransport(app=app)
-        access_token = await _build_access_token()
-        auth_settings_queries = 0
-
-        def count_auth_settings_queries(
-            conn,
-            cursor,
-            statement,
-            parameters,
-            context,
-            executemany,
-        ) -> None:
-            nonlocal auth_settings_queries
-            if "app_auth_settings" in statement.lower():
-                auth_settings_queries += 1
-
-        engine = get_engine().sync_engine
-        event.listen(engine, "before_cursor_execute", count_auth_settings_queries)
 
         try:
             async with AsyncClient(
                 transport=transport, base_url="http://testserver"
             ) as client:
-                client.cookies.set(get_settings().auth_cookie_name, access_token)
-
                 first_response = await client.get("/api/vendors")
+
+                async with AsyncSessionLocal() as session:
+                    settings_row = await get_or_create_app_auth_settings(session)
+                    settings_row.auth_enabled = False
+                    await session.commit()
+
                 second_response = await client.get("/api/vendors")
 
-            assert first_response.status_code == 200
+            assert first_response.status_code == 401
             assert second_response.status_code == 200
-            assert auth_settings_queries == 1
         finally:
-            event.remove(engine, "before_cursor_execute", count_auth_settings_queries)
             await _cleanup_auth_state()
 
     @pytest.mark.asyncio
