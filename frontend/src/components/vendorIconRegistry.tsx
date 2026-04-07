@@ -1,5 +1,6 @@
 import type { ComponentType, SVGProps } from "react";
 import type { VendorIconKey } from "@/lib/types";
+import { GeminiIcon } from "@/components/ApiFamilyIcon";
 import {
   AlibabaVendorIcon,
   AnthropicVendorIcon,
@@ -8,7 +9,6 @@ import {
   BaiduVendorIcon,
   CohereVendorIcon,
   DeepseekVendorIcon,
-  GoogleVendorIcon,
   HuggingfaceVendorIcon,
   KimiVendorIcon,
   MetaVendorIcon,
@@ -33,7 +33,7 @@ export interface VendorIconPresetOption {
 export const vendorIconRegistry: Record<string, VendorIconPresetOption> = {
   openai: { icon_key: "openai", label: "OpenAI", Icon: OpenAIVendorIcon },
   anthropic: { icon_key: "anthropic", label: "Anthropic", Icon: AnthropicVendorIcon },
-  google: { icon_key: "google", label: "Google", Icon: GoogleVendorIcon },
+  gemini: { icon_key: "gemini", label: "Gemini", Icon: GeminiIcon },
   deepseek: { icon_key: "deepseek", label: "DeepSeek", Icon: DeepseekVendorIcon },
   zhipu: { icon_key: "zhipu", label: "Z.ai", Icon: ZhipuVendorIcon },
   nvidia: { icon_key: "nvidia", label: "NVIDIA", Icon: NvidiaVendorIcon },

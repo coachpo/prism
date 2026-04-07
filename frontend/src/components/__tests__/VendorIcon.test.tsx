@@ -40,6 +40,24 @@ describe("VendorIcon", () => {
     expect(svg).toHaveClass("h-full", "w-full");
   });
 
+  it("renders the Gemini glyph for the gemini vendor icon key", () => {
+    render(
+      <VendorIcon
+        vendor={{
+          key: "gemini",
+          name: "Gemini",
+          icon_key: "gemini",
+        }}
+      />,
+    );
+
+    const geminiIcon = screen.getByLabelText("Vendor icon Gemini");
+    expect(geminiIcon.querySelector("svg path")).toHaveAttribute(
+      "d",
+      "M12 0C12 6.627 6.627 12 0 12c6.627 0 12 5.373 12 12 0-6.627 5.373-12 12-12-6.627 0-12-5.373-12-12z",
+    );
+  });
+
   it("renders a fallback monogram for vendors without a preset icon", () => {
     render(
       <VendorIcon
