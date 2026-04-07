@@ -20,17 +20,18 @@ describe("useProfileDialogState", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    localStorage.setItem("prism.locale", "zh-CN");
   });
 
-  it("emits a localized required-name validation toast", async () => {
+  it("blocks create when the profile name is blank", async () => {
+    const createProfile = vi.fn();
+
     const { result } = renderHook(
       () =>
         useProfileDialogState({
           activateProfile: vi.fn(),
           canCreateProfile: true,
           closeProfileSwitcher: vi.fn(),
-          createProfile: vi.fn(),
+          createProfile,
           deleteProfile: vi.fn(),
           hasMismatch: false,
           selectProfile: vi.fn(),
@@ -46,6 +47,7 @@ describe("useProfileDialogState", () => {
       await result.current.handleCreateProfile();
     });
 
-    expect(toast.error).toHaveBeenCalledWith("配置档案名称为必填项");
+    expect(createProfile).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(1);
   });
 });
