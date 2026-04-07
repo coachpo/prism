@@ -317,8 +317,7 @@ class TestDEF069_AuthSessionLifecycle:
                     session_set_cookie_headers,
                     get_settings().auth_cookie_name,
                 )
-                assert session_access_max_age is not None
-                assert access_ttl - 5 <= session_access_max_age <= access_ttl
+                assert session_access_max_age is None
 
                 session_refresh = await client.post("/api/auth/refresh")
                 assert session_refresh.status_code == 200
@@ -334,8 +333,7 @@ class TestDEF069_AuthSessionLifecycle:
                     rotated_session_headers,
                     get_settings().auth_cookie_name,
                 )
-                assert rotated_session_access_max_age is not None
-                assert access_ttl - 5 <= rotated_session_access_max_age <= access_ttl
+                assert rotated_session_access_max_age is None
 
                 await client.post("/api/auth/logout")
 
