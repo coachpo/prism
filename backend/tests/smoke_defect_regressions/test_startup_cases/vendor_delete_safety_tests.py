@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from tests.loadbalance_strategy_helpers import make_loadbalance_strategy
 from tests.smoke_defect_regressions.test_startup_cases.auth_management_flows_tests import (
@@ -29,6 +30,19 @@ async def _create_vendor(session, *, suffix: str, label: str) -> Vendor:
         key=f"def084-{label}-{suffix}",
         name=f"DEF084 {label} {suffix}",
     )
+    session.add(vendor)
+    await session.flush()
+    return vendor
+
+
+async def _get_or_create_vendor_by_key(session, *, key: str, name: str) -> Vendor:
+    existing = (
+        await session.execute(select(Vendor).where(Vendor.key == key))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    vendor = Vendor(key=key, name=name, icon_key=key)
     session.add(vendor)
     await session.flush()
     return vendor
@@ -154,6 +168,61 @@ class TestDEF084_VendorDeleteSafety:
             async with AsyncSessionLocal() as session:
                 deleted_vendor = await session.get(Vendor, vendor_id)
                 assert deleted_vendor is None
+        finally:
+            await _cleanup_auth_state()
+
+    @pytest.mark.asyncio
+    async def test_system_vendor_patch_is_rejected(self):
+        await get_engine().dispose()
+        await _reset_auth_state()
+        transport = ASGITransport(app=app)
+
+        try:
+            async with AsyncSessionLocal() as session:
+                vendor = await _get_or_create_vendor_by_key(
+                    session,
+                    key="openai",
+                    name="OpenAI",
+                )
+                await session.commit()
+
+            async with AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                await _login(client)
+                response = await client.patch(
+                    f"/api/vendors/{vendor.id}",
+                    json={"name": "OpenAI Updated"},
+                )
+
+            assert response.status_code == 403
+            assert "readonly" in response.json()["detail"].lower()
+        finally:
+            await _cleanup_auth_state()
+
+    @pytest.mark.asyncio
+    async def test_system_vendor_delete_is_rejected(self):
+        await get_engine().dispose()
+        await _reset_auth_state()
+        transport = ASGITransport(app=app)
+
+        try:
+            async with AsyncSessionLocal() as session:
+                vendor = await _get_or_create_vendor_by_key(
+                    session,
+                    key="anthropic",
+                    name="Anthropic",
+                )
+                await session.commit()
+
+            async with AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                await _login(client)
+                response = await client.delete(f"/api/vendors/{vendor.id}")
+
+            assert response.status_code == 403
+            assert "readonly" in response.json()["detail"].lower()
         finally:
             await _cleanup_auth_state()
 

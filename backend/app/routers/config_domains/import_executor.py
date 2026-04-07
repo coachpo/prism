@@ -36,6 +36,7 @@ from app.services.loadbalancer.policy import (
 )
 from app.services.loadbalancer.runtime_store import clear_profile_runtime_state
 from app.services.proxy_service import normalize_base_url
+from app.vendor_catalog import get_canonical_system_vendor, resolve_canonical_vendor_key
 
 
 @dataclass
@@ -157,13 +158,13 @@ async def _preview_import_vendors(
         return {}, [], []
 
     imported_vendor_refs = list(vendor_payloads_by_key.values())
+    lookup_keys = {
+        resolve_canonical_vendor_key(vendor_key) or vendor_key
+        for vendor_key in vendor_payloads_by_key
+    }
 
     existing_vendors = (
-        (
-            await db.execute(
-                select(Vendor).where(Vendor.key.in_(vendor_payloads_by_key.keys()))
-            )
-        )
+        (await db.execute(select(Vendor).where(Vendor.key.in_(lookup_keys))))
         .scalars()
         .all()
     )
@@ -190,7 +191,8 @@ async def _preview_import_vendors(
     proposed_name_to_key: dict[str, str] = {}
 
     for vendor_key, imported_vendor in vendor_payloads_by_key.items():
-        existing_vendor = existing_vendors_by_key.get(vendor_key)
+        canonical_vendor_key = resolve_canonical_vendor_key(vendor_key) or vendor_key
+        existing_vendor = existing_vendors_by_key.get(canonical_vendor_key)
         if existing_vendor is None:
             proposed_name = _resolve_new_vendor_name(imported_vendor)
             duplicate_key = proposed_name_to_key.get(proposed_name)
@@ -397,19 +399,31 @@ async def execute_import_payload(
     vendor_map: dict[str, int] = {}
     if vendor_payloads_by_key:
         for vendor_key, vendor_data in vendor_payloads_by_key.items():
-            existing_vendor = existing_vendors_by_key.get(vendor_key)
+            canonical_vendor_key = (
+                resolve_canonical_vendor_key(vendor_key) or vendor_key
+            )
+            existing_vendor = existing_vendors_by_key.get(canonical_vendor_key)
             if existing_vendor is None:
+                canonical_vendor = get_canonical_system_vendor(vendor_key)
                 existing_vendor = Vendor(
-                    key=vendor_data.key,
-                    name=vendor_data.name_hint or vendor_data.key,
-                    description=vendor_data.description_hint,
-                    icon_key=vendor_data.icon_key_hint,
+                    key=(canonical_vendor or {"key": vendor_data.key})["key"],
+                    name=(
+                        canonical_vendor
+                        or {"name": vendor_data.name_hint or vendor_data.key}
+                    )["name"],
+                    description=(
+                        canonical_vendor
+                        or {"description": vendor_data.description_hint}
+                    )["description"],
+                    icon_key=(
+                        canonical_vendor or {"icon_key": vendor_data.icon_key_hint}
+                    )["icon_key"],
                     audit_enabled=False,
                     audit_capture_bodies=True,
                 )
                 db.add(existing_vendor)
                 await db.flush()
-                existing_vendors_by_key[vendor_key] = existing_vendor
+                existing_vendors_by_key[canonical_vendor_key] = existing_vendor
             vendor_map[vendor_key] = existing_vendor.id
 
     endpoint_id_allocator = await _build_id_allocator(db, Endpoint)

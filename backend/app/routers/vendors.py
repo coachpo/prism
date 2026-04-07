@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
@@ -13,6 +13,7 @@ from app.schemas.schemas import (
     VendorResponse,
     VendorUpdate,
 )
+from app.vendor_catalog import has_identity_updates, is_readonly_vendor_key
 
 router = APIRouter(prefix="/api/vendors", tags=["vendors"])
 
@@ -41,12 +42,20 @@ async def _get_vendor_or_404(db: AsyncSession, vendor_id: int) -> Vendor:
     return vendor
 
 
+def _raise_readonly_vendor_error(vendor_key: Optional[str]) -> None:
+    label = vendor_key or "system vendor"
+    raise HTTPException(
+        status_code=403,
+        detail=f"Vendor '{label}' is readonly and cannot be modified here",
+    )
+
+
 async def _ensure_vendor_uniqueness(
     db: AsyncSession,
     *,
-    key: str | None,
-    name: str | None,
-    exclude_vendor_id: int | None = None,
+    key: Optional[str],
+    name: Optional[str],
+    exclude_vendor_id: Optional[int] = None,
 ) -> None:
     if key is not None and name is not None:
         query = select(Vendor).where((Vendor.key == key) | (Vendor.name == name))
@@ -110,6 +119,8 @@ async def create_vendor(
     payload = _normalize_vendor_payload(body.model_dump())
     normalized_key = payload.get("key")
     normalized_name = payload.get("name")
+    if isinstance(normalized_key, str) and is_readonly_vendor_key(normalized_key):
+        _raise_readonly_vendor_error(normalized_key)
     await _ensure_vendor_uniqueness(
         db,
         key=normalized_key if isinstance(normalized_key, str) else None,
@@ -146,6 +157,14 @@ async def update_vendor(
     vendor = await _get_vendor_or_404(db, vendor_id)
     update_data = _normalize_vendor_payload(body.model_dump(exclude_unset=True))
     normalized_key = update_data.get("key")
+    if (
+        isinstance(normalized_key, str)
+        and is_readonly_vendor_key(normalized_key)
+        and normalized_key != vendor.key
+    ):
+        _raise_readonly_vendor_error(normalized_key)
+    if vendor.is_readonly and has_identity_updates(update_data):
+        _raise_readonly_vendor_error(vendor.key)
     normalized_name = update_data.get("name")
 
     await _ensure_vendor_uniqueness(
@@ -170,6 +189,8 @@ async def delete_vendor(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     vendor = await _get_vendor_or_404(db, vendor_id)
+    if vendor.is_readonly:
+        _raise_readonly_vendor_error(vendor.key)
 
     await db.delete(vendor)
     await db.commit()

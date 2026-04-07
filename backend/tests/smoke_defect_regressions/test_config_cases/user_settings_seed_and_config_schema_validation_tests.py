@@ -209,8 +209,51 @@ class TestDEF080_VendorCatalogManagementSurface:
         ] == [
             ("openai", "OpenAI", "openai"),
             ("anthropic", "Anthropic", "anthropic"),
-            ("google", "Google", "google"),
+            ("gemini", "Gemini", "gemini"),
         ]
+        mock_session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_seed_vendors_migrates_legacy_google_vendor_to_gemini_in_place(self):
+        from app.main import seed_vendors
+        from app.models.models import Vendor
+
+        legacy_vendor = Vendor(
+            id=7,
+            key="google",
+            name="Google",
+            description="Google Gemini API",
+            icon_key="google",
+            audit_enabled=False,
+            audit_capture_bodies=True,
+        )
+
+        existing_result = MagicMock()
+        existing_scalars = MagicMock()
+        existing_scalars.all.return_value = [legacy_vendor]
+        existing_result.scalars.return_value = existing_scalars
+
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+        mock_session.commit = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=existing_result)
+
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "app.core.database.AsyncSessionLocal",
+            return_value=mock_session_ctx,
+        ):
+            await seed_vendors()
+
+        added_vendors = [call.args[0] for call in mock_session.add.call_args_list]
+        assert {vendor.key for vendor in added_vendors} == {"openai", "anthropic"}
+        assert legacy_vendor.id == 7
+        assert legacy_vendor.key == "gemini"
+        assert legacy_vendor.name == "Gemini"
+        assert legacy_vendor.icon_key == "gemini"
         mock_session.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -223,7 +266,7 @@ class TestDEF080_VendorCatalogManagementSurface:
         scalars.all.return_value = [
             Vendor(key="openai", name="OpenAI", icon_key="openai"),
             Vendor(key="anthropic", name="Anthropic", icon_key="anthropic"),
-            Vendor(key="google", name="Google", icon_key="google"),
+            Vendor(key="gemini", name="Gemini", icon_key="gemini"),
         ]
         result.scalars.return_value = scalars
 
@@ -233,11 +276,11 @@ class TestDEF080_VendorCatalogManagementSurface:
         vendors = await list_vendors(db=mock_db)
 
         assert router.prefix == "/api/vendors"
-        assert [vendor.key for vendor in vendors] == ["openai", "anthropic", "google"]
+        assert [vendor.key for vendor in vendors] == ["openai", "anthropic", "gemini"]
         assert [vendor.icon_key for vendor in vendors] == [
             "openai",
             "anthropic",
-            "google",
+            "gemini",
         ]
 
     def test_main_app_mounts_vendors_router(self):
@@ -297,6 +340,116 @@ class TestDEF080_VendorCatalogManagementSurface:
 
         existing_vendor = Vendor(
             id=1,
+            key="zai",
+            name="Z.ai",
+            description="Z.ai Open Platform",
+            icon_key="zai",
+            audit_enabled=False,
+            audit_capture_bodies=True,
+        )
+
+        result = MagicMock()
+        scalars = MagicMock()
+        scalars.all.return_value = [existing_vendor]
+        result.scalars.return_value = scalars
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=result)
+
+        preview = await preview_vendor_catalog_import(
+            data=ConfigVendorCatalogImportRequest.model_validate(
+                {
+                    "version": 2,
+                    "bundle_kind": "vendor_catalog",
+                    "vendors": [
+                        {
+                            "key": "zai",
+                            "name": "Z.ai v2",
+                            "description": "Updated metadata",
+                            "icon_key": "zai",
+                            "audit_enabled": True,
+                            "audit_capture_bodies": False,
+                        },
+                        {
+                            "key": "mistral",
+                            "name": "Mistral",
+                            "description": None,
+                            "icon_key": "mistral",
+                            "audit_enabled": False,
+                            "audit_capture_bodies": True,
+                        },
+                    ],
+                }
+            ),
+            db=mock_db,
+        )
+
+        assert preview.ready is True
+        assert preview.create_count == 1
+        assert preview.update_count == 1
+
+    @pytest.mark.asyncio
+    async def test_config_vendor_catalog_import_updates_existing_vendor_metadata(self):
+        from app.models.models import Vendor
+        from app.routers.config_domains.import_export import import_vendor_catalog
+        from app.schemas.schemas import ConfigVendorCatalogImportRequest
+
+        existing_vendor = Vendor(
+            id=1,
+            key="zai",
+            name="Z.ai",
+            description="Z.ai Open Platform",
+            icon_key="zai",
+            audit_enabled=False,
+            audit_capture_bodies=True,
+        )
+
+        result = MagicMock()
+        scalars = MagicMock()
+        scalars.all.return_value = [existing_vendor]
+        result.scalars.return_value = scalars
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=result)
+        mock_db.add = MagicMock()
+
+        response = await import_vendor_catalog(
+            data=ConfigVendorCatalogImportRequest.model_validate(
+                {
+                    "version": 2,
+                    "bundle_kind": "vendor_catalog",
+                    "vendors": [
+                        {
+                            "key": "zai",
+                            "name": "Z.ai Updated",
+                            "description": "Updated metadata",
+                            "icon_key": "zai",
+                            "audit_enabled": True,
+                            "audit_capture_bodies": False,
+                        }
+                    ],
+                }
+            ),
+            db=mock_db,
+        )
+
+        assert response.created_count == 0
+        assert response.updated_count == 1
+        assert existing_vendor.name == "Z.ai Updated"
+        assert existing_vendor.description == "Updated metadata"
+        assert existing_vendor.audit_enabled is True
+        assert existing_vendor.audit_capture_bodies is False
+
+    @pytest.mark.asyncio
+    async def test_config_vendor_catalog_preview_blocks_system_vendor_overwrite(self):
+        from app.models.models import Vendor
+        from app.routers.config_domains.import_export import (
+            preview_vendor_catalog_import,
+        )
+        from app.schemas.schemas import ConfigVendorCatalogImportRequest
+
+        existing_vendor = Vendor(
+            id=1,
             key="openai",
             name="OpenAI",
             description="OpenAI API (GPT models)",
@@ -321,32 +474,25 @@ class TestDEF080_VendorCatalogManagementSurface:
                     "vendors": [
                         {
                             "key": "openai",
-                            "name": "OpenAI v2",
+                            "name": "OpenAI Updated",
                             "description": "Updated metadata",
                             "icon_key": "openai",
                             "audit_enabled": True,
                             "audit_capture_bodies": False,
-                        },
-                        {
-                            "key": "anthropic",
-                            "name": "Anthropic",
-                            "description": None,
-                            "icon_key": "anthropic",
-                            "audit_enabled": False,
-                            "audit_capture_bodies": True,
-                        },
+                        }
                     ],
                 }
             ),
             db=mock_db,
         )
 
-        assert preview.ready is True
-        assert preview.create_count == 1
-        assert preview.update_count == 1
+        assert preview.ready is False
+        assert preview.create_count == 0
+        assert preview.update_count == 0
+        assert any("readonly" in error.lower() for error in preview.blocking_errors)
 
     @pytest.mark.asyncio
-    async def test_config_vendor_catalog_import_updates_existing_vendor_metadata(self):
+    async def test_config_vendor_catalog_import_rejects_system_vendor_overwrite(self):
         from app.models.models import Vendor
         from app.routers.config_domains.import_export import import_vendor_catalog
         from app.schemas.schemas import ConfigVendorCatalogImportRequest
@@ -370,32 +516,73 @@ class TestDEF080_VendorCatalogManagementSurface:
         mock_db.execute = AsyncMock(return_value=result)
         mock_db.add = MagicMock()
 
-        response = await import_vendor_catalog(
-            data=ConfigVendorCatalogImportRequest.model_validate(
-                {
-                    "version": 2,
-                    "bundle_kind": "vendor_catalog",
-                    "vendors": [
-                        {
-                            "key": "openai",
-                            "name": "OpenAI Updated",
-                            "description": "Updated metadata",
-                            "icon_key": "openai",
-                            "audit_enabled": True,
-                            "audit_capture_bodies": False,
-                        }
-                    ],
-                }
-            ),
-            db=mock_db,
+        with pytest.raises(HTTPException) as exc_info:
+            await import_vendor_catalog(
+                data=ConfigVendorCatalogImportRequest.model_validate(
+                    {
+                        "version": 2,
+                        "bundle_kind": "vendor_catalog",
+                        "vendors": [
+                            {
+                                "key": "openai",
+                                "name": "OpenAI Updated",
+                                "description": "Updated metadata",
+                                "icon_key": "openai",
+                                "audit_enabled": True,
+                                "audit_capture_bodies": False,
+                            }
+                        ],
+                    }
+                ),
+                db=mock_db,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "readonly" in str(exc_info.value.detail).lower()
+
+    @pytest.mark.asyncio
+    async def test_profile_import_preview_reuses_gemini_vendor_for_legacy_google_ref(
+        self,
+    ):
+        from app.models.models import Vendor
+        from app.routers.config_domains.import_executor import _preview_import_vendors
+        from app.schemas.schemas import ConfigVendorRef
+
+        existing_vendor = Vendor(
+            id=3,
+            key="gemini",
+            name="Gemini",
+            description="Google Gemini API",
+            icon_key="gemini",
+            audit_enabled=False,
+            audit_capture_bodies=True,
         )
 
-        assert response.created_count == 0
-        assert response.updated_count == 1
-        assert existing_vendor.name == "OpenAI Updated"
-        assert existing_vendor.description == "Updated metadata"
-        assert existing_vendor.audit_enabled is True
-        assert existing_vendor.audit_capture_bodies is False
+        result = MagicMock()
+        scalars = MagicMock()
+        scalars.all.return_value = [existing_vendor]
+        result.scalars.return_value = scalars
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=result)
+
+        existing_by_key, resolutions, blocking_errors = await _preview_import_vendors(
+            mock_db,
+            vendor_payloads_by_key={
+                "google": ConfigVendorRef(
+                    key="google",
+                    name_hint="Google",
+                    description_hint="Google Gemini API",
+                    icon_key_hint="google",
+                )
+            },
+        )
+
+        assert blocking_errors == []
+        assert existing_by_key["gemini"] is existing_vendor
+        assert len(resolutions) == 1
+        assert resolutions[0].vendor_key == "google"
+        assert resolutions[0].resolution == "reuse"
 
     @pytest.mark.asyncio
     async def test_config_vendor_catalog_preview_reports_name_collision_and_duplicate_key(

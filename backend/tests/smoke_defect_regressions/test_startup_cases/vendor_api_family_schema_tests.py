@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 
+import pytest
+from fastapi import HTTPException
+
 from app.core.database import Base
 
 
@@ -126,6 +129,7 @@ class TestDEF080_VendorApiFamilySchemaContract:
                 "name": "Z.ai",
                 "description": "Z.ai Open Platform",
                 "icon_key": None,
+                "is_readonly": True,
                 "audit_enabled": False,
                 "audit_capture_bodies": True,
                 "created_at": datetime.now(timezone.utc),
@@ -137,8 +141,10 @@ class TestDEF080_VendorApiFamilySchemaContract:
         assert "key" in vendor_response_fields
         assert "icon_key" in vendor_create_fields
         assert "icon_key" in vendor_response_fields
+        assert "is_readonly" in vendor_response_fields
         assert created_vendor.icon_key is None
         assert response_vendor.icon_key is None
+        assert response_vendor.is_readonly is True
 
     def test_profile_bootstrap_contract_reexports_nullable_active_profile_and_limits(
         self,
@@ -159,3 +165,54 @@ class TestDEF080_VendorApiFamilySchemaContract:
         assert {"profiles", "active_profile", "profile_limits"}.issubset(fields)
         assert validated.active_profile is None
         assert validated.profile_limits.max_profiles == 10
+
+    @pytest.mark.asyncio
+    async def test_vendor_update_rejects_reassigning_custom_vendor_to_reserved_key(
+        self,
+    ):
+        from app.models.models import Vendor
+        from app.routers.vendors import update_vendor
+        from app.schemas.schemas import VendorUpdate
+
+        class FakeResult:
+            def scalars(self):
+                return self
+
+            def first(self):
+                return None
+
+        class FakeDB:
+            def __init__(self, vendor: Vendor):
+                self.vendor = vendor
+
+            async def get(self, model, vendor_id: int):
+                return self.vendor if vendor_id == self.vendor.id else None
+
+            async def execute(self, query):
+                return FakeResult()
+
+            async def commit(self):
+                return None
+
+            async def refresh(self, obj):
+                return None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_vendor(
+                9,
+                VendorUpdate(key="google"),
+                FakeDB(
+                    Vendor(
+                        id=9,
+                        key="zai",
+                        name="Z.ai",
+                        description="Z.ai Open Platform",
+                        icon_key="zai",
+                        audit_enabled=False,
+                        audit_capture_bodies=True,
+                    )
+                ),
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "readonly" in str(exc_info.value.detail).lower()

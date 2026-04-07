@@ -61,6 +61,7 @@ class VendorResponse(VendorBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    is_readonly: bool
     audit_enabled: bool
     audit_capture_bodies: bool
     created_at: datetime

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.core.time import utc_now
+from app.vendor_catalog import is_readonly_vendor_key
 
 
 class Profile(Base):
@@ -120,6 +121,10 @@ class Vendor(Base):
     model_configs: Mapped[list[Any]] = relationship(
         "ModelConfig", back_populates="vendor"
     )
+
+    @property
+    def is_readonly(self) -> bool:
+        return is_readonly_vendor_key(self.key)
 
 
 class AppAuthSettings(Base):

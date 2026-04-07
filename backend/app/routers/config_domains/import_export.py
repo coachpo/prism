@@ -23,6 +23,7 @@ from app.schemas.schemas import (
     ConfigVendorCatalogImportResponse,
     ConfigVendorExport,
 )
+from app.vendor_catalog import get_canonical_system_vendor, is_readonly_vendor_key
 
 from .export_builder import build_export_payload
 from .import_executor import build_import_preview, execute_import_payload
@@ -162,6 +163,38 @@ async def _count_vendor_catalog_changes(
     for vendor_data in data.vendors:
         existing = existing_by_key.get(vendor_data.key)
         existing_name_vendor = existing_by_name.get(vendor_data.name)
+        if is_readonly_vendor_key(vendor_data.key):
+            canonical_vendor = get_canonical_system_vendor(vendor_data.key)
+            canonical_key = (
+                canonical_vendor["key"]
+                if canonical_vendor is not None
+                else vendor_data.key
+            )
+            if existing is None:
+                blocking_errors.append(
+                    f"Readonly system vendor '{canonical_key}' cannot be created by vendor catalog import"
+                )
+                continue
+            if canonical_vendor is None:
+                blocking_errors.append(
+                    f"Readonly system vendor '{vendor_data.key}' is missing a canonical definition"
+                )
+                continue
+            if (
+                existing.key != canonical_vendor["key"]
+                or existing.name != canonical_vendor["name"]
+                or existing.description != canonical_vendor["description"]
+                or existing.icon_key != canonical_vendor["icon_key"]
+                or vendor_data.name != canonical_vendor["name"]
+                or vendor_data.description != canonical_vendor["description"]
+                or vendor_data.icon_key != canonical_vendor["icon_key"]
+                or existing.audit_enabled != vendor_data.audit_enabled
+                or existing.audit_capture_bodies != vendor_data.audit_capture_bodies
+            ):
+                blocking_errors.append(
+                    f"Readonly system vendor '{canonical_key}' cannot be overwritten by vendor catalog import"
+                )
+            continue
         if existing is None:
             if (
                 existing_name_vendor is not None

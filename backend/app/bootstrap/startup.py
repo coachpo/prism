@@ -3,7 +3,7 @@ import logging
 import os
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core import database as database_core
 from app.core.config import ensure_postgresql_database_url, get_settings
@@ -14,6 +14,7 @@ from app.models.models import (
     Endpoint,
     HeaderBlocklistRule,
     LoadbalanceStrategy,
+    ModelConfig,
     Profile,
     UserSetting,
     Vendor,
@@ -23,31 +24,17 @@ from app.services.loadbalancer.policy import (
     build_default_routing_policy_document,
 )
 from app.services.profile_invariants import ensure_profile_invariants
+from app.vendor_catalog import (
+    SYSTEM_VENDOR_DEFINITIONS,
+    apply_canonical_vendor_identity,
+    get_canonical_system_vendor,
+)
 
 logger = logging.getLogger(__name__)
 
 SKIP_STARTUP_SEQUENCE_ENV = "PRISM_SKIP_STARTUP_SEQUENCE"
 
-DEFAULT_VENDORS = [
-    {
-        "key": "openai",
-        "name": "OpenAI",
-        "description": "OpenAI API (GPT models)",
-        "icon_key": "openai",
-    },
-    {
-        "key": "anthropic",
-        "name": "Anthropic",
-        "description": "Anthropic API (Claude models)",
-        "icon_key": "anthropic",
-    },
-    {
-        "key": "google",
-        "name": "Google",
-        "description": "Google Gemini API",
-        "icon_key": "google",
-    },
-]
+DEFAULT_VENDORS = [dict(vendor) for vendor in SYSTEM_VENDOR_DEFINITIONS]
 
 SYSTEM_BLOCKLIST_DEFAULTS: list[dict[str, str]] = [
     {"name": "Cloudflare headers", "match_type": "prefix", "pattern": "cf-"},
@@ -104,18 +91,63 @@ async def seed_vendors() -> None:
             .scalars()
             .all()
         )
-        existing_keys = {vendor.key for vendor in existing_vendors}
-
+        changed = False
         created_count = 0
+
+        existing_by_key = {vendor.key: vendor for vendor in existing_vendors}
+        legacy_google_vendor = existing_by_key.get("google")
+        gemini_vendor = existing_by_key.get("gemini")
+
+        if legacy_google_vendor is not None:
+            canonical_gemini = get_canonical_system_vendor("gemini")
+            if canonical_gemini is None:
+                raise RuntimeError("Canonical gemini vendor definition is missing")
+
+            if gemini_vendor is not None and gemini_vendor is not legacy_google_vendor:
+                changed = (
+                    apply_canonical_vendor_identity(gemini_vendor, canonical_gemini)
+                    or changed
+                )
+                await session.execute(
+                    update(ModelConfig)
+                    .where(ModelConfig.vendor_id == legacy_google_vendor.id)
+                    .values(vendor_id=gemini_vendor.id)
+                )
+                await session.delete(legacy_google_vendor)
+                existing_vendors = [
+                    vendor
+                    for vendor in existing_vendors
+                    if vendor is not legacy_google_vendor
+                ]
+                changed = True
+            else:
+                changed = (
+                    apply_canonical_vendor_identity(
+                        legacy_google_vendor, canonical_gemini
+                    )
+                    or changed
+                )
+
+        existing_by_key = {vendor.key: vendor for vendor in existing_vendors}
+
         for vendor_data in DEFAULT_VENDORS:
-            if vendor_data["key"] in existing_keys:
+            existing_vendor = existing_by_key.get(vendor_data["key"])
+            if existing_vendor is not None:
+                changed = (
+                    apply_canonical_vendor_identity(existing_vendor, vendor_data)
+                    or changed
+                )
                 continue
             session.add(Vendor(**vendor_data))
             created_count += 1
+            changed = True
 
-        if created_count > 0:
+        if changed:
             await session.commit()
-            logger.info("Seeded %d default vendors", created_count)
+            logger.info(
+                "Ensured canonical system vendor catalog (created=%d)",
+                created_count,
+            )
 
 
 async def seed_profile_invariants() -> None:
