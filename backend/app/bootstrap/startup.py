@@ -125,20 +125,52 @@ async def seed_profile_invariants() -> None:
         logger.info("Ensured default profile invariants")
 
 
-def _canonicalize_seeded_legacy_strategy(strategy: LoadbalanceStrategy) -> None:
+def _canonicalize_seeded_legacy_strategy(strategy: LoadbalanceStrategy) -> bool:
+    before = (
+        strategy.name,
+        strategy.strategy_type,
+        strategy.legacy_strategy_type,
+        strategy.auto_recovery,
+        strategy.routing_policy,
+    )
+    auto_recovery = build_default_auto_recovery_document()
     strategy.name = DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
     strategy.strategy_type = "legacy"
     strategy.legacy_strategy_type = "round-robin"
-    strategy.auto_recovery = build_default_auto_recovery_document()
+    strategy.auto_recovery = auto_recovery
     strategy.routing_policy = None
+    after = (
+        strategy.name,
+        strategy.strategy_type,
+        strategy.legacy_strategy_type,
+        strategy.auto_recovery,
+        strategy.routing_policy,
+    )
+    return before != after
 
 
-def _canonicalize_seeded_adaptive_strategy(strategy: LoadbalanceStrategy) -> None:
+def _canonicalize_seeded_adaptive_strategy(strategy: LoadbalanceStrategy) -> bool:
+    before = (
+        strategy.name,
+        strategy.strategy_type,
+        strategy.legacy_strategy_type,
+        strategy.auto_recovery,
+        strategy.routing_policy,
+    )
+    routing_policy = build_default_routing_policy_document()
     strategy.name = DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME
     strategy.strategy_type = "adaptive"
     strategy.legacy_strategy_type = None
     strategy.auto_recovery = None
-    strategy.routing_policy = build_default_routing_policy_document()
+    strategy.routing_policy = routing_policy
+    after = (
+        strategy.name,
+        strategy.strategy_type,
+        strategy.legacy_strategy_type,
+        strategy.auto_recovery,
+        strategy.routing_policy,
+    )
+    return before != after
 
 
 async def seed_loadbalance_strategy_presets() -> None:
@@ -205,7 +237,7 @@ async def seed_loadbalance_strategy_presets() -> None:
             adaptive_strategy = LoadbalanceStrategy(profile_id=default_profile.id)
             session.add(adaptive_strategy)
             changed = True
-        _canonicalize_seeded_adaptive_strategy(adaptive_strategy)
+        changed = _canonicalize_seeded_adaptive_strategy(adaptive_strategy) or changed
 
         if legacy_strategy is None and old_failover_strategy is not None:
             legacy_strategy = old_failover_strategy
@@ -215,7 +247,7 @@ async def seed_loadbalance_strategy_presets() -> None:
             legacy_strategy = LoadbalanceStrategy(profile_id=default_profile.id)
             session.add(legacy_strategy)
             changed = True
-        _canonicalize_seeded_legacy_strategy(legacy_strategy)
+        changed = _canonicalize_seeded_legacy_strategy(legacy_strategy) or changed
 
         if (
             old_failover_strategy is not None
