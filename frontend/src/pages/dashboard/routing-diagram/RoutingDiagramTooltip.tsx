@@ -76,7 +76,7 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
             label={messages.dashboard.routing24hSuccessRate}
             value={formattedSuccessRate}
           />
-          <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.trafficRequestCount24h)} />
+          <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.requestCount24h)} />
           <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(chartPayload.activeConnectionCount)} />
           <TooltipRow
             label={messages.dashboard.routing24hSuccessfulRequests}

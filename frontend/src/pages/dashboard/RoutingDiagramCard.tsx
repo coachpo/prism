@@ -117,7 +117,9 @@ export function RoutingDiagramCard({
                 {messages.dashboard.activeRoutes(formatNumber(data.activeConnectionTotal))}
               </span>
               <span className="rounded-full border bg-muted/40 px-2.5 py-1">
-                {messages.dashboard.totalRequests(formatNumber(data.trafficRequestTotal24h))}
+                {messages.dashboard.successfulRequests24h(
+                  formatNumber(data.trafficRequestTotal24h),
+                )}
               </span>
             </div>
           ) : null

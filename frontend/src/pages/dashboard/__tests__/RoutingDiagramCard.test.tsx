@@ -315,14 +315,47 @@ describe("routing diagram shell", () => {
     expect(chartData.nodes).toHaveLength(2);
   });
 
-  it("labels traffic totals as total requests instead of successful requests", () => {
+  it("keeps the header traffic chip labeled as successful requests and shows true totals in the route tooltip", () => {
     renderWithLocale(
-      <RoutingDiagramTooltip
-        active={true}
-        payload={[
-          {
-            payload: {
-              payload: {
+      <>
+        <RoutingDiagramCard
+          data={{
+            nodes: [
+              {
+                id: "endpoint-1",
+                name: "demo-endpoint",
+                kind: "endpoint",
+                label: "demo-endpoint",
+                sublabel: null,
+                endpointId: 1,
+                modelId: null,
+                modelConfigId: null,
+                activeConnectionCount: 1,
+                trafficRequestCount24h: 5,
+                requestCount24h: 8,
+                successCount24h: 5,
+                errorCount24h: 3,
+                successRate24h: 62.5,
+              },
+              {
+                id: "model-1",
+                name: "GPT 4o",
+                kind: "model",
+                label: "GPT 4o",
+                sublabel: null,
+                endpointId: null,
+                modelId: "gpt-4o",
+                modelConfigId: 1,
+                activeConnectionCount: 1,
+                trafficRequestCount24h: 5,
+                requestCount24h: 8,
+                successCount24h: 5,
+                errorCount24h: 3,
+                successRate24h: 62.5,
+              },
+            ],
+            links: [
+              {
                 id: "route-1",
                 sourceNodeId: "endpoint-1",
                 targetNodeId: "model-1",
@@ -331,19 +364,52 @@ describe("routing diagram shell", () => {
                 modelConfigId: 1,
                 endpointId: 1,
                 endpointLabel: "demo-endpoint",
-                activeConnectionCount: 0,
-                trafficRequestCount24h: 8,
+                activeConnectionCount: 1,
+                trafficRequestCount24h: 5,
                 requestCount24h: 8,
                 successCount24h: 5,
                 errorCount24h: 3,
                 successRate24h: 62.5,
               },
+            ],
+            endpointCount: 1,
+            modelCount: 1,
+            activeConnectionTotal: 1,
+            trafficRequestTotal24h: 5,
+          }}
+          loading={false}
+          error={null}
+          onSelectModel={() => undefined}
+        />
+        <RoutingDiagramTooltip
+          active={true}
+          payload={[
+            {
+              payload: {
+                payload: {
+                  id: "route-1",
+                  sourceNodeId: "endpoint-1",
+                  targetNodeId: "model-1",
+                  modelId: "gpt-4o",
+                  modelLabel: "GPT 4o",
+                  modelConfigId: 1,
+                  endpointId: 1,
+                  endpointLabel: "demo-endpoint",
+                  activeConnectionCount: 1,
+                  trafficRequestCount24h: 5,
+                  requestCount24h: 8,
+                  successCount24h: 5,
+                  errorCount24h: 3,
+                  successRate24h: 62.5,
+                },
+              },
             },
-          },
-        ]}
-      />,
+          ]}
+        />
+      </>,
     );
 
+    expect(screen.getByText("5 successful requests in 24h")).toBeInTheDocument();
     expect(screen.getAllByText("24h total requests").length).toBeGreaterThan(0);
     expect(screen.getAllByText("24h successful requests").length).toBeGreaterThan(0);
     expect(screen.getByText("8")).toBeInTheDocument();
