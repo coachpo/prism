@@ -27,7 +27,6 @@ describe("createConnectionNavigator", () => {
 
     const navigateToConnection = createConnectionNavigator({
       navigate,
-      selectedProfileId: 7,
     });
 
     await navigateToConnection(42);

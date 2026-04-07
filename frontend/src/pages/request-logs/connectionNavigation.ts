@@ -10,12 +10,10 @@ type ConnectionOwner = Awaited<ReturnType<typeof api.connections.owner>>;
 
 interface CreateConnectionNavigatorOptions {
   navigate: (to: string) => void;
-  selectedProfileId: number | null;
 }
 
 export function createConnectionNavigator({
   navigate,
-  selectedProfileId: _selectedProfileId,
 }: CreateConnectionNavigatorOptions) {
   let navigating = false;
 
