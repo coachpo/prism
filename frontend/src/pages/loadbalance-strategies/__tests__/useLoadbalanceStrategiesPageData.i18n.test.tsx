@@ -124,6 +124,7 @@ describe("useLoadbalanceStrategiesPageData i18n", () => {
         name: "Adaptive availability",
         strategy_type: "adaptive",
         routing_policy: buildAdaptiveRoutingPolicy(),
+        circuit_breaker_status_code_input: "",
       }));
     });
 
@@ -141,6 +142,7 @@ describe("useLoadbalanceStrategiesPageData i18n", () => {
       name: "Adaptive availability",
       strategy_type: "adaptive",
       routing_policy: buildAdaptiveRoutingPolicy(),
+      circuit_breaker_status_code_input: "",
     });
   });
 

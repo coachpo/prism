@@ -57,6 +57,7 @@ type AdaptiveLoadbalanceStrategyFormState = {
   name: string;
   strategy_type: "adaptive";
   routing_policy: LoadbalanceRoutingPolicy;
+  circuit_breaker_status_code_input: string;
 };
 
 export type LoadbalanceStrategyFormState =
@@ -79,6 +80,18 @@ export type LoadbalanceStrategyFormPayload =
 function normalizeInteger(value: number) {
   return Math.trunc(value);
 }
+
+type CircuitBreakerValidationState = {
+  failure_status_codes: number[];
+  base_open_seconds: number;
+  failure_threshold: number;
+  backoff_multiplier: number;
+  max_open_seconds: number;
+  jitter_ratio: number;
+  ban_mode: LoadbalanceBanMode;
+  max_open_strikes_before_ban: number;
+  ban_duration_seconds: number;
+};
 
 function autoRecoveryDraftFromValue(autoRecovery: LoadbalanceAutoRecovery): LoadbalanceAutoRecoveryDraft {
   if (autoRecovery.mode === "disabled") {
@@ -121,15 +134,23 @@ export const DEFAULT_LOADBALANCE_STRATEGY_FORM: LoadbalanceStrategyFormState = {
   auto_recovery: getDefaultAutoRecoveryDraft("single"),
 };
 
+function adaptiveFormStateFromRoutingPolicy(
+  name: string,
+  routingPolicy: LoadbalanceRoutingPolicy,
+): AdaptiveLoadbalanceStrategyFormState {
+  return {
+    name,
+    strategy_type: "adaptive",
+    routing_policy: { ...routingPolicy },
+    circuit_breaker_status_code_input: "",
+  };
+}
+
 export function loadbalanceStrategyFormStateFromStrategy(
   strategy: LoadbalanceStrategy,
 ): LoadbalanceStrategyFormState {
   if (strategy.strategy_type === "adaptive") {
-    return {
-      name: strategy.name,
-      strategy_type: "adaptive",
-      routing_policy: { ...strategy.routing_policy },
-    };
+    return adaptiveFormStateFromRoutingPolicy(strategy.name, strategy.routing_policy);
   }
 
   return {
@@ -149,11 +170,7 @@ export function setLoadbalanceStrategyFamily(
   }
 
   if (strategyFamily === "adaptive") {
-    return {
-      name: formState.name,
-      strategy_type: "adaptive",
-      routing_policy: createDefaultAdaptiveRoutingPolicy(),
-    };
+    return adaptiveFormStateFromRoutingPolicy(formState.name, createDefaultAdaptiveRoutingPolicy());
   }
 
   return {
@@ -210,37 +227,75 @@ export function setLoadbalanceStrategyBanMode(
   formState: LoadbalanceStrategyFormState,
   mode: LoadbalanceBanMode,
 ): LoadbalanceStrategyFormState {
-  if (formState.strategy_type !== "legacy" || formState.auto_recovery.mode !== "enabled") {
-    return formState;
+  if (formState.strategy_type === "legacy") {
+    if (formState.auto_recovery.mode !== "enabled") {
+      return formState;
+    }
+
+    const currentBan = formState.auto_recovery.ban;
+
+    return {
+      ...formState,
+      auto_recovery: {
+        ...formState.auto_recovery,
+        ban:
+          mode === "off"
+            ? { mode: "off" }
+            : mode === "manual"
+              ? {
+                  mode: "manual",
+                  max_cooldown_strikes_before_ban:
+                    currentBan.mode === "off"
+                      ? 1
+                      : Math.max(currentBan.max_cooldown_strikes_before_ban, 1),
+                }
+              : {
+                  mode: "temporary",
+                  max_cooldown_strikes_before_ban:
+                    currentBan.mode === "off"
+                      ? 1
+                      : Math.max(currentBan.max_cooldown_strikes_before_ban, 1),
+                  ban_duration_seconds:
+                    currentBan.mode === "temporary"
+                      ? Math.max(currentBan.ban_duration_seconds, 1)
+                      : 1,
+                },
+      },
+    };
   }
 
-  const currentBan = formState.auto_recovery.ban;
+  const currentCircuitBreaker = formState.routing_policy.circuit_breaker;
 
   return {
     ...formState,
-    auto_recovery: {
-      ...formState.auto_recovery,
-      ban:
+    routing_policy: {
+      ...formState.routing_policy,
+      circuit_breaker:
         mode === "off"
-          ? { mode: "off" }
+          ? {
+              ...currentCircuitBreaker,
+              ban_mode: "off",
+              max_open_strikes_before_ban: 0,
+              ban_duration_seconds: 0,
+            }
           : mode === "manual"
             ? {
-                mode: "manual",
-                max_cooldown_strikes_before_ban:
-                  currentBan.mode === "off"
-                    ? 1
-                    : Math.max(currentBan.max_cooldown_strikes_before_ban, 1),
+                ...currentCircuitBreaker,
+                ban_mode: "manual",
+                max_open_strikes_before_ban: Math.max(
+                  currentCircuitBreaker.max_open_strikes_before_ban,
+                  1,
+                ),
+                ban_duration_seconds: 0,
               }
             : {
-                mode: "temporary",
-                max_cooldown_strikes_before_ban:
-                  currentBan.mode === "off"
-                    ? 1
-                    : Math.max(currentBan.max_cooldown_strikes_before_ban, 1),
-                ban_duration_seconds:
-                  currentBan.mode === "temporary"
-                    ? Math.max(currentBan.ban_duration_seconds, 1)
-                    : 1,
+                ...currentCircuitBreaker,
+                ban_mode: "temporary",
+                max_open_strikes_before_ban: Math.max(
+                  currentCircuitBreaker.max_open_strikes_before_ban,
+                  1,
+                ),
+                ban_duration_seconds: Math.max(currentCircuitBreaker.ban_duration_seconds, 1),
               },
     },
   };
@@ -275,26 +330,54 @@ export function getCircuitBreakerStatusCodeInputError(
 export function addCircuitBreakerStatusCode(
   formState: LoadbalanceStrategyFormState,
 ): LoadbalanceStrategyFormState {
-  if (formState.strategy_type !== "legacy" || formState.auto_recovery.mode !== "enabled") {
+  if (formState.strategy_type === "legacy") {
+    if (formState.auto_recovery.mode !== "enabled") {
+      return formState;
+    }
+
+    if (getCircuitBreakerStatusCodeInputError(formState.auto_recovery)) {
+      return formState;
+    }
+
+    const nextStatusCode = Number(formState.auto_recovery.status_code_input.trim());
+
+    return {
+      ...formState,
+      auto_recovery: {
+        ...formState.auto_recovery,
+        status_codes: normalizeFailureStatusCodes([
+          ...formState.auto_recovery.status_codes,
+          nextStatusCode,
+        ]),
+        status_code_input: "",
+      },
+    };
+  }
+
+  if (
+    getCircuitBreakerStatusCodeInputError({
+      status_codes: formState.routing_policy.circuit_breaker.failure_status_codes,
+      status_code_input: formState.circuit_breaker_status_code_input,
+    })
+  ) {
     return formState;
   }
 
-  if (getCircuitBreakerStatusCodeInputError(formState.auto_recovery)) {
-    return formState;
-  }
-
-  const nextStatusCode = Number(formState.auto_recovery.status_code_input.trim());
+  const nextStatusCode = Number(formState.circuit_breaker_status_code_input.trim());
 
   return {
     ...formState,
-    auto_recovery: {
-      ...formState.auto_recovery,
-      status_codes: normalizeFailureStatusCodes([
-        ...formState.auto_recovery.status_codes,
-        nextStatusCode,
-      ]),
-      status_code_input: "",
+    routing_policy: {
+      ...formState.routing_policy,
+      circuit_breaker: {
+        ...formState.routing_policy.circuit_breaker,
+        failure_status_codes: normalizeFailureStatusCodes([
+          ...formState.routing_policy.circuit_breaker.failure_status_codes,
+          nextStatusCode,
+        ]),
+      },
     },
+    circuit_breaker_status_code_input: "",
   };
 }
 
@@ -302,17 +385,32 @@ export function removeCircuitBreakerStatusCode(
   formState: LoadbalanceStrategyFormState,
   statusCodeToRemove: number,
 ): LoadbalanceStrategyFormState {
-  if (formState.strategy_type !== "legacy" || formState.auto_recovery.mode !== "enabled") {
-    return formState;
+  if (formState.strategy_type === "legacy") {
+    if (formState.auto_recovery.mode !== "enabled") {
+      return formState;
+    }
+
+    return {
+      ...formState,
+      auto_recovery: {
+        ...formState.auto_recovery,
+        status_codes: formState.auto_recovery.status_codes.filter(
+          (statusCode) => statusCode !== statusCodeToRemove,
+        ),
+      },
+    };
   }
 
   return {
     ...formState,
-    auto_recovery: {
-      ...formState.auto_recovery,
-      status_codes: formState.auto_recovery.status_codes.filter(
-        (statusCode) => statusCode !== statusCodeToRemove,
-      ),
+    routing_policy: {
+      ...formState.routing_policy,
+      circuit_breaker: {
+        ...formState.routing_policy.circuit_breaker,
+        failure_status_codes: formState.routing_policy.circuit_breaker.failure_status_codes.filter(
+          (statusCode) => statusCode !== statusCodeToRemove,
+        ),
+      },
     },
   };
 }
@@ -385,90 +483,125 @@ export function getLoadbalanceStrategyFormValidationError(
     return messages.nameRequired;
   }
 
-  if (formState.strategy_type !== "legacy" || formState.auto_recovery.mode === "disabled") {
+  if (formState.strategy_type === "adaptive") {
+    return getCircuitBreakerValidationError(formState.routing_policy.circuit_breaker, messages);
+  }
+
+  if (formState.auto_recovery.mode === "disabled") {
     return null;
   }
 
   const autoRecovery = formState.auto_recovery;
 
-  if (autoRecovery.status_codes.length === 0) {
+  return getCircuitBreakerValidationError(
+    {
+      failure_status_codes: autoRecovery.status_codes,
+      base_open_seconds: autoRecovery.cooldown.base_seconds,
+      failure_threshold: autoRecovery.cooldown.failure_threshold,
+      backoff_multiplier: autoRecovery.cooldown.backoff_multiplier,
+      max_open_seconds: autoRecovery.cooldown.max_cooldown_seconds,
+      jitter_ratio: autoRecovery.cooldown.jitter_ratio,
+      ban_mode: autoRecovery.ban.mode,
+      max_open_strikes_before_ban:
+        autoRecovery.ban.mode === "off" ? 0 : autoRecovery.ban.max_cooldown_strikes_before_ban,
+      ban_duration_seconds:
+        autoRecovery.ban.mode === "temporary" ? autoRecovery.ban.ban_duration_seconds : 0,
+    },
+    messages,
+  );
+}
+
+function getCircuitBreakerValidationError(
+  circuitBreaker: CircuitBreakerValidationState,
+  messages: ReturnType<typeof getStaticMessages>["loadbalanceStrategyValidation"],
+): string | null {
+  if (circuitBreaker.failure_status_codes.length === 0) {
     return messages.addStatusCode;
   }
 
-  if (new Set(autoRecovery.status_codes).size !== autoRecovery.status_codes.length) {
+  if (
+    new Set(circuitBreaker.failure_status_codes).size !== circuitBreaker.failure_status_codes.length
+  ) {
     return messages.statusCodesUnique;
   }
 
   if (
-    autoRecovery.status_codes.some(
+    circuitBreaker.failure_status_codes.some(
       (statusCode) => !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599,
     )
   ) {
     return messages.statusCodesValidHttp;
   }
 
-  if (!Number.isInteger(autoRecovery.cooldown.base_seconds)) {
+  if (!Number.isInteger(circuitBreaker.base_open_seconds)) {
     return messages.baseCooldownIntegerSeconds;
   }
-  if (autoRecovery.cooldown.base_seconds < 0) {
+  if (circuitBreaker.base_open_seconds < 0) {
     return messages.baseCooldownMin;
   }
 
-  if (!Number.isInteger(autoRecovery.cooldown.failure_threshold)) {
+  if (!Number.isInteger(circuitBreaker.failure_threshold)) {
     return messages.failureThresholdInteger;
   }
-  if (
-    autoRecovery.cooldown.failure_threshold < 1 ||
-    autoRecovery.cooldown.failure_threshold > 50
-  ) {
+  if (circuitBreaker.failure_threshold < 1 || circuitBreaker.failure_threshold > 50) {
     return messages.failureThresholdRange;
   }
 
   if (
-    !Number.isFinite(autoRecovery.cooldown.backoff_multiplier) ||
-    autoRecovery.cooldown.backoff_multiplier < 1 ||
-    autoRecovery.cooldown.backoff_multiplier > 10
+    !Number.isFinite(circuitBreaker.backoff_multiplier) ||
+    circuitBreaker.backoff_multiplier < 1 ||
+    circuitBreaker.backoff_multiplier > 10
   ) {
     return messages.backoffMultiplierRange;
   }
 
-  if (!Number.isInteger(autoRecovery.cooldown.max_cooldown_seconds)) {
+  if (!Number.isInteger(circuitBreaker.max_open_seconds)) {
     return messages.maxCooldownIntegerSeconds;
   }
-  if (
-    autoRecovery.cooldown.max_cooldown_seconds < 1 ||
-    autoRecovery.cooldown.max_cooldown_seconds > 86_400
-  ) {
+  if (circuitBreaker.max_open_seconds < 1 || circuitBreaker.max_open_seconds > 86_400) {
     return messages.maxCooldownRange;
   }
 
   if (
-    !Number.isFinite(autoRecovery.cooldown.jitter_ratio) ||
-    autoRecovery.cooldown.jitter_ratio < 0 ||
-    autoRecovery.cooldown.jitter_ratio > 1
+    !Number.isFinite(circuitBreaker.jitter_ratio) ||
+    circuitBreaker.jitter_ratio < 0 ||
+    circuitBreaker.jitter_ratio > 1
   ) {
     return messages.jitterRatioRange;
   }
 
-  if (autoRecovery.ban.mode === "off") {
+  if (circuitBreaker.ban_mode === "off") {
+    if (
+      circuitBreaker.max_open_strikes_before_ban !== 0 ||
+      circuitBreaker.ban_duration_seconds !== 0
+    ) {
+      return messages.banModeOffZero;
+    }
+
     return null;
   }
 
-  if (!Number.isInteger(autoRecovery.ban.max_cooldown_strikes_before_ban)) {
+  if (!Number.isInteger(circuitBreaker.max_open_strikes_before_ban)) {
     return messages.maxCooldownStrikesInteger;
   }
-  if (autoRecovery.ban.max_cooldown_strikes_before_ban < 1) {
+  if (circuitBreaker.max_open_strikes_before_ban < 1) {
     return messages.maxCooldownStrikesMin;
   }
 
-  if (autoRecovery.ban.mode === "temporary") {
-    if (!Number.isInteger(autoRecovery.ban.ban_duration_seconds)) {
-      return messages.banDurationIntegerSeconds;
+  if (circuitBreaker.ban_mode === "manual") {
+    if (circuitBreaker.ban_duration_seconds !== 0) {
+      return messages.banDurationManualDismissZero;
     }
 
-    if (autoRecovery.ban.ban_duration_seconds < 1) {
-      return messages.banDurationTemporaryMin;
-    }
+    return null;
+  }
+
+  if (!Number.isInteger(circuitBreaker.ban_duration_seconds)) {
+    return messages.banDurationIntegerSeconds;
+  }
+
+  if (circuitBreaker.ban_duration_seconds < 1) {
+    return messages.banDurationTemporaryMin;
   }
 
   return null;

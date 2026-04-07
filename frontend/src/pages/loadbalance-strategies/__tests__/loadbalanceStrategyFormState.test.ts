@@ -9,6 +9,7 @@ import {
   type LoadbalanceStrategyFormState,
 } from "../loadbalanceStrategyFormState";
 
+type AdaptiveFormState = Extract<LoadbalanceStrategyFormState, { strategy_type: "adaptive" }>;
 type LegacyFormState = Extract<LoadbalanceStrategyFormState, { strategy_type: "legacy" }>;
 
 function buildAdaptiveRoutingPolicy(overrides: Record<string, unknown> = {}) {
@@ -49,6 +50,18 @@ function buildForm(
     strategy_type: "legacy",
     legacy_strategy_type: "round-robin",
     auto_recovery: getDefaultAutoRecoveryDraft("round-robin"),
+    ...overrides,
+  };
+}
+
+function buildAdaptiveForm(
+  overrides: Partial<AdaptiveFormState> = {},
+): AdaptiveFormState {
+  return {
+    name: "Adaptive availability",
+    strategy_type: "adaptive",
+    routing_policy: buildAdaptiveRoutingPolicy(),
+    circuit_breaker_status_code_input: "",
     ...overrides,
   };
 }
@@ -207,11 +220,12 @@ describe("loadbalanceStrategyFormState", () => {
 
   it("serializes adaptive strategies without legacy recovery fields", () => {
     expect(
-      toLoadbalanceStrategyPayload({
-        name: "  Availability first  ",
-        strategy_type: "adaptive",
-        routing_policy: buildAdaptiveRoutingPolicy(),
-      }),
+      toLoadbalanceStrategyPayload(
+        buildAdaptiveForm({
+          name: "  Availability first  ",
+          circuit_breaker_status_code_input: "529",
+        }),
+      ),
     ).toEqual({
       name: "Availability first",
       strategy_type: "adaptive",
@@ -235,18 +249,20 @@ describe("loadbalanceStrategyFormState", () => {
       name: "Adaptive availability",
       strategy_type: "adaptive",
       routing_policy: buildAdaptiveRoutingPolicy(),
+      circuit_breaker_status_code_input: "",
     });
   });
 
   it("preserves untouched adaptive routing_policy fields when only the objective changes", () => {
     expect(
-      toLoadbalanceStrategyPayload({
-        name: "  Adaptive latency  ",
-        strategy_type: "adaptive",
-        routing_policy: buildAdaptiveRoutingPolicy({
-          routing_objective: "maximize_availability",
+      toLoadbalanceStrategyPayload(
+        buildAdaptiveForm({
+          name: "  Adaptive latency  ",
+          routing_policy: buildAdaptiveRoutingPolicy({
+            routing_objective: "maximize_availability",
+          }),
         }),
-      }),
+      ),
     ).toEqual({
       name: "Adaptive latency",
       strategy_type: "adaptive",
@@ -447,5 +463,87 @@ describe("loadbalanceStrategyFormState", () => {
         },
       }),
     ).toBe("Max open strikes before ban must be at least 1 when ban escalation is enabled");
+  });
+
+  it("validates adaptive circuit-breaker values before save", () => {
+    expect(
+      getLoadbalanceStrategyFormValidationError(
+        buildAdaptiveForm({
+          routing_policy: buildAdaptiveRoutingPolicy({
+            circuit_breaker: {
+              failure_status_codes: [],
+              base_open_seconds: 60,
+              failure_threshold: 2,
+              backoff_multiplier: 2,
+              max_open_seconds: 900,
+              jitter_ratio: 0.2,
+              ban_mode: "off",
+              max_open_strikes_before_ban: 0,
+              ban_duration_seconds: 0,
+            },
+          }),
+        }),
+      ),
+    ).toBe("Add at least one failure status code");
+
+    expect(
+      getLoadbalanceStrategyFormValidationError(
+        buildAdaptiveForm({
+          routing_policy: buildAdaptiveRoutingPolicy({
+            circuit_breaker: {
+              failure_status_codes: [429],
+              base_open_seconds: 1.5,
+              failure_threshold: 2,
+              backoff_multiplier: 2,
+              max_open_seconds: 900,
+              jitter_ratio: 0.2,
+              ban_mode: "off",
+              max_open_strikes_before_ban: 0,
+              ban_duration_seconds: 0,
+            },
+          }),
+        }),
+      ),
+    ).toBe("Base open window must be a whole number of seconds");
+
+    expect(
+      getLoadbalanceStrategyFormValidationError(
+        buildAdaptiveForm({
+          routing_policy: buildAdaptiveRoutingPolicy({
+            circuit_breaker: {
+              failure_status_codes: [429],
+              base_open_seconds: 60,
+              failure_threshold: 2,
+              backoff_multiplier: 2,
+              max_open_seconds: 900,
+              jitter_ratio: 0.2,
+              ban_mode: "off",
+              max_open_strikes_before_ban: 1,
+              ban_duration_seconds: 0,
+            },
+          }),
+        }),
+      ),
+    ).toBe("Ban escalation must stay at 0 strikes and 0 seconds while ban mode is off");
+
+    expect(
+      getLoadbalanceStrategyFormValidationError(
+        buildAdaptiveForm({
+          routing_policy: buildAdaptiveRoutingPolicy({
+            circuit_breaker: {
+              failure_status_codes: [429],
+              base_open_seconds: 60,
+              failure_threshold: 2,
+              backoff_multiplier: 2,
+              max_open_seconds: 900,
+              jitter_ratio: 0.2,
+              ban_mode: "manual",
+              max_open_strikes_before_ban: 2,
+              ban_duration_seconds: 10,
+            },
+          }),
+        }),
+      ),
+    ).toBe("Ban duration must be 0 seconds for manual dismiss bans");
   });
 });
