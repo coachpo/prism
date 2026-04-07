@@ -71,6 +71,7 @@ export function PricingTemplatesPage() {
         deletePricingTemplateConfirm={data.deletePricingTemplateConfirm}
         displayTemplate={data.deletePricingTemplateDisplay ?? data.deletePricingTemplateConfirm}
         deletePricingTemplateConflict={data.deletePricingTemplateConflict}
+        pricingTemplateUsageError={data.pricingTemplateUsageError}
         onClose={() => {
           data.setDeletePricingTemplateConfirm(null);
           data.setDeletePricingTemplateConflict(null);

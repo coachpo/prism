@@ -37,6 +37,7 @@ export function usePricingTemplatesPageData(revision: number) {
   const [deletePricingTemplateConfirm, setDeletePricingTemplateConfirmState] = useState<PricingTemplate | null>(null);
   const [deletePricingTemplateDisplay, setDeletePricingTemplateDisplay] = useState<PricingTemplate | null>(null);
   const [deletePricingTemplateConflict, setDeletePricingTemplateConflict] = useState<PricingTemplateConnectionUsageItem[] | null>(null);
+  const [pricingTemplateUsageError, setPricingTemplateUsageError] = useState(false);
   const [pricingTemplateDeleting, setPricingTemplateDeleting] = useState(false);
 
   const setDeletePricingTemplateConfirm = (template: PricingTemplate | null) => {
@@ -211,12 +212,14 @@ export function usePricingTemplatesPageData(revision: number) {
     const messages = getStaticMessages();
     setDeletePricingTemplateConfirm(template);
     setDeletePricingTemplateConflict(null);
+    setPricingTemplateUsageError(false);
     setPricingTemplateUsageLoading(true);
     try {
       const data = await api.pricingTemplates.connections(template.id);
       setPricingTemplateUsageRows(data.items);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.pricingTemplatesData.loadUsageFailed);
+      setPricingTemplateUsageError(true);
       setPricingTemplateUsageRows([]);
     } finally {
       setPricingTemplateUsageLoading(false);
@@ -231,6 +234,10 @@ export function usePricingTemplatesPageData(revision: number) {
 
     setPricingTemplateDeleting(true);
     try {
+      if (pricingTemplateUsageError) {
+        toast.error(messages.pricingTemplatesData.loadUsageFailed);
+        return;
+      }
       await api.pricingTemplates.delete(deletePricingTemplateConfirm.id);
       commitPricingTemplates((current) =>
         current.filter((template) => template.id !== deletePricingTemplateConfirm.id)
@@ -267,6 +274,7 @@ export function usePricingTemplatesPageData(revision: number) {
     pricingTemplateForm,
     pricingTemplatePreparingEditId,
     pricingTemplateSaving,
+    pricingTemplateUsageError,
     pricingTemplateUsageDialogOpen,
     pricingTemplateUsageLoading,
     pricingTemplateUsageRows,

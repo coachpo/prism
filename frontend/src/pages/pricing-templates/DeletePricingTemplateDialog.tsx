@@ -22,6 +22,7 @@ interface DeletePricingTemplateDialogProps {
   deletePricingTemplateConfirm: PricingTemplate | null;
   displayTemplate?: PricingTemplate | null;
   deletePricingTemplateConflict: PricingTemplateConnectionUsageItem[] | null;
+  pricingTemplateUsageError: boolean;
   onClose: () => void;
   onDelete: () => Promise<void>;
   pricingTemplateDeleting: boolean;
@@ -33,6 +34,7 @@ export function DeletePricingTemplateDialog({
   deletePricingTemplateConfirm,
   displayTemplate = deletePricingTemplateConfirm,
   deletePricingTemplateConflict,
+  pricingTemplateUsageError,
   onClose,
   onDelete,
   pricingTemplateDeleting,
@@ -63,6 +65,12 @@ export function DeletePricingTemplateDialog({
         {pricingTemplateUsageLoading ? (
           <div className="py-4">
             <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+          </div>
+        ) : pricingTemplateUsageError ? (
+          <div className="space-y-4 py-4">
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {messages.pricingTemplatesData.loadUsageFailed}
+            </div>
           </div>
         ) : deletePricingTemplateConflict ? (
           <div className="space-y-4 py-4">
@@ -110,6 +118,7 @@ export function DeletePricingTemplateDialog({
             disabled={
               pricingTemplateDeleting ||
               pricingTemplateUsageLoading ||
+              pricingTemplateUsageError ||
               (deletePricingTemplateConflict !== null && deletePricingTemplateConflict.length > 0) ||
               pricingTemplateUsageRows.length > 0
             }

@@ -220,4 +220,25 @@ describe("usePricingTemplatesPageData i18n", () => {
       description: "Edited description",
     });
   });
+
+  it("keeps delete safety blocked when the usage lookup fails", async () => {
+    const template = buildPricingTemplate({ id: 7, name: "Starter Template" });
+    api.pricingTemplates.connections.mockRejectedValue(new Error("lookup failed"));
+
+    const { result } = renderHook(() => usePricingTemplatesPageData(1));
+
+    await waitFor(() => {
+      expect(result.current.pricingTemplatesLoading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleDeletePricingTemplateClick(template);
+    });
+
+    expect(api.pricingTemplates.connections).toHaveBeenCalledWith(7);
+    expect(result.current.deletePricingTemplateConfirm?.id).toBe(7);
+    expect(result.current.pricingTemplateUsageRows).toEqual([]);
+    expect(result.current.pricingTemplateUsageError).toBe(true);
+    expect(toast.error).toHaveBeenCalledWith("lookup failed");
+  });
 });

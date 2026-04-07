@@ -46,6 +46,7 @@ describe("DeletePricingTemplateDialog i18n", () => {
             updated_at: "",
           }}
           deletePricingTemplateConflict={null}
+          pricingTemplateUsageError={false}
           onClose={vi.fn()}
           onDelete={vi.fn()}
           pricingTemplateDeleting={false}
@@ -84,6 +85,7 @@ describe("DeletePricingTemplateDialog i18n", () => {
           deletePricingTemplateConfirm={template}
           displayTemplate={template}
           deletePricingTemplateConflict={null}
+          pricingTemplateUsageError={false}
           onClose={vi.fn()}
           onDelete={vi.fn()}
           pricingTemplateDeleting={false}
@@ -101,6 +103,7 @@ describe("DeletePricingTemplateDialog i18n", () => {
           deletePricingTemplateConfirm={null}
           displayTemplate={template}
           deletePricingTemplateConflict={null}
+          pricingTemplateUsageError={false}
           onClose={vi.fn()}
           onDelete={vi.fn()}
           pricingTemplateDeleting={false}
@@ -113,5 +116,41 @@ describe("DeletePricingTemplateDialog i18n", () => {
     expect(screen.getByTestId("dialog-root")).toHaveAttribute("data-open", "false");
     expect(screen.getByText("确定要删除模板“demo-template”吗？")).toBeInTheDocument();
     expect(screen.queryByText("确定要删除模板“”吗？")).not.toBeInTheDocument();
+  });
+
+  it("keeps delete disabled when usage lookup failed", () => {
+    render(
+      <LocaleProvider>
+        <DeletePricingTemplateDialog
+          deletePricingTemplateConfirm={{
+            id: 1,
+            profile_id: 1,
+            name: "demo-template",
+            version: 1,
+            description: null,
+            pricing_currency_code: "USD",
+            pricing_unit: "PER_1M",
+            input_price: "0.10",
+            output_price: "0.20",
+            cached_input_price: null,
+            cache_creation_price: null,
+            reasoning_price: null,
+            missing_special_token_price_policy: "MAP_TO_OUTPUT",
+            created_at: "",
+            updated_at: "",
+          }}
+          deletePricingTemplateConflict={null}
+          pricingTemplateUsageError={true}
+          onClose={vi.fn()}
+          onDelete={vi.fn()}
+          pricingTemplateDeleting={false}
+          pricingTemplateUsageLoading={false}
+          pricingTemplateUsageRows={[]}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText("加载模板使用情况失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
   });
 });
