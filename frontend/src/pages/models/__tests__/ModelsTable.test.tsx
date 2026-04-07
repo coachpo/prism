@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
@@ -497,8 +497,14 @@ describe("ModelsTable", () => {
     const metricsCluster = screen.getByText("1/1 active").parentElement;
 
     expect(metricsCluster).not.toBeNull();
-    expect(metricsCluster).toContainElement(screen.getByText("single-primary · Single"));
-    expect(screen.getAllByText("|")).toHaveLength(5);
+
+    const scoped = within(metricsCluster!);
+
+    expect(scoped.getByText("single-primary · Single")).toBeInTheDocument();
+    expect(scoped.getByText("OpenAI")).toBeInTheDocument();
+    expect(scoped.getByText("Native")).toBeInTheDocument();
+    expect(scoped.getByText("Enabled")).toBeInTheDocument();
+    expect(scoped.getAllByText("|")).toHaveLength(8);
   });
 
   it("renders proxy target summaries without singular target wording", () => {

@@ -10,7 +10,6 @@ import {
   IconActionButton,
   IconActionGroup,
 } from "@/components/IconActionGroup";
-import { StatusBadge, TypeBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -156,14 +155,26 @@ function getSuccessRateClass(successRate: number | null) {
   );
 }
 
-function CompactMetaBadge({ children }: { children: string }) {
+const INLINE_META_TEXT_CLASSES = {
+  accent: "text-violet-700 dark:text-violet-400",
+  info: "text-sky-700 dark:text-sky-400",
+  muted: "text-muted-foreground",
+  success: "text-emerald-700 dark:text-emerald-400",
+} as const;
+
+type InlineMetaIntent = keyof typeof INLINE_META_TEXT_CLASSES;
+
+function InlineMetaText({
+  children,
+  intent = "muted",
+}: {
+  children: string;
+  intent?: InlineMetaIntent;
+}) {
   return (
-    <Badge
-      variant="outline"
-      className="h-5 max-w-full rounded-full border-border/70 bg-muted/30 px-2 text-[10px] font-medium text-muted-foreground"
-    >
-      <span className="block max-w-full truncate">{children}</span>
-    </Badge>
+    <span className={cn("max-w-full truncate text-xs", INLINE_META_TEXT_CLASSES[intent])}>
+      {children}
+    </span>
   );
 }
 
@@ -278,17 +289,14 @@ function ModelRow({
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {model.model_type === "proxy" ? (
-              <CompactMetaBadge>{proxyTargetSummary}</CompactMetaBadge>
-            ) : null}
-
-            {model.model_type === "native" ? <CompactMetaBadge>{strategySummary}</CompactMetaBadge> : null}
-            <CompactMetaBadge>{apiFamilyLabel}</CompactMetaBadge>
-            <TypeBadge label={typeLabel} intent={typeIntent} />
-            <StatusBadge label={statusLabel} intent={statusIntent} />
-          </div>
-
+          {model.model_type === "proxy" ? <InlineMetaText>{proxyTargetSummary}</InlineMetaText> : null}
+          {model.model_type === "native" ? <InlineMetaText>{strategySummary}</InlineMetaText> : null}
+          <InlineMetaDivider />
+          <InlineMetaText>{apiFamilyLabel}</InlineMetaText>
+          <InlineMetaDivider />
+          <InlineMetaText intent={typeIntent}>{typeLabel}</InlineMetaText>
+          <InlineMetaDivider />
+          <InlineMetaText intent={statusIntent}>{statusLabel}</InlineMetaText>
           <InlineMetaDivider />
           <span className="tabular-nums text-xs text-foreground/90">
             {copy.activeConnections(formatNumber(model.active_connection_count), formatNumber(model.connection_count))}
