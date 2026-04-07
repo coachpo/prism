@@ -145,7 +145,7 @@ export function useModelDetailData(id: string | undefined) {
     setModel,
   });
 
-  const { proxyTargetOptions, handleEditModelSubmit, handleSaveProxyTargets } = useModelDetailModelForm({
+  const { proxyTargetOptions, proxyTargetsSaving, handleEditModelSubmit, handleSaveProxyTargets } = useModelDetailModelForm({
     editLoadbalanceStrategyId,
     model,
     allModels,
@@ -229,6 +229,7 @@ export function useModelDetailData(id: string | undefined) {
     headerRows,
     setHeaderRows,
     proxyTargetOptions,
+    proxyTargetsSaving,
     proxyTargetSummary,
     endpointSourceDefaultName,
     openConnectionDialog,

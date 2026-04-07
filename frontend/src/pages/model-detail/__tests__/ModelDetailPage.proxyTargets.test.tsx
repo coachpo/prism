@@ -67,8 +67,8 @@ vi.mock("../LoadbalanceEventsTab", () => ({
 }));
 
 vi.mock("../ProxyTargetsCard", () => ({
-  ProxyTargetsCard: ({ proxyTargets }: { proxyTargets: Array<{ target_model_id: string }> }) => (
-    <div>{`proxy-targets-card:${proxyTargets.map((target) => target.target_model_id).join(",")}`}</div>
+  ProxyTargetsCard: ({ proxyTargets, saving }: { proxyTargets: Array<{ target_model_id: string }>; saving: boolean }) => (
+    <div>{`proxy-targets-card:${proxyTargets.map((target) => target.target_model_id).join(",")}:saving=${String(saving)}`}</div>
   ),
 }));
 
@@ -117,6 +117,7 @@ function buildHookValue(modelType: "native" | "proxy"): ModelDetailDataResult {
     setEditLoadbalanceStrategyId: vi.fn(),
     proxyTargetOptions: [],
     handleSaveProxyTargets: vi.fn(),
+    proxyTargetsSaving: false,
     spending: null,
     spendingLoading: false,
     spendingCurrencySymbol: "$",
@@ -254,8 +255,24 @@ describe("ModelDetailPage proxy target wiring", () => {
     expect(overviewProps).not.toHaveProperty("modelKpis");
     expect(screen.getByText("model-detail-header:claude-proxy")).toBeInTheDocument();
     expect(screen.getByText("overview-cards")).toBeInTheDocument();
-    expect(screen.getByText("proxy-targets-card:claude-sonnet-4-5-20250929")).toBeInTheDocument();
+    expect(screen.getByText("proxy-targets-card:claude-sonnet-4-5-20250929:saving=false")).toBeInTheDocument();
     expect(screen.queryByText("connections-list")).not.toBeInTheDocument();
     expect(screen.queryByText("events-tab")).not.toBeInTheDocument();
+  });
+
+  it("passes proxy target saving state through to the proxy target card", () => {
+    useModelDetailPageShellMock.mockReturnValue({
+      activeTab: "connections",
+      navigateBackToModels: vi.fn(),
+      navigateToRequestLogs: vi.fn(),
+      setActiveTab: vi.fn(),
+    });
+    const hookValue = buildHookValue("proxy");
+    hookValue.proxyTargetsSaving = true;
+    useModelDetailDataMock.mockReturnValue(hookValue);
+
+    renderProxyPage();
+
+    expect(screen.getByText("proxy-targets-card:claude-sonnet-4-5-20250929:saving=true")).toBeInTheDocument();
   });
 });

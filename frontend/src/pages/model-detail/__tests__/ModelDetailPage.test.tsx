@@ -181,6 +181,7 @@ function buildModelDetailData(modelType: "native" | "proxy" = "native"): ModelDe
     handleToggleActive: vi.fn(),
     handleEditModelSubmit: vi.fn(),
     handleSaveProxyTargets: vi.fn(),
+    proxyTargetsSaving: false,
     pricingTemplates: [],
     reorderInFlight: false,
     handleReorderConnections: vi.fn(),

@@ -107,4 +107,50 @@ describe("useModelDetailModelForm", () => {
     expect(vi.mocked(api.models.update).mock.calls[0]?.[1]).not.toHaveProperty("proxy_targets");
     expect(toast.success).toHaveBeenCalled();
   });
+
+  it("prevents duplicate proxy-target saves while an update is still pending", async () => {
+    const proxyModel = buildProxyModel();
+    let resolveUpdate: ((value: typeof proxyModel) => void) | undefined;
+    const pendingUpdate = new Promise<typeof proxyModel>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    vi.mocked(api.models.update).mockReturnValue(pendingUpdate);
+
+    const { result } = renderHook(() =>
+      useModelDetailModelForm({
+        editLoadbalanceStrategyId: "",
+        model: proxyModel,
+        allModels: [],
+        isEditModelDialogOpen: false,
+        revision: 1,
+        setEditLoadbalanceStrategyId: vi.fn(),
+        setIsEditModelDialogOpen: vi.fn(),
+        setAllModels: vi.fn(),
+        setModel: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      void result.current.handleSaveProxyTargets([
+        { target_model_id: "e2e-native-a", position: 0 },
+      ]);
+    });
+
+    expect(result.current.proxyTargetsSaving).toBe(true);
+
+    await act(async () => {
+      void result.current.handleSaveProxyTargets([
+        { target_model_id: "e2e-native-a", position: 0 },
+      ]);
+    });
+
+    expect(api.models.update).toHaveBeenCalledTimes(1);
+
+    resolveUpdate?.(proxyModel);
+    await act(async () => {
+      await pendingUpdate;
+    });
+
+    expect(result.current.proxyTargetsSaving).toBe(false);
+  });
 });

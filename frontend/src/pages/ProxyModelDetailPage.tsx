@@ -28,6 +28,7 @@ export function ProxyModelDetailPage() {
     spendingCurrencyCode,
     proxyTargetOptions,
     proxyTargetSummary,
+    proxyTargetsSaving,
     handleEditModelSubmit,
     handleSaveProxyTargets,
   } = useModelDetailData(id);
@@ -72,7 +73,7 @@ export function ProxyModelDetailPage() {
       <ProxyTargetsCard
         availableTargets={proxyTargetOptions}
         proxyTargets={model.proxy_targets}
-        saving={false}
+        saving={proxyTargetsSaving}
         onSave={handleSaveProxyTargets}
       />
 

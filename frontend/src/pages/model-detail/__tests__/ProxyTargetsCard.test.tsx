@@ -59,4 +59,19 @@ describe("ProxyTargetsCard", () => {
       { target_model_id: "claude-sonnet-4-5-20250701", position: 2 },
     ]);
   });
+
+  it("disables the save button while proxy target changes are in flight", () => {
+    render(
+      <LocaleProvider>
+        <ProxyTargetsCard
+          availableTargets={[{ modelId: "claude-sonnet-4-5-20250929", label: "Claude Sonnet 4.5 (20250929)" }]}
+          proxyTargets={[{ target_model_id: "claude-sonnet-4-5-20250929", position: 0 }]}
+          saving={true}
+          onSave={vi.fn()}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+  });
 });

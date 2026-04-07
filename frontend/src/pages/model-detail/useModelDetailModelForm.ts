@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -49,6 +49,7 @@ export function useModelDetailModelForm({
     () => buildProxyTargetOptions(model, allModels),
     [allModels, model],
   );
+  const [proxyTargetsSaving, setProxyTargetsSaving] = useState(false);
 
   const applyUpdatedModel = useCallback(
     (updatedModel: ModelConfig) => {
@@ -116,6 +117,11 @@ export function useModelDetailModelForm({
         return;
       }
 
+      if (proxyTargetsSaving) {
+        return;
+      }
+
+      setProxyTargetsSaving(true);
       try {
         const updatedModel = await api.models.update(model.id, {
           proxy_targets: normalizeProxyTargets(proxyTargets),
@@ -124,13 +130,16 @@ export function useModelDetailModelForm({
         toast.success(getStaticMessages().modelDetailData.proxyTargetsUpdated);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : getStaticMessages().modelDetailData.updateProxyTargetsFailed);
+      } finally {
+        setProxyTargetsSaving(false);
       }
     },
-    [applyUpdatedModel, model],
+    [applyUpdatedModel, model, proxyTargetsSaving],
   );
 
   return {
     proxyTargetOptions,
+    proxyTargetsSaving,
     handleEditModelSubmit,
     handleSaveProxyTargets,
   };
