@@ -10,6 +10,16 @@ from app.main import app, lifespan
 from app.services.background_tasks import BackgroundTaskManager, background_task_manager
 
 
+def make_reconcile_mock() -> AsyncMock:
+    return AsyncMock(
+        return_value={
+            "expired_leases_released": 0,
+            "state_rows_deleted": 0,
+            "state_rows_updated": 0,
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_background_task_manager_requires_start() -> None:
     manager = BackgroundTaskManager()
@@ -52,10 +62,12 @@ async def test_lifespan_configures_singleton_background_task_manager_worker_coun
         third_job_finished.set()
 
     settings = Settings(background_task_worker_count=2)
+    reconcile_mock = make_reconcile_mock()
 
     try:
         with (
             patch("app.main.bootstrap.run_startup_sequence", AsyncMock()),
+            patch("app.main.reconcile_all_connection_limits", reconcile_mock),
             patch(
                 "app.main.bootstrap.build_http_client", return_value=mock_http_client
             ),
@@ -430,9 +442,11 @@ async def test_lifespan_starts_and_stops_background_task_manager() -> None:
     shutdown_mock = AsyncMock()
     dispose_mock = AsyncMock()
     mock_engine = SimpleNamespace(dispose=dispose_mock)
+    reconcile_mock = make_reconcile_mock()
 
     with (
         patch("app.main.bootstrap.run_startup_sequence", AsyncMock()),
+        patch("app.main.reconcile_all_connection_limits", reconcile_mock),
         patch("app.main.bootstrap.build_http_client", return_value=mock_http_client),
         patch("app.main.background_task_manager.start", start_mock),
         patch("app.main.background_task_manager.shutdown", shutdown_mock),
@@ -444,6 +458,7 @@ async def test_lifespan_starts_and_stops_background_task_manager() -> None:
 
     assert app.state.background_task_manager is None
     assert app.state.http_client is None
+    reconcile_mock.assert_awaited_once()
     start_mock.assert_awaited_once()
     shutdown_mock.assert_awaited_once()
     mock_http_client.aclose.assert_awaited_once()
@@ -458,6 +473,7 @@ async def test_lifespan_cleans_dashboard_debounce_tasks_before_background_shutdo
     dispose_mock = AsyncMock()
     mock_engine = SimpleNamespace(dispose=dispose_mock)
     events: list[str] = []
+    reconcile_mock = make_reconcile_mock()
 
     async def cleanup_dashboard_debounce_tasks() -> None:
         events.append("cleanup")
@@ -467,6 +483,7 @@ async def test_lifespan_cleans_dashboard_debounce_tasks_before_background_shutdo
 
     with (
         patch("app.main.bootstrap.run_startup_sequence", AsyncMock()),
+        patch("app.main.reconcile_all_connection_limits", reconcile_mock),
         patch("app.main.bootstrap.build_http_client", return_value=mock_http_client),
         patch("app.main.background_task_manager.start", AsyncMock()),
         patch(
@@ -491,9 +508,11 @@ async def test_lifespan_cleans_up_http_client_when_worker_start_fails() -> None:
     mock_http_client = SimpleNamespace(aclose=AsyncMock())
     dispose_mock = AsyncMock()
     mock_engine = SimpleNamespace(dispose=dispose_mock)
+    reconcile_mock = make_reconcile_mock()
 
     with (
         patch("app.main.bootstrap.run_startup_sequence", AsyncMock()),
+        patch("app.main.reconcile_all_connection_limits", reconcile_mock),
         patch("app.main.bootstrap.build_http_client", return_value=mock_http_client),
         patch(
             "app.main.background_task_manager.start",
@@ -518,9 +537,11 @@ async def test_lifespan_cleans_up_resources_when_worker_shutdown_fails() -> None
     shutdown_mock = AsyncMock(side_effect=RuntimeError("worker shutdown failed"))
     dispose_mock = AsyncMock()
     mock_engine = SimpleNamespace(dispose=dispose_mock)
+    reconcile_mock = make_reconcile_mock()
 
     with (
         patch("app.main.bootstrap.run_startup_sequence", AsyncMock()),
+        patch("app.main.reconcile_all_connection_limits", reconcile_mock),
         patch("app.main.bootstrap.build_http_client", return_value=mock_http_client),
         patch("app.main.background_task_manager.start", start_mock),
         patch("app.main.background_task_manager.shutdown", shutdown_mock),
@@ -568,9 +589,11 @@ async def test_lifespan_clears_state_when_http_client_build_fails() -> None:
     mock_engine = SimpleNamespace(dispose=dispose_mock)
     app.state.background_task_manager = object()
     app.state.http_client = object()
+    reconcile_mock = make_reconcile_mock()
 
     with (
         patch("app.main.bootstrap.run_startup_sequence", AsyncMock()),
+        patch("app.main.reconcile_all_connection_limits", reconcile_mock),
         patch(
             "app.main.bootstrap.build_http_client",
             side_effect=RuntimeError("http client failed"),
