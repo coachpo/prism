@@ -77,7 +77,7 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
         topSpendingModels={data.topSpendingModels}
         formatTime={formatTime}
         onOpenStatistics={() => navigate("/statistics")}
-        onInspectSpending={() => navigate("/statistics?tab=spending")}
+        onInspectSpending={() => pageState.setTab("analytics")}
         onReviewRequests={() => navigate("/request-logs")}
         onSelectModel={(modelConfigId) => navigate(`/models/${modelConfigId}`)}
         onDrillDownRequests={(params) => {

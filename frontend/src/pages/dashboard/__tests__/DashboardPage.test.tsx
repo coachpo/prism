@@ -65,7 +65,14 @@ vi.mock("@/pages/dashboard/useDashboardPageData", () => ({
 }));
 
 vi.mock("@/pages/dashboard/DashboardOverviewTab", () => ({
-  DashboardOverviewTab: () => <div data-testid="dashboard-overview-tab">overview-content</div>,
+  DashboardOverviewTab: ({ onInspectSpending }: { onInspectSpending: () => void }) => (
+    <div>
+      <div data-testid="dashboard-overview-tab">overview-content</div>
+      <button type="button" onClick={onInspectSpending}>
+        inspect-spending
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/pages/dashboard/DashboardAnalyticsContent", () => ({
@@ -158,5 +165,21 @@ describe("DashboardPage", () => {
     });
 
     expect(screen.getByTestId("dashboard-overview-tab")).toBeInTheDocument();
+  });
+
+  it("routes inspect spending to the supported dashboard analytics state", async () => {
+    let currentLocation = "";
+
+    renderDashboard("/dashboard", (value) => {
+      currentLocation = value;
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "inspect-spending" }));
+
+    await waitFor(() => {
+      expect(currentLocation).toBe("/dashboard?tab=analytics");
+    });
+
+    expect(screen.getByTestId("dashboard-analytics-tab")).toBeInTheDocument();
   });
 });
