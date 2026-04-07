@@ -71,10 +71,11 @@ export async function authenticateWithPasskey(username?: string): Promise<{ succ
  * Check if WebAuthn is supported in current browser.
  */
 export function isWebAuthnSupported(): boolean {
-  return (
-    window?.PublicKeyCredential !== undefined &&
-    typeof window.PublicKeyCredential === 'function'
-  );
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return typeof window.PublicKeyCredential === 'function';
 }
 
 /**
