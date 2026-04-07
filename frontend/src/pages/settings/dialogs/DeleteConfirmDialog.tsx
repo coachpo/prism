@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -10,7 +11,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { FormEvent } from "react";
 import {
+  getCleanupRetentionLabel,
   getCleanupTypeLabel,
   type DeleteCleanupType,
 } from "../settingsPageHelpers";
@@ -57,6 +60,14 @@ export function DeleteConfirmDialog({
   const dialogConfirm = displayedDeleteConfirm ?? deleteConfirm;
   const dialogOpen = open ?? Boolean(deleteConfirm);
   const cleanupTypeLabel = dialogConfirm ? getCleanupTypeLabel(dialogConfirm.type) : "-";
+  const retentionLabel = dialogConfirm
+    ? getCleanupRetentionLabel(dialogConfirm.deleteAll, dialogConfirm.days)
+    : "-";
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void handleBatchDelete();
+  };
 
   return (
     <Dialog
@@ -68,56 +79,63 @@ export function DeleteConfirmDialog({
         }
       }}
     >
-        <DialogContent>
+      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>{copy.deleteConfirmTitle}</DialogTitle>
             <DialogDescription>{copy.deleteConfirmDescription(selectedProfileLabel)}</DialogDescription>
-        </DialogHeader>
+          </DialogHeader>
 
-        <div className="space-y-3 text-sm">
-          <div className="rounded-md border px-3 py-3">
-            <p className="font-medium">{copy.deletionSummary}</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-              <li>
-                {copy.dataType}: {cleanupTypeLabel}
-              </li>
-              <li>
-                {copy.retention}: {dialogConfirm?.deleteAll ? copy.allData : copy.olderThanDays(dialogConfirm?.days ?? null)}
-              </li>
-            </ul>
-          </div>
+          <DialogBody>
+            <div className="flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4">
+              <p className="text-sm font-medium text-foreground">{copy.deletionSummary}</p>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1">
+                  <dt className="text-xs font-medium text-muted-foreground">{copy.dataType}</dt>
+                  <dd className="text-sm font-medium text-foreground">{cleanupTypeLabel}</dd>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <dt className="text-xs font-medium text-muted-foreground">{copy.retention}</dt>
+                  <dd className="text-sm font-medium text-foreground">{retentionLabel}</dd>
+                </div>
+              </dl>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="delete-confirm-phrase">{copy.typeDeleteToProceed(copy.deleteConfirmKeyword)}</Label>
-            <Input
-              id="delete-confirm-phrase"
-              name="delete_confirm_phrase"
-              autoComplete="off"
-              value={deleteConfirmPhrase}
-              onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
-              placeholder={copy.deleteConfirmKeyword}
-            />
-          </div>
-        </div>
+            <div className="flex flex-col gap-3 rounded-lg border p-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="delete-confirm-phrase">{copy.typeDeleteToProceed(copy.deleteConfirmKeyword)}</Label>
+                <code className="inline-flex w-fit items-center rounded-md border bg-muted px-2.5 py-1.5 text-sm font-medium text-foreground">
+                  {copy.deleteConfirmKeyword}
+                </code>
+              </div>
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setDeleteConfirm(null);
-              setDeleteConfirmPhrase("");
-            }}
-          >
-            {copy.cancel}
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => void handleBatchDelete()}
-            disabled={deleting || !isDeletePhraseValid}
-          >
-            {deleting ? copy.deleting : copy.delete}
-          </Button>
-        </DialogFooter>
+              <Input
+                id="delete-confirm-phrase"
+                name="delete_confirm_phrase"
+                autoComplete="off"
+                value={deleteConfirmPhrase}
+                onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
+                placeholder={copy.deleteConfirmKeyword}
+              />
+            </div>
+          </DialogBody>
+
+          <DialogFooter className="sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDeleteConfirm(null);
+                setDeleteConfirmPhrase("");
+              }}
+            >
+              {copy.cancel}
+            </Button>
+            <Button type="submit" variant="destructive" disabled={deleting || !isDeletePhraseValid}>
+              {deleting ? copy.deleting : copy.delete}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

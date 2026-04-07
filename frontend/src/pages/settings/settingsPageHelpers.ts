@@ -55,6 +55,16 @@ export function getCleanupTypeLabel(type: DeleteCleanupType): string {
   }
 }
 
+export function getCleanupRetentionLabel(deleteAll: boolean, days: number | null): string {
+  const messages = getSettingsMessages();
+
+  if (deleteAll) {
+    return messages.settingsDialogs.allData;
+  }
+
+  return messages.settingsDialogs.olderThanDays(days);
+}
+
 export const DEFAULT_COSTING_FORM: CostingSettingsUpdate = {
   report_currency_code: "USD",
   report_currency_symbol: "$",

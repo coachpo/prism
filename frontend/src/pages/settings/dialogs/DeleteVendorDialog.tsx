@@ -1,12 +1,15 @@
+import { VendorIcon } from "@/components/VendorIcon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -53,7 +56,7 @@ export function DeleteVendorDialog({
 
   return (
     <Dialog open={dialogOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100vh-2rem)] sm:max-w-3xl" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{messages.vendorManagement.deleteTitle}</DialogTitle>
           <DialogDescription>
@@ -61,46 +64,70 @@ export function DeleteVendorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {vendorUsageLoading ? (
-          <div className="py-4">
-            <div className="h-10 animate-pulse rounded-md bg-muted/50" />
-          </div>
-        ) : hasReferences ? (
-          <div className="space-y-4 py-4">
-            <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              {messages.vendorManagement.deleteInUse(String(referencedRows.length))}
+        <DialogBody className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+            <div className="flex items-start gap-4">
+              {dialogVendor ? <VendorIcon vendor={dialogVendor} size={40} className="rounded-lg" /> : null}
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-sm font-medium text-foreground">{dialogVendor?.name ?? ""}</p>
+                  {dialogVendor?.key ? (
+                    <code className="inline-flex items-center rounded-md border bg-background px-2 py-1 text-xs font-medium text-foreground">
+                      {dialogVendor.key}
+                    </code>
+                  ) : null}
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {dialogVendor?.description || messages.vendorManagement.noDescription}
+                </p>
+              </div>
             </div>
-
-            <div className="max-h-[220px] overflow-y-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{messages.vendorManagement.dependencyProfile}</TableHead>
-                    <TableHead>{messages.vendorManagement.dependencyModelId}</TableHead>
-                    <TableHead>{messages.vendorManagement.dependencyApiFamily}</TableHead>
-                    <TableHead>{messages.vendorManagement.dependencyModelType}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {referencedRows.map((row) => (
-                    <TableRow key={`${row.model_config_id}-${row.profile_id}`}>
-                      <TableCell>{row.profile_name}</TableCell>
-                      <TableCell className="font-medium">{row.model_id}</TableCell>
-                      <TableCell>{formatApiFamily(row.api_family)}</TableCell>
-                      <TableCell>{modelTypeLabel(row.model_type)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <Separator />
+            <p className="text-sm text-muted-foreground">{messages.vendorManagement.thisActionCannotBeUndone}</p>
           </div>
-        ) : (
-          <div className="py-4">
-            <p className="text-sm">{messages.vendorManagement.thisActionCannotBeUndone}</p>
-          </div>
-        )}
 
-        <DialogFooter>
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {vendorUsageLoading ? (
+              <div className="flex flex-col gap-3 py-1">
+                <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+                <div className="h-32 animate-pulse rounded-md bg-muted/35" />
+              </div>
+            ) : hasReferences ? (
+              <div className="flex flex-col gap-4 py-1">
+                <div className="rounded-lg border border-border/70 bg-muted/30 px-4 py-3 text-sm leading-6 text-muted-foreground">
+                  {messages.vendorManagement.deleteInUse(String(referencedRows.length))}
+                </div>
+
+                <div className="overflow-hidden rounded-lg border">
+                  <div className="max-h-[260px] overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{messages.vendorManagement.dependencyProfile}</TableHead>
+                          <TableHead>{messages.vendorManagement.dependencyModelId}</TableHead>
+                          <TableHead>{messages.vendorManagement.dependencyApiFamily}</TableHead>
+                          <TableHead>{messages.vendorManagement.dependencyModelType}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {referencedRows.map((row) => (
+                          <TableRow key={`${row.model_config_id}-${row.profile_id}`}>
+                            <TableCell>{row.profile_name}</TableCell>
+                            <TableCell className="font-medium">{row.model_id}</TableCell>
+                            <TableCell>{formatApiFamily(row.api_family)}</TableCell>
+                            <TableCell>{modelTypeLabel(row.model_type)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </DialogBody>
+
+        <DialogFooter className="sm:justify-between">
           <Button variant="outline" onClick={onClose}>
             {messages.vendorManagement.cancel}
           </Button>
