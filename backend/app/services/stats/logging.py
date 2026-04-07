@@ -296,7 +296,7 @@ async def broadcast_dashboard_update_for_request_log(
     *,
     request_log_id: int,
     profile_id: int,
-) -> None:
+) -> bool:
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
@@ -307,7 +307,7 @@ async def broadcast_dashboard_update_for_request_log(
                 profile_id,
                 request_log_id,
             )
-            return
+            return False
         if entry.profile_id != profile_id:
             logger.warning(
                 "Skipping dashboard.update for mismatched request log profile: expected_profile_id=%d actual_profile_id=%d request_log_id=%d",
@@ -315,19 +315,21 @@ async def broadcast_dashboard_update_for_request_log(
                 entry.profile_id,
                 request_log_id,
             )
-            return
+            return False
 
         dashboard_message = await build_dashboard_update_message(db=db, entry=entry)
-        await connection_manager.broadcast_to_profile(
+        delivered = await connection_manager.broadcast_to_profile(
             profile_id=profile_id,
             channel="dashboard",
             message=dashboard_message,
         )
+        return delivered > 0
 
 
 async def _broadcast_coalesced_dashboard_updates(*, profile_id: int) -> None:
     last_attempted_request_log_id: int | None = None
     requeue_request_log_id: int | None = None
+    preserve_latest_request_log_id = False
 
     try:
         while True:
@@ -338,10 +340,13 @@ async def _broadcast_coalesced_dashboard_updates(*, profile_id: int) -> None:
             last_attempted_request_log_id = request_log_id
 
             try:
-                await broadcast_dashboard_update_for_request_log(
+                delivered = await broadcast_dashboard_update_for_request_log(
                     request_log_id=request_log_id,
                     profile_id=profile_id,
                 )
+                if not delivered:
+                    preserve_latest_request_log_id = True
+                    return
             except Exception:
                 latest_request_log_id = _dashboard_update_latest_request_log_ids.get(
                     profile_id
@@ -357,7 +362,10 @@ async def _broadcast_coalesced_dashboard_updates(*, profile_id: int) -> None:
                 return
     finally:
         latest_request_log_id = _dashboard_update_latest_request_log_ids.get(profile_id)
-        if latest_request_log_id in (None, last_attempted_request_log_id):
+        if not preserve_latest_request_log_id and latest_request_log_id in (
+            None,
+            last_attempted_request_log_id,
+        ):
             _dashboard_update_latest_request_log_ids.pop(profile_id, None)
         _dashboard_update_enqueued_profiles.discard(profile_id)
         if requeue_request_log_id is not None:

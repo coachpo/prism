@@ -442,7 +442,7 @@ async def test_log_request_enqueues_dashboard_broadcast_payload() -> None:
 
     log_session.refresh = AsyncMock(side_effect=fake_refresh)
 
-    broadcast = AsyncMock()
+    broadcast = AsyncMock(return_value=1)
     build_dashboard_update_message = AsyncMock()
     enqueued_job = {}
     dashboard_message = {
@@ -711,7 +711,7 @@ async def test_broadcast_dashboard_update_skips_work_without_dashboard_subscribe
     broadcast_session.get = AsyncMock(return_value=SimpleNamespace(profile_id=11))
     build_dashboard_update_message = AsyncMock()
     build_dashboard_update_message.return_value = {"type": "dashboard.update"}
-    broadcast = AsyncMock()
+    broadcast = AsyncMock(return_value=0)
 
     with (
         patch(
@@ -836,7 +836,7 @@ async def test_enqueue_dashboard_update_broadcast_requeues_newer_same_profile_up
             )
             raise ValueError("boom")
 
-        return None
+        return True
 
     broadcast = AsyncMock(side_effect=fail_then_leave_newer_pending)
 
@@ -1019,6 +1019,37 @@ async def test_enqueue_pending_dashboard_update_enqueues_latest_update_after_sub
         await enqueued_jobs[0]["run"]()
 
     assert broadcast.await_args_list == [call(request_log_id=101, profile_id=11)]
+
+
+@pytest.mark.asyncio
+async def test_broadcast_coalesced_dashboard_updates_preserves_pending_update_when_delivery_finds_no_subscribers() -> (
+    None
+):
+    monkeypatch_latest = {11: 101}
+    monkeypatch_pending = {11}
+
+    with (
+        patch.object(
+            stats_logging,
+            "_dashboard_update_latest_request_log_ids",
+            monkeypatch_latest,
+            create=True,
+        ),
+        patch.object(
+            stats_logging,
+            "_dashboard_update_enqueued_profiles",
+            monkeypatch_pending,
+            create=True,
+        ),
+        patch(
+            "app.services.stats.logging.broadcast_dashboard_update_for_request_log",
+            AsyncMock(return_value=False),
+        ),
+    ):
+        await stats_logging._broadcast_coalesced_dashboard_updates(profile_id=11)
+
+    assert monkeypatch_latest == {11: 101}
+    assert monkeypatch_pending == set()
 
 
 @pytest.mark.asyncio
