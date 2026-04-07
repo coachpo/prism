@@ -22,7 +22,7 @@ const EndpointsPage = lazy(() =>
   import("@/pages/EndpointsPage").then((module) => ({ default: module.EndpointsPage }))
 );
 const StatisticsPage = lazy(() =>
-  import("@/pages/StatisticsPage").then((module) => ({ default: module.StatisticsPage }))
+  import("@/pages/dashboard/StatisticsPage").then((module) => ({ default: module.StatisticsPage }))
 );
 const SettingsPage = lazy(() =>
   import("@/pages/SettingsPage").then((module) => ({ default: module.SettingsPage }))

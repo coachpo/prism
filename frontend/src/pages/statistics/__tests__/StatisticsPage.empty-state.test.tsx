@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type { UsageSnapshotResponse } from "@/lib/types";
-import { StatisticsPage } from "@/pages/StatisticsPage";
+import { StatisticsPage } from "@/pages/dashboard/StatisticsPage";
 import { installLocalStorageMock } from "./storage";
 
 const api = vi.hoisted(() => ({

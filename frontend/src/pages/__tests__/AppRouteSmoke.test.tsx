@@ -65,7 +65,7 @@ vi.mock("@/pages/LoadbalanceStrategiesPage", () => ({
   LoadbalanceStrategiesPage: () => <div>loadbalance-strategies-landmark</div>,
 }));
 
-vi.mock("@/pages/StatisticsPage", () => ({
+vi.mock("@/pages/dashboard/StatisticsPage", () => ({
   StatisticsPage: () => <div>statistics-landmark</div>,
 }));
 

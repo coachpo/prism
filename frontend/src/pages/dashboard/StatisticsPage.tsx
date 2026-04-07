@@ -1,9 +1,9 @@
 import { PageHeader } from "@/components/PageHeader";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useLocale } from "@/i18n/useLocale";
-import { UsageStatisticsContent } from "./statistics/UsageStatisticsContent";
-import { useUsageStatisticsPageData } from "./statistics/useUsageStatisticsPageData";
-import { useUsageStatisticsPageState } from "./statistics/useUsageStatisticsPageState";
+import { UsageStatisticsContent } from "@/pages/statistics/UsageStatisticsContent";
+import { useUsageStatisticsPageData } from "@/pages/statistics/useUsageStatisticsPageData";
+import { useUsageStatisticsPageState } from "@/pages/statistics/useUsageStatisticsPageState";
 
 export function StatisticsPage() {
   const { revision, selectedProfile } = useProfileContext();
