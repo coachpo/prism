@@ -46,6 +46,15 @@ function parsePageSize(value: string | null): number {
   return PAGE_SIZE_OPTIONS.includes(parsed as (typeof PAGE_SIZE_OPTIONS)[number]) ? parsed : fallback;
 }
 
+export function normalizeRequestId(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+
+  const normalized = value.trim().replace(/^#/, "");
+  return /^\d+$/.test(normalized) ? normalized : "";
+}
+
 export function parsePageState(params: URLSearchParams): RequestLogPageState {
   return {
     ingress_request_id: params.get("ingress_request_id") ?? "",
@@ -55,7 +64,7 @@ export function parsePageState(params: URLSearchParams): RequestLogPageState {
     status_family: parseEnum(params.get("status_family"), STATUS_FAMILY_OPTIONS, DEFAULTS.status_family),
     limit: parsePageSize(params.get("limit")),
     offset: parseIntParam(params.get("offset"), DEFAULTS.offset),
-    request_id: params.get("request_id") ?? "",
+    request_id: normalizeRequestId(params.get("request_id")),
     detail_tab: parseEnum(params.get("detail_tab"), DETAIL_TAB_OPTIONS, DEFAULTS.detail_tab),
   };
 }

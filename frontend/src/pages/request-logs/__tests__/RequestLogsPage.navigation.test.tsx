@@ -368,4 +368,16 @@ describe("RequestLogsPage request detail loading", () => {
 
     expect(pageState.clearRequest).toHaveBeenCalledTimes(1);
   });
+
+  it("does not coerce an invalid partially numeric exact request id", () => {
+    mockUseRequestLogPageState.mockReturnValue(createPageState({ request_id: "123abc" }));
+
+    render(<RequestLogsPage />);
+
+    expect(mockUseRequestLogDetail).toHaveBeenCalledWith({
+      requestId: null,
+      enabled: false,
+    });
+    expect(screen.queryByTestId("request-log-detail-sheet")).not.toBeInTheDocument();
+  });
 });

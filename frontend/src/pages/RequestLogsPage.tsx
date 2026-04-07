@@ -33,7 +33,7 @@ export function RequestLogsPage() {
 
   const selectedRequestId = useMemo(() => {
     if (isExactMode) {
-      const parsedRequestId = parseInt(state.request_id, 10);
+      const parsedRequestId = Number(state.request_id);
       return Number.isFinite(parsedRequestId) ? parsedRequestId : null;
     }
 

@@ -176,6 +176,24 @@ describe("useRequestLogPageState", () => {
     expect(result.current.state.detail_tab).toBe("overview");
   });
 
+  it("drops invalid partially numeric request ids during URL normalization", async () => {
+    let currentLocation = "";
+
+    const { result } = renderHook(() => useRequestLogPageState(), {
+      wrapper: createWrapper("/request-logs?request_id=123abc&detail_tab=audit", (value) => {
+        currentLocation = value;
+      }),
+    });
+
+    await waitFor(() => {
+      expect(currentLocation).toBe("/request-logs");
+    });
+
+    expect(result.current.state.request_id).toBe("");
+    expect(result.current.isExactMode).toBe(false);
+    expect(result.current.state.detail_tab).toBe("overview");
+  });
+
   it("keeps only retained browse filters active after serialization updates", async () => {
     const { result } = renderHook(() => useRequestLogPageState(), {
       wrapper: createWrapper("/request-logs?offset=50&model_id=gpt-5.4&status_family=4xx"),

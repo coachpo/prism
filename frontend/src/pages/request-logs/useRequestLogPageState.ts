@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   DEFAULTS,
+  normalizeRequestId,
   parsePageState,
   type StatusFamilyFilter,
   stateToParams,
@@ -9,10 +10,6 @@ import {
   type RequestLogPageState,
   type TimeRange,
 } from "./queryParams";
-
-function normalizeRequestId(value: string) {
-  return value.trim().replace(/^#/, "");
-}
 
 export function useRequestLogPageState() {
   const [searchParams, setSearchParams] = useSearchParams();

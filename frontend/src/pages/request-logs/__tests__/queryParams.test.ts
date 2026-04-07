@@ -72,4 +72,11 @@ describe("request log query params", () => {
     expect(timeRangeToFromTime("all")).toBeUndefined();
     expect(timeRangeToFromTime("1h")).toMatch(/T/);
   });
+
+  it("rejects partially numeric request ids instead of coercing them", () => {
+    const parsed = parsePageState(new URLSearchParams("request_id=123abc&detail_tab=audit"));
+
+    expect(parsed.request_id).toBe("");
+    expect(parsed.detail_tab).toBe("audit");
+  });
 });
