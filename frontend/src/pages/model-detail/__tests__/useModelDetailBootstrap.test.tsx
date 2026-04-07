@@ -30,6 +30,9 @@ const api = vi.hoisted(() => ({
   pricingTemplates: {
     list: vi.fn(),
   },
+  vendors: {
+    list: vi.fn(),
+  },
   stats: {
     spending: vi.fn(),
   },
@@ -86,6 +89,29 @@ describe("useModelDetailBootstrap", () => {
     api.loadbalanceStrategies.list.mockResolvedValue([buildLoadbalanceStrategy()]);
     api.models.list.mockResolvedValue([]);
     api.pricingTemplates.list.mockResolvedValue([]);
+    api.vendors.list.mockResolvedValue([buildVendor()]);
+    api.stats.spending.mockResolvedValue({
+      summary: {
+        total_cost_micros: 0,
+        successful_request_count: 0,
+        priced_request_count: 0,
+        unpriced_request_count: 0,
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        total_cache_read_input_tokens: 0,
+        total_cache_creation_input_tokens: 0,
+        total_reasoning_tokens: 0,
+        total_tokens: 0,
+        avg_cost_per_successful_request_micros: 0,
+      },
+      groups: [],
+      groups_total: 0,
+      top_spending_models: [],
+      top_spending_endpoints: [],
+      unpriced_breakdown: {},
+      report_currency_symbol: "$",
+      report_currency_code: "USD",
+    });
   });
 
   afterEach(() => {
@@ -153,6 +179,52 @@ describe("useModelDetailBootstrap", () => {
     );
 
     expect(options).toEqual([{ modelId: "gpt-5.4", label: "GPT-5.4 (gpt-5.4)" }]);
+  });
+
+  it("loads the shared vendor catalog for the model detail page", async () => {
+    api.models.get.mockResolvedValue({
+      id: 1,
+      vendor_id: null,
+      vendor: null,
+      api_family: "anthropic",
+      model_id: "claude-sonnet-4-6",
+      display_name: "Claude Sonnet 4.6",
+      model_type: "native",
+      loadbalance_strategy_id: 100,
+      loadbalance_strategy: buildLoadbalanceStrategySummary(),
+      is_enabled: true,
+      connections: [],
+      created_at: "",
+      updated_at: "",
+    });
+
+    const setVendors = vi.fn();
+
+    renderHook(() =>
+      useModelDetailBootstrap({
+        id: "1",
+        revision: 1,
+        navigate: vi.fn(),
+        setModel: vi.fn(),
+        setConnections: vi.fn(),
+        setGlobalEndpoints: vi.fn(),
+        setLoadbalanceStrategies: vi.fn(),
+        setAllModels: vi.fn(),
+        setPricingTemplates: vi.fn(),
+        setVendors,
+        setLoading: vi.fn(),
+        setSpending: vi.fn(),
+        setSpendingLoading: vi.fn(),
+        setSpendingCurrencySymbol: vi.fn(),
+        setSpendingCurrencyCode: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(setVendors).toHaveBeenCalledWith([
+        expect.objectContaining({ key: "openai", name: "OpenAI" }),
+      ]);
+    });
   });
 
   it("ignores stale spending responses after switching models", async () => {
@@ -235,6 +307,7 @@ describe("useModelDetailBootstrap", () => {
           setLoadbalanceStrategies: vi.fn(),
           setAllModels: vi.fn(),
           setPricingTemplates: vi.fn(),
+          setVendors: vi.fn(),
           setLoading: vi.fn(),
           setSpending,
           setSpendingLoading: vi.fn(),
@@ -362,6 +435,7 @@ describe("useModelDetailBootstrap", () => {
           setLoadbalanceStrategies: vi.fn(),
           setAllModels: vi.fn(),
           setPricingTemplates: vi.fn(),
+          setVendors: vi.fn(),
           setLoading: vi.fn(),
           setSpending: vi.fn(),
           setSpendingLoading: vi.fn(),
@@ -431,6 +505,7 @@ describe("useModelDetailBootstrap", () => {
         setLoadbalanceStrategies: vi.fn(),
         setAllModels: vi.fn(),
         setPricingTemplates: vi.fn(),
+        setVendors: vi.fn(),
         setLoading: vi.fn(),
         setSpending: vi.fn(),
         setSpendingLoading: vi.fn(),

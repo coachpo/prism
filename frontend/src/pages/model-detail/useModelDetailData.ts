@@ -31,6 +31,7 @@ export function useModelDetailData(id: string | undefined) {
   const [allModels, setAllModels] = useState<ModelConfigListItem[]>([]);
   const [loadbalanceStrategies, setLoadbalanceStrategies] = useState<LoadbalanceStrategy[]>([]);
   const [pricingTemplates, setPricingTemplates] = useState<PricingTemplate[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [spending, setSpending] = useState<SpendingSummary | null>(null);
   const [spendingLoading, setSpendingLoading] = useState(false);
   const [spendingCurrencySymbol, setSpendingCurrencySymbol] = useState("$");
@@ -80,6 +81,7 @@ export function useModelDetailData(id: string | undefined) {
     setLoadbalanceStrategies,
     setAllModels,
     setPricingTemplates,
+    setVendors,
     setLoading,
     setSpending,
     setSpendingLoading,
@@ -169,27 +171,6 @@ export function useModelDetailData(id: string | undefined) {
     connectionCardRefs,
     setFocusedConnectionId,
   });
-
-  const vendors = useMemo(() => {
-    const seenVendorIds = new Set<number>();
-    const nextVendors: Vendor[] = [];
-
-    const pushVendor = (vendor: Vendor | null | undefined) => {
-      if (!vendor || seenVendorIds.has(vendor.id)) {
-        return;
-      }
-
-      seenVendorIds.add(vendor.id);
-      nextVendors.push(vendor);
-    };
-
-    pushVendor(model?.vendor);
-    allModels.forEach((item) => {
-      pushVendor(item.vendor);
-    });
-
-    return nextVendors;
-  }, [allModels, model?.vendor]);
 
   return {
     model,

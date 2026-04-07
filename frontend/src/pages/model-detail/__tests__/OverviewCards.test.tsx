@@ -203,4 +203,26 @@ describe("OverviewCards", () => {
     expect(screen.getAllByText(/Adaptive strategy/).length).toBeGreaterThan(0);
     expect(screen.getByText("Minimize latency")).toBeInTheDocument();
   });
+
+  it("shows an unassigned vendor instead of falling back to the api family", () => {
+    render(
+      <LocaleProvider>
+        <OverviewCards
+          model={{
+            ...buildModel(),
+            vendor_id: null,
+            vendor: null,
+            api_family: "anthropic",
+          }}
+          spending={null}
+          spendingLoading={false}
+          spendingCurrencySymbol="$"
+          spendingCurrencyCode="USD"
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
+    expect(screen.getAllByText("Anthropic")).toHaveLength(1);
+  });
 });

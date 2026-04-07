@@ -40,7 +40,7 @@ export function OverviewCards({
   const strategyCopy = messages.loadbalanceStrategyCopy;
   const fieldCopy = messages.common;
   const apiFamily = model.api_family ?? "openai";
-  const vendorLabel = model.vendor?.name ?? formatApiFamily(apiFamily);
+  const vendorLabel = model.vendor?.name ?? copy.unassigned;
   const strategyTypeLabel = model.loadbalance_strategy
     ? model.loadbalance_strategy.strategy_type === "adaptive"
       ? strategyCopy.adaptiveFamilyLabel

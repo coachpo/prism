@@ -8,6 +8,7 @@ import {
   getSharedLoadbalanceStrategies,
   getSharedModels,
   getSharedPricingTemplates,
+  getSharedVendors,
 } from "@/lib/referenceData";
 import type {
   Connection,
@@ -17,6 +18,7 @@ import type {
   ModelConfigListItem,
   PricingTemplate,
   SpendingSummary,
+  Vendor,
 } from "@/lib/types";
 
 interface UseModelDetailBootstrapInput {
@@ -29,6 +31,7 @@ interface UseModelDetailBootstrapInput {
   setLoadbalanceStrategies: Dispatch<SetStateAction<LoadbalanceStrategy[]>>;
   setAllModels: Dispatch<SetStateAction<ModelConfigListItem[]>>;
   setPricingTemplates: Dispatch<SetStateAction<PricingTemplate[]>>;
+  setVendors: Dispatch<SetStateAction<Vendor[]>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
   setSpending: Dispatch<SetStateAction<SpendingSummary | null>>;
   setSpendingLoading: Dispatch<SetStateAction<boolean>>;
@@ -46,6 +49,7 @@ export function useModelDetailBootstrap({
   setLoadbalanceStrategies,
   setAllModels,
   setPricingTemplates,
+  setVendors,
   setLoading,
   setSpending,
   setSpendingLoading,
@@ -93,12 +97,20 @@ export function useModelDetailBootstrap({
     setSpending(null);
 
     try {
-      const [data, endpointsList, loadbalanceStrategiesList, modelsList, pricingTemplatesList] = await Promise.all([
+      const [
+        data,
+        endpointsList,
+        loadbalanceStrategiesList,
+        modelsList,
+        pricingTemplatesList,
+        vendorsList,
+      ] = await Promise.all([
         api.models.get(Number.parseInt(id, 10)),
         getSharedEndpoints(revision),
         getSharedLoadbalanceStrategies(revision),
         getSharedModels(revision),
         getSharedPricingTemplates(revision),
+        getSharedVendors(revision),
       ]);
 
       if (requestId !== modelRequestIdRef.current) {
@@ -111,6 +123,7 @@ export function useModelDetailBootstrap({
       setLoadbalanceStrategies(loadbalanceStrategiesList);
       setAllModels(modelsList);
       setPricingTemplates(pricingTemplatesList);
+      setVendors(vendorsList);
 
       void fetchSpending(data.model_id);
     } catch (error) {
@@ -138,6 +151,7 @@ export function useModelDetailBootstrap({
     setModel,
     setSpending,
     setPricingTemplates,
+    setVendors,
   ]);
 
   useEffect(() => {
