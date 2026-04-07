@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type {
+  ModelConfigListItem,
   UsageModelStatistic,
   UsageSnapshotResponse,
   UsageStatisticsPageState,
@@ -24,7 +25,35 @@ const api = vi.hoisted(() => ({
   },
 }));
 
+const referenceData = vi.hoisted(() => ({
+  getSharedModels: vi.fn(),
+}));
+
 vi.mock("@/lib/api", () => ({ api }));
+vi.mock("@/lib/referenceData", () => referenceData);
+
+function createRegisteredModel(overrides: Partial<ModelConfigListItem> = {}): ModelConfigListItem {
+  return {
+    id: 11,
+    vendor_id: 7,
+    vendor: null,
+    api_family: "openai",
+    model_id: "gpt-5.4",
+    display_name: "GPT-5.4",
+    model_type: "native",
+    proxy_targets: [],
+    loadbalance_strategy_id: null,
+    loadbalance_strategy: null,
+    is_enabled: true,
+    connection_count: 1,
+    active_connection_count: 1,
+    health_success_rate: 100,
+    health_total_requests: 1,
+    created_at: "2026-03-27T12:00:00Z",
+    updated_at: "2026-03-27T12:00:00Z",
+    ...overrides,
+  };
+}
 
 function createState(
   overrides: Partial<UsageStatisticsPageState> = {},
@@ -307,6 +336,12 @@ describe("useUsageStatisticsPageData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.stats.usageSnapshot.mockResolvedValue(createSnapshot());
+    referenceData.getSharedModels.mockResolvedValue([
+      createRegisteredModel({ id: 11, model_id: "gpt-5.4" }),
+      createRegisteredModel({ id: 12, model_id: "claude-sonnet-4-6", api_family: "anthropic" }),
+      createRegisteredModel({ id: 13, model_id: "gpt-5.4" }),
+      createRegisteredModel({ id: 14, model_id: "zeta-model" }),
+    ]);
     api.stats.endpointModelStatistics.mockResolvedValue([
       {
         model_id: "claude-sonnet-4-6",
@@ -344,12 +379,15 @@ describe("useUsageStatisticsPageData", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.availableModelLineIds).toEqual([
+        "claude-sonnet-4-6",
+        "gpt-5.4",
+        "zeta-model",
+      ]);
     });
 
     expect(api.stats.usageSnapshot).toHaveBeenCalledWith({ preset: "1h" });
     expect(result.current.snapshot?.overview.total_requests).toBe(2);
-    expect(result.current.availableModelLineIds).toEqual(["claude-sonnet-4-6", "gpt-5.4"]);
     expect(result.current.requestTrendSeries.map((series) => series.key)).toEqual([
       "all",
       "gpt-5.4",

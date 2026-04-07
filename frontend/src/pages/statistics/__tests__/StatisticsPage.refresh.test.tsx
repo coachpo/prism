@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import type { UsageSnapshotResponse } from "@/lib/types";
-import { StatisticsPage } from "@/pages/StatisticsPage";
+import { StatisticsPage } from "@/pages/dashboard/StatisticsPage";
 import { installLocalStorageMock } from "./storage";
 
 function createDeferred<T>() {
@@ -34,7 +34,12 @@ const api = vi.hoisted(() => ({
   },
 }));
 
+const referenceData = vi.hoisted(() => ({
+  getSharedModels: vi.fn(),
+}));
+
 vi.mock("@/lib/api", () => ({ api }));
+vi.mock("@/lib/referenceData", () => referenceData);
 
 vi.mock("@/context/ProfileContext", () => ({
   useProfileContext: () => ({
@@ -217,6 +222,27 @@ describe("StatisticsPage refresh flow", () => {
     localStorage.clear();
     vi.clearAllMocks();
     api.settings.timezone.get.mockResolvedValue({ timezone_preference: "UTC" });
+    referenceData.getSharedModels.mockResolvedValue([
+      {
+        id: 11,
+        vendor_id: 1,
+        vendor: null,
+        api_family: "openai",
+        model_id: "gpt-5.4",
+        display_name: "GPT-5.4",
+        model_type: "native",
+        proxy_targets: [],
+        loadbalance_strategy_id: null,
+        loadbalance_strategy: null,
+        is_enabled: true,
+        connection_count: 1,
+        active_connection_count: 1,
+        health_success_rate: 100,
+        health_total_requests: 2,
+        created_at: "2026-03-27T12:00:00Z",
+        updated_at: "2026-03-27T12:00:00Z",
+      },
+    ]);
     api.stats.endpointModelStatistics.mockResolvedValue([
       {
         model_id: "gpt-5.4",
@@ -231,8 +257,8 @@ describe("StatisticsPage refresh flow", () => {
       configurable: true,
       value: ResizeObserverMock,
       writable: true,
-    });
   });
+});
 
   it("re-fetches the usage snapshot and collapses lazy endpoint details when refreshed", async () => {
     api.stats.usageSnapshot

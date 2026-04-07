@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { getSharedModels } from "@/lib/referenceData";
 import {
   isKnownAllModelsLabel,
   isKnownUnknownEndpointLabel,
@@ -22,25 +23,9 @@ interface UseUsageStatisticsPageDataParams {
   state: UsageStatisticsPageState;
 }
 
-function collectModelLineIds(snapshot: UsageSnapshotResponse | null): string[] {
-  if (!snapshot) {
-    return [];
-  }
-
-  const keys = new Set<string>();
-
-  for (const collection of [
-    ...snapshot.request_trends.hourly,
-    ...snapshot.request_trends.daily,
-    ...snapshot.token_usage_trends.hourly,
-    ...snapshot.token_usage_trends.daily,
-  ]) {
-    if (collection.key !== "all") {
-      keys.add(collection.key);
-    }
-  }
-
-  return [...keys].sort((left, right) => left.localeCompare(right));
+function collectRegisteredModelLineIds(modelIds: string[]): string[] {
+  return [...new Set(modelIds.map((modelId) => modelId.trim()).filter((modelId) => modelId.length > 0))]
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function resolveSelectedModelLines(available: string[], selected: string[]): string[] {
@@ -68,6 +53,7 @@ export function useUsageStatisticsPageData({
 }: UseUsageStatisticsPageDataParams) {
   const { messages } = useLocale();
   const [snapshot, setSnapshot] = useState<UsageSnapshotResponse | null>(null);
+  const [availableModelLineIds, setAvailableModelLineIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [endpointModelStatisticsByEndpointId, setEndpointModelStatisticsByEndpointId] =
@@ -270,11 +256,35 @@ export function useUsageStatisticsPageData({
     void fetchSnapshot();
   }, [fetchSnapshot, revision, selectedProfileId]);
 
+  useEffect(() => {
+    let active = true;
+
+    setAvailableModelLineIds([]);
+
+    void getSharedModels(revision)
+      .then((models) => {
+        if (!active) {
+          return;
+        }
+
+        setAvailableModelLineIds(
+          collectRegisteredModelLineIds(models.map((model) => model.model_id)),
+        );
+      })
+      .catch(() => {
+        if (active) {
+          setAvailableModelLineIds([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [revision]);
+
   const refresh = useCallback(async () => {
     await fetchSnapshot();
   }, [fetchSnapshot]);
-
-  const availableModelLineIds = useMemo(() => collectModelLineIds(snapshot), [snapshot]);
 
   const selectedModelLineIds = useMemo(
     () => resolveSelectedModelLines(availableModelLineIds, state.selectedModelLines),
