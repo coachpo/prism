@@ -18,22 +18,32 @@ from app.services.proxy_service import (
 from app.services.stats_service import log_request
 
 
+class StaticSessionContext:
+    def __init__(self, session: object) -> None:
+        self._session = session
+
+    async def __aenter__(self) -> object:
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
 class TestDEF001_LogsSurviveFailoverRollback:
     """DEF-001 (P0): request_logs must persist even when HTTPException(502) is raised."""
 
     @pytest.mark.asyncio
     async def test_log_request_uses_independent_session(self):
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.commit = AsyncMock()
-
-        mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_session = SimpleNamespace(
+            add=MagicMock(),
+            flush=AsyncMock(),
+            commit=AsyncMock(),
+            refresh=AsyncMock(),
+        )
 
         with patch(
             "app.core.database.AsyncSessionLocal",
-            return_value=mock_session_ctx,
+            return_value=StaticSessionContext(mock_session),
         ):
             await log_request(
                 model_id="test-model",
@@ -54,17 +64,16 @@ class TestDEF001_LogsSurviveFailoverRollback:
 
     @pytest.mark.asyncio
     async def test_log_request_uses_independent_session_without_caller_db(self):
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.commit = AsyncMock()
-
-        mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+        mock_session = SimpleNamespace(
+            add=MagicMock(),
+            flush=AsyncMock(),
+            commit=AsyncMock(),
+            refresh=AsyncMock(),
+        )
 
         with patch(
             "app.core.database.AsyncSessionLocal",
-            return_value=mock_session_ctx,
+            return_value=StaticSessionContext(mock_session),
         ):
             await log_request(
                 model_id="test-model",
@@ -84,9 +93,11 @@ class TestDEF001_LogsSurviveFailoverRollback:
 
     @pytest.mark.asyncio
     async def test_log_request_persists_request_tracking_fields(self):
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.commit = AsyncMock()
+        mock_session = SimpleNamespace(
+            add=MagicMock(),
+            flush=AsyncMock(),
+            commit=AsyncMock(),
+        )
         captured_entry = {}
 
         async def fake_refresh(entry):
@@ -95,13 +106,9 @@ class TestDEF001_LogsSurviveFailoverRollback:
 
         mock_session.refresh = AsyncMock(side_effect=fake_refresh)
 
-        mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
-
         with patch(
             "app.core.database.AsyncSessionLocal",
-            return_value=mock_session_ctx,
+            return_value=StaticSessionContext(mock_session),
         ):
             request_log_id = await log_request(
                 model_id="test-model",

@@ -39,11 +39,19 @@ class MockWebSocket:
         self.send_json = AsyncMock()
 
 
-def make_session_context(session: AsyncMock) -> AsyncMock:
-    session_ctx = AsyncMock()
-    session_ctx.__aenter__ = AsyncMock(return_value=session)
-    session_ctx.__aexit__ = AsyncMock(return_value=False)
-    return session_ctx
+class StaticSessionContext:
+    def __init__(self, session: object) -> None:
+        self._session = session
+
+    async def __aenter__(self) -> object:
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+
+def make_session_context(session: object) -> StaticSessionContext:
+    return StaticSessionContext(session)
 
 
 def make_failover_policy(**overrides):
@@ -429,10 +437,12 @@ async def test_send_to_connection_returns_false_and_cleans_up_when_send_fails():
 
 @pytest.mark.asyncio
 async def test_log_request_enqueues_dashboard_broadcast_payload() -> None:
-    log_session = AsyncMock()
-    log_session.add = MagicMock()
-    log_session.commit = AsyncMock()
-    broadcast_session = AsyncMock()
+    log_session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    broadcast_session = SimpleNamespace()
     captured_entry = {}
 
     async def fake_refresh(entry):
@@ -1710,9 +1720,11 @@ async def test_claim_probe_eligible_stays_off_path_when_loadbalance_enqueue_fail
 
 @pytest.mark.asyncio
 async def test_log_request_returns_id_when_dashboard_enqueue_fails() -> None:
-    mock_session = AsyncMock()
-    mock_session.add = MagicMock()
-    mock_session.commit = AsyncMock()
+    mock_session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+    )
 
     async def fake_refresh(entry):
         entry.id = 654
@@ -1769,10 +1781,12 @@ async def test_log_request_keeps_committed_id_when_background_build_fails() -> N
     manager = BackgroundTaskManager()
     await manager.start()
 
-    log_session = AsyncMock()
-    log_session.add = MagicMock()
-    log_session.commit = AsyncMock()
-    broadcast_session = AsyncMock()
+    log_session = SimpleNamespace(
+        add=MagicMock(),
+        flush=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    broadcast_session = SimpleNamespace()
     captured_entry = {}
 
     async def fake_refresh(entry):
@@ -1784,7 +1798,13 @@ async def test_log_request_keeps_committed_id_when_background_build_fails() -> N
     broadcast_session.get = AsyncMock(
         side_effect=lambda model, request_log_id: captured_entry["entry"]
     )
-    build_dashboard_update_message = AsyncMock(side_effect=ValueError("boom"))
+    build_dashboard_update_message_calls = 0
+
+    async def fail_build_dashboard_update_message(*, db, entry):
+        nonlocal build_dashboard_update_message_calls
+        build_dashboard_update_message_calls += 1
+        raise ValueError("boom")
+
     broadcast = AsyncMock()
 
     with (
@@ -1798,7 +1818,7 @@ async def test_log_request_keeps_committed_id_when_background_build_fails() -> N
         patch("app.services.stats.logging.background_task_manager", manager),
         patch(
             "app.services.stats.logging.build_dashboard_update_message",
-            build_dashboard_update_message,
+            fail_build_dashboard_update_message,
         ),
         patch(
             "app.services.stats.logging.connection_manager.has_subscribers",
@@ -1829,5 +1849,5 @@ async def test_log_request_keeps_committed_id_when_background_build_fails() -> N
 
     await manager.shutdown()
 
-    build_dashboard_update_message.assert_awaited_once()
+    assert build_dashboard_update_message_calls == 1
     assert broadcast.await_count == 0

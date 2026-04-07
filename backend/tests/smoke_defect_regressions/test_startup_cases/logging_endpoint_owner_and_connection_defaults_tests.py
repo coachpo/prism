@@ -16,18 +16,26 @@ class TestDEF007_EndpointIdentityInLogs:
         mock_entry = MagicMock()
         mock_entry.id = 42
 
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.commit = AsyncMock()
-        mock_session.refresh = AsyncMock()
+        class StaticSessionContext:
+            def __init__(self, session: object) -> None:
+                self._session = session
 
-        mock_session_ctx = AsyncMock()
-        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+            async def __aenter__(self) -> object:
+                return self._session
+
+            async def __aexit__(self, exc_type, exc, tb) -> bool:
+                return False
+
+        mock_session = SimpleNamespace(
+            add=MagicMock(),
+            flush=AsyncMock(),
+            commit=AsyncMock(),
+            refresh=AsyncMock(),
+        )
 
         with patch(
             "app.core.database.AsyncSessionLocal",
-            return_value=mock_session_ctx,
+            return_value=StaticSessionContext(mock_session),
         ):
 
             async def fake_refresh(entry):
