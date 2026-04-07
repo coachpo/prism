@@ -56,7 +56,7 @@ export function getRoutingDiagramEmptyState(
   data: RoutingDiagramData,
 ): { kind: "no_active_routes" | "no_recent_traffic"; title: string; description: string } {
   const copy = getStaticMessages().dashboard;
-  if (data.links.length === 0) {
+  if (!data.links.some(shouldKeepLink)) {
     return {
       kind: "no_active_routes",
       title: copy.routingNoActiveRoutes,

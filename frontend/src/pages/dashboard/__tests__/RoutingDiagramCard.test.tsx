@@ -90,6 +90,79 @@ describe("routing diagram shell", () => {
     expect(screen.getByText("暂无活动路由")).toBeInTheDocument();
   });
 
+  it("treats inactive zero-traffic links as no active routes", () => {
+    localStorage.setItem("prism.locale", "en");
+
+    renderWithLocale(
+      <RoutingDiagramCard
+        data={{
+          nodes: [
+            {
+              id: "endpoint-1",
+              name: "demo-endpoint",
+              kind: "endpoint",
+              label: "demo-endpoint",
+              sublabel: null,
+              endpointId: 1,
+              modelId: null,
+              modelConfigId: null,
+              activeConnectionCount: 0,
+              trafficRequestCount24h: 0,
+              requestCount24h: 0,
+              successCount24h: 0,
+              errorCount24h: 0,
+              successRate24h: null,
+            },
+            {
+              id: "model-1",
+              name: "GPT 4o",
+              kind: "model",
+              label: "GPT 4o",
+              sublabel: null,
+              endpointId: null,
+              modelId: "gpt-4o",
+              modelConfigId: 1,
+              activeConnectionCount: 0,
+              trafficRequestCount24h: 0,
+              requestCount24h: 0,
+              successCount24h: 0,
+              errorCount24h: 0,
+              successRate24h: null,
+            },
+          ],
+          links: [
+            {
+              id: "gpt-4o#1",
+              sourceNodeId: "endpoint-1",
+              targetNodeId: "model-1",
+              modelId: "gpt-4o",
+              modelLabel: "GPT 4o",
+              modelConfigId: 1,
+              endpointId: 1,
+              endpointLabel: "demo-endpoint",
+              activeConnectionCount: 0,
+              trafficRequestCount24h: 0,
+              requestCount24h: 0,
+              successCount24h: 0,
+              errorCount24h: 0,
+              successRate24h: null,
+            },
+          ],
+          endpointCount: 1,
+          modelCount: 1,
+          activeConnectionTotal: 0,
+          trafficRequestTotal24h: 0,
+        }}
+        loading={false}
+        error={null}
+        onSelectModel={() => undefined}
+      />, 
+    );
+
+    expect(screen.getByText("No active routes")).toBeInTheDocument();
+    expect(screen.queryByText("No routed traffic in the last 24h")).not.toBeInTheDocument();
+  });
+
   it("renders localized routing chart shell and legend copy when the saved locale is Chinese", () => {
     localStorage.setItem("prism.locale", "zh-CN");
 
