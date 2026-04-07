@@ -75,6 +75,9 @@ export function useVendorManagementData({ revision }: UseVendorManagementDataInp
   };
 
   const handleEditVendor = (vendor: Vendor) => {
+    if (vendor.is_readonly) {
+      return;
+    }
     setEditingVendor(vendor);
     setVendorForm(vendorFormStateFromVendor(vendor));
     setVendorDialogOpen(true);
@@ -117,6 +120,9 @@ export function useVendorManagementData({ revision }: UseVendorManagementDataInp
   };
 
   const handleDeleteVendorClick = async (vendor: Vendor) => {
+    if (vendor.is_readonly) {
+      return;
+    }
     const messages = getStaticMessages();
     setDeleteVendorConfirm(vendor);
     setDisplayedDeleteVendorConfirm(vendor);

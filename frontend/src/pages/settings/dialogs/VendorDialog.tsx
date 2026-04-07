@@ -44,6 +44,7 @@ export function VendorDialog({
 }: VendorDialogProps) {
   const { messages } = useLocale();
   const isEditing = editingVendor !== null;
+  const isReadonlyEditing = editingVendor?.is_readonly === true;
   const currentIconValue = vendorIconPresetOptions.some((option) => option.icon_key === vendorForm.icon_key)
     ? vendorForm.icon_key
     : "__fallback__";
@@ -76,6 +77,7 @@ export function VendorDialog({
               name="name"
               autoComplete="off"
               value={vendorForm.name}
+              disabled={isReadonlyEditing}
               onChange={(event) =>
                 setVendorForm((current) => ({ ...current, name: event.target.value }))
               }
@@ -90,6 +92,7 @@ export function VendorDialog({
               name="key"
               autoComplete="off"
               value={vendorForm.key}
+              disabled={isReadonlyEditing}
               onChange={(event) =>
                 setVendorForm((current) => ({ ...current, key: event.target.value }))
               }
@@ -104,6 +107,7 @@ export function VendorDialog({
               name="description"
               autoComplete="off"
               value={vendorForm.description}
+              disabled={isReadonlyEditing}
               onChange={(event) =>
                 setVendorForm((current) => ({ ...current, description: event.target.value }))
               }
@@ -115,6 +119,7 @@ export function VendorDialog({
             <Label htmlFor="vendor-icon-key">{messages.vendorManagement.iconPresetLabel}</Label>
             <Select
               value={currentIconValue ?? "__fallback__"}
+              disabled={isReadonlyEditing}
               onValueChange={(value) =>
                 setVendorForm((current) => ({
                   ...current,
@@ -160,7 +165,7 @@ export function VendorDialog({
             <Button type="button" variant="outline" onClick={onClose}>
             {messages.vendorManagement.cancel}
             </Button>
-            <Button type="submit" disabled={vendorSaving}>
+            <Button type="submit" disabled={vendorSaving || isReadonlyEditing}>
             {vendorSaving
               ? messages.vendorManagement.saving
               : isEditing

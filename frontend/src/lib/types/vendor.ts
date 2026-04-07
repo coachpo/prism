@@ -7,6 +7,7 @@ export interface Vendor {
   name: string;
   description: string | null;
   icon_key: VendorIconKey | null;
+  is_readonly?: boolean;
   audit_enabled: boolean;
   audit_capture_bodies: boolean;
   created_at: string;

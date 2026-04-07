@@ -49,6 +49,7 @@ export function DeleteVendorDialog({
     modelType === "proxy" ? messages.modelDetail.typeProxy : messages.modelDetail.typeNative;
   const referencedRows = vendorUsageRows.length > 0 ? vendorUsageRows : (deleteVendorConflict ?? []);
   const hasReferences = referencedRows.length > 0;
+  const isReadonlyVendor = dialogVendor?.is_readonly === true;
 
   return (
     <Dialog open={dialogOpen} onOpenChange={(open) => !open && onClose()}>
@@ -106,7 +107,7 @@ export function DeleteVendorDialog({
           <Button
             variant="destructive"
             onClick={() => void onDelete()}
-            disabled={vendorDeleting || vendorUsageLoading}
+            disabled={vendorDeleting || vendorUsageLoading || isReadonlyVendor}
           >
             {vendorDeleting ? messages.vendorManagement.saving : messages.vendorManagement.delete}
           </Button>

@@ -90,4 +90,22 @@ describe("DeleteVendorDialog i18n", () => {
     expect(screen.getByText("This action cannot be undone.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
   });
+
+  it("disables delete for readonly vendors", () => {
+    render(
+      <LocaleProvider>
+        <DeleteVendorDialog
+          deleteVendorConfirm={buildVendor({ is_readonly: true } as Partial<Vendor>)}
+          deleteVendorConflict={null}
+          onClose={vi.fn()}
+          onDelete={vi.fn()}
+          vendorDeleting={false}
+          vendorUsageLoading={false}
+          vendorUsageRows={[]}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+  });
 });

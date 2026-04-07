@@ -152,6 +152,29 @@ describe("useVendorManagementData", () => {
     expect(result.current.vendorUsageLoading).toBe(false);
   });
 
+  it("does not open edit or delete flows for readonly vendors", async () => {
+    const vendor = buildVendor({ is_readonly: true } as Partial<Vendor>);
+    referenceData.getSharedVendors.mockResolvedValue([vendor]);
+
+    const { result } = renderHook(() => useVendorManagementData({ revision: 7 }));
+
+    await waitFor(() => {
+      expect(result.current.vendorsLoading).toBe(false);
+    });
+
+    act(() => {
+      result.current.handleEditVendor(vendor);
+    });
+
+    await act(async () => {
+      await result.current.handleDeleteVendorClick(vendor);
+    });
+
+    expect(result.current.vendorDialogOpen).toBe(false);
+    expect(result.current.deleteVendorDialogOpen).toBe(false);
+    expect(api.vendors.models).not.toHaveBeenCalled();
+  });
+
   it("treats vendor usage rows as informational and still deletes the vendor", async () => {
     const vendor = buildVendor();
     const usageRow = buildUsageRow();

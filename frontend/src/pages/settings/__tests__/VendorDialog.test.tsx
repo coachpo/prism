@@ -140,4 +140,41 @@ describe("VendorDialog", () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
   });
+
+  it("disables identity edits for readonly vendors", () => {
+    render(
+      <LocaleProvider>
+        <VendorDialog
+          editingVendor={{
+            id: 1,
+            key: "openai",
+            name: "OpenAI",
+            description: "OpenAI API (GPT models)",
+            icon_key: "openai",
+            is_readonly: true,
+            audit_enabled: false,
+            audit_capture_bodies: true,
+            created_at: "",
+            updated_at: "",
+          }}
+          onClose={vi.fn()}
+          onSave={vi.fn().mockResolvedValue(undefined)}
+          open={true}
+          setVendorForm={vi.fn()}
+          vendorForm={{
+            key: "openai",
+            name: "OpenAI",
+            description: "OpenAI API (GPT models)",
+            icon_key: "openai",
+          }}
+          vendorSaving={false}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByLabelText("Vendor Name")).toBeDisabled();
+    expect(screen.getByLabelText("Vendor Key")).toBeDisabled();
+    expect(screen.getByLabelText("Description (Optional)")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Vendor" })).toBeDisabled();
+  });
 });

@@ -93,13 +93,19 @@ export function VendorManagementSection({
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" onClick={() => onEditVendor(vendor)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onEditVendor(vendor)}
+                            disabled={vendor.is_readonly}
+                          >
                             {messages.vendorManagement.edit}
                           </Button>
                           <Button
                             variant="destructive"
                             size="sm"
                             onClick={() => void onDeleteVendor(vendor)}
+                            disabled={vendor.is_readonly}
                           >
                             {messages.vendorManagement.delete}
                           </Button>
