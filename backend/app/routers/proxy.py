@@ -129,7 +129,11 @@ async def _handle_proxy(
     )
 
 
-@router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@router.api_route(
+    "/v1/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
 async def proxy_catch_all(
     request: Request,
     path: str,
@@ -141,7 +145,9 @@ async def proxy_catch_all(
 
 
 @router.api_route(
-    "/v1beta/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
+    "/v1beta/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
 )
 async def proxy_catch_all_v1beta(
     request: Request,
