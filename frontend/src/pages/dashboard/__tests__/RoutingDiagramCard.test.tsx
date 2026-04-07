@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { RoutingDiagramCard } from "../RoutingDiagramCard";
 import { RoutingDiagramShell } from "../RoutingDiagramShell";
+import { getRoutingDiagramChartData } from "../routing-diagram/routingDiagramLayout";
 import { RoutingDiagramChart } from "../routing-diagram/RoutingDiagramChart";
 import { RoutingDiagramLinkShape } from "../routing-diagram/RoutingDiagramLinkShape";
 import { RoutingDiagramTooltip } from "../routing-diagram/RoutingDiagramTooltip";
@@ -175,6 +176,105 @@ describe("routing diagram shell", () => {
 
     expect(screen.getByText("24 小时成功率")).toBeInTheDocument();
     expect(screen.getAllByText("暂无数据").length).toBeGreaterThan(0);
+  });
+
+  it("keeps traffic-only routes in the chart data even when active connections are zero", () => {
+    const chartData = getRoutingDiagramChartData({
+      nodes: [
+        {
+          id: "endpoint-1",
+          name: "demo-endpoint",
+          kind: "endpoint",
+          label: "demo-endpoint",
+          sublabel: null,
+          endpointId: 1,
+          modelId: null,
+          modelConfigId: null,
+          activeConnectionCount: 0,
+          trafficRequestCount24h: 8,
+          requestCount24h: 8,
+          successCount24h: 8,
+          errorCount24h: 0,
+          successRate24h: 100,
+        },
+        {
+          id: "model-1",
+          name: "GPT 4o",
+          kind: "model",
+          label: "GPT 4o",
+          sublabel: null,
+          endpointId: null,
+          modelId: "gpt-4o",
+          modelConfigId: 1,
+          activeConnectionCount: 0,
+          trafficRequestCount24h: 8,
+          requestCount24h: 8,
+          successCount24h: 8,
+          errorCount24h: 0,
+          successRate24h: 100,
+        },
+      ],
+      links: [
+        {
+          id: "gpt-4o#1",
+          sourceNodeId: "endpoint-1",
+          targetNodeId: "model-1",
+          modelId: "gpt-4o",
+          modelLabel: "GPT 4o",
+          modelConfigId: 1,
+          endpointId: 1,
+          endpointLabel: "demo-endpoint",
+          activeConnectionCount: 0,
+          trafficRequestCount24h: 8,
+          requestCount24h: 8,
+          successCount24h: 8,
+          errorCount24h: 0,
+          successRate24h: 100,
+        },
+      ],
+      endpointCount: 1,
+      modelCount: 1,
+      activeConnectionTotal: 0,
+      trafficRequestTotal24h: 8,
+    });
+
+    expect(chartData.links).toHaveLength(1);
+    expect(chartData.nodes).toHaveLength(2);
+  });
+
+  it("labels traffic totals as total requests instead of successful requests", () => {
+    renderWithLocale(
+      <RoutingDiagramTooltip
+        active={true}
+        payload={[
+          {
+            payload: {
+              payload: {
+                id: "route-1",
+                sourceNodeId: "endpoint-1",
+                targetNodeId: "model-1",
+                modelId: "gpt-4o",
+                modelLabel: "GPT 4o",
+                modelConfigId: 1,
+                endpointId: 1,
+                endpointLabel: "demo-endpoint",
+                activeConnectionCount: 0,
+                trafficRequestCount24h: 8,
+                requestCount24h: 8,
+                successCount24h: 5,
+                errorCount24h: 3,
+                successRate24h: 62.5,
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("24h total requests").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("24h successful requests").length).toBeGreaterThan(0);
+    expect(screen.getByText("8")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
   });
 
   it("renders a localized routing link aria-label when the saved locale is Chinese", () => {

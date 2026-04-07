@@ -34,7 +34,7 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
           <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.requestCount24h)} />
           <TooltipRow
             label={messages.dashboard.routing24hSuccessfulRequests}
-            value={formatNumber(chartPayload.trafficRequestCount24h)}
+            value={formatNumber(chartPayload.successCount24h)}
           />
           {chartPayload.kind === "model" ? (
             <TooltipRow label={messages.requestLogs.view} value={messages.dashboard.routingActionOpenModelDetail} />
@@ -76,11 +76,11 @@ export function RoutingDiagramTooltip({ active, payload }: RoutingDiagramTooltip
             label={messages.dashboard.routing24hSuccessRate}
             value={formattedSuccessRate}
           />
-          <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.requestCount24h)} />
+          <TooltipRow label={messages.dashboard.routing24hTotalRequests} value={formatNumber(chartPayload.trafficRequestCount24h)} />
           <TooltipRow label={messages.dashboard.routingActiveConnections} value={formatNumber(chartPayload.activeConnectionCount)} />
           <TooltipRow
             label={messages.dashboard.routing24hSuccessfulRequests}
-            value={formatNumber(chartPayload.trafficRequestCount24h)}
+            value={formatNumber(chartPayload.successCount24h)}
           />
           <TooltipRow label={messages.dashboard.routing24hErrors} value={formatNumber(chartPayload.errorCount24h)} />
         </div>

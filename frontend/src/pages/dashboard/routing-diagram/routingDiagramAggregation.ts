@@ -55,16 +55,16 @@ export function buildRoutingDiagramData({
     const modelLabel = model.display_name?.trim() || model.model_id;
 
     for (const connection of connections) {
-      if (!connection.is_active) {
-        continue;
-      }
-
       const edgeKey = buildEdgeKey(model.model_id, connection.endpoint_id);
       const existing = edgeMap.get(edgeKey);
 
       if (existing) {
-        existing.connectionIds.push(connection.id);
-        existing.activeConnectionCount += 1;
+        if (!existing.connectionIds.includes(connection.id)) {
+          existing.connectionIds.push(connection.id);
+        }
+        if (connection.is_active) {
+          existing.activeConnectionCount += 1;
+        }
         connectionToEdgeKey.set(connection.id, edgeKey);
         continue;
       }
@@ -76,7 +76,7 @@ export function buildRoutingDiagramData({
         endpointId: connection.endpoint_id,
         endpointLabel: getEndpointLabel(connection),
         connectionIds: [connection.id],
-        activeConnectionCount: 1,
+        activeConnectionCount: connection.is_active ? 1 : 0,
         trafficRequestCount24h: 0,
         requestCount24h: 0,
         successCount24h: 0,

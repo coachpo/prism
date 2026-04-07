@@ -11,7 +11,7 @@ export function getRoutingDiagramChartData(
   data: RoutingDiagramData,
 ): { nodes: RoutingDiagramChartNode[]; links: RoutingDiagramChartLink[] } {
   const filteredLinks = data.links
-    .filter((link) => link.activeConnectionCount > 0)
+    .filter(shouldKeepLink)
     .sort(compareLinksByPriority);
 
   if (filteredLinks.length === 0) {
@@ -42,6 +42,14 @@ export function getRoutingDiagramChartData(
       value: Math.max(link.activeConnectionCount, 1),
     })),
   };
+}
+
+function shouldKeepLink(link: RoutingDiagramLink): boolean {
+  return (
+    link.activeConnectionCount > 0 ||
+    link.requestCount24h > 0 ||
+    link.trafficRequestCount24h > 0
+  );
 }
 
 export function getRoutingDiagramEmptyState(
