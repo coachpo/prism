@@ -6,9 +6,10 @@ from typing import Literal, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from fastapi import WebSocket, status
+from fastapi import WebSocket, WebSocketDisconnect, status
 
 import app.services.stats.logging as stats_logging
+from app.main import app
 from app.models.models import ModelConfig, RequestLog
 from app.routers.proxy_domains.attempt_outcome_reporting import record_attempt_audit
 from app.routers.realtime import SUPPORTED_REALTIME_CHANNELS, websocket_endpoint
@@ -86,6 +87,12 @@ def as_websocket(mock_websocket: MockWebSocket) -> WebSocket:
 
 def test_supported_realtime_channels_only_include_dashboard():
     assert SUPPORTED_REALTIME_CHANNELS == {"dashboard"}
+
+
+def test_realtime_debug_stats_route_is_not_registered() -> None:
+    assert "/api/realtime/stats" not in {
+        getattr(route, "path", None) for route in app.routes
+    }
 
 
 @pytest.mark.asyncio
@@ -306,6 +313,69 @@ async def test_websocket_endpoint_rejects_token_version_mismatch():
     connection.send_json.assert_not_awaited()
     disconnect_mock.assert_awaited_once_with("c1")
     websocket.receive_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_websocket_endpoint_subscribe_enqueues_pending_dashboard_update():
+    websocket = as_websocket(MockWebSocket())
+    websocket.cookies = {}
+    websocket.close = AsyncMock()
+    websocket.receive_json = AsyncMock(
+        side_effect=[
+            {"type": "subscribe", "profile_id": 7, "channel": "dashboard"},
+            WebSocketDisconnect(),
+        ]
+    )
+
+    connection = MagicMock()
+    connection.authenticated = False
+    connection.send_json = AsyncMock(return_value=True)
+    db = AsyncMock()
+    settings_row = SimpleNamespace(
+        auth_enabled=False,
+        username="operator",
+        id=1,
+        token_version=1,
+    )
+
+    with (
+        patch(
+            "app.routers.realtime.connection_manager.connect",
+            AsyncMock(return_value="c1"),
+        ),
+        patch(
+            "app.routers.realtime.connection_manager.get_connection",
+            MagicMock(return_value=connection),
+        ),
+        patch(
+            "app.routers.realtime.connection_manager.disconnect", AsyncMock()
+        ) as disconnect_mock,
+        patch(
+            "app.routers.realtime.connection_manager.subscribe",
+            AsyncMock(return_value=True),
+        ) as subscribe_mock,
+        patch(
+            "app.routers.realtime.get_settings",
+            MagicMock(return_value=SimpleNamespace(auth_cookie_name="auth_cookie")),
+        ),
+        patch(
+            "app.routers.realtime.get_or_create_app_auth_settings",
+            AsyncMock(return_value=settings_row),
+        ),
+        patch(
+            "app.routers.realtime.get_profile_by_id",
+            AsyncMock(return_value=SimpleNamespace(id=7)),
+        ),
+        patch(
+            "app.routers.realtime.enqueue_pending_dashboard_update",
+            MagicMock(),
+        ) as enqueue_pending,
+    ):
+        await websocket_endpoint(websocket=websocket, db=db)
+
+    subscribe_mock.assert_awaited_once_with("c1", 7, "dashboard")
+    enqueue_pending.assert_called_once_with(profile_id=7)
+    disconnect_mock.assert_awaited_once_with("c1")
 
 
 @pytest.mark.asyncio
@@ -637,17 +707,17 @@ async def test_build_dashboard_update_message_preserves_full_request_log_payload
 async def test_broadcast_dashboard_update_skips_work_without_dashboard_subscribers() -> (
     None
 ):
-    session_factory = MagicMock()
+    broadcast_session = AsyncMock()
+    broadcast_session.get = AsyncMock(return_value=SimpleNamespace(profile_id=11))
     build_dashboard_update_message = AsyncMock()
+    build_dashboard_update_message.return_value = {"type": "dashboard.update"}
     broadcast = AsyncMock()
 
     with (
         patch(
-            "app.services.stats.logging.connection_manager.has_subscribers",
-            MagicMock(return_value=False),
-            create=True,
-        ) as has_subscribers,
-        patch("app.core.database.AsyncSessionLocal", session_factory),
+            "app.core.database.AsyncSessionLocal",
+            return_value=make_session_context(broadcast_session),
+        ),
         patch(
             "app.services.stats.logging.build_dashboard_update_message",
             build_dashboard_update_message,
@@ -662,10 +732,13 @@ async def test_broadcast_dashboard_update_skips_work_without_dashboard_subscribe
             profile_id=11,
         )
 
-    has_subscribers.assert_called_once_with(profile_id=11, channel="dashboard")
-    session_factory.assert_not_called()
-    build_dashboard_update_message.assert_not_awaited()
-    broadcast.assert_not_awaited()
+    broadcast_session.get.assert_awaited_once()
+    build_dashboard_update_message.assert_awaited_once()
+    broadcast.assert_awaited_once_with(
+        profile_id=11,
+        channel="dashboard",
+        message={"type": "dashboard.update"},
+    )
 
 
 @pytest.mark.asyncio
@@ -833,6 +906,7 @@ async def test_enqueue_dashboard_update_broadcast_skips_debounce_worker_without_
     )
     manager = BackgroundTaskManager(worker_count=1, sleep_fn=sleep_mock)
     await manager.start()
+    monkeypatch_latest = {}
     unrelated_completed = asyncio.Event()
     broadcast = AsyncMock()
 
@@ -841,6 +915,12 @@ async def test_enqueue_dashboard_update_broadcast_skips_debounce_worker_without_
 
     with (
         patch("app.services.stats.logging.background_task_manager", manager),
+        patch.object(
+            stats_logging,
+            "_dashboard_update_latest_request_log_ids",
+            monkeypatch_latest,
+            create=True,
+        ),
         patch(
             "app.services.stats.logging.connection_manager.has_subscribers",
             MagicMock(return_value=False),
@@ -870,10 +950,75 @@ async def test_enqueue_dashboard_update_broadcast_skips_debounce_worker_without_
     sleep_mock.assert_not_awaited()
     broadcast.assert_not_awaited()
     assert unrelated_completed.is_set() is True
+    assert monkeypatch_latest == {11: 101}
     assert metrics.total_enqueued == 1
     assert metrics.total_completed == 1
     assert metrics.terminal_failures_total == 0
     assert metrics.last_failure is None
+
+
+@pytest.mark.asyncio
+async def test_enqueue_pending_dashboard_update_enqueues_latest_update_after_subscribe() -> (
+    None
+):
+    enqueued_jobs = []
+    monkeypatch_latest = {11: 101}
+    monkeypatch_pending = set()
+    broadcast = AsyncMock()
+
+    def capture_enqueue(*, name, run, max_retries=0, retry_delay_seconds=0.0):
+        enqueued_jobs.append(
+            {
+                "name": name,
+                "run": run,
+                "max_retries": max_retries,
+                "retry_delay_seconds": retry_delay_seconds,
+            }
+        )
+
+    with (
+        patch.object(
+            stats_logging,
+            "_dashboard_update_latest_request_log_ids",
+            monkeypatch_latest,
+            create=True,
+        ),
+        patch.object(
+            stats_logging,
+            "_dashboard_update_enqueued_profiles",
+            monkeypatch_pending,
+            create=True,
+        ),
+        patch(
+            "app.services.stats.logging.background_task_manager.enqueue",
+            MagicMock(side_effect=capture_enqueue),
+        ) as enqueue,
+        patch(
+            "app.services.stats.logging.connection_manager.has_subscribers",
+            MagicMock(return_value=True),
+            create=True,
+        ),
+        patch(
+            "app.services.stats.logging.broadcast_dashboard_update_for_request_log",
+            broadcast,
+        ),
+        patch(
+            "app.services.stats.logging.get_settings",
+            MagicMock(
+                return_value=SimpleNamespace(dashboard_update_debounce_seconds=0.0)
+            ),
+            create=True,
+        ),
+    ):
+        stats_logging.enqueue_pending_dashboard_update(profile_id=11)
+
+        enqueue.assert_called_once()
+        assert enqueued_jobs[0]["name"] == "dashboard-update:11:101"
+        assert monkeypatch_pending == {11}
+
+        await enqueued_jobs[0]["run"]()
+
+    assert broadcast.await_args_list == [call(request_log_id=101, profile_id=11)]
 
 
 @pytest.mark.asyncio

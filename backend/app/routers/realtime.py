@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.dependencies import get_db
 from app.models.domains.identity import Profile
 from app.services.auth_service import get_or_create_app_auth_settings
+from app.services.stats.logging import enqueue_pending_dashboard_update
 from app.services.realtime.connection_manager import connection_manager
 from sqlalchemy import select
 
@@ -165,6 +166,7 @@ async def websocket_endpoint(
                 )
 
                 if success:
+                    enqueue_pending_dashboard_update(profile_id=profile_id)
                     if not await _send_or_stop(
                         connection,
                         {
@@ -250,9 +252,3 @@ async def websocket_endpoint(
         logger.exception("WebSocket error for connection %s", connection_id)
     finally:
         await connection_manager.disconnect(connection_id)
-
-
-@router.get("/stats")
-async def get_realtime_stats():
-    """Get realtime connection statistics (for debugging)."""
-    return connection_manager.get_stats()

@@ -75,7 +75,6 @@ async def _debounce_dashboard_update_enqueue(*, profile_id: int) -> None:
             profile_id=profile_id,
             channel="dashboard",
         ):
-            _dashboard_update_latest_request_log_ids.pop(profile_id, None)
             return
 
         _enqueue_dashboard_update_worker(
@@ -298,12 +297,6 @@ async def broadcast_dashboard_update_for_request_log(
     request_log_id: int,
     profile_id: int,
 ) -> None:
-    if not connection_manager.has_subscribers(
-        profile_id=profile_id,
-        channel="dashboard",
-    ):
-        return
-
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
@@ -392,7 +385,33 @@ def enqueue_dashboard_update_broadcast(
         profile_id=profile_id,
         channel="dashboard",
     ):
-        _dashboard_update_latest_request_log_ids.pop(profile_id, None)
+        return
+
+    if debounce_seconds > 0:
+        _dashboard_update_debounce_tasks[profile_id] = asyncio.create_task(
+            _debounce_dashboard_update_enqueue(profile_id=profile_id)
+        )
+        return
+
+    _enqueue_dashboard_update_worker(
+        profile_id=profile_id,
+        request_log_id=request_log_id,
+    )
+
+
+def enqueue_pending_dashboard_update(*, profile_id: int) -> None:
+    request_log_id = _dashboard_update_latest_request_log_ids.get(profile_id)
+    if request_log_id is None or profile_id in _dashboard_update_enqueued_profiles:
+        return
+
+    debounce_seconds = get_settings().dashboard_update_debounce_seconds
+    if debounce_seconds > 0 and profile_id in _dashboard_update_debounce_tasks:
+        return
+
+    if not connection_manager.has_subscribers(
+        profile_id=profile_id,
+        channel="dashboard",
+    ):
         return
 
     if debounce_seconds > 0:
