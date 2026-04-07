@@ -108,6 +108,13 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("link", { name: "Loadbalance Strategies" })).toBeInTheDocument();
   });
 
+  it("hides the statistics navigation entry while keeping the rest of the observability group", async () => {
+    await renderSidebar();
+
+    expect(screen.queryByRole("link", { name: "Statistics" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Request Logs" })).toBeInTheDocument();
+  });
+
   it("keeps the current route visible inside the sidebar shell", async () => {
     await renderSidebar({ path: "/request-logs" });
 

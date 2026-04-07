@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3,
   Coins,
   FileText,
   KeyRound,
@@ -46,6 +45,7 @@ export interface ShellRouteMetadata {
   id: ShellRouteId;
   pathPattern: string;
   profileScoped: boolean;
+  routeLabelKey?: NavLabelKey;
   sidebarItemId: ShellSidebarItemId;
   sidebarItem?: ShellSidebarItemDefinition;
 }
@@ -126,13 +126,7 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
     id: "statistics",
     pathPattern: "/statistics",
     profileScoped: true,
-    sidebarItem: {
-      groupId: "observability",
-      icon: BarChart3,
-      id: "statistics",
-      labelKey: "statistics",
-      to: "/statistics",
-    },
+    routeLabelKey: "statistics",
     sidebarItemId: "statistics",
   },
   {
