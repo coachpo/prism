@@ -41,8 +41,10 @@ describe("DeleteProxyKeyDialog", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Delete Proxy API Key" })).toBeInTheDocument();
-    expect(screen.getByText(/Primary runtime key/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Primary runtime key/)).toHaveLength(2);
     expect(screen.getByText(/Confirm the prefix prism before continuing/)).toBeInTheDocument();
+    expect(screen.getByText(/prism_\*+/)).toBeInTheDocument();
+    expect(screen.getByText(/Used by the primary ingress/)).toBeInTheDocument();
   });
 
   it("renders localized delete dialog copy when the saved locale is Chinese", () => {

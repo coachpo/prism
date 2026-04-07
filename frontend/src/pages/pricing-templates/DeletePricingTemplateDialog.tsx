@@ -1,13 +1,14 @@
 import { Button } from "@/components/ui/button";
-import { useLocale } from "@/i18n/useLocale";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -16,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate, PricingTemplateConnectionUsageItem } from "@/lib/types";
 
 interface DeletePricingTemplateDialogProps {
@@ -44,6 +46,13 @@ export function DeletePricingTemplateDialog({
   const { formatNumber, messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
   const dialogTemplate = deletePricingTemplateConfirm ?? displayTemplate;
+  const dependencyRows = deletePricingTemplateConflict ?? pricingTemplateUsageRows;
+  const hasDependencies = dependencyRows.length > 0;
+  const deleteDisabled =
+    pricingTemplateDeleting ||
+    pricingTemplateUsageLoading ||
+    pricingTemplateUsageError ||
+    hasDependencies;
 
   return (
     <Dialog
@@ -54,7 +63,7 @@ export function DeletePricingTemplateDialog({
         }
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100vh-2rem)] sm:max-w-3xl" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{copy.deletePricingTemplate}</DialogTitle>
           <DialogDescription>
@@ -62,67 +71,94 @@ export function DeletePricingTemplateDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {pricingTemplateUsageLoading ? (
-          <div className="py-4">
-            <div className="h-10 animate-pulse rounded-md bg-muted/50" />
-          </div>
-        ) : pricingTemplateUsageError ? (
-          <div className="space-y-4 py-4">
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {messages.pricingTemplatesData.loadUsageFailed}
-            </div>
-          </div>
-        ) : deletePricingTemplateConflict ? (
-          <div className="space-y-4 py-4">
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {copy.deletePricingTemplateInUse(formatNumber(deletePricingTemplateConflict.length))}
-            </div>
-            <div className="max-h-[200px] overflow-y-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{copy.model}</TableHead>
-                    <TableHead>{copy.endpoint}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {deletePricingTemplateConflict.map((row) => (
-                    <TableRow key={row.connection_id}>
-                      <TableCell className="font-medium">{row.model_id}</TableCell>
-                      <TableCell>{row.endpoint_name}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        ) : pricingTemplateUsageRows.length > 0 ? (
-          <div className="space-y-4 py-4">
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {copy.deletePricingTemplateInUse(formatNumber(pricingTemplateUsageRows.length))}
-            </div>
-          </div>
-        ) : (
-          <div className="py-4">
-            <p className="text-sm">{messages.vendorManagement.thisActionCannotBeUndone}</p>
-          </div>
-        )}
+        <DialogBody className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-full flex-col gap-4">
+            {dialogTemplate ? (
+              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-foreground">{messages.settingsDialogs.deletionSummary}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium text-foreground">{dialogTemplate.name}</p>
+                    <code className="inline-flex items-center rounded-md border bg-background px-2 py-1 text-xs font-medium text-foreground">
+                      v{dialogTemplate.version}
+                    </code>
+                    <code className="inline-flex items-center rounded-md border bg-background px-2 py-1 text-xs font-medium text-foreground">
+                      {dialogTemplate.pricing_currency_code}
+                    </code>
+                  </div>
+                  {dialogTemplate.description ? (
+                    <p className="text-sm text-muted-foreground">{dialogTemplate.description}</p>
+                  ) : null}
+                </div>
 
-        <DialogFooter>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.currency}</p>
+                    <p className="text-sm text-foreground">{dialogTemplate.pricing_currency_code}</p>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.input}</p>
+                    <p className="text-sm text-foreground">{dialogTemplate.input_price}</p>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.output}</p>
+                    <p className="text-sm text-foreground">{dialogTemplate.output_price}</p>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <p className="text-sm text-muted-foreground">{messages.vendorManagement.thisActionCannotBeUndone}</p>
+              </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {pricingTemplateUsageLoading ? (
+                <div className="flex flex-col gap-3 py-1">
+                  <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+                  <div className="h-32 animate-pulse rounded-md bg-muted/35" />
+                </div>
+              ) : pricingTemplateUsageError ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {messages.pricingTemplatesData.loadUsageFailed}
+                </div>
+              ) : hasDependencies ? (
+                <div className="flex flex-col gap-4 py-1">
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                    {copy.deletePricingTemplateInUse(formatNumber(dependencyRows.length))}
+                  </div>
+
+                  <div className="overflow-hidden rounded-lg border">
+                    <div className="max-h-[260px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{copy.model}</TableHead>
+                            <TableHead>{copy.endpoint}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {dependencyRows.map((row) => (
+                            <TableRow key={row.connection_id}>
+                              <TableCell className="font-medium">{row.model_id}</TableCell>
+                              <TableCell>{row.endpoint_name}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </DialogBody>
+
+        <DialogFooter className="sm:justify-between">
           <Button variant="outline" onClick={onClose}>
             {messages.settingsDialogs.cancel}
           </Button>
-          <Button
-            variant="destructive"
-            onClick={() => void onDelete()}
-            disabled={
-              pricingTemplateDeleting ||
-              pricingTemplateUsageLoading ||
-              pricingTemplateUsageError ||
-              (deletePricingTemplateConflict !== null && deletePricingTemplateConflict.length > 0) ||
-              pricingTemplateUsageRows.length > 0
-            }
-          >
+          <Button variant="destructive" onClick={() => void onDelete()} disabled={deleteDisabled}>
             {pricingTemplateDeleting ? messages.settingsDialogs.deleting : messages.settingsDialogs.delete}
           </Button>
         </DialogFooter>

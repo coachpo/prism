@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { useLocale } from "@/i18n/useLocale";
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate, PricingTemplateConnectionUsageItem } from "@/lib/types";
 
 interface PricingTemplateUsageDialogProps {
@@ -33,56 +34,95 @@ export function PricingTemplateUsageDialog({
   pricingTemplateUsageRows,
   pricingTemplateUsageTemplate,
 }: PricingTemplateUsageDialogProps) {
-  const { messages } = useLocale();
+  const { formatNumber, messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{copy.templateUsage}</DialogTitle>
           <DialogDescription>{copy.templateUsageDescription(pricingTemplateUsageTemplate?.name ?? "")}</DialogDescription>
         </DialogHeader>
-        <div className="py-4">
-          {pricingTemplateUsageLoading ? (
-            <div className="space-y-2">
-              <div className="h-10 animate-pulse rounded-md bg-muted/50" />
-              <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+
+        <DialogBody className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-full flex-col gap-4">
+            {pricingTemplateUsageTemplate ? (
+              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium text-foreground">{pricingTemplateUsageTemplate.name}</p>
+                    <code className="inline-flex items-center rounded-md border bg-background px-2 py-1 text-xs font-medium text-foreground">
+                      v{pricingTemplateUsageTemplate.version}
+                    </code>
+                    <code className="inline-flex items-center rounded-md border bg-background px-2 py-1 text-xs font-medium text-foreground">
+                      {pricingTemplateUsageTemplate.pricing_currency_code}
+                    </code>
+                  </div>
+                  {pricingTemplateUsageTemplate.description ? (
+                    <p className="text-sm text-muted-foreground">{pricingTemplateUsageTemplate.description}</p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.currency}</p>
+                    <p className="text-sm text-foreground">{pricingTemplateUsageTemplate.pricing_currency_code}</p>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{messages.requestLogs.connection}</p>
+                    <p className="text-sm text-foreground">{formatNumber(pricingTemplateUsageRows.length)}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {pricingTemplateUsageLoading ? (
+                <div className="flex flex-col gap-3 py-1">
+                  <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+                  <div className="h-10 animate-pulse rounded-md bg-muted/50" />
+                </div>
+              ) : pricingTemplateUsageRows.length === 0 ? (
+                <div className="rounded-md border border-dashed p-8 text-center">
+                  <p className="text-sm text-muted-foreground">{copy.templateUnused}</p>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-lg border">
+                  <div className="max-h-[320px] overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{copy.model}</TableHead>
+                          <TableHead>{copy.endpoint}</TableHead>
+                          <TableHead>{messages.requestLogs.connection}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pricingTemplateUsageRows.map((row) => (
+                          <TableRow key={row.connection_id}>
+                            <TableCell className="font-medium">{row.model_id}</TableCell>
+                            <TableCell>{row.endpoint_name}</TableCell>
+                            <TableCell>
+                              {row.connection_name || (
+                                <span className="italic text-muted-foreground">{copy.unnamed}</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
             </div>
-          ) : pricingTemplateUsageRows.length === 0 ? (
-            <div className="rounded-md border border-dashed p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                {copy.templateUnused}
-              </p>
-            </div>
-          ) : (
-            <div className="max-h-[400px] overflow-y-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{copy.model}</TableHead>
-                    <TableHead>{copy.endpoint}</TableHead>
-                    <TableHead>{messages.requestLogs.connection}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pricingTemplateUsageRows.map((row) => (
-                    <TableRow key={row.connection_id}>
-                      <TableCell className="font-medium">{row.model_id}</TableCell>
-                      <TableCell>{row.endpoint_name}</TableCell>
-                        <TableCell>
-                          {row.connection_name || (
-                          <span className="text-muted-foreground italic">{copy.unnamed}</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>{copy.close}</Button>
+          </div>
+        </DialogBody>
+
+        <DialogFooter className="sm:justify-between">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {copy.close}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

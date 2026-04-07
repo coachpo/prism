@@ -39,6 +39,7 @@ describe("PricingTemplateDialog i18n", () => {
     expect(screen.getByRole("button", { name: "保存模板" })).toBeInTheDocument();
     expect(screen.getByLabelText("货币代码")).toBeInTheDocument();
     expect(screen.getByLabelText("描述（可选）")).toBeInTheDocument();
+    expect(screen.getByText("主费率表")).toBeInTheDocument();
     expect(screen.getByText("特殊令牌缺失定价策略")).toBeInTheDocument();
     expect(
       screen.getByText("若未设置特殊令牌（如推理令牌）的专用价格，则按此策略计费。"),
