@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SHELL_ROUTE_METADATA } from "@/components/layout/app-layout/navigationProfileConfig";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 
-const { authState } = vi.hoisted(() => ({
+const { authProviderBootstrapModes, authState } = vi.hoisted(() => ({
+  authProviderBootstrapModes: [] as string[],
   authState: {
     authEnabled: true,
     authenticated: true,
@@ -21,7 +22,10 @@ vi.mock("@/context/useAuth", () => ({
 }));
 
 vi.mock("@/context/AuthContext", () => ({
-  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthProvider: ({ bootstrapMode, children }: { bootstrapMode?: string; children: React.ReactNode }) => {
+    authProviderBootstrapModes.push(bootstrapMode ?? "full");
+    return <>{children}</>;
+  },
 }));
 
 vi.mock("@/context/ProfileContext", () => ({
@@ -99,6 +103,7 @@ async function renderAppRoute(path: string) {
 
 describe("App protected route smoke", () => {
   beforeEach(() => {
+    authProviderBootstrapModes.length = 0;
     authState.authEnabled = true;
     authState.authenticated = true;
     authState.loading = false;
@@ -124,6 +129,27 @@ describe("App protected route smoke", () => {
     expect(await screen.findByText("protected-shell")).toBeInTheDocument();
     expect(await screen.findByText("dashboard-landmark")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/dashboard");
+
+    view.unmount();
+  });
+
+  it("uses the public auth bootstrap mode for public auth routes", async () => {
+    authState.authEnabled = true;
+    authState.authenticated = false;
+
+    const view = await renderAppRoute("/login");
+
+    expect(await screen.findByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
+    expect(new Set(authProviderBootstrapModes)).toEqual(new Set(["public"]));
+
+    view.unmount();
+  });
+
+  it("uses the full auth bootstrap mode for protected routes", async () => {
+    const view = await renderAppRoute("/dashboard");
+
+    expect(await screen.findByText("dashboard-landmark")).toBeInTheDocument();
+    expect(new Set(authProviderBootstrapModes)).toEqual(new Set(["full"]));
 
     view.unmount();
   });
