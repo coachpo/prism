@@ -2,7 +2,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Literal, cast
+from typing import Any, Literal, Union, cast
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -55,15 +55,15 @@ def make_failover_policy(**overrides):
             overrides.get("failover_status_codes", DEFAULT_FAILOVER_STATUS_CODES),
         ),
         base_open_seconds=int(
-            cast(float | int, overrides.get("failover_cooldown_seconds", 30.0))
+            cast(Union[float, int], overrides.get("failover_cooldown_seconds", 30.0))
         ),
         failure_threshold=cast(int, overrides.get("failover_failure_threshold", 2)),
         backoff_multiplier=float(
-            cast(float | int, overrides.get("failover_backoff_multiplier", 2.0))
+            cast(Union[float, int], overrides.get("failover_backoff_multiplier", 2.0))
         ),
         max_open_seconds=cast(int, overrides.get("failover_max_cooldown_seconds", 900)),
         jitter_ratio=float(
-            cast(float | int, overrides.get("failover_jitter_ratio", 0.2))
+            cast(Union[float, int], overrides.get("failover_jitter_ratio", 0.2))
         ),
         ban_mode=cast(
             Literal["off", "temporary", "manual"],
@@ -151,7 +151,7 @@ async def test_broadcast_to_profile_removes_connection_when_send_fails():
         {"type": "dashboard.update"},
     )
 
-    assert delivered == 1
+    assert delivered == 0
     assert manager.get_connection(connection_id) is None
     assert (7, "dashboard") not in manager.rooms
     assert send_json.await_count == 1
@@ -318,7 +318,7 @@ async def test_websocket_endpoint_rejects_token_version_mismatch():
 @pytest.mark.asyncio
 async def test_websocket_endpoint_subscribe_enqueues_pending_dashboard_update():
     websocket = as_websocket(MockWebSocket())
-    websocket.cookies = {}
+    cast(Any, websocket).cookies = {}
     websocket.close = AsyncMock()
     websocket.receive_json = AsyncMock(
         side_effect=[
@@ -399,7 +399,7 @@ async def test_broadcast_to_profile_does_not_retry_stale_connection_after_failed
         {"type": "dashboard.update", "seq": 2},
     )
 
-    assert first_delivered == 1
+    assert first_delivered == 0
     assert second_delivered == 0
     assert manager.get_connection(connection_id) is None
     assert (7, "dashboard") not in manager.rooms

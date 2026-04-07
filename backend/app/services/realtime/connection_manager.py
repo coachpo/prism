@@ -141,6 +141,7 @@ class ConnectionManager:
             return 0
 
         failed_connection_ids = set(stale_connection_ids)
+        successful_delivery_count = 0
         if active_connections:
             results = await asyncio.gather(
                 *(
@@ -149,8 +150,10 @@ class ConnectionManager:
                 ),
                 return_exceptions=True,
             )
-            for (conn_id, _), result in zip(active_connections, results, strict=False):
-                if result is not True:
+            for (conn_id, _), result in zip(active_connections, results):
+                if result is True:
+                    successful_delivery_count += 1
+                else:
                     failed_connection_ids.add(conn_id)
 
         if failed_connection_ids:
@@ -160,9 +163,9 @@ class ConnectionManager:
             "Broadcasted to profile=%d channel=%s: %d connections",
             profile_id,
             channel,
-            len(connection_ids),
+            successful_delivery_count,
         )
-        return len(connection_ids)
+        return successful_delivery_count
 
     async def send_to_connection(
         self, connection_id: str, message: dict[str, Any]
