@@ -154,6 +154,7 @@ export interface Messages {
     autoRecoveryDisabledOption: string;
     autoRecoveryEnabledOption: string;
     autoRecoveryLabel: string;
+    basicsSectionTitle: string;
     banDurationDescription: string;
     banDurationLabel: string;
     banModeDescription: string;
@@ -183,10 +184,12 @@ export interface Messages {
     nameLabel: string;
     namePlaceholder: string;
     removeStatusCode: (code: number) => string;
+    reliabilityControlsSectionTitle: string;
     routingPolicyLabel: string;
     save: string;
     saving: string;
     strategyFamilyLabel: string;
+    strategyBehaviorSectionTitle: string;
     strategyTypeLabel: string;
   };
   loadbalanceStrategyCopy: {
@@ -1637,6 +1640,7 @@ export const enMessages: Messages = {
     autoRecoveryDisabledOption: "Disabled",
     autoRecoveryEnabledOption: "Enabled",
     autoRecoveryLabel: "Auto Recovery",
+    basicsSectionTitle: "Basics",
     banDurationDescription:
       "How long a temporary ban lasts before the connection becomes probe-eligible again.",
     banDurationLabel: "Ban Duration (seconds)",
@@ -1653,7 +1657,7 @@ export const enMessages: Messages = {
       "Starting open window applied after transient failures once the threshold is reached.",
     baseCooldownLabel: "Base Open Window (seconds)",
     cancel: "Cancel",
-    description: "Configure reusable legacy load-balance strategies for native models in this profile.",
+    description: "Configure reusable load-balance strategies for native models in this profile.",
     editTitle: "Edit Loadbalance Strategy",
     explainField: (label) => `Explain ${label}`,
     failureThresholdDescription:
@@ -1675,10 +1679,12 @@ export const enMessages: Messages = {
     nameLabel: "Name",
     namePlaceholder: "e.g. round-robin-primary",
     removeStatusCode: (code) => `Remove status code ${code}`,
+    reliabilityControlsSectionTitle: "Reliability Controls",
     routingPolicyLabel: "Routing Policy",
     save: "Save Strategy",
     saving: "Saving...",
     strategyFamilyLabel: "Strategy Family",
+    strategyBehaviorSectionTitle: "Strategy Behavior",
     strategyTypeLabel: "Strategy Type",
   },
   loadbalanceStrategyCopy: {
