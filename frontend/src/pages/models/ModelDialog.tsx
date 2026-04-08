@@ -238,7 +238,6 @@ export function ModelDialog({
 
               <SwitchController
                 label={detailCopy.enabled}
-                description={copy.routingTypeDescription}
                 checked={formData.is_enabled}
                 onCheckedChange={(checked) =>
                   setFormData((prev) => ({
