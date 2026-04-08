@@ -20,7 +20,7 @@ from app.services.loadbalancer.policy import (
     serialize_routing_policy,
 )
 
-from .common import ApiFamily, AuthType
+from .common import ApiFamily, AuthType, OpenAIProbeEndpointVariant
 from .endpoint_pricing import (
     ConnectionPricingTemplateSummary,
     EndpointCreate,
@@ -34,6 +34,7 @@ class ConnectionBase(BaseModel):
     name: str | None = None
     auth_type: AuthType | None = None
     custom_headers: dict[str, str] | None = None
+    openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | None = None
     pricing_template_id: int | None = None
     qps_limit: int | None = Field(default=None, ge=1)
     max_in_flight_non_stream: int | None = Field(default=None, ge=1)
@@ -66,6 +67,7 @@ class ConnectionUpdate(BaseModel):
     name: str | None = None
     auth_type: AuthType | None = None
     custom_headers: dict[str, str] | None = None
+    openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | None = None
     pricing_template_id: int | None = None
     qps_limit: int | None = Field(default=None, ge=1)
     max_in_flight_non_stream: int | None = Field(default=None, ge=1)
@@ -93,6 +95,7 @@ class ConnectionResponse(BaseModel):
     name: str | None
     auth_type: AuthType | None
     custom_headers: dict[str, str] | None
+    openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | None
     pricing_template_id: int | None
     qps_limit: int | None = None
     max_in_flight_non_stream: int | None = None

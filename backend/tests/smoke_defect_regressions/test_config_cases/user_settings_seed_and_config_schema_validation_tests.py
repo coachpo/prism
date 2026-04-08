@@ -675,6 +675,7 @@ class TestDEF006_ConfigExportImportFieldCoverage:
             "name",
             "auth_type",
             "custom_headers",
+            "openai_probe_endpoint_variant",
             "qps_limit",
             "max_in_flight_non_stream",
             "max_in_flight_stream",
@@ -686,6 +687,7 @@ class TestDEF006_ConfigExportImportFieldCoverage:
 
         fields = set(ConnectionResponse.model_fields.keys())
         expected = {
+            "openai_probe_endpoint_variant",
             "qps_limit",
             "max_in_flight_non_stream",
             "max_in_flight_stream",

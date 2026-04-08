@@ -520,14 +520,17 @@ class TestMonitoringManualHealthChecksAndPersistence:
                 monitoring_probe_interval_seconds=180,
             )
 
-    def test_connection_create_rejects_openai_probe_variant_field(self):
+    def test_connection_create_accepts_openai_probe_variant_field(self):
         from app.schemas.schemas import ConnectionCreate
 
-        with pytest.raises(ValidationError):
-            ConnectionCreate(
-                endpoint_id=11,
-                openai_probe_endpoint_variant="chat_completions_reasoning_none",
-            )
+        payload = ConnectionCreate(
+            endpoint_id=11,
+            openai_probe_endpoint_variant="chat_completions_reasoning_none",
+        )
+
+        assert (
+            payload.openai_probe_endpoint_variant == "chat_completions_reasoning_none"
+        )
 
     def test_connection_update_rejects_monitoring_probe_interval_field(self):
         from app.schemas.schemas import ConnectionUpdate
@@ -535,11 +538,14 @@ class TestMonitoringManualHealthChecksAndPersistence:
         with pytest.raises(ValidationError):
             ConnectionUpdate(monitoring_probe_interval_seconds=240)
 
-    def test_connection_update_rejects_openai_probe_variant_field(self):
+    def test_connection_update_accepts_openai_probe_variant_field(self):
         from app.schemas.schemas import ConnectionUpdate
 
-        with pytest.raises(ValidationError):
-            ConnectionUpdate(openai_probe_endpoint_variant="responses_reasoning_none")
+        payload = ConnectionUpdate(
+            openai_probe_endpoint_variant="responses_reasoning_none"
+        )
+
+        assert payload.openai_probe_endpoint_variant == "responses_reasoning_none"
 
 
 class TestDEF066_OpenAIHealthCheckUsesMonitoringProbeSemantics:

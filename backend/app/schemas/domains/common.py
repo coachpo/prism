@@ -7,6 +7,12 @@ _CURRENCY_CODE_RE = re.compile(r"^[A-Z]{3}$")
 
 ApiFamily = Literal["openai", "anthropic", "gemini"]
 AuthType = ApiFamily
+OpenAIProbeEndpointVariant = Literal[
+    "responses_minimal",
+    "responses_reasoning_none",
+    "chat_completions_minimal",
+    "chat_completions_reasoning_none",
+]
 
 
 def _validate_decimal_non_negative(value: str | None, field_name: str) -> str | None:
@@ -24,6 +30,7 @@ def _validate_decimal_non_negative(value: str | None, field_name: str) -> str | 
 __all__ = [
     "AuthType",
     "ApiFamily",
+    "OpenAIProbeEndpointVariant",
     "_CURRENCY_CODE_RE",
     "_HEADER_TOKEN_RE",
     "_validate_decimal_non_negative",
