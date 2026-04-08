@@ -45,6 +45,17 @@ from .proxy_request_helpers import (
 )
 
 
+def _case_insensitive_header_value(
+    headers: dict[str, str],
+    header_name: str,
+) -> str | None:
+    target_name = header_name.lower()
+    for key, value in headers.items():
+        if key.lower() == target_name:
+            return value
+    return None
+
+
 class _RequestStateWithClient(Protocol):
     http_client: httpx.AsyncClient
 
@@ -61,6 +72,7 @@ class ProxyRequestSetup:
     build_cost_fields: Callable[..., CostFieldPayload]
     client: httpx.AsyncClient
     client_headers: dict[str, str]
+    caller_user_agent: str | None
     effective_request_path: str
     endpoints_to_try: list[Connection]
     failover_policy: EffectiveLoadbalancePolicy
@@ -88,6 +100,7 @@ class ProxyRequestSetup:
 @dataclass(slots=True)
 class ProxyRoutingRejection(Exception):
     api_family: str
+    caller_user_agent: str | None
     detail: str
     ingress_request_id: str
     is_streaming: bool
@@ -128,6 +141,8 @@ async def prepare_proxy_request(
     proxy_api_key_name = (
         raw_proxy_api_key_name if isinstance(raw_proxy_api_key_name, str) else None
     )
+    client_headers = get_client_headers(request)
+    caller_user_agent = _case_insensitive_header_value(client_headers, "user-agent")
 
     requested_model_config = (
         (
@@ -160,6 +175,7 @@ async def prepare_proxy_request(
         raw_vendor_id = getattr(requested_vendor, "id", None)
         raise ProxyRoutingRejection(
             api_family=requested_model_config.api_family,
+            caller_user_agent=caller_user_agent,
             detail=str(exc),
             ingress_request_id=ingress_request_id,
             is_streaming=is_streaming,
@@ -201,7 +217,6 @@ async def prepare_proxy_request(
     vendor_name = raw_vendor_name if isinstance(raw_vendor_name, str) else None
     app = cast(_RequestAppWithClientState, request.app)
     client = app.state.http_client
-    client_headers = get_client_headers(request)
     method = request.method
     upstream_model_id = model_config.model_id
     body_model_id = extract_model_from_body(raw_body) if raw_body else None
@@ -321,6 +336,7 @@ async def prepare_proxy_request(
         build_cost_fields=build_cost_fields,
         client=client,
         client_headers=client_headers,
+        caller_user_agent=caller_user_agent,
         effective_request_path=effective_request_path,
         endpoints_to_try=endpoints_to_try,
         failover_policy=failover_policy,

@@ -86,6 +86,9 @@ class Profile(Base):
     header_blocklist_rules: Mapped[list[Any]] = relationship(
         "HeaderBlocklistRule", back_populates="profile", cascade="all, delete-orphan"
     )
+    user_agent_client_rules: Mapped[list[Any]] = relationship(
+        "UserAgentClientRule", back_populates="profile", cascade="all, delete-orphan"
+    )
     pricing_templates: Mapped[list[Any]] = relationship(
         "PricingTemplate", back_populates="profile", cascade="all, delete-orphan"
     )

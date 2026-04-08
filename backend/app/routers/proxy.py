@@ -93,6 +93,8 @@ async def _handle_proxy(
             ingress_request_id=exc.ingress_request_id,
             endpoint_base_url=None,
             endpoint_description=None,
+            caller_user_agent=exc.caller_user_agent,
+            upstream_user_agent=None,
             status_code=503,
             response_time_ms=0,
             is_stream=exc.is_streaming,

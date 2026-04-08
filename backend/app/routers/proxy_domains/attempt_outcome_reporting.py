@@ -54,6 +54,10 @@ def _lower_header_map(headers: dict[str, str] | None) -> dict[str, str]:
     return {key.lower(): value for key, value in headers.items()}
 
 
+def _extract_user_agent_header(headers: dict[str, str] | None) -> str | None:
+    return _lower_header_map(headers).get("user-agent")
+
+
 def _parse_json_object(raw_body: bytes | None) -> dict[str, object] | None:
     if not raw_body:
         return None
@@ -167,6 +171,8 @@ async def record_request_log(
             response_body=response_body,
             request_headers=target.headers,
         ),
+        caller_user_agent=state.setup.caller_user_agent,
+        upstream_user_agent=_extract_user_agent_header(target.headers),
         endpoint_base_url=endpoint.base_url,
         endpoint_description=target.description,
         status_code=status_code,
@@ -298,6 +304,7 @@ class StreamFinalizationSnapshot:
     audit_enabled: bool
     build_cost_fields: CostFieldsBuilder
     connection_id: int
+    caller_user_agent: str | None
     elapsed_ms: int
     endpoint_base_url: str
     endpoint_description: str | None
@@ -356,6 +363,7 @@ def build_stream_finalization_snapshot(
         audit_enabled=state.setup.audit_enabled,
         build_cost_fields=build_cost_fields,
         connection_id=connection.id,
+        caller_user_agent=state.setup.caller_user_agent,
         elapsed_ms=elapsed_ms,
         endpoint_base_url=endpoint.base_url,
         endpoint_description=target.description,
@@ -415,6 +423,8 @@ async def _persist_stream_request_log(
             response_body=snapshot.payload,
             request_headers=snapshot.request_headers,
         ),
+        caller_user_agent=snapshot.caller_user_agent,
+        upstream_user_agent=_extract_user_agent_header(snapshot.request_headers),
         endpoint_base_url=snapshot.endpoint_base_url,
         endpoint_description=snapshot.endpoint_description,
         status_code=snapshot.status_code,

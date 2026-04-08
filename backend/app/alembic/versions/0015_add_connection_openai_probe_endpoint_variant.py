@@ -3,7 +3,7 @@ from __future__ import annotations
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0015_add_connection_openai_probe_endpoint_variant"
+revision = "0015_openai_probe_variant"
 down_revision = "0014_widen_ingress_request_id"
 branch_labels = None
 depends_on = None

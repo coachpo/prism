@@ -42,6 +42,7 @@ class TestDEF087_ProxyUnroutableTargetRejection:
         ).encode("utf-8")
         rejection = ProxyRoutingRejection(
             api_family="openai",
+            caller_user_agent=None,
             detail="Proxy model 'empty-proxy' has no routable targets.",
             ingress_request_id="req-empty-proxy",
             is_streaming=False,
@@ -100,6 +101,7 @@ class TestDEF087_ProxyUnroutableTargetRejection:
         ).encode("utf-8")
         rejection = ProxyRoutingRejection(
             api_family="openai",
+            caller_user_agent=None,
             detail="Proxy model 'no-plan-proxy' has no routable targets.",
             ingress_request_id="req-no-plan-proxy",
             is_streaming=True,

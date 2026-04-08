@@ -58,6 +58,8 @@ class RequestLog(Base):
     provider_correlation_id: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )
+    caller_user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    upstream_user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
     endpoint_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status_code: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     response_time_ms: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -338,6 +340,42 @@ class HeaderBlocklistRule(Base):
 
     profile: Mapped[Any] = relationship(
         "Profile", back_populates="header_blocklist_rules"
+    )
+
+
+class UserAgentClientRule(Base):
+    __tablename__ = "user_agent_client_rules"
+    __table_args__ = (
+        Index(
+            "uq_uacr_system_pattern",
+            "pattern",
+            unique=True,
+            postgresql_where=text("is_system = true"),
+        ),
+        Index("idx_uacr_enabled", "enabled"),
+        CheckConstraint(
+            "((is_system = true AND profile_id IS NULL) OR (is_system = false AND profile_id IS NOT NULL))",
+            name="ck_uacr_profile_scope",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    profile: Mapped[Any] = relationship(
+        "Profile", back_populates="user_agent_client_rules"
     )
 
 

@@ -37,7 +37,7 @@ def track_detached_task(task: asyncio.Task[None], *, name: str) -> None:
 
 
 def _get_client_headers(request: Request) -> dict[str, str]:
-    return dict(request.headers)
+    return dict(request.headers.items())
 
 
 def get_client_headers(request: Request) -> dict[str, str]:

@@ -450,6 +450,8 @@ async def log_request(
     ingress_request_id: str | None = None,
     attempt_number: int | None = None,
     provider_correlation_id: str | None = None,
+    caller_user_agent: str | None = None,
+    upstream_user_agent: str | None = None,
     endpoint_base_url: str | None,
     status_code: int,
     response_time_ms: int,
@@ -506,6 +508,8 @@ async def log_request(
             ingress_request_id=ingress_request_id,
             attempt_number=attempt_number,
             provider_correlation_id=provider_correlation_id,
+            caller_user_agent=caller_user_agent,
+            upstream_user_agent=upstream_user_agent,
             endpoint_base_url=endpoint_base_url,
             status_code=status_code,
             response_time_ms=response_time_ms,
@@ -549,8 +553,11 @@ async def log_request(
             await log_db.flush()
             await log_db.refresh(entry)
 
-            try:
-                if entry.connection_id is not None:
+            await log_db.commit()
+
+        try:
+            if entry.connection_id is not None:
+                async with AsyncSessionLocal() as feedback_db:
                     await record_passive_request_outcome(
                         profile_id=entry.profile_id,
                         connection_id=entry.connection_id,
@@ -558,28 +565,27 @@ async def log_request(
                         response_time_ms=entry.response_time_ms,
                         success_flag=entry.success_flag,
                         observed_at=entry.created_at,
-                        session=log_db,
+                        session=feedback_db,
                     )
-            except Exception:
-                logger.exception(
-                    "Failed to apply live loadbalance feedback for request_log_id=%s",
-                    entry.id,
-                )
+                    await feedback_db.commit()
+        except Exception:
+            logger.exception(
+                "Failed to apply live loadbalance feedback for request_log_id=%s",
+                entry.id,
+            )
 
-            await log_db.commit()
+        try:
+            enqueue_dashboard_update_broadcast(
+                request_log_id=entry.id,
+                profile_id=entry.profile_id,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to enqueue dashboard.update payload for request_log_id=%s",
+                entry.id,
+            )
 
-            try:
-                enqueue_dashboard_update_broadcast(
-                    request_log_id=entry.id,
-                    profile_id=entry.profile_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to enqueue dashboard.update payload for request_log_id=%s",
-                    entry.id,
-                )
-
-            return entry.id
+        return entry.id
     except asyncio.CancelledError:
         logger.debug("Request logging cancelled")
         return None
