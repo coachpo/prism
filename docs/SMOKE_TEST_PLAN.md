@@ -79,7 +79,7 @@ cd backend && uv run pytest tests/ -v
 
 Prepare seed state through API (not manual DB edits):
 
-1. Vendors exist: OpenAI, Anthropic, Google, plus any extra publisher metadata rows needed for cross-vendor proxy cases.
+1. Vendors exist: OpenAI, Anthropic, Gemini, plus any extra publisher metadata rows needed for cross-vendor proxy cases.
 2. Profiles exist: A, B, C; start with A as active runtime profile.
 3. Profile-scoped Endpoints (credentials):
    - in profile A: one OpenAI endpoint

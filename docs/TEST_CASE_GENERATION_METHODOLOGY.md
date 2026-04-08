@@ -24,7 +24,7 @@ Do not generate cases for behavior that is not supported by those sources.
 The agent should always inventory Prism as these surfaces:
 
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/endpoints`, `/loadbalance-strategies`, `/statistics`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
+- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/statistics`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
 - Management APIs on `/api/*`
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Realtime dashboard updates on `/api/realtime/ws`
