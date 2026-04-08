@@ -9,7 +9,6 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -92,10 +91,9 @@ export function EndpointDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] sm:max-w-lg">
+      <DialogContent aria-describedby={undefined} className="max-h-[90vh] sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{copy.configureDetails}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="flex min-h-0 flex-col gap-5">
@@ -130,19 +128,6 @@ export function EndpointDialog({
               </div>
 
               <div className="flex flex-col gap-4 rounded-lg border p-4">
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium text-foreground">{messages.proxyApiKeys.apiKey}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {initialValues ? copy.keepStoredKey : copy.apiKeyRequired}
-                  </p>
-                </div>
-
-                {initialValues?.masked_api_key ? (
-                  <div className="rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground">{initialValues.masked_api_key}</span>
-                  </div>
-                ) : null}
-
                 <FormField
                   control={form.control}
                   name="api_key"

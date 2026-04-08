@@ -52,15 +52,9 @@ export function DeleteEndpointDialog({
                 </code>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.baseUrl}</p>
-                  <p className="break-all text-sm text-foreground">{dialogTarget.base_url}</p>
-                </div>
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{messages.proxyApiKeys.apiKey}</p>
-                  <p className="truncate text-sm text-foreground">{apiKeySummary}</p>
-                </div>
+              <div className="flex min-w-0 flex-col gap-1">
+                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{messages.proxyApiKeys.apiKey}</p>
+                <p className="truncate text-sm text-foreground">{apiKeySummary}</p>
               </div>
             </div>
           ) : null}
