@@ -95,10 +95,10 @@ def make_routing_policy_adaptive(
         "ban_duration_seconds": ban_duration_seconds,
     }
 
+    _ = deadline_budget_ms
     return {
         "kind": "adaptive",
         "routing_objective": routing_objective,
-        "deadline_budget_ms": deadline_budget_ms,
         "hedge": {
             "enabled": hedge_enabled,
             "delay_ms": hedge_delay_ms,
@@ -122,12 +122,14 @@ def make_loadbalance_strategy(
     failover_recovery_enabled: bool | None = None,
     failover_status_codes: list[int] | None = None,
     routing_policy: dict[str, object] | None = None,
+    timeout_policy: dict[str, object] | None = None,
     name: str | None = None,
 ) -> LoadbalanceStrategy:
     payload: dict[str, object] = {
         "name": name
         or f"{strategy_type or 'adaptive'}-strategy-{next(_strategy_counter)}",
         "strategy_type": "adaptive" if routing_policy is not None else "legacy",
+        "timeout_policy": timeout_policy or make_timeout_policy_shared(),
         "legacy_strategy_type": None,
         "auto_recovery": None,
         "routing_policy": routing_policy,
@@ -164,5 +166,6 @@ __all__ = [
     "make_auto_recovery_disabled",
     "make_auto_recovery_enabled",
     "make_routing_policy_adaptive",
+    "make_timeout_policy_shared",
     "make_loadbalance_strategy",
 ]

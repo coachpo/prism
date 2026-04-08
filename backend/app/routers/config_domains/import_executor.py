@@ -36,6 +36,7 @@ from app.schemas.schemas import (
 from app.services.loadbalancer.policy import (
     canonicalize_auto_recovery_document,
     canonicalize_routing_policy_document,
+    canonicalize_timeout_policy_document,
 )
 from app.services.loadbalancer.runtime_store import clear_profile_runtime_state
 from app.services.proxy_service import normalize_base_url

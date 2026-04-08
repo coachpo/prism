@@ -21,6 +21,7 @@ _DB_FREE_TEST_TARGETS = {
     "tests/test_backend_version_metadata.py",
     "tests/test_config_openapi_contract.py",
     "tests/test_docker_runtime_detection.py",
+    "tests/test_loadbalance_strategy_helpers.py",
     "tests/test_realtime_broadcast.py",
 }
 _DB_FREE_DATABASE_URL = "postgresql+asyncpg://prism:prism@localhost:5432/prism_test"

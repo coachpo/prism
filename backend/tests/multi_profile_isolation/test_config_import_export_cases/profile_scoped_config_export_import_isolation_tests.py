@@ -870,6 +870,7 @@ class TestConfigExportImportIsolation:
                     {
                         "name": "adaptive-availability",
                         "strategy_type": "adaptive",
+                        "timeout_policy": make_timeout_policy_shared(),
                         "routing_policy": make_routing_policy_adaptive(
                             routing_objective="maximize_availability",
                             failure_status_codes=[
@@ -1307,6 +1308,7 @@ class TestConfigExportImportIsolation:
                     {
                         "name": "single-primary",
                         "strategy_type": "legacy",
+                        "timeout_policy": make_timeout_policy_shared(),
                         "legacy_strategy_type": "single",
                         "auto_recovery": make_auto_recovery_disabled(),
                     }
@@ -1482,6 +1484,7 @@ class TestConfigExportImportIsolation:
                 {
                     "name": "single-primary",
                     "strategy_type": "legacy",
+                    "timeout_policy": make_timeout_policy_shared(),
                     "legacy_strategy_type": "single",
                     "auto_recovery": make_auto_recovery_disabled(),
                 }
@@ -1634,6 +1637,7 @@ class TestConfigExportImportIsolation:
                 {
                     "name": "single-primary",
                     "strategy_type": "legacy",
+                    "timeout_policy": make_timeout_policy_shared(),
                     "legacy_strategy_type": "single",
                     "auto_recovery": make_auto_recovery_disabled(),
                 }
