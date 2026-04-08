@@ -1,7 +1,7 @@
 # BACKEND BOOTSTRAP KNOWLEDGE BASE
 
 ## OVERVIEW
-`bootstrap/` owns startup sequencing and the shared auth middleware mounted by `app/main.py`. `main.py` wraps that startup sequence with lifespan-managed shared infrastructure setup and teardown, including `reconcile_all_connection_limits()` before the shared HTTP client and scheduler work, while Alembic runtime wiring lives in `../alembic/AGENTS.md`.
+`bootstrap/` owns startup sequencing and the shared auth middleware mounted by `app/main.py`. `main.py` wraps that startup sequence with lifespan-managed shared infrastructure setup and teardown, including `reconcile_all_connection_limits()` before the shared HTTP client and background-task wiring, while Alembic runtime wiring lives in `../alembic/AGENTS.md`.
 
 ## STRUCTURE
 ```
@@ -20,7 +20,7 @@ bootstrap/
 
 ## CONVENTIONS
 
-- Keep startup ordering centralized in `run_startup_sequence()`; `main.py` should call it from lifespan, then run `reconcile_all_connection_limits()` before shared client, background-task, and monitoring-scheduler startup.
+- Keep startup ordering centralized in `run_startup_sequence()`; `main.py` should call it from lifespan, then run `reconcile_all_connection_limits()` before shared client and background-task startup.
 - Keep `/api/*` cookie auth and `/v1*` plus `/v1beta*` proxy-key auth split in `auth_middleware.py`.
 - Mirror allowed origins on auth error responses when the request `Origin` is explicitly allowed.
 - Add new unauthenticated management routes to `PUBLIC_MANAGEMENT_PATHS` instead of hand-rolling route exceptions.
