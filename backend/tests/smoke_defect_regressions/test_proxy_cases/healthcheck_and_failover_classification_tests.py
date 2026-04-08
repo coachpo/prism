@@ -485,6 +485,7 @@ class TestMonitoringManualHealthChecksAndPersistence:
                     api_key="sk-inline-preview",
                 ),
                 custom_headers={"X-Test": "preview"},
+                openai_probe_endpoint_variant="chat_completions_reasoning_none",
             ),
             request=request,
             db=mock_db,
@@ -504,7 +505,7 @@ class TestMonitoringManualHealthChecksAndPersistence:
         assert probe_kwargs["connection"].profile_id == 1
         assert probe_kwargs["api_family"] == "openai"
         assert probe_kwargs["model_id"] == "gpt-5.4-mini"
-        assert probe_kwargs["openai_variant"] == "responses_minimal"
+        assert probe_kwargs["openai_variant"] == "chat_completions_reasoning_none"
         assert probe_kwargs["endpoint"].name == "Preview Endpoint"
         assert probe_kwargs["endpoint"].base_url == "https://api.openai.com"
         assert "headers" not in probe_kwargs

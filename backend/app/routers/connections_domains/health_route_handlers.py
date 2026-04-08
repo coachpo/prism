@@ -17,7 +17,10 @@ from app.services.connection_health import (
 )
 
 from .connection_crud_helpers import _load_model_or_404, _serialize_custom_headers
-from .crud_handlers.shared import resolve_preview_endpoint
+from .crud_handlers.shared import (
+    resolve_openai_probe_endpoint_variant,
+    resolve_preview_endpoint,
+)
 
 
 def _build_preview_connection(
@@ -26,6 +29,7 @@ def _build_preview_connection(
     model_config: ModelConfig,
     endpoint: Endpoint,
     body: ConnectionCreate,
+    openai_probe_endpoint_variant: str | None,
 ) -> Connection:
     api_family = getattr(model_config, "api_family", None)
     endpoint_id = getattr(endpoint, "id", None)
@@ -39,6 +43,7 @@ def _build_preview_connection(
         name=body.name,
         auth_type=body.auth_type,
         custom_headers=_serialize_custom_headers(body.custom_headers),
+        openai_probe_endpoint_variant=openai_probe_endpoint_variant,
         pricing_template_id=body.pricing_template_id,
         qps_limit=body.qps_limit,
         max_in_flight_non_stream=body.max_in_flight_non_stream,
@@ -96,11 +101,16 @@ async def perform_connection_health_check_preview(
         db=db,
         profile_id=profile_id,
     )
+    openai_probe_endpoint_variant = resolve_openai_probe_endpoint_variant(
+        api_family=model_config.api_family,
+        openai_probe_endpoint_variant=body.openai_probe_endpoint_variant,
+    )
     preview_connection = _build_preview_connection(
         profile_id=profile_id,
         model_config=model_config,
         endpoint=endpoint,
         body=body,
+        openai_probe_endpoint_variant=openai_probe_endpoint_variant,
     )
     health_status, detail, response_time_ms, _ = await probe_connection_health_fn(
         db=db,
@@ -110,7 +120,7 @@ async def perform_connection_health_check_preview(
         endpoint=endpoint,
         api_family=model_config.api_family,
         model_id=model_config.model_id,
-        openai_variant="responses_minimal",
+        openai_variant=openai_probe_endpoint_variant or "responses_minimal",
     )
     return ConnectionHealthCheckPreviewResponse(
         health_status=health_status,
