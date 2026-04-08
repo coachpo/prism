@@ -13,7 +13,6 @@ components/
 ├── EmptyState.tsx                                     # Shared empty-state shell
 ├── IconActionGroup.tsx                                # Shared icon action cluster
 ├── MetricCard.tsx                                     # Shared metric summary card
-├── MonitoringProbeHistoryStrip.tsx                    # Shared monitoring history strip
 ├── PageHeader.tsx                                     # Shared page header shell
 ├── StatusBadge.tsx                                    # Shared status badge
 ├── SwitchController.tsx                               # Shared switch wrapper and control row
@@ -29,7 +28,7 @@ components/
 - Shell chrome and layout handoff: `layout/AppLayout.tsx`
 - Shell state cluster, nav/version ownership, and profile-switcher behavior: `layout/app-layout/AGENTS.md`
 - Shared language/theme controls: `GlobalPreferencesControls.tsx`, `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
-- Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `MonitoringProbeHistoryStrip.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SwitchController.tsx`
+- Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SwitchController.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared vendor icon and picker surfaces: `VendorIcon.tsx`, `VendorSelect.tsx`, `vendorIconRegistry.tsx`, `vendorIconComponents.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`, `loadbalance/__tests__/`
