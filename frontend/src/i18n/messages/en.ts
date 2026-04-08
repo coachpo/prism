@@ -2265,7 +2265,7 @@ export const enMessages: Messages = {
     clearSearch: "Clear search",
     create: "Create",
     createDescription:
-      "Create a new management scope profile. Runtime traffic is unaffected until activation.",
+      "Runtime traffic is unaffected until activation.",
     createNewProfile: "Create new profile",
     createTitle: "Create Profile",
     creating: "Creating...",
@@ -2278,7 +2278,7 @@ export const enMessages: Messages = {
     deleteTitle: "Delete Profile",
     deleting: "Deleting...",
     descriptionOptional: "Description (Optional)",
-    editDescription: "Update selected profile metadata. This does not activate runtime traffic.",
+    editDescription: "This does not activate runtime traffic.",
     editSelected: "Edit selected",
     editTitle: "Edit Profile",
     learnMore: "Learn more",

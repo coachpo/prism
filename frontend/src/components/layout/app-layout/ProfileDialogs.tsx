@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogBody,
@@ -84,7 +83,7 @@ export function ProfileDialogs({
   return (
     <>
       <Dialog open={activateOpen} onOpenChange={setActivateOpen}>
-        <DialogContent className="sm:max-w-md" showCloseButton={false}>
+        <DialogContent aria-describedby={undefined} className="sm:max-w-md" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>{messages.profiles.activateTitle(selectedProfileName)}</DialogTitle>
             <DialogDescription>{messages.profiles.activateDescription}</DialogDescription>
@@ -96,9 +95,6 @@ export function ProfileDialogs({
                   <p className="text-sm text-muted-foreground">{messages.profiles.currentActive}</p>
                   <p className="font-medium text-foreground">{activeProfileName}</p>
                 </div>
-                <Badge variant="secondary">
-                  {messages.profiles.active}
-                </Badge>
               </div>
               <Separator />
               <div className="flex min-w-0 flex-col gap-1">
@@ -220,7 +216,6 @@ export function ProfileDialogs({
         <DialogContent className="sm:max-w-md" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>{messages.profiles.deleteTitle}</DialogTitle>
-            <DialogDescription>{messages.profiles.deleteDescription(selectedProfileName)}</DialogDescription>
           </DialogHeader>
           <DialogBody>
             <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
