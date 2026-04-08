@@ -879,6 +879,7 @@ class TestDEF006_ConfigExportImportFieldCoverage:
                             name="Primary",
                             auth_type="openai",
                             custom_headers={"X-Org": "my-org"},
+                            openai_probe_endpoint_variant="chat_completions_reasoning_none",
                         )
                     ],
                 )
@@ -918,6 +919,10 @@ class TestDEF006_ConfigExportImportFieldCoverage:
         connection = m.connections[0]
         assert connection.custom_headers == {"X-Org": "my-org"}
         assert connection.auth_type == "openai"
+        assert (
+            connection.openai_probe_endpoint_variant
+            == "chat_completions_reasoning_none"
+        )
         assert connection.priority == 0
         assert connection.endpoint_name == "openai-main"
         assert reimported.vendor_refs[0].key == "openai"

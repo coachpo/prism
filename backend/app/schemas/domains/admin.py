@@ -3,7 +3,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .common import ApiFamily, AuthType, _HEADER_TOKEN_RE
+from .common import (
+    ApiFamily,
+    AuthType,
+    OpenAIProbeEndpointVariant,
+    _HEADER_TOKEN_RE,
+)
 from .connection_model import AutoRecovery, RoutingPolicy
 
 # --- Config Export/Import Schemas ---
@@ -194,6 +199,7 @@ class ConfigConnectionExport(BaseModel):
     name: str | None = None
     auth_type: AuthType | None = None
     custom_headers: dict[str, str] | None = None
+    openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | None = None
     qps_limit: int | None = Field(default=None, ge=1)
     max_in_flight_non_stream: int | None = Field(default=None, ge=1)
     max_in_flight_stream: int | None = Field(default=None, ge=1)
@@ -209,6 +215,7 @@ class ConfigConnectionImport(BaseModel):
     name: str | None = None
     auth_type: AuthType | None = None
     custom_headers: dict[str, str] | None = None
+    openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | None = None
     qps_limit: int | None = Field(default=None, ge=1)
     max_in_flight_non_stream: int | None = Field(default=None, ge=1)
     max_in_flight_stream: int | None = Field(default=None, ge=1)
