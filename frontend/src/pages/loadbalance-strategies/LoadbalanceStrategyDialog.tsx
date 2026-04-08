@@ -197,36 +197,6 @@ export function LoadbalanceStrategyDialog({
             <ScrollArea className="min-h-0 flex-1">
               <div className="flex flex-col gap-6 px-6 py-5 sm:px-7" data-testid="loadbalance-strategy-scroll-body">
               <StrategyDialogSection title={dialogMessages.basicsSectionTitle}>
-                <div
-                  className="grid gap-3 rounded-xl border bg-background/80 p-4 sm:grid-cols-3"
-                  data-testid="loadbalance-strategy-summary-card"
-                >
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                      {dialogMessages.nameLabel}
-                    </p>
-                    <p className="truncate text-sm text-foreground">{loadbalanceStrategyForm.name || "-"}</p>
-                  </div>
-
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                      {dialogMessages.strategyFamilyLabel}
-                    </p>
-                    <p className="text-sm text-foreground">
-                      {loadbalanceStrategyForm.strategy_type === "adaptive"
-                        ? strategyCopy.adaptiveFamilyLabel
-                        : strategyCopy.legacyFamilyLabel}
-                    </p>
-                  </div>
-
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                      {strategyBehaviorLabel}
-                    </p>
-                    <p className="text-sm text-foreground">{strategyBehaviorSummary ?? "-"}</p>
-                  </div>
-                </div>
-
                 <div className="grid gap-4 md:grid-cols-2">
                   <StrategyDialogField
                     id="loadbalance-strategy-name"

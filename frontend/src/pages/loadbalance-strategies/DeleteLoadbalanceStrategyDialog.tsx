@@ -74,18 +74,6 @@ export function DeleteLoadbalanceStrategyDialog({
                   </code>
                 </div>
               </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.type}</p>
-                  <p className="text-sm text-foreground">{strategyTypeLabel}</p>
-                </div>
-
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{messages.nav.models}</p>
-                  <p className="text-sm text-foreground">{formatNumber(attachedModelCount)}</p>
-                </div>
-              </div>
             </div>
           ) : null}
 

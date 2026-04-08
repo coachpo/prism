@@ -151,8 +151,7 @@ describe("LoadbalanceStrategyDialog", () => {
 
     expect(dialogContent).toHaveClass("h-[min(94vh,56rem)]", "max-w-3xl", "overflow-hidden");
     expect(scrollBody).toHaveClass("flex", "flex-col", "gap-6", "px-6", "py-5", "sm:px-7");
-    expect(screen.getByTestId("loadbalance-strategy-summary-card")).toHaveTextContent("Name");
-    expect(screen.getByTestId("loadbalance-strategy-summary-card")).toHaveTextContent("Strategy Family");
+    expect(screen.queryByTestId("loadbalance-strategy-summary-card")).not.toBeInTheDocument();
   });
 
   it("shows the default adaptive routing objective after switching families inside the open dialog", async () => {
