@@ -462,6 +462,10 @@ async def execute_import_payload(
                 if endpoint_data.api_key_secret_ref is not None
                 else ""
             ),
+            pool_timeout=endpoint_data.pool_timeout,
+            connect_timeout=endpoint_data.connect_timeout,
+            write_timeout=endpoint_data.write_timeout,
+            read_idle_timeout=endpoint_data.read_idle_timeout,
             position=normalized_position,
         )
         db.add(endpoint)
@@ -507,6 +511,7 @@ async def execute_import_payload(
             profile_id=profile_id,
             name=strategy_name,
             strategy_type=strategy_data.strategy_type,
+            timeout_policy=canonicalize_timeout_policy_document(strategy_data.timeout_policy),
             legacy_strategy_type=(
                 strategy_data.legacy_strategy_type
                 if strategy_data.strategy_type == "legacy"

@@ -325,9 +325,12 @@ async def prepare_proxy_request(
         )
         for candidate in raw_candidates
     ]
-    request_deadline_at_monotonic = time.monotonic() + (
-        failover_policy.deadline_budget_ms / 1000.0
+    request_budget_ms = (
+        failover_policy.stream_precommit_timeout_ms
+        if is_streaming
+        else failover_policy.buffered_total_timeout_ms
     )
+    request_deadline_at_monotonic = time.monotonic() + (request_budget_ms / 1000.0)
 
     return ProxyRequestSetup(
         audit_capture_bodies=audit_capture_bodies,

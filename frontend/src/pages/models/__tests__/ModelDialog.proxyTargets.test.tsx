@@ -90,8 +90,7 @@ const loadbalanceStrategies: LoadbalanceStrategy[] = [
     routing_policy: {
       kind: "adaptive",
       routing_objective: "minimize_latency",
-      deadline_budget_ms: 1500,
-      hedge: {
+        hedge: {
         enabled: false,
         delay_ms: 75,
         max_additional_attempts: 1,

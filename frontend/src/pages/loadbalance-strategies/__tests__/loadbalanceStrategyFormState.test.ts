@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultTimeoutPolicy } from "@/lib/loadbalanceRoutingPolicy";
 import type { LoadbalanceStrategy } from "@/lib/types";
 import {
   DEFAULT_LOADBALANCE_STRATEGY_FORM,
@@ -16,7 +17,6 @@ function buildAdaptiveRoutingPolicy(overrides: Record<string, unknown> = {}) {
   return {
     kind: "adaptive" as const,
     routing_objective: "minimize_latency" as const,
-    deadline_budget_ms: 1500,
     hedge: {
       enabled: false,
       delay_ms: 75,
@@ -48,6 +48,7 @@ function buildForm(
     ...DEFAULT_LOADBALANCE_STRATEGY_FORM,
     name: "round-robin-primary",
     strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
     legacy_strategy_type: "round-robin",
     auto_recovery: getDefaultAutoRecoveryDraft("round-robin"),
     ...overrides,
@@ -60,6 +61,7 @@ function buildAdaptiveForm(
   return {
     name: "Adaptive availability",
     strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
     routing_policy: buildAdaptiveRoutingPolicy(),
     circuit_breaker_status_code_input: "",
     ...overrides,
@@ -71,6 +73,7 @@ describe("loadbalanceStrategyFormState", () => {
     expect(DEFAULT_LOADBALANCE_STRATEGY_FORM).toEqual({
       name: "",
       strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
       legacy_strategy_type: "single",
       auto_recovery: getDefaultAutoRecoveryDraft("single"),
     });
@@ -82,6 +85,7 @@ describe("loadbalanceStrategyFormState", () => {
         ...buildForm(),
         name: "  Single priority  ",
         strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
         legacy_strategy_type: "single",
         auto_recovery: {
           mode: "enabled",
@@ -102,6 +106,7 @@ describe("loadbalanceStrategyFormState", () => {
     ).toEqual({
       name: "Single priority",
       strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
       legacy_strategy_type: "single",
       auto_recovery: {
         mode: "enabled",
@@ -126,6 +131,7 @@ describe("loadbalanceStrategyFormState", () => {
       profile_id: 3,
       name: "Round robin availability",
       strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
       legacy_strategy_type: "round-robin",
       auto_recovery: {
         mode: "enabled",
@@ -151,6 +157,7 @@ describe("loadbalanceStrategyFormState", () => {
     expect(loadbalanceStrategyFormStateFromStrategy(strategy)).toEqual({
       name: "Round robin availability",
       strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
       legacy_strategy_type: "round-robin",
       auto_recovery: {
         mode: "enabled",
@@ -178,6 +185,7 @@ describe("loadbalanceStrategyFormState", () => {
         ...buildForm(),
         name: "  Fill first priority  ",
         strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
         legacy_strategy_type: "fill-first",
         auto_recovery: {
           mode: "enabled",
@@ -199,6 +207,7 @@ describe("loadbalanceStrategyFormState", () => {
     ).toEqual({
       name: "Fill first priority",
       strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
       legacy_strategy_type: "fill-first",
       auto_recovery: {
         mode: "enabled",
@@ -229,6 +238,7 @@ describe("loadbalanceStrategyFormState", () => {
     ).toEqual({
       name: "Availability first",
       strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
       routing_policy: buildAdaptiveRoutingPolicy(),
     });
   });
@@ -239,6 +249,7 @@ describe("loadbalanceStrategyFormState", () => {
       profile_id: 3,
       name: "Adaptive availability",
       strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
       routing_policy: buildAdaptiveRoutingPolicy(),
       attached_model_count: 2,
       created_at: "2026-03-25T08:00:00Z",
@@ -248,6 +259,7 @@ describe("loadbalanceStrategyFormState", () => {
     expect(loadbalanceStrategyFormStateFromStrategy(strategy)).toEqual({
       name: "Adaptive availability",
       strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
       routing_policy: buildAdaptiveRoutingPolicy(),
       circuit_breaker_status_code_input: "",
     });
@@ -266,6 +278,7 @@ describe("loadbalanceStrategyFormState", () => {
     ).toEqual({
       name: "Adaptive latency",
       strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
       routing_policy: buildAdaptiveRoutingPolicy({
         routing_objective: "maximize_availability",
       }),

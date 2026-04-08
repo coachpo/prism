@@ -86,7 +86,10 @@ class AttemptPlan:
         probe_eligible_connection_ids: list[int] | None = None,
     ) -> None:
         resolved_policy = policy or resolve_effective_loadbalance_policy(
-            SimpleNamespace(routing_policy={"kind": "adaptive"})
+            SimpleNamespace(
+                timeout_policy=build_default_timeout_policy_document(),
+                routing_policy=build_default_routing_policy_document(),
+            )
         )
         resolved_candidates = candidates
         if resolved_candidates is None:

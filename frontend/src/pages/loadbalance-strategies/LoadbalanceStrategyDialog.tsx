@@ -308,6 +308,97 @@ export function LoadbalanceStrategyDialog({
                 </StrategyDialogSubsection>
               </StrategyDialogSection>
 
+              <StrategyDialogSection title="Execution Timeouts">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <StrategyDialogField id="timeout-attempt-open" label="Attempt open timeout (ms)">
+                    <Input
+                      id="timeout-attempt-open"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={loadbalanceStrategyForm.timeout_policy.attempt_open_timeout_ms}
+                      onChange={(event) =>
+                        setLoadbalanceStrategyForm((prev) => ({
+                          ...prev,
+                          timeout_policy: {
+                            ...prev.timeout_policy,
+                            attempt_open_timeout_ms: parseIntegerInput(
+                              event.target.value,
+                              prev.timeout_policy.attempt_open_timeout_ms,
+                            ),
+                          },
+                        }))
+                      }
+                    />
+                  </StrategyDialogField>
+                  <StrategyDialogField id="timeout-buffered-total" label="Buffered total timeout (ms)">
+                    <Input
+                      id="timeout-buffered-total"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={loadbalanceStrategyForm.timeout_policy.buffered_total_timeout_ms}
+                      onChange={(event) =>
+                        setLoadbalanceStrategyForm((prev) => ({
+                          ...prev,
+                          timeout_policy: {
+                            ...prev.timeout_policy,
+                            buffered_total_timeout_ms: parseIntegerInput(
+                              event.target.value,
+                              prev.timeout_policy.buffered_total_timeout_ms,
+                            ),
+                          },
+                        }))
+                      }
+                    />
+                  </StrategyDialogField>
+                  <StrategyDialogField id="timeout-stream-precommit" label="Stream precommit timeout (ms)">
+                    <Input
+                      id="timeout-stream-precommit"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={loadbalanceStrategyForm.timeout_policy.stream_precommit_timeout_ms}
+                      onChange={(event) =>
+                        setLoadbalanceStrategyForm((prev) => ({
+                          ...prev,
+                          timeout_policy: {
+                            ...prev.timeout_policy,
+                            stream_precommit_timeout_ms: parseIntegerInput(
+                              event.target.value,
+                              prev.timeout_policy.stream_precommit_timeout_ms,
+                            ),
+                          },
+                        }))
+                      }
+                    />
+                  </StrategyDialogField>
+                  <StrategyDialogField id="timeout-stream-hard-cap" label="Stream hard cap timeout (ms)">
+                    <Input
+                      id="timeout-stream-hard-cap"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={loadbalanceStrategyForm.timeout_policy.stream_hard_cap_timeout_ms ?? ""}
+                      onChange={(event) =>
+                        setLoadbalanceStrategyForm((prev) => ({
+                          ...prev,
+                          timeout_policy: {
+                            ...prev.timeout_policy,
+                            stream_hard_cap_timeout_ms: event.target.value.trim()
+                              ? parseIntegerInput(
+                                  event.target.value,
+                                  prev.timeout_policy.stream_hard_cap_timeout_ms ?? 120000,
+                                )
+                              : null,
+                          },
+                        }))
+                      }
+                    />
+                  </StrategyDialogField>
+                </div>
+              </StrategyDialogSection>
+
               <StrategyDialogSection title={dialogMessages.reliabilityControlsSectionTitle}>
                 {legacyForm ? (
                   <StrategyDialogSubsection>

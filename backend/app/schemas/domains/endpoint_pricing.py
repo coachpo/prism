@@ -11,6 +11,10 @@ class EndpointBase(BaseModel):
     name: str
     base_url: str
     api_key: str
+    pool_timeout: float = Field(default=5.0, ge=0.0)
+    connect_timeout: float = Field(default=10.0, ge=0.0)
+    write_timeout: float = Field(default=30.0, ge=0.0)
+    read_idle_timeout: float = Field(default=120.0, ge=0.0)
 
 
 class EndpointCreate(EndpointBase):
@@ -21,6 +25,10 @@ class EndpointUpdate(BaseModel):
     name: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+    pool_timeout: float | None = Field(default=None, ge=0.0)
+    connect_timeout: float | None = Field(default=None, ge=0.0)
+    write_timeout: float | None = Field(default=None, ge=0.0)
+    read_idle_timeout: float | None = Field(default=None, ge=0.0)
 
 
 class EndpointResponse(BaseModel):
@@ -30,6 +38,10 @@ class EndpointResponse(BaseModel):
     profile_id: int
     name: str
     base_url: str
+    pool_timeout: float
+    connect_timeout: float
+    write_timeout: float
+    read_idle_timeout: float
     has_api_key: bool = False
     masked_api_key: str | None = None
     position: int

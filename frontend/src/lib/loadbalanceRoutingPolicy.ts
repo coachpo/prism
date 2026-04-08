@@ -5,6 +5,7 @@ import type {
   LoadbalanceRoutingPolicy,
   LoadbalanceStrategy,
   LoadbalanceStrategyFamily,
+  LoadbalanceTimeoutPolicy,
   LegacyLoadbalanceStrategyType,
 } from "./types";
 
@@ -47,13 +48,21 @@ export function createDefaultEnabledAutoRecovery(): LoadbalanceAutoRecoveryEnabl
   };
 }
 
+export function createDefaultTimeoutPolicy(): LoadbalanceTimeoutPolicy {
+  return {
+    attempt_open_timeout_ms: 2_000,
+    buffered_total_timeout_ms: 30_000,
+    stream_precommit_timeout_ms: 5_000,
+    stream_hard_cap_timeout_ms: 120_000,
+  };
+}
+
 export function createDefaultAdaptiveRoutingPolicy(
   routingObjective: AdaptiveRoutingObjective = "minimize_latency",
 ): LoadbalanceRoutingPolicy {
   return {
     kind: "adaptive",
     routing_objective: routingObjective,
-    deadline_budget_ms: 30_000,
     hedge: {
       enabled: false,
       delay_ms: 1_500,

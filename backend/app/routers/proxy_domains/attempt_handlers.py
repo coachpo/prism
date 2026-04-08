@@ -4,6 +4,7 @@ import time
 import httpx
 from fastapi.responses import Response, StreamingResponse
 
+from app.services.proxy_support.transport import build_upstream_timeout
 from app.services.stats_service import extract_token_usage
 
 from .attempt_outcome_reporting import (
@@ -270,6 +271,7 @@ async def handle_buffered_attempt(
         target.upstream_url,
         target.headers,
         target.endpoint_body,
+        timeout=build_upstream_timeout(getattr(target.connection, "endpoint_rel", None)),
     )
     elapsed_ms = int((time.monotonic() - start_time) * 1000)
     response_headers = deps.filter_response_headers_fn(

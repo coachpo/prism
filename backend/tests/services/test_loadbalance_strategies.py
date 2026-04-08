@@ -25,6 +25,7 @@ from app.services.loadbalancer.policy import canonicalize_auto_recovery_document
 from tests.loadbalance_strategy_helpers import (
     make_auto_recovery_enabled,
     make_routing_policy_adaptive,
+    make_timeout_policy_shared,
 )
 
 
@@ -63,6 +64,7 @@ def _make_strategy_create(
     *,
     name: str,
     strategy_type: str,
+    timeout_policy: dict[str, object] | None = None,
     legacy_strategy_type: str | None = None,
     auto_recovery: dict[str, object] | None = None,
     routing_policy: dict[str, object] | None = None,
@@ -71,6 +73,8 @@ def _make_strategy_create(
         "name": name,
         "strategy_type": strategy_type,
     }
+    if timeout_policy is not None:
+        payload["timeout_policy"] = timeout_policy
     if legacy_strategy_type is not None:
         payload["legacy_strategy_type"] = legacy_strategy_type
     if auto_recovery is not None:
@@ -84,6 +88,7 @@ def _make_strategy_update(
     *,
     name: str,
     strategy_type: str,
+    timeout_policy: dict[str, object] | None = None,
     legacy_strategy_type: str | None = None,
     auto_recovery: dict[str, object] | None = None,
     routing_policy: dict[str, object] | None = None,
@@ -92,6 +97,8 @@ def _make_strategy_update(
         "name": name,
         "strategy_type": strategy_type,
     }
+    if timeout_policy is not None:
+        payload["timeout_policy"] = timeout_policy
     if legacy_strategy_type is not None:
         payload["legacy_strategy_type"] = legacy_strategy_type
     if auto_recovery is not None:
@@ -104,10 +111,12 @@ def _make_strategy_update(
 def _assert_legacy_strategy_contract(
     strategy_payload: dict[str, object],
     *,
+    timeout_policy: dict[str, object],
     legacy_strategy_type: str,
     auto_recovery: dict[str, object],
 ) -> None:
     assert strategy_payload["strategy_type"] == "legacy"
+    assert strategy_payload["timeout_policy"] == timeout_policy
     assert strategy_payload["legacy_strategy_type"] == legacy_strategy_type
     assert strategy_payload["auto_recovery"] == canonicalize_auto_recovery_document(
         auto_recovery
@@ -118,9 +127,11 @@ def _assert_legacy_strategy_contract(
 def _assert_adaptive_strategy_contract(
     strategy_payload: dict[str, object],
     *,
+    timeout_policy: dict[str, object],
     routing_policy: dict[str, object],
 ) -> None:
     assert strategy_payload["strategy_type"] == "adaptive"
+    assert strategy_payload["timeout_policy"] == timeout_policy
     assert strategy_payload.get("legacy_strategy_type") is None
     assert strategy_payload.get("auto_recovery") is None
     assert strategy_payload["routing_policy"] == routing_policy
@@ -130,9 +141,22 @@ class TestLoadbalanceStrategies:
     def test_strategy_contract_supports_explicit_legacy_and_adaptive_strategy_types(
         self,
     ):
+        legacy_timeout_policy = make_timeout_policy_shared(
+            attempt_open_timeout_ms=1_500,
+            buffered_total_timeout_ms=25_000,
+            stream_precommit_timeout_ms=4_000,
+            stream_hard_cap_timeout_ms=90_000,
+        )
+        adaptive_timeout_policy = make_timeout_policy_shared(
+            attempt_open_timeout_ms=2_500,
+            buffered_total_timeout_ms=12_000,
+            stream_precommit_timeout_ms=3_000,
+            stream_hard_cap_timeout_ms=60_000,
+        )
         legacy = _make_strategy_create(
             name="legacy-primary",
             strategy_type="legacy",
+            timeout_policy=legacy_timeout_policy,
             legacy_strategy_type="single",
             auto_recovery=make_auto_recovery_enabled(),
         )
@@ -145,16 +169,19 @@ class TestLoadbalanceStrategies:
         adaptive = _make_strategy_create(
             name="adaptive-primary",
             strategy_type="adaptive",
+            timeout_policy=adaptive_timeout_policy,
             routing_policy=adaptive_policy,
         )
 
         _assert_legacy_strategy_contract(
             _strategy_public_json(legacy),
+            timeout_policy=legacy_timeout_policy,
             legacy_strategy_type="single",
             auto_recovery=make_auto_recovery_enabled(),
         )
         _assert_adaptive_strategy_contract(
             _strategy_public_json(adaptive),
+            timeout_policy=adaptive_timeout_policy,
             routing_policy=adaptive_policy,
         )
 
@@ -162,17 +189,20 @@ class TestLoadbalanceStrategies:
             _make_strategy_create(
                 name="legacy-missing-mode",
                 strategy_type="legacy",
+                timeout_policy=legacy_timeout_policy,
                 auto_recovery=make_auto_recovery_enabled(),
             )
         with pytest.raises(ValidationError):
             _make_strategy_create(
                 name="adaptive-missing-policy",
                 strategy_type="adaptive",
+                timeout_policy=adaptive_timeout_policy,
             )
         with pytest.raises(ValidationError):
             _make_strategy_create(
                 name="adaptive-with-legacy-fields",
                 strategy_type="adaptive",
+                timeout_policy=adaptive_timeout_policy,
                 legacy_strategy_type="fill-first",
                 auto_recovery=make_auto_recovery_enabled(),
                 routing_policy=adaptive_policy,
@@ -185,6 +215,30 @@ class TestLoadbalanceStrategies:
             db.add(profile)
             await db.flush()
 
+            legacy_timeout_policy = make_timeout_policy_shared(
+                attempt_open_timeout_ms=2_500,
+                buffered_total_timeout_ms=45_000,
+                stream_precommit_timeout_ms=6_000,
+                stream_hard_cap_timeout_ms=180_000,
+            )
+            adaptive_timeout_policy = make_timeout_policy_shared(
+                attempt_open_timeout_ms=2_000,
+                buffered_total_timeout_ms=12_000,
+                stream_precommit_timeout_ms=5_000,
+                stream_hard_cap_timeout_ms=90_000,
+            )
+            updated_legacy_timeout_policy = make_timeout_policy_shared(
+                attempt_open_timeout_ms=3_000,
+                buffered_total_timeout_ms=60_000,
+                stream_precommit_timeout_ms=8_000,
+                stream_hard_cap_timeout_ms=240_000,
+            )
+            updated_adaptive_timeout_policy = make_timeout_policy_shared(
+                attempt_open_timeout_ms=1_800,
+                buffered_total_timeout_ms=18_000,
+                stream_precommit_timeout_ms=4_000,
+                stream_hard_cap_timeout_ms=75_000,
+            )
             legacy_auto_recovery = make_auto_recovery_enabled(
                 status_codes=[429, 503],
                 base_seconds=45,
@@ -223,6 +277,7 @@ class TestLoadbalanceStrategies:
                 body=_make_strategy_create(
                     name="legacy-fill-first",
                     strategy_type="legacy",
+                    timeout_policy=legacy_timeout_policy,
                     legacy_strategy_type="fill-first",
                     auto_recovery=legacy_auto_recovery,
                 ),
@@ -233,6 +288,7 @@ class TestLoadbalanceStrategies:
                 body=_make_strategy_create(
                     name="adaptive-latency",
                     strategy_type="adaptive",
+                    timeout_policy=adaptive_timeout_policy,
                     routing_policy=adaptive_policy,
                 ),
                 db=db,
@@ -261,11 +317,13 @@ class TestLoadbalanceStrategies:
 
             _assert_legacy_strategy_contract(
                 _strategy_public_json(created_legacy),
+                timeout_policy=legacy_timeout_policy,
                 legacy_strategy_type="fill-first",
                 auto_recovery=legacy_auto_recovery,
             )
             _assert_adaptive_strategy_contract(
                 _strategy_public_json(created_adaptive),
+                timeout_policy=adaptive_timeout_policy,
                 routing_policy=adaptive_policy,
             )
 
@@ -273,11 +331,13 @@ class TestLoadbalanceStrategies:
             listed_by_name = {strategy.name: strategy for strategy in listed}
             _assert_legacy_strategy_contract(
                 _strategy_public_json(listed_by_name["legacy-fill-first"]),
+                timeout_policy=legacy_timeout_policy,
                 legacy_strategy_type="fill-first",
                 auto_recovery=legacy_auto_recovery,
             )
             _assert_adaptive_strategy_contract(
                 _strategy_public_json(listed_by_name["adaptive-latency"]),
+                timeout_policy=adaptive_timeout_policy,
                 routing_policy=adaptive_policy,
             )
 
@@ -286,6 +346,7 @@ class TestLoadbalanceStrategies:
                 body=_make_strategy_update(
                     name="legacy-round-robin",
                     strategy_type="legacy",
+                    timeout_policy=updated_legacy_timeout_policy,
                     legacy_strategy_type="round-robin",
                     auto_recovery=updated_legacy_auto_recovery,
                 ),
@@ -297,6 +358,7 @@ class TestLoadbalanceStrategies:
                 body=_make_strategy_update(
                     name="adaptive-availability",
                     strategy_type="adaptive",
+                    timeout_policy=updated_adaptive_timeout_policy,
                     routing_policy=updated_adaptive_policy,
                 ),
                 db=db,
@@ -328,11 +390,13 @@ class TestLoadbalanceStrategies:
 
             _assert_legacy_strategy_contract(
                 _strategy_public_json(updated_legacy),
+                timeout_policy=updated_legacy_timeout_policy,
                 legacy_strategy_type="round-robin",
                 auto_recovery=updated_legacy_auto_recovery,
             )
             _assert_adaptive_strategy_contract(
                 _strategy_public_json(updated_adaptive),
+                timeout_policy=updated_adaptive_timeout_policy,
                 routing_policy=updated_adaptive_policy,
             )
             assert persisted_legacy.strategy_type == "legacy"
@@ -341,10 +405,12 @@ class TestLoadbalanceStrategies:
                 persisted_legacy.auto_recovery
                 == canonicalize_auto_recovery_document(updated_legacy_auto_recovery)
             )
+            assert persisted_legacy.timeout_policy == updated_legacy_timeout_policy
             assert persisted_legacy.routing_policy is None
             assert persisted_adaptive.strategy_type == "adaptive"
             assert persisted_adaptive.legacy_strategy_type is None
             assert persisted_adaptive.auto_recovery is None
+            assert persisted_adaptive.timeout_policy == updated_adaptive_timeout_policy
             assert persisted_adaptive.routing_policy == updated_adaptive_policy
             assert legacy_round_robin_state is None
 
@@ -374,6 +440,12 @@ class TestLoadbalanceStrategies:
         legacy_policy = resolve_effective_loadbalance_policy(
             SimpleNamespace(
                 strategy_type="legacy",
+                timeout_policy=make_timeout_policy_shared(
+                    attempt_open_timeout_ms=1_500,
+                    buffered_total_timeout_ms=30_000,
+                    stream_precommit_timeout_ms=4_000,
+                    stream_hard_cap_timeout_ms=120_000,
+                ),
                 legacy_strategy_type="round-robin",
                 auto_recovery=make_auto_recovery_enabled(
                     status_codes=[429, 503],
@@ -391,6 +463,12 @@ class TestLoadbalanceStrategies:
         adaptive_policy = resolve_effective_loadbalance_policy(
             SimpleNamespace(
                 strategy_type="adaptive",
+                timeout_policy=make_timeout_policy_shared(
+                    attempt_open_timeout_ms=2_500,
+                    buffered_total_timeout_ms=12_000,
+                    stream_precommit_timeout_ms=3_000,
+                    stream_hard_cap_timeout_ms=60_000,
+                ),
                 routing_policy=make_routing_policy_adaptive(
                     routing_objective="maximize_availability",
                     deadline_budget_ms=12_000,
@@ -403,6 +481,10 @@ class TestLoadbalanceStrategies:
 
         assert legacy_policy.strategy_type == "legacy"
         assert legacy_policy.legacy_strategy_type == "round-robin"
+        assert legacy_policy.attempt_open_timeout_ms == 1_500
+        assert legacy_policy.buffered_total_timeout_ms == 30_000
+        assert legacy_policy.stream_precommit_timeout_ms == 4_000
+        assert legacy_policy.stream_hard_cap_timeout_ms == 120_000
         assert legacy_policy.failover_recovery_enabled is True
         assert legacy_policy.failover_status_codes == (429, 503)
         assert legacy_policy.failover_ban_mode == "temporary"
@@ -411,7 +493,10 @@ class TestLoadbalanceStrategies:
         assert adaptive_policy.strategy_type == "adaptive"
         assert adaptive_policy.legacy_strategy_type is None
         assert adaptive_policy.routing_objective == "maximize_availability"
-        assert adaptive_policy.deadline_budget_ms == 12_000
+        assert adaptive_policy.attempt_open_timeout_ms == 2_500
+        assert adaptive_policy.buffered_total_timeout_ms == 12_000
+        assert adaptive_policy.stream_precommit_timeout_ms == 3_000
+        assert adaptive_policy.stream_hard_cap_timeout_ms == 60_000
         assert adaptive_policy.hedge_enabled is True
         assert adaptive_policy.admission_respect_qps_limit is True
         assert adaptive_policy.admission_respect_in_flight_limits is True
@@ -423,10 +508,19 @@ class TestLoadbalanceStrategies:
 
         with pytest.raises(ValueError, match="strategy_type"):
             resolve_effective_loadbalance_policy(SimpleNamespace())
+        with pytest.raises(ValueError, match="timeout_policy"):
+            resolve_effective_loadbalance_policy(
+                SimpleNamespace(
+                    strategy_type="legacy",
+                    legacy_strategy_type="single",
+                    auto_recovery=make_auto_recovery_enabled(),
+                )
+            )
         with pytest.raises(ValueError, match="legacy_strategy_type"):
             resolve_effective_loadbalance_policy(
                 SimpleNamespace(
                     strategy_type="legacy",
+                    timeout_policy=make_timeout_policy_shared(),
                     auto_recovery=make_auto_recovery_enabled(),
                 )
             )
@@ -434,6 +528,7 @@ class TestLoadbalanceStrategies:
             resolve_effective_loadbalance_policy(
                 SimpleNamespace(
                     strategy_type="legacy",
+                    timeout_policy=make_timeout_policy_shared(),
                     legacy_strategy_type="single",
                 )
             )

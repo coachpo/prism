@@ -15,6 +15,10 @@ RoutingObjective = Literal["minimize_latency", "maximize_availability"]
 _DEFAULT_DEADLINE_BUDGET_MS = 30_000
 _DEFAULT_HEDGE_DELAY_MS = 1_500
 _DEFAULT_MAX_ADDITIONAL_ATTEMPTS = 1
+_DEFAULT_ATTEMPT_OPEN_TIMEOUT_MS = 2_000
+_DEFAULT_BUFFERED_TOTAL_TIMEOUT_MS = 30_000
+_DEFAULT_STREAM_PRECOMMIT_TIMEOUT_MS = 5_000
+_DEFAULT_STREAM_HARD_CAP_TIMEOUT_MS = 120_000
 
 
 @dataclass(slots=True, frozen=True)
@@ -22,7 +26,10 @@ class EffectiveLoadbalancePolicy:
     strategy_type: LoadbalanceStrategyType
     legacy_strategy_type: LegacyStrategyType | None
     routing_objective: RoutingObjective
-    deadline_budget_ms: int
+    attempt_open_timeout_ms: int
+    buffered_total_timeout_ms: int
+    stream_precommit_timeout_ms: int
+    stream_hard_cap_timeout_ms: int | None
     hedge_enabled: bool
     hedge_delay_ms: int
     max_additional_attempts: int
@@ -55,6 +62,14 @@ def _resolve_int(value: object, *, default: int) -> int:
 def _resolve_float(value: object, *, default: float) -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
+    return default
+
+
+def _resolve_optional_int(value: object, *, default: int | None) -> int | None:
+    if value is None:
+        return default
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
     return default
 
 
@@ -171,6 +186,32 @@ def validate_strategy_ban_policy(
         )
 
 
+def canonicalize_timeout_policy_document(
+    timeout_policy: object | None,
+) -> dict[str, object]:
+    if timeout_policy is None:
+        raise ValueError("timeout_policy is required for loadbalance strategies")
+
+    return {
+        "attempt_open_timeout_ms": _resolve_int(
+            _get_object_member(timeout_policy, "attempt_open_timeout_ms", None),
+            default=_DEFAULT_ATTEMPT_OPEN_TIMEOUT_MS,
+        ),
+        "buffered_total_timeout_ms": _resolve_int(
+            _get_object_member(timeout_policy, "buffered_total_timeout_ms", None),
+            default=_DEFAULT_BUFFERED_TOTAL_TIMEOUT_MS,
+        ),
+        "stream_precommit_timeout_ms": _resolve_int(
+            _get_object_member(timeout_policy, "stream_precommit_timeout_ms", None),
+            default=_DEFAULT_STREAM_PRECOMMIT_TIMEOUT_MS,
+        ),
+        "stream_hard_cap_timeout_ms": _resolve_optional_int(
+            _get_object_member(timeout_policy, "stream_hard_cap_timeout_ms", None),
+            default=_DEFAULT_STREAM_HARD_CAP_TIMEOUT_MS,
+        ),
+    }
+
+
 def canonicalize_auto_recovery_document(
     auto_recovery: object | None,
 ) -> dict[str, object]:
@@ -277,10 +318,6 @@ def canonicalize_routing_policy_document(
             _get_object_member(routing_policy, "routing_objective", None),
             default="minimize_latency",
         ),
-        "deadline_budget_ms": _resolve_int(
-            _get_object_member(routing_policy, "deadline_budget_ms", None),
-            default=_DEFAULT_DEADLINE_BUDGET_MS,
-        ),
         "hedge": {
             "enabled": _resolve_bool(
                 _get_object_member(hedge, "enabled", None),
@@ -338,6 +375,15 @@ def canonicalize_routing_policy_document(
     }
 
 
+def serialize_timeout_policy(policy: EffectiveLoadbalancePolicy) -> dict[str, object]:
+    return {
+        "attempt_open_timeout_ms": policy.attempt_open_timeout_ms,
+        "buffered_total_timeout_ms": policy.buffered_total_timeout_ms,
+        "stream_precommit_timeout_ms": policy.stream_precommit_timeout_ms,
+        "stream_hard_cap_timeout_ms": policy.stream_hard_cap_timeout_ms,
+    }
+
+
 def serialize_auto_recovery(policy: EffectiveLoadbalancePolicy) -> dict[str, object]:
     if policy.strategy_type != "legacy":
         raise ValueError("auto_recovery is only available for legacy strategies")
@@ -374,7 +420,6 @@ def serialize_routing_policy(policy: EffectiveLoadbalancePolicy) -> dict[str, ob
     return {
         "kind": "adaptive",
         "routing_objective": policy.routing_objective,
-        "deadline_budget_ms": policy.deadline_budget_ms,
         "hedge": {
             "enabled": policy.hedge_enabled,
             "delay_ms": policy.hedge_delay_ms,
@@ -399,7 +444,9 @@ def serialize_routing_policy(policy: EffectiveLoadbalancePolicy) -> dict[str, ob
 
 
 def _build_legacy_policy(
-    auto_recovery: dict[str, object], strategy: object
+    auto_recovery: dict[str, object],
+    timeout_policy: dict[str, object],
+    strategy: object,
 ) -> EffectiveLoadbalancePolicy:
     settings = get_settings()
     legacy_strategy_type = _resolve_legacy_strategy_type(
@@ -410,7 +457,10 @@ def _build_legacy_policy(
             strategy_type="legacy",
             legacy_strategy_type=legacy_strategy_type,
             routing_objective="minimize_latency",
-            deadline_budget_ms=_DEFAULT_DEADLINE_BUDGET_MS,
+            attempt_open_timeout_ms=cast(int, timeout_policy["attempt_open_timeout_ms"]),
+            buffered_total_timeout_ms=cast(int, timeout_policy["buffered_total_timeout_ms"]),
+            stream_precommit_timeout_ms=cast(int, timeout_policy["stream_precommit_timeout_ms"]),
+            stream_hard_cap_timeout_ms=cast(int | None, timeout_policy["stream_hard_cap_timeout_ms"]),
             hedge_enabled=False,
             hedge_delay_ms=_DEFAULT_HEDGE_DELAY_MS,
             max_additional_attempts=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
@@ -434,7 +484,10 @@ def _build_legacy_policy(
         strategy_type="legacy",
         legacy_strategy_type=legacy_strategy_type,
         routing_objective="minimize_latency",
-        deadline_budget_ms=_DEFAULT_DEADLINE_BUDGET_MS,
+        attempt_open_timeout_ms=cast(int, timeout_policy["attempt_open_timeout_ms"]),
+        buffered_total_timeout_ms=cast(int, timeout_policy["buffered_total_timeout_ms"]),
+        stream_precommit_timeout_ms=cast(int, timeout_policy["stream_precommit_timeout_ms"]),
+        stream_hard_cap_timeout_ms=cast(int | None, timeout_policy["stream_hard_cap_timeout_ms"]),
         hedge_enabled=False,
         hedge_delay_ms=_DEFAULT_HEDGE_DELAY_MS,
         max_additional_attempts=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
@@ -460,11 +513,14 @@ def resolve_effective_loadbalance_policy(
     strategy: object,
 ) -> EffectiveLoadbalancePolicy:
     strategy_type = _resolve_strategy_type(strategy)
+    timeout_policy = canonicalize_timeout_policy_document(
+        getattr(strategy, "timeout_policy", None)
+    )
     if strategy_type == "legacy":
         auto_recovery = canonicalize_auto_recovery_document(
             getattr(strategy, "auto_recovery", None)
         )
-        return _build_legacy_policy(auto_recovery, strategy)
+        return _build_legacy_policy(auto_recovery, timeout_policy, strategy)
 
     routing_policy = canonicalize_routing_policy_document(
         getattr(strategy, "routing_policy", None)
@@ -477,7 +533,10 @@ def resolve_effective_loadbalance_policy(
         strategy_type="adaptive",
         legacy_strategy_type=None,
         routing_objective=cast(RoutingObjective, routing_policy["routing_objective"]),
-        deadline_budget_ms=cast(int, routing_policy["deadline_budget_ms"]),
+        attempt_open_timeout_ms=cast(int, timeout_policy["attempt_open_timeout_ms"]),
+        buffered_total_timeout_ms=cast(int, timeout_policy["buffered_total_timeout_ms"]),
+        stream_precommit_timeout_ms=cast(int, timeout_policy["stream_precommit_timeout_ms"]),
+        stream_hard_cap_timeout_ms=cast(int | None, timeout_policy["stream_hard_cap_timeout_ms"]),
         hedge_enabled=cast(bool, hedge["enabled"]),
         hedge_delay_ms=cast(int, hedge["delay_ms"]),
         max_additional_attempts=cast(int, hedge["max_additional_attempts"]),
@@ -511,12 +570,22 @@ def build_default_auto_recovery_document() -> dict[str, object]:
     return canonicalize_auto_recovery_document({"mode": "enabled"})
 
 
+def build_default_timeout_policy_document() -> dict[str, object]:
+    return canonicalize_timeout_policy_document(
+        SimpleNamespace(
+            attempt_open_timeout_ms=_DEFAULT_ATTEMPT_OPEN_TIMEOUT_MS,
+            buffered_total_timeout_ms=_DEFAULT_BUFFERED_TOTAL_TIMEOUT_MS,
+            stream_precommit_timeout_ms=_DEFAULT_STREAM_PRECOMMIT_TIMEOUT_MS,
+            stream_hard_cap_timeout_ms=_DEFAULT_STREAM_HARD_CAP_TIMEOUT_MS,
+        )
+    )
+
+
 def build_default_routing_policy_document() -> dict[str, object]:
     return canonicalize_routing_policy_document(
         SimpleNamespace(
             kind="adaptive",
             routing_objective="minimize_latency",
-            deadline_budget_ms=_DEFAULT_DEADLINE_BUDGET_MS,
             hedge={
                 "enabled": False,
                 "delay_ms": _DEFAULT_HEDGE_DELAY_MS,
@@ -538,8 +607,10 @@ __all__ = [
     "BanMode",
     "build_default_auto_recovery_document",
     "build_default_routing_policy_document",
+    "build_default_timeout_policy_document",
     "canonicalize_auto_recovery_document",
     "canonicalize_routing_policy_document",
+    "canonicalize_timeout_policy_document",
     "EffectiveLoadbalancePolicy",
     "LegacyStrategyType",
     "LoadbalanceStrategyType",
@@ -548,5 +619,6 @@ __all__ = [
     "RoutingObjective",
     "serialize_auto_recovery",
     "serialize_routing_policy",
+    "serialize_timeout_policy",
     "validate_strategy_ban_policy",
 ]

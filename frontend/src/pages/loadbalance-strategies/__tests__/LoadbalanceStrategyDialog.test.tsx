@@ -10,6 +10,7 @@ import {
   getDefaultAutoRecoveryDraft,
   type LoadbalanceStrategyFormState,
 } from "../loadbalanceStrategyFormState";
+import { createDefaultTimeoutPolicy } from "@/lib/loadbalanceRoutingPolicy";
 import type { LoadbalanceStrategy } from "@/lib/types";
 
 type AdaptiveFormState = Extract<LoadbalanceStrategyFormState, { strategy_type: "adaptive" }>;
@@ -20,7 +21,6 @@ function buildAdaptiveRoutingPolicy(overrides: Record<string, unknown> = {}) {
   return {
     kind: "adaptive" as const,
     routing_objective: "minimize_latency" as const,
-    deadline_budget_ms: 1500,
     hedge: {
       enabled: false,
       delay_ms: 75,
@@ -64,6 +64,7 @@ function buildAdaptiveForm(
   return {
     name: "Adaptive availability",
     strategy_type: "adaptive",
+    timeout_policy: createDefaultTimeoutPolicy(),
     routing_policy: buildAdaptiveRoutingPolicy(),
     circuit_breaker_status_code_input: "",
     ...overrides,
@@ -76,6 +77,7 @@ function buildStrategy(overrides: Partial<LegacyLoadbalanceStrategy> = {}): Lega
     profile_id: 1,
     name: "round-robin-primary",
     strategy_type: "legacy",
+    timeout_policy: createDefaultTimeoutPolicy(),
     legacy_strategy_type: "round-robin",
     auto_recovery: { mode: "disabled" },
     attached_model_count: 0,

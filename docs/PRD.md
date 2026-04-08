@@ -49,7 +49,7 @@ Single operator (developer/power user) running the application locally or on a l
 - For models with multiple connections:
   - **Automatic failover** when an attempt returns a failover-triggering status (`403`, `429`, `500`, `502`, `503`, `529`) or raises connection/timeout errors
   - Native models attach one reusable loadbalance strategy chosen from two first-class families: `legacy` or `adaptive`
-  - Legacy strategies use `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`; adaptive strategies use `routing_policy`
+  - All strategies use a shared top-level `timeout_policy`; legacy strategies also use `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`, while adaptive strategies use `routing_policy`
 - Failover-worthy HTTP responses are governed by the attached strategy's configured recovery policy: legacy strategies use `auto_recovery.status_codes`, while adaptive strategies use `routing_policy.circuit_breaker.failure_status_codes`
   - Non-failover client errors (for example `400`, `404`, `422`) do not force-clear existing recovery state
   - Each connection can optionally define `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited

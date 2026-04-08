@@ -8,11 +8,19 @@ function buildAutoRecoveryDisabled() {
   };
 }
 
+function buildTimeoutPolicy() {
+  return {
+    attempt_open_timeout_ms: 2000,
+    buffered_total_timeout_ms: 30000,
+    stream_precommit_timeout_ms: 5000,
+    stream_hard_cap_timeout_ms: 120000,
+  };
+}
+
 function buildAdaptiveRoutingPolicy() {
   return {
     kind: "adaptive" as const,
     routing_objective: "minimize_latency" as const,
-    deadline_budget_ms: 1500,
     hedge: {
       enabled: false,
       delay_ms: 75,
@@ -62,6 +70,7 @@ function buildV2ProfileBundle() {
       {
         name: "single-primary",
         strategy_type: "legacy" as const,
+        timeout_policy: buildTimeoutPolicy(),
         legacy_strategy_type: "single" as const,
         auto_recovery: buildAutoRecoveryDisabled(),
       },
@@ -267,6 +276,7 @@ describe("ConfigImportSchema", () => {
         {
           name: "adaptive-primary",
           strategy_type: "adaptive",
+          timeout_policy: buildTimeoutPolicy(),
           routing_policy: buildAdaptiveRoutingPolicy(),
         },
       ],
@@ -323,6 +333,7 @@ describe("ConfigImportSchema", () => {
         {
           name: "single-primary",
           strategy_type: "legacy",
+          timeout_policy: buildTimeoutPolicy(),
           legacy_strategy_type: "single",
           auto_recovery: buildAutoRecoveryDisabled(),
         },

@@ -9,6 +9,21 @@ _strategy_counter = count(1)
 DEFAULT_FAILOVER_STATUS_CODES = [403, 422, 429, 500, 502, 503, 504, 529]
 
 
+def make_timeout_policy_shared(
+    *,
+    attempt_open_timeout_ms: int = 2_000,
+    buffered_total_timeout_ms: int = 30_000,
+    stream_precommit_timeout_ms: int = 5_000,
+    stream_hard_cap_timeout_ms: int | None = 120_000,
+) -> dict[str, object]:
+    return {
+        "attempt_open_timeout_ms": attempt_open_timeout_ms,
+        "buffered_total_timeout_ms": buffered_total_timeout_ms,
+        "stream_precommit_timeout_ms": stream_precommit_timeout_ms,
+        "stream_hard_cap_timeout_ms": stream_hard_cap_timeout_ms,
+    }
+
+
 def make_auto_recovery_disabled() -> dict[str, object]:
     return {"mode": "disabled"}
 

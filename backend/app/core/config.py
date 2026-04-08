@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     dashboard_update_debounce_seconds: float = Field(default=0.0, ge=0.0)
     cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     # Timeout settings for upstream LLM requests
+    pool_timeout: float = 5.0
     connect_timeout: float = 10.0
-    read_timeout: float = 120.0
+    read_idle_timeout: float = 120.0
     write_timeout: float = 30.0
     # Load balancer settings
     failover_cooldown_seconds: int = 60

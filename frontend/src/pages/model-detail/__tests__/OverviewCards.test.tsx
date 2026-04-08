@@ -8,7 +8,6 @@ function buildAdaptiveRoutingPolicy() {
   return {
     kind: "adaptive" as const,
     routing_objective: "minimize_latency" as const,
-    deadline_budget_ms: 1500,
     hedge: {
       enabled: false,
       delay_ms: 75,

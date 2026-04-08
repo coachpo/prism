@@ -17,10 +17,16 @@ export type LoadbalanceFailureKind =
   | "connect_error"
   | "timeout";
 
+export interface LoadbalanceTimeoutPolicy {
+  attempt_open_timeout_ms: number;
+  buffered_total_timeout_ms: number;
+  stream_precommit_timeout_ms: number;
+  stream_hard_cap_timeout_ms: number | null;
+}
+
 export interface LoadbalanceRoutingPolicy {
   kind: "adaptive";
   routing_objective: AdaptiveRoutingObjective;
-  deadline_budget_ms: number;
   hedge: {
     enabled: boolean;
     delay_ms: number;
@@ -87,6 +93,7 @@ export interface LegacyLoadbalanceStrategySummary {
   id: number;
   name: string;
   strategy_type: "legacy";
+  timeout_policy?: LoadbalanceTimeoutPolicy;
   legacy_strategy_type: LegacyLoadbalanceStrategyType;
   auto_recovery: LoadbalanceAutoRecovery;
 }
@@ -95,6 +102,7 @@ export interface AdaptiveLoadbalanceStrategySummary {
   id: number;
   name: string;
   strategy_type: "adaptive";
+  timeout_policy?: LoadbalanceTimeoutPolicy;
   routing_policy: LoadbalanceRoutingPolicy;
 }
 
@@ -120,12 +128,14 @@ export type LoadbalanceStrategyCreate =
   | {
       name: string;
       strategy_type: "legacy";
+      timeout_policy: LoadbalanceTimeoutPolicy;
       legacy_strategy_type: LegacyLoadbalanceStrategyType;
       auto_recovery: LoadbalanceAutoRecovery;
     }
   | {
       name: string;
       strategy_type: "adaptive";
+      timeout_policy: LoadbalanceTimeoutPolicy;
       routing_policy: LoadbalanceRoutingPolicy;
     };
 

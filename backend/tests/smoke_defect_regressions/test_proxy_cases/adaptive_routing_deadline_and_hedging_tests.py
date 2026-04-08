@@ -144,7 +144,7 @@ class TestDEF088_AdaptiveRoutingDeadlineAndHedging:
         mock_db.execute = AsyncMock(return_value=mock_rules_result)
         requested_urls: list[str] = []
 
-        async def proxy_request(_client, method, upstream_url, headers, body):
+        async def proxy_request(_client, method, upstream_url, headers, body, timeout=None):
             _ = (method, headers, body)
             requested_urls.append(upstream_url)
             if "primary" in upstream_url:
@@ -246,7 +246,7 @@ class TestDEF088_AdaptiveRoutingDeadlineAndHedging:
         mock_db.execute = AsyncMock(return_value=mock_rules_result)
         requested_urls: list[str] = []
 
-        async def proxy_request(_client, method, upstream_url, headers, body):
+        async def proxy_request(_client, method, upstream_url, headers, body, timeout=None):
             _ = (method, headers, body)
             requested_urls.append(upstream_url)
             if "primary" in upstream_url:

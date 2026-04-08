@@ -344,15 +344,16 @@ Reusable routing strategy objects attached by native models within one profile.
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
 | name | VARCHAR(200) | NOT NULL | Strategy name (profile-unique) |
 | strategy_type | VARCHAR(20) | NOT NULL, CHECK IN (`legacy`, `adaptive`) | Strategy family discriminator |
+| timeout_policy | JSONB | NOT NULL | Shared execution-budget document with `attempt_open_timeout_ms`, `buffered_total_timeout_ms`, `stream_precommit_timeout_ms`, and optional `stream_hard_cap_timeout_ms` |
 | legacy_strategy_type | VARCHAR(20) | NULLABLE, CHECK IN (`single`, `fill-first`, `round-robin`) | Legacy-only routing subtype |
 | auto_recovery | JSONB | NULLABLE | Legacy-only retry/cooldown/ban document |
-| routing_policy | JSONB | NULLABLE | Adaptive-only routing document with `routing_objective`, `deadline_budget_ms`, `hedge`, `circuit_breaker`, `admission`, and `monitoring` branches |
+| routing_policy | JSONB | NULLABLE | Adaptive-only routing document with `routing_objective`, `hedge`, `circuit_breaker`, and `admission` branches |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints and lifecycle rules:
 - `UNIQUE(profile_id, name)`.
-- Strategy rows are shape-checked: `legacy` rows require `legacy_strategy_type` and `auto_recovery` with no `routing_policy`, while `adaptive` rows require `routing_policy` with no legacy-only fields.
+- Strategy rows are shape-checked: all rows require `timeout_policy`; `legacy` rows also require `legacy_strategy_type` and `auto_recovery` with no `routing_policy`, while `adaptive` rows require `routing_policy` with no legacy-only fields.
 - Effective runtime policy resolves once per request from the attached strategy row.
 - The adaptive `circuit_breaker` branch carries failure status codes, threshold/backoff/jitter tuning, and optional ban escalation.
 - The adaptive `monitoring` branch controls how fresh probe signals influence routing.

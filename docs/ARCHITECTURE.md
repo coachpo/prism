@@ -255,7 +255,8 @@ Proxy request completes
 ### 4.1 Routing policy contract
 
 - Native models still attach one profile-scoped loadbalance strategy, but strategy rows now use a top-level family discriminator: `strategy_type = legacy | adaptive`.
-- `legacy` strategies carry `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`. `adaptive` strategies carry `routing_policy` with `routing_objective`, `deadline_budget_ms`, `hedge`, `circuit_breaker`, `admission`, and `monitoring` branches.
+- All strategies now carry a shared top-level `timeout_policy` with `attempt_open_timeout_ms`, `buffered_total_timeout_ms`, `stream_precommit_timeout_ms`, and optional `stream_hard_cap_timeout_ms`.
+- `legacy` strategies carry `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`. `adaptive` strategies carry `routing_policy` with `routing_objective`, `hedge`, `circuit_breaker`, and `admission` branches.
 - Startup seeds the default profile with two editable preset strategies: `Default legacy routing` and `Default adaptive routing`.
 - Backend fallback settings such as `FAILOVER_COOLDOWN_SECONDS`, `FAILOVER_FAILURE_THRESHOLD`, `FAILOVER_BACKOFF_MULTIPLIER`, `FAILOVER_MAX_COOLDOWN_SECONDS`, and `FAILOVER_JITTER_RATIO` still shape the seeded circuit-breaker defaults.
 
@@ -263,7 +264,7 @@ Proxy request completes
 
 1. Request setup resolves the active-profile model, attached strategy, and one immutable effective strategy snapshot for the request.
 2. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, live latency, and fresh monitoring signals.
-3. Executor claims per-attempt leases, respects the request deadline, and may launch one hedge only when the resolved adaptive policy allows it.
+3. Executor claims per-attempt leases, applies `buffered_total_timeout_ms` for buffered requests or `stream_precommit_timeout_ms` until the first streaming chunk, and may launch one hedge only before any client-visible bytes are committed.
 4. Passive request outcomes and synthetic probe outcomes both feed back into the same runtime state, while durable transition history stays in `loadbalance_events`.
 
 If all eligible candidates are unavailable inside the current policy window, the gateway returns `503` with routing-availability detail.
@@ -573,3 +574,4 @@ The runtime plane exclusively supports three fixed API families:
 - **Gemini** (`gemini`) — Gemini-native `/v1beta/models/*` contracts
 
 The vendor catalog is separate and global. Models always carry required `api_family`, while `vendor_id` remains optional metadata, so operators may create additional vendor metadata rows such as `OpenRouter` without changing runtime compatibility. The Global settings tab exposes vendor create/edit/delete flows, and deleting a vendor clears live model vendor metadata instead of blocking the delete.
+ clears live model vendor metadata instead of blocking the delete.

@@ -10,7 +10,7 @@ from .common import (
     OpenAIProbeEndpointVariant,
     _HEADER_TOKEN_RE,
 )
-from .connection_model import AutoRecovery, RoutingPolicy
+from .connection_model import AutoRecovery, RoutingPolicy, TimeoutPolicy
 
 # --- Config Export/Import Schemas ---
 
@@ -18,6 +18,7 @@ from .connection_model import AutoRecovery, RoutingPolicy
 class _ConfigLoadbalanceStrategyBase(BaseModel):
     name: str
     strategy_type: Literal["legacy", "adaptive"]
+    timeout_policy: TimeoutPolicy
     legacy_strategy_type: Literal["single", "fill-first", "round-robin"] | None = None
     auto_recovery: AutoRecovery | None = None
     routing_policy: RoutingPolicy | None = None
@@ -50,6 +51,10 @@ class ConfigEndpointExport(BaseModel):
     name: str
     base_url: str
     api_key_secret_ref: str | None = None
+    pool_timeout: float = Field(default=5.0, ge=0.0)
+    connect_timeout: float = Field(default=10.0, ge=0.0)
+    write_timeout: float = Field(default=30.0, ge=0.0)
+    read_idle_timeout: float = Field(default=120.0, ge=0.0)
     position: int | None = Field(default=None, ge=0)
 
     @field_validator("api_key_secret_ref")

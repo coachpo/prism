@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createDefaultTimeoutPolicy } from "../loadbalanceRoutingPolicy";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -9,7 +10,6 @@ function buildAdaptiveRoutingPolicy(overrides: Record<string, unknown> = {}) {
   return {
     kind: "adaptive",
     routing_objective: "minimize_latency",
-    deadline_budget_ms: 1500,
     hedge: {
       enabled: false,
       delay_ms: 75,
@@ -46,6 +46,7 @@ describe("management api compatibility", () => {
               profile_id: 3,
               name: "legacy-round-robin",
               strategy_type: "legacy",
+              timeout_policy: createDefaultTimeoutPolicy(),
               legacy_strategy_type: "round-robin",
               auto_recovery: {
                 mode: "enabled",
@@ -81,6 +82,7 @@ describe("management api compatibility", () => {
         profile_id: 3,
         name: "legacy-round-robin",
         strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
         legacy_strategy_type: "round-robin",
         auto_recovery: {
           mode: "enabled",
@@ -116,6 +118,7 @@ describe("management api compatibility", () => {
               profile_id: 3,
               name: "legacy-single",
               strategy_type: "legacy",
+              timeout_policy: createDefaultTimeoutPolicy(),
               legacy_strategy_type: "single",
               auto_recovery: {
                 mode: "enabled",
@@ -149,6 +152,7 @@ describe("management api compatibility", () => {
         profile_id: 3,
         name: "legacy-single",
         strategy_type: "legacy",
+        timeout_policy: createDefaultTimeoutPolicy(),
         legacy_strategy_type: "single",
         auto_recovery: {
           mode: "enabled",
@@ -187,6 +191,7 @@ describe("management api compatibility", () => {
               id: 12,
               name: "adaptive-primary",
               strategy_type: "adaptive",
+              timeout_policy: createDefaultTimeoutPolicy(),
               routing_policy: buildAdaptiveRoutingPolicy(),
             },
             is_enabled: true,
@@ -206,6 +211,7 @@ describe("management api compatibility", () => {
         id: 12,
         name: "adaptive-primary",
         strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
         routing_policy: buildAdaptiveRoutingPolicy(),
       },
     });

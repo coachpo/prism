@@ -519,6 +519,7 @@ def build_streaming_response(
     upstream_resp: httpx.Response,
     response_headers: dict[str, str],
     elapsed_ms: int,
+    first_chunk: bytes | None,
 ) -> PreparedExecutionResponse:
     async def _release_stream_lease() -> None:
         if target.limiter_lease_token is None:

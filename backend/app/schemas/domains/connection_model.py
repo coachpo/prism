@@ -237,6 +237,15 @@ class AutoRecovery(BaseModel):
         return list(normalize_failover_status_codes(value))
 
 
+class TimeoutPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_open_timeout_ms: int = Field(default=2_000, ge=1, le=300_000)
+    buffered_total_timeout_ms: int = Field(default=30_000, ge=1, le=300_000)
+    stream_precommit_timeout_ms: int = Field(default=5_000, ge=1, le=300_000)
+    stream_hard_cap_timeout_ms: int | None = Field(default=120_000, ge=1, le=86_400_000)
+
+
 class RoutingPolicyHedge(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -307,7 +316,6 @@ class RoutingPolicy(BaseModel):
     routing_objective: Literal["minimize_latency", "maximize_availability"] = (
         "minimize_latency"
     )
-    deadline_budget_ms: int = Field(default=30_000, ge=1, le=300_000)
     hedge: RoutingPolicyHedge = Field(default_factory=RoutingPolicyHedge)
     circuit_breaker: RoutingPolicyCircuitBreaker = Field(
         default_factory=RoutingPolicyCircuitBreaker
@@ -320,6 +328,7 @@ class LoadbalanceStrategyBase(BaseModel):
 
     name: str
     strategy_type: Literal["legacy", "adaptive"]
+    timeout_policy: TimeoutPolicy
     legacy_strategy_type: Literal["single", "fill-first", "round-robin"] | None = None
     auto_recovery: AutoRecovery | None = None
     routing_policy: RoutingPolicy | None = None
@@ -569,6 +578,7 @@ __all__ = [
     "LoadbalanceStrategyResponse",
     "LoadbalanceStrategySummary",
     "LoadbalanceStrategyUpdate",
+    "TimeoutPolicy",
     "ModelConnectionsBatchItem",
     "ModelConnectionsBatchRequest",
     "ModelConnectionsBatchResponse",

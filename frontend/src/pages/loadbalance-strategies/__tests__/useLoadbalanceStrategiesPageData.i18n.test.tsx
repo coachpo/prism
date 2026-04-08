@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { LoadbalanceStrategy } from "@/lib/types";
-import { getDefaultAutoRecovery } from "@/lib/loadbalanceRoutingPolicy";
+import { createDefaultTimeoutPolicy, getDefaultAutoRecovery } from "@/lib/loadbalanceRoutingPolicy";
 import { getDefaultAutoRecoveryDraft } from "../loadbalanceStrategyFormState";
 import { useLoadbalanceStrategiesPageData } from "../useLoadbalanceStrategiesPageData";
 
@@ -12,7 +12,6 @@ function buildAdaptiveRoutingPolicy(overrides: Record<string, unknown> = {}) {
   return {
     kind: "adaptive" as const,
     routing_objective: "maximize_availability" as const,
-    deadline_budget_ms: 1500,
     hedge: {
       enabled: false,
       delay_ms: 75,
@@ -105,6 +104,7 @@ describe("useLoadbalanceStrategiesPageData i18n", () => {
       profile_id: 1,
       name: "Adaptive availability",
       strategy_type: "adaptive",
+      timeout_policy: createDefaultTimeoutPolicy(),
       routing_policy: buildAdaptiveRoutingPolicy(),
       attached_model_count: 0,
       created_at: "2026-03-30T09:00:00Z",
@@ -123,6 +123,7 @@ describe("useLoadbalanceStrategiesPageData i18n", () => {
       result.current.setLoadbalanceStrategyForm(() => ({
         name: "Adaptive availability",
         strategy_type: "adaptive",
+        timeout_policy: createDefaultTimeoutPolicy(),
         routing_policy: buildAdaptiveRoutingPolicy(),
         circuit_breaker_status_code_input: "",
       }));
@@ -135,6 +136,7 @@ describe("useLoadbalanceStrategiesPageData i18n", () => {
     expect(api.loadbalanceStrategies.create).toHaveBeenCalledWith({
       name: "Adaptive availability",
       strategy_type: "adaptive",
+      timeout_policy: createDefaultTimeoutPolicy(),
       routing_policy: buildAdaptiveRoutingPolicy(),
     });
     expect(result.current.loadbalanceStrategyDialogOpen).toBe(false);

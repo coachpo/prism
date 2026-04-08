@@ -15,9 +15,11 @@ from app.schemas.schemas import (
 from .policy import (
     canonicalize_auto_recovery_document,
     canonicalize_routing_policy_document,
+    canonicalize_timeout_policy_document,
     resolve_effective_loadbalance_policy,
     serialize_auto_recovery,
     serialize_routing_policy,
+    serialize_timeout_policy,
 )
 from .state import clear_strategy_state
 
@@ -68,6 +70,7 @@ def _build_strategy_response(
         "profile_id": strategy.profile_id,
         "name": strategy.name,
         "strategy_type": policy.strategy_type,
+        "timeout_policy": serialize_timeout_policy(policy),
         "legacy_strategy_type": policy.legacy_strategy_type,
         "auto_recovery": None,
         "routing_policy": None,
