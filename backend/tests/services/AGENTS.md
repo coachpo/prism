@@ -11,7 +11,6 @@ services/
 ├── test_crypto.py
 ├── test_loadbalance_strategies.py
 ├── test_loadbalancer_{executor,limiter,planner,recovery,runtime_store,scoring,state}.py
-├── test_monitoring_{queries,routing_feedback,scheduler,settings}.py
 ├── test_stats_summary_request_logs.py
 ├── test_streaming_buffer.py
 ├── test_throughput_service.py
@@ -25,7 +24,6 @@ services/
 - Background worker and task-queue behavior: `test_background_tasks.py`
 - Crypto helpers and service-level secret handling: `test_crypto.py`
 - Loadbalance strategy CRUD plus loadbalancer planner, scoring, limiter, runtime-store, executor, recovery, and state behavior: `test_loadbalance_strategies.py`, `test_loadbalancer_*.py`
-- Monitoring scheduler, routing-feedback, settings, and query behavior: `test_monitoring_*.py`
 - Stats queries, summaries, request logs, usage events, and usage snapshots: `test_stats_summary_request_logs.py`, `test_usage_event_logging.py`, `test_usage_snapshot_service.py`
 - Streaming helpers and pass-through behavior: `test_streaming_buffer.py`
 - Throughput service behavior: `test_throughput_service.py`
@@ -35,7 +33,7 @@ services/
 
 - These tests stay outside `smoke_defect_regressions/` because they are service-focused, not named DEF regressions.
 - These tests stay outside `multi_profile_isolation/` because their point is service behavior, not selected-profile versus active-profile containment.
-- The tree exists so auth cache, background task, crypto, loadbalancer, monitoring, stats, usage-event, streaming, throughput, and WebAuthn coverage has one clear handoff instead of leaking into the other hierarchies.
+- The tree exists so auth cache, background task, crypto, loadbalancer, stats, usage-event, streaming, throughput, and WebAuthn coverage has one clear handoff instead of leaking into the other hierarchies.
 - Keep PostgreSQL grounding explicit when adding or reading these cases, because they use the same backend testcontainer setup as the rest of `tests/`.
 
 ## CONVENTIONS
