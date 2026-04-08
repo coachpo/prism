@@ -24,7 +24,7 @@ def test_alembic_graph_has_one_head() -> None:
 
     heads = ScriptDirectory.from_config(config).get_heads()
 
-    assert heads == ["0017_merge_timeout_policy_and_request_log_ua_rules"]
+    assert heads == ["0018_connection_probe_interval_default"]
 
 
 def test_alembic_version_table_length_covers_all_revision_ids() -> None:

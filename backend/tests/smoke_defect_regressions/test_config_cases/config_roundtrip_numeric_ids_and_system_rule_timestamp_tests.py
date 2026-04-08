@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator, cast
+from typing import AsyncGenerator, Optional, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +12,7 @@ from app.core.crypto import encrypt_bundle_secret, get_bundle_secret_key_id
 from tests.loadbalance_strategy_helpers import (
     make_auto_recovery_disabled,
     make_routing_policy_adaptive,
+    make_timeout_policy_shared,
 )
 from app.services.proxy_service import (
     extract_model_from_body,
@@ -43,11 +44,13 @@ def _build_v2_profile_payload(
     endpoints: list[dict[str, object]],
     loadbalance_strategies: list[dict[str, object]],
     models: list[dict[str, object]],
-    profile_settings: dict[str, object] | None = None,
-    header_blocklist_rules: list[dict[str, object]] | None = None,
+    profile_settings: Optional[dict[str, object]] = None,
+    header_blocklist_rules: Optional[list[dict[str, object]]] = None,
 ) -> dict[str, object]:
-    secret_values = {
-        endpoint["api_key_secret_ref"]: endpoint.pop("_secret_value")
+    secret_values: dict[str, str] = {
+        cast(str, endpoint["api_key_secret_ref"]): cast(
+            str, endpoint.pop("_secret_value")
+        )
         for endpoint in endpoints
         if "_secret_value" in endpoint
     }
@@ -64,7 +67,10 @@ def _build_v2_profile_payload(
         ],
         "endpoints": endpoints,
         "pricing_templates": [],
-        "loadbalance_strategies": loadbalance_strategies,
+        "loadbalance_strategies": [
+            {"timeout_policy": make_timeout_policy_shared(), **strategy}
+            for strategy in loadbalance_strategies
+        ],
         "models": models,
         "profile_settings": profile_settings
         if profile_settings is not None
@@ -184,7 +190,7 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
     async def test_import_config_endpoint_starts_one_immediate_probe_per_imported_connection(
         self,
     ):
-        from sqlalchemy import select
+        from sqlalchemy import select, text
 
         from app.core.database import AsyncSessionLocal, get_engine
         from app.models.models import Connection, Profile
@@ -283,8 +289,24 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                 .scalars()
                 .all()
             )
+            probe_intervals = list(
+                (
+                    await db.execute(
+                        text(
+                            "SELECT monitoring_probe_interval_seconds "
+                            "FROM connections "
+                            "WHERE profile_id = :profile_id "
+                            "ORDER BY id ASC"
+                        ),
+                        {"profile_id": profile_id},
+                    )
+                )
+                .scalars()
+                .all()
+            )
 
         assert len(imported_connections) == 2
+        assert probe_intervals == [300, 300]
         assert all(
             connection.health_status == "unknown" for connection in imported_connections
         )
