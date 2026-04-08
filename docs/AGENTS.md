@@ -10,7 +10,6 @@ docs/
 ├── ARCHITECTURE.md
 ├── API_SPEC.md
 ├── DATA_MODEL.md
-├── frontend-chip-design-inventory.md
 ├── PRD.md
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
@@ -21,7 +20,7 @@ docs/
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
-- `frontend-chip-design-inventory.md`, `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references.
+- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references.
 - `archive/` holds finished implementation notes, archived one-off plans, finished test execution notes, and any retained historical evidence, including optional adjacent screenshots or payload artifacts when provenance matters.
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
 
@@ -29,7 +28,6 @@ docs/
 - Launcher and release facts: `../README.md`, `../start.sh`, `../release.sh`, `../.env.example`
 - Backend/frontend version surfaces: `../backend/VERSION`, `../backend/pyproject.toml`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
-- Settled frontend chip-retirement inventory: `frontend-chip-design-inventory.md`
 - Frontend request-log context: `REQUESTS_PAGE.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans outside docs: `../.sisyphus/plans/`
@@ -42,7 +40,7 @@ docs/
 - Keep version-contract docs aligned with the monorepo release surfaces: `../VERSION`, `../backend/VERSION`, `../frontend/VERSION`, and the literal semver sink in `../frontend/package.json` that must stay actual JSON for npm.
 - State release automation accurately: `../release.sh` is the local monorepo release helper that keeps those version surfaces aligned, runs the backend version-metadata test and frontend build, and pushes one root `v*` tag; `.github/workflows/docker-images.yml` builds images from a standard checkout using the monorepo commit metadata, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
-- Keep archive wording aligned with the current archive shape: dated descriptive markdown notes first, optional `*.png` or `*.json` evidence only when the archived note needs provenance.
+- Keep archive wording aligned with the current archive shape: dated descriptive markdown notes first, optional `*.png` or `*.json` evidence only when the archived note needs provenance, and never treat archive notes as canonical docs.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS

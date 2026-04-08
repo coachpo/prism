@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-05 | branch: main | commit: 606970c -->
+<!-- Generated: 2026-04-08 | branch: main | commit: 36b1769 -->
 # PROJECT KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -45,7 +45,7 @@ prism/
 - Operator-facing launcher and release summary: `README.md`, `start.sh`, `release.sh`
 - Backend/frontend version surfaces: `backend/VERSION`, `backend/pyproject.toml`, `frontend/VERSION`, `frontend/package.json`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
-- Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/frontend-chip-design-inventory.md`
+- Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`
 - Backend/frontend ownership trees: `backend/AGENTS.md`, `frontend/AGENTS.md`
 - Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.sisyphus/plans/`
 
