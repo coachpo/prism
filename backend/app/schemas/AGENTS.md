@@ -13,7 +13,6 @@ schemas/
     ├── common.py          # Shared schema helpers and enums
     ├── connection_model.py
     ├── core.py            # Profiles, vendors, endpoints, connections, models, pricing templates
-    ├── monitoring.py      # Monitoring overview, vendor, model, and manual-probe payloads
     ├── endpoint_pricing.py
     ├── profile_vendor.py
     ├── stats.py           # Request logs, spending, throughput, metrics batch, loadbalance current-state and event payloads
@@ -26,16 +25,15 @@ schemas/
 - Admin contracts for audit logs, config export or import, and blocklist rules: `domains/admin.py`
 - Auth and passkey contracts: `domains/auth.py`
 - Core management contracts for profiles, vendors, endpoints, connections, models, and pricing templates: `domains/core.py`
-- Monitoring overview, drill-down, and manual-probe contracts: `domains/monitoring.py`
 - Shared helpers and split support modules behind the public surface: `domains/common.py`, `domains/connection_model.py`, `domains/endpoint_pricing.py`, `domains/profile_vendor.py`
 - Stats and observability contracts for request logs, spending, throughput, metrics batches, and loadbalance current-state or event payloads: `domains/stats.py`
 - Unified usage-snapshot and request-event contracts: `domains/usage_statistics.py`
 
 ## SCHEMA FACTS
 
-- `schemas.py` currently re-exports a broad explicit surface from `domains/admin.py`, `domains/auth.py`, `domains/core.py`, `domains/monitoring.py`, `domains/stats.py`, and `domains/usage_statistics.py`.
+- `schemas.py` currently re-exports a broad explicit surface from `domains/admin.py`, `domains/auth.py`, `domains/core.py`, `domains/stats.py`, and `domains/usage_statistics.py`.
 - Config export/import now uses the v2 split-bundle contract: profile bundles are `version: 2`, `bundle_kind: profile_config` with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, and nullable `api_key_secret_ref`; vendor-catalog bundles are `bundle_kind: vendor_catalog` with authoritative vendor metadata.
-- Loadbalance strategy management contracts now use a top-level `strategy_type` discriminator: legacy payloads carry `legacy_strategy_type` plus `auto_recovery`, while adaptive payloads carry `routing_policy` with `hedge`, `circuit_breaker`, `admission`, and `monitoring` branches.
+- Loadbalance strategy management contracts now use a top-level `strategy_type` discriminator: legacy payloads carry `legacy_strategy_type` plus `auto_recovery`, while adaptive payloads carry `routing_policy` with `hedge`, `circuit_breaker`, and `admission` branches.
 - Supporting domain files such as `common.py`, `connection_model.py`, `endpoint_pricing.py`, and `profile_vendor.py` still live under `domains/`, but the stable router-facing boundary is `schemas.py`.
 - The parent doc covers schema-domain ownership. Don't create new AGENTS docs inside `schemas/domains/` for the current layout.
 - Routers should depend on the re-export boundary, not on scattered leaf-module imports.
@@ -50,5 +48,5 @@ schemas/
 ## ANTI-PATTERNS
 
 - Do not import domain leaf modules directly from routers when `app.schemas.schemas` already defines the supported surface.
-- Do not document internal helper modules as if they are public schema domains when the stable boundary is `admin`, `auth`, `core`, `monitoring`, `stats`, and `usage_statistics`.
+- Do not document internal helper modules as if they are public schema domains when the stable boundary is `admin`, `auth`, `core`, `stats`, and `usage_statistics`.
 - Do not let route handlers drift into hand-built payloads that bypass the schema layer.

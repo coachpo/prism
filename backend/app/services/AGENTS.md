@@ -1,7 +1,7 @@
 # BACKEND SERVICES ROOT KNOWLEDGE BASE
 
 ## OVERVIEW
-`services/` is the backend service boundary. It holds the public facades imported by routers, shared runtime infrastructure such as `background_tasks.py`, split child packages for auth, proxy support, realtime, stats, load balancing, monitoring, and WebAuthn, and root helpers such as audit persistence, costing, cleanup, user-settings bootstrap, and load-balance event summaries.
+`services/` is the backend service boundary. It holds the public facades imported by routers, shared runtime infrastructure such as `background_tasks.py`, split child packages for auth, proxy support, realtime, stats, load balancing, and WebAuthn, and root helpers such as audit persistence, connection health checks, costing, cleanup, user-settings bootstrap, and load-balance event summaries.
 
 ## STRUCTURE
 ```
@@ -9,11 +9,9 @@ services/
 ├── auth_service.py                     # Public auth and proxy-key re-export surface
 ├── webauthn_service.py                 # Public passkey re-export surface
 ├── stats_service.py                    # Public stats and observability re-export surface
-├── monitoring_service.py               # Public monitoring facade over probe, query, and scheduler helpers
 ├── proxy_service.py                    # Upstream forwarding boundary
+├── connection_health.py                # Manual health-check request builder and preview boundary
 ├── loadbalancer/                       # Split planner, scoring, execution, limiter, runtime-state, recovery, strategy/admin seams
-├── monitoring/AGENTS.md                # Probe runner, scheduler, queries, and routing feedback
-├── monitoring/                         # Package owned by the monitoring leaf doc above
 ├── audit_service.py                    # Audit persistence and redaction
 ├── costing_service.py                  # Pricing and FX helpers
 ├── background_tasks.py                 # Shared BackgroundTaskManager implementation
@@ -35,8 +33,8 @@ services/
 - Shared worker lifecycle and metrics snapshots: `background_tasks.py`, `../main.py`
 - Public auth boundary: `auth_service.py`, `auth/AGENTS.md`
 - Public passkey boundary: `webauthn_service.py`, `webauthn/AGENTS.md`
+- Manual connection-health request building and preview payloads: `connection_health.py`
 - Runtime routing, attempt planning, candidate scoring, deadline-aware execution, runtime leases/state, and upstream forwarding: `loadbalancer/AGENTS.md`, `proxy_service.py`, `proxy_support/AGENTS.md`
-- Monitoring queries, manual probes, scheduled probes, and routing feedback: `monitoring_service.py`, `monitoring/AGENTS.md`
 - Observability, request logging, dashboard payload shaping, and batch model or connection metrics: `stats_service.py`, `audit_service.py`, `stats/AGENTS.md`
 - Load-balance event detail wording and cooldown summaries: `loadbalance_event_summary.py`, `loadbalancer/AGENTS.md`
 - Realtime room-state ownership: `realtime/AGENTS.md`, `realtime/connection_manager.py`
@@ -45,13 +43,12 @@ services/
 ## SERVICE FACTS
 
 - `background_tasks.py` defines `BackgroundTaskManager`, queue and worker lifecycle, retry handling, enqueue rejection tracking, and metrics snapshots.
-- FastAPI lifespan in `../main.py` configures `background_task_manager` with the settings-derived worker count, starts it, stores it on `app.state`, starts `MonitoringScheduler` against the shared `httpx` client, and shuts both down during teardown.
-- `auth_service.py`, `monitoring_service.py`, `stats_service.py`, and `webauthn_service.py` are intended public import surfaces over deeper packages.
+- FastAPI lifespan in `../main.py` configures `background_task_manager` with the settings-derived worker count, starts it, stores it on `app.state`, and shuts it down during teardown.
+- `auth_service.py`, `stats_service.py`, and `webauthn_service.py` are intended public import surfaces over deeper packages.
 - `loadbalancer/` is no longer just planner or recovery logic; it now carries candidate scoring, deadline-aware execution, runtime lease/state persistence, strategy CRUD, and management-facing current-state/event helpers.
 - `loadbalance_event_summary.py` is the root helper for human-readable load-balance event labels, reasons, and cooldown text used by load-balance detail responses.
 - Realtime route handlers depend on `services/realtime/connection_manager.py` for connection tracking and room membership instead of owning that state themselves.
 - `services/stats/logging.py` owns request-log side effects and emits `dashboard.update` payloads.
-- `monitoring/AGENTS.md` owns scheduled synthetic probes, drill-down query shaping, and probe/passive-outcome feedback into runtime routing state.
 
 ## CONVENTIONS
 
