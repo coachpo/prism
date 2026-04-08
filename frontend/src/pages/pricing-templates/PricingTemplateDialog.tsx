@@ -4,7 +4,6 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -101,12 +100,11 @@ export function PricingTemplateDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-h-[90vh] sm:max-w-3xl">
+      <DialogContent aria-describedby={undefined} className="max-h-[90vh] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {editingPricingTemplate ? dialogMessages.editTitle : dialogMessages.addTitle}
           </DialogTitle>
-          <DialogDescription>{dialogMessages.description}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-col gap-5">
@@ -121,7 +119,6 @@ export function PricingTemplateDialog({
               <section className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
                 <div className="flex flex-col gap-1">
                   <p className="text-sm font-medium text-foreground">{dialogMessages.detailsSectionTitle}</p>
-                  <p className="text-sm text-muted-foreground">{dialogMessages.detailsSectionDescription}</p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -176,7 +173,6 @@ export function PricingTemplateDialog({
               <section className="flex flex-col gap-4 rounded-lg border p-4">
                 <div className="flex flex-col gap-1">
                   <p className="text-sm font-medium text-foreground">{dialogMessages.primaryRatesSectionTitle}</p>
-                  <p className="text-sm text-muted-foreground">{dialogMessages.primaryRatesSectionDescription}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">

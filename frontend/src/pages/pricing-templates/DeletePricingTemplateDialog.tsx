@@ -91,11 +91,7 @@ export function DeletePricingTemplateDialog({
                   ) : null}
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.currency}</p>
-                    <p className="text-sm text-foreground">{dialogTemplate.pricing_currency_code}</p>
-                  </div>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="flex min-w-0 flex-col gap-1">
                     <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.input}</p>
                     <p className="text-sm text-foreground">{dialogTemplate.input_price}</p>

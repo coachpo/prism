@@ -34,7 +34,7 @@ export function PricingTemplateUsageDialog({
   pricingTemplateUsageRows,
   pricingTemplateUsageTemplate,
 }: PricingTemplateUsageDialogProps) {
-  const { formatNumber, messages } = useLocale();
+  const { messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
 
   return (
@@ -62,17 +62,6 @@ export function PricingTemplateUsageDialog({
                   {pricingTemplateUsageTemplate.description ? (
                     <p className="text-sm text-muted-foreground">{pricingTemplateUsageTemplate.description}</p>
                   ) : null}
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.currency}</p>
-                    <p className="text-sm text-foreground">{pricingTemplateUsageTemplate.pricing_currency_code}</p>
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{messages.requestLogs.connection}</p>
-                    <p className="text-sm text-foreground">{formatNumber(pricingTemplateUsageRows.length)}</p>
-                  </div>
                 </div>
               </div>
             ) : null}
