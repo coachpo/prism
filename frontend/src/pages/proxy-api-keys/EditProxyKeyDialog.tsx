@@ -1,6 +1,5 @@
 import type { ComponentProps } from "react";
 import { SwitchController } from "@/components/SwitchController";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,11 +56,6 @@ export function EditProxyKeyDialog({
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div className="flex flex-col gap-5">
               <section className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium text-foreground">{copy.nameNote}</p>
-                  <p className="text-sm text-muted-foreground">{copy.editDescription}</p>
-                </div>
-
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="proxy-key-edit-name">{copy.name}</Label>
                   <Input
@@ -90,11 +84,6 @@ export function EditProxyKeyDialog({
               </section>
 
               <section className="flex flex-col gap-4 rounded-lg border p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-foreground">{copy.active}</p>
-                  <Badge variant="outline">{proxyKeyActive ? copy.active : copy.disabled}</Badge>
-                </div>
-
                 <SwitchController
                   label={copy.active}
                   checked={proxyKeyActive}

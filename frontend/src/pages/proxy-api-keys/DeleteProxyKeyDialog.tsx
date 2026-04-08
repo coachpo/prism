@@ -62,10 +62,6 @@ export function DeleteProxyKeyDialog({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.preview}</p>
-                  <p className="break-all text-sm text-foreground">{dialogKey.key_prefix}</p>
-                </div>
-                <div className="flex min-w-0 flex-col gap-1">
                   <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{copy.lastUsed}</p>
                   <p className="text-sm text-foreground">{formatLastUsed(dialogKey.last_used_at)}</p>
                 </div>
