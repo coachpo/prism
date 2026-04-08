@@ -249,6 +249,28 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
                     .scalars()
                     .all()
                 )
+                connection_columns = set(
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'connections'"
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                connection_constraints = set(
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT conname FROM pg_constraint WHERE conrelid = 'connections'::regclass AND contype = 'c'"
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
             await engine.dispose()
 
             assert version == [current_head_revision]
@@ -260,6 +282,10 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
             assert "strategy_type" in strategy_columns
             assert "legacy_strategy_type" in strategy_columns
             assert "auto_recovery" in strategy_columns
+            assert "openai_probe_endpoint_variant" in connection_columns
+            assert (
+                "ck_connections_openai_probe_endpoint_variant" in connection_constraints
+            )
         finally:
             await _drop_database(drift_database_url)
 
@@ -364,8 +390,34 @@ class TestDEF075_LoadbalancePrimaryKeyContract:
                     .scalars()
                     .all()
                 )
+                connection_columns = set(
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'connections'"
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                connection_constraints = set(
+                    (
+                        await conn.execute(
+                            text(
+                                "SELECT conname FROM pg_constraint WHERE conrelid = 'connections'::regclass AND contype = 'c'"
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
             await engine.dispose()
 
             assert version == [current_head_revision]
+            assert "openai_probe_endpoint_variant" in connection_columns
+            assert (
+                "ck_connections_openai_probe_endpoint_variant" in connection_constraints
+            )
         finally:
             await _drop_database(compatibility_database_url)
