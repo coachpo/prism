@@ -1,6 +1,7 @@
+import importlib
 from unittest.mock import AsyncMock, patch
+from typing import Any, cast
 
-import pytest
 from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
@@ -8,7 +9,10 @@ from app.models.models import LoadbalanceStrategy, ModelConfig, Profile
 from app.services.loadbalancer.policy import (
     build_default_auto_recovery_document,
     build_default_routing_policy_document,
+    build_default_timeout_policy_document,
 )
+
+pytest = cast(Any, importlib.import_module("pytest"))
 
 
 class TestDEF085_LoadbalanceStrategyPresetSeed:
@@ -90,16 +94,21 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
             startup.DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME
         ]
         assert legacy_strategy.strategy_type == "legacy"
+        assert legacy_strategy.timeout_policy == build_default_timeout_policy_document()
         assert legacy_strategy.legacy_strategy_type == "round-robin"
         assert legacy_strategy.auto_recovery == build_default_auto_recovery_document()
         assert legacy_strategy.routing_policy is None
 
         assert adaptive_strategy.strategy_type == "adaptive"
+        assert (
+            adaptive_strategy.timeout_policy == build_default_timeout_policy_document()
+        )
         assert adaptive_strategy.legacy_strategy_type is None
         assert adaptive_strategy.auto_recovery is None
         assert (
             adaptive_strategy.routing_policy == build_default_routing_policy_document()
         )
+        assert adaptive_strategy.routing_policy is not None
         assert "monitoring" not in adaptive_strategy.routing_policy
 
     @pytest.mark.asyncio
@@ -115,6 +124,7 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
                 LoadbalanceStrategy(
                     name=startup.DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME,
                     strategy_type="adaptive",
+                    timeout_policy=build_default_timeout_policy_document(),
                     routing_policy=build_default_routing_policy_document(),
                 )
             ]
@@ -154,6 +164,7 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
                 LoadbalanceStrategy(
                     name=startup.LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME,
                     strategy_type="legacy",
+                    timeout_policy=build_default_timeout_policy_document(),
                     legacy_strategy_type="fill-first",
                     auto_recovery=build_default_auto_recovery_document(),
                 )
@@ -186,6 +197,7 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
             startup.DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
         ]
         assert legacy_strategy.strategy_type == "legacy"
+        assert legacy_strategy.timeout_policy == build_default_timeout_policy_document()
         assert legacy_strategy.legacy_strategy_type == "round-robin"
         assert legacy_strategy.auto_recovery == build_default_auto_recovery_document()
 
@@ -202,6 +214,7 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
                 LoadbalanceStrategy(
                     name=startup.DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME,
                     strategy_type="adaptive",
+                    timeout_policy=build_default_timeout_policy_document(),
                     legacy_strategy_type=None,
                     auto_recovery=None,
                     routing_policy=build_default_routing_policy_document(),
@@ -209,6 +222,7 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
                 LoadbalanceStrategy(
                     name=startup.DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME,
                     strategy_type="legacy",
+                    timeout_policy=build_default_timeout_policy_document(),
                     legacy_strategy_type="fill-first",
                     auto_recovery={"enabled": False},
                     routing_policy=None,
@@ -241,11 +255,15 @@ class TestDEF085_LoadbalanceStrategyPresetSeed:
         ]
 
         assert legacy_strategy.strategy_type == "legacy"
+        assert legacy_strategy.timeout_policy == build_default_timeout_policy_document()
         assert legacy_strategy.legacy_strategy_type == "round-robin"
         assert legacy_strategy.auto_recovery == build_default_auto_recovery_document()
         assert legacy_strategy.routing_policy is None
 
         assert adaptive_strategy.strategy_type == "adaptive"
+        assert (
+            adaptive_strategy.timeout_policy == build_default_timeout_policy_document()
+        )
         assert adaptive_strategy.legacy_strategy_type is None
         assert adaptive_strategy.auto_recovery is None
         assert (

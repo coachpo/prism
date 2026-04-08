@@ -172,19 +172,23 @@ def _canonicalize_seeded_legacy_strategy(strategy: LoadbalanceStrategy) -> bool:
     before = (
         strategy.name,
         strategy.strategy_type,
+        strategy.timeout_policy,
         strategy.legacy_strategy_type,
         strategy.auto_recovery,
         strategy.routing_policy,
     )
+    timeout_policy = build_default_timeout_policy_document()
     auto_recovery = build_default_auto_recovery_document()
     strategy.name = DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
     strategy.strategy_type = "legacy"
+    strategy.timeout_policy = timeout_policy
     strategy.legacy_strategy_type = "round-robin"
     strategy.auto_recovery = auto_recovery
     strategy.routing_policy = None
     after = (
         strategy.name,
         strategy.strategy_type,
+        strategy.timeout_policy,
         strategy.legacy_strategy_type,
         strategy.auto_recovery,
         strategy.routing_policy,
