@@ -26,6 +26,11 @@ def _request_log_row(**overrides):
         "ingress_request_id": "ingress-321",
         "attempt_number": 2,
         "provider_correlation_id": "provider-321",
+        "caller_user_agent": "Codex CLI/1.2",
+        "upstream_user_agent": "Claude Code/2.0",
+        "caller_client_display": "Codex",
+        "upstream_client_display": "Claude Code",
+        "user_agent_overridden": True,
         "endpoint_base_url": "https://api.openai.com",
         "status_code": 503,
         "response_time_ms": 1450,
@@ -191,10 +196,16 @@ class TestDEF058_StatsTimezoneFilterNormalization:
 
         assert response.total == 1
         assert response.items[0].vendor_name == "OpenAI"
+        assert response.items[0].caller_client_display == "Codex"
+        assert response.items[0].upstream_client_display == "Claude Code"
+        assert response.items[0].user_agent_overridden is True
         item_payload = response.items[0].model_dump()
         assert "endpoint_base_url" not in item_payload
         assert "pricing_snapshot_input" not in item_payload
         assert "proxy_api_key_name_snapshot" not in item_payload
+        assert item_payload["caller_client_display"] == "Codex"
+        assert item_payload["upstream_client_display"] == "Claude Code"
+        assert item_payload["user_agent_overridden"] is True
 
     @pytest.mark.asyncio
     async def test_request_detail_route_passes_profile_scoped_request_id_to_service(
@@ -222,6 +233,11 @@ class TestDEF058_StatsTimezoneFilterNormalization:
         assert call_kwargs["request_id"] == 321
         assert response.summary.id == 321
         assert response.request.ingress_request_id == "ingress-321"
+        assert response.request.caller_user_agent == "Codex CLI/1.2"
+        assert response.request.upstream_user_agent == "Claude Code/2.0"
+        assert response.request.caller_client_display == "Codex"
+        assert response.request.upstream_client_display == "Claude Code"
+        assert response.request.user_agent_overridden is True
         assert response.routing.vendor_name == "OpenAI"
         assert response.usage.total_tokens == 200
         assert response.costing.report_currency_symbol == "$"
@@ -983,6 +999,7 @@ class TestDEF061_ConnectionResponseEndpointMapping:
             name="primary",
             auth_type=None,
             custom_headers=None,
+            openai_probe_endpoint_variant=None,
             pricing_template_id=None,
             pricing_template_rel=None,
             health_status="unknown",

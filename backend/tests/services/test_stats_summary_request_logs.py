@@ -1,8 +1,10 @@
 import inspect
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any, cast
 from uuid import uuid4
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,6 +25,8 @@ def _request_log(
     ingress_request_id: str | None = None,
     attempt_number: int | None = None,
     provider_correlation_id: str | None = None,
+    caller_user_agent: str | None = None,
+    upstream_user_agent: str | None = None,
     success_flag: bool | None = None,
     billable_flag: bool | None = None,
     priced_flag: bool | None = None,
@@ -38,6 +42,8 @@ def _request_log(
         ingress_request_id=ingress_request_id,
         attempt_number=attempt_number,
         provider_correlation_id=provider_correlation_id,
+        caller_user_agent=caller_user_agent,
+        upstream_user_agent=upstream_user_agent,
         endpoint_base_url="https://api.openai.com",
         status_code=status_code,
         response_time_ms=response_time_ms,
@@ -406,6 +412,502 @@ async def test_get_request_log_detail_returns_none_outside_profile_scope() -> No
     assert owner_detail.attempt_number == 2
     assert owner_detail.provider_correlation_id == "provider-detail-1"
     assert other_detail is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_proxy_request_captures_caller_user_agent_case_insensitively() -> (
+    None
+):
+    from fastapi import FastAPI
+    from starlette.requests import Request
+
+    from app.routers.proxy_domains.request_setup import prepare_proxy_request
+
+    app = FastAPI()
+    app.state.http_client = object()
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "path": "/v1/chat/completions",
+            "raw_path": b"/v1/chat/completions",
+            "query_string": b"",
+            "headers": [
+                (b"host", b"testserver"),
+                (b"content-type", b"application/json"),
+                (b"User-Agent", b"Codex CLI/1.2"),
+            ],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "app": app,
+        }
+    )
+    raw_body = json.dumps(
+        {
+            "model": "vendorless-model",
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+    ).encode("utf-8")
+
+    requested_result = MagicMock()
+    requested_scalars = MagicMock()
+    requested_scalars.one_or_none.return_value = SimpleNamespace(
+        vendor=None,
+        api_family="openai",
+        model_id="vendorless-model",
+        is_enabled=True,
+    )
+    requested_result.scalars.return_value = requested_scalars
+
+    blocklist_result = MagicMock()
+    blocklist_scalars = MagicMock()
+    blocklist_scalars.all.return_value = []
+    blocklist_result.scalars.return_value = blocklist_scalars
+
+    db = AsyncMock()
+    db.execute = AsyncMock(side_effect=[requested_result, blocklist_result])
+
+    strategy = SimpleNamespace(
+        strategy_type="legacy",
+        legacy_strategy_type="single",
+        auto_recovery={"mode": "disabled"},
+    )
+    resolved_model_config = SimpleNamespace(
+        vendor=None,
+        api_family="openai",
+        model_id="vendorless-model",
+        loadbalance_strategy=strategy,
+    )
+    attempt_plan = SimpleNamespace(
+        connections=[SimpleNamespace(id=501, endpoint_id=501)],
+        probe_eligible_connection_ids=[],
+        policy=SimpleNamespace(
+            deadline_budget_ms=1000,
+            failover_recovery_enabled=False,
+        ),
+    )
+
+    with (
+        patch(
+            "app.routers.proxy_domains.request_setup.get_model_config_with_connections",
+            AsyncMock(return_value=resolved_model_config),
+        ),
+        patch(
+            "app.routers.proxy_domains.request_setup.build_attempt_plan",
+            AsyncMock(return_value=attempt_plan),
+        ),
+        patch(
+            "app.routers.proxy_domains.request_setup.load_costing_settings",
+            AsyncMock(return_value=SimpleNamespace()),
+        ),
+    ):
+        setup = await prepare_proxy_request(
+            request=request,
+            db=db,
+            raw_body=raw_body,
+            request_path="/v1/chat/completions",
+            profile_id=7,
+        )
+
+    assert setup.caller_user_agent == "Codex CLI/1.2"
+
+
+@pytest.mark.asyncio
+async def test_record_request_log_threads_caller_and_upstream_user_agents() -> None:
+    from app.routers.proxy_domains.attempt_outcome_reporting import record_request_log
+
+    log_request_fn = AsyncMock(return_value=123)
+    deps = SimpleNamespace(log_request_fn=log_request_fn)
+    state = SimpleNamespace(
+        profile_id=7,
+        request_path="/v1/chat/completions",
+        setup=SimpleNamespace(
+            model_id="gpt-5.4",
+            api_family="openai",
+            vendor_id=1,
+            vendor_key="openai",
+            vendor_name="OpenAI",
+            resolved_target_model_id="gpt-4.1-mini",
+            proxy_api_key_id=11,
+            proxy_api_key_name="primary-key",
+            ingress_request_id="ingress-ua-1",
+            caller_user_agent="Codex CLI/1.2",
+            build_cost_fields=lambda *_args, **_kwargs: {},
+        ),
+    )
+    target = SimpleNamespace(
+        attempt_number=2,
+        connection=SimpleNamespace(
+            id=8,
+            endpoint_id=4,
+            endpoint_rel=SimpleNamespace(base_url="https://api.openai.com"),
+        ),
+        headers={"User-Agent": "Claude Code/2.0"},
+        description="Primary endpoint",
+    )
+
+    await record_request_log(
+        deps=cast(Any, deps),
+        state=cast(Any, state),
+        target=cast(Any, target),
+        status_code=200,
+        response_headers=None,
+        response_body=None,
+        elapsed_ms=145,
+        is_stream=False,
+    )
+
+    assert log_request_fn.await_args is not None
+    persisted_kwargs = log_request_fn.await_args.kwargs
+    assert persisted_kwargs["caller_user_agent"] == "Codex CLI/1.2"
+    assert persisted_kwargs["upstream_user_agent"] == "Claude Code/2.0"
+
+
+@pytest.mark.asyncio
+async def test_log_request_persists_matching_caller_and_upstream_user_agent() -> None:
+    from app.services.stats_service import log_request
+
+    async with AsyncSessionLocal() as db:
+        profile = Profile(
+            name=f"ua-persist-same-{uuid4()}",
+            is_active=False,
+            is_default=False,
+        )
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+        profile_id = profile.id
+
+    request_log_id = await log_request(
+        model_id="gpt-5.4",
+        profile_id=profile_id,
+        api_family="openai",
+        endpoint_id=1,
+        connection_id=1,
+        endpoint_base_url="https://api.openai.com",
+        status_code=200,
+        response_time_ms=100,
+        is_stream=False,
+        request_path="/v1/chat/completions",
+        caller_user_agent="Gemini CLI/1.0",
+        upstream_user_agent="Gemini CLI/1.0",
+    )
+
+    async with AsyncSessionLocal() as db:
+        entry = await db.get(RequestLog, request_log_id)
+
+    assert entry is not None
+    assert entry.caller_user_agent == "Gemini CLI/1.0"
+    assert entry.upstream_user_agent == "Gemini CLI/1.0"
+
+
+@pytest.mark.asyncio
+async def test_log_request_persists_distinct_caller_and_upstream_user_agent() -> None:
+    from app.services.stats_service import log_request
+
+    async with AsyncSessionLocal() as db:
+        profile = Profile(
+            name=f"ua-persist-different-{uuid4()}",
+            is_active=False,
+            is_default=False,
+        )
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+        profile_id = profile.id
+
+    request_log_id = await log_request(
+        model_id="gpt-5.4",
+        profile_id=profile_id,
+        api_family="openai",
+        endpoint_id=1,
+        connection_id=1,
+        endpoint_base_url="https://api.openai.com",
+        status_code=200,
+        response_time_ms=100,
+        is_stream=False,
+        request_path="/v1/chat/completions",
+        caller_user_agent="Codex CLI/1.2",
+        upstream_user_agent="Claude Code/2.0",
+    )
+
+    async with AsyncSessionLocal() as db:
+        entry = await db.get(RequestLog, request_log_id)
+
+    assert entry is not None
+    assert entry.caller_user_agent == "Codex CLI/1.2"
+    assert entry.upstream_user_agent == "Claude Code/2.0"
+
+
+@pytest.mark.asyncio
+async def test_log_request_persists_caller_user_agent_without_upstream_for_pre_attempt_rows() -> (
+    None
+):
+    from app.services.stats_service import log_request
+
+    async with AsyncSessionLocal() as db:
+        profile = Profile(
+            name=f"ua-persist-pre-attempt-{uuid4()}",
+            is_active=False,
+            is_default=False,
+        )
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+        profile_id = profile.id
+
+    request_log_id = await log_request(
+        model_id="gpt-5.4",
+        profile_id=profile_id,
+        api_family="openai",
+        endpoint_id=None,
+        connection_id=None,
+        endpoint_base_url=None,
+        status_code=503,
+        response_time_ms=0,
+        is_stream=False,
+        request_path="/v1/chat/completions",
+        caller_user_agent="Codex CLI/1.2",
+        upstream_user_agent=None,
+        error_detail="No active connections available",
+    )
+
+    async with AsyncSessionLocal() as db:
+        entry = await db.get(RequestLog, request_log_id)
+
+    assert entry is not None
+    assert entry.caller_user_agent == "Codex CLI/1.2"
+    assert entry.upstream_user_agent is None
+
+
+@pytest.mark.asyncio
+async def test_get_request_logs_classifies_user_agents_with_profile_precedence_and_raw_fallback() -> (
+    None
+):
+    from app.models.models import UserAgentClientRule
+    from app.services.stats.request_logs import get_request_logs
+
+    created_at = datetime(2026, 3, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with AsyncSessionLocal() as db:
+        profile = Profile(
+            name=f"request-log-ua-profile-{uuid4()}",
+            is_active=False,
+            is_default=False,
+        )
+        db.add(profile)
+        await db.flush()
+
+        db.add_all(
+            [
+                UserAgentClientRule(
+                    name="Codex Custom",
+                    pattern="codex",
+                    enabled=True,
+                    is_system=False,
+                    profile_id=profile.id,
+                ),
+                UserAgentClientRule(
+                    name="Claude Code",
+                    pattern="claude(?:\\s|-)?code",
+                    enabled=True,
+                    is_system=False,
+                    profile_id=profile.id,
+                ),
+                UserAgentClientRule(
+                    name="Gemini",
+                    pattern="gemini",
+                    enabled=True,
+                    is_system=False,
+                    profile_id=profile.id,
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                _request_log(
+                    profile_id=profile.id,
+                    response_time_ms=100,
+                    created_at=created_at,
+                    ingress_request_id="override",
+                    caller_user_agent="Codex CLI/1.2",
+                    upstream_user_agent="Claude Code/2.0",
+                ),
+                _request_log(
+                    profile_id=profile.id,
+                    response_time_ms=110,
+                    created_at=created_at,
+                    ingress_request_id="same",
+                    caller_user_agent="Gemini CLI/1.0",
+                    upstream_user_agent="Gemini CLI/1.0",
+                ),
+                _request_log(
+                    profile_id=profile.id,
+                    response_time_ms=120,
+                    created_at=created_at,
+                    ingress_request_id="fallback",
+                    caller_user_agent="UnknownAgent/9.0",
+                    upstream_user_agent="UnknownAgent/9.0",
+                ),
+                _request_log(
+                    profile_id=profile.id,
+                    response_time_ms=130,
+                    created_at=created_at,
+                    ingress_request_id="nulls",
+                    caller_user_agent=None,
+                    upstream_user_agent=None,
+                ),
+            ]
+        )
+        await db.commit()
+
+        items, total = await get_request_logs(
+            db,
+            profile_id=profile.id,
+            limit=50,
+            offset=0,
+        )
+
+    assert total == 4
+    items_by_ingress = {item.ingress_request_id: item for item in items}
+    assert (
+        getattr(items_by_ingress["override"], "caller_client_display") == "Codex Custom"
+    )
+    assert (
+        getattr(items_by_ingress["override"], "upstream_client_display")
+        == "Claude Code"
+    )
+    assert getattr(items_by_ingress["override"], "user_agent_overridden") is True
+    assert getattr(items_by_ingress["same"], "caller_client_display") == "Gemini"
+    assert getattr(items_by_ingress["same"], "upstream_client_display") == "Gemini"
+    assert getattr(items_by_ingress["same"], "user_agent_overridden") is False
+    assert (
+        getattr(items_by_ingress["fallback"], "caller_client_display")
+        == "UnknownAgent/9.0"
+    )
+    assert (
+        getattr(items_by_ingress["fallback"], "upstream_client_display")
+        == "UnknownAgent/9.0"
+    )
+    assert getattr(items_by_ingress["fallback"], "user_agent_overridden") is False
+    assert getattr(items_by_ingress["nulls"], "caller_client_display") is None
+    assert getattr(items_by_ingress["nulls"], "upstream_client_display") is None
+    assert getattr(items_by_ingress["nulls"], "user_agent_overridden") is False
+
+
+def test_annotate_request_log_marks_one_sided_user_agent_differences_as_overrides() -> (
+    None
+):
+    from app.services.stats.request_logs import _annotate_request_log_user_agent_fields
+
+    created_at = datetime(2026, 3, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+    caller_only_entry = _request_log(
+        profile_id=7,
+        response_time_ms=100,
+        created_at=created_at,
+        caller_user_agent="Codex CLI/1.2",
+        upstream_user_agent=None,
+    )
+    upstream_only_entry = _request_log(
+        profile_id=7,
+        response_time_ms=110,
+        created_at=created_at,
+        caller_user_agent=None,
+        upstream_user_agent="Claude Code/2.0",
+    )
+    both_null_entry = _request_log(
+        profile_id=7,
+        response_time_ms=120,
+        created_at=created_at,
+        caller_user_agent=None,
+        upstream_user_agent=None,
+    )
+
+    annotated_caller_only = _annotate_request_log_user_agent_fields(
+        caller_only_entry, []
+    )
+    annotated_upstream_only = _annotate_request_log_user_agent_fields(
+        upstream_only_entry,
+        [],
+    )
+    annotated_both_null = _annotate_request_log_user_agent_fields(both_null_entry, [])
+
+    assert getattr(annotated_caller_only, "user_agent_overridden") is True
+    assert getattr(annotated_upstream_only, "user_agent_overridden") is True
+    assert getattr(annotated_both_null, "user_agent_overridden") is False
+
+
+@pytest.mark.asyncio
+async def test_get_request_log_detail_reclassifies_historical_rows_using_current_rules() -> (
+    None
+):
+    from app.models.models import UserAgentClientRule
+    from app.services.stats.request_logs import get_request_log_detail
+
+    created_at = datetime(2026, 3, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+    async with AsyncSessionLocal() as db:
+        profile = Profile(
+            name=f"request-log-ua-detail-profile-{uuid4()}",
+            is_active=False,
+            is_default=False,
+        )
+        db.add(profile)
+        await db.flush()
+
+        custom_rule = UserAgentClientRule(
+            name="Codex",
+            pattern="codex",
+            enabled=True,
+            is_system=False,
+            profile_id=profile.id,
+        )
+        upstream_rule = UserAgentClientRule(
+            name="Claude Code",
+            pattern="claude(?:\\s|-)?code",
+            enabled=True,
+            is_system=False,
+            profile_id=profile.id,
+        )
+        entry = _request_log(
+            profile_id=profile.id,
+            response_time_ms=100,
+            created_at=created_at,
+            ingress_request_id="detail-ingress",
+            caller_user_agent="Codex CLI/1.2",
+            upstream_user_agent="Claude Code/2.0",
+        )
+        db.add_all([custom_rule, upstream_rule, entry])
+        await db.commit()
+
+        first_detail = await get_request_log_detail(
+            db,
+            profile_id=profile.id,
+            request_id=entry.id,
+        )
+
+        assert first_detail is not None
+        assert first_detail.caller_user_agent == "Codex CLI/1.2"
+        assert first_detail.upstream_user_agent == "Claude Code/2.0"
+        assert getattr(first_detail, "caller_client_display") == "Codex"
+        assert getattr(first_detail, "upstream_client_display") == "Claude Code"
+        assert getattr(first_detail, "user_agent_overridden") is True
+
+        custom_rule.name = "Codex Renamed"
+        await db.commit()
+
+        second_detail = await get_request_log_detail(
+            db,
+            profile_id=profile.id,
+            request_id=entry.id,
+        )
+
+    assert second_detail is not None
+    assert getattr(second_detail, "caller_client_display") == "Codex Renamed"
+    assert getattr(second_detail, "upstream_client_display") == "Claude Code"
 
 
 @pytest.mark.asyncio

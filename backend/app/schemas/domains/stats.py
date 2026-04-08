@@ -87,6 +87,9 @@ class RequestLogListItemResponse(BaseModel):
     total_tokens: int | None = None
     total_cost_user_currency_micros: int | None = None
     report_currency_symbol: str | None = None
+    caller_client_display: str | None = None
+    upstream_client_display: str | None = None
+    user_agent_overridden: bool
 
 
 class RequestLogListResponse(BaseModel):
@@ -117,6 +120,11 @@ class RequestLogDetailRequestResponse(BaseModel):
     provider_correlation_id: str | None = None
     proxy_api_key_id: int | None = None
     proxy_api_key_name_snapshot: str | None = None
+    caller_user_agent: str | None = None
+    upstream_user_agent: str | None = None
+    caller_client_display: str | None = None
+    upstream_client_display: str | None = None
+    user_agent_overridden: bool = False
     error_detail: str | None = None
 
 
@@ -204,6 +212,17 @@ class RequestLogDetailResponse(BaseModel):
                 provider_correlation_id=entry.provider_correlation_id,
                 proxy_api_key_id=entry.proxy_api_key_id,
                 proxy_api_key_name_snapshot=entry.proxy_api_key_name_snapshot,
+                caller_user_agent=getattr(entry, "caller_user_agent", None),
+                upstream_user_agent=getattr(entry, "upstream_user_agent", None),
+                caller_client_display=getattr(entry, "caller_client_display", None),
+                upstream_client_display=getattr(
+                    entry,
+                    "upstream_client_display",
+                    None,
+                ),
+                user_agent_overridden=bool(
+                    getattr(entry, "user_agent_overridden", False)
+                ),
                 error_detail=entry.error_detail,
             ),
             routing=RequestLogDetailRoutingResponse(

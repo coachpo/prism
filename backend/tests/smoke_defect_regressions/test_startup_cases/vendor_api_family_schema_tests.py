@@ -54,6 +54,7 @@ class TestDEF080_VendorApiFamilySchemaContract:
         self,
     ):
         import app.schemas.schemas as schema_surface
+        from app.schemas.domains.stats import RequestLogDetailRequestResponse
         from app.schemas.schemas import (
             RequestLogDetailResponse,
             RequestLogListItemResponse,
@@ -62,6 +63,7 @@ class TestDEF080_VendorApiFamilySchemaContract:
 
         list_fields = set(RequestLogListItemResponse.model_fields)
         detail_fields = set(RequestLogDetailResponse.model_fields)
+        detail_request_fields = set(RequestLogDetailRequestResponse.model_fields)
         dashboard_fields = set(RequestLogResponse.model_fields)
 
         assert schema_surface.RequestLogListItemResponse is RequestLogListItemResponse
@@ -80,6 +82,9 @@ class TestDEF080_VendorApiFamilySchemaContract:
             "total_tokens",
             "total_cost_user_currency_micros",
             "report_currency_symbol",
+            "caller_client_display",
+            "upstream_client_display",
+            "user_agent_overridden",
         }.issubset(list_fields)
         assert "endpoint_base_url" not in list_fields
         assert "pricing_snapshot_input" not in list_fields
@@ -92,6 +97,13 @@ class TestDEF080_VendorApiFamilySchemaContract:
             "costing",
             "pricing",
         }.issubset(detail_fields)
+        assert {
+            "caller_user_agent",
+            "upstream_user_agent",
+            "caller_client_display",
+            "upstream_client_display",
+            "user_agent_overridden",
+        }.issubset(detail_request_fields)
         assert {"api_family", "endpoint_base_url", "pricing_snapshot_input"}.issubset(
             dashboard_fields
         )
@@ -102,7 +114,34 @@ class TestDEF080_VendorApiFamilySchemaContract:
         table_names = set(Base.metadata.tables)
 
         assert "vendors" in table_names
+        assert "user_agent_client_rules" in table_names
         assert "providers" not in table_names
+
+    def test_schema_surface_reexports_user_agent_client_rule_contracts(self):
+        import app.schemas.schemas as schema_surface
+        from app.schemas.schemas import (
+            UserAgentClientRuleCreate,
+            UserAgentClientRuleResponse,
+            UserAgentClientRuleUpdate,
+        )
+
+        create_fields = set(UserAgentClientRuleCreate.model_fields)
+        update_fields = set(UserAgentClientRuleUpdate.model_fields)
+        response_fields = set(UserAgentClientRuleResponse.model_fields)
+
+        assert schema_surface.UserAgentClientRuleCreate is UserAgentClientRuleCreate
+        assert schema_surface.UserAgentClientRuleUpdate is UserAgentClientRuleUpdate
+        assert schema_surface.UserAgentClientRuleResponse is UserAgentClientRuleResponse
+        assert {"name", "pattern", "enabled"}.issubset(create_fields)
+        assert {"name", "pattern", "enabled"}.issubset(update_fields)
+        assert {
+            "id",
+            "name",
+            "pattern",
+            "enabled",
+            "is_system",
+            "profile_id",
+        }.issubset(response_fields)
 
     def test_schema_surface_reexports_vendor_contracts_and_api_family(self):
         import app.schemas.schemas as schema_surface

@@ -1,10 +1,80 @@
 from datetime import datetime
+import re
 from typing import Literal
 
 from sqlalchemy import and_, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import RequestLog
+from app.models.models import RequestLog, UserAgentClientRule
+
+_CompiledUserAgentClientRule = tuple[str, re.Pattern[str]]
+
+
+async def _load_compiled_user_agent_client_rules(
+    db: AsyncSession,
+    *,
+    profile_id: int,
+) -> list[_CompiledUserAgentClientRule]:
+    rules = (
+        (
+            await db.execute(
+                select(UserAgentClientRule)
+                .where(
+                    UserAgentClientRule.enabled == True,  # noqa: E712
+                    (UserAgentClientRule.profile_id == profile_id)
+                    | (UserAgentClientRule.is_system == True),  # noqa: E712
+                )
+                .order_by(
+                    UserAgentClientRule.is_system.asc(),
+                    UserAgentClientRule.id.asc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    compiled_rules: list[_CompiledUserAgentClientRule] = []
+    for rule in rules:
+        try:
+            compiled_pattern = re.compile(rule.pattern, re.IGNORECASE)
+        except re.error:
+            continue
+        compiled_rules.append((rule.name, compiled_pattern))
+    return compiled_rules
+
+
+def _classify_user_agent_display(
+    user_agent: str | None,
+    rules: list[_CompiledUserAgentClientRule],
+) -> str | None:
+    if user_agent is None:
+        return None
+    for rule_name, pattern in rules:
+        if pattern.search(user_agent) is not None:
+            return rule_name
+    return user_agent
+
+
+def _annotate_request_log_user_agent_fields(
+    entry: RequestLog,
+    rules: list[_CompiledUserAgentClientRule],
+) -> RequestLog:
+    setattr(
+        entry,
+        "caller_client_display",
+        _classify_user_agent_display(entry.caller_user_agent, rules),
+    )
+    setattr(
+        entry,
+        "upstream_client_display",
+        _classify_user_agent_display(entry.upstream_user_agent, rules),
+    )
+    setattr(
+        entry,
+        "user_agent_overridden",
+        entry.caller_user_agent != entry.upstream_user_agent,
+    )
+    return entry
 
 
 def _build_request_log_browse_where(
@@ -79,7 +149,10 @@ async def get_request_logs(
         .offset(offset)
     )
     rows = (await db.execute(q)).scalars().all()
-    return list(rows), total
+    rules = await _load_compiled_user_agent_client_rules(db, profile_id=profile_id)
+    return [
+        _annotate_request_log_user_agent_fields(row, rules) for row in list(rows)
+    ], total
 
 
 async def get_request_log_detail(
@@ -93,4 +166,8 @@ async def get_request_log_detail(
         request_id=request_id,
     )
     q = select(RequestLog).where(where).limit(1)
-    return (await db.execute(q)).scalar_one_or_none()
+    entry = (await db.execute(q)).scalar_one_or_none()
+    if entry is None:
+        return None
+    rules = await _load_compiled_user_agent_client_rules(db, profile_id=profile_id)
+    return _annotate_request_log_user_agent_fields(entry, rules)
