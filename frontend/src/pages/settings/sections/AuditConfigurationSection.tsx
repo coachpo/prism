@@ -1,8 +1,9 @@
 import type { RefObject } from "react";
 import { cn } from "@/lib/utils";
-import type { HeaderBlocklistRule, Vendor } from "@/lib/types";
+import type { HeaderBlocklistRule, UserAgentClientRule, Vendor } from "@/lib/types";
 import { AuditConfigurationDefaultsCard } from "./AuditConfigurationDefaultsCard";
 import { AuditConfigurationHeaderBlocklistCard } from "./AuditConfigurationHeaderBlocklistCard";
+import { AuditConfigurationUserAgentClientRulesCard } from "./AuditConfigurationUserAgentClientRulesCard";
 
 interface AuditConfigurationSectionProps {
   auditConfigurationRef: RefObject<HTMLDivElement | null>;
@@ -21,6 +22,20 @@ interface AuditConfigurationSectionProps {
   openAddRuleDialog: () => void;
   openEditRuleDialog: (rule: HeaderBlocklistRule) => void;
   setDeleteRuleConfirm: (rule: HeaderBlocklistRule | null) => void;
+  loadingUserAgentClientRules: boolean;
+  userAgentClientSystemRulesOpen: boolean;
+  setUserAgentClientSystemRulesOpen: (open: boolean) => void;
+  userAgentClientSystemRules: UserAgentClientRule[];
+  userAgentClientUserRulesOpen: boolean;
+  setUserAgentClientUserRulesOpen: (open: boolean) => void;
+  userAgentClientCustomRules: UserAgentClientRule[];
+  handleToggleUserAgentClientRule: (
+    rule: UserAgentClientRule,
+    checked: boolean,
+  ) => Promise<void>;
+  openAddUserAgentClientRuleDialog: () => void;
+  openEditUserAgentClientRuleDialog: (rule: UserAgentClientRule) => void;
+  setDeleteUserAgentClientRuleConfirm: (rule: UserAgentClientRule | null) => void;
 }
 
 export function AuditConfigurationSection({
@@ -40,6 +55,17 @@ export function AuditConfigurationSection({
   openAddRuleDialog,
   openEditRuleDialog,
   setDeleteRuleConfirm,
+  loadingUserAgentClientRules,
+  userAgentClientSystemRulesOpen,
+  setUserAgentClientSystemRulesOpen,
+  userAgentClientSystemRules,
+  userAgentClientUserRulesOpen,
+  setUserAgentClientUserRulesOpen,
+  userAgentClientCustomRules,
+  handleToggleUserAgentClientRule,
+  openAddUserAgentClientRuleDialog,
+  openEditUserAgentClientRuleDialog,
+  setDeleteUserAgentClientRuleConfirm,
 }: AuditConfigurationSectionProps) {
   return (
     <section id="audit-configuration" tabIndex={-1} className="scroll-mt-24 space-y-4">
@@ -66,6 +92,20 @@ export function AuditConfigurationSection({
         systemRules={systemRules}
         systemRulesOpen={systemRulesOpen}
         userRulesOpen={userRulesOpen}
+      />
+
+      <AuditConfigurationUserAgentClientRulesCard
+        customRules={userAgentClientCustomRules}
+        handleToggleRule={handleToggleUserAgentClientRule}
+        loadingRules={loadingUserAgentClientRules}
+        openAddRuleDialog={openAddUserAgentClientRuleDialog}
+        openEditRuleDialog={openEditUserAgentClientRuleDialog}
+        setDeleteRuleConfirm={setDeleteUserAgentClientRuleConfirm}
+        setSystemRulesOpen={setUserAgentClientSystemRulesOpen}
+        setUserRulesOpen={setUserAgentClientUserRulesOpen}
+        systemRules={userAgentClientSystemRules}
+        systemRulesOpen={userAgentClientSystemRulesOpen}
+        userRulesOpen={userAgentClientUserRulesOpen}
       />
     </section>
   );

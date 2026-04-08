@@ -129,6 +129,17 @@ export function SettingsProfileTab({
             openAddRuleDialog={data.openAddRuleDialog}
             openEditRuleDialog={data.openEditRuleDialog}
             setDeleteRuleConfirm={data.setDeleteRuleConfirm}
+            loadingUserAgentClientRules={data.loadingUserAgentClientRules}
+            userAgentClientSystemRulesOpen={data.userAgentClientSystemRulesOpen}
+            setUserAgentClientSystemRulesOpen={data.setUserAgentClientSystemRulesOpen}
+            userAgentClientSystemRules={data.userAgentClientSystemRules}
+            userAgentClientUserRulesOpen={data.userAgentClientUserRulesOpen}
+            setUserAgentClientUserRulesOpen={data.setUserAgentClientUserRulesOpen}
+            userAgentClientCustomRules={data.userAgentClientCustomRules}
+            handleToggleUserAgentClientRule={data.handleToggleUserAgentClientRule}
+            openAddUserAgentClientRuleDialog={data.openAddUserAgentClientRuleDialog}
+            openEditUserAgentClientRuleDialog={data.openEditUserAgentClientRuleDialog}
+            setDeleteUserAgentClientRuleConfirm={data.setDeleteUserAgentClientRuleConfirm}
           />
 
           <RetentionDeletionSection

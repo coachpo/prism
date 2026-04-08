@@ -5,6 +5,8 @@ import { getSharedVendors, setSharedVendors } from "@/lib/referenceData";
 import type {
   HeaderBlocklistRule,
   HeaderBlocklistRuleCreate,
+  UserAgentClientRule,
+  UserAgentClientRuleCreate,
   Vendor,
 } from "@/lib/types";
 import { toast } from "sonner";
@@ -20,6 +22,12 @@ const DEFAULT_RULE_FORM: HeaderBlocklistRuleCreate = {
   enabled: true,
 };
 
+const DEFAULT_USER_AGENT_CLIENT_RULE_FORM: UserAgentClientRuleCreate = {
+  name: "",
+  pattern: "",
+  enabled: true,
+};
+
 function getMessages() {
   return getStaticMessages();
 }
@@ -27,7 +35,9 @@ function getMessages() {
 export function useAuditConfigurationData({ revision }: UseAuditConfigurationDataInput) {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [blocklistRules, setBlocklistRules] = useState<HeaderBlocklistRule[]>([]);
+  const [userAgentClientRules, setUserAgentClientRules] = useState<UserAgentClientRule[]>([]);
   const [loadingRules, setLoadingRules] = useState(false);
+  const [loadingUserAgentClientRules, setLoadingUserAgentClientRules] = useState(false);
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<HeaderBlocklistRule | null>(null);
   const [ruleForm, setRuleForm] = useState<HeaderBlocklistRuleCreate>(DEFAULT_RULE_FORM);
@@ -36,8 +46,23 @@ export function useAuditConfigurationData({ revision }: UseAuditConfigurationDat
   const [displayedDeleteRuleConfirm, setDisplayedDeleteRuleConfirm] = useState<HeaderBlocklistRule | null>(null);
   const [systemRulesOpen, setSystemRulesOpen] = useState(false);
   const [userRulesOpen, setUserRulesOpen] = useState(true);
+  const [userAgentClientRuleDialogOpen, setUserAgentClientRuleDialogOpen] = useState(false);
+  const [editingUserAgentClientRule, setEditingUserAgentClientRule] =
+    useState<UserAgentClientRule | null>(null);
+  const [userAgentClientRuleForm, setUserAgentClientRuleForm] = useState<UserAgentClientRuleCreate>(
+    DEFAULT_USER_AGENT_CLIENT_RULE_FORM,
+  );
+  const [deleteUserAgentClientRuleConfirm, setDeleteUserAgentClientRuleConfirmState] =
+    useState<UserAgentClientRule | null>(null);
+  const [deleteUserAgentClientRuleDialogOpen, setDeleteUserAgentClientRuleDialogOpen] =
+    useState(false);
+  const [displayedDeleteUserAgentClientRuleConfirm, setDisplayedDeleteUserAgentClientRuleConfirm] =
+    useState<UserAgentClientRule | null>(null);
+  const [userAgentClientSystemRulesOpen, setUserAgentClientSystemRulesOpen] = useState(false);
+  const [userAgentClientUserRulesOpen, setUserAgentClientUserRulesOpen] = useState(true);
   const vendorsRequestIdRef = useRef(0);
   const rulesRequestIdRef = useRef(0);
+  const userAgentClientRulesRequestIdRef = useRef(0);
 
   const fetchVendors = useCallback(async () => {
     const requestId = ++vendorsRequestIdRef.current;
@@ -87,13 +112,43 @@ export function useAuditConfigurationData({ revision }: UseAuditConfigurationDat
     }
   }, []);
 
+  const fetchUserAgentClientRules = useCallback(async () => {
+    const requestId = ++userAgentClientRulesRequestIdRef.current;
+    setLoadingUserAgentClientRules(true);
+    try {
+      const rules = await api.config.userAgentClientRules.list(true);
+      if (requestId !== userAgentClientRulesRequestIdRef.current) {
+        return;
+      }
+      setUserAgentClientRules(rules);
+    } catch {
+      if (requestId !== userAgentClientRulesRequestIdRef.current) {
+        return;
+      }
+      toast.error(getMessages().settingsAuditData.loadUserAgentClientRulesFailed);
+    } finally {
+      if (requestId === userAgentClientRulesRequestIdRef.current) {
+        setLoadingUserAgentClientRules(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     void fetchVendors();
     void fetchRules();
-  }, [fetchVendors, fetchRules]);
+    void fetchUserAgentClientRules();
+  }, [fetchUserAgentClientRules, fetchVendors, fetchRules]);
 
   const systemRules = useMemo(() => blocklistRules.filter((rule) => rule.is_system), [blocklistRules]);
   const customRules = useMemo(() => blocklistRules.filter((rule) => !rule.is_system), [blocklistRules]);
+  const userAgentClientSystemRules = useMemo(
+    () => userAgentClientRules.filter((rule) => rule.is_system),
+    [userAgentClientRules],
+  );
+  const userAgentClientCustomRules = useMemo(
+    () => userAgentClientRules.filter((rule) => !rule.is_system),
+    [userAgentClientRules],
+  );
 
   const toggleAudit = async (vendorId: number, checked: boolean) => {
     commitVendors((prev) =>
@@ -216,30 +271,146 @@ export function useAuditConfigurationData({ revision }: UseAuditConfigurationDat
     setDeleteRuleDialogOpen(false);
   };
 
+  const handleToggleUserAgentClientRule = async (
+    rule: UserAgentClientRule,
+    checked: boolean,
+  ) => {
+    setUserAgentClientRules((prev) =>
+      prev.map((row) => (row.id === rule.id ? { ...row, enabled: checked } : row)),
+    );
+
+    try {
+      await api.config.userAgentClientRules.update(rule.id, { enabled: checked });
+    } catch {
+      setUserAgentClientRules((prev) =>
+        prev.map((row) => (row.id === rule.id ? { ...row, enabled: !checked } : row)),
+      );
+      toast.error(getMessages().settingsAuditData.updateUserAgentClientRuleFailed);
+    }
+  };
+
+  const openAddUserAgentClientRuleDialog = () => {
+    setEditingUserAgentClientRule(null);
+    setUserAgentClientRuleForm(DEFAULT_USER_AGENT_CLIENT_RULE_FORM);
+    setUserAgentClientRuleDialogOpen(true);
+  };
+
+  const openEditUserAgentClientRuleDialog = (rule: UserAgentClientRule) => {
+    setEditingUserAgentClientRule(rule);
+    setUserAgentClientRuleForm({
+      name: rule.name,
+      pattern: rule.pattern,
+      enabled: rule.enabled,
+    });
+    setUserAgentClientRuleDialogOpen(true);
+  };
+
+  const handleSaveUserAgentClientRule = async () => {
+    if (!userAgentClientRuleForm.name || !userAgentClientRuleForm.pattern) {
+      toast.error(getMessages().settingsAuditData.nameAndRegexRequired);
+      return;
+    }
+
+    try {
+      if (editingUserAgentClientRule) {
+        const updatedRule = await api.config.userAgentClientRules.update(
+          editingUserAgentClientRule.id,
+          userAgentClientRuleForm,
+        );
+        setUserAgentClientRules((prev) =>
+          prev.map((rule) => (rule.id === updatedRule.id ? updatedRule : rule)),
+        );
+        toast.success(getMessages().settingsAuditData.userAgentClientRuleUpdated);
+      } else {
+        const createdRule = await api.config.userAgentClientRules.create(userAgentClientRuleForm);
+        setUserAgentClientRules((prev) => [...prev, createdRule]);
+        toast.success(getMessages().settingsAuditData.userAgentClientRuleCreated);
+      }
+      setUserAgentClientRuleDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : getMessages().settingsAuditData.saveUserAgentClientRuleFailed,
+      );
+    }
+  };
+
+  const handleDeleteUserAgentClientRule = async () => {
+    if (!deleteUserAgentClientRuleConfirm) {
+      return;
+    }
+
+    try {
+      await api.config.userAgentClientRules.delete(deleteUserAgentClientRuleConfirm.id);
+      setUserAgentClientRules((prev) =>
+        prev.filter((rule) => rule.id !== deleteUserAgentClientRuleConfirm.id),
+      );
+      toast.success(getMessages().settingsAuditData.userAgentClientRuleDeleted);
+      setDeleteUserAgentClientRuleDialogOpen(false);
+      setDeleteUserAgentClientRuleConfirmState(null);
+    } catch {
+      toast.error(getMessages().settingsAuditData.deleteUserAgentClientRuleFailed);
+    }
+  };
+
+  const setDeleteUserAgentClientRuleConfirm = (rule: UserAgentClientRule | null) => {
+    setDeleteUserAgentClientRuleConfirmState(rule);
+
+    if (rule) {
+      setDisplayedDeleteUserAgentClientRuleConfirm(rule);
+      setDeleteUserAgentClientRuleDialogOpen(true);
+      return;
+    }
+
+    setDeleteUserAgentClientRuleDialogOpen(false);
+  };
+
   return {
     customRules,
     deleteRuleConfirm,
     deleteRuleDialogOpen,
+    deleteUserAgentClientRuleConfirm,
+    deleteUserAgentClientRuleDialogOpen,
     displayedDeleteRuleConfirm,
+    displayedDeleteUserAgentClientRuleConfirm,
     editingRule,
+    editingUserAgentClientRule,
     handleDeleteRule,
+    handleDeleteUserAgentClientRule,
     handleSaveRule,
+    handleSaveUserAgentClientRule,
     handleToggleRule,
+    handleToggleUserAgentClientRule,
     loadingRules,
+    loadingUserAgentClientRules,
     openAddRuleDialog,
+    openAddUserAgentClientRuleDialog,
     openEditRuleDialog,
+    openEditUserAgentClientRuleDialog,
     vendors,
     ruleDialogOpen,
     ruleForm,
     setDeleteRuleConfirm,
+    setDeleteUserAgentClientRuleConfirm,
     setRuleDialogOpen,
     setRuleForm,
     setSystemRulesOpen,
     setUserRulesOpen,
+    setUserAgentClientRuleDialogOpen,
+    setUserAgentClientRuleForm,
+    setUserAgentClientSystemRulesOpen,
+    setUserAgentClientUserRulesOpen,
     systemRules,
     systemRulesOpen,
     toggleAudit,
     toggleBodies,
+    userAgentClientCustomRules,
+    userAgentClientRuleDialogOpen,
+    userAgentClientRuleForm,
+    userAgentClientSystemRules,
+    userAgentClientSystemRulesOpen,
+    userAgentClientUserRulesOpen,
     userRulesOpen,
   };
 }

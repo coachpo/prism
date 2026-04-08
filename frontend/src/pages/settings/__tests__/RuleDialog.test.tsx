@@ -1,8 +1,34 @@
+import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import type { UserAgentClientRuleCreate } from "@/lib/types";
 import { RuleDialog } from "../dialogs/RuleDialog";
+import { UserAgentClientRuleDialog } from "../dialogs/UserAgentClientRuleDialog";
+
+function UserAgentClientRuleDialogHarness({
+  handleSaveRule,
+}: {
+  handleSaveRule: () => Promise<void>;
+}) {
+  const [ruleForm, setRuleForm] = useState<UserAgentClientRuleCreate>({
+    enabled: true,
+    name: "",
+    pattern: "",
+  });
+
+  return (
+    <UserAgentClientRuleDialog
+      ruleDialogOpen={true}
+      setRuleDialogOpen={vi.fn()}
+      editingRule={null}
+      ruleForm={ruleForm}
+      setRuleForm={setRuleForm}
+      handleSaveRule={handleSaveRule}
+    />
+  );
+}
 
 describe("RuleDialog", () => {
   beforeEach(() => {
@@ -46,5 +72,28 @@ describe("RuleDialog", () => {
     fireEvent.submit(form!);
 
     expect(handleSaveRule).toHaveBeenCalledTimes(1);
+  });
+
+  it("submits invalid regex patterns to the backend instead of blocking in the browser", () => {
+    const handleSaveRule = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <LocaleProvider>
+        <TooltipProvider>
+          <UserAgentClientRuleDialogHarness handleSaveRule={handleSaveRule} />
+        </TooltipProvider>
+      </LocaleProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Codex CLI" },
+    });
+    fireEvent.change(screen.getByLabelText("Regex pattern"), {
+      target: { value: "[Codex" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save Rule" }));
+
+    expect(handleSaveRule).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Enter a valid regular expression.")).not.toBeInTheDocument();
   });
 });

@@ -6,6 +6,16 @@ import type { HeaderBlocklistRule, Vendor } from "@/lib/types";
 import { AuditConfigurationRulesPanel } from "../sections/AuditConfigurationRulesPanel";
 import { AuditConfigurationSection } from "../sections/AuditConfigurationSection";
 
+interface UserAgentClientRuleShape {
+  id: number;
+  name: string;
+  pattern: string;
+  enabled: boolean;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 vi.mock("../sections/AuditConfigurationHeaderBlocklistCard", () => ({
   AuditConfigurationHeaderBlocklistCard: ({
     customRules,
@@ -50,6 +60,50 @@ vi.mock("../sections/AuditConfigurationHeaderBlocklistCard", () => ({
   ),
 }));
 
+vi.mock("../sections/AuditConfigurationUserAgentClientRulesCard", () => ({
+  AuditConfigurationUserAgentClientRulesCard: ({
+    customRules,
+    systemRules,
+    handleToggleRule,
+    openAddRuleDialog,
+    openEditRuleDialog,
+    setDeleteRuleConfirm,
+    setSystemRulesOpen,
+    setUserRulesOpen,
+  }: {
+    customRules: UserAgentClientRuleShape[];
+    systemRules: UserAgentClientRuleShape[];
+    handleToggleRule: (rule: UserAgentClientRuleShape, checked: boolean) => Promise<void>;
+    openAddRuleDialog: () => void;
+    openEditRuleDialog: (rule: UserAgentClientRuleShape) => void;
+    setDeleteRuleConfirm: (rule: UserAgentClientRuleShape | null) => void;
+    setSystemRulesOpen: (open: boolean) => void;
+    setUserRulesOpen: (open: boolean) => void;
+  }) => (
+    <div>
+      <div>{`user-agent-client-rules-card:${systemRules.length}:${customRules.length}`}</div>
+      <button type="button" onClick={openAddRuleDialog}>
+        add-user-agent-client-rule
+      </button>
+      <button type="button" onClick={() => setSystemRulesOpen(true)}>
+        open-user-agent-system-rules
+      </button>
+      <button type="button" onClick={() => setUserRulesOpen(true)}>
+        open-user-agent-custom-rules
+      </button>
+      <button type="button" onClick={() => void handleToggleRule(customRules[0], false)}>
+        toggle-user-agent-custom-rule
+      </button>
+      <button type="button" onClick={() => openEditRuleDialog(customRules[0])}>
+        edit-user-agent-custom-rule
+      </button>
+      <button type="button" onClick={() => setDeleteRuleConfirm(customRules[0])}>
+        delete-user-agent-custom-rule
+      </button>
+    </div>
+  ),
+}));
+
 const vendor: Vendor = {
   id: 7,
   key: "openai",
@@ -84,6 +138,26 @@ const customRule: HeaderBlocklistRule = {
   updated_at: "",
 };
 
+const userAgentClientSystemRule: UserAgentClientRuleShape = {
+  id: 11,
+  name: "Claude Code",
+  enabled: true,
+  is_system: true,
+  pattern: "Claude\\sCode",
+  created_at: "",
+  updated_at: "",
+};
+
+const userAgentClientCustomRule: UserAgentClientRuleShape = {
+  id: 12,
+  name: "Codex",
+  enabled: true,
+  is_system: false,
+  pattern: "Codex",
+  created_at: "",
+  updated_at: "",
+};
+
 describe("AuditConfigurationRulesPanel", () => {
   it("renders system and custom rule groups with the add-rule action", () => {
     render(
@@ -111,7 +185,7 @@ describe("AuditConfigurationRulesPanel", () => {
 });
 
 describe("AuditConfigurationSection", () => {
-  it("renders vendor audit defaults and keeps the header-blocklist actions wired", () => {
+  it("renders vendor audit defaults plus separate header-blocklist and user-agent client rule cards", () => {
     const toggleAudit = vi.fn().mockResolvedValue(undefined);
     const toggleBodies = vi.fn().mockResolvedValue(undefined);
     const setSystemRulesOpen = vi.fn();
@@ -120,6 +194,12 @@ describe("AuditConfigurationSection", () => {
     const openAddRuleDialog = vi.fn();
     const openEditRuleDialog = vi.fn();
     const setDeleteRuleConfirm = vi.fn();
+    const setUserAgentClientSystemRulesOpen = vi.fn();
+    const setUserAgentClientUserRulesOpen = vi.fn();
+    const handleToggleUserAgentClientRule = vi.fn().mockResolvedValue(undefined);
+    const openAddUserAgentClientRuleDialog = vi.fn();
+    const openEditUserAgentClientRuleDialog = vi.fn();
+    const setDeleteUserAgentClientRuleConfirm = vi.fn();
 
     render(
       <LocaleProvider>
@@ -140,6 +220,17 @@ describe("AuditConfigurationSection", () => {
           openAddRuleDialog={openAddRuleDialog}
           openEditRuleDialog={openEditRuleDialog}
           setDeleteRuleConfirm={setDeleteRuleConfirm}
+          loadingUserAgentClientRules={false}
+          userAgentClientSystemRulesOpen={false}
+          setUserAgentClientSystemRulesOpen={setUserAgentClientSystemRulesOpen}
+          userAgentClientSystemRules={[userAgentClientSystemRule]}
+          userAgentClientUserRulesOpen={false}
+          setUserAgentClientUserRulesOpen={setUserAgentClientUserRulesOpen}
+          userAgentClientCustomRules={[userAgentClientCustomRule]}
+          handleToggleUserAgentClientRule={handleToggleUserAgentClientRule}
+          openAddUserAgentClientRuleDialog={openAddUserAgentClientRuleDialog}
+          openEditUserAgentClientRuleDialog={openEditUserAgentClientRuleDialog}
+          setDeleteUserAgentClientRuleConfirm={setDeleteUserAgentClientRuleConfirm}
         />
       </LocaleProvider>,
     );
@@ -148,6 +239,7 @@ describe("AuditConfigurationSection", () => {
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByLabelText("Vendor icon OpenAI")).toBeInTheDocument();
     expect(screen.getByText("header-blocklist-card:1:1")).toBeInTheDocument();
+    expect(screen.getByText("user-agent-client-rules-card:1:1")).toBeInTheDocument();
 
     const [auditSwitch, bodiesSwitch] = screen.getAllByRole("switch");
 
@@ -159,6 +251,12 @@ describe("AuditConfigurationSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "toggle-custom-rule" }));
     fireEvent.click(screen.getByRole("button", { name: "edit-custom-rule" }));
     fireEvent.click(screen.getByRole("button", { name: "delete-custom-rule" }));
+    fireEvent.click(screen.getByRole("button", { name: "add-user-agent-client-rule" }));
+    fireEvent.click(screen.getByRole("button", { name: "open-user-agent-system-rules" }));
+    fireEvent.click(screen.getByRole("button", { name: "open-user-agent-custom-rules" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle-user-agent-custom-rule" }));
+    fireEvent.click(screen.getByRole("button", { name: "edit-user-agent-custom-rule" }));
+    fireEvent.click(screen.getByRole("button", { name: "delete-user-agent-custom-rule" }));
 
     expect(toggleAudit).toHaveBeenCalledWith(7, false);
     expect(toggleBodies).toHaveBeenCalledWith(7, true);
@@ -168,5 +266,11 @@ describe("AuditConfigurationSection", () => {
     expect(handleToggleRule).toHaveBeenCalledWith(customRule, false);
     expect(openEditRuleDialog).toHaveBeenCalledWith(customRule);
     expect(setDeleteRuleConfirm).toHaveBeenCalledWith(customRule);
+    expect(openAddUserAgentClientRuleDialog).toHaveBeenCalledTimes(1);
+    expect(setUserAgentClientSystemRulesOpen).toHaveBeenCalledWith(true);
+    expect(setUserAgentClientUserRulesOpen).toHaveBeenCalledWith(true);
+    expect(handleToggleUserAgentClientRule).toHaveBeenCalledWith(userAgentClientCustomRule, false);
+    expect(openEditUserAgentClientRuleDialog).toHaveBeenCalledWith(userAgentClientCustomRule);
+    expect(setDeleteUserAgentClientRuleConfirm).toHaveBeenCalledWith(userAgentClientCustomRule);
   });
 });

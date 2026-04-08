@@ -5,6 +5,8 @@ import { useLocale } from "@/i18n/useLocale";
 import { DeleteConfirmDialog } from "./settings/dialogs/DeleteConfirmDialog";
 import { RuleDialog } from "./settings/dialogs/RuleDialog";
 import { DeleteRuleConfirmDialog } from "./settings/dialogs/DeleteRuleConfirmDialog";
+import { DeleteUserAgentClientRuleConfirmDialog } from "./settings/dialogs/DeleteUserAgentClientRuleConfirmDialog";
+import { UserAgentClientRuleDialog } from "./settings/dialogs/UserAgentClientRuleDialog";
 import { SettingsProfileTab } from "./settings/SettingsProfileTab";
 import { SettingsGlobalTab } from "./settings/SettingsGlobalTab";
 import { useSettingsPageData } from "./settings/useSettingsPageData";
@@ -88,12 +90,29 @@ export function SettingsPage() {
         handleSaveRule={data.handleSaveRule}
       />
 
+      <UserAgentClientRuleDialog
+        ruleDialogOpen={data.userAgentClientRuleDialogOpen}
+        setRuleDialogOpen={data.setUserAgentClientRuleDialogOpen}
+        editingRule={data.editingUserAgentClientRule}
+        ruleForm={data.userAgentClientRuleForm}
+        setRuleForm={data.setUserAgentClientRuleForm}
+        handleSaveRule={data.handleSaveUserAgentClientRule}
+      />
+
       <DeleteRuleConfirmDialog
         deleteRuleConfirm={data.deleteRuleConfirm}
         displayedDeleteRuleConfirm={data.displayedDeleteRuleConfirm}
         open={data.deleteRuleDialogOpen}
         setDeleteRuleConfirm={data.setDeleteRuleConfirm}
         handleDeleteRule={data.handleDeleteRule}
+      />
+
+      <DeleteUserAgentClientRuleConfirmDialog
+        deleteRuleConfirm={data.deleteUserAgentClientRuleConfirm}
+        displayedDeleteRuleConfirm={data.displayedDeleteUserAgentClientRuleConfirm}
+        open={data.deleteUserAgentClientRuleDialogOpen}
+        setDeleteRuleConfirm={data.setDeleteUserAgentClientRuleConfirm}
+        handleDeleteRule={data.handleDeleteUserAgentClientRule}
       />
     </div>
   );
