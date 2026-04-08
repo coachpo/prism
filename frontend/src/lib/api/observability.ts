@@ -35,6 +35,9 @@ import type {
   TimezonePreferenceUpdate,
   ThroughputStatsResponse,
   RequestLogDetail,
+  UserAgentClientRule,
+  UserAgentClientRuleCreate,
+  UserAgentClientRuleUpdate,
 } from "../types";
 import { buildQuery, request } from "./core";
 
@@ -145,6 +148,27 @@ export const config = {
       }),
     delete: (id: number) =>
       request<void>(`/api/config/header-blocklist-rules/${id}`, {
+        method: "DELETE",
+      }),
+  },
+  userAgentClientRules: {
+    list: (includeDisabled = true) =>
+      request<UserAgentClientRule[]>(
+        `/api/config/user-agent-client-rules?include_disabled=${includeDisabled}`
+      ),
+    get: (id: number) => request<UserAgentClientRule>(`/api/config/user-agent-client-rules/${id}`),
+    create: (data: UserAgentClientRuleCreate) =>
+      request<UserAgentClientRule>("/api/config/user-agent-client-rules", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: UserAgentClientRuleUpdate) =>
+      request<UserAgentClientRule>(`/api/config/user-agent-client-rules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) =>
+      request<void>(`/api/config/user-agent-client-rules/${id}`, {
         method: "DELETE",
       }),
   },

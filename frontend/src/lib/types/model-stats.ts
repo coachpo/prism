@@ -129,6 +129,9 @@ export interface RequestLogListItem {
   created_at: string;
   model_id: string;
   resolved_target_model_id: string | null;
+  caller_client_display: string | null;
+  upstream_client_display: string | null;
+  user_agent_overridden: boolean;
   api_family: ApiFamily;
   vendor_id?: number | null;
   vendor_key?: string | null;
@@ -164,6 +167,11 @@ export interface RequestLogDetailRequest {
   provider_correlation_id: string | null;
   proxy_api_key_id: number | null;
   proxy_api_key_name_snapshot: string | null;
+  caller_user_agent: string | null;
+  upstream_user_agent: string | null;
+  caller_client_display: string | null;
+  upstream_client_display: string | null;
+  user_agent_overridden: boolean;
   error_detail: string | null;
 }
 

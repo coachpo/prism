@@ -344,3 +344,25 @@ export interface HeaderBlocklistRuleExport {
   pattern: string;
   enabled: boolean;
 }
+
+export interface UserAgentClientRule {
+  id: number;
+  name: string;
+  pattern: string;
+  enabled: boolean;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserAgentClientRuleCreate {
+  name: string;
+  pattern: string;
+  enabled?: boolean;
+}
+
+export interface UserAgentClientRuleUpdate {
+  name?: string;
+  pattern?: string;
+  enabled?: boolean;
+}

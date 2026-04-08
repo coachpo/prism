@@ -447,10 +447,14 @@ export interface Messages {
     namePlaceholder: string;
     olderThanDays: (days: number | null) => string;
     pattern: string;
+    invalidRegexPattern: string;
     patternPlaceholderExact: string;
     patternPlaceholderPrefix: string;
     prefixMatch: string;
     prefixMatchMustEndHyphen: string;
+    regexPattern: string;
+    regexPatternHelp: string;
+    regexPatternPlaceholder: string;
     ruleDialogAddDescription: string;
     ruleDialogAddTitle: string;
     ruleDialogEditDescription: string;
@@ -460,9 +464,25 @@ export interface Messages {
     stripSensitiveHeaders: string;
     type: string;
     typeDeleteToProceed: (keyword: string) => string;
+    userAgentClientRuleDialogAddTitle: string;
+    userAgentClientRuleDialogEditTitle: string;
+    userAgentClientRuleNamePlaceholder: string;
+    userAgentClientRulesExamples: string;
+    userAgentClientRulesExplanation: string;
+    userAgentClientRulesTooltip: string;
+    whyMatchUserAgentClients: string;
     whyBlockHeaders: string;
   };
   settingsAuditRules: {
+    addRule: string;
+    customRules: string;
+    description: string;
+    loadingRules: string;
+    noCustomRules: string;
+    noSystemRules: string;
+    systemRulesLocked: string;
+  };
+  settingsAuditUserAgentRules: {
     addRule: string;
     customRules: string;
     description: string;
@@ -586,6 +606,7 @@ export interface Messages {
     bodies: string;
     bodiesSensitive: string;
     captureAndPrivacyDefaults: string;
+    classifyClientsFromUserAgent: string;
     headerBlocklist: string;
     noVendorsAvailable: string;
     off: string;
@@ -593,11 +614,16 @@ export interface Messages {
     outputsMayBeCaptured: string;
     recordMetadata: string;
     stripsHeadersBeforeSendingUpstream: string;
+    userAgentClientRules: string;
   };
   settingsAuditData: {
     deleteRuleFailed: string;
+    deleteUserAgentClientRuleFailed: string;
+    invalidRegexPattern: string;
     loadHeaderRulesFailed: string;
+    loadUserAgentClientRulesFailed: string;
     loadVendorsFailed: string;
+    nameAndRegexRequired: string;
     nameAndPatternRequired: string;
     prefixPatternsHyphen: string;
     ruleCreated: string;
@@ -605,7 +631,12 @@ export interface Messages {
     ruleUpdated: string;
     saveRuleFailed: string;
     updateRuleFailed: string;
+    saveUserAgentClientRuleFailed: string;
+    updateUserAgentClientRuleFailed: string;
     updateVendorFailed: string;
+    userAgentClientRuleCreated: string;
+    userAgentClientRuleDeleted: string;
+    userAgentClientRuleUpdated: string;
   };
   settingsBackup: {
     acknowledgement: string;
@@ -1181,6 +1212,8 @@ export interface Messages {
     billableOnly: string;
     cacheCreation: string;
     cacheRead: string;
+    callerClient: string;
+    client: string;
     compact: string;
     connection: string;
     detailDescription: string;
@@ -1239,6 +1272,7 @@ export interface Messages {
     totalCost: string;
     totalTokens: string;
     timestamp: string;
+    upstreamClient: string;
     errorDetail: string;
     ingressRequestId: string;
     attemptNumber: string;
@@ -1956,6 +1990,7 @@ export const enMessages: Messages = {
     deleting: "Deleting...",
     enabled: "Enabled",
     exactMatch: "Exact Match",
+    invalidRegexPattern: "Enter a valid regular expression.",
     name: "Name",
     namePlaceholder: "e.g. Remove Tunnel Headers",
     olderThanDays: (days) => `Older than ${days ?? "-"} days`,
@@ -1964,6 +1999,9 @@ export const enMessages: Messages = {
     patternPlaceholderPrefix: "cf-",
     prefixMatch: "Prefix Match",
     prefixMatchMustEndHyphen: "Prefix patterns must end with a hyphen (-).",
+    regexPattern: "Regex pattern",
+    regexPatternHelp: "Rules are evaluated case-insensitively against the stored raw User-Agent.",
+    regexPatternPlaceholder: "Codex|Claude\\sCode|curl/.*",
     ruleDialogAddDescription:
       "Create a custom rule to block headers before requests are sent upstream.",
     ruleDialogAddTitle: "Add Rule",
@@ -1974,6 +2012,13 @@ export const enMessages: Messages = {
     stripSensitiveHeaders: "Use this to strip sensitive headers before forwarding runtime traffic.",
     type: "Type",
     typeDeleteToProceed: (keyword) => `Type ${keyword} to proceed`,
+    userAgentClientRuleDialogAddTitle: "Add User-Agent Client Rule",
+    userAgentClientRuleDialogEditTitle: "Edit User-Agent Client Rule",
+    userAgentClientRuleNamePlaceholder: "e.g. Codex CLI",
+    userAgentClientRulesExamples: "Examples: Codex, Claude\\sCode, Gemini, curl/.*",
+    userAgentClientRulesExplanation: "Use regex rules to classify caller and upstream clients from stored User-Agent values.",
+    userAgentClientRulesTooltip: "These rules label request-log clients from the backend-provided caller and upstream User-Agent strings.",
+    whyMatchUserAgentClients: "Why match User-Agent clients",
     whyBlockHeaders: "Why block headers",
   },
   settingsAuditRules: {
@@ -1983,6 +2028,16 @@ export const enMessages: Messages = {
       "Use header rules to block privacy, tunnel, and tracing metadata before forwarding requests upstream.",
     loadingRules: "Loading rules...",
     noCustomRules: "No custom rules. Add one to strip private headers before forwarding.",
+    noSystemRules: "No system rules found.",
+    systemRulesLocked: "System rules (locked)",
+  },
+  settingsAuditUserAgentRules: {
+    addRule: "Add Rule",
+    customRules: "Custom rules",
+    description:
+      "Use regex rules to classify request-log clients from caller and upstream User-Agent values.",
+    loadingRules: "Loading rules...",
+    noCustomRules: "No custom rules. Add one to classify request-log clients from User-Agent values.",
     noSystemRules: "No system rules found.",
     systemRulesLocked: "System rules (locked)",
   },
@@ -2105,6 +2160,7 @@ export const enMessages: Messages = {
     bodies: "Bodies",
     bodiesSensitive: "Include request/response bodies (sensitive).",
     captureAndPrivacyDefaults: "Configure vendor-level audit capture and privacy defaults.",
+    classifyClientsFromUserAgent: "Classify request-log clients from caller and upstream User-Agent values.",
     headerBlocklist: "Header Blocklist",
     noVendorsAvailable: "No vendors available.",
     off: "Off",
@@ -2112,11 +2168,16 @@ export const enMessages: Messages = {
     outputsMayBeCaptured: "May capture prompts/outputs.",
     recordMetadata: "Record request/response metadata.",
     stripsHeadersBeforeSendingUpstream: "Strips headers before sending upstream.",
+    userAgentClientRules: "User-Agent Client Rules",
   },
   settingsAuditData: {
     deleteRuleFailed: "Failed to delete rule",
+    deleteUserAgentClientRuleFailed: "Failed to delete user-agent client rule",
+    invalidRegexPattern: "Enter a valid regular expression",
     loadHeaderRulesFailed: "Failed to load header blocklist rules",
+    loadUserAgentClientRulesFailed: "Failed to load user-agent client rules",
     loadVendorsFailed: "Failed to load vendors",
+    nameAndRegexRequired: "Name and regex pattern are required",
     nameAndPatternRequired: "Name and pattern are required",
     prefixPatternsHyphen: "Prefix patterns must end with a hyphen (-)",
     ruleCreated: "Rule created successfully",
@@ -2124,7 +2185,12 @@ export const enMessages: Messages = {
     ruleUpdated: "Rule updated successfully",
     saveRuleFailed: "Failed to save rule",
     updateRuleFailed: "Failed to update rule",
+    saveUserAgentClientRuleFailed: "Failed to save user-agent client rule",
+    updateUserAgentClientRuleFailed: "Failed to update user-agent client rule",
     updateVendorFailed: "Failed to update vendor",
+    userAgentClientRuleCreated: "User-agent client rule created successfully",
+    userAgentClientRuleDeleted: "User-agent client rule deleted successfully",
+    userAgentClientRuleUpdated: "User-agent client rule updated successfully",
   },
   settingsBackup: {
     acknowledgement: "I understand this export includes endpoint API keys.",
@@ -2718,6 +2784,8 @@ export const enMessages: Messages = {
     billableOnly: "Billable only",
     cacheCreation: "Cache creation",
     cacheRead: "Cache read",
+    callerClient: "Caller client",
+    client: "Client",
     compact: "Compact",
     connection: "Connection",
     detailDescription: "Review request metadata, routing, tokens, costs, and captured upstream payloads.",
@@ -2776,6 +2844,7 @@ export const enMessages: Messages = {
     totalCost: "Total cost",
     totalTokens: "Total tokens",
     timestamp: "Timestamp",
+    upstreamClient: "Upstream client",
     errorDetail: "Error detail",
     ingressRequestId: "Ingress request ID",
     attemptNumber: "Attempt number",
