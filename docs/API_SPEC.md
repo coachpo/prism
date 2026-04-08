@@ -533,7 +533,7 @@ Response `200`:
 ```
 POST /api/connections/{id}/health-check
 ```
-Sends an api-family-specific lightweight request using the configured model ID to validate URL routing, authentication, and model availability end to end. This manual check uses the same probe builder and runner as `/api/monitoring/connections/{connection_id}/probe`.
+Sends an api-family-specific lightweight request using the configured model ID to validate URL routing, authentication, and model availability end to end. This manual check uses the same probe builder and runner as the model-detail health-check preview flow.
 
 Response `200`:
 ```json
@@ -845,6 +845,7 @@ POST /api/settings/auth/email-verification/confirm
 #### Proxy API Keys
 - `GET /api/settings/auth/proxy-keys`
 - `POST /api/settings/auth/proxy-keys`
+- `PATCH /api/settings/auth/proxy-keys/{id}`
 - `POST /api/settings/auth/proxy-keys/{id}/rotate`
 - `DELETE /api/settings/auth/proxy-keys/{id}`
 
@@ -868,7 +869,7 @@ Response `200`:
 }
 ```
 
-`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing`, `/api/settings/timezone`, and `/api/settings/monitoring` are profile-scoped and use explicit `X-Profile-Id`.
+`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing` and `/api/settings/timezone` are profile-scoped and use explicit `X-Profile-Id`.
 
 #### Update Costing Settings
 ```
@@ -915,140 +916,7 @@ Request:
 ```
 Response `200`: Updated timezone object.
 
-#### Get Monitoring Settings
-```
-GET /api/settings/monitoring
-```
-Response `200`:
-```json
-{
-  "profile_id": 2,
-  "monitoring_probe_interval_seconds": 300
-}
-```
-
-The cadence is owned and clamped by the backend. Current bounds are `30..3600` seconds, with a default of `300` seconds. This setting controls backend-scheduled synthetic monitoring probes; the frontend only edits the cadence and renders the resulting monitoring data.
-
-#### Update Monitoring Settings
-```
-PUT /api/settings/monitoring
-```
-Request:
-```json
-{
-  "monitoring_probe_interval_seconds": 120
-}
-```
-Response `200`: Updated monitoring settings object. Values outside the backend bounds are clamped before persistence.
-
----
-
-### 1.7A Monitoring API (Profile-Scoped)
-
-#### Monitoring Overview
-```
-GET /api/monitoring/overview
-```
-Response `200`:
-```json
-{
-  "generated_at": "2026-03-30T08:00:00Z",
-  "vendors": [
-    {
-      "vendor_id": 1,
-      "vendor_key": "openai",
-      "vendor_name": "OpenAI",
-      "model_count": 3,
-      "connection_count": 5,
-      "healthy_connection_count": 4,
-      "degraded_connection_count": 1
-    }
-  ]
-}
-```
-
-#### Monitoring Vendor Drill-down
-```
-GET /api/monitoring/vendors/{vendor_id}
-```
-Response `200`:
-```json
-{
-  "generated_at": "2026-03-30T08:00:00Z",
-  "vendor_id": 1,
-  "vendor_key": "openai",
-  "vendor_name": "OpenAI",
-  "models": [
-    {
-      "model_config_id": 12,
-      "model_id": "gpt-4o",
-      "display_name": "GPT-4o",
-      "fused_status": "healthy",
-      "connection_count": 2
-    }
-  ]
-}
-```
-
-#### Monitoring Model Detail
-```
-GET /api/monitoring/models/{model_config_id}
-```
-Response `200`:
-```json
-{
-  "generated_at": "2026-03-30T08:00:00Z",
-  "vendor_id": 1,
-  "vendor_key": "openai",
-  "vendor_name": "OpenAI",
-  "model_config_id": 12,
-  "model_id": "gpt-4o",
-  "display_name": "GPT-4o",
-  "connections": [
-    {
-      "connection_id": 21,
-      "endpoint_id": 7,
-      "endpoint_name": "Primary OpenAI",
-      "endpoint_ping_status": "healthy",
-      "endpoint_ping_ms": 180,
-      "conversation_status": "healthy",
-      "conversation_delay_ms": 420,
-      "fused_status": "healthy",
-      "recent_history": [
-        {
-          "checked_at": "2026-03-30T07:58:00Z",
-          "endpoint_ping_status": "healthy",
-          "endpoint_ping_ms": 175,
-          "conversation_status": "healthy",
-          "conversation_delay_ms": 410,
-          "failure_kind": null
-        }
-      ]
-    }
-  ]
-}
-```
-
-#### Manual Monitoring Probe
-```
-POST /api/monitoring/connections/{connection_id}/probe
-```
-Response `200`:
-```json
-{
-  "connection_id": 21,
-  "checked_at": "2026-03-30T08:01:00Z",
-  "endpoint_ping_status": "healthy",
-  "endpoint_ping_ms": 182,
-  "conversation_status": "healthy",
-  "conversation_delay_ms": 430,
-  "fused_status": "healthy",
-  "failure_kind": null,
-  "detail": "Probe completed successfully"
-}
-```
-
-Manual probe execution is backend-owned; the browser only triggers this management route. The overview and drill-down payloads are derived from backend-produced probe history plus the current fused routing signals for each connection.
+There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` family in the current live OpenAPI contract. Current operator-facing observability and routing-health surfaces are provided through `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, and the manual connection health endpoints.
 
 ---
 
@@ -1236,11 +1104,11 @@ This is the live statistics page contract. It returns the unified usage snapshot
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `preset` | string | `24h` | Snapshot range preset. Supported values: `all`, `7h`, `24h`, `7d` |
+| `preset` | string | `1h` | Snapshot range preset. Supported values: `1h`, `6h`, `24h`, `7d`, `30d`, `all` |
 
 The snapshot is backed by `backend/app/services/stats/usage_snapshot.py` and `backend/app/routers/stats_domains/usage_snapshot_route_handlers.py`, with schema types in `backend/app/schemas/domains/usage_statistics.py`.
 
-The snapshot is still aggregated from persisted usage-event rows, but the `/statistics` page no longer exposes request-event drilldown or Request Logs deep links. The current model also keeps the shared stats routes below live because other pages still use them.
+The snapshot is still aggregated from persisted usage-event rows, and the `/statistics` page stays focused on aggregate views. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -1793,7 +1661,6 @@ Validation rules:
 - `circuit_breaker.ban_mode = "off"` requires zero strike and duration values.
 - `circuit_breaker.ban_mode = "temporary"` requires both `max_open_strikes_before_ban >= 1` and `ban_duration_seconds >= 1`.
 - `circuit_breaker.ban_mode = "manual"` requires `max_open_strikes_before_ban >= 1` and a zero duration value.
-- `monitoring.enabled` keeps scheduled probe feedback in the routing score, while `admission` keeps QPS and in-flight limits in force.
 
 ### 6.3 Update Loadbalance Strategy
 ```
@@ -1840,13 +1707,6 @@ Strategy responses include the persisted/effective family-specific strategy docu
     "admission": {
       "respect_qps_limit": true,
       "respect_in_flight_limits": true
-    },
-    "monitoring": {
-      "enabled": true,
-      "stale_after_seconds": 300,
-      "endpoint_ping_weight": 1.0,
-      "conversation_delay_weight": 1.0,
-      "failure_penalty_weight": 2.0
     }
   },
   "attached_model_count": 2,
@@ -1908,7 +1768,7 @@ Response `200`:
 
 Returns `404` when the model config does not exist in the effective profile.
 
-`state` is one of `counting`, `blocked`, `probe_eligible`, or `banned`. `banned` is derived from `ban_mode` plus `banned_until_at`, while the additional fields expose the current circuit state, admission counters, and fused monitoring signals.
+`state` is one of `counting`, `blocked`, `probe_eligible`, or `banned`. `banned` is derived from `ban_mode` plus `banned_until_at`, while the additional fields expose the current circuit state, admission counters, and recent probe-derived health signals.
 
 ### 6.6 Reset Current Loadbalance State for a Connection
 ```
@@ -2110,24 +1970,6 @@ Example `dashboard.update` payload:
   }
 }
 ```
-
-### 8.2 Realtime Stats
-```
-GET /api/realtime/stats
-```
-
-Response `200`:
-```json
-{
-  "total_connections": 1,
-  "total_rooms": 1,
-  "rooms": {
-    "profile_2_dashboard": 1
-  }
-}
-```
-
----
 
 ## 9. Error Responses
 

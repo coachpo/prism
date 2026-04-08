@@ -51,10 +51,9 @@ backend/
 │   │   ├── connections.py      # /api/models/{id}/connections CRUD + health-check + owner
 │   │   ├── pricing_templates.py # /api/pricing-templates CRUD + usage
 │   │   ├── stats.py            # /api/stats requests/summary/success-rates/spending + batch metrics + batch delete
-│   │   ├── monitoring.py       # /api/monitoring overview, vendor, model, and manual-probe routes
 │   │   ├── audit.py            # /api/audit/logs list/detail/batch delete
 │   │   ├── loadbalance.py      # /api/loadbalance/current-state reset/list + events list/detail/batch delete
-│   │   ├── settings.py         # /api/settings/costing, /api/settings/timezone, /api/settings/monitoring, /api/settings/auth, /api/settings/auth/proxy-keys
+│   │   ├── settings.py         # /api/settings/costing, /api/settings/timezone, /api/settings/auth, /api/settings/auth/proxy-keys
 │   │   ├── auth.py             # /api/auth login/logout/refresh/session/password-reset/webauthn
 │   │   ├── config.py           # /api/config/profile/* + /api/config/vendors/* + header blocklist CRUD
 │   │   └── proxy.py            # /v1/* and /v1beta/* catch-all proxy handlers
@@ -62,8 +61,7 @@ backend/
 │       ├── auth/               # Session, password reset, proxy-key internals
 │       ├── auth_service.py     # Auth public boundary
 │       ├── background_tasks.py # Lifespan-managed async worker queue
-│       ├── monitoring/         # Probe runner, scheduler, monitoring queries, routing feedback
-│       ├── monitoring_service.py # Monitoring public boundary
+│       ├── connection_health.py # Manual health-check request builder
 │       ├── proxy_service.py    # Request forwarding, streaming, header sanitization
 │       ├── loadbalancer/       # Planner, persistent state, recovery, events, and admin facade
 │       ├── stats_service.py    # Request logging, aggregation queries, metrics batching
@@ -108,16 +106,13 @@ frontend/
 │       ├── ModelsPage.tsx
 │       ├── ModelDetailPage.tsx     # Model detail shell + loadbalance events tab
 │       ├── EndpointsPage.tsx
-│       ├── StatisticsPage.tsx
-│       ├── MonitoringPage.tsx      # Monitoring overview grouped by vendor
-│       ├── MonitoringVendorPage.tsx # Monitoring vendor drill-down grouped by model
-│       ├── MonitoringModelPage.tsx # Monitoring model detail with connection history and manual probe
+│       ├── dashboard/StatisticsPage.tsx
+│       ├── ProxyModelDetailPage.tsx # Proxy-model detail shell and ordered target editing
 │       ├── RequestLogsPage.tsx     # Request-log investigation with lazy audit lookup
 │       ├── ProxyApiKeysPage.tsx
-│       ├── SettingsPage.tsx        # Profile-scoped settings shell + backend-owned monitoring cadence + global auth/vendor management
+│       ├── SettingsPage.tsx        # Profile-scoped settings shell + global auth/vendor management
 │       ├── PricingTemplatesPage.tsx
-│       ├── LoadbalanceStrategiesPage.tsx
-│       └── monitoring/             # Monitoring polling hooks and route-local presentation helpers
+│       └── LoadbalanceStrategiesPage.tsx
 
 ├── components.json             # shadcn config
 ├── package.json
@@ -143,7 +138,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Router captures active profile snapshot at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
   -> Request setup resolves the native model, attached adaptive routing policy, and current candidate set in active profile scope
-  -> Planner ranks candidates from live runtime state, admission counters, and fresh monitoring signals
+  -> Planner ranks candidates from live runtime state, admission counters, and current circuit state
   -> Executor claims the primary attempt lease and forwards the request to the selected endpoint
   -> Upstream responds with JSON
   -> Gateway returns JSON to client, releases any non-stream lease, persists one `request_logs` row for the attempt, and feeds the outcome back into runtime routing state
@@ -175,7 +170,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> SSE chunks piped directly to client via StreamingResponse
   -> Streaming heartbeats keep the lease fresh while the stream is open
   -> On upstream error: release the stream lease, classify the failure, and continue only if policy deadline and hedge rules still allow another attempt
-  -> On stream finalization or cancellation: release the stream lease, persist the per-attempt request log, and record monitoring-aware runtime feedback
+  -> On stream finalization or cancellation: release the stream lease, persist the per-attempt request log, and record runtime feedback
 ```
 
 ### 3.4 Vendor and api_family Routing
@@ -250,7 +245,7 @@ Proxy request completes
   -> On reconnect or manual refresh, frontend reconciles via REST bootstrap calls
 ```
 
-## 4. Routing Strategies and Monitoring
+## 4. Routing Strategies and Runtime Health Signals
 
 ### 4.1 Routing policy contract
 
@@ -263,18 +258,11 @@ Proxy request completes
 ### 4.2 Runtime execution pipeline
 
 1. Request setup resolves the active-profile model, attached strategy, and one immutable effective strategy snapshot for the request.
-2. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, live latency, and fresh monitoring signals.
+2. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, and runtime health signals.
 3. Executor claims per-attempt leases, applies `buffered_total_timeout_ms` for buffered requests or `stream_precommit_timeout_ms` until the first streaming chunk, and may launch one hedge only before any client-visible bytes are committed.
-4. Passive request outcomes and synthetic probe outcomes both feed back into the same runtime state, while durable transition history stays in `loadbalance_events`.
+4. Passive request outcomes feed back into runtime state, while durable transition history stays in `loadbalance_events`.
 
 If all eligible candidates are unavailable inside the current policy window, the gateway returns `503` with routing-availability detail.
-
-### 4.3 Monitoring producers and scheduler ownership
-
-- Manual connection checks and `/api/monitoring/connections/{connection_id}/probe` share the same api-family-aware probe builders and runner.
-- FastAPI lifespan starts `MonitoringScheduler` only after bootstrap, shared HTTP client creation, and background-task startup, then stops it during shutdown before closing the client.
-- Probe cadence lives in profile-scoped `user_settings.monitoring_probe_interval_seconds`, is clamped on the backend (`30..3600`, default `300`), and is never owned by frontend polling logic.
-- Durable probe history lands in `monitoring_connection_probe_results`; fresh fused routing signals and leases live in UNLOGGED `routing_connection_runtime_state` and `routing_connection_runtime_leases`.
 
 ## 5. Model Proxy Routing
 
@@ -313,11 +301,11 @@ resolve_model(profile_id, model_id):
 
 ### 6.1 Concept
 
-Manual health checks and backend-owned monitoring probes share one lightweight probe runner so connection verification, scheduled probes, and manual re-probes stay on the same wire contract.
+Manual health checks use one lightweight probe runner so connection verification stays on the same api-family-aware wire contract as the rest of the runtime stack.
 
 ### 6.2 Health Probes (API-Family-Specific)
 
-Health checks and monitoring probes send api-family-specific lightweight requests using the connection's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
+Health checks send api-family-specific lightweight requests using the connection's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
 
 - **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the connection's persisted `openai_probe_endpoint_variant` (`responses` default).
 - **Anthropic**: `POST {base_url}/v1/messages` with `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`

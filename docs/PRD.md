@@ -67,8 +67,6 @@ Single operator (developer/power user) running the application locally or on a l
 
 ### 4.6 Connection Health Detection
 - Manual health check remains available for each connection from the management UI.
-- Prism also runs backend-owned synthetic monitoring probes on a profile-scoped cadence configured in Settings → Profile → Monitoring.
-- Manual checks and scheduled monitoring share the same lightweight, api-family-aware probe runner, and the browser never probes upstreams directly.
 - Health probes send a minimal request using the connection's configured model ID and the same URL-building logic as the proxy engine to validate URL routing, authentication, and model availability end to end.
 - API-family-specific request format:
   - **OpenAI**: `POST {base_url}/v1/responses` by default, or `POST {base_url}/v1/chat/completions` when that connection's `openai_probe_endpoint_variant` is set to `chat_completions`
@@ -79,10 +77,9 @@ Single operator (developer/power user) running the application locally or on a l
   - 429 → `healthy` (connection works, just rate-limited)
   - Connection error / timeout → `unhealthy`
   - Other errors → `unhealthy`
-- Health checks and re-probes are available in:
+- Health checks are available in:
   - Model Detail → Connections list → Actions menu ("Check Health")
   - Model Detail → Add/Edit Connection dialog ("Test Connection" button)
-  - Monitoring → Model detail → manual probe action
 
 ### 4.6.1 Connection Success Rate Badge
 - Each connection displays a **success rate badge** computed from `request_logs` data
@@ -115,14 +112,15 @@ Single operator (developer/power user) running the application locally or on a l
 - Toggle active/inactive connections per model
 - Select either a legacy or adaptive routing strategy per native model
 - Manual health check for connections with visual status indicators
-- Dedicated monitoring overview, vendor drill-down, and model-detail pages, with manual probe actions and results surfaced within model detail
+- Dedicated model-detail routes (`/models/:id` and `/models/:id/proxy`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/request-logs`, separate from `/statistics`
 - Dedicated routes for pricing templates and proxy API key lifecycle management
+- Dashboard (`/dashboard`) and Statistics (`/statistics`) are separate observability surfaces; Statistics is a routed deep-dive view rather than a primary sidebar entry
 - Global profile selector in the app shell controls the selected profile (management scope).
 - Active profile indicator is shown globally; runtime activation is an explicit action.
 - The protected shell bootstraps profile state from one profile-bootstrap response, while sidebar navigation and breadcrumbs are derived from local route metadata.
 - Profile create/edit/delete dialogs include active-profile delete guardrails and capacity guidance.
-- Settings is split between Profile-scoped sections (backup, billing/currency, timezone, monitoring cadence, audit/privacy, retention) and a Global tab for instance auth plus shared vendor management.
+- Settings is split between Profile-scoped sections (backup, billing/currency, timezone, audit/privacy, retention/deletion, and config rules) and a Global tab for instance auth plus shared vendor management.
 
 ### 4.8 Configuration Persistence
 - Configuration is stored in PostgreSQL with Alembic-managed schema migrations applied at startup

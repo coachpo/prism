@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, durable monitoring history, UNLOGGED routing hot state, and the current v2 split-bundle configuration format.
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current v2 split-bundle configuration format.
 
 ## 1. Entity Relationship Diagram
 
@@ -125,7 +125,7 @@ user_settings (profile-scoped singleton)
   id PK
   profile_id FK -> profiles.id
   report_currency_code, report_currency_symbol
-  timezone_preference, monitoring_probe_interval_seconds
+  timezone_preference
   created_at, updated_at
   UNIQUE(profile_id)
 
@@ -172,7 +172,6 @@ audit_logs (immutable attribution)
   is_stream, duration_ms
   created_at
 
-monitoring_connection_probe_results (durable monitoring history)
   id PK
   profile_id FK -> profiles.id
   vendor_id FK -> vendors.id
@@ -356,7 +355,6 @@ Constraints and lifecycle rules:
 - Strategy rows are shape-checked: all rows require `timeout_policy`; `legacy` rows also require `legacy_strategy_type` and `auto_recovery` with no `routing_policy`, while `adaptive` rows require `routing_policy` with no legacy-only fields.
 - Effective runtime policy resolves once per request from the attached strategy row.
 - The adaptive `circuit_breaker` branch carries failure status codes, threshold/backoff/jitter tuning, and optional ban escalation.
-- The adaptive `monitoring` branch controls how fresh probe signals influence routing.
 - Fresh deployments receive two editable default-profile preset strategies named `Default legacy routing` and `Default adaptive routing`.
 - Strategies cannot be deleted while attached to one or more native models.
 
@@ -461,7 +459,7 @@ Constraints:
 
 ### 2.8 `user_settings` (profile-scoped singleton)
 
-Per-profile costing/report display preferences plus the backend-owned monitoring cadence.
+Per-profile costing/report display preferences.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -470,7 +468,6 @@ Per-profile costing/report display preferences plus the backend-owned monitoring
 | report_currency_code | VARCHAR(3) | NOT NULL, DEFAULT 'USD' | Spending report currency |
 | report_currency_symbol | VARCHAR(5) | NOT NULL, DEFAULT '$' | Currency symbol |
 | timezone_preference | VARCHAR(100) | NULLABLE | Preferred timezone for UI/report rendering |
-| monitoring_probe_interval_seconds | INTEGER | NOT NULL, DEFAULT 300 | Backend scheduler cadence for synthetic monitoring probes |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
@@ -595,32 +592,9 @@ Persistent record of failover, recovery, and health transitions.
 | vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor snapshot |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
 
-### 2.14 `monitoring_connection_probe_results` (durable monitoring history)
+### 2.14 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
 
-Durable synthetic-probe history used by the monitoring UI and by routing feedback.
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
-| profile_id | INTEGER | FK -> profiles.id, NOT NULL | Owning profile |
-| vendor_id | INTEGER | FK -> vendors.id, NOT NULL | Vendor snapshot for grouped monitoring queries |
-| model_config_id | INTEGER | FK -> model_configs.id, NOT NULL | Parent model config |
-| connection_id | INTEGER | FK -> connections.id, NOT NULL | Probed connection |
-| endpoint_id | INTEGER | NOT NULL | Endpoint snapshot |
-| endpoint_ping_status | VARCHAR(20) | NOT NULL | `healthy`, `degraded`, or `unhealthy` |
-| endpoint_ping_ms | INTEGER | NULLABLE | Endpoint handshake latency |
-| conversation_status | VARCHAR(20) | NOT NULL | `healthy`, `degraded`, or `unhealthy` |
-| conversation_delay_ms | INTEGER | NULLABLE | Conversation probe latency |
-| failure_kind | VARCHAR(50) | NULLABLE | Failure classification when probe work fails |
-| detail | TEXT | NULLABLE | Human-readable failure detail |
-| checked_at | DATETIME | NOT NULL, DEFAULT NOW | Probe timestamp |
-
-Constraints:
-- Status fields are restricted to `healthy`, `degraded`, or `unhealthy`.
-
-### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
-
-Ephemeral hot-state row for per-connection admission, circuit state, and fused monitoring signals. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
+Ephemeral hot-state row for per-connection admission, circuit state, and probe-aware runtime signals. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -647,7 +621,7 @@ Constraints:
 - Counter and strike fields are non-negative.
 - `circuit_state` is restricted to `closed`, `open`, or `half_open`.
 
-### 2.16 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
+### 2.15 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
 
 Ephemeral lease rows used for non-stream attempts, streaming heartbeats, and half-open probes.
 
@@ -665,7 +639,7 @@ Ephemeral lease rows used for non-stream attempts, streaming heartbeats, and hal
 Constraints:
 - `lease_kind` is restricted to `stream`, `non_stream`, or `half_open_probe`.
 
-### 2.17 `app_auth_settings` (singleton)
+### 2.16 `app_auth_settings` (singleton)
 
 Global operator authentication settings and credentials.
 
@@ -688,7 +662,7 @@ Global operator authentication settings and credentials.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-### 2.18 `refresh_tokens`
+### 2.17 `refresh_tokens`
 
 Cookie-backed management sessions with family rotation and revocation.
 
@@ -706,7 +680,7 @@ Cookie-backed management sessions with family rotation and revocation.
 | ip_address | VARCHAR(100) | NULLABLE | Client IP snapshot |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.19 `proxy_api_keys`
+### 2.18 `proxy_api_keys`
 
 Runtime data-plane credentials.
 
@@ -727,7 +701,7 @@ Runtime data-plane credentials.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-### 2.20 `password_reset_challenges`
+### 2.19 `password_reset_challenges`
 
 Password-reset OTP challenges for the singleton operator account.
 
@@ -742,7 +716,7 @@ Password-reset OTP challenges for the singleton operator account.
 | requested_ip | VARCHAR(100) | NULLABLE | Request origin IP |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.21 `webauthn_challenges`
+### 2.20 `webauthn_challenges`
 
 Challenge storage for passkey registration and authentication ceremonies.
 
