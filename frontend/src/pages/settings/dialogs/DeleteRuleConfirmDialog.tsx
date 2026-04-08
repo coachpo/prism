@@ -56,7 +56,6 @@ export function DeleteRuleConfirmDialog({
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 flex-col gap-1">
                 <p className="truncate text-sm font-medium text-foreground">{dialogRule?.name ?? ""}</p>
-                <p className="text-sm text-muted-foreground">{copy.pattern}</p>
               </div>
               {dialogRule ? <Badge variant="outline">{matchTypeLabel}</Badge> : null}
             </div>
