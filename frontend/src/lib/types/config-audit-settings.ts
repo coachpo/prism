@@ -9,6 +9,10 @@ export interface ConfigEndpointExport {
   name: string;
   base_url: string;
   api_key_secret_ref: string | null;
+  pool_timeout: number;
+  connect_timeout: number;
+  write_timeout: number;
+  read_idle_timeout: number;
   position?: number | null;
 }
 
@@ -16,8 +20,18 @@ export interface ConfigEndpointImport {
   name: string;
   base_url: string;
   api_key_secret_ref?: string | null;
+  pool_timeout?: number;
+  connect_timeout?: number;
+  write_timeout?: number;
+  read_idle_timeout?: number;
   position?: number | null;
 }
+
+export type OpenAIProbeEndpointVariant =
+  | "responses_minimal"
+  | "responses_reasoning_none"
+  | "chat_completions_minimal"
+  | "chat_completions_reasoning_none";
 
 export interface ConfigPricingTemplateExport {
   name: string;
@@ -59,6 +73,7 @@ export interface ConfigConnectionExport {
   name: string | null;
   auth_type: ApiFamily | null;
   custom_headers: Record<string, string> | null;
+  openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
   qps_limit: number | null;
   max_in_flight_non_stream: number | null;
   max_in_flight_stream: number | null;
@@ -72,6 +87,7 @@ export interface ConfigConnectionImport {
   name?: string | null;
   auth_type?: ApiFamily | null;
   custom_headers?: Record<string, string> | null;
+  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
   max_in_flight_stream?: number | null;

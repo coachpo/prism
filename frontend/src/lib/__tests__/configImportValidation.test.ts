@@ -119,6 +119,32 @@ function buildV2ProfileBundle() {
   };
 }
 
+function buildBackendExportedV2ProfileBundle() {
+  return {
+    ...buildV2ProfileBundle(),
+    endpoints: [
+      {
+        ...buildV2ProfileBundle().endpoints[0],
+        pool_timeout: 5,
+        connect_timeout: 10,
+        write_timeout: 30,
+        read_idle_timeout: 120,
+      },
+    ],
+    models: [
+      {
+        ...buildV2ProfileBundle().models[0],
+        connections: [
+          {
+            ...buildV2ProfileBundle().models[0].connections[0],
+            openai_probe_endpoint_variant: "responses_minimal" as const,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function getIssuePairs(payload: unknown) {
   const result = ConfigImportSchema.safeParse(payload);
 
@@ -148,6 +174,12 @@ describe("ConfigImportSchema", () => {
 
     expect(vendor.key).toBe("openai");
     expect(apiFamily).toBe("openai");
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a backend-exported v2 profile bundle with transport guards and probe variants", () => {
+    const result = ConfigImportSchema.safeParse(buildBackendExportedV2ProfileBundle());
+
     expect(result.success).toBe(true);
   });
 

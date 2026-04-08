@@ -4,8 +4,19 @@ const EndpointImportSchema = z.strictObject({
   name: z.string(),
   base_url: z.string(),
   api_key_secret_ref: z.string().nullable().optional(),
+  pool_timeout: z.number().min(0).optional(),
+  connect_timeout: z.number().min(0).optional(),
+  write_timeout: z.number().min(0).optional(),
+  read_idle_timeout: z.number().min(0).optional(),
   position: z.number().int().min(0).nullable().optional(),
 });
+
+const OpenAIProbeEndpointVariantImportSchema = z.enum([
+  "responses_minimal",
+  "responses_reasoning_none",
+  "chat_completions_minimal",
+  "chat_completions_reasoning_none",
+]);
 
 const PricingTemplateImportSchema = z.strictObject({
   name: z.string(),
@@ -114,6 +125,7 @@ const ConnectionImportSchema = z.strictObject({
   name: z.string().nullable().optional(),
   auth_type: z.enum(["openai", "anthropic", "gemini"]).nullable().optional(),
   custom_headers: z.record(z.string(), z.string()).nullable().optional(),
+  openai_probe_endpoint_variant: OpenAIProbeEndpointVariantImportSchema.nullable().optional(),
   qps_limit: z.number().int().min(1).nullable().optional(),
   max_in_flight_non_stream: z.number().int().min(1).nullable().optional(),
   max_in_flight_stream: z.number().int().min(1).nullable().optional(),

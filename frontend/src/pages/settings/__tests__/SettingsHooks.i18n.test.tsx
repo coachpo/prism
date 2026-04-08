@@ -41,6 +41,97 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+function buildTimeoutPolicy() {
+  return {
+    attempt_open_timeout_ms: 2000,
+    buffered_total_timeout_ms: 30000,
+    stream_precommit_timeout_ms: 5000,
+    stream_hard_cap_timeout_ms: 120000,
+  };
+}
+
+function buildBackendShapedProfileBundle() {
+  return {
+    version: 2,
+    bundle_kind: "profile_config" as const,
+    exported_at: "2026-04-04T15:00:00Z",
+    vendor_refs: [
+      {
+        key: "openai",
+        name_hint: "OpenAI",
+        description_hint: "OpenAI vendor",
+        icon_key_hint: "openai",
+      },
+    ],
+    endpoints: [
+      {
+        name: "openai-main",
+        base_url: "https://api.openai.com",
+        api_key_secret_ref: "endpoint:openai-main:api_key",
+        pool_timeout: 5,
+        connect_timeout: 10,
+        write_timeout: 30,
+        read_idle_timeout: 120,
+        position: 0,
+      },
+    ],
+    pricing_templates: [],
+    loadbalance_strategies: [
+      {
+        name: "single-primary",
+        strategy_type: "legacy" as const,
+        timeout_policy: buildTimeoutPolicy(),
+        legacy_strategy_type: "single" as const,
+        auto_recovery: {
+          mode: "disabled" as const,
+        },
+      },
+    ],
+    models: [
+      {
+        vendor_key: "openai",
+        api_family: "openai" as const,
+        model_id: "gpt-4o",
+        display_name: "GPT-4o",
+        model_type: "native" as const,
+        proxy_targets: [],
+        loadbalance_strategy_name: "single-primary",
+        is_enabled: true,
+        connections: [
+          {
+            endpoint_name: "openai-main",
+            pricing_template_name: null,
+            is_active: true,
+            priority: 0,
+            name: "Primary",
+            auth_type: "openai" as const,
+            custom_headers: { "X-Org": "my-org" },
+            openai_probe_endpoint_variant: "responses_minimal" as const,
+          },
+        ],
+      },
+    ],
+    profile_settings: {
+      report_currency_code: "USD",
+      report_currency_symbol: "$",
+      timezone_preference: null,
+      endpoint_fx_mappings: [],
+    },
+    header_blocklist_rules: [],
+    secret_payload: {
+      kind: "encrypted" as const,
+      cipher: "fernet-v1" as const,
+      key_id: "sha256:test",
+      entries: [
+        {
+          ref: "endpoint:openai-main:api_key",
+          ciphertext: "enc:test-ciphertext",
+        },
+      ],
+    },
+  };
+}
+
 describe("settings hooks i18n", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -106,11 +197,11 @@ describe("settings hooks i18n", () => {
       ready: true,
       version: 2,
       bundle_kind: "profile_config",
-      endpoints_imported: 0,
+      endpoints_imported: 1,
       pricing_templates_imported: 0,
-      strategies_imported: 0,
+      strategies_imported: 1,
       models_imported: 1,
-      connections_imported: 0,
+      connections_imported: 1,
       vendor_resolutions: [
         {
           vendor_key: "openai",
@@ -127,60 +218,7 @@ describe("settings hooks i18n", () => {
     const { result } = renderHook(() => useConfigBackupData({ bumpRevision: vi.fn() }));
     const file = {
       name: "config.json",
-      text: vi.fn().mockResolvedValue(
-        JSON.stringify({
-          version: 2,
-          bundle_kind: "profile_config",
-          vendor_refs: [
-            {
-              key: "openai",
-              name_hint: "OpenAI",
-              description_hint: "OpenAI vendor",
-              icon_key_hint: "openai",
-            },
-          ],
-          endpoints: [
-            {
-              name: "openai-main",
-              base_url: "https://api.openai.com",
-              api_key_secret_ref: "endpoint:openai-main:api_key",
-              position: 0,
-            },
-          ],
-          pricing_templates: [],
-          loadbalance_strategies: [],
-          models: [
-            {
-              vendor_key: "openai",
-              api_family: "openai",
-              model_id: "gateway-proxy",
-              display_name: "Gateway Proxy",
-              model_type: "proxy",
-              proxy_targets: [],
-              loadbalance_strategy_name: null,
-              is_enabled: true,
-              connections: [],
-            },
-          ],
-          profile_settings: {
-            report_currency_code: "USD",
-            report_currency_symbol: "$",
-            timezone_preference: null,
-            endpoint_fx_mappings: [],
-          },
-          secret_payload: {
-            kind: "encrypted",
-            cipher: "fernet-v1",
-            key_id: "sha256:test",
-            entries: [
-              {
-                ref: "endpoint:openai-main:api_key",
-                ciphertext: "enc:test-ciphertext",
-              },
-            ],
-          },
-        }),
-      ),
+      text: vi.fn().mockResolvedValue(JSON.stringify(buildBackendShapedProfileBundle())),
     } as unknown as File;
 
     await act(async () => {
@@ -190,11 +228,67 @@ describe("settings hooks i18n", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.parsedConfig?.models[0]?.model_type).toBe("proxy");
+      expect(result.current.parsedConfig?.models[0]?.model_type).toBe("native");
       expect(result.current.parsedConfig?.models[0]?.proxy_targets).toEqual([]);
+      expect(result.current.parsedConfig?.models[0]?.connections?.[0]?.openai_probe_endpoint_variant).toBe("responses_minimal");
+      expect(result.current.parsedConfig?.loadbalance_strategies[0]?.timeout_policy?.attempt_open_timeout_ms).toBe(2000);
     });
     expect(api.config.previewImport).toHaveBeenCalledTimes(1);
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("imports a previewed backend-shaped bundle and resets local state", async () => {
+    document.documentElement.lang = "en";
+    const bumpRevision = vi.fn();
+    const bundle = buildBackendShapedProfileBundle();
+    vi.mocked(api.config.previewImport).mockResolvedValue({
+      ready: true,
+      version: 2,
+      bundle_kind: "profile_config",
+      endpoints_imported: 1,
+      pricing_templates_imported: 0,
+      strategies_imported: 1,
+      models_imported: 1,
+      connections_imported: 1,
+      vendor_resolutions: [{ vendor_key: "openai", resolution: "reuse", warning: null }],
+      secret_key_id: "sha256:test",
+      decryptable_secret_refs: ["endpoint:openai-main:api_key"],
+      blocking_errors: [],
+      warnings: [],
+    } as never);
+    vi.mocked(api.config.import).mockResolvedValue({
+      endpoints_imported: 1,
+      pricing_templates_imported: 0,
+      strategies_imported: 1,
+      models_imported: 1,
+      connections_imported: 1,
+    } as never);
+
+    const { result } = renderHook(() => useConfigBackupData({ bumpRevision }));
+    const file = {
+      name: "config.json",
+      text: vi.fn().mockResolvedValue(JSON.stringify(bundle)),
+    } as unknown as File;
+
+    await act(async () => {
+      await result.current.handleFileSelect({ target: { files: [file] } } as unknown as ChangeEvent<HTMLInputElement>);
+    });
+
+    await waitFor(() => {
+      expect(result.current.previewResult?.ready).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.handleImport();
+    });
+
+    expect(api.config.import).toHaveBeenCalledWith(bundle);
+    expect(bumpRevision).toHaveBeenCalledTimes(1);
+    expect(result.current.selectedFile).toBeNull();
+    expect(result.current.parsedConfig).toBeNull();
+    expect(result.current.previewResult).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it("clears stale parsed config and preview state when a new file is selected", async () => {
