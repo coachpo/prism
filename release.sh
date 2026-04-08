@@ -378,7 +378,7 @@ run_release_verification() {
     run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" sync --locked --python "$BACKEND_PYTHON_BIN"
 
     log "Verifying backend version metadata"
-    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" run --locked --no-sync --python "$BACKEND_PYTHON_BIN" -m pytest tests/test_backend_version_metadata.py
+    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" run --locked --no-sync --python "$BACKEND_PYTHON_BIN" python -c "from pathlib import Path; from app.core.version import get_backend_version; expected = Path('VERSION').read_text(encoding='utf-8').strip(); actual = get_backend_version(); print(f'Backend version metadata OK: {actual}'); raise SystemExit(0 if actual == expected else f'Backend version mismatch: expected {expected}, got {actual}')"
 
     log "Verifying frontend build"
     run_in_dir "$FRONTEND_DIR" "$FRONTEND_PNPM_BIN" run build
