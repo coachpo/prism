@@ -25,6 +25,11 @@ const trackedRequest: RequestLogDetail = {
     provider_correlation_id: "provider_req_abc123",
     proxy_api_key_id: null,
     proxy_api_key_name_snapshot: null,
+    caller_user_agent: null,
+    upstream_user_agent: null,
+    caller_client_display: null,
+    upstream_client_display: null,
+    user_agent_overridden: false,
     error_detail: null,
   },
   routing: {

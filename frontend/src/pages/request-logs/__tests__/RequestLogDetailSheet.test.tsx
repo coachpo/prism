@@ -30,6 +30,11 @@ const baseRequest: RequestLogDetail = {
     provider_correlation_id: null,
     proxy_api_key_id: null,
     proxy_api_key_name_snapshot: null,
+    caller_user_agent: null,
+    upstream_user_agent: null,
+    caller_client_display: null,
+    upstream_client_display: null,
+    user_agent_overridden: false,
     error_detail: null,
   },
   routing: {
@@ -225,6 +230,29 @@ describe("RequestLogDetailSheet", () => {
     expect(screen.getByText("Resolved target")).toBeInTheDocument();
     expect(screen.getAllByText("Claude Sonnet 4.5 Proxy").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Claude Sonnet 4.5 (20250929)").length).toBeGreaterThan(0);
+  });
+
+  it("renders caller and upstream client details with backend-resolved labels and raw user agents when they differ", () => {
+    renderSheet({
+      request: {
+        ...baseRequest,
+        request: {
+          ...baseRequest.request,
+          caller_client_display: "Codex CLI",
+          upstream_client_display: "Claude Code",
+          caller_user_agent: "Codex/1.0",
+          upstream_user_agent: "Claude Code/2.0",
+          user_agent_overridden: true,
+        },
+      },
+    });
+
+    expect(screen.getByText("Caller client")).toBeInTheDocument();
+    expect(screen.getByText("Upstream client")).toBeInTheDocument();
+    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(screen.getByText("Codex/1.0")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code/2.0")).toBeInTheDocument();
   });
 
   it("shows the proxy-origin sign for unroutable proxy rejections using current model metadata", () => {

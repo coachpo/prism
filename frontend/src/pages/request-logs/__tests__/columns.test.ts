@@ -58,6 +58,25 @@ function renderModelCell(
   );
 }
 
+function renderClientCell(row: RequestLogListItem) {
+  const clientColumn = getColumns().find((column) => column.key === "client");
+
+  expect(clientColumn).toBeDefined();
+
+  render(
+    React.createElement(
+      React.Fragment,
+      null,
+      clientColumn?.render(
+        row,
+        () => "formatted:2026-03-16T00:00:00.000Z",
+        createResolveModelLabel({ [row.model_id]: row.model_id }),
+        () => "—",
+      ),
+    ),
+  );
+}
+
 function buildRow(overrides: Partial<RequestLogListItem> = {}): RequestLogListItem {
   return {
     id: 42,
@@ -149,6 +168,7 @@ describe("formatCost", () => {
       "response_time_ms",
       "model_id",
       "endpoint_id",
+      "client",
       "vendor_api_family",
       "total_tokens",
       "total_cost",
@@ -160,6 +180,7 @@ describe("formatCost", () => {
       { key: "response_time_ms", width: 108, grow: 0 },
       { key: "model_id", width: 240, grow: 3 },
       { key: "endpoint_id", width: 180, grow: 2 },
+      { key: "client", width: 180, grow: 2 },
       { key: "vendor_api_family", width: 150, grow: 1 },
       { key: "total_tokens", width: 110, grow: 0 },
       { key: "total_cost", width: 104, grow: 0 },
@@ -193,8 +214,77 @@ describe("formatCost", () => {
     );
 
     expect(screen.getByText(/vendor \/ api/i)).toBeInTheDocument();
+    expect(screen.getByText(/client/i)).toBeInTheDocument();
     expect(screen.getByTestId("request-log-page-size-select")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("renders a single backend-provided client display when the user agent was not overridden", () => {
+    renderClientCell(
+      buildRow({
+        caller_client_display: "Codex CLI",
+        upstream_client_display: "Claude Code",
+        user_agent_overridden: false,
+      }),
+    );
+
+    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+    expect(screen.queryByText("Claude Code")).not.toBeInTheDocument();
+    expect(screen.queryByText("→")).not.toBeInTheDocument();
+  });
+
+  it("renders caller to upstream client displays when the user agent was overridden", () => {
+    renderClientCell(
+      buildRow({
+        caller_client_display: "Codex CLI",
+        upstream_client_display: "Claude Code",
+        user_agent_overridden: true,
+      }),
+    );
+
+    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+    const upstream = screen.getByText("Claude Code");
+    expect(upstream).toBeInTheDocument();
+    expect(upstream).toHaveClass("font-medium");
+    expect(screen.getByText("→")).toBeInTheDocument();
+  });
+
+  it("renders one-sided overrides without collapsing the missing side", () => {
+    renderClientCell(
+      buildRow({
+        caller_client_display: null,
+        upstream_client_display: "Claude Code",
+        user_agent_overridden: true,
+      }),
+    );
+
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    expect(screen.getByText("→")).toBeInTheDocument();
+  });
+
+  it("renders the backend-provided raw display fallback when no rule matched", () => {
+    renderClientCell(
+      buildRow({
+        caller_client_display: "curl/8.7.1",
+        upstream_client_display: null,
+        user_agent_overridden: false,
+      }),
+    );
+
+    expect(screen.getByText("curl/8.7.1")).toBeInTheDocument();
+  });
+
+  it("renders a stable empty fallback when no client display is available", () => {
+    renderClientCell(
+      buildRow({
+        caller_client_display: null,
+        upstream_client_display: null,
+        user_agent_overridden: false,
+      }),
+    );
+
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("resolves endpoint labels from current endpoint metadata instead of raw ids", () => {

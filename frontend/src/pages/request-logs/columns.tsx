@@ -32,6 +32,27 @@ function latencyColor(ms: number): string {
   return "text-red-600 dark:text-red-400 font-bold";
 }
 
+function getSingleClientDisplay(row: RequestLogListItem): string {
+  return row.caller_client_display ?? row.upstream_client_display ?? "—";
+}
+
+function renderClientCell(row: RequestLogListItem): React.ReactNode {
+  if (!row.user_agent_overridden) {
+    return <span className="block truncate text-xs font-medium">{getSingleClientDisplay(row)}</span>;
+  }
+
+  const callerDisplay = row.caller_client_display ?? "—";
+  const upstreamDisplay = row.upstream_client_display ?? "—";
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-xs">
+      <span className="truncate text-muted-foreground">{callerDisplay}</span>
+      <span className="shrink-0 text-muted-foreground">→</span>
+      <span className="truncate font-medium">{upstreamDisplay}</span>
+    </div>
+  );
+}
+
 export interface ColumnDef {
   key: string;
   label: string;
@@ -154,6 +175,13 @@ export function getColumns(): ColumnDef[] {
           </div>
         );
       },
+    },
+    {
+      key: "client",
+      label: messages.client,
+      width: 180,
+      grow: 2,
+      render: (row) => <div className="min-w-0">{renderClientCell(row)}</div>,
     },
     {
       key: "vendor_api_family",

@@ -48,6 +48,26 @@ function SectionSubheading({ children }: { children: React.ReactNode }) {
   );
 }
 
+function getClientPrimaryValue(display: string | null, rawUserAgent: string | null): string {
+  return display ?? rawUserAgent ?? "—";
+}
+
+function renderClientDetailValue(display: string | null, rawUserAgent: string | null) {
+  const primaryValue = getClientPrimaryValue(display, rawUserAgent);
+  const showRawValue = rawUserAgent !== null && rawUserAgent !== primaryValue;
+
+  return (
+    <div className="space-y-1">
+      <p>{primaryValue}</p>
+      {showRawValue ? (
+        <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          {rawUserAgent}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function RequestLogOverviewTab({
   request,
   formatTimestamp,
@@ -68,6 +88,22 @@ export function RequestLogOverviewTab({
   const hasFormattedErrorDetail = formattedErrorDetail !== null && formattedErrorDetail !== requestInfo.error_detail;
   const apiFamily = summary.api_family;
   const isProxyOrigin = isProxyOriginRequest(summary, resolveModelLabel);
+  const callerClientPrimaryValue = getClientPrimaryValue(
+    requestInfo.caller_client_display,
+    requestInfo.caller_user_agent,
+  );
+  const upstreamClientPrimaryValue = getClientPrimaryValue(
+    requestInfo.upstream_client_display,
+    requestInfo.upstream_user_agent,
+  );
+  const showUpstreamClient =
+    requestInfo.user_agent_overridden
+    || requestInfo.upstream_client_display !== null
+    || requestInfo.upstream_user_agent !== null;
+  const showCallerClient =
+    requestInfo.caller_client_display !== null
+    || requestInfo.caller_user_agent !== null
+    || requestInfo.user_agent_overridden;
 
   return (
     <div className="space-y-3">
@@ -216,6 +252,25 @@ export function RequestLogOverviewTab({
                       </p>
                     ) : null}
                   </div>
+                </DetailRow>
+              ) : null}
+              {showCallerClient ? (
+                <DetailRow label={messages.requestLogs.callerClient}>
+                  {renderClientDetailValue(
+                    requestInfo.caller_client_display,
+                    requestInfo.caller_user_agent,
+                  )}
+                </DetailRow>
+              ) : null}
+              {showUpstreamClient
+                && (requestInfo.user_agent_overridden
+                  || upstreamClientPrimaryValue !== callerClientPrimaryValue
+                  || requestInfo.upstream_user_agent !== requestInfo.caller_user_agent) ? (
+                <DetailRow label={messages.requestLogs.upstreamClient}>
+                  {renderClientDetailValue(
+                    requestInfo.upstream_client_display,
+                    requestInfo.upstream_user_agent,
+                  )}
                 </DetailRow>
               ) : null}
               <DetailRow label={messages.common.apiFamily}>
