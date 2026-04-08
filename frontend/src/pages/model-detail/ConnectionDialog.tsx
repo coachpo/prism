@@ -5,7 +5,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,9 +78,6 @@ export function ConnectionDialog({
   endpointSourceDefaultName,
   pricingTemplates,
 }: ConnectionDialogProps) {
-  const selectedEndpoint = globalEndpoints.find(
-    (endpoint) => endpoint.id === Number.parseInt(selectedEndpointId, 10)
-  );
   const { messages } = useLocale();
   const copy = messages.modelDetail;
 
@@ -124,10 +120,12 @@ export function ConnectionDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(94vh,64rem)] max-h-[94vh] max-w-5xl flex-col overflow-hidden p-0 sm:max-w-5xl">
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex h-[min(94vh,64rem)] max-h-[94vh] max-w-5xl flex-col overflow-hidden p-0 sm:max-w-5xl"
+      >
         <DialogHeader className="shrink-0 border-b bg-background px-6 py-5 sm:px-7">
           <DialogTitle>{editingConnection ? copy.editConnection : copy.addConnection}</DialogTitle>
-          <DialogDescription>{copy.connectionDialogDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleConnectionSubmit} className="flex min-h-0 flex-1 flex-col">
           <input type="hidden" name="create_mode" value={createMode} />
@@ -185,14 +183,6 @@ export function ConnectionDialog({
                           </SelectContent>
                         </Select>
                       </div>
-
-                      {selectedEndpoint ? (
-                        <p className="text-[11px] text-muted-foreground">
-                          <span className="font-medium text-foreground">
-                            {copy.selectedEndpoint(selectedEndpoint.name)}
-                          </span>
-                        </p>
-                      ) : null}
 
                       {globalEndpoints.length === 0 ? (
                         <p className="text-xs text-muted-foreground">{copy.noProfileEndpointsFound}</p>
@@ -324,10 +314,7 @@ export function ConnectionDialog({
                       <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
                         {limiterFields.map((field) => (
                           <div key={field.field} className="grid content-start gap-1.5">
-                            <div className="flex min-h-14 flex-col gap-1">
-                              <Label htmlFor={field.id}>{field.label}</Label>
-                              <p className="text-[11px] text-muted-foreground">{copy.leaveBlankForUnlimited}</p>
-                            </div>
+                            <Label htmlFor={field.id}>{field.label}</Label>
                             <Input
                               id={field.id}
                               name={field.field}

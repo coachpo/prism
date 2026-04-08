@@ -173,7 +173,6 @@ function ModelSettingsForm({
           >
             <div className="flex flex-col gap-1">
               <h2 className="text-sm font-semibold tracking-tight text-foreground">{copy.configuration}</h2>
-              <p className="text-sm text-muted-foreground">{copy.modelSettingsDescription}</p>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -247,21 +246,9 @@ function ModelSettingsForm({
                   </p>
                   <p className="text-sm text-foreground">{copy.targets(String(model.proxy_targets.length))}</p>
                 </div>
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                    {fieldCopy.apiFamily}
-                  </p>
-                  <p className="text-sm text-foreground">{selectedApiFamily}</p>
-                </div>
               </div>
             ) : (
               <div className="flex min-w-0 flex-col gap-4">
-                {selectedLoadbalanceStrategy ? (
-                  <div className="rounded-xl border bg-muted/15 p-4 text-sm text-foreground">
-                    {getStrategyOptionText(selectedLoadbalanceStrategy)}
-                  </div>
-                ) : null}
-
                 <div className="flex min-w-0 flex-col gap-2">
                   <Label htmlFor="edit-loadbalance-strategy">{copy.loadbalanceStrategyLabel}</Label>
                   {loadbalanceStrategies.length === 0 ? (

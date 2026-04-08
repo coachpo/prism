@@ -305,7 +305,7 @@ describe("ConnectionDialog limiter fields", () => {
     expect(screen.queryByLabelText("Probe interval (seconds)")).not.toBeInTheDocument();
     expect(screen.queryByText("OpenAI probe endpoint")).not.toBeInTheDocument();
     expect(screen.getByLabelText("QPS Limit")).toBeInTheDocument();
-    expect(screen.getAllByText("Leave blank for unlimited.")).toHaveLength(4);
+    expect(screen.getAllByText("Leave blank for unlimited.")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Save Connection" })).toBeInTheDocument();
   });
 
