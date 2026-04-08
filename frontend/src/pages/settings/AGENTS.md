@@ -19,7 +19,6 @@ settings/
 ├── useCostingSettingsData.ts
 ├── useAuditConfigurationData.ts
 ├── useConfigBackupData.ts
-├── useMonitoringSettingsData.ts   # Profile-scoped monitoring cadence bootstrap and save flow
 ├── useRetentionDeletionData.ts
 ├── useVendorManagementData.ts      # Shared-vendor CRUD bootstrap and delete-safety flow
 ├── vendorManagementFormState.ts    # Vendor form normalization and delete-conflict parsing
@@ -31,7 +30,7 @@ settings/
 ## SHELL CONTRACT
 
 - `SettingsPage.tsx` renders two tabs: `Profile` and `Global`.
-- The Profile tab owns section navigation and mounts backup, billing and currency, timezone, monitoring cadence, audit and privacy, and retention and deletion.
+- The Profile tab owns section navigation and mounts backup, billing and currency, timezone, audit and privacy, and retention and deletion.
 - The Global tab mounts instance-wide authentication plus the shared vendor-management section and its dialogs. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
@@ -43,7 +42,6 @@ settings/
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
 - Shared save-state badges and render helpers: `sectionSaveState.tsx`, `settingsSaveTypes.ts`
 - Section implementation boundary: `sections/AGENTS.md`
-- Monitoring cadence bootstrap and save flow: `useMonitoringSettingsData.ts`, `sections/MonitoringSection.tsx`
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
 - Global vendor CRUD, usage prefetch, shared-cache patching, and delete-conflict parsing: `useVendorManagementData.ts`, `vendorManagementFormState.ts`
 - Local dialogs for destructive actions and audit rule editing: `dialogs/`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `dialogs/VendorDialog.tsx`, `dialogs/DeleteVendorDialog.tsx`
@@ -59,8 +57,7 @@ settings/
 - Keep new settings work sectionized. Extend helper registries, shared hooks, or local dialogs instead of inflating `SettingsPage.tsx`.
 - Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
-- Keep the scope split clear in copy and behavior: authentication is global, while backup, billing and currency, timezone, monitoring cadence, audit and privacy, and retention stay profile-scoped.
-- Keep monitoring cadence backend-owned. The profile-tab section edits `/api/settings/monitoring`; browser polling never runs upstream probes directly.
+- Keep the scope split clear in copy and behavior: authentication is global, while backup, billing and currency, timezone, audit and privacy, and retention stay profile-scoped.
 - Keep shared vendor catalog CRUD on the Global tab and continue to let the Profile-tab audit defaults consume that same shared vendor catalog.
 - Keep vendor icon metadata on the shared vendor catalog and preserve it through global CRUD flows.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.

@@ -18,7 +18,6 @@ sections/
 ├── AuditConfigurationVendorToggles.tsx
 ├── BillingCurrencySection.tsx
 ├── BackupSection.tsx
-├── MonitoringSection.tsx
 ├── RetentionDeletionSection.tsx
 ├── TimezoneSection.tsx
 ├── authentication/                # Auth status, setup grid, passkey cards, browser ceremony hook, leaf AGENTS doc
@@ -32,7 +31,6 @@ sections/
 - Audit and privacy defaults, header blocklist, vendor toggles, and rules-panel rendering stay vendor-based today, even though request logs and statistics now filter by `api_family`: `AuditConfigurationSection.tsx`, `AuditConfigurationDefaultsCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationVendorToggles.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/`
 - Backup and config import or export section: `BackupSection.tsx`
-- Monitoring cadence section rendering, with bootstrap/save orchestration still owned by parent settings hooks: `MonitoringSection.tsx`
 - Retention and deletion section: `RetentionDeletionSection.tsx`
 - Timezone preference section: `TimezoneSection.tsx`
 - Shared page shell, section IDs, and save-state helpers: `../AGENTS.md`, `../settingsPageHelpers.ts`, `../sectionSaveState.tsx`
@@ -50,7 +48,6 @@ sections/
 - Let `VendorManagementSection.tsx` stay rendering-focused; bootstrap, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
 - Let `VendorManagementSection.tsx` stay rendering-focused and show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.
 - Let `billing-currency/` own the reporting-currency card and FX mapping presentation widgets.
-- Let `MonitoringSection.tsx` stay rendering-focused; monitoring cadence bootstrap and save flows belong to the parent settings hooks.
 - Pull bootstrap, dirty-state derivation, and save orchestration from the parent settings hooks instead of rebuilding that logic inside section components.
 - Keep section IDs and save-state wiring aligned with the parent settings helpers.
 - Let `BillingCurrencySection.tsx` stay a rendering boundary. The hooks that own costing changes live in `../costing/`.
