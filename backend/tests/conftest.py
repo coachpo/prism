@@ -3,20 +3,21 @@ import importlib
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, cast
 
-import pytest
-from alembic import command
-from alembic.config import Config
+pytest = cast(Any, importlib.import_module("pytest"))
+command = cast(Any, importlib.import_module("alembic.command"))
+Config = cast(Any, getattr(importlib.import_module("alembic.config"), "Config"))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.docker_runtime import configure_testcontainers_docker_env
 
-_test_postgres_container: Any | None = None
-_test_database_url: str | None = None
+_test_postgres_container: Optional[Any] = None
+_test_database_url: Optional[str] = None
 _DB_FREE_TEST_TARGETS = {
     "tests/services/test_background_tasks.py",
+    "tests/test_alembic_single_head.py",
     "tests/test_backend_version_metadata.py",
     "tests/test_config_openapi_contract.py",
     "tests/test_docker_runtime_detection.py",
@@ -54,7 +55,7 @@ def _build_postgres_container() -> Any:
     )
 
 
-def _selected_paths_require_database(session: pytest.Session) -> bool:
+def _selected_paths_require_database(session: Any) -> bool:
     selected_args = [arg for arg in session.config.args if not arg.startswith("-")]
     if not selected_args:
         return True
@@ -68,7 +69,7 @@ def _selected_paths_require_database(session: pytest.Session) -> bool:
     return not normalized_args.issubset(_DB_FREE_TEST_TARGETS)
 
 
-def pytest_sessionstart(session: pytest.Session) -> None:
+def pytest_sessionstart(session: Any) -> None:
     global _test_postgres_container
     global _test_database_url
 
@@ -91,7 +92,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _test_database_url = async_url
 
 
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
     global _test_postgres_container
 
     if _test_postgres_container is not None:

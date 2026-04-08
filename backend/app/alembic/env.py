@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from logging.config import fileConfig
 from pathlib import Path
+from typing import Any, cast
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.core.database import Base
+from app.core.migrations import (
+    ALEMBIC_VERSION_TABLE_NAME,
+    ensure_alembic_version_table_capacity,
+)
 from app.models import models  # noqa: F401
+
+context = cast(Any, importlib.import_module("alembic.context"))
 
 config = context.config
 
@@ -39,6 +46,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        version_table=ALEMBIC_VERSION_TABLE_NAME,
     )
 
     with context.begin_transaction():
@@ -50,9 +58,14 @@ def _do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        version_table=ALEMBIC_VERSION_TABLE_NAME,
     )
 
     with context.begin_transaction():
+        ensure_alembic_version_table_capacity(
+            connection,
+            table_name=ALEMBIC_VERSION_TABLE_NAME,
+        )
         context.run_migrations()
 
 
