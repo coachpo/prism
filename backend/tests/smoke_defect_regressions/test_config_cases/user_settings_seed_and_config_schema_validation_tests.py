@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator, cast
+from typing import AsyncGenerator, Optional, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +16,7 @@ from app.services.stats_service import log_request
 from app.core.crypto import encrypt_bundle_secret, get_bundle_secret_key_id
 from tests.loadbalance_strategy_helpers import (
     make_routing_policy_adaptive,
+    make_timeout_policy_shared,
 )
 
 
@@ -41,9 +42,9 @@ def _build_v2_profile_bundle(
     endpoint_name: str = "openai-main",
     endpoint_secret: str = "sk-test",
     include_endpoint: bool = True,
-    models: list[dict[str, object]] | None = None,
-    loadbalance_strategies: list[dict[str, object]] | None = None,
-    profile_settings: dict[str, object] | None = None,
+    models: Optional[list[dict[str, object]]] = None,
+    loadbalance_strategies: Optional[list[dict[str, object]]] = None,
+    profile_settings: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
     bundle: dict[str, object] = {
         "version": 2,
@@ -58,14 +59,19 @@ def _build_v2_profile_bundle(
         ],
         "endpoints": [],
         "pricing_templates": [],
-        "loadbalance_strategies": loadbalance_strategies
-        if loadbalance_strategies is not None
-        else [
-            {
-                "name": "single-primary",
-                "strategy_type": "adaptive",
-                "routing_policy": make_routing_policy_adaptive(),
-            }
+        "loadbalance_strategies": [
+            {"timeout_policy": make_timeout_policy_shared(), **strategy}
+            for strategy in (
+                loadbalance_strategies
+                if loadbalance_strategies is not None
+                else [
+                    {
+                        "name": "single-primary",
+                        "strategy_type": "adaptive",
+                        "routing_policy": make_routing_policy_adaptive(),
+                    }
+                ]
+            )
         ],
         "models": models
         if models is not None
@@ -869,6 +875,7 @@ class TestDEF006_ConfigExportImportFieldCoverage:
         assert json.loads(serialized) == headers
 
     def test_full_config_roundtrip_schema(self):
+        from app.schemas.domains.connection_model import RoutingPolicy, TimeoutPolicy
         from app.schemas.schemas import (
             ConfigConnectionExport,
             ConfigEndpointExport,
@@ -907,14 +914,19 @@ class TestDEF006_ConfigExportImportFieldCoverage:
                 ConfigLoadbalanceStrategyExport(
                     name="failover-primary",
                     strategy_type="adaptive",
-                    routing_policy=make_routing_policy_adaptive(
-                        routing_objective="maximize_availability",
-                        failure_status_codes=[503, 429],
-                        base_open_seconds=45,
-                        failure_threshold=4,
-                        backoff_multiplier=3.5,
-                        max_open_seconds=720,
-                        jitter_ratio=0.35,
+                    timeout_policy=TimeoutPolicy.model_validate(
+                        make_timeout_policy_shared()
+                    ),
+                    routing_policy=RoutingPolicy.model_validate(
+                        make_routing_policy_adaptive(
+                            routing_objective="maximize_availability",
+                            failure_status_codes=[503, 429],
+                            base_open_seconds=45,
+                            failure_threshold=4,
+                            backoff_multiplier=3.5,
+                            max_open_seconds=720,
+                            jitter_ratio=0.35,
+                        )
                     ),
                 )
             ],
@@ -961,6 +973,7 @@ class TestDEF006_ConfigExportImportFieldCoverage:
         assert m.api_family == "openai"
         assert m.loadbalance_strategy_name == "failover-primary"
         strategy = reimported.loadbalance_strategies[0]
+        assert strategy.routing_policy is not None
         assert strategy.routing_policy.routing_objective == "maximize_availability"
         assert strategy.routing_policy.circuit_breaker.base_open_seconds == 45
         assert strategy.routing_policy.circuit_breaker.failure_threshold == 4
@@ -1022,6 +1035,7 @@ class TestDEF006_ConfigExportImportFieldCoverage:
         )
 
         strategy = validation.loadbalance_strategies[0]
+        assert strategy.routing_policy is not None
         assert strategy.routing_policy.routing_objective == "maximize_availability"
         assert strategy.routing_policy.circuit_breaker.ban_mode == "temporary"
         assert strategy.routing_policy.circuit_breaker.max_open_strikes_before_ban == 3
