@@ -23,6 +23,9 @@ from app.models.models import (
     UserSetting,
     Vendor,
 )
+from app.routers.connections_domains.crud_handlers.shared import (
+    resolve_openai_probe_endpoint_variant,
+)
 from app.routers.shared import lock_profile_row
 from app.schemas.schemas import (
     ConfigImportPreviewResponse,
@@ -591,6 +594,12 @@ async def execute_import_payload(
                 custom_headers=json.dumps(connection_data.custom_headers)
                 if connection_data.custom_headers
                 else None,
+                openai_probe_endpoint_variant=resolve_openai_probe_endpoint_variant(
+                    api_family=model.api_family,
+                    openai_probe_endpoint_variant=(
+                        connection_data.openai_probe_endpoint_variant
+                    ),
+                ),
                 qps_limit=connection_data.qps_limit,
                 max_in_flight_non_stream=connection_data.max_in_flight_non_stream,
                 max_in_flight_stream=connection_data.max_in_flight_stream,

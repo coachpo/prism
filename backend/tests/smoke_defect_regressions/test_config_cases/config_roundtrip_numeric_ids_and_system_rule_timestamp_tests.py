@@ -399,6 +399,53 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             assert updated.max_in_flight_non_stream is None
             assert updated.max_in_flight_stream == 6
 
+    def test_import_rejects_openai_probe_endpoint_variant_for_non_openai_model(self):
+        from app.routers.config_domains.import_validator import validate_import_payload
+        from app.schemas.schemas import ConfigImportRequest
+
+        payload = ConfigImportRequest.model_validate(
+            _build_v2_profile_payload(
+                vendor_key="anthropic",
+                vendor_name="Anthropic",
+                endpoints=[
+                    {
+                        "name": "anthropic-main",
+                        "base_url": "https://api.anthropic.com",
+                        "api_key_secret_ref": "endpoint:anthropic-main:api_key",
+                        "_secret_value": "sk-anthropic-test",
+                    }
+                ],
+                loadbalance_strategies=[
+                    {
+                        "name": "single-primary",
+                        "strategy_type": "adaptive",
+                        "routing_policy": make_routing_policy_adaptive(),
+                    }
+                ],
+                models=[
+                    {
+                        "vendor_key": "anthropic",
+                        "api_family": "anthropic",
+                        "model_id": "claude-sonnet-4",
+                        "model_type": "native",
+                        "loadbalance_strategy_name": "single-primary",
+                        "connections": [
+                            {
+                                "endpoint_name": "anthropic-main",
+                                "openai_probe_endpoint_variant": "responses_reasoning_none",
+                            }
+                        ],
+                    }
+                ],
+            )
+        )
+
+        with pytest.raises(
+            HTTPException,
+            match="must not include openai_probe_endpoint_variant",
+        ):
+            validate_import_payload(payload)
+
     @pytest.mark.asyncio
     async def test_import_export_roundtrip_omits_id_fields(self):
         from sqlalchemy import select
@@ -452,6 +499,7 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                             {
                                 "endpoint_name": endpoint_name,
                                 "name": connection_name,
+                                "openai_probe_endpoint_variant": "responses_reasoning_none",
                                 "qps_limit": 3,
                                 "max_in_flight_non_stream": 5,
                                 "max_in_flight_stream": 2,
@@ -540,6 +588,9 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             assert isinstance(endpoint.id, int) and endpoint.id > 0
             assert isinstance(connection.id, int) and connection.id > 0
             assert connection.endpoint_id == endpoint.id
+            assert (
+                connection.openai_probe_endpoint_variant == "responses_reasoning_none"
+            )
             assert connection.qps_limit == 3
             assert connection.max_in_flight_non_stream == 5
             assert connection.max_in_flight_stream == 2
@@ -563,6 +614,10 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
         assert "endpoint_id" not in exported_connection
         assert "pricing_template_id" not in exported_connection
         assert exported_connection["endpoint_name"] == endpoint_name
+        assert (
+            exported_connection["openai_probe_endpoint_variant"]
+            == "responses_reasoning_none"
+        )
         assert exported_connection["qps_limit"] == 3
         assert exported_connection["max_in_flight_non_stream"] == 5
         assert exported_connection["max_in_flight_stream"] == 2

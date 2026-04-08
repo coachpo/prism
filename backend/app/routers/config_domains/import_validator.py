@@ -23,6 +23,22 @@ def _validate_optional_connection_limiter_fields(*, model_id: str, connection) -
             )
 
 
+def _validate_openai_probe_variant(
+    *,
+    model_id: str,
+    api_family: str,
+    connection,
+) -> None:
+    variant = getattr(connection, "openai_probe_endpoint_variant", None)
+    if api_family != "openai" and variant is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Connection for model '{model_id}' must not include openai_probe_endpoint_variant outside the OpenAI API family"
+            ),
+        )
+
+
 def _normalize_reference_name(*, field: str, value: str | None) -> str | None:
     if value is None:
         return None
@@ -281,6 +297,11 @@ def validate_import_payload(data: ConfigImportRequest) -> None:
         for connection in model.connections:
             _validate_optional_connection_limiter_fields(
                 model_id=model.model_id,
+                connection=connection,
+            )
+            _validate_openai_probe_variant(
+                model_id=model.model_id,
+                api_family=model.api_family,
                 connection=connection,
             )
             resolved_endpoint_name = _resolve_endpoint_reference_name(
