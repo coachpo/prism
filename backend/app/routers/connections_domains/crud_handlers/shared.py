@@ -15,6 +15,25 @@ CONNECTION_LIMITER_FIELDS = (
     "max_in_flight_non_stream",
     "max_in_flight_stream",
 )
+DEFAULT_OPENAI_PROBE_ENDPOINT_VARIANT = "responses_minimal"
+
+
+def resolve_openai_probe_endpoint_variant(
+    *,
+    api_family: str,
+    openai_probe_endpoint_variant: str | None,
+) -> str | None:
+    if api_family != "openai":
+        if openai_probe_endpoint_variant is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "openai_probe_endpoint_variant is only supported for OpenAI-family connections"
+                ),
+            )
+        return None
+
+    return openai_probe_endpoint_variant or DEFAULT_OPENAI_PROBE_ENDPOINT_VARIANT
 
 
 def build_connection_limiter_data(
@@ -139,6 +158,7 @@ async def resolve_preview_endpoint(
 async def build_connection_update_data(
     *,
     body: ConnectionUpdate,
+    api_family: str,
     db: AsyncSession,
     profile_id: int,
     deps: ConnectionCrudDependencies,
@@ -175,6 +195,16 @@ async def build_connection_update_data(
             update_data["custom_headers"]
         )
 
+    if "openai_probe_endpoint_variant" in update_data:
+        update_data["openai_probe_endpoint_variant"] = (
+            resolve_openai_probe_endpoint_variant(
+                api_family=api_family,
+                openai_probe_endpoint_variant=update_data[
+                    "openai_probe_endpoint_variant"
+                ],
+            )
+        )
+
     for field_name in CONNECTION_LIMITER_FIELDS:
         update_data.pop(field_name, None)
     update_data.update(build_connection_limiter_data(body=body, exclude_unset=True))
@@ -204,7 +234,9 @@ __all__ = [
     "build_preview_endpoint_from_inline",
     "build_connection_update_data",
     "build_connection_limiter_data",
+    "DEFAULT_OPENAI_PROBE_ENDPOINT_VARIANT",
     "load_profile_endpoint_or_404",
+    "resolve_openai_probe_endpoint_variant",
     "resolve_create_endpoint",
     "resolve_preview_endpoint",
     "should_clear_recovery_state",

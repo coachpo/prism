@@ -365,6 +365,7 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                 body=ConnectionCreate(
                     endpoint_id=endpoint.id,
                     name=f"def024-limiter-connection-{suffix}",
+                    openai_probe_endpoint_variant="chat_completions_reasoning_none",
                     qps_limit=3,
                     max_in_flight_non_stream=5,
                     max_in_flight_stream=2,
@@ -373,6 +374,10 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                 profile_id=profile.id,
             )
 
+            assert (
+                created.openai_probe_endpoint_variant
+                == "chat_completions_reasoning_none"
+            )
             assert created.qps_limit == 3
             assert created.max_in_flight_non_stream == 5
             assert created.max_in_flight_stream == 2
@@ -380,6 +385,7 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
             updated = await update_connection(
                 connection_id=created.id,
                 body=ConnectionUpdate(
+                    openai_probe_endpoint_variant=None,
                     qps_limit=4,
                     max_in_flight_non_stream=None,
                     max_in_flight_stream=6,
@@ -388,6 +394,7 @@ class TestDEF024_ConfigImportExportRefRoundtrip:
                 profile_id=profile.id,
             )
 
+            assert updated.openai_probe_endpoint_variant == "responses_minimal"
             assert updated.qps_limit == 4
             assert updated.max_in_flight_non_stream is None
             assert updated.max_in_flight_stream == 6

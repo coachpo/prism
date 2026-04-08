@@ -28,6 +28,7 @@ async def update_connection_record(
     )
     update_data = await build_connection_update_data(
         body=body,
+        api_family=model_config.api_family,
         db=db,
         profile_id=profile_id,
         deps=deps,

@@ -4,7 +4,11 @@ from app.models.models import Connection
 from app.schemas.schemas import ConnectionCreate
 
 from ..crud_dependencies import ConnectionCrudDependencies
-from .shared import build_connection_limiter_data, resolve_create_endpoint
+from .shared import (
+    build_connection_limiter_data,
+    resolve_create_endpoint,
+    resolve_openai_probe_endpoint_variant,
+)
 
 
 async def create_connection_record(
@@ -31,6 +35,10 @@ async def create_connection_record(
         profile_id=profile_id,
         pricing_template_id=body.pricing_template_id,
     )
+    openai_probe_endpoint_variant = resolve_openai_probe_endpoint_variant(
+        api_family=model_config.api_family,
+        openai_probe_endpoint_variant=body.openai_probe_endpoint_variant,
+    )
 
     await deps.lock_profile_row_fn(db, profile_id=profile_id)
     ordered_connections = await deps.list_ordered_connections_fn(
@@ -50,6 +58,7 @@ async def create_connection_record(
         name=body.name,
         auth_type=body.auth_type,
         custom_headers=deps.serialize_custom_headers_fn(body.custom_headers),
+        openai_probe_endpoint_variant=openai_probe_endpoint_variant,
         pricing_template_id=pricing_template_id,
         **build_connection_limiter_data(body=body, exclude_unset=False),
     )
