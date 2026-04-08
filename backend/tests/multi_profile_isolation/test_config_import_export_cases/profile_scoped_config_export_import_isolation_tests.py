@@ -13,8 +13,9 @@ Tests comprehensive profile isolation across all functional requirements:
 - FR-009: Observability and audit attribution
 """
 
-import pytest
+import importlib
 import json
+from typing import Any, cast
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
@@ -65,7 +66,10 @@ from tests.loadbalance_strategy_helpers import (
     make_auto_recovery_enabled,
     make_routing_policy_adaptive,
     make_loadbalance_strategy,
+    make_timeout_policy_shared,
 )
+
+pytest = cast(Any, importlib.import_module("pytest"))
 
 
 def _build_secret_payload(ref_to_value: dict[str, str]) -> dict[str, object]:
@@ -422,6 +426,10 @@ class TestConfigExportImportIsolation:
             name="openai-main",
             base_url="https://api.openai.com",
             api_key="sk-test",
+            pool_timeout=5.0,
+            connect_timeout=10.0,
+            write_timeout=30.0,
+            read_idle_timeout=120.0,
             position=0,
         )
         model = SimpleNamespace(
@@ -437,6 +445,7 @@ class TestConfigExportImportIsolation:
             loadbalance_strategy=SimpleNamespace(
                 id=11,
                 name="adaptive-availability",
+                timeout_policy=make_timeout_policy_shared(),
                 routing_policy=make_routing_policy_adaptive(
                     routing_objective="maximize_availability",
                     failure_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
@@ -460,6 +469,7 @@ class TestConfigExportImportIsolation:
                     name="primary",
                     auth_type=None,
                     custom_headers=None,
+                    openai_probe_endpoint_variant=None,
                     qps_limit=3,
                     max_in_flight_non_stream=5,
                     max_in_flight_stream=2,
@@ -583,17 +593,38 @@ class TestConfigExportImportIsolation:
         assert "api_key" not in payload["endpoints"][0]
         strategy_payload = payload["loadbalance_strategies"][0]
         assert strategy_payload["strategy_type"] == "adaptive"
+        assert strategy_payload["timeout_policy"] == {
+            "attempt_open_timeout_ms": 2000,
+            "buffered_total_timeout_ms": 30000,
+            "stream_precommit_timeout_ms": 5000,
+            "stream_hard_cap_timeout_ms": 120000,
+        }
         assert strategy_payload["legacy_strategy_type"] is None
         assert strategy_payload["auto_recovery"] is None
-        assert strategy_payload["routing_policy"] == make_routing_policy_adaptive(
-            routing_objective="maximize_availability",
-            failure_status_codes=[403, 422, 429, 500, 502, 503, 504, 529],
-            base_open_seconds=45,
-            failure_threshold=4,
-            backoff_multiplier=3.5,
-            max_open_seconds=720,
-            jitter_ratio=0.35,
-        )
+        assert strategy_payload["routing_policy"] == {
+            "kind": "adaptive",
+            "routing_objective": "maximize_availability",
+            "hedge": {
+                "enabled": False,
+                "delay_ms": 1500,
+                "max_additional_attempts": 1,
+            },
+            "circuit_breaker": {
+                "failure_status_codes": [403, 422, 429, 500, 502, 503, 504, 529],
+                "base_open_seconds": 45,
+                "failure_threshold": 4,
+                "backoff_multiplier": 3.5,
+                "max_open_seconds": 720,
+                "jitter_ratio": 0.35,
+                "ban_mode": "off",
+                "max_open_strikes_before_ban": 0,
+                "ban_duration_seconds": 0,
+            },
+            "admission": {
+                "respect_qps_limit": True,
+                "respect_in_flight_limits": True,
+            },
+        }
         exported_connection = payload["models"][0]["connections"][0]
         assert exported_connection["qps_limit"] == 3
         assert exported_connection["max_in_flight_non_stream"] == 5

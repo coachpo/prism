@@ -1,5 +1,5 @@
 import json
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -44,12 +44,13 @@ from app.services.loadbalancer.policy import (
     resolve_effective_loadbalance_policy,
     serialize_auto_recovery,
     serialize_routing_policy,
+    serialize_timeout_policy,
 )
 
 
 def _normalize_custom_headers_for_export(
-    custom_headers: str | None,
-) -> dict[str, str] | None:
+    custom_headers: Optional[str],
+) -> Optional[dict[str, str]]:
     if custom_headers is None:
         return None
     try:
@@ -61,7 +62,7 @@ def _normalize_custom_headers_for_export(
     return None
 
 
-def _export_endpoint_api_key(*, endpoint_name: str, api_key: str | None) -> str:
+def _export_endpoint_api_key(*, endpoint_name: str, api_key: Optional[str]) -> str:
     try:
         return decrypt_secret(api_key)
     except ValueError as exc:
@@ -150,7 +151,7 @@ async def build_export_payload(
             endpoint_name=endpoint.name,
             api_key=endpoint.api_key,
         )
-        secret_ref: str | None = None
+        secret_ref: Optional[str] = None
         if decrypted_api_key:
             secret_ref = f"endpoint:{endpoint.name}:api_key"
             secret_entries.append(
@@ -245,7 +246,7 @@ async def build_export_payload(
                     "Connection references endpoint missing from export payload"
                 )
 
-            pricing_template_name: str | None = None
+            pricing_template_name: Optional[str] = None
             if connection.pricing_template_id is not None:
                 pricing_template_name = (
                     connection.pricing_template_rel.name
@@ -265,7 +266,7 @@ async def build_export_payload(
                     priority=connection.priority,
                     name=connection.name,
                     auth_type=cast(
-                        Literal["openai", "anthropic", "gemini"] | None,
+                        Optional[Literal["openai", "anthropic", "gemini"]],
                         connection.auth_type,
                     ),
                     custom_headers=_normalize_custom_headers_for_export(
