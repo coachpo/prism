@@ -56,8 +56,8 @@ The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
 
 For subproject-specific setup and commands, use:
 
-- [`backend/README.md`](backend/README.md) for backend-only setup, tests, and migrations
-- [`frontend/README.md`](frontend/README.md) for frontend-only dev, build, lint, and test flows
+- [`backend/README.md`](backend/README.md) for backend-only setup and migrations
+- [`frontend/README.md`](frontend/README.md) for frontend-only dev, build, and lint flows
 
 ### Docker Compose
 
@@ -113,7 +113,7 @@ The checked-in `docs/` tree is reserved for durable reference material and archi
 
 ### Root release flow
 
-The root-local `./release.sh` helper is the monorepo release gate for Prism. It accepts either `patch|minor|major` or an exact `X.Y.Z` version like `0.2.4`, updates `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json`, runs the backend version-metadata test plus the frontend build, then commits, tags, and pushes one root-repo release. Live releases require a clean, current `main` checkout; `--dry-run` previews the flow without modifying files and skips those branch-state guards so the release plan can be reviewed from a feature branch.
+The root-local `./release.sh` helper is the monorepo release gate for Prism. It accepts either `patch|minor|major` or an exact `X.Y.Z` version like `0.2.4`, updates `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json`, runs a backend version-metadata check plus the frontend build, then commits, tags, and pushes one root-repo release. Live releases require a clean, current `main` checkout; `--dry-run` previews the flow without modifying files and skips those branch-state guards so the release plan can be reviewed from a feature branch.
 
 ```bash
 ./release.sh patch --dry-run
@@ -128,7 +128,6 @@ The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/d
 cd backend
 uv sync --locked
 uv run prism-backend --reload
-uv run pytest tests/
 ```
 
 `./start.sh` defaults to `BACKEND_PYTHON_BIN=python3.13`; set `BACKEND_PYTHON_BIN=<your-python-3.13-command>` first if your local 3.13 interpreter uses a different name.

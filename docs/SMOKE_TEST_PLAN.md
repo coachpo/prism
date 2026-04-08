@@ -69,8 +69,6 @@ Suggested startup:
 # full stack
 ./start.sh full
 
-# backend preflight
-cd backend && uv run pytest tests/ -v
 ```
 
 ---

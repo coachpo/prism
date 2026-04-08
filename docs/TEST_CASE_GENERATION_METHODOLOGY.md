@@ -15,7 +15,7 @@ When generating test cases, use these sources in order:
 5. `frontend/src/App.tsx` for the mounted route surface.
 6. `backend/app/main.py` for the mounted backend router surface and `/health`.
 7. Child AGENTS files under `frontend/` and `backend/` for local ownership boundaries inside the monorepo.
-8. Existing backend aggregators such as `backend/tests/test_smoke_defect_regressions.py`, `backend/tests/test_multi_profile_isolation.py`, and `backend/tests/test_realtime_broadcast.py` plus existing frontend `__tests__/` trees for current regression structure.
+8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in backend and frontend automated test trees are no longer present, so derive regression structure from the current ownership docs and live product surface instead of deleted suite paths.
 
 Do not generate cases for behavior that is not supported by those sources.
 
@@ -176,14 +176,11 @@ Executed cases must be preserved in two forms:
 1. **Run record:** save the executed cases to `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
 2. **Promotion target:** assign each stable case to the place where it should become a future regression.
 
-Promotion targets must follow Prism's existing structure:
+Promotion targets must follow Prism's current checked-in structure:
 
-- Backend release regressions -> `backend/tests/smoke_defect_regressions/`
-- Backend profile-containment regressions -> `backend/tests/multi_profile_isolation/`
-- Backend service behavior -> `backend/tests/services/`
-- Backend realtime behavior -> `backend/tests/test_realtime_broadcast.py`
-- Frontend deterministic behavior -> the owning `frontend/src/**/__tests__/` directory
 - Manual or browser-only smoke coverage that is not yet automated -> `docs/SMOKE_TEST_PLAN.md`
+- Archive run notes -> `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`
+- Future automated backend or frontend regressions -> define a fresh owner-aligned destination adjacent to the live implementation surface before checking the case in
 
 If a case is valuable but not yet ready for automation, it must still be preserved in the archive run note with a clear promotion target.
 
