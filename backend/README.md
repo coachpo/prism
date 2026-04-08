@@ -73,8 +73,7 @@ backend/
 │       └── profile_invariants.py    # Active/default profile enforcement
 ├── alembic.ini                      # Root Alembic CLI config pointing at `app/alembic`
 ├── docker-compose.yml               # Local PostgreSQL provisioning
-├── pyproject.toml                   # Runtime deps, dev dependency group, and console script
-├── tests/                           # Pytest test suite
+├── pyproject.toml                   # Runtime deps and console script
 └── AGENTS.md                        # Backend knowledge base
 ```
 
@@ -108,28 +107,6 @@ The API will be available at:
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 - **OpenAPI JSON**: http://localhost:8000/openapi.json
-
----
-
-## Testing
-
-```bash
-uv run pytest tests/
-uv run pytest tests/ --cov=app --cov-report=html
-uv run pytest tests/test_smoke_defect_regressions.py -v
-uv run pytest tests/services/test_loadbalancer_planner.py -v
-```
-
-### Test layout
-
-- Most backend pytest runs require Docker because `tests/conftest.py` starts PostgreSQL through `testcontainers` and applies Alembic migrations before the session begins.
-- The small DB-free allowlist currently includes `tests/services/test_background_tasks.py`, `tests/test_backend_version_metadata.py`, and `tests/test_realtime_broadcast.py`.
-- `tests/test_smoke_defect_regressions.py` re-exports the named DEF smoke corpus, including grouped config, costing, startup, and proxy regressions.
-- `tests/test_multi_profile_isolation.py` owns selected-profile versus active-runtime containment coverage.
-- `tests/test_realtime_broadcast.py` owns websocket auth, subscribe/unsubscribe, and `dashboard.update` coverage.
-- `tests/services/` keeps service-focused auth, loadbalancer, stats, streaming, throughput, and WebAuthn tests out of the smoke and isolation trees.
-
-`pyproject.toml` is the dependency declaration source and `uv.lock` pins the resolved environment. Local development uses `uv sync --locked`, while production images install runtime dependencies with `uv sync --locked --no-dev`.
 
 ---
 
