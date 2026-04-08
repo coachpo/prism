@@ -11,12 +11,15 @@ from alembic.config import Config
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from tests.docker_runtime import configure_testcontainers_docker_env
+
 _test_postgres_container: Any | None = None
 _test_database_url: str | None = None
 _DB_FREE_TEST_TARGETS = {
     "tests/services/test_background_tasks.py",
     "tests/test_backend_version_metadata.py",
     "tests/test_config_openapi_contract.py",
+    "tests/test_docker_runtime_detection.py",
     "tests/test_realtime_broadcast.py",
 }
 _DB_FREE_DATABASE_URL = "postgresql+asyncpg://prism:prism@localhost:5432/prism_test"
@@ -76,6 +79,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
         _test_database_url = _DB_FREE_DATABASE_URL
         return
 
+    configure_testcontainers_docker_env()
     container = _build_postgres_container()
     container.start()
     sync_url = container.get_connection_url()
