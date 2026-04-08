@@ -175,6 +175,62 @@ class TestDEF031_StartupUserSettingsSeed:
         mock_session.add.assert_not_called()
         mock_session.commit.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_run_startup_sequence_seeds_user_agent_client_rules(self):
+        from app.bootstrap.startup import run_startup_sequence
+
+        calls: list[str] = []
+
+        def _record(name: str) -> AsyncMock:
+            return AsyncMock(side_effect=lambda: calls.append(name))
+
+        with (
+            patch(
+                "app.bootstrap.startup.run_startup_migrations", _record("migrations")
+            ),
+            patch("app.bootstrap.startup.seed_vendors", _record("vendors")),
+            patch(
+                "app.bootstrap.startup.seed_profile_invariants",
+                _record("profile_invariants"),
+            ),
+            patch(
+                "app.bootstrap.startup.seed_loadbalance_strategy_presets",
+                _record("strategy_presets"),
+                create=True,
+            ),
+            patch("app.bootstrap.startup.seed_user_settings", _record("user_settings")),
+            patch(
+                "app.bootstrap.startup.seed_user_agent_client_rules",
+                _record("user_agent_client_rules"),
+                create=True,
+            ),
+            patch(
+                "app.bootstrap.startup.seed_app_auth_settings",
+                _record("auth_settings"),
+            ),
+            patch(
+                "app.bootstrap.startup.encrypt_endpoint_secrets",
+                _record("encrypt_secrets"),
+            ),
+            patch(
+                "app.bootstrap.startup.seed_header_blocklist_rules",
+                _record("header_blocklist"),
+            ),
+        ):
+            await run_startup_sequence()
+
+        assert calls == [
+            "migrations",
+            "vendors",
+            "profile_invariants",
+            "strategy_presets",
+            "user_settings",
+            "user_agent_client_rules",
+            "auth_settings",
+            "encrypt_secrets",
+            "header_blocklist",
+        ]
+
 
 class TestDEF080_VendorCatalogManagementSurface:
     @pytest.mark.asyncio
@@ -1119,6 +1175,127 @@ class TestDEF023_ConfigImportReferenceValidation:
             )
 
         assert "Extra inputs are not permitted" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_user_agent_client_rule_routes_seed_system_rules_and_validate_regex_crud() -> (
+    None
+):
+    from httpx import ASGITransport, AsyncClient
+
+    from app.core.database import AsyncSessionLocal, get_engine
+    from app.main import app, seed_user_agent_client_rules
+    from app.models.models import Profile
+
+    await get_engine().dispose()
+
+    async with AsyncSessionLocal() as db:
+        profile = Profile(
+            name=f"ua-rule-profile-{int(asyncio.get_running_loop().time() * 1_000_000)}",
+            is_active=False,
+            is_default=False,
+            is_editable=True,
+            version=0,
+        )
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+        profile_id = profile.id
+
+    await seed_user_agent_client_rules()
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        seed_response = await client.get(
+            "/api/config/user-agent-client-rules",
+            headers={"X-Profile-Id": str(profile_id)},
+        )
+        invalid_response = await client.post(
+            "/api/config/user-agent-client-rules",
+            headers={"X-Profile-Id": str(profile_id)},
+            json={"name": "Broken regex", "pattern": "(", "enabled": True},
+        )
+        create_response = await client.post(
+            "/api/config/user-agent-client-rules",
+            headers={"X-Profile-Id": str(profile_id)},
+            json={
+                "name": "Codex Preview",
+                "pattern": "codex-preview",
+                "enabled": True,
+            },
+        )
+
+        created_rule = create_response.json()
+        update_response = await client.patch(
+            f"/api/config/user-agent-client-rules/{created_rule['id']}",
+            headers={"X-Profile-Id": str(profile_id)},
+            json={
+                "name": "Codex Preview Updated",
+                "pattern": "codex-preview-updated",
+                "enabled": False,
+            },
+        )
+        delete_response = await client.delete(
+            f"/api/config/user-agent-client-rules/{created_rule['id']}",
+            headers={"X-Profile-Id": str(profile_id)},
+        )
+
+    assert seed_response.status_code == 200
+    seeded_names = {rule["name"] for rule in seed_response.json()}
+    assert seeded_names == {
+        "Opencode",
+        "Codex",
+        "Claude Code",
+        "Gemini",
+        "Python",
+        "Curl",
+    }
+    assert invalid_response.status_code == 422
+    assert "valid regular expression" in invalid_response.text
+    assert create_response.status_code == 201
+    assert created_rule["name"] == "Codex Preview"
+    assert created_rule["pattern"] == "codex-preview"
+    assert created_rule["is_system"] is False
+    assert created_rule["profile_id"] == profile_id
+    assert update_response.status_code == 200
+    assert update_response.json()["name"] == "Codex Preview Updated"
+    assert update_response.json()["pattern"] == "codex-preview-updated"
+    assert update_response.json()["enabled"] is False
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {"deleted": True}
+
+
+def test_schema_surface_reexports_user_agent_client_rule_contracts() -> None:
+    import app.schemas.schemas as schema_surface
+    from app.schemas.schemas import (
+        UserAgentClientRuleCreate,
+        UserAgentClientRuleResponse,
+        UserAgentClientRuleUpdate,
+    )
+
+    create_fields = set(UserAgentClientRuleCreate.model_fields)
+    update_fields = set(UserAgentClientRuleUpdate.model_fields)
+    response_fields = set(UserAgentClientRuleResponse.model_fields)
+
+    assert schema_surface.UserAgentClientRuleCreate is UserAgentClientRuleCreate
+    assert schema_surface.UserAgentClientRuleUpdate is UserAgentClientRuleUpdate
+    assert schema_surface.UserAgentClientRuleResponse is UserAgentClientRuleResponse
+    assert {"name", "pattern", "enabled"}.issubset(create_fields)
+    assert {"name", "pattern", "enabled"}.issubset(update_fields)
+    assert {
+        "id",
+        "name",
+        "pattern",
+        "enabled",
+        "is_system",
+        "profile_id",
+        "created_at",
+        "updated_at",
+    }.issubset(response_fields)
 
     def test_validate_import_accepts_duplicate_connection_names_across_models(self):
         from app.routers.config import _validate_import

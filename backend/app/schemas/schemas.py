@@ -33,6 +33,9 @@ from app.schemas.domains.admin import (
     HeaderBlocklistRuleExport,
     HeaderBlocklistRuleResponse,
     HeaderBlocklistRuleUpdate,
+    UserAgentClientRuleCreate,
+    UserAgentClientRuleResponse,
+    UserAgentClientRuleUpdate,
 )
 from app.schemas.domains.auth import (
     AuthSettingsResponse,
@@ -290,6 +293,9 @@ __all__ = [
     "TimezonePreferenceUpdate",
     "ThroughputBucket",
     "ThroughputStatsResponse",
+    "UserAgentClientRuleCreate",
+    "UserAgentClientRuleResponse",
+    "UserAgentClientRuleUpdate",
     "UsageModelStatistic",
     "UsageRequestEventResponse",
     "UsageProxyApiKeyStatistic",

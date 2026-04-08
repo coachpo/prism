@@ -13,6 +13,7 @@ from .startup import (
     seed_header_blocklist_rules,
     seed_loadbalance_strategy_presets,
     seed_profile_invariants,
+    seed_user_agent_client_rules,
     seed_vendors,
     seed_user_settings,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "seed_header_blocklist_rules",
     "seed_loadbalance_strategy_presets",
     "seed_profile_invariants",
+    "seed_user_agent_client_rules",
     "seed_vendors",
     "seed_user_settings",
 ]

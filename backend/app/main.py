@@ -52,6 +52,7 @@ seed_app_auth_settings = bootstrap.seed_app_auth_settings
 seed_header_blocklist_rules = bootstrap.seed_header_blocklist_rules
 seed_loadbalance_strategy_presets = bootstrap.seed_loadbalance_strategy_presets
 seed_profile_invariants = bootstrap.seed_profile_invariants
+seed_user_agent_client_rules = bootstrap.seed_user_agent_client_rules
 seed_vendors = bootstrap.seed_vendors
 seed_user_settings = bootstrap.seed_user_settings
 

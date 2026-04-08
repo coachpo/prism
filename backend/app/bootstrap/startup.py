@@ -16,6 +16,7 @@ from app.models.models import (
     LoadbalanceStrategy,
     ModelConfig,
     Profile,
+    UserAgentClientRule,
     UserSetting,
     Vendor,
 )
@@ -74,6 +75,15 @@ SYSTEM_BLOCKLIST_DEFAULTS: list[dict[str, str]] = [
         "match_type": "exact",
         "pattern": "x-cloud-trace-context",
     },
+]
+
+SYSTEM_USER_AGENT_CLIENT_RULE_DEFAULTS: list[dict[str, str]] = [
+    {"name": "Opencode", "pattern": "opencode"},
+    {"name": "Codex", "pattern": "codex"},
+    {"name": "Claude Code", "pattern": "claude(?:\\s|-)?code"},
+    {"name": "Gemini", "pattern": "gemini"},
+    {"name": "Python", "pattern": "python"},
+    {"name": "Curl", "pattern": "curl"},
 ]
 
 DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME = "Default adaptive routing"
@@ -324,6 +334,35 @@ async def seed_header_blocklist_rules() -> None:
         logger.info("Seeded system header blocklist rules")
 
 
+async def seed_user_agent_client_rules() -> None:
+    async with database_core.AsyncSessionLocal() as session:
+        changed = False
+        for default_rule in SYSTEM_USER_AGENT_CLIENT_RULE_DEFAULTS:
+            existing = (
+                await session.execute(
+                    select(UserAgentClientRule).where(
+                        UserAgentClientRule.pattern == default_rule["pattern"],
+                        UserAgentClientRule.is_system == True,  # noqa: E712
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                continue
+            session.add(
+                UserAgentClientRule(
+                    name=default_rule["name"],
+                    pattern=default_rule["pattern"],
+                    enabled=True,
+                    is_system=True,
+                )
+            )
+            changed = True
+
+        if changed:
+            await session.commit()
+            logger.info("Seeded system user-agent client rules")
+
+
 async def seed_user_settings() -> None:
     async with database_core.AsyncSessionLocal() as session:
         profile_ids = (
@@ -429,6 +468,7 @@ async def run_startup_sequence() -> None:
     await seed_profile_invariants()
     await seed_loadbalance_strategy_presets()
     await seed_user_settings()
+    await seed_user_agent_client_rules()
     await seed_app_auth_settings()
     await encrypt_endpoint_secrets()
     await seed_header_blocklist_rules()
@@ -461,6 +501,7 @@ __all__ = [
     "seed_header_blocklist_rules",
     "seed_loadbalance_strategy_presets",
     "seed_profile_invariants",
+    "seed_user_agent_client_rules",
     "seed_vendors",
     "seed_user_settings",
 ]

@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -566,6 +567,75 @@ class HeaderBlocklistRuleResponse(BaseModel):
 
 class HeaderBlocklistRuleExport(HeaderBlocklistRuleCreate):
     pass
+
+
+class UserAgentClientRuleCreate(BaseModel):
+    name: str
+    pattern: str
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name must not be empty")
+        return normalized
+
+    @field_validator("pattern")
+    @classmethod
+    def validate_pattern(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("pattern must not be empty")
+        try:
+            re.compile(normalized)
+        except re.error as exc:
+            raise ValueError("pattern must be a valid regular expression") from exc
+        return normalized
+
+
+class UserAgentClientRuleUpdate(BaseModel):
+    name: str | None = None
+    pattern: str | None = None
+    enabled: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name must not be empty")
+        return normalized
+
+    @field_validator("pattern")
+    @classmethod
+    def validate_pattern(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("pattern must not be empty")
+        try:
+            re.compile(normalized)
+        except re.error as exc:
+            raise ValueError("pattern must be a valid regular expression") from exc
+        return normalized
+
+
+class UserAgentClientRuleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    pattern: str
+    enabled: bool
+    is_system: bool
+    profile_id: int | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ConnectionDropdownItem(BaseModel):
