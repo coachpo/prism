@@ -38,3 +38,8 @@ app = [
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
