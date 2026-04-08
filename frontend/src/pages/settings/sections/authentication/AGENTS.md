@@ -14,8 +14,7 @@ authentication/
 ├── PasskeysCard.tsx
 ├── passkeyMetadata.ts
 ├── usePasskeyManagement.ts
-├── types.ts
-└── __tests__/                # Local auth-section coverage
+└── types.ts
 ```
 
 ## WHERE TO LOOK
@@ -26,7 +25,6 @@ authentication/
 - Recovery email verification and resend flow: `RecoveryEmailCard.tsx`
 - Passkey ceremony, list, register, and remove orchestration: `PasskeysCard.tsx`, `usePasskeyManagement.ts`
 - Presentation metadata and small shared types: `passkeyMetadata.ts`, `types.ts`
-- Local auth-section tests: `__tests__/`
 
 ## CONVENTIONS
 

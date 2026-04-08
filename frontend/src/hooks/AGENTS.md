@@ -8,8 +8,7 @@
 hooks/
 ├── useRealtimeData.ts   # Shared realtime subscription hook over the singleton websocket client
 ├── usePolling.ts        # Tab-visibility-aware polling hook
-├── useTimezone.ts       # Shared timestamp formatting hook over i18n helpers
-└── __tests__/           # Hook-level regression coverage
+└── useTimezone.ts       # Shared timestamp formatting hook over i18n helpers
 ```
 
 ## WHERE TO LOOK

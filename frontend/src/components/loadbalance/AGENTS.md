@@ -7,7 +7,6 @@
 - `LoadbalanceBadges.tsx`
 - `LoadbalanceEventDetailSheet.tsx`
 - `LoadbalanceEventsTable.tsx`
-- `__tests__/`
 
 ## CONVENTIONS
 - Keep these components presentational and feed them shaped props.

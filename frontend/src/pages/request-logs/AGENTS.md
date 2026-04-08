@@ -19,8 +19,7 @@ request-logs/
 ├── RequestLogDetailSheet.tsx    # Detailed request/audit payload view
 ├── RequestFocusBanner.tsx       # Exact-request mode banner and exit action
 ├── connectionNavigation.ts      # Connection-jump helpers for request-log detail context
-├── detail/                      # Parent-covered overview, audit, payload, and shared detail helpers
-└── __tests__/                   # Query-param, filter, table, and audit-detail coverage
+└── detail/                      # Parent-covered overview, audit, payload, and shared detail helpers
 ```
 
 ## WHERE TO LOOK

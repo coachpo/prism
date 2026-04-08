@@ -19,7 +19,7 @@ components/
 ├── VendorIcon.tsx + VendorSelect.tsx + vendorIcon*.tsx # Shared vendor icon and picker helpers
 ├── WebSocketStatusIndicator.tsx                       # Shared realtime connection badge
 ├── layout/app-layout/AGENTS.md                        # Dense shell-state cluster behind AppLayout
-├── loadbalance/AGENTS.md                              # Shared loadbalance renderers and tests
+├── loadbalance/AGENTS.md                              # Shared loadbalance renderers
 ├── statistics/AGENTS.md                               # Shared statistics renderers
 └── ui/AGENTS.md                                       # shadcn/ui primitives and local wrappers
 ```
@@ -31,13 +31,13 @@ components/
 - Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SwitchController.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared vendor icon and picker surfaces: `VendorIcon.tsx`, `VendorSelect.tsx`, `vendorIconRegistry.tsx`, `vendorIconComponents.tsx`
-- Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`, `loadbalance/__tests__/`
+- Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
 - Shared statistics rendering: `statistics/TopSpendingCard.tsx`, `statistics/TokenMetricCell.tsx`
 - Design-system primitives and local wrappers: `ui/`
 
 ## CHILD DOCS
 - `layout/app-layout/AGENTS.md`: shell chrome, profile switcher, profile dialogs, and visible version-label ownership.
-- `loadbalance/AGENTS.md`: shared loadbalance badges, table, event detail sheet, and tests.
+- `loadbalance/AGENTS.md`: shared loadbalance badges, table, and event detail sheet.
 - `statistics/AGENTS.md`: shared statistics cards and token metric cells.
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 

@@ -10,11 +10,10 @@ statistics/
 ├── sections/                       # Page sections and snapshot summaries
 ├── tables/                         # Aggregate endpoint, model, and proxy-api-key tables
 ├── UsageStatisticsPageSkeleton.tsx # Page-level loading shell for the unified route
-├── StatisticsPageSkeleton.tsx      # Secondary skeleton kept for local fallback/test coverage
+├── StatisticsPageSkeleton.tsx      # Secondary skeleton kept for local fallback coverage
 ├── useUsageStatisticsPageData.ts   # Snapshot loading and page-data orchestration
 ├── useUsageStatisticsPageState.ts  # Local persisted presentation state
-├── usageStatisticsStorage.ts       # localStorage persistence helpers
-└── __tests__/                      # State, data, refresh, and table coverage
+└── usageStatisticsStorage.ts       # localStorage persistence helpers
 ```
 
 ## WHERE TO LOOK

@@ -9,7 +9,6 @@ pnpm install
 pnpm run dev
 pnpm run build
 pnpm run lint
-pnpm run test
 ```
 
 Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `package.json`.

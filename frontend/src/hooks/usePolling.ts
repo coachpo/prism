@@ -37,7 +37,7 @@ export function usePolling({
   enabled = true,
 }: UsePollingOptions): UsePollingReturn {
   const [isPolling, setIsPolling] = useState(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onPollRef = useRef(onPoll);
   const isPollingInFlightRef = useRef(false);
 
