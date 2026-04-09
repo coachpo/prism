@@ -375,7 +375,7 @@ update_version_surfaces() {
 
 run_release_verification() {
     log "Syncing backend environment"
-    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" sync --locked --python "$BACKEND_PYTHON_BIN"
+    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" sync --locked --python "$BACKEND_PYTHON_BIN" --reinstall-package prism-backend
 
     log "Verifying backend version metadata"
     run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" run --locked --no-sync --python "$BACKEND_PYTHON_BIN" python -c "from pathlib import Path; from app.core.version import get_backend_version; expected = Path('VERSION').read_text(encoding='utf-8').strip(); actual = get_backend_version(); print(f'Backend version metadata OK: {actual}'); raise SystemExit(0 if actual == expected else f'Backend version mismatch: expected {expected}, got {actual}')"
