@@ -9,7 +9,6 @@ import type {
   LoadbalanceStrategyCreate,
   LoadbalanceStrategyFamily,
   LoadbalanceStrategySummary,
-  LoadbalanceTimeoutPolicy,
   LoadbalanceStrategyUpdate,
   LegacyLoadbalanceStrategyType,
   ModelConnectionsBatchParams,
@@ -50,7 +49,6 @@ type RawLoadbalanceStrategySummary = {
   id: number;
   name: string;
   strategy_type?: unknown;
-  timeout_policy?: unknown;
   legacy_strategy_type?: unknown;
   auto_recovery?: unknown;
   routing_policy?: unknown;
@@ -61,7 +59,6 @@ type RawLoadbalanceStrategy = {
   profile_id: number;
   name: string;
   strategy_type?: unknown;
-  timeout_policy?: unknown;
   legacy_strategy_type?: unknown;
   auto_recovery?: unknown;
   routing_policy?: unknown;
@@ -131,34 +128,6 @@ function normalizeLegacyStrategyType(value: unknown): LegacyLoadbalanceStrategyT
   }
 
   unsupportedLoadbalanceStrategy("legacy_strategy_type");
-}
-
-function normalizeTimeoutPolicy(value: unknown): LoadbalanceTimeoutPolicy {
-  if (!isRecord(value)) {
-    unsupportedLoadbalanceStrategy("timeout_policy");
-  }
-
-  return {
-    attempt_open_timeout_ms: normalizeInteger(
-      value.attempt_open_timeout_ms,
-      "timeout_policy.attempt_open_timeout_ms",
-    ),
-    buffered_total_timeout_ms: normalizeInteger(
-      value.buffered_total_timeout_ms,
-      "timeout_policy.buffered_total_timeout_ms",
-    ),
-    stream_precommit_timeout_ms: normalizeInteger(
-      value.stream_precommit_timeout_ms,
-      "timeout_policy.stream_precommit_timeout_ms",
-    ),
-    stream_hard_cap_timeout_ms:
-      value.stream_hard_cap_timeout_ms == null
-        ? null
-        : normalizeInteger(
-            value.stream_hard_cap_timeout_ms,
-            "timeout_policy.stream_hard_cap_timeout_ms",
-          ),
-  };
 }
 
 function normalizeRoutingPolicy(value: unknown): LoadbalanceRoutingPolicy {
@@ -365,7 +334,6 @@ function normalizeLoadbalanceStrategySummary(strategy: RawLoadbalanceStrategySum
       id: strategy.id,
       name: strategy.name,
       strategy_type: "legacy",
-      timeout_policy: normalizeTimeoutPolicy(strategy.timeout_policy),
       legacy_strategy_type: normalizeLegacyStrategyType(strategy.legacy_strategy_type),
       auto_recovery: normalizeAutoRecovery(strategy.auto_recovery),
     };
@@ -375,7 +343,6 @@ function normalizeLoadbalanceStrategySummary(strategy: RawLoadbalanceStrategySum
     id: strategy.id,
     name: strategy.name,
     strategy_type: "adaptive",
-    timeout_policy: normalizeTimeoutPolicy(strategy.timeout_policy),
     routing_policy: normalizeRoutingPolicy(strategy.routing_policy),
   };
 }
@@ -389,7 +356,6 @@ function normalizeLoadbalanceStrategy(strategy: RawLoadbalanceStrategy): Loadbal
       profile_id: strategy.profile_id,
       name: strategy.name,
       strategy_type: "legacy",
-      timeout_policy: normalizeTimeoutPolicy(strategy.timeout_policy),
       legacy_strategy_type: normalizeLegacyStrategyType(strategy.legacy_strategy_type),
       auto_recovery: normalizeAutoRecovery(strategy.auto_recovery),
       attached_model_count: strategy.attached_model_count,
@@ -403,7 +369,6 @@ function normalizeLoadbalanceStrategy(strategy: RawLoadbalanceStrategy): Loadbal
     profile_id: strategy.profile_id,
     name: strategy.name,
     strategy_type: "adaptive",
-    timeout_policy: normalizeTimeoutPolicy(strategy.timeout_policy),
     routing_policy: normalizeRoutingPolicy(strategy.routing_policy),
     attached_model_count: strategy.attached_model_count,
     created_at: strategy.created_at,

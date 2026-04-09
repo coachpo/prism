@@ -5,10 +5,6 @@ export interface Endpoint {
   profile_id?: number;
   name: string;
   base_url: string;
-  pool_timeout?: number;
-  connect_timeout?: number;
-  write_timeout?: number;
-  read_idle_timeout?: number;
   has_api_key: boolean;
   masked_api_key: string | null;
   position: number;
@@ -20,20 +16,12 @@ export interface EndpointCreate {
   name: string;
   base_url: string;
   api_key: string;
-  pool_timeout?: number;
-  connect_timeout?: number;
-  write_timeout?: number;
-  read_idle_timeout?: number;
 }
 
 export interface EndpointUpdate {
   name?: string;
   base_url?: string;
   api_key?: string | null;
-  pool_timeout?: number;
-  connect_timeout?: number;
-  write_timeout?: number;
-  read_idle_timeout?: number;
 }
 
 export interface PricingTemplateListItem {

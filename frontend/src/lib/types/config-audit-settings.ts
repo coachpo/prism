@@ -9,10 +9,6 @@ export interface ConfigEndpointExport {
   name: string;
   base_url: string;
   api_key_secret_ref: string | null;
-  pool_timeout: number;
-  connect_timeout: number;
-  write_timeout: number;
-  read_idle_timeout: number;
   position?: number | null;
 }
 
@@ -20,10 +16,6 @@ export interface ConfigEndpointImport {
   name: string;
   base_url: string;
   api_key_secret_ref?: string | null;
-  pool_timeout?: number;
-  connect_timeout?: number;
-  write_timeout?: number;
-  read_idle_timeout?: number;
   position?: number | null;
 }
 

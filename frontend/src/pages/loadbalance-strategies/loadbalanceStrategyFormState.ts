@@ -3,12 +3,10 @@ import type {
   LoadbalanceBanMode,
   LoadbalanceRoutingPolicy,
   LoadbalanceStrategy,
-  LoadbalanceTimeoutPolicy,
   LegacyLoadbalanceStrategyType,
 } from "@/lib/types";
 import {
   createDefaultAdaptiveRoutingPolicy,
-  createDefaultTimeoutPolicy,
   getDefaultAutoRecovery,
   normalizeFailureStatusCodes,
 } from "@/lib/loadbalanceRoutingPolicy";
@@ -51,7 +49,6 @@ export type LoadbalanceAutoRecoveryDraft =
 type LegacyLoadbalanceStrategyFormState = {
   name: string;
   strategy_type: "legacy";
-  timeout_policy: LoadbalanceTimeoutPolicy;
   legacy_strategy_type: LegacyLoadbalanceStrategyType;
   auto_recovery: LoadbalanceAutoRecoveryDraft;
 };
@@ -59,7 +56,6 @@ type LegacyLoadbalanceStrategyFormState = {
 type AdaptiveLoadbalanceStrategyFormState = {
   name: string;
   strategy_type: "adaptive";
-  timeout_policy: LoadbalanceTimeoutPolicy;
   routing_policy: LoadbalanceRoutingPolicy;
   circuit_breaker_status_code_input: string;
 };
@@ -72,14 +68,12 @@ export type LoadbalanceStrategyFormPayload =
   | {
       name: string;
       strategy_type: "legacy";
-      timeout_policy: LoadbalanceTimeoutPolicy;
       legacy_strategy_type: LegacyLoadbalanceStrategyType;
       auto_recovery: LoadbalanceAutoRecovery;
     }
   | {
       name: string;
       strategy_type: "adaptive";
-      timeout_policy: LoadbalanceTimeoutPolicy;
       routing_policy: LoadbalanceRoutingPolicy;
     };
 
@@ -136,20 +130,17 @@ export function getDefaultAutoRecoveryDraft(
 export const DEFAULT_LOADBALANCE_STRATEGY_FORM: LoadbalanceStrategyFormState = {
   name: "",
   strategy_type: "legacy",
-  timeout_policy: createDefaultTimeoutPolicy(),
   legacy_strategy_type: "single",
   auto_recovery: getDefaultAutoRecoveryDraft("single"),
 };
 
 function adaptiveFormStateFromRoutingPolicy(
   name: string,
-  timeoutPolicy: LoadbalanceTimeoutPolicy,
   routingPolicy: LoadbalanceRoutingPolicy,
 ): AdaptiveLoadbalanceStrategyFormState {
   return {
     name,
     strategy_type: "adaptive",
-    timeout_policy: { ...timeoutPolicy },
     routing_policy: { ...routingPolicy },
     circuit_breaker_status_code_input: "",
   };
@@ -161,7 +152,6 @@ export function loadbalanceStrategyFormStateFromStrategy(
   if (strategy.strategy_type === "adaptive") {
     return adaptiveFormStateFromRoutingPolicy(
       strategy.name,
-      strategy.timeout_policy ?? createDefaultTimeoutPolicy(),
       strategy.routing_policy,
     );
   }
@@ -169,7 +159,6 @@ export function loadbalanceStrategyFormStateFromStrategy(
   return {
     name: strategy.name,
     strategy_type: "legacy",
-    timeout_policy: { ...(strategy.timeout_policy ?? createDefaultTimeoutPolicy()) },
     legacy_strategy_type: strategy.legacy_strategy_type,
     auto_recovery: autoRecoveryDraftFromValue(strategy.auto_recovery),
   };
@@ -186,7 +175,6 @@ export function setLoadbalanceStrategyFamily(
   if (strategyFamily === "adaptive") {
     return adaptiveFormStateFromRoutingPolicy(
       formState.name,
-      formState.timeout_policy,
       createDefaultAdaptiveRoutingPolicy(),
     );
   }
@@ -194,7 +182,6 @@ export function setLoadbalanceStrategyFamily(
   return {
     name: formState.name,
     strategy_type: "legacy",
-    timeout_policy: { ...formState.timeout_policy },
     legacy_strategy_type: "single",
     auto_recovery: getDefaultAutoRecoveryDraft("single"),
   };
@@ -481,7 +468,6 @@ export function toLoadbalanceStrategyPayload(
     return {
       name: formState.name.trim(),
       strategy_type: "adaptive",
-      timeout_policy: { ...formState.timeout_policy },
       routing_policy: { ...formState.routing_policy },
     };
   }
@@ -489,7 +475,6 @@ export function toLoadbalanceStrategyPayload(
   return {
     name: formState.name.trim(),
     strategy_type: "legacy",
-    timeout_policy: { ...formState.timeout_policy },
     legacy_strategy_type: formState.legacy_strategy_type,
     auto_recovery: autoRecoveryDraftToPayload(formState.auto_recovery),
   };

@@ -4,10 +4,6 @@ const EndpointImportSchema = z.strictObject({
   name: z.string(),
   base_url: z.string(),
   api_key_secret_ref: z.string().nullable().optional(),
-  pool_timeout: z.number().min(0).optional(),
-  connect_timeout: z.number().min(0).optional(),
-  write_timeout: z.number().min(0).optional(),
-  read_idle_timeout: z.number().min(0).optional(),
   position: z.number().int().min(0).nullable().optional(),
 });
 
@@ -66,13 +62,6 @@ const AutoRecoveryImportSchema = z.union([
   }),
 ]);
 
-const TimeoutPolicyImportSchema = z.strictObject({
-  attempt_open_timeout_ms: z.number().int().min(1),
-  buffered_total_timeout_ms: z.number().int().min(1),
-  stream_precommit_timeout_ms: z.number().int().min(1),
-  stream_hard_cap_timeout_ms: z.number().int().min(1).nullable().optional(),
-});
-
 const AdaptiveRoutingPolicyImportSchema = z.strictObject({
   kind: z.literal("adaptive"),
   routing_objective: z.enum(["maximize_availability", "minimize_latency"]),
@@ -102,7 +91,6 @@ const LoadbalanceStrategyImportSchema = z.discriminatedUnion("strategy_type", [
   z.strictObject({
     name: z.string(),
     strategy_type: z.literal("legacy"),
-    timeout_policy: TimeoutPolicyImportSchema,
     legacy_strategy_type: z.enum(["single", "fill-first", "round-robin"]),
     auto_recovery: AutoRecoveryImportSchema,
     routing_policy: z.null().optional(),
@@ -110,7 +98,6 @@ const LoadbalanceStrategyImportSchema = z.discriminatedUnion("strategy_type", [
   z.strictObject({
     name: z.string(),
     strategy_type: z.literal("adaptive"),
-    timeout_policy: TimeoutPolicyImportSchema,
     routing_policy: AdaptiveRoutingPolicyImportSchema,
     legacy_strategy_type: z.null().optional(),
     auto_recovery: z.null().optional(),
