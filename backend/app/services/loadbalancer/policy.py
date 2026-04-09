@@ -189,8 +189,7 @@ def validate_strategy_ban_policy(
 def canonicalize_timeout_policy_document(
     timeout_policy: object | None,
 ) -> dict[str, object]:
-    if timeout_policy is None:
-        raise ValueError("timeout_policy is required for loadbalance strategies")
+    timeout_policy = {} if timeout_policy is None else timeout_policy
 
     return {
         "attempt_open_timeout_ms": _resolve_int(
@@ -457,10 +456,18 @@ def _build_legacy_policy(
             strategy_type="legacy",
             legacy_strategy_type=legacy_strategy_type,
             routing_objective="minimize_latency",
-            attempt_open_timeout_ms=cast(int, timeout_policy["attempt_open_timeout_ms"]),
-            buffered_total_timeout_ms=cast(int, timeout_policy["buffered_total_timeout_ms"]),
-            stream_precommit_timeout_ms=cast(int, timeout_policy["stream_precommit_timeout_ms"]),
-            stream_hard_cap_timeout_ms=cast(int | None, timeout_policy["stream_hard_cap_timeout_ms"]),
+            attempt_open_timeout_ms=cast(
+                int, timeout_policy["attempt_open_timeout_ms"]
+            ),
+            buffered_total_timeout_ms=cast(
+                int, timeout_policy["buffered_total_timeout_ms"]
+            ),
+            stream_precommit_timeout_ms=cast(
+                int, timeout_policy["stream_precommit_timeout_ms"]
+            ),
+            stream_hard_cap_timeout_ms=cast(
+                int | None, timeout_policy["stream_hard_cap_timeout_ms"]
+            ),
             hedge_enabled=False,
             hedge_delay_ms=_DEFAULT_HEDGE_DELAY_MS,
             max_additional_attempts=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
@@ -485,9 +492,15 @@ def _build_legacy_policy(
         legacy_strategy_type=legacy_strategy_type,
         routing_objective="minimize_latency",
         attempt_open_timeout_ms=cast(int, timeout_policy["attempt_open_timeout_ms"]),
-        buffered_total_timeout_ms=cast(int, timeout_policy["buffered_total_timeout_ms"]),
-        stream_precommit_timeout_ms=cast(int, timeout_policy["stream_precommit_timeout_ms"]),
-        stream_hard_cap_timeout_ms=cast(int | None, timeout_policy["stream_hard_cap_timeout_ms"]),
+        buffered_total_timeout_ms=cast(
+            int, timeout_policy["buffered_total_timeout_ms"]
+        ),
+        stream_precommit_timeout_ms=cast(
+            int, timeout_policy["stream_precommit_timeout_ms"]
+        ),
+        stream_hard_cap_timeout_ms=cast(
+            int | None, timeout_policy["stream_hard_cap_timeout_ms"]
+        ),
         hedge_enabled=False,
         hedge_delay_ms=_DEFAULT_HEDGE_DELAY_MS,
         max_additional_attempts=_DEFAULT_MAX_ADDITIONAL_ATTEMPTS,
@@ -534,9 +547,15 @@ def resolve_effective_loadbalance_policy(
         legacy_strategy_type=None,
         routing_objective=cast(RoutingObjective, routing_policy["routing_objective"]),
         attempt_open_timeout_ms=cast(int, timeout_policy["attempt_open_timeout_ms"]),
-        buffered_total_timeout_ms=cast(int, timeout_policy["buffered_total_timeout_ms"]),
-        stream_precommit_timeout_ms=cast(int, timeout_policy["stream_precommit_timeout_ms"]),
-        stream_hard_cap_timeout_ms=cast(int | None, timeout_policy["stream_hard_cap_timeout_ms"]),
+        buffered_total_timeout_ms=cast(
+            int, timeout_policy["buffered_total_timeout_ms"]
+        ),
+        stream_precommit_timeout_ms=cast(
+            int, timeout_policy["stream_precommit_timeout_ms"]
+        ),
+        stream_hard_cap_timeout_ms=cast(
+            int | None, timeout_policy["stream_hard_cap_timeout_ms"]
+        ),
         hedge_enabled=cast(bool, hedge["enabled"]),
         hedge_delay_ms=cast(int, hedge["delay_ms"]),
         max_additional_attempts=cast(int, hedge["max_additional_attempts"]),
