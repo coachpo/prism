@@ -165,11 +165,11 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> Router captures active profile snapshot
   -> Gateway assigns one Prism `ingress_request_id`
   -> Proxy target resolution (if needed) finishes before native adaptive routing begins
-  -> Planner resolves the live candidate set and executor claims a streaming lease within the request deadline
+  -> Planner resolves the live candidate set and executor claims a streaming lease before opening the upstream stream
   -> ProxyService opens streaming connection to the selected upstream endpoint
   -> SSE chunks piped directly to client via StreamingResponse
   -> Streaming heartbeats keep the lease fresh while the stream is open
-  -> On upstream error: release the stream lease, classify the failure, and continue only if policy deadline and hedge rules still allow another attempt
+  -> On upstream error: release the stream lease, classify the failure, and continue only if another candidate and hedge rules still allow another attempt
   -> On stream finalization or cancellation: release the stream lease, persist the per-attempt request log, and record runtime feedback
 ```
 
@@ -250,16 +250,16 @@ Proxy request completes
 ### 4.1 Routing policy contract
 
 - Native models still attach one profile-scoped loadbalance strategy, but strategy rows now use a top-level family discriminator: `strategy_type = legacy | adaptive`.
-- All strategies now carry a shared top-level `timeout_policy` with `attempt_open_timeout_ms`, `buffered_total_timeout_ms`, `stream_precommit_timeout_ms`, and optional `stream_hard_cap_timeout_ms`.
 - `legacy` strategies carry `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`. `adaptive` strategies carry `routing_policy` with `routing_objective`, `hedge`, `circuit_breaker`, and `admission` branches.
 - Startup seeds the default profile with two editable preset strategies: `Default legacy routing` and `Default adaptive routing`.
 - Backend fallback settings such as `FAILOVER_COOLDOWN_SECONDS`, `FAILOVER_FAILURE_THRESHOLD`, `FAILOVER_BACKOFF_MULTIPLIER`, `FAILOVER_MAX_COOLDOWN_SECONDS`, and `FAILOVER_JITTER_RATIO` still shape the seeded circuit-breaker defaults.
+- Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
 
 ### 4.2 Runtime execution pipeline
 
 1. Request setup resolves the active-profile model, attached strategy, and one immutable effective strategy snapshot for the request.
 2. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, and runtime health signals.
-3. Executor claims per-attempt leases, applies `buffered_total_timeout_ms` for buffered requests or `stream_precommit_timeout_ms` until the first streaming chunk, and may launch one hedge only before any client-visible bytes are committed.
+3. Executor claims per-attempt leases, uses the shared upstream timeout behavior from the backend runtime, and may launch one hedge only before any client-visible bytes are committed.
 4. Passive request outcomes feed back into runtime state, while durable transition history stays in `loadbalance_events`.
 
 If all eligible candidates are unavailable inside the current policy window, the gateway returns `503` with routing-availability detail.

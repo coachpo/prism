@@ -1658,11 +1658,9 @@ Response `201`: Created strategy object.
 Validation rules:
 - `name` must be unique within the effective profile scope.
 - `strategy_type` must be `legacy` or `adaptive`.
-- All strategies require a top-level `timeout_policy`.
 - `legacy` requires `legacy_strategy_type` and `auto_recovery`, and must not include `routing_policy`.
 - `adaptive` requires `routing_policy`, must not include legacy-only fields, and `routing_policy.kind` is fixed to `adaptive`.
-- `timeout_policy.attempt_open_timeout_ms`, `buffered_total_timeout_ms`, and `stream_precommit_timeout_ms` must be positive integers.
-- `timeout_policy.stream_hard_cap_timeout_ms` may be `null` or a positive integer.
+- Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
 - `hedge.delay_ms` must be within `0..300000`, and `hedge.max_additional_attempts` within `1..10`.
 - `circuit_breaker.failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
 - `circuit_breaker.base_open_seconds`, `failure_threshold`, `max_open_seconds`, `backoff_multiplier`, and `jitter_ratio` use the same bounds as the backend defaults.
@@ -1686,12 +1684,6 @@ Strategy responses include the persisted/effective family-specific strategy docu
   "profile_id": 3,
   "name": "adaptive-primary",
   "strategy_type": "adaptive",
-  "timeout_policy": {
-    "attempt_open_timeout_ms": 2000,
-    "buffered_total_timeout_ms": 30000,
-    "stream_precommit_timeout_ms": 5000,
-    "stream_hard_cap_timeout_ms": 120000
-  },
   "legacy_strategy_type": null,
   "auto_recovery": null,
   "routing_policy": {
