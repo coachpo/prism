@@ -30,7 +30,7 @@ function MobileField({
         className
       )}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground md:hidden">
         {label}
       </p>
       <p
@@ -101,7 +101,7 @@ function MobileOnlyLabel({ children }: { children: string }) {
   return <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground md:hidden">{children}</span>;
 }
 
-export function ProxyKeyCard({
+export function ProxyKeyRow({
   item,
   authEnabled,
   rotating,

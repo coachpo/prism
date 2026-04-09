@@ -9,7 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ProxyApiKey } from "@/lib/types";
-import { ProxyKeyCard } from "./ProxyKeyCard";
+import { ProxyKeyRow } from "./ProxyKeyRow";
 
 interface ProxyKeysListCardProps {
   authEnabled: boolean;
@@ -74,7 +74,7 @@ export function ProxyKeysListCard({
                   const deleting = deletingProxyKeyId === item.id;
 
                   return (
-                    <ProxyKeyCard
+                    <ProxyKeyRow
                       key={item.id}
                       item={item}
                       authEnabled={authEnabled}

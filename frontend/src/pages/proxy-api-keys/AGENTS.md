@@ -8,7 +8,7 @@
 proxy-api-keys/
 ├── ProxyKeyCreateCard.tsx        # Create form and latest-generated-key display
 ├── ProxyKeysListCard.tsx         # Existing key list with actions
-├── ProxyKeyCard.tsx              # Individual key row/card presentation
+├── ProxyKeyRow.tsx               # Individual key row presentation
 ├── ProxyKeyStatusCallout.tsx     # Auth-enabled guidance and warnings
 ├── EditProxyKeyDialog.tsx        # Edit name, note, and active-state flow
 ├── DeleteProxyKeyDialog.tsx      # Delete confirmation flow
