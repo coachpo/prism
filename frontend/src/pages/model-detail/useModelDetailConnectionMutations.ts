@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { clearSharedReferenceData } from "@/lib/referenceData";
 import type {
+  ApiFamily,
   Connection,
   ConnectionCreate,
   Endpoint,
@@ -25,6 +26,7 @@ import {
 interface UseModelDetailConnectionMutationsInput {
   id: string | undefined;
   revision: number;
+  modelApiFamily: ApiFamily | null;
   createMode: "select" | "new";
   selectedEndpointId: string;
   newEndpointForm: EndpointCreate;
@@ -44,6 +46,7 @@ interface UseModelDetailConnectionMutationsInput {
 export function useModelDetailConnectionMutations({
   id,
   revision,
+  modelApiFamily,
   createMode,
   selectedEndpointId,
   newEndpointForm,
@@ -86,6 +89,7 @@ export function useModelDetailConnectionMutations({
       }
 
       const { errorMessage, payload } = buildConnectionDraftPayload({
+        apiFamily: modelApiFamily,
         createMode,
         selectedEndpointId,
         newEndpointForm,
@@ -130,6 +134,7 @@ export function useModelDetailConnectionMutations({
       endpointSourceDefaultName,
       headerRows,
       id,
+      modelApiFamily,
       newEndpointForm,
       pricingTemplates,
       refreshCurrentState,

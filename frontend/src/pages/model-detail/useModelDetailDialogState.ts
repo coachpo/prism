@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import type { Connection, ConnectionCreate, Endpoint, EndpointCreate } from "@/lib/types";
+import type { ApiFamily, Connection, ConnectionCreate, Endpoint, EndpointCreate } from "@/lib/types";
 import { createDefaultConnectionForm, createDefaultEndpointForm, getSelectedEndpoint } from "./useModelDetailDataSupport";
+import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
 export interface HeaderRow {
   id: string;
@@ -21,10 +22,11 @@ export function createHeaderRow(overrides?: Partial<Pick<HeaderRow, "key" | "val
 }
 
 interface UseModelDetailDialogStateInput {
+  apiFamily: ApiFamily | null;
   globalEndpoints: Endpoint[];
 }
 
-export function useModelDetailDialogState({ globalEndpoints }: UseModelDetailDialogStateInput) {
+export function useModelDetailDialogState({ apiFamily, globalEndpoints }: UseModelDetailDialogStateInput) {
   const [isEditModelDialogOpen, setIsEditModelDialogOpen] = useState(false);
   const [editRedirectTo, setEditRedirectTo] = useState("");
 
@@ -42,7 +44,7 @@ export function useModelDetailDialogState({ globalEndpoints }: UseModelDetailDia
     ...createDefaultEndpointForm(),
   }));
   const [connectionForm, setConnectionForm] = useState<ConnectionCreate>(() => ({
-    ...createDefaultConnectionForm(),
+    ...createDefaultConnectionForm(apiFamily),
   }));
   const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
 
@@ -73,6 +75,10 @@ export function useModelDetailDialogState({ globalEndpoints }: UseModelDetailDia
         name: connection.name ?? "",
         is_active: connection.is_active,
         custom_headers: connection.custom_headers,
+        openai_probe_endpoint_variant:
+          apiFamily === "openai"
+            ? normalizeOpenAIProbeEndpointVariant(connection.openai_probe_endpoint_variant)
+            : null,
         pricing_template_id: connection.pricing_template_id,
         qps_limit: connection.qps_limit,
         max_in_flight_non_stream: connection.max_in_flight_non_stream,
@@ -84,7 +90,7 @@ export function useModelDetailDialogState({ globalEndpoints }: UseModelDetailDia
     } else {
       setEditingConnection(null);
       setHeaderRows([]);
-      setConnectionForm({ ...createDefaultConnectionForm() });
+      setConnectionForm({ ...createDefaultConnectionForm(apiFamily) });
       setNewEndpointForm({ ...createDefaultEndpointForm() });
       setCreateMode("select");
       setSelectedEndpointId("");

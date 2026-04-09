@@ -68,6 +68,7 @@ export function useModelDetailData(id: string | undefined) {
     endpointSourceDefaultName,
     openConnectionDialog,
   } = useModelDetailDialogState({
+    apiFamily: model?.api_family ?? null,
     globalEndpoints,
   });
 
@@ -131,6 +132,7 @@ export function useModelDetailData(id: string | undefined) {
   } = useModelDetailConnectionMutations({
     id,
     revision,
+    modelApiFamily: model?.api_family ?? null,
     createMode,
     selectedEndpointId,
     newEndpointForm,
@@ -194,6 +196,7 @@ export function useModelDetailData(id: string | undefined) {
     healthCheckingIds,
     dialogTestingConnection,
     dialogTestResult,
+    clearDialogTestResult: () => setDialogTestResult(null),
     currentStateByConnectionId,
     resettingConnectionIds,
     focusedConnectionId,

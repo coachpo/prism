@@ -113,10 +113,11 @@ export function useModelDetailConnectionFlows({
       return;
     }
 
-    const { errorMessage, payload } = buildConnectionDraftPayload({
-      createMode,
-      selectedEndpointId,
-      newEndpointForm,
+      const { errorMessage, payload } = buildConnectionDraftPayload({
+        apiFamily: model?.api_family ?? null,
+        createMode,
+        selectedEndpointId,
+        newEndpointForm,
       connectionForm,
       headerRows,
       editingConnection,
@@ -145,10 +146,11 @@ export function useModelDetailConnectionFlows({
     connectionForm,
     createMode,
     editingConnection,
-      endpointSourceDefaultName,
-      headerRows,
-      modelConfigId,
-      newEndpointForm,
+    endpointSourceDefaultName,
+    headerRows,
+    model,
+    modelConfigId,
+    newEndpointForm,
     refreshCurrentState,
     selectedEndpointId,
     setDialogTestResult,

@@ -106,6 +106,12 @@ export interface ConnectionPricingTemplateSummary {
   version: number;
 }
 
+export type OpenAIProbeEndpointVariant =
+  | "responses_minimal"
+  | "responses_reasoning_none"
+  | "chat_completions_minimal"
+  | "chat_completions_reasoning_none";
+
 export interface Connection {
   id: number;
   model_config_id: number;
@@ -116,6 +122,7 @@ export interface Connection {
   name: string | null;
   auth_type: string | null;
   custom_headers: Record<string, string> | null;
+  openai_probe_endpoint_variant: OpenAIProbeEndpointVariant | null;
   pricing_template_id: number | null;
   qps_limit: number | null;
   max_in_flight_non_stream: number | null;
@@ -135,6 +142,7 @@ export interface ConnectionCreate {
   name?: string | null;
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
+  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;
@@ -148,6 +156,7 @@ export interface ConnectionUpdate {
   name?: string | null;
   auth_type?: string | null;
   custom_headers?: Record<string, string> | null;
+  openai_probe_endpoint_variant?: OpenAIProbeEndpointVariant | null;
   pricing_template_id?: number | null;
   qps_limit?: number | null;
   max_in_flight_non_stream?: number | null;

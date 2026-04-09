@@ -37,6 +37,7 @@ export function ModelDetailPage() {
     healthCheckingIds,
     dialogTestingConnection,
     dialogTestResult,
+    clearDialogTestResult,
     currentStateByConnectionId,
     resettingConnectionIds,
     focusedConnectionId,
@@ -127,6 +128,7 @@ export function ModelDetailPage() {
       <ConnectionDialog
         isOpen={isConnectionDialogOpen}
         onOpenChange={setIsConnectionDialogOpen}
+        apiFamily={model.api_family}
         editingConnection={editingConnection}
         connectionForm={connectionForm}
         setConnectionForm={setConnectionForm}
@@ -142,6 +144,7 @@ export function ModelDetailPage() {
         handleConnectionSubmit={handleConnectionSubmit}
         dialogTestingConnection={dialogTestingConnection}
         dialogTestResult={dialogTestResult}
+        clearDialogTestResult={clearDialogTestResult}
         handleDialogTestConnection={handleDialogTestConnection}
         endpointSourceDefaultName={endpointSourceDefaultName}
         pricingTemplates={pricingTemplates}

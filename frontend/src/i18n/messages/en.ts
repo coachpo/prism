@@ -881,6 +881,7 @@ export interface Messages {
     connectionDisplayNamePlaceholder: string;
     connectionHealthy: string;
     connectionNameOptional: string;
+    connectionNameSummaryLabel: string;
     connectionUnhealthy: string;
     configuration: string;
     connections: string;
@@ -908,6 +909,8 @@ export interface Messages {
     ) => string;
     currentStateTemporaryBan: (until: string | null) => string;
     customHeaders: string;
+    customHeadersConfigured: (count: string) => string;
+    customHeadersDescription: string;
     delete: string;
     disabled: string;
     displayName: string;
@@ -925,6 +928,7 @@ export interface Messages {
     endpointName: string;
     endpointNamePlaceholder: string;
     endpointSource: string;
+    endpointSummaryLabel: string;
     endpointSourceCreateHint: string;
     endpointSourceEditHint: string;
     failoverEvents: (count: string) => string;
@@ -969,6 +973,15 @@ export interface Messages {
     pricingTemplate: string;
     pricingTemplateHint: string;
     pricingTemplatePlaceholder: string;
+    pricingSummaryLabel: string;
+    probeApi: string;
+    probeApiChatCompletions: string;
+    probeApiChatCompletionsHint: string;
+    probeApiResponses: string;
+    probeApiResponsesHint: string;
+    probeBehavior: string;
+    probeBehaviorDescription: string;
+    probeBehaviorSummaryLabel: string;
     proxyRouting: string;
     proxyTargets: string;
     proxyTargetsHint: string;
@@ -976,6 +989,12 @@ export interface Messages {
     removeHeader: string;
     recoveryBlocked: string;
     recoveryCounting: string;
+    reasoningHandling: string;
+    reasoningHandlingDefault: string;
+    reasoningHandlingDefaultHint: string;
+    reasoningHandlingDisabled: string;
+    reasoningHandlingDisabledHint: string;
+    resolvedProbeVariant: string;
     resetRecoveryState: string;
     requests24h: string;
     requestsLabel: string;
@@ -990,10 +1009,17 @@ export interface Messages {
     selectExisting: string;
     selectStrategy: string;
     selectVendor: string;
+    setup: string;
+    setupDescription: string;
     spend24h: (currencyCode: string) => string;
+    summaryAndTest: string;
+    summaryAndTestDescription: string;
     successfulRequests: (count: string) => string;
     routingObjective: string;
     strategyRecovery: string;
+    advancedRequestSettings: string;
+    advancedRequestSettingsDescription: string;
+    healthTestDescription: string;
     testConnection: string;
     testingConnection: string;
     targets: (count: string) => string;
@@ -2404,6 +2430,7 @@ export const enMessages: Messages = {
     connectionDisplayNamePlaceholder: "Connection display name",
     connectionHealthy: "Connection Healthy",
     connectionNameOptional: "Name (Optional)",
+    connectionNameSummaryLabel: "Resolved Name",
     connectionUnhealthy: "Connection Unhealthy",
     configuration: "Configuration",
     connections: "Connections",
@@ -2427,6 +2454,8 @@ export const enMessages: Messages = {
     currentStateTemporaryBan: (until) =>
       `This connection is banned until ${until ?? "the temporary ban expires"}.`,
     customHeaders: "Custom Headers",
+    customHeadersConfigured: (count) => `${count} configured`,
+    customHeadersDescription: "Add optional request headers that Prism should send with this connection.",
     delete: "Delete",
     disabled: "Disabled",
     displayName: "Display Name",
@@ -2444,6 +2473,7 @@ export const enMessages: Messages = {
     endpointName: "Name",
     endpointNamePlaceholder: "e.g. OpenAI Primary",
     endpointSource: "Endpoint Source",
+    endpointSummaryLabel: "Endpoint",
     endpointSourceCreateHint: "Choose an existing endpoint or create one inline for this connection.",
     endpointSourceEditHint: "Switch this connection to another endpoint or create a new one.",
     failoverEvents: (count) => `Events: ${count}`,
@@ -2490,6 +2520,15 @@ export const enMessages: Messages = {
     pricingTemplate: "Pricing Template",
     pricingTemplateHint: "Assign a pricing template to track costs for this connection.",
     pricingTemplatePlaceholder: "Select a pricing template...",
+    pricingSummaryLabel: "Pricing",
+    probeApi: "Probe API",
+    probeApiChatCompletions: "Chat Completions API",
+    probeApiChatCompletionsHint: "Compatibility probe for chat-completions style upstreams.",
+    probeApiResponses: "Responses API",
+    probeApiResponsesHint: "Preferred modern probe path.",
+    probeBehavior: "Probe Behavior",
+    probeBehaviorDescription: "Used for health checks only. Routed model traffic is unchanged.",
+    probeBehaviorSummaryLabel: "Probe Behavior",
     proxyRouting: "Proxy Routing",
     proxyTargets: "Proxy Targets",
     proxyTargetsHint:
@@ -2503,6 +2542,12 @@ export const enMessages: Messages = {
     requestsLabel: "Requests",
     routingPriorityHint:
       "New connections are appended as fallbacks. Drag and drop cards in the Model Detail list to adjust routing priority.",
+    reasoningHandling: "Reasoning Handling",
+    reasoningHandlingDefault: "Minimal payload",
+    reasoningHandlingDefaultHint: "Send the smallest standard probe payload.",
+    reasoningHandlingDisabled: "Disable reasoning",
+    reasoningHandlingDisabledHint: "Explicitly disable reasoning during the probe request.",
+    resolvedProbeVariant: "Resolved Probe Variant",
     sampled5xxRate: "5xx rate (sampled)",
     saveConnection: "Save Connection",
     saveChanges: "Save Changes",
@@ -2513,10 +2558,19 @@ export const enMessages: Messages = {
     selectExisting: "Select Existing",
     selectStrategy: "Select strategy",
     selectVendor: "Select vendor",
+    setup: "Setup",
+    setupDescription: "Choose where this connection sends requests and how Prism should label it.",
     spend24h: (currencyCode) => `Spend (24h, ${currencyCode})`,
+    summaryAndTest: "Summary & Test",
+    summaryAndTestDescription:
+      "Review the effective connection configuration and run a preview health check before saving.",
     successfulRequests: (count) => `${count} successful`,
     routingObjective: "Strategy Type",
     strategyRecovery: "Strategy Recovery",
+    advancedRequestSettings: "Advanced Request Settings",
+    advancedRequestSettingsDescription:
+      "Tune optional request limits and custom headers for this connection.",
+    healthTestDescription: "Run a preview using the current unsaved configuration.",
     testConnection: "Test Connection",
     testingConnection: "Testing...",
     targets: (count) => `${count} targets`,

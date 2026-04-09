@@ -13,6 +13,7 @@ import type {
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { normalizeProxyTargets } from "../models/modelFormState";
 import type { HeaderRow } from "./useModelDetailDialogState";
+import { normalizeOpenAIProbeEndpointVariant } from "./connectionProbeBehavior";
 
 function resolveApiFamily(
   model: Pick<ModelConfig, "api_family"> | Pick<ModelConfigListItem, "api_family">,
@@ -32,10 +33,12 @@ export const createDefaultEndpointForm = (): EndpointCreate => ({
   api_key: "",
 });
 
-export const createDefaultConnectionForm = (): ConnectionCreate => ({
+export const createDefaultConnectionForm = (apiFamily: ApiFamily | null = null): ConnectionCreate => ({
   name: "",
   is_active: true,
   custom_headers: null,
+  openai_probe_endpoint_variant:
+    apiFamily === "openai" ? normalizeOpenAIProbeEndpointVariant(undefined) : null,
   pricing_template_id: null,
   qps_limit: null,
   max_in_flight_non_stream: null,
@@ -43,6 +46,7 @@ export const createDefaultConnectionForm = (): ConnectionCreate => ({
 });
 
 interface BuildConnectionDraftPayloadInput {
+  apiFamily: ApiFamily | null;
   createMode: "select" | "new";
   selectedEndpointId: string;
   newEndpointForm: EndpointCreate;
@@ -52,7 +56,18 @@ interface BuildConnectionDraftPayloadInput {
   endpointSourceDefaultName: string | null;
 }
 
+export function normalizeConnectionHeaders(
+  headerRows: HeaderRow[],
+): Record<string, string> | null {
+  const customHeaders = Object.fromEntries(
+    headerRows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value]),
+  );
+
+  return Object.keys(customHeaders).length > 0 ? customHeaders : null;
+}
+
 export function buildConnectionDraftPayload({
+  apiFamily,
   createMode,
   selectedEndpointId,
   newEndpointForm,
@@ -64,12 +79,7 @@ export function buildConnectionDraftPayload({
   errorMessage: string | null;
   payload: ConnectionCreate | null;
 } {
-  const customHeaders =
-    headerRows.length > 0
-      ? Object.fromEntries(
-          headerRows.filter((row) => row.key.trim()).map((row) => [row.key.trim(), row.value]),
-        )
-      : null;
+  const customHeaders = normalizeConnectionHeaders(headerRows);
 
   const typedConnectionName = (connectionForm.name ?? "").trim();
   const resolvedConnectionName =
@@ -84,10 +94,18 @@ export function buildConnectionDraftPayload({
     name: resolvedConnectionName,
     custom_headers: customHeaders,
     pricing_template_id: connectionForm.pricing_template_id,
+    openai_probe_endpoint_variant:
+      apiFamily === "openai"
+        ? normalizeOpenAIProbeEndpointVariant(connectionForm.openai_probe_endpoint_variant)
+        : undefined,
     qps_limit: normalizeLimiterField(connectionForm.qps_limit),
     max_in_flight_non_stream: normalizeLimiterField(connectionForm.max_in_flight_non_stream),
     max_in_flight_stream: normalizeLimiterField(connectionForm.max_in_flight_stream),
   };
+
+  if (apiFamily !== "openai") {
+    delete payload.openai_probe_endpoint_variant;
+  }
 
   if (createMode === "select") {
     if (!selectedEndpointId) {

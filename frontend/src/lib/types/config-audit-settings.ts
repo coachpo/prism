@@ -4,6 +4,7 @@ import type {
 } from "./model-stats";
 import type { LoadbalanceStrategyCreate } from "./loadbalance";
 import type { ApiFamily } from "./vendor";
+import type { OpenAIProbeEndpointVariant } from "./routing";
 
 export interface ConfigEndpointExport {
   name: string;
@@ -18,12 +19,6 @@ export interface ConfigEndpointImport {
   api_key_secret_ref?: string | null;
   position?: number | null;
 }
-
-export type OpenAIProbeEndpointVariant =
-  | "responses_minimal"
-  | "responses_reasoning_none"
-  | "chat_completions_minimal"
-  | "chat_completions_reasoning_none";
 
 export interface ConfigPricingTemplateExport {
   name: string;
