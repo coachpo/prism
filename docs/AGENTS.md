@@ -13,6 +13,7 @@ docs/
 ├── PRD.md
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
+├── WORKFLOWS.md
 ├── TEST_CASE_GENERATION_METHODOLOGY.md
 └── archive/
     └── AGENTS.md
@@ -20,7 +21,7 @@ docs/
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
-- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references.
+- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references.
 - `archive/` holds finished implementation notes, archived one-off plans, finished test execution notes, and any retained historical evidence, including optional adjacent screenshots or payload artifacts when provenance matters.
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
 
@@ -29,6 +30,7 @@ docs/
 - Backend/frontend version surfaces: `../backend/VERSION`, `../backend/pyproject.toml`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Frontend request-log context: `REQUESTS_PAGE.md`
+- Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans outside docs: `../.sisyphus/plans/`
 - Archive provenance, dated naming, and optional evidence-file rules: `archive/AGENTS.md`, `archive/`

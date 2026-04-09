@@ -136,7 +136,7 @@ Required behavior:
 - Sticky headers in all views.
 - Page-size controls limited to `100`, `300`, and `500`, with `100` as the route default.
 - Footer controls for page size plus previous and next pagination.
-- Show a Vendor column immediately after API Family, rendering `vendor_name` when present and `—` when missing.
+- Show one combined `Vendor / API` column that renders `vendor_name` (or `—`) on the first line and the formatted `api_family` with icon on the second line.
 
 ### 7.4 Detail Drawer Workflow
 

@@ -266,10 +266,11 @@ Lifecycle notes:
 - Vendor rows are managed globally from Settings → Global.
 - Vendor catalog import/export now lives under `/api/config/vendors/*` and is the authoritative bundle path for shared vendor metadata.
 - Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` when present and never mutate existing global vendor metadata from profile-bundle hint drift.
+- Canonical system vendor keys (`openai`, `anthropic`, `gemini`) surface through the API with a derived `is_readonly` flag and reject identity edits or deletion through `/api/vendors/*`; `is_readonly` is behavior, not a persisted table column.
 - `icon_key` is shared global metadata and is presentation-only; runtime routing and compatibility continue to use `api_family` on model rows.
 - `model_configs.vendor_id` references these shared rows as optional metadata; deleting a vendor never cascades into model deletion.
 - `GET /api/vendors/{id}/models` returns the current profile-scoped referencing model rows as informational delete context.
-- `DELETE /api/vendors/{id}` hard-deletes the vendor and clears `model_configs.vendor_id` plus delete-safe observability vendor foreign keys to `NULL`.
+- `DELETE /api/vendors/{id}` hard-deletes editable vendors and clears `model_configs.vendor_id` plus delete-safe observability vendor foreign keys to `NULL`; readonly system vendors are rejected earlier by the API layer.
 
 ### 2.2 `profiles`
 

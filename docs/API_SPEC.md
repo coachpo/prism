@@ -140,6 +140,7 @@ Response `200`:
     "key": "openai",
     "description": "OpenAI API (GPT models)",
     "icon_key": "openai",
+    "is_readonly": true,
     "audit_enabled": false,
     "audit_capture_bodies": true,
     "created_at": "2025-01-01T00:00:00Z",
@@ -162,6 +163,8 @@ Request:
 }
 ```
 Response `201`: Created vendor object.
+
+Returns `403` when `key` matches a canonical readonly system vendor such as `openai`, `anthropic`, or `gemini`.
 
 #### Get Vendor
 ```
@@ -212,17 +215,23 @@ Mutable vendor fields:
 - `audit_enabled` (enable or disable audit for this vendor)
 - `audit_capture_bodies` (when false, request/response bodies are stored as `null` for this vendor)
 
+Readonly vendor behavior:
+- API responses include derived `is_readonly` for canonical system vendors.
+- Readonly vendors may update audit toggles, but identity fields (`key`, `name`, `description`, `icon_key`) are rejected with `403`.
+
 #### Delete Vendor
 ```
 DELETE /api/vendors/{id}
 ```
 Response `204`: Vendor deleted.
-If the vendor is still referenced by live model rows, the delete still returns `204`. The backend nulls those models' `vendor_id` and returns `vendor: null` on later model reads. Runtime compatibility continues to come from each model's required `api_family`.
+Readonly system vendors return `403` and cannot be deleted from `/api/vendors/*`.
+If an editable vendor is still referenced by live model rows, the delete still returns `204`. The backend nulls those models' `vendor_id` and returns `vendor: null` on later model reads. Runtime compatibility continues to come from each model's required `api_family`.
 
 Vendor name, key, and description are part of the global vendor catalog.
 
 Vendor records are global/shared and are not profile-scoped. The frontend manages them from Settings → Global, while profile-scoped audit toggles continue to consume the shared catalog from the Profile tab.
 `icon_key` is optional, persisted, and presentation-only. It never affects runtime routing or `api_family` behavior. Vendor icon presets are locally vendored from the pinned `cc-switch` source, and the frontend falls back to a monogram or generic placeholder when the stored `icon_key` is unknown or missing. Source-backed asset IDs are persisted directly, so Z.ai uses `icon_key="zhipu"` and Microsoft/Azure uses `icon_key="azure"`.
+The seeded OpenAI, Anthropic, and Gemini catalog rows currently surface as readonly system vendors in live API responses.
 
 ---
 

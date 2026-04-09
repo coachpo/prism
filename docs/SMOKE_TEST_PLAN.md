@@ -105,6 +105,7 @@ Prepare seed state through API (not manual DB edits):
 |---|---|
 | `GET /health` | A04 |
 | `GET /api/profiles` | M01, M03, M08, M09 |
+| `GET /api/profiles/bootstrap` | M01A |
 | `GET /api/profiles/active` | M02, M11 |
 | `POST /api/profiles` | M04, M10 |
 | `PATCH /api/profiles/{id}` | M05 |
@@ -519,6 +520,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
+| M01A | P0 | Bootstrap profiles for the shell | `200`, returns `profiles`, `active_profile`, and `profile_limits.max_profiles` in one payload |
 | M01 | P0 | List profiles | `200`, excludes soft-deleted profiles from normal listing |
 | M02 | P0 | Get active profile | Exactly one active profile returned |
 | M03 | P0 | Management API profile resolution (`X-Profile-Id` absent vs present) | Profile-scoped `/api/*` rejects missing header (`400`); valid header scopes requests to selected profile |

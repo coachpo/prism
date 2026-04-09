@@ -2,6 +2,11 @@
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the live local stack started with `./start.sh full`, the running backend contract at `http://localhost:18000/openapi.json`, and the current route shell in `frontend/src/App.tsx`.
 
+Validated again against a live local stack on 2026-04-09:
+- `GET /health` returned `{"status":"ok","version":"0.2.19"}` and `/openapi.json` exposed 79 mounted paths.
+- The rendered frontend confirmed `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/statistics` as live protected routes.
+- A supplied OpenAI-compatible upstream passed Prism connection health checks and two non-streaming proxy requests (`/v1/chat/completions` and `/v1/responses`), and both requests appeared in Request Logs plus Dashboard activity.
+
 ## Evidence Sources
 
 - Frontend route surface: `frontend/src/App.tsx`
