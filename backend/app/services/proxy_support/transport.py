@@ -25,15 +25,21 @@ async def proxy_request(
     timeout: httpx.Timeout | None = None,
 ) -> httpx.Response:
     if raw_body is None:
-        send_req = client.build_request(method, upstream_url, headers=headers)
+        send_req = client.build_request(
+            method,
+            upstream_url,
+            headers=headers,
+            timeout=timeout,
+        )
     else:
         send_req = client.build_request(
             method,
             upstream_url,
             headers=headers,
             content=raw_body,
+            timeout=timeout,
         )
-    return await client.send(send_req, follow_redirects=True, timeout=timeout)
+    return await client.send(send_req, follow_redirects=True)
 
 
 async def proxy_stream(
@@ -45,15 +51,21 @@ async def proxy_stream(
     timeout: httpx.Timeout | None = None,
 ):
     if raw_body is None:
-        send_req = client.build_request(method, upstream_url, headers=headers)
+        send_req = client.build_request(
+            method,
+            upstream_url,
+            headers=headers,
+            timeout=timeout,
+        )
     else:
         send_req = client.build_request(
             method,
             upstream_url,
             headers=headers,
             content=raw_body,
+            timeout=timeout,
         )
-    return await client.send(send_req, follow_redirects=True, stream=True, timeout=timeout)
+    return await client.send(send_req, follow_redirects=True, stream=True)
 
 
 def should_failover(status_code: int, failover_status_codes: Sequence[int]) -> bool:
