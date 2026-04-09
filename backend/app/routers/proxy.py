@@ -21,6 +21,7 @@ from app.services.proxy_service import (
     build_upstream_url,
     filter_response_headers,
     proxy_request,
+    proxy_stream,
     should_failover,
 )
 from app.services.stats_service import log_final_usage_request_event, log_request
@@ -124,6 +125,7 @@ async def _handle_proxy(
             record_connection_failure_fn=record_connection_failure,
             record_connection_recovery_fn=record_connection_recovery,
             proxy_request_fn=proxy_request,
+            proxy_stream_fn=proxy_stream,
             record_audit_log_fn=record_audit_log,
             release_connection_lease_fn=release_connection_lease,
             should_failover_fn=should_failover,

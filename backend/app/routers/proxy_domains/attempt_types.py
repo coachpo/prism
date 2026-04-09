@@ -29,6 +29,7 @@ class ProxyRuntimeDependencies:
     record_connection_failure_fn: Callable[..., Awaitable[None]]
     record_connection_recovery_fn: Callable[..., Awaitable[None]]
     proxy_request_fn: Callable[..., Awaitable[httpx.Response]]
+    proxy_stream_fn: Callable[..., Awaitable[httpx.Response]]
     record_audit_log_fn: Callable[..., Awaitable[None]]
     release_connection_lease_fn: Callable[..., Awaitable[bool]]
     should_failover_fn: Callable[[int, Sequence[int]], bool]
