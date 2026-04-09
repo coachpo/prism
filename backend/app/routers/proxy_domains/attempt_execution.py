@@ -9,7 +9,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Connection
-from app.services.loadbalancer.executor import execute_deadline_aware_attempts
+from app.services.loadbalancer.executor import execute_planned_attempts
 
 from .attempt_handlers import (
     handle_buffered_attempt,
@@ -212,37 +212,26 @@ async def execute_proxy_attempts(
                 )
             raise
 
-    execution_result = await execute_deadline_aware_attempts(
+    execution_result = await execute_planned_attempts(
         db=db,
         profile_id=profile_id,
         model_config=setup.model_config,
         policy=setup.failover_policy,
         initial_candidates=setup.initial_candidates,
         is_streaming=setup.is_streaming,
-        request_deadline_at_monotonic=setup.request_deadline_at_monotonic,
         run_attempt_fn=run_attempt,
     )
 
     if execution_result.response is not None:
         return cast(Response | StreamingResponse, execution_result.response)
 
-    final_status_code = 504 if execution_result.deadline_exhausted else 502
     if last_attempt_target is not None:
         _ = await record_final_usage_event(
             deps=deps,
             state=state,
             target=last_attempt_target,
-            status_code=final_status_code,
+            status_code=502,
             attempt_count=max(execution_result.attempt_count, 1),
-        )
-
-    if execution_result.deadline_exhausted:
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                f"Request deadline exhausted for model '{setup.model_id}'. "
-                f"Last error: {execution_result.last_error}"
-            ),
         )
 
     if not execution_result.attempted_any_endpoint:

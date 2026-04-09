@@ -549,17 +549,6 @@ def build_streaming_response(
 
     async def commit_response(attempt_count: int) -> StreamingResponse:
         async def _iter_and_log(resp: httpx.Response):
-            stream_started_at = time.monotonic()
-            hard_cap_ms = state.setup.failover_policy.stream_hard_cap_timeout_ms
-            hard_cap_seconds = (
-                None if hard_cap_ms is None else max(float(hard_cap_ms) / 1000.0, 0.0)
-            )
-
-            def _remaining_hard_cap_seconds() -> float | None:
-                if hard_cap_seconds is None:
-                    return None
-                return hard_cap_seconds - (time.monotonic() - stream_started_at)
-
             is_sse_stream = _is_sse_stream(
                 resp.headers.get("content-type")
                 if isinstance(resp.headers.get("content-type"), str)
@@ -608,12 +597,6 @@ def build_streaming_response(
                     finalization_buffer.append(first_chunk)
                     yield first_chunk
                 async for chunk in remaining_stream_iter:
-                    remaining_hard_cap_seconds = _remaining_hard_cap_seconds()
-                    if (
-                        remaining_hard_cap_seconds is not None
-                        and remaining_hard_cap_seconds <= 0
-                    ):
-                        raise TimeoutError("stream hard cap exhausted")
                     if chunk:
                         finalization_buffer.append(chunk)
                         yield chunk
@@ -657,24 +640,7 @@ def build_streaming_response(
                     token_usage=token_usage,
                 )
 
-                remaining_hard_cap_seconds = _remaining_hard_cap_seconds()
-                if (
-                    stream_error is None
-                    and remaining_hard_cap_seconds is not None
-                    and remaining_hard_cap_seconds <= 0
-                ):
-                    stream_error = TimeoutError("stream hard cap exhausted")
-                    stream_error_detail = str(stream_error)
-
-                try:
-                    if stream_error is None and remaining_hard_cap_seconds is not None:
-                        async with asyncio.timeout(remaining_hard_cap_seconds):
-                            _ = await await_stream_finalization(snapshot)
-                    else:
-                        _ = await await_stream_finalization(snapshot)
-                except TimeoutError as exc:
-                    stream_error = exc
-                    stream_error_detail = str(exc)
+                _ = await await_stream_finalization(snapshot)
 
                 try:
                     if stream_error is not None:

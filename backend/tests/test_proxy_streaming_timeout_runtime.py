@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from types import SimpleNamespace
+from typing import Any, cast
 
 import httpx
 
@@ -32,12 +32,8 @@ async def _noop_bool(*args, **kwargs):
     return True
 
 
-def _make_state(*, open_ms: int, precommit_ms: int, hard_cap_ms: int | None):
+def _make_state():
     policy = SimpleNamespace(
-        attempt_open_timeout_ms=open_ms,
-        buffered_total_timeout_ms=30_000,
-        stream_precommit_timeout_ms=precommit_ms,
-        stream_hard_cap_timeout_ms=hard_cap_ms,
         failover_status_codes=(500, 502, 503, 504),
         failover_recovery_enabled=True,
         failover_cooldown_seconds=30.0,
@@ -46,7 +42,6 @@ def _make_state(*, open_ms: int, precommit_ms: int, hard_cap_ms: int | None):
         method="POST",
         request_compressed=False,
         failover_policy=policy,
-        request_deadline_at_monotonic=time.monotonic() + (precommit_ms / 1000.0),
         model_id="gpt-5.4",
         vendor_id=None,
         vendor_key=None,
@@ -72,10 +67,6 @@ def _make_state(*, open_ms: int, precommit_ms: int, hard_cap_ms: int | None):
 def _make_target():
     endpoint = SimpleNamespace(
         base_url="http://demo.invalid",
-        pool_timeout=5.0,
-        connect_timeout=10.0,
-        write_timeout=30.0,
-        read_idle_timeout=120.0,
     )
     connection = SimpleNamespace(
         id=1,
@@ -95,10 +86,13 @@ def _make_target():
     )
 
 
-def _make_deps(stream_factory):
-    async def proxy_stream_fn(
-        client, method, upstream_url, headers, raw_body, timeout=None
-    ):
+def _make_deps(
+    stream_factory,
+    *,
+    record_connection_failure_fn=_noop,
+    record_connection_recovery_fn=_noop,
+):
+    async def proxy_stream_fn(client, method, upstream_url, headers, raw_body):
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
@@ -113,8 +107,8 @@ def _make_deps(stream_factory):
         should_failover_fn=lambda status, codes: status in codes,
         log_request_fn=_noop,
         log_usage_request_event_fn=_noop,
-        record_connection_failure_fn=_noop,
-        record_connection_recovery_fn=_noop,
+        record_connection_failure_fn=record_connection_failure_fn,
+        record_connection_recovery_fn=record_connection_recovery_fn,
         record_audit_log_fn=_noop,
         release_connection_lease_fn=_noop_bool,
         heartbeat_connection_lease_fn=_noop_bool,
@@ -130,35 +124,7 @@ async def _collect_stream(prepared_response) -> list[bytes]:
     return chunks
 
 
-def test_streaming_attempt_requires_first_chunk_before_acceptance(monkeypatch) -> None:
-    async def run() -> None:
-        monkeypatch.setattr(
-            attempt_streaming,
-            "build_stream_finalization_snapshot",
-            lambda **kwargs: None,
-        )
-        monkeypatch.setattr(attempt_streaming, "await_stream_finalization", _noop)
-        state = _make_state(open_ms=500, precommit_ms=1000, hard_cap_ms=1000)
-        deps = _make_deps(lambda: DelayedStream([(0.05, b"data: first\n\n")]))
-        target = _make_target()
-        async with httpx.AsyncClient() as client:
-            start_time = time.monotonic()
-            result = await handle_streaming_attempt(
-                deps=deps,
-                state=state,
-                target=target,
-                client=client,
-                start_time=start_time,
-            )
-            elapsed_ms = round((time.monotonic() - start_time) * 1000)
-        assert result.accepted is True
-        assert result.prepared_response is not None
-        assert elapsed_ms >= 40
-
-    asyncio.run(run())
-
-
-def test_streaming_attempt_open_timeout_bounds_header_to_first_byte_wait(
+def test_streaming_attempt_accepts_stream_without_strategy_timeout_fields(
     monkeypatch,
 ) -> None:
     async def run() -> None:
@@ -168,85 +134,27 @@ def test_streaming_attempt_open_timeout_bounds_header_to_first_byte_wait(
             lambda **kwargs: None,
         )
         monkeypatch.setattr(attempt_streaming, "await_stream_finalization", _noop)
-        state = _make_state(open_ms=80, precommit_ms=1000, hard_cap_ms=1000)
-        deps = _make_deps(lambda: DelayedStream([(0.25, b"data: first\n\n")]))
-        target = _make_target()
-        async with httpx.AsyncClient() as client:
-            start_time = time.monotonic()
-            result = await handle_streaming_attempt(
-                deps=deps,
-                state=state,
-                target=target,
-                client=client,
-                start_time=start_time,
-            )
-            elapsed_ms = round((time.monotonic() - start_time) * 1000)
-        assert result.accepted is False
-        assert elapsed_ms < 200
-
-    asyncio.run(run())
-
-
-def test_streaming_precommit_budget_still_bounds_total_time_to_first_commit(
-    monkeypatch,
-) -> None:
-    async def run() -> None:
-        monkeypatch.setattr(
-            attempt_streaming,
-            "build_stream_finalization_snapshot",
-            lambda **kwargs: None,
-        )
-        monkeypatch.setattr(attempt_streaming, "await_stream_finalization", _noop)
-        state = _make_state(open_ms=1000, precommit_ms=80, hard_cap_ms=1000)
-        deps = _make_deps(lambda: DelayedStream([(0.25, b"data: first\n\n")]))
-        target = _make_target()
-        async with httpx.AsyncClient() as client:
-            start_time = time.monotonic()
-            result = await handle_streaming_attempt(
-                deps=deps,
-                state=state,
-                target=target,
-                client=client,
-                start_time=start_time,
-            )
-            elapsed_ms = round((time.monotonic() - start_time) * 1000)
-        assert result.accepted is False
-        assert elapsed_ms < 200
-
-    asyncio.run(run())
-
-
-def test_streaming_hard_cap_applies_after_commit_during_iteration_and_finalization(
-    monkeypatch,
-) -> None:
-    async def run() -> None:
-        monkeypatch.setattr(
-            attempt_streaming,
-            "build_stream_finalization_snapshot",
-            lambda **kwargs: None,
-        )
-        monkeypatch.setattr(attempt_streaming, "await_stream_finalization", _noop)
-        state = _make_state(open_ms=500, precommit_ms=1000, hard_cap_ms=120)
+        state = _make_state()
         deps = _make_deps(
             lambda: DelayedStream(
                 [
-                    (0.03, b"data: first\n\n"),
-                    (0.25, b"data: second\n\n"),
+                    (0.05, b"data: first\n\n"),
+                    (0.01, b"data: second\n\n"),
                 ]
             )
         )
         target = _make_target()
         async with httpx.AsyncClient() as client:
             result = await handle_streaming_attempt(
-                deps=deps,
-                state=state,
-                target=target,
+                deps=cast(Any, deps),
+                state=cast(Any, state),
+                target=cast(Any, target),
                 client=client,
-                start_time=time.monotonic(),
+                start_time=0.0,
             )
         assert result.accepted is True
         assert result.prepared_response is not None
         chunks = await _collect_stream(result.prepared_response)
-        assert chunks == [b"data: first\n\n"]
+        assert chunks == [b"data: first\n\n", b"data: second\n\n"]
 
     asyncio.run(run())

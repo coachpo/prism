@@ -18,7 +18,6 @@ from app.services.loadbalancer.policy import (
     resolve_effective_loadbalance_policy,
     serialize_auto_recovery,
     serialize_routing_policy,
-    serialize_timeout_policy,
 )
 
 from .common import ApiFamily, AuthType, OpenAIProbeEndpointVariant
@@ -238,15 +237,6 @@ class AutoRecovery(BaseModel):
         return list(normalize_failover_status_codes(value))
 
 
-class TimeoutPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    attempt_open_timeout_ms: int = Field(default=2_000, ge=1, le=300_000)
-    buffered_total_timeout_ms: int = Field(default=30_000, ge=1, le=300_000)
-    stream_precommit_timeout_ms: int = Field(default=5_000, ge=1, le=300_000)
-    stream_hard_cap_timeout_ms: int | None = Field(default=120_000, ge=1, le=86_400_000)
-
-
 class RoutingPolicyHedge(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -329,7 +319,6 @@ class LoadbalanceStrategyBase(BaseModel):
 
     name: str
     strategy_type: Literal["legacy", "adaptive"]
-    timeout_policy: TimeoutPolicy
     legacy_strategy_type: Literal["single", "fill-first", "round-robin"] | None = None
     auto_recovery: AutoRecovery | None = None
     routing_policy: RoutingPolicy | None = None
@@ -393,7 +382,6 @@ class LoadbalanceStrategySummary(LoadbalanceStrategyBase):
             "id": getattr(value, "id"),
             "name": getattr(value, "name"),
             "strategy_type": policy.strategy_type,
-            "timeout_policy": serialize_timeout_policy(policy),
             "legacy_strategy_type": policy.legacy_strategy_type,
             "auto_recovery": None,
             "routing_policy": None,
@@ -580,7 +568,6 @@ __all__ = [
     "LoadbalanceStrategyResponse",
     "LoadbalanceStrategySummary",
     "LoadbalanceStrategyUpdate",
-    "TimeoutPolicy",
     "ModelConnectionsBatchItem",
     "ModelConnectionsBatchRequest",
     "ModelConnectionsBatchResponse",

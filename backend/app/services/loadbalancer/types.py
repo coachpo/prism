@@ -7,6 +7,7 @@ from app.models.models import Connection
 from app.services.loadbalancer.policy import (
     BanMode,
     EffectiveLoadbalancePolicy,
+    build_default_routing_policy_document,
     resolve_effective_loadbalance_policy,
 )
 
@@ -87,7 +88,6 @@ class AttemptPlan:
     ) -> None:
         resolved_policy = policy or resolve_effective_loadbalance_policy(
             SimpleNamespace(
-                timeout_policy=build_default_timeout_policy_document(),
                 routing_policy=build_default_routing_policy_document(),
             )
         )

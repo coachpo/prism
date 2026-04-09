@@ -2,9 +2,7 @@ from app.models.models import LoadbalanceStrategy
 from app.schemas.schemas import LoadbalanceStrategySummary
 
 
-def test_loadbalance_strategy_summary_derives_timeout_policy_from_orm_defaults() -> (
-    None
-):
+def test_loadbalance_strategy_summary_omits_timeout_policy_from_payload() -> None:
     strategy = LoadbalanceStrategy(
         id=1,
         profile_id=1,
@@ -13,11 +11,10 @@ def test_loadbalance_strategy_summary_derives_timeout_policy_from_orm_defaults()
         legacy_strategy_type="round-robin",
         auto_recovery={"mode": "disabled"},
         routing_policy=None,
-        timeout_policy=None,
     )
 
     summary = LoadbalanceStrategySummary.model_validate(strategy)
 
-    assert summary.timeout_policy.attempt_open_timeout_ms > 0
-    assert summary.timeout_policy.buffered_total_timeout_ms > 0
-    assert summary.timeout_policy.stream_precommit_timeout_ms > 0
+    assert "timeout_policy" not in summary.model_dump()
+    assert summary.strategy_type == "legacy"
+    assert summary.legacy_strategy_type == "round-robin"

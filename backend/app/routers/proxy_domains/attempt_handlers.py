@@ -1,12 +1,10 @@
-import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
 
 import httpx
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 
-from app.services.proxy_support.transport import build_upstream_timeout
 from app.services.stats_service import extract_token_usage
 
 from .attempt_outcome_reporting import (
@@ -25,10 +23,6 @@ from .attempt_types import (
 from .proxy_request_helpers import classify_failover_failure, is_recovery_success_status
 
 logger = logging.getLogger(__name__)
-
-
-def _remaining_stream_precommit_seconds(state: ProxyRequestState) -> float:
-    return max(state.setup.request_deadline_at_monotonic - time.monotonic(), 0.0)
 
 
 async def _await_first_stream_chunk(stream_iter: AsyncIterator[bytes]) -> bytes | None:
@@ -179,103 +173,48 @@ async def handle_streaming_attempt(
     response_headers: dict[str, str] | None = None
     remaining_stream_iter: AsyncIterator[bytes] | None = None
 
-    remaining_precommit_seconds = _remaining_stream_precommit_seconds(state)
-    if remaining_precommit_seconds <= 0:
-        return AttemptExecutionResult(
-            attempted=True,
-            accepted=False,
-            error_detail="request deadline exhausted before any candidate won",
-        )
-
     first_chunk: bytes | None = None
-    open_phase_timeout_seconds = min(
-        remaining_precommit_seconds,
-        state.setup.failover_policy.attempt_open_timeout_ms / 1000.0,
-    )
 
     try:
-        async with asyncio.timeout(open_phase_timeout_seconds):
-            upstream_resp = await deps.proxy_stream_fn(
-                client,
-                state.setup.method,
-                target.upstream_url,
-                target.headers,
-                target.endpoint_body,
-                timeout=build_upstream_timeout(
-                    getattr(target.connection, "endpoint_rel", None)
-                ),
-            )
+        upstream_resp = await deps.proxy_stream_fn(
+            client,
+            state.setup.method,
+            target.upstream_url,
+            target.headers,
+            target.endpoint_body,
+        )
 
-            response_headers = deps.filter_response_headers_fn(
-                upstream_resp.headers,
-                was_requested_compressed=state.setup.request_compressed,
-            )
-            elapsed_ms = int((time.monotonic() - start_time) * 1000)
+        response_headers = deps.filter_response_headers_fn(
+            upstream_resp.headers,
+            was_requested_compressed=state.setup.request_compressed,
+        )
+        elapsed_ms = int((time.monotonic() - start_time) * 1000)
 
-            if upstream_resp.status_code >= 400:
-                response_body = await upstream_resp.aread()
-                await upstream_resp.aclose()
-                error_detail = response_error_detail(response_body)
+        if upstream_resp.status_code >= 400:
+            response_body = await upstream_resp.aread()
+            await upstream_resp.aclose()
+            error_detail = response_error_detail(response_body)
 
-                if deps.should_failover_fn(
+            if deps.should_failover_fn(
+                upstream_resp.status_code,
+                state.setup.failover_policy.failover_status_codes,
+            ):
+                logger.warning(
+                    "Endpoint %d failed with %d, trying next",
+                    target.connection.id,
                     upstream_resp.status_code,
-                    state.setup.failover_policy.failover_status_codes,
-                ):
-                    logger.warning(
-                        "Endpoint %d failed with %d, trying next",
-                        target.connection.id,
-                        upstream_resp.status_code,
-                    )
-                    _ = await log_and_audit_attempt(
-                        deps=deps,
-                        state=state,
-                        target=target,
-                        status_code=upstream_resp.status_code,
-                        response_headers=response_headers,
-                        response_body=response_body,
-                        is_stream=True,
-                        elapsed_ms=elapsed_ms,
-                        error_detail=error_detail,
-                    )
-                    await _release_limiter_lease_if_needed(
-                        deps=deps,
-                        state=state,
-                        target=target,
-                    )
-                    await _record_connection_failure_if_needed(
-                        deps=deps,
-                        state=state,
-                        target=target,
-                        status_code=upstream_resp.status_code,
-                        raw_body=response_body,
-                    )
-                    return AttemptExecutionResult(
-                        attempted=True,
-                        accepted=False,
-                        error_detail=f"Upstream returned {upstream_resp.status_code}",
-                    )
-
-                tokens = extract_token_usage(response_body)
-                return AttemptExecutionResult(
-                    attempted=True,
-                    accepted=True,
-                    prepared_response=_prepare_buffered_response(
-                        deps=deps,
-                        elapsed_ms=elapsed_ms,
-                        error_detail=error_detail,
-                        response_body=response_body,
-                        response_headers=response_headers,
-                        state=state,
-                        status_code=upstream_resp.status_code,
-                        target=target,
-                        tokens=tokens,
-                    ),
                 )
-
-            remaining_stream_iter = upstream_resp.aiter_bytes()
-            first_chunk = await _await_first_stream_chunk(remaining_stream_iter)
-            if first_chunk is None:
-                await upstream_resp.aclose()
+                _ = await log_and_audit_attempt(
+                    deps=deps,
+                    state=state,
+                    target=target,
+                    status_code=upstream_resp.status_code,
+                    response_headers=response_headers,
+                    response_body=response_body,
+                    is_stream=True,
+                    elapsed_ms=elapsed_ms,
+                    error_detail=error_detail,
+                )
                 await _release_limiter_lease_if_needed(
                     deps=deps,
                     state=state,
@@ -285,15 +224,52 @@ async def handle_streaming_attempt(
                     deps=deps,
                     state=state,
                     target=target,
-                    exception=TimeoutError(
-                        "upstream stream completed before first chunk"
-                    ),
+                    status_code=upstream_resp.status_code,
+                    raw_body=response_body,
                 )
                 return AttemptExecutionResult(
                     attempted=True,
                     accepted=False,
-                    error_detail="upstream stream completed before first chunk",
+                    error_detail=f"Upstream returned {upstream_resp.status_code}",
                 )
+
+            tokens = extract_token_usage(response_body)
+            return AttemptExecutionResult(
+                attempted=True,
+                accepted=True,
+                prepared_response=_prepare_buffered_response(
+                    deps=deps,
+                    elapsed_ms=elapsed_ms,
+                    error_detail=error_detail,
+                    response_body=response_body,
+                    response_headers=response_headers,
+                    state=state,
+                    status_code=upstream_resp.status_code,
+                    target=target,
+                    tokens=tokens,
+                ),
+            )
+
+        remaining_stream_iter = upstream_resp.aiter_bytes()
+        first_chunk = await _await_first_stream_chunk(remaining_stream_iter)
+        if first_chunk is None:
+            await upstream_resp.aclose()
+            await _release_limiter_lease_if_needed(
+                deps=deps,
+                state=state,
+                target=target,
+            )
+            await _record_connection_failure_if_needed(
+                deps=deps,
+                state=state,
+                target=target,
+                exception=TimeoutError("upstream stream completed before first chunk"),
+            )
+            return AttemptExecutionResult(
+                attempted=True,
+                accepted=False,
+                error_detail="upstream stream completed before first chunk",
+            )
     except TimeoutError:
         if upstream_resp is not None:
             await upstream_resp.aclose()
@@ -306,12 +282,12 @@ async def handle_streaming_attempt(
             deps=deps,
             state=state,
             target=target,
-            exception=TimeoutError("stream open deadline exhausted before first chunk"),
+            exception=TimeoutError("upstream stream open timed out before first chunk"),
         )
         return AttemptExecutionResult(
             attempted=True,
             accepted=False,
-            error_detail="stream open deadline exhausted before first chunk",
+            error_detail="upstream stream open timed out before first chunk",
         )
 
     if upstream_resp is None or response_headers is None:
@@ -353,9 +329,6 @@ async def handle_buffered_attempt(
         target.upstream_url,
         target.headers,
         target.endpoint_body,
-        timeout=build_upstream_timeout(
-            getattr(target.connection, "endpoint_rel", None)
-        ),
     )
     elapsed_ms = int((time.monotonic() - start_time) * 1000)
     response_headers = deps.filter_response_headers_fn(

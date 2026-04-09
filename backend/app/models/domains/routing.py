@@ -8,7 +8,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
-    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -63,10 +62,6 @@ class LoadbalanceStrategy(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     strategy_type: Mapped[str] = mapped_column(
         String(20), nullable=False, default="adaptive"
-    )
-    timeout_policy: Mapped[dict[str, Any]] = mapped_column(
-        JSONB(none_as_null=True),
-        nullable=False,
     )
     legacy_strategy_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     auto_recovery: Mapped[dict[str, Any] | None] = mapped_column(
@@ -234,10 +229,6 @@ class Endpoint(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     api_key: Mapped[str] = mapped_column(String(500), nullable=False)
-    pool_timeout: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
-    connect_timeout: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
-    write_timeout: Mapped[float] = mapped_column(Float, nullable=False, default=30.0)
-    read_idle_timeout: Mapped[float] = mapped_column(Float, nullable=False, default=120.0)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now

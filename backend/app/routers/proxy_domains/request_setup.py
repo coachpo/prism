@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import time
 from types import SimpleNamespace
 from typing import Callable, Protocol, cast
 from uuid import uuid4
@@ -82,7 +81,6 @@ class ProxyRequestSetup:
     method: str
     model_config: ModelConfig
     model_id: str
-    request_deadline_at_monotonic: float
     resolved_target_model_id: str
     vendor_id: int | None
     vendor_key: str | None
@@ -325,12 +323,6 @@ async def prepare_proxy_request(
         )
         for candidate in raw_candidates
     ]
-    request_budget_ms = (
-        failover_policy.stream_precommit_timeout_ms
-        if is_streaming
-        else failover_policy.buffered_total_timeout_ms
-    )
-    request_deadline_at_monotonic = time.monotonic() + (request_budget_ms / 1000.0)
 
     return ProxyRequestSetup(
         audit_capture_bodies=audit_capture_bodies,
@@ -349,7 +341,6 @@ async def prepare_proxy_request(
         method=method,
         model_config=model_config,
         model_id=model_id,
-        request_deadline_at_monotonic=request_deadline_at_monotonic,
         resolved_target_model_id=model_config.model_id,
         vendor_id=vendor_id,
         vendor_key=vendor_key,

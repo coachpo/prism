@@ -44,7 +44,6 @@ from app.services.loadbalancer.policy import (
     resolve_effective_loadbalance_policy,
     serialize_auto_recovery,
     serialize_routing_policy,
-    serialize_timeout_policy,
 )
 
 
@@ -165,10 +164,6 @@ async def build_export_payload(
                 name=endpoint.name,
                 base_url=endpoint.base_url,
                 api_key_secret_ref=secret_ref,
-                pool_timeout=endpoint.pool_timeout,
-                connect_timeout=endpoint.connect_timeout,
-                write_timeout=endpoint.write_timeout,
-                read_idle_timeout=endpoint.read_idle_timeout,
                 position=endpoint.position,
             )
         )
@@ -201,7 +196,6 @@ async def build_export_payload(
         payload: dict[str, object] = {
             "name": strategy.name,
             "strategy_type": policy.strategy_type,
-            "timeout_policy": serialize_timeout_policy(policy),
             "legacy_strategy_type": policy.legacy_strategy_type,
             "auto_recovery": None,
             "routing_policy": None,

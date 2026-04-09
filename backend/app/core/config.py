@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     pool_timeout: float = 5.0
     connect_timeout: float = 10.0
     read_idle_timeout: float = 120.0
-    write_timeout: float = 30.0
+    write_timeout: float = 60.0
     # Load balancer settings
     failover_cooldown_seconds: int = 60
     max_retries: int = 3

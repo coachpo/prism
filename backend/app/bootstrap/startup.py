@@ -23,7 +23,6 @@ from app.models.models import (
 from app.services.loadbalancer.policy import (
     build_default_auto_recovery_document,
     build_default_routing_policy_document,
-    build_default_timeout_policy_document,
 )
 from app.services.profile_invariants import ensure_profile_invariants
 from app.vendor_catalog import (
@@ -172,23 +171,19 @@ def _canonicalize_seeded_legacy_strategy(strategy: LoadbalanceStrategy) -> bool:
     before = (
         strategy.name,
         strategy.strategy_type,
-        strategy.timeout_policy,
         strategy.legacy_strategy_type,
         strategy.auto_recovery,
         strategy.routing_policy,
     )
-    timeout_policy = build_default_timeout_policy_document()
     auto_recovery = build_default_auto_recovery_document()
     strategy.name = DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
     strategy.strategy_type = "legacy"
-    strategy.timeout_policy = timeout_policy
     strategy.legacy_strategy_type = "round-robin"
     strategy.auto_recovery = auto_recovery
     strategy.routing_policy = None
     after = (
         strategy.name,
         strategy.strategy_type,
-        strategy.timeout_policy,
         strategy.legacy_strategy_type,
         strategy.auto_recovery,
         strategy.routing_policy,
@@ -200,23 +195,19 @@ def _canonicalize_seeded_adaptive_strategy(strategy: LoadbalanceStrategy) -> boo
     before = (
         strategy.name,
         strategy.strategy_type,
-        strategy.timeout_policy,
         strategy.legacy_strategy_type,
         strategy.auto_recovery,
         strategy.routing_policy,
     )
-    timeout_policy = build_default_timeout_policy_document()
     routing_policy = build_default_routing_policy_document()
     strategy.name = DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME
     strategy.strategy_type = "adaptive"
-    strategy.timeout_policy = timeout_policy
     strategy.legacy_strategy_type = None
     strategy.auto_recovery = None
     strategy.routing_policy = routing_policy
     after = (
         strategy.name,
         strategy.strategy_type,
-        strategy.timeout_policy,
         strategy.legacy_strategy_type,
         strategy.auto_recovery,
         strategy.routing_policy,

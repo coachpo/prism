@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Awaitable, Callable, Coroutine, cast
@@ -40,11 +39,10 @@ class AttemptExecutionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DeadlineAwareExecutionResult:
+class PlannedExecutionResult:
     response: object | None
     attempted_any_endpoint: bool
     limiter_denied_any_endpoint: bool
-    deadline_exhausted: bool
     last_error: str | None
     attempt_count: int
 
@@ -121,14 +119,6 @@ def _can_use_live_planner_rerank(connections: list[Connection]) -> bool:
     )
 
 
-def _remaining_seconds(
-    *,
-    request_deadline_at_monotonic: float,
-    monotonic_fn: Callable[[], float],
-) -> float:
-    return max(request_deadline_at_monotonic - monotonic_fn(), 0.0)
-
-
 async def _discard_result_if_needed(result: AttemptExecutionResult) -> None:
     prepared_response = result.prepared_response
     if not result.accepted or prepared_response is None:
@@ -196,7 +186,7 @@ async def _pick_live_candidate(
     return None
 
 
-async def execute_deadline_aware_attempts(
+async def execute_planned_attempts(
     *,
     db: AsyncSession,
     profile_id: int,
@@ -204,35 +194,16 @@ async def execute_deadline_aware_attempts(
     policy: EffectiveLoadbalancePolicy,
     initial_candidates: list[ExecutionCandidate],
     is_streaming: bool,
-    request_deadline_at_monotonic: float,
     run_attempt_fn: AttemptRunnerFn,
-    monotonic_fn: Callable[[], float] = time.monotonic,
-) -> DeadlineAwareExecutionResult:
+) -> PlannedExecutionResult:
     attempt_count = 0
     attempted_any_endpoint = False
     attempted_connection_ids: set[int] = set()
-    deadline_exhausted = False
     inflight_attempts: dict[int, _InFlightAttempt] = {}
     last_error: str | None = None
     limiter_denied_any_endpoint = False
     remaining_hedges = _hedge_budget(policy)
     initial_primary = initial_candidates[0] if initial_candidates else None
-
-    deadline_seconds = _remaining_seconds(
-        request_deadline_at_monotonic=request_deadline_at_monotonic,
-        monotonic_fn=monotonic_fn,
-    )
-    if deadline_seconds <= 0:
-        return DeadlineAwareExecutionResult(
-            response=None,
-            attempted_any_endpoint=False,
-            limiter_denied_any_endpoint=False,
-            deadline_exhausted=True,
-            last_error="request deadline exhausted before the first attempt",
-            attempt_count=0,
-        )
-
-    deadline_task = asyncio.create_task(asyncio.sleep(deadline_seconds))
     hedge_timer: asyncio.Task[None] | None = None
     candidate_connections = list(getattr(model_config, "connections", [])) or [
         candidate.connection for candidate in initial_candidates
@@ -278,31 +249,22 @@ async def execute_deadline_aware_attempts(
             or len(inflight_attempts) != 1
         ):
             return
-        remaining_seconds = _remaining_seconds(
-            request_deadline_at_monotonic=request_deadline_at_monotonic,
-            monotonic_fn=monotonic_fn,
-        )
-        if remaining_seconds <= 0:
-            return
-        hedge_timer = asyncio.create_task(
-            asyncio.sleep(min(policy.hedge_delay_ms / 1000.0, remaining_seconds))
-        )
+        hedge_timer = asyncio.create_task(asyncio.sleep(policy.hedge_delay_ms / 1000.0))
 
     try:
         launched = await maybe_launch_next_candidate(use_initial_primary=True)
         if not launched:
-            return DeadlineAwareExecutionResult(
+            return PlannedExecutionResult(
                 response=None,
                 attempted_any_endpoint=False,
                 limiter_denied_any_endpoint=False,
-                deadline_exhausted=False,
                 last_error=None,
                 attempt_count=0,
             )
         maybe_arm_hedge_timer()
 
         while inflight_attempts:
-            wait_set: set[asyncio.Task[object]] = {deadline_task}
+            wait_set: set[asyncio.Task[object]] = set()
             if hedge_timer is not None:
                 wait_set.add(hedge_timer)
             wait_set.update(
@@ -311,11 +273,6 @@ async def execute_deadline_aware_attempts(
             )
 
             done, _ = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
-
-            if deadline_task in done:
-                deadline_exhausted = True
-                last_error = "request deadline exhausted before any candidate won"
-                break
 
             if hedge_timer is not None and hedge_timer in done:
                 hedge_timer = None
@@ -376,11 +333,10 @@ async def execute_deadline_aware_attempts(
                         "Accepted attempt results must include prepared_response"
                     )
                 response = await prepared_response.commit_response_fn(attempt_count)
-                return DeadlineAwareExecutionResult(
+                return PlannedExecutionResult(
                     response=response,
                     attempted_any_endpoint=attempted_any_endpoint,
                     limiter_denied_any_endpoint=limiter_denied_any_endpoint,
-                    deadline_exhausted=False,
                     last_error=None,
                     attempt_count=attempt_count,
                 )
@@ -394,15 +350,10 @@ async def execute_deadline_aware_attempts(
 
             maybe_arm_hedge_timer()
 
-        if deadline_exhausted:
-            await _cancel_inflight_attempts(inflight_attempts)
-            inflight_attempts.clear()
-
-        return DeadlineAwareExecutionResult(
+        return PlannedExecutionResult(
             response=None,
             attempted_any_endpoint=attempted_any_endpoint,
             limiter_denied_any_endpoint=limiter_denied_any_endpoint,
-            deadline_exhausted=deadline_exhausted,
             last_error=last_error,
             attempt_count=attempt_count,
         )
@@ -410,14 +361,12 @@ async def execute_deadline_aware_attempts(
         if hedge_timer is not None:
             hedge_timer.cancel()
             await asyncio.gather(hedge_timer, return_exceptions=True)
-        deadline_task.cancel()
-        await asyncio.gather(deadline_task, return_exceptions=True)
 
 
 __all__ = [
     "AttemptExecutionResult",
-    "DeadlineAwareExecutionResult",
     "ExecutionCandidate",
-    "execute_deadline_aware_attempts",
+    "execute_planned_attempts",
+    "PlannedExecutionResult",
     "PreparedExecutionResponse",
 ]

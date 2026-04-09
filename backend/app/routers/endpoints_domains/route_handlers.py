@@ -65,10 +65,6 @@ async def create_endpoint_record(
         name=endpoint_name,
         base_url=normalized_url,
         api_key=encrypt_secret(body.api_key),
-        pool_timeout=body.pool_timeout,
-        connect_timeout=body.connect_timeout,
-        write_timeout=body.write_timeout,
-        read_idle_timeout=body.read_idle_timeout,
         position=await get_next_endpoint_position(db, profile_id=profile_id),
     )
     db.add(endpoint)
@@ -220,10 +216,6 @@ async def duplicate_endpoint_record(
         name=duplicate_name,
         base_url=source_endpoint.base_url,
         api_key=source_endpoint.api_key,
-        pool_timeout=source_endpoint.pool_timeout,
-        connect_timeout=source_endpoint.connect_timeout,
-        write_timeout=source_endpoint.write_timeout,
-        read_idle_timeout=source_endpoint.read_idle_timeout,
         position=await get_next_endpoint_position(db, profile_id=profile_id),
     )
     db.add(duplicate)

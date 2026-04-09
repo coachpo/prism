@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any, cast
 
 import httpx
 
@@ -49,27 +50,20 @@ class RecordingClient:
         return httpx.Response(200, request=request)
 
 
-def test_proxy_request_applies_timeout_at_build_request_only() -> None:
+def test_proxy_request_uses_shared_client_timeout_configuration() -> None:
     async def run() -> None:
         client = RecordingClient()
-        timeout = httpx.Timeout(connect=10.0, read=20.0, write=30.0, pool=5.0)
 
         response = await proxy_request(
-            client=client,
+            client=cast(Any, client),
             method="POST",
             upstream_url="http://example.invalid/v1/chat/completions",
             headers={"x-test": "1"},
             raw_body=b"{}",
-            timeout=timeout,
         )
 
         assert response.status_code == 200
-        assert client.built_requests[0].extensions["timeout"] == {
-            "connect": 10.0,
-            "read": 20.0,
-            "write": 30.0,
-            "pool": 5.0,
-        }
+        assert "timeout" not in client.built_requests[0].extensions
         assert client.send_calls == [
             {
                 "request": client.built_requests[0],
@@ -81,27 +75,20 @@ def test_proxy_request_applies_timeout_at_build_request_only() -> None:
     asyncio.run(run())
 
 
-def test_proxy_stream_applies_timeout_at_build_request_only() -> None:
+def test_proxy_stream_uses_shared_client_timeout_configuration() -> None:
     async def run() -> None:
         client = RecordingClient()
-        timeout = httpx.Timeout(connect=11.0, read=21.0, write=31.0, pool=6.0)
 
         response = await proxy_stream(
-            client=client,
+            client=cast(Any, client),
             method="POST",
             upstream_url="http://example.invalid/v1/chat/completions",
             headers={"x-test": "1"},
             raw_body=b"{}",
-            timeout=timeout,
         )
 
         assert response.status_code == 200
-        assert client.built_requests[0].extensions["timeout"] == {
-            "connect": 11.0,
-            "read": 21.0,
-            "write": 31.0,
-            "pool": 6.0,
-        }
+        assert "timeout" not in client.built_requests[0].extensions
         assert client.send_calls == [
             {
                 "request": client.built_requests[0],
