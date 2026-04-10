@@ -272,6 +272,9 @@ export interface Messages {
   };
   loadbalanceStrategiesTable: {
     adaptiveRoutingSummary: (label: string) => string;
+    adaptiveOpenWindowSummary: (baseSeconds: string, maxSeconds: string) => string;
+    adaptiveBanManualDismiss: (strikes: string) => string;
+    adaptiveBanTemporary: (strikes: string, durationSeconds: string) => string;
     actions: string;
     addStrategy: string;
     attachedModels: string;
@@ -1837,6 +1840,9 @@ export const enMessages: Messages = {
   },
   loadbalanceStrategiesTable: {
     adaptiveRoutingSummary: (label) => `Routing policy ${label}`,
+    adaptiveOpenWindowSummary: (baseSeconds, maxSeconds) => `Open window ${baseSeconds}s base • ${maxSeconds}s max`,
+    adaptiveBanManualDismiss: (strikes) => `Manual dismiss after ${strikes} max-open strikes`,
+    adaptiveBanTemporary: (strikes, durationSeconds) => `Temporary ban after ${strikes} max-open strikes • ${durationSeconds}s`,
     actions: "Actions",
     addStrategy: "Add Strategy",
     attachedModels: "Attached Models",

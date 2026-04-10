@@ -277,6 +277,9 @@ export const zhCNMessages: Messages = {
   },
   loadbalanceStrategiesTable: {
     adaptiveRoutingSummary: (label) => `路由策略 ${label}`,
+    adaptiveOpenWindowSummary: (baseSeconds, maxSeconds) => `打开窗口 基础 ${baseSeconds} 秒 • 最大 ${maxSeconds} 秒`,
+    adaptiveBanManualDismiss: (strikes) => `在 ${strikes} 次最大打开窗口后转为手动解除封禁`,
+    adaptiveBanTemporary: (strikes, durationSeconds) => `在 ${strikes} 次最大打开窗口后临时封禁 • ${durationSeconds} 秒`,
     actions: "操作",
     addStrategy: "新增策略",
     attachedModels: "已绑定模型",
