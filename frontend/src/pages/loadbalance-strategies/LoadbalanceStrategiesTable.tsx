@@ -60,10 +60,31 @@ export function LoadbalanceStrategiesTable({
 
   const getRecoverySummary = (strategy: LoadbalanceStrategy) => {
     if (isAdaptiveLoadbalanceStrategy(strategy)) {
+      const circuitBreaker = strategy.routing_policy.circuit_breaker;
+      const failureStatusCodes =
+        circuitBreaker.failure_status_codes.length > 0
+          ? circuitBreaker.failure_status_codes.join(", ")
+          : messages.common.unavailable;
+
       return [
         tableCopy.adaptiveRoutingSummary(
           getAdaptiveRoutingObjectiveLabel(strategy.routing_policy.routing_objective, strategyCopy),
         ),
+        tableCopy.statusCodes(failureStatusCodes),
+        tableCopy.adaptiveOpenWindowSummary(
+          formatNumber(circuitBreaker.base_open_seconds),
+          formatNumber(circuitBreaker.max_open_seconds),
+        ),
+        circuitBreaker.ban_mode === "off"
+          ? tableCopy.banOff
+          : circuitBreaker.ban_mode === "manual"
+            ? tableCopy.adaptiveBanManualDismiss(
+                formatNumber(circuitBreaker.max_open_strikes_before_ban),
+              )
+            : tableCopy.adaptiveBanTemporary(
+                formatNumber(circuitBreaker.max_open_strikes_before_ban),
+                formatNumber(circuitBreaker.ban_duration_seconds),
+              ),
       ];
     }
 
