@@ -3136,7 +3136,7 @@ export const enMessages: Messages = {
     updated: "Updated",
     unpriced: (count) => `${count} unpriced`,
     unpricedBreakdown: "Unpriced Breakdown",
-    unknownProxyApiKey: "Unknown proxy API key",
+    unknownProxyApiKey: "No proxy API key",
     usageAndCost: "Usage & Cost",
     usageStatisticsPagePlaceholder: "Usage statistics page placeholder",
     performance: "Performance",

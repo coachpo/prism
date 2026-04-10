@@ -1542,7 +1542,7 @@ export const zhCNMessages: Messages = {
     updated: "更新时间",
     unpriced: (count) => `${count} 个未定价请求`,
     unpricedBreakdown: "未定价拆分",
-    unknownProxyApiKey: "未知代理 API 密钥",
+    unknownProxyApiKey: "无代理 API 密钥",
     usageAndCost: "用量与成本",
     usageStatisticsPagePlaceholder: "用量统计页面占位中",
     performance: "性能",

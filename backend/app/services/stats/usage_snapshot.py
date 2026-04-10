@@ -743,7 +743,7 @@ async def _load_snapshot_events(
         proxy_api_key_label = (
             row.proxy_api_key_name_snapshot or row.current_proxy_api_key_name
         )
-        proxy_api_key_stats_label = proxy_api_key_label or "Unknown Proxy API Key"
+        proxy_api_key_stats_label = proxy_api_key_label or "No proxy API key"
 
         events.append(
             _SnapshotEvent(
