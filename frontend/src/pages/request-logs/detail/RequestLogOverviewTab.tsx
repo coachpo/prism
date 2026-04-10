@@ -232,6 +232,11 @@ export function RequestLogOverviewTab({
                   </span>
                 </DetailRow>
               ) : null}
+              <DetailRow label={messages.requestLogs.proxyApiKey}>
+                <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {requestInfo.proxy_api_key_name_snapshot ?? messages.requestLogs.proxyApiKeyNotRecorded}
+                </span>
+              </DetailRow>
               <DetailRow label={messages.requestLogs.requestedModel}>
                 <div className="space-y-1">
                   <p>{requestedModelLabel}</p>

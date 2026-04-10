@@ -1288,6 +1288,8 @@ export const zhCNMessages: Messages = {
     requestLogsAllTime: "全部时间",
     requestLogsDescription: "浏览并调查代理请求",
     requestLogsTitle: "请求日志",
+    proxyApiKey: "代理 API 密钥",
+    proxyApiKeyNotRecorded: "未记录",
     noCaptured: (title) => `未捕获 ${title}。`,
     noRequestLogsMatchSlice: "当前范围内没有匹配的请求日志",
     requestBody: "请求",

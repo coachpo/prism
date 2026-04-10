@@ -1276,6 +1276,8 @@ export interface Messages {
     requestLogsAllTime: string;
     requestLogsDescription: string;
     requestLogsTitle: string;
+    proxyApiKey: string;
+    proxyApiKeyNotRecorded: string;
     noCaptured: (title: string) => string;
     noRequestLogsMatchSlice: string;
     requestBody: string;
@@ -2880,6 +2882,8 @@ export const enMessages: Messages = {
     requestLogsAllTime: "All time",
     requestLogsDescription: "Browse and investigate proxied requests",
     requestLogsTitle: "Request Logs",
+    proxyApiKey: "Proxy API key",
+    proxyApiKeyNotRecorded: "Not recorded",
     noCaptured: (title) => `No ${title.toLowerCase()} captured.`,
     noRequestLogsMatchSlice: "No request logs match this slice",
     requestBody: "Request",
