@@ -16,7 +16,9 @@ function getMessages() {
 }
 
 interface UseCostingSettingsSaveInput {
+  bumpRevision: () => void;
   normalizedCurrentCosting: CostingSettingsUpdate;
+  primeReportingCurrency: (currency: CostingSettingsUpdate) => void;
   savedCostingForm: CostingSettingsUpdate | null;
   setCostingForm: Dispatch<SetStateAction<CostingSettingsUpdate>>;
   setCostingUnavailable: Dispatch<SetStateAction<boolean>>;
@@ -25,7 +27,9 @@ interface UseCostingSettingsSaveInput {
 }
 
 export function useCostingSettingsSave({
+  bumpRevision,
   normalizedCurrentCosting,
+  primeReportingCurrency,
   savedCostingForm,
   setCostingForm,
   setCostingUnavailable,
@@ -66,6 +70,8 @@ export function useCostingSettingsSave({
             endpoint_fx_mappings: normalizedSaved.endpoint_fx_mappings,
             timezone_preference: prev?.timezone_preference ?? baseline.timezone_preference,
           }));
+          primeReportingCurrency(normalizedSaved);
+          bumpRevision();
           setRecentlySavedSection("billing");
           toast.success(getMessages().settingsCostingData.billingSaved);
         } else {
@@ -97,7 +103,9 @@ export function useCostingSettingsSave({
       }
     },
     [
+      bumpRevision,
       normalizedCurrentCosting,
+      primeReportingCurrency,
       savedCostingForm,
       setCostingForm,
       setCostingUnavailable,
