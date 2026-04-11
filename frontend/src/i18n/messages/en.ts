@@ -1284,6 +1284,7 @@ export interface Messages {
     requestHeaders: string;
     search: string;
     searchPlaceholder: string;
+    tokenRate: string;
     relaxScope: string;
     returnToRequestList: string;
     resultsRange: (start: string, end: string, total: string) => string;
@@ -1468,6 +1469,7 @@ export interface Messages {
     previousPage: string;
     nextPage: string;
     requestTrendsTitle: string;
+    avgTokenRate: string;
     requestsTab: string;
     requests: string;
     requestsPerMinuteOverTime: string;
@@ -2890,6 +2892,7 @@ export const enMessages: Messages = {
     requestHeaders: "Request headers",
     search: "Search",
     searchPlaceholder: "model, vendor, path, or error",
+    tokenRate: "Token Rate",
     relaxScope: "Relax the scope or clear local refinements to widen the investigation surface.",
     returnToRequestList: "Return to request list",
     response: (status) => `Response (${status})`,
@@ -2976,6 +2979,7 @@ export const enMessages: Messages = {
   statistics: {
     addLine: "Add Line",
     averageRpm: "Average RPM",
+    avgTokenRate: "Avg Token Rate",
     adjustFiltersOrTimeRange: "Try adjusting your filters or time range.",
     aggregation: "Aggregation",
     all: "All",
