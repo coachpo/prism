@@ -4,6 +4,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatMissingSpecialTokenPolicyLabel } from "@/lib/costing";
 import {
   Table,
   TableBody,
@@ -35,6 +36,9 @@ export function PricingTemplatesTable({
 }: PricingTemplatesTableProps) {
   const { messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
+  const dialogCopy = messages.pricingTemplateDialog;
+  const missingValuePlaceholder = "—";
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -100,8 +104,35 @@ export function PricingTemplatesTable({
                         </div>
                       </TableCell>
                       <TableCell>{template.pricing_currency_code}</TableCell>
-                      <TableCell>{template.input_price}</TableCell>
-                      <TableCell>{template.output_price}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <span className="font-medium tabular-nums">{template.input_price}</span>
+                          <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                            <span>
+                              {dialogCopy.cachedInputPriceLabel}: {template.cached_input_price ?? missingValuePlaceholder}
+                            </span>
+                            <span>
+                              {dialogCopy.cacheCreationPriceLabel}: {template.cache_creation_price ?? missingValuePlaceholder}
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <span className="font-medium tabular-nums">{template.output_price}</span>
+                          <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                            <span>
+                              {dialogCopy.reasoningPriceLabel}: {template.reasoning_price ?? missingValuePlaceholder}
+                            </span>
+                            <span>
+                              {dialogCopy.missingSpecialTokenPolicyLabel}:{" "}
+                              {formatMissingSpecialTokenPolicyLabel(
+                                template.missing_special_token_price_policy,
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           <IconActionGroup>
