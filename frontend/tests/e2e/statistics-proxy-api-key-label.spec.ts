@@ -155,6 +155,35 @@ async function mockStatisticsRoutes(page: Parameters<typeof test>[0]["page"]) {
       });
     }
 
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+    }
+
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson({ timezone_preference: "UTC" });
+    }
+
+    if (pathname === "/api/models") {
+      return fulfillJson([]);
+    }
+
+    if (pathname === "/api/vendors") {
+      return fulfillJson([]);
+    }
+
+    if (pathname === "/api/loadbalance/strategies") {
+      return fulfillJson([]);
+    }
+
+    if (pathname === "/api/endpoints") {
+      return fulfillJson([]);
+    }
+
     if (pathname === "/api/stats/usage-snapshot") {
       return fulfillJson(createUsageSnapshot());
     }
