@@ -19,6 +19,16 @@ function formatTokens(tokens: number | null): string {
   return formatNumber(tokens, getCurrentLocale());
 }
 
+function formatTokenRate(tokens: number | null, responseTimeMs: number): string {
+  if (tokens === null || responseTimeMs <= 0) return "—";
+
+  const tokensPerSecond = (tokens * 1000) / responseTimeMs;
+  return `${formatNumber(tokensPerSecond, getCurrentLocale(), {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} tok/s`;
+}
+
 function statusIntent(code: number) {
   if (code >= 200 && code < 300) return "success" as const;
   if (code >= 400 && code < 500) return "warning" as const;
@@ -133,6 +143,18 @@ export function getColumns(): ColumnDef[] {
       ),
     },
     {
+      key: "token_rate",
+      label: messages.tokenRate,
+      width: 118,
+      grow: 0,
+      align: "right",
+      render: (row) => (
+        <span className="text-xs font-mono text-muted-foreground">
+          {formatTokenRate(row.total_tokens, row.response_time_ms)}
+        </span>
+      ),
+    },
+    {
       key: "model_id",
       label: messages.model,
       width: 240,
@@ -240,4 +262,4 @@ export function getColumns(): ColumnDef[] {
   ];
 }
 
-export { formatCost, formatTokens };
+export { formatCost, formatTokenRate, formatTokens };
