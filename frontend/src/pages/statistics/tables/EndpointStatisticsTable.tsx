@@ -76,8 +76,11 @@ export function EndpointStatisticsTable({
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-border/60 bg-background/80">
-            <div className="grid grid-cols-[minmax(0,1fr)_6rem_6rem_7rem_7rem] border-b border-border/60 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_7rem_7rem] border-b border-border/60 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
               <div className="px-3 py-3">{messages.statistics.endpointGroup}</div>
+              <div className="border-l border-border/50 px-3 py-3 text-right">
+                {messages.statistics.avgTokenRate}
+              </div>
               <div className="border-l border-border/50 px-3 py-3 text-right">
                 {messages.statistics.requests}
               </div>
@@ -99,10 +102,11 @@ export function EndpointStatisticsTable({
                 if (endpointId === null) {
                   return (
                     <div className="border-b border-border/60 last:border-b-0" key={item.endpoint_label}>
-                      <div className="grid grid-cols-[minmax(0,1fr)_6rem_6rem_7rem_7rem] text-sm">
+                      <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_7rem_7rem] text-sm">
                         <div className="min-w-0 px-3 py-3 font-medium text-foreground">
                           <span className="block truncate">{item.endpoint_label}</span>
                         </div>
+                        <MetricCell>{formatTokenRate(formatNumber, item.avg_token_rate)}</MetricCell>
                         <MetricCell>{formatNumber(item.request_count)}</MetricCell>
                         <MetricCell className={getSuccessRateClass(item.success_rate)}>
                           {formatRate(formatNumber, item.success_rate)}
@@ -146,7 +150,7 @@ export function EndpointStatisticsTable({
                       <CollapsibleTrigger asChild>
                         <button
                           aria-label={`#${endpointId} ${item.endpoint_label}`}
-                          className="grid w-full grid-cols-[minmax(0,1fr)_6rem_6rem_7rem_7rem] text-sm transition-colors hover:bg-muted/30"
+                          className="grid w-full grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_7rem_7rem] text-sm transition-colors hover:bg-muted/30"
                           type="button"
                         >
                           <div className="flex min-w-0 items-center gap-2 px-3 py-3 text-left">
@@ -160,6 +164,7 @@ export function EndpointStatisticsTable({
                               #{endpointId} {item.endpoint_label}
                             </span>
                           </div>
+                          <MetricCell>{formatTokenRate(formatNumber, item.avg_token_rate)}</MetricCell>
                           <MetricCell>{formatNumber(item.request_count)}</MetricCell>
                           <MetricCell className={getSuccessRateClass(item.success_rate)}>
                             {formatRate(formatNumber, item.success_rate)}
@@ -193,6 +198,9 @@ export function EndpointStatisticsTable({
                                   <TableRow>
                                     <TableHead>{messages.statistics.modelGroup}</TableHead>
                                     <TableHead className="text-right">
+                                      {messages.statistics.avgTokenRate}
+                                    </TableHead>
+                                    <TableHead className="text-right">
                                       {messages.statistics.requests}
                                     </TableHead>
                                     <TableHead className="text-right">
@@ -211,6 +219,9 @@ export function EndpointStatisticsTable({
                                     <TableRow key={model.model_id}>
                                       <TableCell className="font-medium text-foreground">
                                         {model.model_label}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {formatTokenRate(formatNumber, model.avg_token_rate)}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
                                         {formatNumber(model.request_count)}
@@ -271,6 +282,20 @@ function formatRate(
     maximumFractionDigits: 1,
     minimumFractionDigits: 1,
   })}%`;
+}
+
+function formatTokenRate(
+  formatNumber: ReturnType<typeof useLocale>["formatNumber"],
+  avgTokenRate: number | null,
+) {
+  if (avgTokenRate === null) {
+    return "—";
+  }
+
+  return `${formatNumber(avgTokenRate, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  })} tok/s`;
 }
 
 function formatSpend(
