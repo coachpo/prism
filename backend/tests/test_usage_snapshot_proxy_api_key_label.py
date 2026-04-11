@@ -50,6 +50,7 @@ def _row(
         proxy_api_key_name_snapshot=proxy_api_key_name_snapshot,
         reasoning_tokens=0,
         request_path="/v1/chat/completions",
+        response_time_ms=1000,
         resolved_target_model_id=None,
         status_code=200,
         success_flag=True,

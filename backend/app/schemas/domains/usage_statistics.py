@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -174,6 +176,7 @@ class UsageEndpointStatistic(BaseModel):
     endpoint_label: str
     request_count: int
     success_rate: float
+    avg_token_rate: float | None
     total_tokens: int
     total_cost_micros: int
 
@@ -185,6 +188,7 @@ class UsageModelStatistic(BaseModel):
     success_rate: float
     total_tokens: int
     total_cost_micros: int
+    avg_token_rate: float | None
 
 
 class UsageProxyApiKeyStatistic(BaseModel):

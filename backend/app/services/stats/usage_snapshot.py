@@ -44,6 +44,8 @@ class _SnapshotEvent:
     resolved_target_model_id: str | None
     status_code: int
     success_flag: bool
+    response_time_ms: int | None
+    has_total_tokens: bool
     total_cost_micros: int
     total_tokens: int
 
@@ -55,6 +57,8 @@ class _EndpointAggregate:
     request_count: int = 0
     success_count: int = 0
     failed_count: int = 0
+    token_rate_sum: float = 0.0
+    has_ineligible_token_rate: bool = False
     total_tokens: int = 0
     total_cost_micros: int = 0
 
@@ -67,6 +71,8 @@ class _ModelAggregate:
     request_count: int = 0
     success_count: int = 0
     failed_count: int = 0
+    token_rate_sum: float = 0.0
+    has_ineligible_token_rate: bool = False
     total_tokens: int = 0
     total_cost_micros: int = 0
 
@@ -97,6 +103,14 @@ def _success_rate(*, success_count: int, total_count: int) -> float:
     if total_count <= 0:
         return 0.0
     return round((success_count / total_count) * 100.0, 2)
+
+
+def _request_token_rate(event: _SnapshotEvent) -> float | None:
+    if not event.has_total_tokens:
+        return None
+    if event.response_time_ms is None or event.response_time_ms <= 0:
+        return None
+    return (event.total_tokens * 1000) / event.response_time_ms
 
 
 def _bucket_floor(value: datetime, granularity: Literal["hour", "day"]) -> datetime:
@@ -546,6 +560,11 @@ def _build_endpoint_statistics(events: list[_SnapshotEvent]) -> list[dict[str, o
         group.request_count += 1
         group.success_count += int(event.success_flag)
         group.failed_count += int(not event.success_flag)
+        token_rate = _request_token_rate(event)
+        if token_rate is None:
+            group.has_ineligible_token_rate = True
+        else:
+            group.token_rate_sum += token_rate
         group.total_tokens += event.total_tokens
         group.total_cost_micros += event.total_cost_micros
 
@@ -559,6 +578,11 @@ def _build_endpoint_statistics(events: list[_SnapshotEvent]) -> list[dict[str, o
                 "success_rate": _success_rate(
                     success_count=group.success_count,
                     total_count=group.request_count,
+                ),
+                "avg_token_rate": (
+                    None
+                    if group.has_ineligible_token_rate
+                    else round(group.token_rate_sum / group.request_count, 2)
                 ),
                 "total_tokens": group.total_tokens,
                 "total_cost_micros": group.total_cost_micros,
@@ -589,6 +613,11 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
         group.request_count += 1
         group.success_count += int(event.success_flag)
         group.failed_count += int(not event.success_flag)
+        token_rate = _request_token_rate(event)
+        if token_rate is None:
+            group.has_ineligible_token_rate = True
+        else:
+            group.token_rate_sum += token_rate
         group.total_tokens += event.total_tokens
         group.total_cost_micros += event.total_cost_micros
 
@@ -602,6 +631,11 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
                 "success_rate": _success_rate(
                     success_count=row.success_count,
                     total_count=row.request_count,
+                ),
+                "avg_token_rate": (
+                    None
+                    if row.has_ineligible_token_rate
+                    else round(row.token_rate_sum / row.request_count, 2)
                 ),
                 "total_tokens": row.total_tokens,
                 "total_cost_micros": row.total_cost_micros,
@@ -697,6 +731,7 @@ async def _load_snapshot_events(
                 UsageRequestEvent.proxy_api_key_name_snapshot,
                 UsageRequestEvent.reasoning_tokens,
                 UsageRequestEvent.request_path,
+                UsageRequestEvent.response_time_ms,
                 UsageRequestEvent.resolved_target_model_id,
                 UsageRequestEvent.status_code,
                 UsageRequestEvent.success_flag,
@@ -767,9 +802,11 @@ async def _load_snapshot_events(
                 proxy_api_key_prefix=row.current_proxy_api_key_prefix,
                 reasoning_tokens=_coalesce_int(row.reasoning_tokens),
                 request_path=row.request_path,
+                response_time_ms=row.response_time_ms,
                 resolved_target_model_id=row.resolved_target_model_id,
                 status_code=int(row.status_code),
                 success_flag=bool(row.success_flag),
+                has_total_tokens=row.total_tokens is not None,
                 total_cost_micros=_coalesce_int(row.total_cost_user_currency_micros),
                 total_tokens=_coalesce_int(row.total_tokens),
             )
