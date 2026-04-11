@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactElement } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
+import { ReportingCurrencyProvider } from "@/context/ReportingCurrencyContext";
 import { useAuth } from "@/context/useAuth";
 import { ProfileProvider } from "@/context/ProfileContext";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -79,7 +80,9 @@ function ProtectedAppShell() {
 
   return (
     <ProfileProvider>
-      <AppLayout />
+      <ReportingCurrencyProvider fallback={<RouteFallback />}>
+        <AppLayout />
+      </ReportingCurrencyProvider>
     </ProfileProvider>
   );
 }
