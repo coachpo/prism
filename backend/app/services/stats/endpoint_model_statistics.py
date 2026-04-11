@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import Float, and_, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utc_now
@@ -80,6 +80,25 @@ async def get_endpoint_model_statistics(
         filters.append(UsageRequestEvent.created_at >= normalized_start_at)
 
     success_count = case((UsageRequestEvent.success_flag.is_(True), 1), else_=0)
+    avg_token_rate_eligible = and_(
+        UsageRequestEvent.total_tokens.is_not(None),
+        UsageRequestEvent.response_time_ms.is_not(None),
+        UsageRequestEvent.response_time_ms > 0,
+    )
+    token_rate_expr = (cast(UsageRequestEvent.total_tokens, Float) * 1000.0) / cast(
+        UsageRequestEvent.response_time_ms, Float
+    )
+    eligible_token_rate_expr = case(
+        (avg_token_rate_eligible, token_rate_expr),
+        else_=None,
+    )
+    avg_token_rate = case(
+        (
+            func.count(case((avg_token_rate_eligible, 1))) == func.count(),
+            func.avg(eligible_token_rate_expr),
+        ),
+        else_=None,
+    ).label("avg_token_rate")
     rows = (
         await db.execute(
             select(
@@ -99,6 +118,7 @@ async def get_endpoint_model_statistics(
                     ),
                     0,
                 ).label("total_cost_micros"),
+                avg_token_rate,
             )
             .select_from(UsageRequestEvent)
             .outerjoin(
@@ -124,6 +144,11 @@ async def get_endpoint_model_statistics(
             ),
             "total_tokens": int(row.total_tokens or 0),
             "total_cost_micros": int(row.total_cost_micros or 0),
+            "avg_token_rate": (
+                round(float(row.avg_token_rate), 2)
+                if row.avg_token_rate is not None
+                else None
+            ),
         }
         for row in rows
     ]
