@@ -258,7 +258,7 @@ function ModelRow({
   const spend30dText =
     metricsLoading
       ? `… ${copy.spendShort}`
-      : `${formatMoneyMicros(spend30dMicros, "$", undefined, 2, 6, locale as "en" | "zh-CN")} ${copy.spendShort}`;
+      : `${formatMoneyMicros(spend30dMicros, undefined, undefined, 2, 6, locale as "en" | "zh-CN")} ${copy.spendShort}`;
 
   return (
     <div className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-muted/25">

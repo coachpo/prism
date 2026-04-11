@@ -11,7 +11,7 @@ export const ROW_HEIGHT = 45;
 
 function formatCost(micros: number | null, symbol: string | null): string {
   if (micros === null || micros === 0) return "—";
-  return formatMoneyMicros(micros, symbol ?? "$", undefined, 2, 6, getCurrentLocale());
+  return formatMoneyMicros(micros, symbol ?? undefined, undefined, 2, 6, getCurrentLocale());
 }
 
 function formatTokens(tokens: number | null): string {

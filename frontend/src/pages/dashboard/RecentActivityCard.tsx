@@ -88,7 +88,7 @@ export function RecentActivityCard({
                     <p className="text-xs text-muted-foreground">
                       {formatMoneyMicros(
                         request.total_cost_user_currency_micros,
-                        request.report_currency_symbol ?? "$",
+                        request.report_currency_symbol ?? undefined,
                         undefined,
                         2,
                         6,
