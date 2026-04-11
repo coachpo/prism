@@ -10,7 +10,10 @@ function getMessages() {
   return getStaticMessages();
 }
 
-export function useCostingSettingsBootstrap(revision: number) {
+export function useCostingSettingsBootstrap(
+  revision: number,
+  primeReportingCurrency: (currency: CostingSettingsUpdate) => void,
+) {
   const [costingUnavailable, setCostingUnavailable] = useState(false);
   const [costingLoading, setCostingLoading] = useState(false);
   const [savedCostingForm, setSavedCostingForm] = useState<CostingSettingsUpdate | null>(null);
@@ -44,6 +47,7 @@ export function useCostingSettingsBootstrap(revision: number) {
         return;
       }
       const normalized = normalizeCostingForm(data);
+      primeReportingCurrency(normalized);
       setCostingForm(normalized);
       setSavedCostingForm(normalized);
       setCostingUnavailable(false);
@@ -57,7 +61,7 @@ export function useCostingSettingsBootstrap(revision: number) {
         setCostingLoading(false);
       }
     }
-  }, []);
+  }, [primeReportingCurrency]);
 
   useEffect(() => {
     void fetchCostingSettings();

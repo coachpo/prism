@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/useAuth";
 import { useProfileContext } from "@/context/ProfileContext";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { renderSectionSaveState } from "./sectionSaveState";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 import { useAuditConfigurationData } from "./useAuditConfigurationData";
@@ -15,6 +16,7 @@ export function useSettingsPageData() {
   const navigate = useNavigate();
   const { refreshAuth } = useAuth();
   const { selectedProfile, revision, bumpRevision } = useProfileContext();
+  const { prime: primeReportingCurrency } = useReportingCurrencyContext();
   const selectedProfileLabel = selectedProfile
     ? `${selectedProfile.name} (#${selectedProfile.id})`
     : "the selected profile";
@@ -23,7 +25,12 @@ export function useSettingsPageData() {
 
   const backup = useConfigBackupData({ bumpRevision });
   const auth = useAuthenticationSettingsData({ navigate, refreshAuth, revision });
-  const costing = useCostingSettingsData({ revision, setRecentlySavedSection });
+  const costing = useCostingSettingsData({
+    bumpRevision,
+    primeReportingCurrency,
+    revision,
+    setRecentlySavedSection,
+  });
   const audit = useAuditConfigurationData({ revision });
   const retention = useRetentionDeletionData();
   const vendorManagement = useVendorManagementData({ revision });
