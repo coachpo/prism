@@ -59,7 +59,7 @@ export function TopSpendingModelsCard({
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-medium">
-                    {formatMoneyMicros(model.total_cost_micros, "$", undefined, 2, 6, locale)}
+                    {formatMoneyMicros(model.total_cost_micros, undefined, undefined, 2, 6, locale)}
                   </p>
                 </div>
               </div>

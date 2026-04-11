@@ -39,7 +39,7 @@ export function DashboardMetricsGrid({
       />
       <MetricCard
         label={messages.dashboard.spending30d}
-        value={formatMoneyMicros(snapshot.totalCost, "$", undefined, 2, 6, locale)}
+        value={formatMoneyMicros(snapshot.totalCost, undefined, undefined, 2, 6, locale)}
         detail={messages.dashboard.estimatedCost}
         icon={<DollarSign className="h-4 w-4" />}
         className={cn(
