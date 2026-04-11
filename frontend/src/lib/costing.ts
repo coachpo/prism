@@ -1,5 +1,6 @@
 import { formatNumber, getCurrentLocale, type Locale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
+import { getActiveReportingCurrency } from "@/lib/reportingCurrency";
 
 const MICRO_FACTOR = 1_000_000;
 
@@ -52,7 +53,7 @@ export function microsToDecimal(micros: number | null | undefined): number {
 
 export function formatMoneyMicros(
   micros: number | null | undefined,
-  symbol: string,
+  symbol?: string,
   code?: string,
   minimumFractionDigits = 2,
   maximumFractionDigits = 6,
@@ -62,11 +63,15 @@ export function formatMoneyMicros(
     return "-";
   }
   const value = microsToDecimal(micros);
+  const activeCurrency = getActiveReportingCurrency();
+  const resolvedSymbol = symbol ?? activeCurrency.symbol;
+  const resolvedCode =
+    symbol === undefined ? code ?? activeCurrency.code : code;
   const formatted = formatNumber(value, locale, {
     minimumFractionDigits,
     maximumFractionDigits,
   });
-  return `${symbol}${formatted}${code ? ` ${code}` : ""}`;
+  return `${resolvedSymbol}${formatted}${resolvedCode ? ` ${resolvedCode}` : ""}`;
 }
 
 export function formatTokenCount(
