@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -21,6 +23,7 @@ async def log_final_usage_request_event(
     ingress_request_id: str,
     status_code: int,
     success_flag: bool,
+    response_time_ms: int | None = None,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     total_tokens: int | None = None,
@@ -64,6 +67,7 @@ async def log_final_usage_request_event(
             proxy_api_key_id=proxy_api_key_id,
             proxy_api_key_name_snapshot=proxy_api_key_name_snapshot,
             status_code=status_code,
+            response_time_ms=response_time_ms,
             success_flag=success_flag,
             input_tokens=input_tokens,
             output_tokens=output_tokens,

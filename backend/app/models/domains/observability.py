@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ruff: noqa: F821,F401
 from datetime import datetime
 from typing import Any
@@ -167,6 +169,7 @@ class UsageRequestEvent(Base):
         String(200), nullable=True
     )
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     success_flag: Mapped[bool] = mapped_column(Boolean, nullable=False)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

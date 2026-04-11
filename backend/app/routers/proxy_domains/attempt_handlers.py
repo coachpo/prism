@@ -129,6 +129,7 @@ def _prepare_buffered_response(
             target=target,
             status_code=status_code,
             attempt_count=attempt_count,
+            elapsed_ms=elapsed_ms,
             tokens=tokens,
         )
         await _release_limiter_lease_if_needed(

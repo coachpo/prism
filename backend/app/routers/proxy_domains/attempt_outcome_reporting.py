@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Optional
 
 from app.services.background_tasks import background_task_manager
 from app.services.costing_service import CostFieldPayload
@@ -15,11 +18,11 @@ from .attempt_types import (
 
 logger = logging.getLogger(__name__)
 
-LogRequestFn = Callable[..., Awaitable[int | None]]
-FinalUsageEventFn = Callable[..., Awaitable[int | None]]
+LogRequestFn = Callable[..., Awaitable[Optional[int]]]
+FinalUsageEventFn = Callable[..., Awaitable[Optional[int]]]
 RecordAuditLogFn = Callable[..., Awaitable[None]]
-CostFieldsBuilder = Callable[[dict[str, int | None] | None], CostFieldPayload]
-TokenUsage = dict[str, int | None]
+TokenUsage = dict[str, Optional[int]]
+CostFieldsBuilder = Callable[[Optional[TokenUsage]], CostFieldPayload]
 
 FINAL_USAGE_EVENT_COST_FIELDS = (
     "cache_read_input_tokens",
@@ -48,17 +51,17 @@ FINAL_USAGE_EVENT_COST_FIELDS = (
 )
 
 
-def _lower_header_map(headers: dict[str, str] | None) -> dict[str, str]:
+def _lower_header_map(headers: Optional[dict[str, str]]) -> dict[str, str]:
     if not headers:
         return {}
     return {key.lower(): value for key, value in headers.items()}
 
 
-def _extract_user_agent_header(headers: dict[str, str] | None) -> str | None:
+def _extract_user_agent_header(headers: Optional[dict[str, str]]) -> Optional[str]:
     return _lower_header_map(headers).get("user-agent")
 
 
-def _parse_json_object(raw_body: bytes | None) -> dict[str, object] | None:
+def _parse_json_object(raw_body: Optional[bytes]) -> Optional[dict[str, object]]:
     if not raw_body:
         return None
     try:
@@ -68,7 +71,7 @@ def _parse_json_object(raw_body: bytes | None) -> dict[str, object] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _extract_gemini_response_id_from_sse(raw_body: bytes | None) -> str | None:
+def _extract_gemini_response_id_from_sse(raw_body: Optional[bytes]) -> Optional[str]:
     if not raw_body:
         return None
     for line in raw_body.splitlines():
@@ -92,10 +95,10 @@ def _extract_gemini_response_id_from_sse(raw_body: bytes | None) -> str | None:
 def extract_provider_correlation_id(
     *,
     api_family: str,
-    response_headers: dict[str, str] | None,
-    response_body: bytes | None,
-    request_headers: dict[str, str] | None,
-) -> str | None:
+    response_headers: Optional[dict[str, str]],
+    response_body: Optional[bytes],
+    request_headers: Optional[dict[str, str]],
+) -> Optional[str]:
     normalized_response_headers = _lower_header_map(response_headers)
     normalized_request_headers = _lower_header_map(request_headers)
 
@@ -123,7 +126,7 @@ def extract_provider_correlation_id(
     return None
 
 
-def response_error_detail(raw_body: bytes | None) -> str | None:
+def response_error_detail(raw_body: Optional[bytes]) -> Optional[str]:
     if raw_body is None:
         return None
     return raw_body.decode("utf-8", errors="replace")[:500]
@@ -142,13 +145,13 @@ async def record_request_log(
     state: ProxyRequestState,
     target: ProxyAttemptTarget,
     status_code: int,
-    response_headers: dict[str, str] | None,
-    response_body: bytes | None,
+    response_headers: Optional[dict[str, str]],
+    response_body: Optional[bytes],
     elapsed_ms: int,
     is_stream: bool,
-    error_detail: str | None = None,
-    tokens: dict[str, int | None] | None = None,
-) -> int | None:
+    error_detail: Optional[str] = None,
+    tokens: Optional[TokenUsage] = None,
+) -> Optional[int]:
     token_values = tokens or {}
     endpoint = target.connection.endpoint_rel
     return await deps.log_request_fn(
@@ -194,8 +197,9 @@ async def record_final_usage_event(
     target: ProxyAttemptTarget,
     status_code: int,
     attempt_count: int,
-    tokens: dict[str, int | None] | None = None,
-) -> int | None:
+    elapsed_ms: Optional[int] = None,
+    tokens: Optional[TokenUsage] = None,
+) -> Optional[int]:
     token_values = tokens or {}
     cost_fields = state.setup.build_cost_fields(target.connection, status_code, tokens)
     return await deps.log_usage_request_event_fn(
@@ -209,6 +213,7 @@ async def record_final_usage_event(
         proxy_api_key_name_snapshot=state.setup.proxy_api_key_name,
         ingress_request_id=state.setup.ingress_request_id,
         status_code=status_code,
+        response_time_ms=elapsed_ms,
         success_flag=200 <= status_code < 300,
         input_tokens=token_values.get("input_tokens"),
         output_tokens=token_values.get("output_tokens"),
@@ -222,12 +227,12 @@ async def record_final_usage_event(
 async def record_attempt_audit(
     *,
     deps: ProxyRuntimeDependencies,
-    request_log_id: int | None,
+    request_log_id: Optional[int],
     state: ProxyRequestState,
     target: ProxyAttemptTarget,
     status_code: int,
-    response_headers: dict[str, str] | None,
-    response_body: bytes | None,
+    response_headers: Optional[dict[str, str]],
+    response_body: Optional[bytes],
     is_stream: bool,
     elapsed_ms: int,
 ) -> None:
@@ -263,13 +268,13 @@ async def log_and_audit_attempt(
     state: ProxyRequestState,
     target: ProxyAttemptTarget,
     status_code: int,
-    response_headers: dict[str, str] | None,
-    response_body: bytes | None,
+    response_headers: Optional[dict[str, str]],
+    response_body: Optional[bytes],
     is_stream: bool,
     elapsed_ms: int,
-    error_detail: str | None = None,
-    tokens: dict[str, int | None] | None = None,
-) -> int | None:
+    error_detail: Optional[str] = None,
+    tokens: Optional[TokenUsage] = None,
+) -> Optional[int]:
     request_log_id = await record_request_log(
         deps=deps,
         state=state,
@@ -296,7 +301,7 @@ async def log_and_audit_attempt(
     return request_log_id
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class StreamFinalizationSnapshot:
     attempt_count: int
     attempt_number: int
@@ -304,34 +309,34 @@ class StreamFinalizationSnapshot:
     audit_enabled: bool
     build_cost_fields: CostFieldsBuilder
     connection_id: int
-    caller_user_agent: str | None
+    caller_user_agent: Optional[str]
     elapsed_ms: int
     endpoint_base_url: str
-    endpoint_description: str | None
-    endpoint_id: int | None
+    endpoint_description: Optional[str]
+    endpoint_id: Optional[int]
     ingress_request_id: str
     log_request_fn: LogRequestFn
     log_usage_request_event_fn: FinalUsageEventFn
     model_id: str
-    payload: bytes | None
+    payload: Optional[bytes]
     profile_id: int
-    proxy_api_key_id: int | None
-    proxy_api_key_name_snapshot: str | None
-    vendor_id: int | None
-    vendor_key: str | None
-    vendor_name: str | None
-    provider_correlation_id: str | None
+    proxy_api_key_id: Optional[int]
+    proxy_api_key_name_snapshot: Optional[str]
+    vendor_id: Optional[int]
+    vendor_key: Optional[str]
+    vendor_name: Optional[str]
+    provider_correlation_id: Optional[str]
     api_family: str
-    resolved_target_model_id: str | None
+    resolved_target_model_id: Optional[str]
     record_audit_log_fn: RecordAuditLogFn
-    request_body: bytes | None
+    request_body: Optional[bytes]
     request_headers: dict[str, str]
     request_method: str
     request_path: str
-    error_detail: str | None
+    error_detail: Optional[str]
     response_headers: dict[str, str]
     status_code: int
-    token_usage: TokenUsage | None
+    token_usage: Optional[TokenUsage]
     upstream_url: str
 
 
@@ -341,19 +346,19 @@ def build_stream_finalization_snapshot(
     deps: ProxyRuntimeDependencies,
     state: ProxyRequestState,
     target: ProxyAttemptTarget,
-    error_detail: str | None,
+    error_detail: Optional[str],
     response_headers: dict[str, str],
     status_code: int,
     elapsed_ms: int,
-    payload: bytes | None,
-    provider_correlation_id: str | None,
-    token_usage: TokenUsage | None,
+    payload: Optional[bytes],
+    provider_correlation_id: Optional[str],
+    token_usage: Optional[TokenUsage],
 ) -> StreamFinalizationSnapshot:
     endpoint = target.connection.endpoint_rel
     connection = target.connection
     cost_fields_builder = state.setup.build_cost_fields
 
-    def build_cost_fields(tokens: dict[str, int | None] | None) -> CostFieldPayload:
+    def build_cost_fields(tokens: Optional[TokenUsage]) -> CostFieldPayload:
         return cost_fields_builder(connection, status_code, tokens)
 
     return StreamFinalizationSnapshot(
@@ -399,7 +404,7 @@ def build_stream_finalization_snapshot(
 
 async def _persist_stream_request_log(
     snapshot: StreamFinalizationSnapshot,
-) -> int | None:
+) -> Optional[int]:
     tokens = snapshot.token_usage
     token_values = tokens or {}
     return await snapshot.log_request_fn(
@@ -441,7 +446,7 @@ async def _persist_stream_request_log(
 
 async def _persist_stream_usage_request_event(
     snapshot: StreamFinalizationSnapshot,
-) -> int | None:
+) -> Optional[int]:
     tokens = snapshot.token_usage
     token_values = tokens or {}
     cost_fields = snapshot.build_cost_fields(tokens)
@@ -456,6 +461,7 @@ async def _persist_stream_usage_request_event(
         proxy_api_key_name_snapshot=snapshot.proxy_api_key_name_snapshot,
         ingress_request_id=snapshot.ingress_request_id,
         status_code=snapshot.status_code,
+        response_time_ms=snapshot.elapsed_ms,
         success_flag=200 <= snapshot.status_code < 300,
         input_tokens=token_values.get("input_tokens"),
         output_tokens=token_values.get("output_tokens"),
@@ -469,7 +475,7 @@ async def _persist_stream_usage_request_event(
 async def _persist_stream_audit_log(
     snapshot: StreamFinalizationSnapshot,
     *,
-    request_log_id: int | None,
+    request_log_id: Optional[int],
 ) -> None:
     if not snapshot.audit_enabled:
         return
@@ -498,8 +504,8 @@ async def _persist_stream_audit_log(
 
 async def _finalize_stream_observability(
     snapshot: StreamFinalizationSnapshot,
-) -> int | None:
-    request_log_id: int | None = None
+) -> Optional[int]:
+    request_log_id: Optional[int] = None
 
     try:
         request_log_id = await _persist_stream_request_log(snapshot)
@@ -533,7 +539,7 @@ async def _finalize_stream_observability(
 
 async def await_stream_finalization(
     snapshot: StreamFinalizationSnapshot,
-) -> int | None:
+) -> Optional[int]:
     try:
         task = asyncio.create_task(
             _finalize_stream_observability(snapshot),
