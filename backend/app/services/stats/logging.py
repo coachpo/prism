@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import timedelta
@@ -455,6 +457,7 @@ async def log_request(
     endpoint_base_url: str | None,
     status_code: int,
     response_time_ms: int,
+    completion_duration_ms: int | None = None,
     is_stream: bool,
     request_path: str,
     input_tokens: int | None = None,
@@ -485,8 +488,8 @@ async def log_request(
     pricing_snapshot_cache_read_input: str | None = None,
     pricing_snapshot_cache_creation_input: str | None = None,
     pricing_snapshot_reasoning: str | None = None,
-    pricing_snapshot_missing_special_token_price_policy: str | None = None,
     pricing_config_version_used: int | None = None,
+    pricing_snapshot_missing_special_token_price_policy: str | None = None,
     error_detail: str | None = None,
     endpoint_description: str | None = None,
 ) -> int | None:
@@ -513,6 +516,7 @@ async def log_request(
             endpoint_base_url=endpoint_base_url,
             status_code=status_code,
             response_time_ms=response_time_ms,
+            completion_duration_ms=completion_duration_ms,
             is_stream=is_stream,
             request_path=request_path,
             input_tokens=input_tokens,

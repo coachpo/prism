@@ -46,8 +46,8 @@ FINAL_USAGE_EVENT_COST_FIELDS = (
     "pricing_snapshot_cache_read_input",
     "pricing_snapshot_cache_creation_input",
     "pricing_snapshot_reasoning",
-    "pricing_snapshot_missing_special_token_price_policy",
     "pricing_config_version_used",
+    "pricing_snapshot_missing_special_token_price_policy",
 )
 
 
@@ -148,6 +148,7 @@ async def record_request_log(
     response_headers: Optional[dict[str, str]],
     response_body: Optional[bytes],
     elapsed_ms: int,
+    completion_duration_ms: Optional[int] = None,
     is_stream: bool,
     error_detail: Optional[str] = None,
     tokens: Optional[TokenUsage] = None,
@@ -180,6 +181,7 @@ async def record_request_log(
         endpoint_description=target.description,
         status_code=status_code,
         response_time_ms=elapsed_ms,
+        completion_duration_ms=completion_duration_ms,
         is_stream=is_stream,
         request_path=state.request_path,
         error_detail=error_detail,
@@ -198,6 +200,7 @@ async def record_final_usage_event(
     status_code: int,
     attempt_count: int,
     elapsed_ms: Optional[int] = None,
+    completion_duration_ms: Optional[int] = None,
     tokens: Optional[TokenUsage] = None,
 ) -> Optional[int]:
     token_values = tokens or {}
@@ -214,6 +217,7 @@ async def record_final_usage_event(
         ingress_request_id=state.setup.ingress_request_id,
         status_code=status_code,
         response_time_ms=elapsed_ms,
+        completion_duration_ms=completion_duration_ms,
         success_flag=200 <= status_code < 300,
         input_tokens=token_values.get("input_tokens"),
         output_tokens=token_values.get("output_tokens"),
@@ -273,6 +277,7 @@ async def log_and_audit_attempt(
     is_stream: bool,
     elapsed_ms: int,
     error_detail: Optional[str] = None,
+    completion_duration_ms: Optional[int] = None,
     tokens: Optional[TokenUsage] = None,
 ) -> Optional[int]:
     request_log_id = await record_request_log(
@@ -283,6 +288,7 @@ async def log_and_audit_attempt(
         response_headers=response_headers,
         response_body=response_body,
         elapsed_ms=elapsed_ms,
+        completion_duration_ms=completion_duration_ms,
         is_stream=is_stream,
         error_detail=error_detail,
         tokens=tokens,
@@ -311,6 +317,7 @@ class StreamFinalizationSnapshot:
     connection_id: int
     caller_user_agent: Optional[str]
     elapsed_ms: int
+    completion_duration_ms: Optional[int]
     endpoint_base_url: str
     endpoint_description: Optional[str]
     endpoint_id: Optional[int]
@@ -350,6 +357,7 @@ def build_stream_finalization_snapshot(
     response_headers: dict[str, str],
     status_code: int,
     elapsed_ms: int,
+    completion_duration_ms: Optional[int],
     payload: Optional[bytes],
     provider_correlation_id: Optional[str],
     token_usage: Optional[TokenUsage],
@@ -370,6 +378,7 @@ def build_stream_finalization_snapshot(
         connection_id=connection.id,
         caller_user_agent=state.setup.caller_user_agent,
         elapsed_ms=elapsed_ms,
+        completion_duration_ms=completion_duration_ms,
         endpoint_base_url=endpoint.base_url,
         endpoint_description=target.description,
         endpoint_id=connection.endpoint_id,
@@ -434,6 +443,7 @@ async def _persist_stream_request_log(
         endpoint_description=snapshot.endpoint_description,
         status_code=snapshot.status_code,
         response_time_ms=snapshot.elapsed_ms,
+        completion_duration_ms=snapshot.completion_duration_ms,
         is_stream=True,
         request_path=snapshot.request_path,
         error_detail=snapshot.error_detail,
@@ -462,6 +472,7 @@ async def _persist_stream_usage_request_event(
         ingress_request_id=snapshot.ingress_request_id,
         status_code=snapshot.status_code,
         response_time_ms=snapshot.elapsed_ms,
+        completion_duration_ms=snapshot.completion_duration_ms,
         success_flag=200 <= snapshot.status_code < 300,
         input_tokens=token_values.get("input_tokens"),
         output_tokens=token_values.get("output_tokens"),
