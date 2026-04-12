@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal, cast
 
@@ -20,7 +20,7 @@ SERVICE_HEALTH_BUCKET_COUNT = 12 * 56
 SERVICE_HEALTH_INTERVAL_MINUTES = 15
 
 
-@dataclass(slots=True)
+@dataclass
 class _SnapshotEvent:
     api_family: str
     attempt_count: int
@@ -45,12 +45,13 @@ class _SnapshotEvent:
     status_code: int
     success_flag: bool
     response_time_ms: int | None
+    completion_duration_ms: int | None
     has_total_tokens: bool
     total_cost_micros: int
     total_tokens: int
 
 
-@dataclass(slots=True)
+@dataclass
 class _EndpointAggregate:
     endpoint_id: int | None
     endpoint_label: str
@@ -63,7 +64,7 @@ class _EndpointAggregate:
     total_cost_micros: int = 0
 
 
-@dataclass(slots=True)
+@dataclass
 class _ModelAggregate:
     model_id: str
     model_label: str
@@ -77,7 +78,7 @@ class _ModelAggregate:
     total_cost_micros: int = 0
 
 
-@dataclass(slots=True)
+@dataclass
 class _ProxyKeyAggregate:
     proxy_api_key_id: int | None
     proxy_api_key_label: str
@@ -108,9 +109,9 @@ def _success_rate(*, success_count: int, total_count: int) -> float:
 def _request_token_rate(event: _SnapshotEvent) -> float | None:
     if not event.has_total_tokens:
         return None
-    if event.response_time_ms is None or event.response_time_ms <= 0:
+    if event.completion_duration_ms is None or event.completion_duration_ms <= 0:
         return None
-    return (event.total_tokens * 1000) / event.response_time_ms
+    return (event.total_tokens * 1000) / event.completion_duration_ms
 
 
 def _bucket_floor(value: datetime, granularity: Literal["hour", "day"]) -> datetime:
@@ -732,6 +733,7 @@ async def _load_snapshot_events(
                 UsageRequestEvent.reasoning_tokens,
                 UsageRequestEvent.request_path,
                 UsageRequestEvent.response_time_ms,
+                UsageRequestEvent.completion_duration_ms,
                 UsageRequestEvent.resolved_target_model_id,
                 UsageRequestEvent.status_code,
                 UsageRequestEvent.success_flag,
@@ -803,6 +805,7 @@ async def _load_snapshot_events(
                 reasoning_tokens=_coalesce_int(row.reasoning_tokens),
                 request_path=row.request_path,
                 response_time_ms=row.response_time_ms,
+                completion_duration_ms=row.completion_duration_ms,
                 resolved_target_model_id=row.resolved_target_model_id,
                 status_code=int(row.status_code),
                 success_flag=bool(row.success_flag),

@@ -38,6 +38,7 @@ def _row(
     *,
     total_tokens: int | None,
     response_time_ms: int | None,
+    completion_duration_ms: int | None,
     endpoint_id: int | None = 1,
     endpoint_name: str | None = "Primary Endpoint",
 ) -> SimpleNamespace:
@@ -58,6 +59,7 @@ def _row(
         reasoning_tokens=0,
         request_path="/v1/chat/completions",
         response_time_ms=response_time_ms,
+        completion_duration_ms=completion_duration_ms,
         resolved_target_model_id=None,
         status_code=200,
         success_flag=True,
@@ -100,12 +102,20 @@ async def _build_snapshot(rows: list[SimpleNamespace]) -> UsageSnapshotResponse:
     return UsageSnapshotResponse.model_validate(snapshot)
 
 
-def test_arithmetic_mean_returns_avg_token_rate_for_eligible_rows() -> None:
+def test_buffered_and_stream_completion_rates_return_avg_token_rate() -> None:
     rows = asyncio.run(
         _build_stats(
             [
-                _row(total_tokens=100, response_time_ms=1000),
-                _row(total_tokens=300, response_time_ms=1000),
+                _row(
+                    total_tokens=100,
+                    response_time_ms=1000,
+                    completion_duration_ms=5000,
+                ),
+                _row(
+                    total_tokens=300,
+                    response_time_ms=1000,
+                    completion_duration_ms=1500,
+                ),
             ]
         )
     )
@@ -116,34 +126,29 @@ def test_arithmetic_mean_returns_avg_token_rate_for_eligible_rows() -> None:
             "endpoint_label": "Primary Endpoint",
             "request_count": 2,
             "success_rate": 100.0,
-            "avg_token_rate": 200.0,
+            "avg_token_rate": 110.0,
             "total_tokens": 400,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_ineligible_rows_return_null_when_tokens_missing() -> None:
+def test_legacy_or_incomplete_rows_return_null_when_completion_duration_missing() -> (
+    None
+):
     rows = asyncio.run(
         _build_stats(
             [
-                _row(total_tokens=None, response_time_ms=1000),
-                _row(total_tokens=300, response_time_ms=1000),
-            ]
-        )
-    )
-
-    assert rows[0]["avg_token_rate"] is None
-    assert rows[0]["total_tokens"] == 300
-    assert rows[0]["request_count"] == 2
-
-
-def test_ineligible_rows_return_null_when_duration_zero() -> None:
-    rows = asyncio.run(
-        _build_stats(
-            [
-                _row(total_tokens=100, response_time_ms=1000),
-                _row(total_tokens=300, response_time_ms=0),
+                _row(
+                    total_tokens=100,
+                    response_time_ms=1000,
+                    completion_duration_ms=1000,
+                ),
+                _row(
+                    total_tokens=300,
+                    response_time_ms=1000,
+                    completion_duration_ms=None,
+                ),
             ]
         )
     )
@@ -153,12 +158,43 @@ def test_ineligible_rows_return_null_when_duration_zero() -> None:
     assert rows[0]["request_count"] == 2
 
 
-def test_model_statistics_return_avg_token_rate_for_eligible_rows() -> None:
+def test_ineligible_rows_return_null_when_tokens_missing() -> None:
+    rows = asyncio.run(
+        _build_stats(
+            [
+                _row(
+                    total_tokens=None,
+                    response_time_ms=1000,
+                    completion_duration_ms=1000,
+                ),
+                _row(
+                    total_tokens=300,
+                    response_time_ms=1000,
+                    completion_duration_ms=1000,
+                ),
+            ]
+        )
+    )
+
+    assert rows[0]["avg_token_rate"] is None
+    assert rows[0]["total_tokens"] == 300
+    assert rows[0]["request_count"] == 2
+
+
+def test_model_statistics_return_avg_token_rate_for_completion_duration_rows() -> None:
     rows = asyncio.run(
         _build_model_stats(
             [
-                _row(total_tokens=100, response_time_ms=1000),
-                _row(total_tokens=300, response_time_ms=1000),
+                _row(
+                    total_tokens=100,
+                    response_time_ms=1000,
+                    completion_duration_ms=5000,
+                ),
+                _row(
+                    total_tokens=300,
+                    response_time_ms=1000,
+                    completion_duration_ms=1500,
+                ),
             ]
         )
     )
@@ -169,7 +205,7 @@ def test_model_statistics_return_avg_token_rate_for_eligible_rows() -> None:
             "model_label": "gpt-5.4",
             "request_count": 2,
             "success_rate": 100.0,
-            "avg_token_rate": 200.0,
+            "avg_token_rate": 110.0,
             "total_tokens": 400,
             "total_cost_micros": 0,
         }
@@ -180,11 +216,19 @@ def test_usage_snapshot_response_validates_with_model_avg_token_rate() -> None:
     snapshot = asyncio.run(
         _build_snapshot(
             [
-                _row(total_tokens=100, response_time_ms=1000),
-                _row(total_tokens=300, response_time_ms=1000),
+                _row(
+                    total_tokens=100,
+                    response_time_ms=1000,
+                    completion_duration_ms=5000,
+                ),
+                _row(
+                    total_tokens=300,
+                    response_time_ms=1000,
+                    completion_duration_ms=1500,
+                ),
             ]
         )
     )
 
     assert len(snapshot.model_statistics) == 1
-    assert snapshot.model_statistics[0].avg_token_rate == 200.0
+    assert snapshot.model_statistics[0].avg_token_rate == 110.0
