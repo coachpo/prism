@@ -33,6 +33,7 @@ class RequestLogResponse(BaseModel):
     endpoint_base_url: str | None
     status_code: int
     response_time_ms: int
+    ttft_ms: int | None = None
     completion_duration_ms: int | None = None
     is_stream: bool
     input_tokens: int | None
@@ -86,6 +87,7 @@ class RequestLogListItemResponse(BaseModel):
     connection_id: int | None
     status_code: int
     response_time_ms: int
+    ttft_ms: int | None = None
     completion_duration_ms: int | None = None
     is_stream: bool
     total_tokens: int | None = None
@@ -114,6 +116,8 @@ class RequestLogDetailSummaryResponse(BaseModel):
     vendor_name: str | None = None
     status_code: int
     response_time_ms: int
+    ttft_ms: int | None = None
+    completion_duration_ms: int | None = None
     is_stream: bool
 
 
@@ -207,6 +211,8 @@ class RequestLogDetailResponse(BaseModel):
                 vendor_name=entry.vendor_name,
                 status_code=entry.status_code,
                 response_time_ms=entry.response_time_ms,
+                ttft_ms=entry.ttft_ms,
+                completion_duration_ms=entry.completion_duration_ms,
                 is_stream=entry.is_stream,
             ),
             request=RequestLogDetailRequestResponse(
