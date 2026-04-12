@@ -1482,7 +1482,7 @@ export const zhCNMessages: Messages = {
     requestsInWindow: (count) => `窗口内 ${count} 个请求`,
     requestsTab: "请求",
     requests: "请求数",
-    requestsPerMinuteOverTime: "每分钟请求数（RPM）趋势",
+    requestsPerMinuteOverTime: "请求数随时间变化",
     rows: "行数",
     selectModelLinePlaceholder: "选择模型线路",
     serviceHealthTitle: "服务健康",

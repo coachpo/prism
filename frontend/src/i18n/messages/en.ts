@@ -3079,7 +3079,7 @@ export const enMessages: Messages = {
     requestsInWindow: (count) => `${count} reqs in window`,
     requestsTab: "Requests",
     requests: "Requests",
-    requestsPerMinuteOverTime: "Requests Per Minute (RPM) Over Time",
+    requestsPerMinuteOverTime: "Request Count Over Time",
     rows: "Rows",
     selectModelLinePlaceholder: "Choose a model line",
     serviceHealthTitle: "Service Health",
