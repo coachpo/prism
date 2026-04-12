@@ -9,6 +9,8 @@ import { cn, formatApiFamily } from "@/lib/utils";
 import type { RequestLogDetail } from "@/lib/types";
 import {
   formatCost,
+  formatTokenRate,
+  formatTtft,
   formatTokens,
   isProxyOriginRequest,
   type RequestLogModelResolver,
@@ -143,10 +145,20 @@ export function RequestLogOverviewTab({
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 xl:w-[360px]" data-testid="request-log-summary-strip">
+            <div className="grid gap-2 sm:grid-cols-3 xl:w-[540px]" data-testid="request-log-summary-strip">
               <SummaryStat
                 label={messages.requestLogs.latency}
                 value={`${formatNumber(summary.response_time_ms)}ms`}
+                valueClassName="font-mono"
+              />
+              <SummaryStat
+                label={messages.requestLogs.ttft}
+                value={formatTtft(summary.ttft_ms)}
+                valueClassName="font-mono"
+              />
+              <SummaryStat
+                label={messages.requestLogs.tokenRate}
+                value={formatTokenRate(usage.total_tokens, summary.completion_duration_ms ?? null)}
                 valueClassName="font-mono"
               />
               <SummaryStat

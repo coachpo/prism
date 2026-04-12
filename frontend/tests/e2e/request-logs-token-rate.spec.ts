@@ -183,11 +183,11 @@ test.describe("request logs token rate", () => {
 
     const bufferedRow = page.getByRole("button").filter({ hasText: "Buffered Zero Tokens" });
     await expect(bufferedRow.locator(":scope > div").nth(2)).toHaveText("2,100ms");
-    await expect(bufferedRow.locator(":scope > div").nth(3)).toHaveText("0.0 tok/s");
+    await expect(bufferedRow.locator(":scope > div").nth(4)).toHaveText("0.0 tok/s");
 
     const completedStreamRow = page.getByRole("button").filter({ hasText: "Completed Stream" });
     await expect(completedStreamRow.locator(":scope > div").nth(2)).toHaveText("4,500ms");
-    await expect(completedStreamRow.locator(":scope > div").nth(3)).toHaveText("500.0 tok/s");
+    await expect(completedStreamRow.locator(":scope > div").nth(4)).toHaveText("500.0 tok/s");
   });
 
   test("renders an em dash for legacy and incomplete rows without completion duration", async ({ page }) => {
@@ -216,14 +216,14 @@ test.describe("request logs token rate", () => {
 
     const legacyBufferedRow = page.getByRole("button").filter({ hasText: "Legacy Buffered" });
     await expect(legacyBufferedRow.locator(":scope > div").nth(2)).toHaveText("240ms");
-    await expect(legacyBufferedRow.locator(":scope > div").nth(3)).toHaveText("—");
+    await expect(legacyBufferedRow.locator(":scope > div").nth(4)).toHaveText("—");
     await expect(legacyBufferedRow).not.toContainText("375.0 tok/s");
     await expect(legacyBufferedRow).not.toContainText("Infinity");
     await expect(legacyBufferedRow).not.toContainText("NaN");
 
     const incompleteStreamRow = page.getByRole("button").filter({ hasText: "Incomplete Stream" });
     await expect(incompleteStreamRow.locator(":scope > div").nth(2)).toHaveText("900ms");
-    await expect(incompleteStreamRow.locator(":scope > div").nth(3)).toHaveText("—");
+    await expect(incompleteStreamRow.locator(":scope > div").nth(4)).toHaveText("—");
     await expect(incompleteStreamRow).not.toContainText("50.0 tok/s");
   });
 });

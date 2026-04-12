@@ -80,8 +80,32 @@ function createUsageSnapshot() {
       hourly: [],
       daily: [],
     },
-    endpoint_statistics: [],
-    model_statistics: [],
+    endpoint_statistics: [
+      {
+        endpoint_id: 7,
+        endpoint_label: "Proxy stats control endpoint",
+        p50_ttft_ms: 120,
+        p95_ttft_ms: 340,
+        request_count: 4,
+        success_rate: 100,
+        total_tokens: 600,
+        avg_token_rate: 88.2,
+        total_cost_micros: 100000,
+      },
+    ],
+    model_statistics: [
+      {
+        model_id: "proxy-stats-control-model",
+        model_label: "Proxy stats control model",
+        p50_ttft_ms: 95,
+        p95_ttft_ms: 210,
+        request_count: 4,
+        success_rate: 100,
+        total_tokens: 600,
+        avg_token_rate: 88.2,
+        total_cost_micros: 100000,
+      },
+    ],
     proxy_api_key_statistics: [
       {
         proxy_api_key_id: 1,

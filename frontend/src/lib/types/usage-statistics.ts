@@ -141,6 +141,8 @@ export interface UsageCostOverview {
 export interface UsageEndpointStatistic {
   endpoint_id: number | null;
   endpoint_label: string;
+  p50_ttft_ms: number | null;
+  p95_ttft_ms: number | null;
   request_count: number;
   success_rate: number;
   total_tokens: number;
@@ -151,6 +153,8 @@ export interface UsageEndpointStatistic {
 export interface UsageModelStatistic {
   model_id: string;
   model_label: string;
+  p50_ttft_ms: number | null;
+  p95_ttft_ms: number | null;
   request_count: number;
   success_rate: number;
   total_tokens: number;

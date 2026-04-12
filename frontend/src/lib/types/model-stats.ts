@@ -86,6 +86,7 @@ export interface RequestLogEntry {
   provider_correlation_id: string | null;
   endpoint_base_url: string | null;
   endpoint_description: string | null;
+  ttft_ms: number | null;
   completion_duration_ms: number | null;
   status_code: number;
   response_time_ms: number;
@@ -139,6 +140,7 @@ export interface RequestLogListItem {
   vendor_name?: string | null;
   endpoint_id: number | null;
   connection_id: number | null;
+  ttft_ms: number | null;
   completion_duration_ms: number | null;
   status_code: number;
   response_time_ms: number;
@@ -159,6 +161,8 @@ export interface RequestLogDetailSummary {
   vendor_name?: string | null;
   status_code: number;
   response_time_ms: number;
+  ttft_ms: number | null;
+  completion_duration_ms: number | null;
   is_stream: boolean;
 }
 

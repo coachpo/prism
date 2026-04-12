@@ -62,7 +62,6 @@ async function mockStatisticsRoutes(
   page: Parameters<typeof test>[0]["page"],
   options: {
     endpointModelStatisticsByEndpointId: Record<number, unknown[]>;
-    onEndpointModelsRequest?: (endpointId: number) => void;
     usageSnapshot: ReturnType<typeof createUsageSnapshot>;
   },
 ) {
@@ -153,7 +152,6 @@ async function mockStatisticsRoutes(
     const endpointModelsMatch = pathname.match(/^\/api\/stats\/endpoints\/(\d+)\/models$/);
     if (endpointModelsMatch) {
       const endpointId = Number(endpointModelsMatch[1]);
-      options.onEndpointModelsRequest?.(endpointId);
       return fulfillJson(options.endpointModelStatisticsByEndpointId[endpointId] ?? []);
     }
 
@@ -161,17 +159,15 @@ async function mockStatisticsRoutes(
   });
 }
 
-test.describe("statistics endpoint avg token rate", () => {
-  test("renders numeric avg token rates for buffered/completed groups in top-level and expanded endpoint rows", async ({ page }) => {
-    const endpointModelRequests: number[] = [];
-
+test.describe("statistics endpoint TTFT percentiles", () => {
+  test("renders P50/P95 TTFT columns before avg token rate for endpoint and model rows", async ({ page }) => {
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
           endpoint_id: 7,
-          endpoint_label: "Buffered + completed endpoint",
-          p50_ttft_ms: 120,
-          p95_ttft_ms: 250,
+          endpoint_label: "TTFT endpoint",
+          p50_ttft_ms: 123.4,
+          p95_ttft_ms: 456.6,
           avg_token_rate: 120.45,
           request_count: 8,
           success_rate: 87.5,
@@ -180,9 +176,9 @@ test.describe("statistics endpoint avg token rate", () => {
         },
         {
           endpoint_id: null,
-          endpoint_label: "Buffered + completed unknown endpoint",
-          p50_ttft_ms: 80,
-          p95_ttft_ms: 180,
+          endpoint_label: "Unknown TTFT endpoint",
+          p50_ttft_ms: 10.2,
+          p95_ttft_ms: 99.8,
           avg_token_rate: 45.55,
           request_count: 3,
           success_rate: 100,
@@ -194,29 +190,17 @@ test.describe("statistics endpoint avg token rate", () => {
         7: [
           {
             model_id: "gpt-4o-mini",
-            model_label: "Buffered success model",
-            p50_ttft_ms: 110,
-            p95_ttft_ms: 210,
+            model_label: "TTFT model",
+            p50_ttft_ms: 222.2,
+            p95_ttft_ms: 777.7,
             avg_token_rate: 95.44,
             request_count: 5,
             success_rate: 100,
             total_tokens: 600,
             total_cost_micros: 80000,
           },
-          {
-            model_id: "claude-3-5-sonnet",
-            model_label: "Completed stream model",
-            p50_ttft_ms: 140,
-            p95_ttft_ms: 320,
-            avg_token_rate: 150.04,
-            request_count: 3,
-            success_rate: 66.7,
-            total_tokens: 360,
-            total_cost_micros: 40000,
-          },
         ],
       },
-      onEndpointModelsRequest: (endpointId) => endpointModelRequests.push(endpointId),
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
@@ -235,17 +219,18 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(headerRow.locator(":scope > div").nth(7)).toHaveText("Total Spend");
 
     const unknownEndpointRow = table
-      .getByText("Buffered + completed unknown endpoint")
+      .getByText("Unknown TTFT endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
+    await expect(unknownEndpointRow.locator(":scope > div").nth(1)).toHaveText("10ms");
+    await expect(unknownEndpointRow.locator(":scope > div").nth(2)).toHaveText("100ms");
     await expect(unknownEndpointRow.locator(":scope > div").nth(3)).toHaveText("45.6 tok/s");
 
-    const endpointRow = page.getByRole("button", { name: "#7 Buffered + completed endpoint" });
+    const endpointRow = page.getByRole("button", { name: "#7 TTFT endpoint" });
+    await expect(endpointRow.locator(":scope > div").nth(1)).toHaveText("123ms");
+    await expect(endpointRow.locator(":scope > div").nth(2)).toHaveText("457ms");
     await expect(endpointRow.locator(":scope > div").nth(3)).toHaveText("120.5 tok/s");
-    await expect(endpointModelRequests).toEqual([]);
 
     await endpointRow.click();
-
-    await expect.poll(() => [...endpointModelRequests]).toEqual([7]);
 
     const endpointModelTable = page.getByTestId("statistics-endpoint-model-table-7");
     await expect(endpointModelTable).toBeVisible();
@@ -260,20 +245,18 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(endpointModelHeaders.nth(7)).toHaveText("Total Spend");
 
     const firstModelRowCells = endpointModelTable.locator("tbody tr").nth(0).locator("td");
-    await expect(firstModelRowCells.nth(0)).toHaveText("Buffered success model");
+    await expect(firstModelRowCells.nth(0)).toHaveText("TTFT model");
+    await expect(firstModelRowCells.nth(1)).toHaveText("222ms");
+    await expect(firstModelRowCells.nth(2)).toHaveText("778ms");
     await expect(firstModelRowCells.nth(3)).toHaveText("95.4 tok/s");
-
-    const secondModelRowCells = endpointModelTable.locator("tbody tr").nth(1).locator("td");
-    await expect(secondModelRowCells.nth(0)).toHaveText("Completed stream model");
-    await expect(secondModelRowCells.nth(3)).toHaveText("150.0 tok/s");
   });
 
-  test("renders em dash for legacy/incomplete avg token rate groups in top-level and expanded rows", async ({ page }) => {
+  test("renders em dash for null P50/P95 TTFT values in endpoint and model rows", async ({ page }) => {
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
           endpoint_id: 8,
-          endpoint_label: "Legacy / incomplete endpoint",
+          endpoint_label: "Null TTFT endpoint",
           p50_ttft_ms: null,
           p95_ttft_ms: null,
           avg_token_rate: null,
@@ -284,7 +267,7 @@ test.describe("statistics endpoint avg token rate", () => {
         },
         {
           endpoint_id: null,
-          endpoint_label: "Legacy / incomplete unknown endpoint",
+          endpoint_label: "Null TTFT unknown endpoint",
           p50_ttft_ms: null,
           p95_ttft_ms: null,
           avg_token_rate: null,
@@ -297,8 +280,8 @@ test.describe("statistics endpoint avg token rate", () => {
       endpointModelStatisticsByEndpointId: {
         8: [
           {
-            model_id: "legacy-model",
-            model_label: "Legacy / incomplete model",
+            model_id: "null-ttft-model",
+            model_label: "Null TTFT model",
             p50_ttft_ms: null,
             p95_ttft_ms: null,
             avg_token_rate: null,
@@ -316,19 +299,22 @@ test.describe("statistics endpoint avg token rate", () => {
 
     const table = page.getByTestId("statistics-endpoint-table");
     const unknownEndpointRow = table
-      .getByText("Legacy / incomplete unknown endpoint")
+      .getByText("Null TTFT unknown endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
-    await expect(unknownEndpointRow.locator(":scope > div").nth(3)).toHaveText("—");
+    await expect(unknownEndpointRow.locator(":scope > div").nth(1)).toHaveText("—");
+    await expect(unknownEndpointRow.locator(":scope > div").nth(2)).toHaveText("—");
 
-    const endpointRow = page.getByRole("button", { name: "#8 Legacy / incomplete endpoint" });
-    await expect(endpointRow.locator(":scope > div").nth(3)).toHaveText("—");
+    const endpointRow = page.getByRole("button", { name: "#8 Null TTFT endpoint" });
+    await expect(endpointRow.locator(":scope > div").nth(1)).toHaveText("—");
+    await expect(endpointRow.locator(":scope > div").nth(2)).toHaveText("—");
 
     await endpointRow.click();
 
     const endpointModelTable = page.getByTestId("statistics-endpoint-model-table-8");
     await expect(endpointModelTable).toBeVisible();
     const firstModelRowCells = endpointModelTable.locator("tbody tr").nth(0).locator("td");
-    await expect(firstModelRowCells.nth(0)).toHaveText("Legacy / incomplete model");
-    await expect(firstModelRowCells.nth(3)).toHaveText("—");
+    await expect(firstModelRowCells.nth(0)).toHaveText("Null TTFT model");
+    await expect(firstModelRowCells.nth(1)).toHaveText("—");
+    await expect(firstModelRowCells.nth(2)).toHaveText("—");
   });
 });

@@ -35,6 +35,9 @@ interface EndpointStatisticsTableProps {
   onLoadEndpointModelStatistics?: (endpointId: number) => Promise<void>;
 }
 
+const ENDPOINT_STATISTICS_GRID_CLASS =
+  "grid-cols-[minmax(0,1fr)_6rem_6rem_7rem_6rem_6rem_7rem_7rem]";
+
 export function EndpointStatisticsTable({
   currency,
   endpointModelStatisticsByEndpointId = {},
@@ -76,8 +79,19 @@ export function EndpointStatisticsTable({
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-border/60 bg-background/80">
-            <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_7rem_7rem] border-b border-border/60 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <div
+              className={cn(
+                "grid border-b border-border/60 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground",
+                ENDPOINT_STATISTICS_GRID_CLASS,
+              )}
+            >
               <div className="px-3 py-3">{messages.statistics.endpointGroup}</div>
+              <div className="border-l border-border/50 px-3 py-3 text-right">
+                {messages.statistics.p50Ttft}
+              </div>
+              <div className="border-l border-border/50 px-3 py-3 text-right">
+                {messages.statistics.p95Ttft}
+              </div>
               <div className="border-l border-border/50 px-3 py-3 text-right">
                 {messages.statistics.avgTokenRate}
               </div>
@@ -102,10 +116,12 @@ export function EndpointStatisticsTable({
                 if (endpointId === null) {
                   return (
                     <div className="border-b border-border/60 last:border-b-0" key={item.endpoint_label}>
-                      <div className="grid grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_7rem_7rem] text-sm">
+                      <div className={cn("grid text-sm", ENDPOINT_STATISTICS_GRID_CLASS)}>
                         <div className="min-w-0 px-3 py-3 font-medium text-foreground">
                           <span className="block truncate">{item.endpoint_label}</span>
                         </div>
+                        <MetricCell>{formatTtft(formatNumber, item.p50_ttft_ms)}</MetricCell>
+                        <MetricCell>{formatTtft(formatNumber, item.p95_ttft_ms)}</MetricCell>
                         <MetricCell>{formatTokenRate(formatNumber, item.avg_token_rate)}</MetricCell>
                         <MetricCell>{formatNumber(item.request_count)}</MetricCell>
                         <MetricCell className={getSuccessRateClass(item.success_rate)}>
@@ -150,7 +166,10 @@ export function EndpointStatisticsTable({
                       <CollapsibleTrigger asChild>
                         <button
                           aria-label={`#${endpointId} ${item.endpoint_label}`}
-                          className="grid w-full grid-cols-[minmax(0,1fr)_7rem_6rem_6rem_7rem_7rem] text-sm transition-colors hover:bg-muted/30"
+                          className={cn(
+                            "grid w-full text-sm transition-colors hover:bg-muted/30",
+                            ENDPOINT_STATISTICS_GRID_CLASS,
+                          )}
                           type="button"
                         >
                           <div className="flex min-w-0 items-center gap-2 px-3 py-3 text-left">
@@ -164,6 +183,8 @@ export function EndpointStatisticsTable({
                               #{endpointId} {item.endpoint_label}
                             </span>
                           </div>
+                          <MetricCell>{formatTtft(formatNumber, item.p50_ttft_ms)}</MetricCell>
+                          <MetricCell>{formatTtft(formatNumber, item.p95_ttft_ms)}</MetricCell>
                           <MetricCell>{formatTokenRate(formatNumber, item.avg_token_rate)}</MetricCell>
                           <MetricCell>{formatNumber(item.request_count)}</MetricCell>
                           <MetricCell className={getSuccessRateClass(item.success_rate)}>
@@ -198,6 +219,12 @@ export function EndpointStatisticsTable({
                                   <TableRow>
                                     <TableHead>{messages.statistics.modelGroup}</TableHead>
                                     <TableHead className="text-right">
+                                      {messages.statistics.p50Ttft}
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                      {messages.statistics.p95Ttft}
+                                    </TableHead>
+                                    <TableHead className="text-right">
                                       {messages.statistics.avgTokenRate}
                                     </TableHead>
                                     <TableHead className="text-right">
@@ -219,6 +246,12 @@ export function EndpointStatisticsTable({
                                     <TableRow key={model.model_id}>
                                       <TableCell className="font-medium text-foreground">
                                         {model.model_label}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {formatTtft(formatNumber, model.p50_ttft_ms)}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {formatTtft(formatNumber, model.p95_ttft_ms)}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
                                         {formatTokenRate(formatNumber, model.avg_token_rate)}
@@ -296,6 +329,20 @@ function formatTokenRate(
     maximumFractionDigits: 1,
     minimumFractionDigits: 1,
   })} tok/s`;
+}
+
+function formatTtft(
+  formatNumber: ReturnType<typeof useLocale>["formatNumber"],
+  ttftMs: number | null | undefined,
+) {
+  if (ttftMs === null || ttftMs === undefined || !Number.isFinite(ttftMs)) {
+    return "—";
+  }
+
+  return `${formatNumber(ttftMs, {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  })}ms`;
 }
 
 function formatSpend(

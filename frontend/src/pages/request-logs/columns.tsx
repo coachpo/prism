@@ -19,6 +19,14 @@ function formatTokens(tokens: number | null): string {
   return formatNumber(tokens, getCurrentLocale());
 }
 
+function formatTtft(ttftMs: number | null | undefined): string {
+  if (ttftMs === null || ttftMs === undefined || !Number.isFinite(ttftMs)) {
+    return "—";
+  }
+
+  return `${formatNumber(ttftMs, getCurrentLocale())}ms`;
+}
+
 function formatTokenRate(tokens: number | null, completionDurationMs: number | null): string {
   if (
     tokens === null ||
@@ -151,6 +159,18 @@ export function getColumns(): ColumnDef[] {
       ),
     },
     {
+      key: "ttft_ms",
+      label: messages.ttft,
+      width: 96,
+      grow: 0,
+      align: "right",
+      render: (row) => (
+        <span className="text-xs font-mono text-muted-foreground">
+          {formatTtft(row.ttft_ms)}
+        </span>
+      ),
+    },
+    {
       key: "token_rate",
       label: messages.tokenRate,
       width: 118,
@@ -270,4 +290,4 @@ export function getColumns(): ColumnDef[] {
   ];
 }
 
-export { formatCost, formatTokenRate, formatTokens };
+export { formatCost, formatTokenRate, formatTokens, formatTtft };

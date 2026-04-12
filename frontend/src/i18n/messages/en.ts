@@ -1254,6 +1254,7 @@ export interface Messages {
     last7Days: string;
     lastHour: string;
     latency: string;
+    ttft: string;
     latencyFast: string;
     latencyNormal: string;
     latencySlow: string;
@@ -1447,6 +1448,8 @@ export interface Messages {
     endpointStatisticsTitle: string;
     exportSnapshotJson: string;
     modelGroup: string;
+    p50Ttft: string;
+    p95Ttft: string;
     lineLimitReached: string;
     linesSelected: (count: string, max: string) => string;
     linesToDisplay: string;
@@ -2862,6 +2865,7 @@ export const enMessages: Messages = {
     last7Days: "Last 7 days",
     lastHour: "Last hour",
     latency: "Latency",
+    ttft: "TTFT",
     latencyFast: "< 500ms",
     latencyNormal: "500ms-2s",
     latencySlow: "2s-5s",
@@ -3059,6 +3063,8 @@ export const enMessages: Messages = {
     linesToDisplay: "Lines to Display",
     modelGroup: "Model",
     modelStatisticsTitle: "Model Statistics",
+    p50Ttft: "P50 TTFT",
+    p95Ttft: "P95 TTFT",
     modelEndpointGroup: "Model + Endpoint",
     noEndpointStatisticsDescription: "Endpoint rollups will appear here after traffic is processed.",
     noEndpointStatisticsTitle: "No endpoint statistics in this time range",
