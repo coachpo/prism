@@ -25,6 +25,7 @@ function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
     vendor_name: entry.vendor_name,
     endpoint_id: entry.endpoint_id,
     connection_id: entry.connection_id,
+    completion_duration_ms: entry.completion_duration_ms,
     status_code: entry.status_code,
     response_time_ms: entry.response_time_ms,
     is_stream: entry.is_stream,

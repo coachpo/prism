@@ -86,6 +86,7 @@ export interface RequestLogEntry {
   provider_correlation_id: string | null;
   endpoint_base_url: string | null;
   endpoint_description: string | null;
+  completion_duration_ms: number | null;
   status_code: number;
   response_time_ms: number;
   is_stream: boolean;
@@ -138,6 +139,7 @@ export interface RequestLogListItem {
   vendor_name?: string | null;
   endpoint_id: number | null;
   connection_id: number | null;
+  completion_duration_ms: number | null;
   status_code: number;
   response_time_ms: number;
   is_stream: boolean;
