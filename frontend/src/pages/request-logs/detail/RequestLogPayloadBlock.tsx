@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Copy } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,6 @@ interface RequestLogPayloadBlockProps {
 
 export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBlockProps) {
   const { messages } = useLocale();
-  const payloadTextRef = useRef<HTMLPreElement | null>(null);
   const hasContent = content.length > 0;
 
   return (
@@ -26,8 +24,7 @@ export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBloc
           disabled={!hasContent}
           onClick={() => {
             if (hasContent) {
-              const visibleContent = payloadTextRef.current?.textContent ?? "";
-              void copyRequestLogText(visibleContent, title.toLowerCase());
+              void copyRequestLogText(content, title.toLowerCase());
             }
           }}
         >
@@ -36,7 +33,7 @@ export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBloc
         </Button>
       </div>
       <ScrollArea className="h-56 rounded-xl border border-zinc-800 bg-zinc-950 shadow-inner">
-        <pre ref={payloadTextRef} className="min-h-full whitespace-pre-wrap break-all p-3 text-[11px] leading-5 text-zinc-50">
+        <pre className="min-h-full whitespace-pre-wrap break-all p-3 text-[11px] leading-5 text-zinc-50">
           {hasContent ? content : messages.requestLogs.noCaptured(title.toLowerCase())}
         </pre>
       </ScrollArea>
