@@ -140,6 +140,7 @@ def _prepare_buffered_response(
             is_stream=False,
             elapsed_ms=elapsed_ms,
             error_detail=error_detail,
+            ttft_ms=None,
             completion_duration_ms=completion_duration_ms,
             tokens=tokens,
         )
@@ -150,6 +151,7 @@ def _prepare_buffered_response(
             status_code=status_code,
             attempt_count=attempt_count,
             elapsed_ms=elapsed_ms,
+            ttft_ms=None,
             completion_duration_ms=completion_duration_ms,
             tokens=tokens,
         )

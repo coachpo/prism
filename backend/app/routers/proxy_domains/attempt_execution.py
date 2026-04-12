@@ -240,6 +240,7 @@ async def execute_proxy_attempts(
             target=last_attempt_target,
             status_code=502,
             attempt_count=max(execution_result.attempt_count, 1),
+            ttft_ms=None,
             completion_duration_ms=state.completion_duration_ms(),
         )
 

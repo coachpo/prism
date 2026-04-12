@@ -198,6 +198,170 @@ def _is_sse_stream(content_type: str | None) -> bool:
     return content_type.partition(";")[0].strip().lower() == "text/event-stream"
 
 
+def _has_non_empty_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _tool_call_delta_has_output(value: object) -> bool:
+    if isinstance(value, list):
+        return any(_tool_call_delta_has_output(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+
+    for key in ("id", "name", "arguments", "partial_json"):
+        if _has_non_empty_text(value.get(key)):
+            return True
+
+    for key in ("function", "tool", "functionCall"):
+        nested = value.get(key)
+        if _tool_call_delta_has_output(nested):
+            return True
+
+    return False
+
+
+def _reasoning_delta_has_output(value: object) -> bool:
+    if _has_non_empty_text(value):
+        return True
+    if isinstance(value, list):
+        return any(_reasoning_delta_has_output(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+
+    for key in ("text", "delta", "thinking", "summary", "content"):
+        nested = value.get(key)
+        if _reasoning_delta_has_output(nested):
+            return True
+
+    return False
+
+
+def _chat_choice_delta_has_output(delta: object) -> bool:
+    if not isinstance(delta, dict):
+        return False
+
+    if _has_non_empty_text(delta.get("content")) or _has_non_empty_text(
+        delta.get("text")
+    ):
+        return True
+
+    if _tool_call_delta_has_output(delta.get("tool_calls")):
+        return True
+    if _tool_call_delta_has_output(delta.get("function_call")):
+        return True
+
+    for key in ("reasoning", "reasoning_content"):
+        if _reasoning_delta_has_output(delta.get(key)):
+            return True
+
+    return False
+
+
+def _gemini_candidate_has_output(candidate: object) -> bool:
+    if not isinstance(candidate, dict):
+        return False
+
+    content = candidate.get("content")
+    if not isinstance(content, dict):
+        return False
+
+    parts = content.get("parts")
+    if not isinstance(parts, list):
+        return False
+
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        if _has_non_empty_text(part.get("text")):
+            return True
+        if _tool_call_delta_has_output(part.get("functionCall")):
+            return True
+        if _reasoning_delta_has_output(part.get("thought")):
+            return True
+        if _has_non_empty_text(part.get("thoughtSignature")):
+            return True
+
+    return False
+
+
+def _responses_api_event_has_output(event: dict[str, object]) -> bool:
+    event_type = event.get("type")
+    if not isinstance(event_type, str) or not event_type.endswith(".delta"):
+        return False
+
+    if "output_text" in event_type:
+        return _has_non_empty_text(event.get("delta")) or _has_non_empty_text(
+            event.get("text")
+        )
+    if "function_call" in event_type or "tool_call" in event_type:
+        return _has_non_empty_text(event.get("delta")) or _tool_call_delta_has_output(
+            event
+        )
+    if "reasoning" in event_type or "thinking" in event_type:
+        return _reasoning_delta_has_output(
+            event.get("delta")
+        ) or _reasoning_delta_has_output(event)
+
+    return False
+
+
+def _is_ttft_eligible_sse_event(line: bytes) -> bool:
+    stripped = line.strip()
+    if not stripped.startswith(b"data: ") or stripped == b"data: [DONE]":
+        return False
+
+    try:
+        event_obj = cast(object, json.loads(stripped[6:]))
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        return False
+
+    event = _as_object_dict(event_obj)
+    if event is None:
+        return False
+
+    if _responses_api_event_has_output(event):
+        return True
+
+    event_type = event.get("type")
+    if event_type == "content_block_delta":
+        delta = _as_object_dict(event.get("delta"))
+        if delta is None:
+            return False
+        delta_type = delta.get("type")
+        if delta_type == "text_delta":
+            return _has_non_empty_text(delta.get("text"))
+        if delta_type == "input_json_delta":
+            return _has_non_empty_text(delta.get("partial_json"))
+        if delta_type in {"thinking_delta", "reasoning_delta"}:
+            return _reasoning_delta_has_output(delta)
+        return False
+
+    choices = event.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            if _chat_choice_delta_has_output(choice.get("delta")):
+                return True
+
+    candidates = event.get("candidates")
+    if isinstance(candidates, list):
+        return any(_gemini_candidate_has_output(candidate) for candidate in candidates)
+
+    return False
+
+
+def _compute_ttft_ms(*, request_started_at_monotonic: float) -> int:
+    return int((time.monotonic() - request_started_at_monotonic) * 1000)
+
+
+def _completion_duration_ms_or_none(state: object) -> int | None:
+    completion_duration_fn = getattr(state, "completion_duration_ms", None)
+    if not callable(completion_duration_fn):
+        return None
+    return cast(int, completion_duration_fn())
+
+
 @dataclass(frozen=True)
 class _SseEventTokenUpdate:
     input_tokens: int | None = None
@@ -371,6 +535,7 @@ def _parse_sse_event_update(line: bytes) -> _SseEventTokenUpdate | None:
 @dataclass
 class _StreamingFinalizationBuffer:
     keep_payload: bool
+    request_started_at_monotonic: float | None
     parse_sse_tokens: bool = True
     max_bytes: int = STREAMING_FINALIZATION_BUFFER_MAX_BYTES
     _payload: bytearray = field(default_factory=bytearray)
@@ -378,6 +543,7 @@ class _StreamingFinalizationBuffer:
     _payload_overflowed: bool = False
     _provider_correlation_id: str | None = None
     _tokens: TokenUsage | None = None
+    _ttft_ms: int | None = None
     _usage_seen: bool = False
 
     def append(self, chunk: bytes) -> None:
@@ -390,7 +556,9 @@ class _StreamingFinalizationBuffer:
         if self.parse_sse_tokens:
             self._append_sse_chunk(chunk)
 
-    def finalize(self) -> tuple[bytes | None, TokenUsage | None, str | None]:
+    def finalize(
+        self,
+    ) -> tuple[bytes | None, TokenUsage | None, str | None, int | None]:
         if self.parse_sse_tokens and self._partial_line:
             self._consume_line(bytes(self._partial_line))
             self._partial_line.clear()
@@ -398,7 +566,7 @@ class _StreamingFinalizationBuffer:
         payload = bytes(self._payload) if self.keep_payload and self._payload else None
 
         if self._tokens is None:
-            return payload, None, self._provider_correlation_id
+            return payload, None, self._provider_correlation_id, self._ttft_ms
 
         finalized_tokens = dict(self._tokens)
         if finalized_tokens["total_tokens"] is None and (
@@ -418,7 +586,7 @@ class _StreamingFinalizationBuffer:
                 if finalized_tokens[field_name] is None:
                     finalized_tokens[field_name] = 0
 
-        return payload, finalized_tokens, self._provider_correlation_id
+        return payload, finalized_tokens, self._provider_correlation_id, self._ttft_ms
 
     def _append_payload(self, chunk: bytes) -> None:
         if not chunk:
@@ -489,6 +657,14 @@ class _StreamingFinalizationBuffer:
             self._consume_line(line)
 
     def _consume_line(self, line: bytes) -> None:
+        if (
+            self._ttft_ms is None
+            and self.request_started_at_monotonic is not None
+            and _is_ttft_eligible_sse_event(line)
+        ):
+            self._ttft_ms = _compute_ttft_ms(
+                request_started_at_monotonic=self.request_started_at_monotonic
+            )
         update = _parse_sse_event_update(line)
         if update is None:
             return
@@ -573,6 +749,11 @@ def build_streaming_response(
                     not is_sse_stream
                     or (state.setup.audit_enabled and state.setup.audit_capture_bodies)
                 ),
+                request_started_at_monotonic=getattr(
+                    state,
+                    "request_started_at_monotonic",
+                    None,
+                ),
                 parse_sse_tokens=is_sse_stream,
             )
             heartbeat_stop = asyncio.Event()
@@ -635,7 +816,7 @@ def build_streaming_response(
                 except BaseException:
                     pass
 
-                payload, token_usage, provider_correlation_id = (
+                payload, token_usage, provider_correlation_id, ttft_ms = (
                     finalization_buffer.finalize()
                 )
                 if token_usage is None and payload is not None:
@@ -643,7 +824,7 @@ def build_streaming_response(
 
                 final_status_code = 0 if stream_error is not None else resp.status_code
                 completion_duration_ms = (
-                    state.completion_duration_ms()
+                    _completion_duration_ms_or_none(state)
                     if stream_completed_normally
                     else None
                 )
@@ -656,6 +837,7 @@ def build_streaming_response(
                     response_headers=response_headers,
                     status_code=final_status_code,
                     elapsed_ms=elapsed_ms,
+                    ttft_ms=ttft_ms,
                     completion_duration_ms=completion_duration_ms,
                     payload=payload,
                     provider_correlation_id=provider_correlation_id,

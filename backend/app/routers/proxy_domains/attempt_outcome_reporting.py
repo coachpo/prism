@@ -148,6 +148,7 @@ async def record_request_log(
     response_headers: Optional[dict[str, str]],
     response_body: Optional[bytes],
     elapsed_ms: int,
+    ttft_ms: Optional[int] = None,
     completion_duration_ms: Optional[int] = None,
     is_stream: bool,
     error_detail: Optional[str] = None,
@@ -181,6 +182,7 @@ async def record_request_log(
         endpoint_description=target.description,
         status_code=status_code,
         response_time_ms=elapsed_ms,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         is_stream=is_stream,
         request_path=state.request_path,
@@ -200,6 +202,7 @@ async def record_final_usage_event(
     status_code: int,
     attempt_count: int,
     elapsed_ms: Optional[int] = None,
+    ttft_ms: Optional[int] = None,
     completion_duration_ms: Optional[int] = None,
     tokens: Optional[TokenUsage] = None,
 ) -> Optional[int]:
@@ -217,6 +220,7 @@ async def record_final_usage_event(
         ingress_request_id=state.setup.ingress_request_id,
         status_code=status_code,
         response_time_ms=elapsed_ms,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         success_flag=200 <= status_code < 300,
         input_tokens=token_values.get("input_tokens"),
@@ -277,6 +281,7 @@ async def log_and_audit_attempt(
     is_stream: bool,
     elapsed_ms: int,
     error_detail: Optional[str] = None,
+    ttft_ms: Optional[int] = None,
     completion_duration_ms: Optional[int] = None,
     tokens: Optional[TokenUsage] = None,
 ) -> Optional[int]:
@@ -288,6 +293,7 @@ async def log_and_audit_attempt(
         response_headers=response_headers,
         response_body=response_body,
         elapsed_ms=elapsed_ms,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         is_stream=is_stream,
         error_detail=error_detail,
@@ -317,6 +323,7 @@ class StreamFinalizationSnapshot:
     connection_id: int
     caller_user_agent: Optional[str]
     elapsed_ms: int
+    ttft_ms: Optional[int]
     completion_duration_ms: Optional[int]
     endpoint_base_url: str
     endpoint_description: Optional[str]
@@ -357,6 +364,7 @@ def build_stream_finalization_snapshot(
     response_headers: dict[str, str],
     status_code: int,
     elapsed_ms: int,
+    ttft_ms: Optional[int],
     completion_duration_ms: Optional[int],
     payload: Optional[bytes],
     provider_correlation_id: Optional[str],
@@ -378,6 +386,7 @@ def build_stream_finalization_snapshot(
         connection_id=connection.id,
         caller_user_agent=state.setup.caller_user_agent,
         elapsed_ms=elapsed_ms,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         endpoint_base_url=endpoint.base_url,
         endpoint_description=target.description,
@@ -443,6 +452,7 @@ async def _persist_stream_request_log(
         endpoint_description=snapshot.endpoint_description,
         status_code=snapshot.status_code,
         response_time_ms=snapshot.elapsed_ms,
+        ttft_ms=snapshot.ttft_ms,
         completion_duration_ms=snapshot.completion_duration_ms,
         is_stream=True,
         request_path=snapshot.request_path,
@@ -472,6 +482,7 @@ async def _persist_stream_usage_request_event(
         ingress_request_id=snapshot.ingress_request_id,
         status_code=snapshot.status_code,
         response_time_ms=snapshot.elapsed_ms,
+        ttft_ms=snapshot.ttft_ms,
         completion_duration_ms=snapshot.completion_duration_ms,
         success_flag=200 <= snapshot.status_code < 300,
         input_tokens=token_values.get("input_tokens"),
