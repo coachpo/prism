@@ -162,14 +162,14 @@ async function mockStatisticsRoutes(
 }
 
 test.describe("statistics endpoint avg token rate", () => {
-  test("renders backend token-rate values in top-level and expanded endpoint rows", async ({ page }) => {
+  test("renders numeric avg token rates for buffered/completed groups in top-level and expanded endpoint rows", async ({ page }) => {
     const endpointModelRequests: number[] = [];
 
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
           endpoint_id: 7,
-          endpoint_label: "Primary endpoint",
+          endpoint_label: "Buffered + completed endpoint",
           avg_token_rate: 120.45,
           request_count: 8,
           success_rate: 87.5,
@@ -178,7 +178,7 @@ test.describe("statistics endpoint avg token rate", () => {
         },
         {
           endpoint_id: null,
-          endpoint_label: "Unknown endpoint",
+          endpoint_label: "Buffered + completed unknown endpoint",
           avg_token_rate: 45.55,
           request_count: 3,
           success_rate: 100,
@@ -190,7 +190,7 @@ test.describe("statistics endpoint avg token rate", () => {
         7: [
           {
             model_id: "gpt-4o-mini",
-            model_label: "GPT-4o mini",
+            model_label: "Buffered success model",
             avg_token_rate: 95.44,
             request_count: 5,
             success_rate: 100,
@@ -199,7 +199,7 @@ test.describe("statistics endpoint avg token rate", () => {
           },
           {
             model_id: "claude-3-5-sonnet",
-            model_label: "Claude 3.5 Sonnet",
+            model_label: "Completed stream model",
             avg_token_rate: 150.04,
             request_count: 3,
             success_rate: 66.7,
@@ -225,11 +225,11 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(headerRow.locator(":scope > div").nth(5)).toHaveText("Total Spend");
 
     const unknownEndpointRow = table
-      .getByText("Unknown endpoint")
+      .getByText("Buffered + completed unknown endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
     await expect(unknownEndpointRow.locator(":scope > div").nth(1)).toHaveText("45.6 tok/s");
 
-    const endpointRow = page.getByRole("button", { name: "#7 Primary endpoint" });
+    const endpointRow = page.getByRole("button", { name: "#7 Buffered + completed endpoint" });
     await expect(endpointRow.locator(":scope > div").nth(1)).toHaveText("120.5 tok/s");
     await expect(endpointModelRequests).toEqual([]);
 
@@ -248,20 +248,20 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(endpointModelHeaders.nth(5)).toHaveText("Total Spend");
 
     const firstModelRowCells = endpointModelTable.locator("tbody tr").nth(0).locator("td");
-    await expect(firstModelRowCells.nth(0)).toHaveText("GPT-4o mini");
+    await expect(firstModelRowCells.nth(0)).toHaveText("Buffered success model");
     await expect(firstModelRowCells.nth(1)).toHaveText("95.4 tok/s");
 
     const secondModelRowCells = endpointModelTable.locator("tbody tr").nth(1).locator("td");
-    await expect(secondModelRowCells.nth(0)).toHaveText("Claude 3.5 Sonnet");
+    await expect(secondModelRowCells.nth(0)).toHaveText("Completed stream model");
     await expect(secondModelRowCells.nth(1)).toHaveText("150.0 tok/s");
   });
 
-  test("renders em dash for null token-rate values in top-level and expanded rows", async ({ page }) => {
+  test("renders em dash for legacy/incomplete avg token rate groups in top-level and expanded rows", async ({ page }) => {
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
           endpoint_id: 8,
-          endpoint_label: "Historical endpoint",
+          endpoint_label: "Legacy / incomplete endpoint",
           avg_token_rate: null,
           request_count: 5,
           success_rate: 80,
@@ -270,7 +270,7 @@ test.describe("statistics endpoint avg token rate", () => {
         },
         {
           endpoint_id: null,
-          endpoint_label: "Unknown endpoint",
+          endpoint_label: "Legacy / incomplete unknown endpoint",
           avg_token_rate: null,
           request_count: 2,
           success_rate: 50,
@@ -282,7 +282,7 @@ test.describe("statistics endpoint avg token rate", () => {
         8: [
           {
             model_id: "legacy-model",
-            model_label: "Legacy model",
+            model_label: "Legacy / incomplete model",
             avg_token_rate: null,
             request_count: 5,
             success_rate: 80,
@@ -298,11 +298,11 @@ test.describe("statistics endpoint avg token rate", () => {
 
     const table = page.getByTestId("statistics-endpoint-table");
     const unknownEndpointRow = table
-      .getByText("Unknown endpoint")
+      .getByText("Legacy / incomplete unknown endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
     await expect(unknownEndpointRow.locator(":scope > div").nth(1)).toHaveText("—");
 
-    const endpointRow = page.getByRole("button", { name: "#8 Historical endpoint" });
+    const endpointRow = page.getByRole("button", { name: "#8 Legacy / incomplete endpoint" });
     await expect(endpointRow.locator(":scope > div").nth(1)).toHaveText("—");
 
     await endpointRow.click();
@@ -310,6 +310,7 @@ test.describe("statistics endpoint avg token rate", () => {
     const endpointModelTable = page.getByTestId("statistics-endpoint-model-table-8");
     await expect(endpointModelTable).toBeVisible();
     const firstModelRowCells = endpointModelTable.locator("tbody tr").nth(0).locator("td");
+    await expect(firstModelRowCells.nth(0)).toHaveText("Legacy / incomplete model");
     await expect(firstModelRowCells.nth(1)).toHaveText("—");
   });
 });

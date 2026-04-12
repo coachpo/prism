@@ -19,10 +19,18 @@ function formatTokens(tokens: number | null): string {
   return formatNumber(tokens, getCurrentLocale());
 }
 
-function formatTokenRate(tokens: number | null, responseTimeMs: number): string {
-  if (tokens === null || responseTimeMs <= 0) return "—";
+function formatTokenRate(tokens: number | null, completionDurationMs: number | null): string {
+  if (
+    tokens === null ||
+    !Number.isFinite(tokens) ||
+    completionDurationMs === null ||
+    !Number.isFinite(completionDurationMs) ||
+    completionDurationMs <= 0
+  ) {
+    return "—";
+  }
 
-  const tokensPerSecond = (tokens * 1000) / responseTimeMs;
+  const tokensPerSecond = (tokens * 1000) / completionDurationMs;
   return `${formatNumber(tokensPerSecond, getCurrentLocale(), {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -150,7 +158,7 @@ export function getColumns(): ColumnDef[] {
       align: "right",
       render: (row) => (
         <span className="text-xs font-mono text-muted-foreground">
-          {formatTokenRate(row.total_tokens, row.response_time_ms)}
+          {formatTokenRate(row.total_tokens, row.completion_duration_ms)}
         </span>
       ),
     },

@@ -54,6 +54,7 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     vendor_name: "OpenAI",
     endpoint_id: 1,
     connection_id: null,
+    completion_duration_ms: 125,
     status_code: 200,
     response_time_ms: 125,
     is_stream: true,
@@ -153,11 +154,25 @@ async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, 
 }
 
 test.describe("request logs token rate", () => {
-  test("renders a one-decimal token rate for valid rows", async ({ page }) => {
+  test("renders buffered and completed-stream token rates from completion duration", async ({ page }) => {
     await mockRequestLogRoutes(page, [
       createRequestLogItem({
-        caller_client_display: "Valid Client",
-        upstream_client_display: "Valid Client",
+        id: 101,
+        caller_client_display: "Buffered Zero Tokens",
+        upstream_client_display: "Buffered Zero Tokens",
+        is_stream: false,
+        total_tokens: 0,
+        completion_duration_ms: 500,
+        response_time_ms: 2100,
+      }),
+      createRequestLogItem({
+        id: 102,
+        caller_client_display: "Completed Stream",
+        upstream_client_display: "Completed Stream",
+        is_stream: true,
+        total_tokens: 150,
+        completion_duration_ms: 300,
+        response_time_ms: 4500,
       }),
     ]);
 
@@ -166,26 +181,49 @@ test.describe("request logs token rate", () => {
     const table = page.getByTestId("request-logs-table");
     await expect(table.getByText("Token Rate", { exact: true })).toBeVisible();
 
-    const row = page.getByRole("button").filter({ hasText: "Valid Client" });
-    await expect(row).toContainText("1,200.0 tok/s");
+    const bufferedRow = page.getByRole("button").filter({ hasText: "Buffered Zero Tokens" });
+    await expect(bufferedRow.locator(":scope > div").nth(2)).toHaveText("2,100ms");
+    await expect(bufferedRow.locator(":scope > div").nth(3)).toHaveText("0.0 tok/s");
+
+    const completedStreamRow = page.getByRole("button").filter({ hasText: "Completed Stream" });
+    await expect(completedStreamRow.locator(":scope > div").nth(2)).toHaveText("4,500ms");
+    await expect(completedStreamRow.locator(":scope > div").nth(3)).toHaveText("500.0 tok/s");
   });
 
-  test("renders an em dash for invalid token-rate rows", async ({ page }) => {
+  test("renders an em dash for legacy and incomplete rows without completion duration", async ({ page }) => {
     await mockRequestLogRoutes(page, [
       createRequestLogItem({
-        id: 102,
-        caller_client_display: "Invalid Client",
-        upstream_client_display: "Invalid Client",
-        response_time_ms: 0,
+        id: 103,
+        caller_client_display: "Legacy Buffered",
+        upstream_client_display: "Legacy Buffered",
+        is_stream: false,
+        total_tokens: 90,
+        completion_duration_ms: null,
+        response_time_ms: 240,
+      }),
+      createRequestLogItem({
+        id: 104,
+        caller_client_display: "Incomplete Stream",
+        upstream_client_display: "Incomplete Stream",
+        is_stream: true,
+        total_tokens: 45,
+        completion_duration_ms: null,
+        response_time_ms: 900,
       }),
     ]);
 
     await page.goto("/request-logs");
 
-    const row = page.getByRole("button").filter({ hasText: "Invalid Client" });
-    await expect(row).toContainText("—");
-    await expect(row).not.toContainText("Infinity");
-    await expect(row).not.toContainText("NaN");
-    await expect(row).not.toContainText("0.0 tok/s");
+    const legacyBufferedRow = page.getByRole("button").filter({ hasText: "Legacy Buffered" });
+    await expect(legacyBufferedRow.locator(":scope > div").nth(2)).toHaveText("240ms");
+    await expect(legacyBufferedRow.locator(":scope > div").nth(3)).toHaveText("—");
+    await expect(legacyBufferedRow).not.toContainText("375.0 tok/s");
+    await expect(legacyBufferedRow).not.toContainText("Infinity");
+    await expect(legacyBufferedRow).not.toContainText("NaN");
+
+    const incompleteStreamRow = page.getByRole("button").filter({ hasText: "Incomplete Stream" });
+    await expect(incompleteStreamRow.locator(":scope > div").nth(2)).toHaveText("900ms");
+    await expect(incompleteStreamRow.locator(":scope > div").nth(3)).toHaveText("—");
+    await expect(incompleteStreamRow).not.toContainText("50.0 tok/s");
   });
 });
