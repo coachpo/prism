@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Any, Optional, cast
 
 import httpx
 from fastapi.responses import StreamingResponse
@@ -24,7 +26,19 @@ from .attempt_types import (
 from .proxy_request_helpers import classify_failover_failure, is_recovery_success_status
 
 logger = logging.getLogger(__name__)
-TokenUsage = dict[str, int | None]
+TokenUsage = dict[str, Optional[int]]
+
+
+def _prepared_execution_response(
+    *,
+    commit_response_fn,
+    discard_response_fn,
+) -> PreparedExecutionResponse:
+    return cast(Any, PreparedExecutionResponse)(
+        commit_response_fn=commit_response_fn,
+        discard_response_fn=discard_response_fn,
+    )
+
 
 TOKEN_USAGE_FIELDS = (
     "input_tokens",
@@ -184,7 +198,7 @@ def _is_sse_stream(content_type: str | None) -> bool:
     return content_type.partition(";")[0].strip().lower() == "text/event-stream"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class _SseEventTokenUpdate:
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -354,7 +368,7 @@ def _parse_sse_event_update(line: bytes) -> _SseEventTokenUpdate | None:
     )
 
 
-@dataclass(slots=True)
+@dataclass
 class _StreamingFinalizationBuffer:
     keep_payload: bool
     parse_sse_tokens: bool = True
@@ -592,6 +606,7 @@ def build_streaming_response(
 
             stream_error: Exception | None = None
             stream_error_detail: str | None = None
+            stream_completed_normally = False
             try:
                 if first_chunk:
                     finalization_buffer.append(first_chunk)
@@ -600,6 +615,7 @@ def build_streaming_response(
                     if chunk:
                         finalization_buffer.append(chunk)
                         yield chunk
+                stream_completed_normally = True
             except GeneratorExit:
                 return
             except asyncio.CancelledError:
@@ -626,6 +642,11 @@ def build_streaming_response(
                     token_usage = _extract_stream_tokens(payload)
 
                 final_status_code = 0 if stream_error is not None else resp.status_code
+                completion_duration_ms = (
+                    state.completion_duration_ms()
+                    if stream_completed_normally
+                    else None
+                )
                 snapshot = build_stream_finalization_snapshot(
                     attempt_count=attempt_count,
                     deps=deps,
@@ -635,6 +656,7 @@ def build_streaming_response(
                     response_headers=response_headers,
                     status_code=final_status_code,
                     elapsed_ms=elapsed_ms,
+                    completion_duration_ms=completion_duration_ms,
                     payload=payload,
                     provider_correlation_id=provider_correlation_id,
                     token_usage=token_usage,
@@ -690,7 +712,7 @@ def build_streaming_response(
             },
         )
 
-    return PreparedExecutionResponse(
+    return _prepared_execution_response(
         commit_response_fn=commit_response,
         discard_response_fn=discard_response,
     )

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 import httpx
 from fastapi.responses import Response
@@ -23,6 +26,21 @@ from .attempt_types import (
 from .proxy_request_helpers import classify_failover_failure, is_recovery_success_status
 
 logger = logging.getLogger(__name__)
+
+
+def _attempt_execution_result(**kwargs: Any) -> AttemptExecutionResult:
+    return cast(Any, AttemptExecutionResult)(**kwargs)
+
+
+def _prepared_execution_response(
+    *,
+    commit_response_fn,
+    discard_response_fn,
+) -> PreparedExecutionResponse:
+    return cast(Any, PreparedExecutionResponse)(
+        commit_response_fn=commit_response_fn,
+        discard_response_fn=discard_response_fn,
+    )
 
 
 async def _await_first_stream_chunk(stream_iter: AsyncIterator[bytes]) -> bytes | None:
@@ -111,6 +129,7 @@ def _prepare_buffered_response(
     tokens: dict[str, int | None] | None,
 ) -> PreparedExecutionResponse:
     async def commit_response(attempt_count: int) -> Response:
+        completion_duration_ms = state.completion_duration_ms()
         _ = await log_and_audit_attempt(
             deps=deps,
             state=state,
@@ -121,6 +140,7 @@ def _prepare_buffered_response(
             is_stream=False,
             elapsed_ms=elapsed_ms,
             error_detail=error_detail,
+            completion_duration_ms=completion_duration_ms,
             tokens=tokens,
         )
         _ = await record_final_usage_event(
@@ -130,6 +150,7 @@ def _prepare_buffered_response(
             status_code=status_code,
             attempt_count=attempt_count,
             elapsed_ms=elapsed_ms,
+            completion_duration_ms=completion_duration_ms,
             tokens=tokens,
         )
         await _release_limiter_lease_if_needed(
@@ -156,7 +177,7 @@ def _prepare_buffered_response(
             target=target,
         )
 
-    return PreparedExecutionResponse(
+    return _prepared_execution_response(
         commit_response_fn=commit_response,
         discard_response_fn=discard_response,
     )
@@ -228,14 +249,14 @@ async def handle_streaming_attempt(
                     status_code=upstream_resp.status_code,
                     raw_body=response_body,
                 )
-                return AttemptExecutionResult(
+                return _attempt_execution_result(
                     attempted=True,
                     accepted=False,
                     error_detail=f"Upstream returned {upstream_resp.status_code}",
                 )
 
             tokens = extract_token_usage(response_body)
-            return AttemptExecutionResult(
+            return _attempt_execution_result(
                 attempted=True,
                 accepted=True,
                 prepared_response=_prepare_buffered_response(
@@ -266,7 +287,7 @@ async def handle_streaming_attempt(
                 target=target,
                 exception=TimeoutError("upstream stream completed before first chunk"),
             )
-            return AttemptExecutionResult(
+            return _attempt_execution_result(
                 attempted=True,
                 accepted=False,
                 error_detail="upstream stream completed before first chunk",
@@ -285,7 +306,7 @@ async def handle_streaming_attempt(
             target=target,
             exception=TimeoutError("upstream stream open timed out before first chunk"),
         )
-        return AttemptExecutionResult(
+        return _attempt_execution_result(
             attempted=True,
             accepted=False,
             error_detail="upstream stream open timed out before first chunk",
@@ -300,7 +321,7 @@ async def handle_streaming_attempt(
 
     elapsed_ms = int((time.monotonic() - start_time) * 1000)
 
-    return AttemptExecutionResult(
+    return _attempt_execution_result(
         attempted=True,
         accepted=True,
         prepared_response=build_streaming_response(
@@ -369,7 +390,7 @@ async def handle_buffered_attempt(
             status_code=response.status_code,
             raw_body=response.content,
         )
-        return AttemptExecutionResult(
+        return _attempt_execution_result(
             attempted=True,
             accepted=False,
             error_detail=f"Upstream returned {response.status_code}",
@@ -380,7 +401,7 @@ async def handle_buffered_attempt(
     if response.status_code >= 400:
         error_detail = response_error_detail(response.content)
 
-    return AttemptExecutionResult(
+    return _attempt_execution_result(
         attempted=True,
         accepted=True,
         prepared_response=_prepare_buffered_response(
@@ -438,7 +459,7 @@ async def handle_transport_exception(
         target=target,
         exception=exc,
     )
-    return AttemptExecutionResult(
+    return _attempt_execution_result(
         attempted=True,
         accepted=False,
         error_detail=last_error,
