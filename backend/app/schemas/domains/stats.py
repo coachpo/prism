@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -31,6 +33,7 @@ class RequestLogResponse(BaseModel):
     endpoint_base_url: str | None
     status_code: int
     response_time_ms: int
+    completion_duration_ms: int | None = None
     is_stream: bool
     input_tokens: int | None
     output_tokens: int | None
@@ -83,6 +86,7 @@ class RequestLogListItemResponse(BaseModel):
     connection_id: int | None
     status_code: int
     response_time_ms: int
+    completion_duration_ms: int | None = None
     is_stream: bool
     total_tokens: int | None = None
     total_cost_user_currency_micros: int | None = None
