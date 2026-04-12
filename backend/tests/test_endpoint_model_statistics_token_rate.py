@@ -55,6 +55,7 @@ def _usage_event(
     created_at: datetime,
     total_tokens: int | None,
     response_time_ms: int | None,
+    completion_duration_ms: int | None,
 ) -> UsageRequestEvent:
     return UsageRequestEvent(
         profile_id=1,
@@ -68,6 +69,7 @@ def _usage_event(
         proxy_api_key_name_snapshot=None,
         status_code=200,
         response_time_ms=response_time_ms,
+        completion_duration_ms=completion_duration_ms,
         success_flag=True,
         input_tokens=None,
         output_tokens=None,
@@ -79,7 +81,7 @@ def _usage_event(
     )
 
 
-def test_arithmetic_mean_avg_token_rate_uses_per_request_rates() -> None:
+def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 10
@@ -119,6 +121,7 @@ def test_arithmetic_mean_avg_token_rate_uses_per_request_rates() -> None:
                         created_at=created_at,
                         total_tokens=100,
                         response_time_ms=1000,
+                        completion_duration_ms=5000,
                     ),
                     _usage_event(
                         ingress_request_id="req-2",
@@ -127,6 +130,7 @@ def test_arithmetic_mean_avg_token_rate_uses_per_request_rates() -> None:
                         created_at=created_at + timedelta(minutes=1),
                         total_tokens=300,
                         response_time_ms=1000,
+                        completion_duration_ms=1500,
                     ),
                 ]
             )
@@ -148,19 +152,19 @@ def test_arithmetic_mean_avg_token_rate_uses_per_request_rates() -> None:
                     "success_rate": 100.0,
                     "total_tokens": 400,
                     "total_cost_micros": 0,
-                    "avg_token_rate": 200.0,
+                    "avg_token_rate": 110.0,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
-            assert statistic.avg_token_rate == 200.0
+            assert statistic.avg_token_rate == 110.0
         finally:
             session.close()
 
     asyncio.run(run())
 
 
-def test_mixed_history_returns_null_grouped_avg_token_rate() -> None:
+def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 11
@@ -200,6 +204,7 @@ def test_mixed_history_returns_null_grouped_avg_token_rate() -> None:
                         created_at=created_at,
                         total_tokens=100,
                         response_time_ms=1000,
+                        completion_duration_ms=1000,
                     ),
                     _usage_event(
                         ingress_request_id="req-4",
@@ -207,7 +212,8 @@ def test_mixed_history_returns_null_grouped_avg_token_rate() -> None:
                         model_id=model_id,
                         created_at=created_at - timedelta(hours=12),
                         total_tokens=300,
-                        response_time_ms=None,
+                        response_time_ms=1000,
+                        completion_duration_ms=None,
                     ),
                 ]
             )

@@ -82,11 +82,11 @@ async def get_endpoint_model_statistics(
     success_count = case((UsageRequestEvent.success_flag.is_(True), 1), else_=0)
     avg_token_rate_eligible = and_(
         UsageRequestEvent.total_tokens.is_not(None),
-        UsageRequestEvent.response_time_ms.is_not(None),
-        UsageRequestEvent.response_time_ms > 0,
+        UsageRequestEvent.completion_duration_ms.is_not(None),
+        UsageRequestEvent.completion_duration_ms > 0,
     )
     token_rate_expr = (cast(UsageRequestEvent.total_tokens, Float) * 1000.0) / cast(
-        UsageRequestEvent.response_time_ms, Float
+        UsageRequestEvent.completion_duration_ms, Float
     )
     eligible_token_rate_expr = case(
         (avg_token_rate_eligible, token_rate_expr),
