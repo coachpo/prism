@@ -176,6 +176,8 @@ class UsageEndpointStatistic(BaseModel):
     endpoint_label: str
     request_count: int
     success_rate: float
+    p50_ttft_ms: int | None = None
+    p95_ttft_ms: int | None = None
     avg_token_rate: float | None
     total_tokens: int
     total_cost_micros: int
@@ -186,6 +188,8 @@ class UsageModelStatistic(BaseModel):
     model_label: str
     request_count: int
     success_rate: float
+    p50_ttft_ms: int | None = None
+    p95_ttft_ms: int | None = None
     total_tokens: int
     total_cost_micros: int
     avg_token_rate: float | None

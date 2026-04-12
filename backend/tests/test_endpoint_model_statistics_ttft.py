@@ -19,6 +19,9 @@ class _SyncAsyncSession:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def get_bind(self):
+        return self._session.get_bind()
+
     async def scalar(self, statement):
         return self._session.scalar(statement)
 
@@ -54,8 +57,8 @@ def _usage_event(
     model_id: str,
     created_at: datetime,
     total_tokens: int | None,
-    response_time_ms: int | None,
     completion_duration_ms: int | None,
+    ttft_ms: int | None,
 ) -> UsageRequestEvent:
     return UsageRequestEvent(
         profile_id=1,
@@ -68,7 +71,8 @@ def _usage_event(
         proxy_api_key_id=None,
         proxy_api_key_name_snapshot=None,
         status_code=200,
-        response_time_ms=response_time_ms,
+        response_time_ms=1000,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         success_flag=True,
         input_tokens=None,
@@ -81,7 +85,7 @@ def _usage_event(
     )
 
 
-def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
+def test_mixed_null_ttft_rows_keep_avg_token_rate_and_compute_percentiles() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 10
@@ -120,8 +124,8 @@ def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
                         model_id=model_id,
                         created_at=created_at,
                         total_tokens=100,
-                        response_time_ms=1000,
-                        completion_duration_ms=5000,
+                        completion_duration_ms=1000,
+                        ttft_ms=100,
                     ),
                     _usage_event(
                         ingress_request_id="req-2",
@@ -129,8 +133,17 @@ def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
                         model_id=model_id,
                         created_at=created_at + timedelta(minutes=1),
                         total_tokens=300,
-                        response_time_ms=1000,
                         completion_duration_ms=1500,
+                        ttft_ms=400,
+                    ),
+                    _usage_event(
+                        ingress_request_id="req-3",
+                        endpoint_id=endpoint_id,
+                        model_id=model_id,
+                        created_at=created_at + timedelta(minutes=2),
+                        total_tokens=500,
+                        completion_duration_ms=2500,
+                        ttft_ms=None,
                     ),
                 ]
             )
@@ -141,32 +154,34 @@ def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
                 profile_id=1,
                 endpoint_id=endpoint_id,
                 from_time=created_at - timedelta(minutes=1),
-                to_time=created_at + timedelta(minutes=2),
+                to_time=created_at + timedelta(minutes=3),
             )
 
             assert rows == [
                 {
                     "model_id": model_id,
                     "model_label": "GPT 5.4",
-                    "request_count": 2,
+                    "request_count": 3,
                     "success_rate": 100.0,
-                    "total_tokens": 400,
+                    "total_tokens": 900,
                     "total_cost_micros": 0,
-                    "p50_ttft_ms": None,
-                    "p95_ttft_ms": None,
-                    "avg_token_rate": 110.0,
+                    "p50_ttft_ms": 250,
+                    "p95_ttft_ms": 385,
+                    "avg_token_rate": 166.67,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
-            assert statistic.avg_token_rate == 110.0
+            assert statistic.p50_ttft_ms == 250
+            assert statistic.p95_ttft_ms == 385
+            assert statistic.avg_token_rate == 166.67
         finally:
             session.close()
 
     asyncio.run(run())
 
 
-def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
+def test_zero_eligible_ttft_rows_return_null_percentiles() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 11
@@ -200,22 +215,22 @@ def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
             session.add_all(
                 [
                     _usage_event(
-                        ingress_request_id="req-3",
+                        ingress_request_id="req-4",
                         endpoint_id=endpoint_id,
                         model_id=model_id,
                         created_at=created_at,
                         total_tokens=100,
-                        response_time_ms=1000,
                         completion_duration_ms=1000,
+                        ttft_ms=None,
                     ),
                     _usage_event(
-                        ingress_request_id="req-4",
+                        ingress_request_id="req-5",
                         endpoint_id=endpoint_id,
                         model_id=model_id,
-                        created_at=created_at - timedelta(hours=12),
+                        created_at=created_at + timedelta(minutes=1),
                         total_tokens=300,
-                        response_time_ms=1000,
-                        completion_duration_ms=None,
+                        completion_duration_ms=1500,
+                        ttft_ms=None,
                     ),
                 ]
             )
@@ -225,8 +240,8 @@ def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
                 cast(AsyncSession, async_db),
                 profile_id=1,
                 endpoint_id=endpoint_id,
-                from_time=created_at - timedelta(days=1),
-                to_time=created_at + timedelta(minutes=1),
+                from_time=created_at - timedelta(minutes=1),
+                to_time=created_at + timedelta(minutes=2),
             )
 
             assert rows == [
@@ -239,12 +254,14 @@ def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
                     "total_cost_micros": 0,
                     "p50_ttft_ms": None,
                     "p95_ttft_ms": None,
-                    "avg_token_rate": None,
+                    "avg_token_rate": 150.0,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
-            assert statistic.avg_token_rate is None
+            assert statistic.p50_ttft_ms is None
+            assert statistic.p95_ttft_ms is None
+            assert statistic.avg_token_rate == 150.0
         finally:
             session.close()
 

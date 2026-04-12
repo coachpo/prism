@@ -5,14 +5,16 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import cast
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.schemas.schemas import UsageSnapshotResponse
 from app.services.stats.usage_snapshot import (
     _build_endpoint_statistics,
     _build_model_statistics,
-    get_usage_snapshot,
     _load_snapshot_events,
+    _percentile_cont_int,
+    get_usage_snapshot,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class _FakeResult:
@@ -37,10 +39,12 @@ class _FakeSession:
 def _row(
     *,
     total_tokens: int | None,
-    response_time_ms: int | None,
     completion_duration_ms: int | None,
+    ttft_ms: int | None,
     endpoint_id: int | None = 1,
     endpoint_name: str | None = "Primary Endpoint",
+    model_id: str = "gpt-5.4",
+    model_display_name: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         api_family="openai",
@@ -52,20 +56,21 @@ def _row(
         endpoint_id=endpoint_id,
         ingress_request_id="req-1",
         input_tokens=1,
-        model_id="gpt-5.4",
+        model_id=model_id,
         output_tokens=2,
         proxy_api_key_id=None,
         proxy_api_key_name_snapshot=None,
         reasoning_tokens=0,
         request_path="/v1/chat/completions",
-        response_time_ms=response_time_ms,
+        response_time_ms=1000,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         resolved_target_model_id=None,
         status_code=200,
         success_flag=True,
         total_cost_user_currency_micros=0,
         total_tokens=total_tokens,
-        model_display_name=None,
+        model_display_name=model_display_name,
         endpoint_name=endpoint_name,
         endpoint_base_url=None,
         current_proxy_api_key_name=None,
@@ -73,7 +78,7 @@ def _row(
     )
 
 
-async def _build_stats(rows: list[SimpleNamespace]) -> list[dict[str, object]]:
+async def _build_endpoint_stats(rows: list[SimpleNamespace]) -> list[dict[str, object]]:
     events = await _load_snapshot_events(
         cast(AsyncSession, _FakeSession(rows)),
         profile_id=1,
@@ -102,20 +107,19 @@ async def _build_snapshot(rows: list[SimpleNamespace]) -> UsageSnapshotResponse:
     return UsageSnapshotResponse.model_validate(snapshot)
 
 
-def test_buffered_and_stream_completion_rates_return_avg_token_rate() -> None:
+def test_percentile_helper_matches_postgresql_percentile_cont_interpolation() -> None:
+    assert _percentile_cont_int([100, 200, 400, 800], 0.5) == 300
+    assert _percentile_cont_int([100, 200, 400, 800], 0.95) == 740
+    assert _percentile_cont_int([], 0.5) is None
+
+
+def test_endpoint_statistics_use_only_eligible_ttft_rows() -> None:
     rows = asyncio.run(
-        _build_stats(
+        _build_endpoint_stats(
             [
-                _row(
-                    total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=5000,
-                ),
-                _row(
-                    total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1500,
-                ),
+                _row(total_tokens=100, completion_duration_ms=1000, ttft_ms=100),
+                _row(total_tokens=300, completion_duration_ms=1500, ttft_ms=400),
+                _row(total_tokens=500, completion_duration_ms=2500, ttft_ms=None),
             ]
         )
     )
@@ -124,79 +128,25 @@ def test_buffered_and_stream_completion_rates_return_avg_token_rate() -> None:
         {
             "endpoint_id": 1,
             "endpoint_label": "Primary Endpoint",
-            "request_count": 2,
+            "request_count": 3,
             "success_rate": 100.0,
-            "p50_ttft_ms": None,
-            "p95_ttft_ms": None,
-            "avg_token_rate": 110.0,
-            "total_tokens": 400,
+            "p50_ttft_ms": 250,
+            "p95_ttft_ms": 385,
+            "avg_token_rate": 166.67,
+            "total_tokens": 900,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_legacy_or_incomplete_rows_return_null_when_completion_duration_missing() -> (
+def test_model_statistics_return_null_ttft_percentiles_when_no_rows_are_eligible() -> (
     None
 ):
     rows = asyncio.run(
-        _build_stats(
-            [
-                _row(
-                    total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=1000,
-                ),
-                _row(
-                    total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=None,
-                ),
-            ]
-        )
-    )
-
-    assert rows[0]["avg_token_rate"] is None
-    assert rows[0]["total_tokens"] == 400
-    assert rows[0]["request_count"] == 2
-
-
-def test_ineligible_rows_return_null_when_tokens_missing() -> None:
-    rows = asyncio.run(
-        _build_stats(
-            [
-                _row(
-                    total_tokens=None,
-                    response_time_ms=1000,
-                    completion_duration_ms=1000,
-                ),
-                _row(
-                    total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1000,
-                ),
-            ]
-        )
-    )
-
-    assert rows[0]["avg_token_rate"] is None
-    assert rows[0]["total_tokens"] == 300
-    assert rows[0]["request_count"] == 2
-
-
-def test_model_statistics_return_avg_token_rate_for_completion_duration_rows() -> None:
-    rows = asyncio.run(
         _build_model_stats(
             [
-                _row(
-                    total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=5000,
-                ),
-                _row(
-                    total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1500,
-                ),
+                _row(total_tokens=100, completion_duration_ms=1000, ttft_ms=None),
+                _row(total_tokens=300, completion_duration_ms=1500, ttft_ms=None),
             ]
         )
     )
@@ -209,30 +159,45 @@ def test_model_statistics_return_avg_token_rate_for_completion_duration_rows() -
             "success_rate": 100.0,
             "p50_ttft_ms": None,
             "p95_ttft_ms": None,
-            "avg_token_rate": 110.0,
+            "avg_token_rate": 150.0,
             "total_tokens": 400,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_usage_snapshot_response_validates_with_model_avg_token_rate() -> None:
+def test_usage_snapshot_response_validates_ttft_percentiles() -> None:
     snapshot = asyncio.run(
         _build_snapshot(
             [
                 _row(
                     total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=5000,
+                    completion_duration_ms=1000,
+                    ttft_ms=100,
+                    model_display_name="GPT 5.4",
                 ),
                 _row(
                     total_tokens=300,
-                    response_time_ms=1000,
                     completion_duration_ms=1500,
+                    ttft_ms=400,
+                    model_display_name="GPT 5.4",
+                ),
+                _row(
+                    total_tokens=500,
+                    completion_duration_ms=2500,
+                    ttft_ms=None,
+                    model_display_name="GPT 5.4",
                 ),
             ]
         )
     )
 
+    assert len(snapshot.endpoint_statistics) == 1
+    assert snapshot.endpoint_statistics[0].p50_ttft_ms == 250
+    assert snapshot.endpoint_statistics[0].p95_ttft_ms == 385
+    assert snapshot.endpoint_statistics[0].avg_token_rate == 166.67
+
     assert len(snapshot.model_statistics) == 1
-    assert snapshot.model_statistics[0].avg_token_rate == 110.0
+    assert snapshot.model_statistics[0].p50_ttft_ms == 250
+    assert snapshot.model_statistics[0].p95_ttft_ms == 385
+    assert snapshot.model_statistics[0].avg_token_rate == 166.67

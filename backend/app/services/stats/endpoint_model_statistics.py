@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Sequence
 
 from fastapi import HTTPException
 from sqlalchemy import Float, and_, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.time import utc_now
 from app.models.models import Endpoint, ModelConfig, UsageRequestEvent
 from app.services.stats.time_presets import resolve_time_preset
+from app.services.stats.usage_snapshot import _percentile_cont_int
 
 EndpointModelStatisticsPreset = Literal["1h", "6h", "24h", "7d", "30d", "all"]
 
@@ -24,6 +27,55 @@ def _success_rate(*, success_count: int, total_count: int) -> float:
     if total_count <= 0:
         return 0.0
     return round((success_count / total_count) * 100.0, 2)
+
+
+def _session_dialect_name(db: AsyncSession) -> str | None:
+    get_bind = getattr(db, "get_bind", None)
+    if callable(get_bind):
+        bind = get_bind()
+        dialect_name = getattr(getattr(bind, "dialect", None), "name", None)
+        if isinstance(dialect_name, str):
+            return dialect_name
+
+    bind = getattr(db, "bind", None)
+    dialect_name = getattr(getattr(bind, "dialect", None), "name", None)
+    if isinstance(dialect_name, str):
+        return dialect_name
+
+    sync_session = getattr(db, "_session", None)
+    dialect_name = getattr(
+        getattr(getattr(sync_session, "bind", None), "dialect", None),
+        "name",
+        None,
+    )
+    if isinstance(dialect_name, str):
+        return dialect_name
+    return None
+
+
+def _rounded_nullable_int(value: float | int | None) -> int | None:
+    if value is None:
+        return None
+    return int(round(float(value)))
+
+
+async def _load_ttft_values_by_model(
+    db: AsyncSession,
+    *,
+    filters: Sequence[ColumnElement[bool]],
+) -> dict[str, list[int]]:
+    rows = (
+        await db.execute(
+            select(UsageRequestEvent.model_id, UsageRequestEvent.ttft_ms)
+            .where(and_(*filters, UsageRequestEvent.ttft_ms.is_not(None)))
+            .order_by(UsageRequestEvent.model_id, UsageRequestEvent.created_at)
+        )
+    ).all()
+
+    values_by_model: dict[str, list[int]] = defaultdict(list)
+    for row in rows:
+        values_by_model[row.model_id].append(int(row.ttft_ms))
+    return values_by_model
 
 
 async def get_endpoint_model_statistics(
@@ -99,27 +151,43 @@ async def get_endpoint_model_statistics(
         ),
         else_=None,
     ).label("avg_token_rate")
+    ttft_percentile_p50 = func.percentile_cont(0.5).within_group(
+        UsageRequestEvent.ttft_ms.asc()
+    )
+    ttft_percentile_p95 = func.percentile_cont(0.95).within_group(
+        UsageRequestEvent.ttft_ms.asc()
+    )
+    dialect_name = _session_dialect_name(db)
+    query_columns = [
+        UsageRequestEvent.model_id,
+        ModelConfig.display_name.label("model_display_name"),
+        func.count().label("request_count"),
+        func.coalesce(func.sum(success_count), 0).label("success_count"),
+        func.coalesce(
+            func.sum(func.coalesce(UsageRequestEvent.total_tokens, 0)), 0
+        ).label("total_tokens"),
+        func.coalesce(
+            func.sum(
+                func.coalesce(
+                    UsageRequestEvent.total_cost_user_currency_micros,
+                    0,
+                )
+            ),
+            0,
+        ).label("total_cost_micros"),
+        avg_token_rate,
+    ]
+    if dialect_name == "postgresql":
+        query_columns.extend(
+            [
+                ttft_percentile_p50.label("p50_ttft_ms"),
+                ttft_percentile_p95.label("p95_ttft_ms"),
+            ]
+        )
+
     rows = (
         await db.execute(
-            select(
-                UsageRequestEvent.model_id,
-                ModelConfig.display_name.label("model_display_name"),
-                func.count().label("request_count"),
-                func.coalesce(func.sum(success_count), 0).label("success_count"),
-                func.coalesce(
-                    func.sum(func.coalesce(UsageRequestEvent.total_tokens, 0)), 0
-                ).label("total_tokens"),
-                func.coalesce(
-                    func.sum(
-                        func.coalesce(
-                            UsageRequestEvent.total_cost_user_currency_micros,
-                            0,
-                        )
-                    ),
-                    0,
-                ).label("total_cost_micros"),
-                avg_token_rate,
-            )
+            select(*query_columns)
             .select_from(UsageRequestEvent)
             .outerjoin(
                 ModelConfig,
@@ -132,6 +200,11 @@ async def get_endpoint_model_statistics(
             .group_by(UsageRequestEvent.model_id, ModelConfig.display_name)
         )
     ).all()
+    ttft_values_by_model = (
+        {}
+        if dialect_name == "postgresql"
+        else await _load_ttft_values_by_model(db, filters=filters)
+    )
 
     items = [
         {
@@ -144,6 +217,22 @@ async def get_endpoint_model_statistics(
             ),
             "total_tokens": int(row.total_tokens or 0),
             "total_cost_micros": int(row.total_cost_micros or 0),
+            "p50_ttft_ms": (
+                _rounded_nullable_int(row.p50_ttft_ms)
+                if dialect_name == "postgresql"
+                else _percentile_cont_int(
+                    ttft_values_by_model.get(row.model_id, []),
+                    0.5,
+                )
+            ),
+            "p95_ttft_ms": (
+                _rounded_nullable_int(row.p95_ttft_ms)
+                if dialect_name == "postgresql"
+                else _percentile_cont_int(
+                    ttft_values_by_model.get(row.model_id, []),
+                    0.95,
+                )
+            ),
             "avg_token_rate": (
                 round(float(row.avg_token_rate), 2)
                 if row.avg_token_rate is not None

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Literal, cast
 
@@ -45,6 +46,7 @@ class _SnapshotEvent:
     status_code: int
     success_flag: bool
     response_time_ms: int | None
+    ttft_ms: int | None
     completion_duration_ms: int | None
     has_total_tokens: bool
     total_cost_micros: int
@@ -58,6 +60,7 @@ class _EndpointAggregate:
     request_count: int = 0
     success_count: int = 0
     failed_count: int = 0
+    ttft_ms_values: list[int] = field(default_factory=list)
     token_rate_sum: float = 0.0
     has_ineligible_token_rate: bool = False
     total_tokens: int = 0
@@ -72,6 +75,7 @@ class _ModelAggregate:
     request_count: int = 0
     success_count: int = 0
     failed_count: int = 0
+    ttft_ms_values: list[int] = field(default_factory=list)
     token_rate_sum: float = 0.0
     has_ineligible_token_rate: bool = False
     total_tokens: int = 0
@@ -112,6 +116,20 @@ def _request_token_rate(event: _SnapshotEvent) -> float | None:
     if event.completion_duration_ms is None or event.completion_duration_ms <= 0:
         return None
     return (event.total_tokens * 1000) / event.completion_duration_ms
+
+
+def _percentile_cont_int(values: list[int], percentile: float) -> int | None:
+    if not values:
+        return None
+
+    ordered_values = sorted(values)
+    rank = (len(ordered_values) - 1) * percentile
+    lower_index = math.floor(rank)
+    upper_index = math.ceil(rank)
+    lower_value = ordered_values[lower_index]
+    upper_value = ordered_values[upper_index]
+    interpolated = lower_value + (upper_value - lower_value) * (rank - lower_index)
+    return int(round(interpolated))
 
 
 def _bucket_floor(value: datetime, granularity: Literal["hour", "day"]) -> datetime:
@@ -561,6 +579,8 @@ def _build_endpoint_statistics(events: list[_SnapshotEvent]) -> list[dict[str, o
         group.request_count += 1
         group.success_count += int(event.success_flag)
         group.failed_count += int(not event.success_flag)
+        if event.ttft_ms is not None:
+            group.ttft_ms_values.append(event.ttft_ms)
         token_rate = _request_token_rate(event)
         if token_rate is None:
             group.has_ineligible_token_rate = True
@@ -580,6 +600,8 @@ def _build_endpoint_statistics(events: list[_SnapshotEvent]) -> list[dict[str, o
                     success_count=group.success_count,
                     total_count=group.request_count,
                 ),
+                "p50_ttft_ms": _percentile_cont_int(group.ttft_ms_values, 0.5),
+                "p95_ttft_ms": _percentile_cont_int(group.ttft_ms_values, 0.95),
                 "avg_token_rate": (
                     None
                     if group.has_ineligible_token_rate
@@ -614,6 +636,8 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
         group.request_count += 1
         group.success_count += int(event.success_flag)
         group.failed_count += int(not event.success_flag)
+        if event.ttft_ms is not None:
+            group.ttft_ms_values.append(event.ttft_ms)
         token_rate = _request_token_rate(event)
         if token_rate is None:
             group.has_ineligible_token_rate = True
@@ -633,6 +657,8 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
                     success_count=row.success_count,
                     total_count=row.request_count,
                 ),
+                "p50_ttft_ms": _percentile_cont_int(row.ttft_ms_values, 0.5),
+                "p95_ttft_ms": _percentile_cont_int(row.ttft_ms_values, 0.95),
                 "avg_token_rate": (
                     None
                     if row.has_ineligible_token_rate
@@ -733,6 +759,7 @@ async def _load_snapshot_events(
                 UsageRequestEvent.reasoning_tokens,
                 UsageRequestEvent.request_path,
                 UsageRequestEvent.response_time_ms,
+                UsageRequestEvent.ttft_ms,
                 UsageRequestEvent.completion_duration_ms,
                 UsageRequestEvent.resolved_target_model_id,
                 UsageRequestEvent.status_code,
@@ -805,6 +832,7 @@ async def _load_snapshot_events(
                 reasoning_tokens=_coalesce_int(row.reasoning_tokens),
                 request_path=row.request_path,
                 response_time_ms=row.response_time_ms,
+                ttft_ms=getattr(row, "ttft_ms", None),
                 completion_duration_ms=row.completion_duration_ms,
                 resolved_target_model_id=row.resolved_target_model_id,
                 status_code=int(row.status_code),
