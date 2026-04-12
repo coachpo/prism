@@ -1,7 +1,7 @@
 # FRONTEND STATISTICS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/statistics/` owns the unified `/statistics` route behind `../StatisticsPage.tsx`. The live page is snapshot-driven, not tab-driven, and it is coordinated by `useUsageStatisticsPageState.ts` for local persisted presentation state plus `useUsageStatisticsPageData.ts` for snapshot orchestration. Keep this route focused on aggregate snapshot views split across `charts/`, `sections/`, and `tables/`.
+`pages/statistics/` owns the unified `/statistics` route behind `../dashboard/StatisticsPage.tsx`. The live page is snapshot-driven, not tab-driven, and it is coordinated by `useUsageStatisticsPageState.ts` for local persisted presentation state plus `useUsageStatisticsPageData.ts` for snapshot orchestration. Keep this route focused on aggregate snapshot views split across `charts/`, `sections/`, and `tables/`.
 
 ## STRUCTURE
 ```
@@ -18,8 +18,8 @@ statistics/
 
 ## WHERE TO LOOK
 
-- Thin route shell and top-level section orchestration: `../StatisticsPage.tsx`
-- Route-shell copy and presentation labels: `../StatisticsPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
+- Thin route shell and top-level section orchestration: `../dashboard/StatisticsPage.tsx`
+- Route-shell copy and presentation labels: `../dashboard/StatisticsPage.tsx`, `@/i18n/useLocale`, `@/i18n/AGENTS.md`
 - Snapshot orchestration and persisted presentation state: `useUsageStatisticsPageData.ts`, `useUsageStatisticsPageState.ts`, `usageStatisticsStorage.ts`
 - Usage-snapshot charts, sections, and tables: `charts/`, `sections/`, `tables/`
 - Aggregate endpoint, model, and proxy-api-key tables: `tables/`

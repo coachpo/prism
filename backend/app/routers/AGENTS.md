@@ -1,26 +1,26 @@
 # BACKEND ROUTERS KNOWLEDGE BASE
 
 ## OVERVIEW
-`routers/` is the backend API surface. `main.py` mounts the top-level routers here, and the management surface stays thin by handing dense request logic to documented `*_domains/` packages. The main parent-covered exceptions are the standalone routers `audit.py`, `loadbalance.py`, `vendors.py`, and `realtime.py`, while reusable router helpers now have their own `shared/AGENTS.md` leaf.
+`routers/` is the backend API surface. `main.py` mounts the top-level routers here, and the management surface stays thin by handing dense request logic to documented `*_domains/` packages. Keep this doc on router boundaries and the shell-versus-domain split.
 
 ## STRUCTURE
 ```
 routers/
-├── auth.py + auth_domains/AGENTS.md                     # Session, password reset, passkey, cookie auth flows
-├── config.py + config_domains/AGENTS.md                 # Config export/import and header blocklist flows
-├── connections.py + connections_domains/AGENTS.md       # Connection CRUD, health checks, ordering, owner helpers
-├── endpoints.py + endpoints_domains/AGENTS.md           # Endpoint CRUD, duplication, dropdown, and ordering flows
-├── models.py + models_domains/AGENTS.md                 # Model CRUD, proxy-model invariants, batch lookups
+├── auth.py + auth_domains/AGENTS.md
+├── config.py + config_domains/AGENTS.md
+├── connections.py + connections_domains/AGENTS.md
+├── endpoints.py + endpoints_domains/AGENTS.md
+├── models.py + models_domains/AGENTS.md
 ├── pricing_templates.py + pricing_templates_domains/AGENTS.md
-├── profiles.py + profiles_domains/AGENTS.md             # Profile lifecycle, activation, and invariants handoff
-├── settings.py + settings_domains/AGENTS.md             # Auth settings, costing, timezone, email verification, proxy keys
-├── stats.py + stats_domains/AGENTS.md                   # Request logs, summary, throughput, spending, metrics batch APIs
-├── proxy.py + proxy_domains/AGENTS.md                   # Runtime `/v1*` and `/v1beta*` proxy execution
-├── shared/AGENTS.md                                     # Router-layer ordering, endpoint-record, and profile-row helpers
-├── audit.py                                             # Audit log queries and retention delete responses
-├── loadbalance.py                                       # Strategy CRUD plus current-state and event management APIs
-├── vendors.py                                           # Global vendor CRUD and audit-setting management
-└── realtime.py                                          # Websocket auth and profile-channel subscription flow
+├── profiles.py + profiles_domains/AGENTS.md
+├── settings.py + settings_domains/AGENTS.md
+├── stats.py + stats_domains/AGENTS.md
+├── proxy.py + proxy_domains/AGENTS.md
+├── shared/AGENTS.md
+├── audit.py
+├── loadbalance.py
+├── vendors.py
+└── realtime.py
 ```
 
 ## CHILD DOCS

@@ -10,7 +10,7 @@
 
 ## DOMAINS
 - Auth entry and recovery: `LoginPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`
-- Observability: `DashboardPage.tsx`, `StatisticsPage.tsx`, `RequestLogsPage.tsx`
+- Observability: `DashboardPage.tsx`, `dashboard/StatisticsPage.tsx`, `RequestLogsPage.tsx`
 - Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `ProxyModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is also where dual-family strategy selection and assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
 - Settings shell: `SettingsPage.tsx` with `settings/sections/` and `settings/costing/`

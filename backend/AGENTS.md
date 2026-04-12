@@ -1,65 +1,63 @@
 # BACKEND KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/` is Prism's monorepo-owned backend. It owns the management API on `/api/*` and the runtime proxy API on `/v1/*` and `/v1beta/*`, is uv-managed from `pyproject.toml` and `uv.lock`, packages `app*`, runs against PostgreSQL, applies Alembic migrations during startup, and owns auth, proxy keys, passkeys, realtime updates, dual-strategy load balancing, connection health checks, costing, and observability.
+`backend/` is Prism's monorepo-owned backend. It owns the management API, the runtime proxy API, the packaged `app/` runtime, and the backend-local release and setup surfaces. Keep this doc as the top-level map, and push package detail into the child AGENTS files.
 
 ## STRUCTURE
 ```
 backend/
-├── app/AGENTS.md                                                # Live runtime map
-├── app/alembic/AGENTS.md                                        # Packaged Alembic env + revisions; schema source of truth
-├── app/bootstrap/AGENTS.md                                      # Startup sequence, connection-limit reconciliation, and auth split
-├── app/core/AGENTS.md                                           # Settings, database, auth helpers, crypto, migrations
-├── app/models/AGENTS.md                                         # ORM domain ownership and `models.py` boundary
-├── app/routers/AGENTS.md                                        # Router map, standalone routers, and leaf handoff
-├── app/routers/shared/AGENTS.md                                 # Reusable router-layer helpers
+├── app/AGENTS.md
+├── app/alembic/AGENTS.md
+├── app/bootstrap/AGENTS.md
+├── app/core/AGENTS.md
+├── app/models/AGENTS.md
+├── app/routers/AGENTS.md
+├── app/routers/shared/AGENTS.md
 ├── app/routers/{auth,config,endpoints,models,pricing_templates,profiles,settings,stats}_domains/AGENTS.md
-├── app/routers/connections_domains/AGENTS.md                    # Dense connection-management leaf
-├── app/routers/proxy_domains/AGENTS.md                          # Dense runtime proxy leaf
-├── app/schemas/AGENTS.md                                        # Contract ownership and `schemas.py` boundary
-├── app/services/AGENTS.md                                       # Service-root boundaries, worker infra, reporting helpers
+├── app/routers/connections_domains/AGENTS.md
+├── app/routers/proxy_domains/AGENTS.md
+├── app/schemas/AGENTS.md
+├── app/services/AGENTS.md
 ├── app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md
-├── alembic.ini                                                  # Root Alembic CLI config pointing at `app/alembic`
-├── docker-compose.yml                                           # PostgreSQL-only helper on 15432
-├── pyproject.toml                                               # Runtime deps and `prism-backend` console script
+├── alembic.ini
+├── docker-compose.yml
+├── pyproject.toml
 └── uv.lock
 ```
 
 ## CHILD DOCS
 
-- `app/AGENTS.md`: live runtime map.
+- `app/AGENTS.md`: runtime map and app-owned boundaries.
 - `app/alembic/AGENTS.md`, `app/bootstrap/AGENTS.md`, `app/core/AGENTS.md`, `app/models/AGENTS.md`, `app/schemas/AGENTS.md`: startup, migrations, shared infra, ORM, and contract boundaries.
-- `app/routers/AGENTS.md`: router parent map.
-- `app/routers/shared/AGENTS.md`: reusable router-layer helpers shared across management routes.
+- `app/routers/AGENTS.md`: API surface map and router handoff rules.
+- `app/routers/shared/AGENTS.md`: shared router-layer helpers.
 - `app/routers/{auth,config,endpoints,models,pricing_templates,profiles,settings,stats}_domains/AGENTS.md`: management router-domain leaves.
-- `app/routers/connections_domains/AGENTS.md`, `app/routers/proxy_domains/AGENTS.md`: the two densest router packages.
-- `app/services/AGENTS.md` and `app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md`: service-root boundaries plus deeper service-package ownership.
+- `app/routers/connections_domains/AGENTS.md`, `app/routers/proxy_domains/AGENTS.md`: dense router packages with their own boundaries.
+- `app/services/AGENTS.md` and `app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md`: service-root boundaries and deeper package ownership.
 
 ## RUNTIME FACTS
 
 - `pyproject.toml` exposes `prism-backend = "app.main:main"` as the CLI entrypoint.
-- `app/main.py` builds the FastAPI app, installs CORS and auth middleware, mounts the management, realtime, and runtime proxy routers, and exposes `/health`.
-- FastAPI lifespan runs `bootstrap.run_startup_sequence()`, then `reconcile_all_connection_limits()`, then builds one shared `httpx.AsyncClient`, configures the shared `BackgroundTaskManager`, and shuts those resources down in reverse order while also stopping dashboard-update lifecycle helpers.
-- Multi-worker CLI startup pre-runs `run_startup_sequence()` and sets `PRISM_SKIP_STARTUP_SEQUENCE=1` before worker imports `app.main:app`.
-- Management requests use effective profile scope. Runtime proxy traffic uses the active profile only.
-- When auth is enabled, `/api/*` uses operator session cookies while `/v1/*` and `/v1beta/*` use proxy API keys.
-- `services/realtime/connection_manager.py` is the single source of truth for live websocket rooms, and `services/stats/logging.py` owns `dashboard.update` payload emission.
+- `app/main.py` owns app assembly, router mounting, CORS and auth middleware, and shared lifespan-managed infrastructure.
+- Management requests use effective-profile scope, while runtime proxy traffic uses the active profile only.
+- `/api/*` keeps operator session auth, and `/v1/*` plus `/v1beta/*` keep proxy API-key auth.
+- Realtime room state lives in `services/realtime/connection_manager.py`, and dashboard update emission lives in `services/stats/logging.py`.
 
 ## WHERE TO LOOK
 
 - App assembly, router registration, lifespan startup, and shared infra wiring: `app/main.py`
-- Startup sequencing, vendor and profile seeding, dual-strategy preset seeding, auth settings, header blocklist defaults, and shared HTTP client builder: `app/bootstrap/startup.py`
+- Startup sequencing and startup-only seed logic: `app/bootstrap/startup.py`
 - Management versus runtime scope rules: `app/dependencies.py`
 - Router map, shared router helpers, and router-domain leaves: `app/routers/AGENTS.md`, `app/routers/shared/AGENTS.md`, `app/routers/`
 - Public schema and model import boundaries: `app/schemas/AGENTS.md`, `app/models/AGENTS.md`
-- Shared worker lifecycle, connection-health helpers, realtime room state, dashboard updates, and reporting helpers: `app/services/AGENTS.md`, `app/services/background_tasks.py`, `app/services/connection_health.py`, `app/services/realtime/connection_manager.py`, `app/services/stats/logging.py`
+- Shared worker lifecycle, realtime room state, dashboard updates, and reporting helpers: `app/services/AGENTS.md`, `app/services/realtime/connection_manager.py`, `app/services/stats/logging.py`
 - Migration source of truth: `alembic.ini`, `app/alembic/`, `app/alembic/AGENTS.md`, `app/core/migrations.py`
 
 ## CONVENTIONS
 
 - Keep backend workflow and commands uv-native.
 - Keep parent docs summary-oriented and push package detail down into child AGENTS files.
-- Keep app-owned shared infrastructure in `app/main.py`; feature code should consume `app.state.http_client` and `app.state.background_task_manager`.
+- Keep app-owned shared infrastructure in `app/main.py`, and let feature code consume `app.state.http_client` and `app.state.background_task_manager`.
 - Keep routers thin. Dense logic belongs in `*_domains/`, `connections_domains/`, `proxy_domains/`, or service modules.
 - Use `app.schemas.schemas`, `app.models.models`, and the service-root `*_service.py` modules as the supported re-export boundaries.
 - Keep management auth and profile rules separate from runtime proxy auth and API-family-native routing semantics.
