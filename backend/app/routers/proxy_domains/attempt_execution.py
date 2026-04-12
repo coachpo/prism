@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
-from typing import Awaitable, Callable, cast
+from typing import Any, Awaitable, Callable, cast
 
 import httpx
 from fastapi import HTTPException
@@ -29,6 +31,10 @@ from .request_setup import ProxyRequestSetup
 logger = logging.getLogger(__name__)
 
 DEFAULT_LIMITER_LEASE_TTL_SECONDS = 30
+
+
+def _attempt_execution_result(**kwargs: Any) -> AttemptExecutionResult:
+    return cast(Any, AttemptExecutionResult)(**kwargs)
 
 
 def _connection_has_limiter_config(connection: Connection) -> bool:
@@ -90,9 +96,11 @@ async def execute_proxy_attempts(
     deps: ProxyRuntimeDependencies,
 ) -> Response | StreamingResponse:
     last_attempt_target: ProxyAttemptTarget | None = None
+    request_started_at = time.monotonic()
     state = ProxyRequestState(
         profile_id=profile_id,
         request_path=request_path,
+        request_started_at_monotonic=request_started_at,
         setup=setup,
     )
 
@@ -107,7 +115,7 @@ async def execute_proxy_attempts(
                 "Skipping connection %d because endpoint is missing",
                 connection.id,
             )
-            return AttemptExecutionResult(
+            return _attempt_execution_result(
                 attempted=False,
                 accepted=False,
                 error_detail=f"Connection {connection.id} is missing an endpoint",
@@ -122,7 +130,7 @@ async def execute_proxy_attempts(
                 "Skipping endpoint %d because it is currently disabled",
                 connection.id,
             )
-            return AttemptExecutionResult(
+            return _attempt_execution_result(
                 attempted=False,
                 accepted=False,
                 error_detail=f"Connection {connection.id} is disabled",
@@ -156,7 +164,7 @@ async def execute_proxy_attempts(
                     connection.id,
                     limiter_result.deny_reason,
                 )
-                return AttemptExecutionResult(
+                return _attempt_execution_result(
                     attempted=False,
                     accepted=False,
                     limiter_denied=True,
@@ -232,6 +240,7 @@ async def execute_proxy_attempts(
             target=last_attempt_target,
             status_code=502,
             attempt_count=max(execution_result.attempt_count, 1),
+            completion_duration_ms=state.completion_duration_ms(),
         )
 
     if not execution_result.attempted_any_endpoint:

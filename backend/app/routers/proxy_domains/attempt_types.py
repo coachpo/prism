@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+import time
+from typing import Awaitable, Callable, Optional
 
 import httpx
 
@@ -15,7 +18,7 @@ from app.services.loadbalancer.limiter import LeaseKind, LimiterAcquireResult
 from .request_setup import ProxyRequestSetup
 
 
-@dataclass(slots=True)
+@dataclass
 class ProxyRuntimeDependencies:
     build_upstream_headers_fn: Callable[..., dict[str, str]]
     build_upstream_url_fn: Callable[..., str]
@@ -24,8 +27,8 @@ class ProxyRuntimeDependencies:
     clear_connection_state_fn: Callable[..., Awaitable[bool]]
     filter_response_headers_fn: Callable[..., dict[str, str]]
     heartbeat_connection_lease_fn: Callable[..., Awaitable[bool]]
-    log_request_fn: Callable[..., Awaitable[int | None]]
-    log_usage_request_event_fn: Callable[..., Awaitable[int | None]]
+    log_request_fn: Callable[..., Awaitable[Optional[int]]]
+    log_usage_request_event_fn: Callable[..., Awaitable[Optional[int]]]
     record_connection_failure_fn: Callable[..., Awaitable[None]]
     record_connection_recovery_fn: Callable[..., Awaitable[None]]
     proxy_request_fn: Callable[..., Awaitable[httpx.Response]]
@@ -35,22 +38,26 @@ class ProxyRuntimeDependencies:
     should_failover_fn: Callable[[int, Sequence[int]], bool]
 
 
-@dataclass(slots=True)
+@dataclass
 class ProxyRequestState:
     profile_id: int
     request_path: str
+    request_started_at_monotonic: float
     setup: ProxyRequestSetup
 
+    def completion_duration_ms(self) -> int:
+        return int((time.monotonic() - self.request_started_at_monotonic) * 1000)
 
-@dataclass(slots=True)
+
+@dataclass
 class ProxyAttemptTarget:
     attempt_number: int
     connection: Connection
     description: str
-    endpoint_body: bytes | None
+    endpoint_body: Optional[bytes]
     headers: dict[str, str]
-    limiter_lease_token: str | None
-    limiter_lease_ttl_seconds: int | None
+    limiter_lease_token: Optional[str]
+    limiter_lease_ttl_seconds: Optional[int]
     upstream_url: str
 
 
