@@ -30,7 +30,6 @@ export interface ConfigPricingTemplateExport {
   cached_input_price: string | null;
   cache_creation_price: string | null;
   reasoning_price: string | null;
-  missing_special_token_price_policy: "MAP_TO_OUTPUT" | "ZERO_COST";
   version: number;
 }
 
@@ -44,7 +43,6 @@ export interface ConfigPricingTemplateImport {
   cached_input_price?: string | null;
   cache_creation_price?: string | null;
   reasoning_price?: string | null;
-  missing_special_token_price_policy?: "MAP_TO_OUTPUT" | "ZERO_COST";
   version?: number;
 }
 
@@ -161,7 +159,7 @@ export interface ConfigVendorExport {
 export type ConfigVendorImport = ConfigVendorExport;
 
 export interface ConfigExportResponse {
-  version: 2;
+  version: 3;
   bundle_kind: "profile_config";
   exported_at: string;
   vendor_refs: ConfigVendorRef[];
@@ -175,7 +173,7 @@ export interface ConfigExportResponse {
 }
 
 export interface ConfigImportRequest {
-  version: 2;
+  version: 3;
   bundle_kind: "profile_config";
   exported_at?: string;
   vendor_refs: ConfigVendorRef[];
@@ -204,7 +202,7 @@ export interface ConfigImportVendorResolution {
 
 export interface ConfigImportPreviewResponse {
   ready: boolean;
-  version: 2;
+  version: 3;
   bundle_kind: "profile_config";
   endpoints_imported: number;
   pricing_templates_imported: number;

@@ -116,9 +116,6 @@ class RequestLog(Base):
     pricing_snapshot_cache_creation_input: Mapped[str | None] = mapped_column(
         String(20), nullable=True
     )
-    pricing_snapshot_missing_special_token_price_policy: Mapped[str | None] = (
-        mapped_column(String(20), nullable=True)
-    )
     pricing_config_version_used: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )
@@ -218,9 +215,6 @@ class UsageRequestEvent(Base):
     )
     pricing_snapshot_reasoning: Mapped[str | None] = mapped_column(
         String(20), nullable=True
-    )
-    pricing_snapshot_missing_special_token_price_policy: Mapped[str | None] = (
-        mapped_column(String(20), nullable=True)
     )
     pricing_config_version_used: Mapped[int | None] = mapped_column(
         Integer, nullable=True

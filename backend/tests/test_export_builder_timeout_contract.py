@@ -43,6 +43,18 @@ def test_build_export_payload_omits_removed_timeout_fields(monkeypatch) -> None:
             api_key="encrypted-secret",
             position=0,
         )
+        pricing_template = SimpleNamespace(
+            id=7,
+            name="Demo pricing",
+            description="Shared pricing",
+            pricing_currency_code="USD",
+            input_price="1.50",
+            output_price="3.00",
+            cached_input_price="0.25",
+            cache_creation_price="0.40",
+            reasoning_price="0.60",
+            version=7,
+        )
         legacy_strategy = SimpleNamespace(name="Legacy strategy", family="legacy")
         adaptive_strategy = SimpleNamespace(name="Adaptive strategy", family="adaptive")
         db = cast(
@@ -52,7 +64,7 @@ def test_build_export_payload_omits_removed_timeout_fields(monkeypatch) -> None:
                     _FakeExecuteResult(items=[endpoint]),
                     _FakeExecuteResult(items=[]),
                     _FakeExecuteResult(items=[legacy_strategy, adaptive_strategy]),
-                    _FakeExecuteResult(items=[]),
+                    _FakeExecuteResult(items=[pricing_template]),
                     _FakeExecuteResult(scalar=None),
                     _FakeExecuteResult(items=[]),
                     _FakeExecuteResult(items=[]),
@@ -122,6 +134,7 @@ def test_build_export_payload_omits_removed_timeout_fields(monkeypatch) -> None:
         payload = await build_export_payload(db, profile_id=1)
         dumped_payload = payload.model_dump()
 
+        assert dumped_payload["version"] == 3
         assert dumped_payload["exported_at"] == exported_at
         assert dumped_payload["endpoints"] == [
             {
@@ -129,6 +142,20 @@ def test_build_export_payload_omits_removed_timeout_fields(monkeypatch) -> None:
                 "base_url": "https://demo.invalid",
                 "api_key_secret_ref": "endpoint:Demo endpoint:api_key",
                 "position": 0,
+            }
+        ]
+        assert dumped_payload["pricing_templates"] == [
+            {
+                "name": "Demo pricing",
+                "description": "Shared pricing",
+                "pricing_unit": "PER_1M",
+                "pricing_currency_code": "USD",
+                "input_price": "1.50",
+                "output_price": "3.00",
+                "cached_input_price": "0.25",
+                "cache_creation_price": "0.40",
+                "reasoning_price": "0.60",
+                "version": 7,
             }
         ]
         for endpoint_payload in dumped_payload["endpoints"]:

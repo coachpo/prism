@@ -126,7 +126,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Configuration is stored in PostgreSQL with Alembic-managed schema migrations applied at startup
 - No config files to manage — everything through the UI/API
 - The default profile exists from the first startup and remains editable after initialization
-- Config export/import uses a breaking `version: 2` split-bundle contract: profile bundles are `bundle_kind: profile_config`, vendor catalog bundles are `bundle_kind: vendor_catalog`
+- Config export/import uses a split-bundle contract: profile bundles are `version: 3` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 2` with `bundle_kind: vendor_catalog`
 - Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, ordered `proxy_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
 - Database setup applies the checked-in Alembic migration chain in `backend/app/alembic/versions/`, including the current dual-strategy and legacy-upgrade revisions required by the live backend
@@ -150,10 +150,8 @@ Token usage is extracted from upstream responses using api-family-aware parsing:
 #### 4.9.2 Token Costing
 The gateway computes the cost of each request based on the extracted token usage and the connection's assigned pricing template.
 - **Pricing Templates**: Pricing is profile-scoped and reusable. Connections reference templates via `pricing_template_id` instead of storing inline price fields.
-- **Fallback Policy**: Each pricing template defines `missing_special_token_price_policy` to determine how to handle costs when a specific special token price is missing.
-  - `MAP_TO_OUTPUT`: Use the output token price as a fallback.
-  - `ZERO_COST`: Treat missing special token prices as zero.
-- **Semantic Note**: The fallback policy affects only the price used for cost calculation. It does not affect the token counts themselves.
+- **Pricing behavior**: Pricing must be explicit for each token type.
+- **Semantic Note**: Costing uses only the explicit prices stored on the template; it does not invent a missing-token path.
 
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used

@@ -594,8 +594,7 @@ Request:
   "output_price": "15.00",
   "cached_input_price": "2.50",
   "cache_creation_price": null,
-  "reasoning_price": "15.00",
-  "missing_special_token_price_policy": "MAP_TO_OUTPUT"
+  "reasoning_price": "15.00"
 }
 ```
 Response `201`: Created pricing template object.
@@ -623,7 +622,7 @@ Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`,
 
 ### 1.6 Config Export/Import
 
-Prism now uses a breaking `version: 2` bundle contract with two explicit ownership domains:
+Prism now uses a breaking `version: 3` profile config bundle contract with two explicit ownership domains:
 
 - **Profile bundle**: profile-scoped config only
 - **Vendor catalog bundle**: global vendor metadata only
@@ -635,7 +634,7 @@ GET /api/config/profile/export
 Response `200`:
 ```json
 {
-  "version": 2,
+  "version": 3,
   "bundle_kind": "profile_config",
   "exported_at": "2026-04-04T15:00:00Z",
   "vendor_refs": [
@@ -692,13 +691,13 @@ Profile export semantics:
 ```
 POST /api/config/profile/import/preview
 ```
-Request: Full profile bundle using `version: 2` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
 
 Response `200`:
 ```json
 {
   "ready": true,
-  "version": 2,
+  "version": 3,
   "bundle_kind": "profile_config",
   "endpoints_imported": 2,
   "pricing_templates_imported": 4,
@@ -731,7 +730,7 @@ Preview semantics:
 ```
 POST /api/config/profile/import
 ```
-Request: Full profile bundle using `version: 2` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
 
 Response `200`:
 ```json
@@ -1245,7 +1244,6 @@ Response `200`:
     "pricing_snapshot_cache_read_input": null,
     "pricing_snapshot_cache_creation_input": null,
     "pricing_snapshot_reasoning": null,
-    "pricing_snapshot_missing_special_token_price_policy": null,
     "pricing_config_version_used": 1
   }
 }

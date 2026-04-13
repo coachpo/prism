@@ -47,7 +47,6 @@ export interface PricingTemplate {
   cached_input_price: string | null;
   cache_creation_price: string | null;
   reasoning_price: string | null;
-  missing_special_token_price_policy: "MAP_TO_OUTPUT" | "ZERO_COST";
   version: number;
   created_at: string;
   updated_at: string;
@@ -63,7 +62,6 @@ export interface PricingTemplateCreate {
   cached_input_price?: string | null;
   cache_creation_price?: string | null;
   reasoning_price?: string | null;
-  missing_special_token_price_policy?: "MAP_TO_OUTPUT" | "ZERO_COST";
 }
 
 export interface PricingTemplateUpdate {
@@ -77,7 +75,6 @@ export interface PricingTemplateUpdate {
   cached_input_price?: string | null;
   cache_creation_price?: string | null;
   reasoning_price?: string | null;
-  missing_special_token_price_policy?: "MAP_TO_OUTPUT" | "ZERO_COST";
 }
 
 export interface PricingTemplateConnectionUsageItem {

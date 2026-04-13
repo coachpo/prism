@@ -47,7 +47,6 @@ class UsageRequestEventResponse(BaseModel):
     pricing_snapshot_cache_read_input: str | None = None
     pricing_snapshot_cache_creation_input: str | None = None
     pricing_snapshot_reasoning: str | None = None
-    pricing_snapshot_missing_special_token_price_policy: str | None = None
     pricing_config_version_used: int | None = None
     attempt_count: int
     request_path: str

@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,9 +22,9 @@ class EndpointCreate(EndpointBase):
 class EndpointUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = None
-    base_url: str | None = None
-    api_key: str | None = None
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class EndpointResponse(BaseModel):
@@ -35,7 +35,7 @@ class EndpointResponse(BaseModel):
     name: str
     base_url: str
     has_api_key: bool = False
-    masked_api_key: str | None = None
+    masked_api_key: Optional[str] = None
     position: int
     created_at: datetime
     updated_at: datetime
@@ -50,18 +50,17 @@ class ConnectionPriorityMoveRequest(BaseModel):
 
 
 class PricingTemplateCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
-    description: str | None = None
+    description: Optional[str] = None
     pricing_unit: Literal["PER_1M"] = "PER_1M"
     pricing_currency_code: str
     input_price: str
     output_price: str
-    cached_input_price: str | None = None
-    cache_creation_price: str | None = None
-    reasoning_price: str | None = None
-    missing_special_token_price_policy: Literal["MAP_TO_OUTPUT", "ZERO_COST"] = (
-        "MAP_TO_OUTPUT"
-    )
+    cached_input_price: Optional[str] = None
+    cache_creation_price: Optional[str] = None
+    reasoning_price: Optional[str] = None
 
     @field_validator("name")
     @classmethod
@@ -75,7 +74,7 @@ class PricingTemplateCreate(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def validate_description(cls, v: str | None) -> str | None:
+    def validate_description(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
         trimmed = v.strip()
@@ -90,7 +89,9 @@ class PricingTemplateCreate(BaseModel):
         mode="before",
     )
     @classmethod
-    def validate_prices(cls, v: str | int | float | Decimal | None, info) -> str | None:
+    def validate_prices(
+        cls, v: Union[str, int, float, Decimal, None], info
+    ) -> Optional[str]:
         if v is None:
             return None
         return _validate_decimal_non_negative(str(v), info.field_name)
@@ -107,23 +108,22 @@ class PricingTemplateCreate(BaseModel):
 
 
 class PricingTemplateUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     expected_updated_at: datetime
-    name: str | None = None
-    description: str | None = None
-    pricing_unit: Literal["PER_1M"] | None = None
-    pricing_currency_code: str | None = None
-    input_price: str | None = None
-    output_price: str | None = None
-    cached_input_price: str | None = None
-    cache_creation_price: str | None = None
-    reasoning_price: str | None = None
-    missing_special_token_price_policy: Literal["MAP_TO_OUTPUT", "ZERO_COST"] | None = (
-        None
-    )
+    name: Optional[str] = None
+    description: Optional[str] = None
+    pricing_unit: Optional[Literal["PER_1M"]] = None
+    pricing_currency_code: Optional[str] = None
+    input_price: Optional[str] = None
+    output_price: Optional[str] = None
+    cached_input_price: Optional[str] = None
+    cache_creation_price: Optional[str] = None
+    reasoning_price: Optional[str] = None
 
     @field_validator("name")
     @classmethod
-    def validate_name(cls, v: str | None) -> str | None:
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
         trimmed = v.strip()
@@ -135,7 +135,7 @@ class PricingTemplateUpdate(BaseModel):
 
     @field_validator("description")
     @classmethod
-    def validate_description(cls, v: str | None) -> str | None:
+    def validate_description(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
         trimmed = v.strip()
@@ -150,14 +150,16 @@ class PricingTemplateUpdate(BaseModel):
         mode="before",
     )
     @classmethod
-    def validate_prices(cls, v: str | int | float | Decimal | None, info) -> str | None:
+    def validate_prices(
+        cls, v: Union[str, int, float, Decimal, None], info
+    ) -> Optional[str]:
         if v is None:
             return None
         return _validate_decimal_non_negative(str(v), info.field_name)
 
     @field_validator("pricing_currency_code")
     @classmethod
-    def validate_currency_code(cls, v: str | None) -> str | None:
+    def validate_currency_code(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
         code = v.strip().upper()
@@ -174,7 +176,7 @@ class PricingTemplateListItem(BaseModel):
     id: int
     profile_id: int
     name: str
-    description: str | None
+    description: Optional[str]
     pricing_unit: Literal["PER_1M"]
     pricing_currency_code: str
     version: int
@@ -187,15 +189,14 @@ class PricingTemplateResponse(BaseModel):
     id: int
     profile_id: int
     name: str
-    description: str | None
+    description: Optional[str]
     pricing_unit: Literal["PER_1M"]
     pricing_currency_code: str
     input_price: str
     output_price: str
-    cached_input_price: str | None
-    cache_creation_price: str | None
-    reasoning_price: str | None
-    missing_special_token_price_policy: Literal["MAP_TO_OUTPUT", "ZERO_COST"]
+    cached_input_price: Optional[str]
+    cache_creation_price: Optional[str]
+    reasoning_price: Optional[str]
     version: int
     created_at: datetime
     updated_at: datetime
@@ -203,7 +204,7 @@ class PricingTemplateResponse(BaseModel):
 
 class PricingTemplateConnectionUsageItem(BaseModel):
     connection_id: int
-    connection_name: str | None
+    connection_name: Optional[str]
     model_config_id: int
     model_id: str
     endpoint_id: int
@@ -216,7 +217,7 @@ class PricingTemplateConnectionsResponse(BaseModel):
 
 
 class ConnectionPricingTemplateUpdate(BaseModel):
-    pricing_template_id: int | None = None
+    pricing_template_id: Optional[int] = None
 
 
 class ConnectionPricingTemplateSummary(BaseModel):

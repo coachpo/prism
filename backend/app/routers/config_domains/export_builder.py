@@ -181,10 +181,6 @@ async def build_export_payload(
             cached_input_price=template.cached_input_price,
             cache_creation_price=template.cache_creation_price,
             reasoning_price=template.reasoning_price,
-            missing_special_token_price_policy=cast(
-                Literal["MAP_TO_OUTPUT", "ZERO_COST"],
-                template.missing_special_token_price_policy,
-            ),
             version=template.version,
         )
         for template in pricing_templates
@@ -349,7 +345,7 @@ async def build_export_payload(
     )
 
     return ConfigExportResponse(
-        version=2,
+        version=3,
         bundle_kind="profile_config",
         exported_at=utc_now(),
         vendor_refs=exported_vendor_refs,

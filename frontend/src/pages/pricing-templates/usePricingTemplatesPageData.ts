@@ -153,7 +153,6 @@ export function usePricingTemplatesPageData(revision: number) {
           cached_input_price: cachedInputPrice,
           cache_creation_price: cacheCreationPrice,
           reasoning_price: reasoningPrice,
-          missing_special_token_price_policy: pricingTemplateForm.missing_special_token_price_policy,
         };
         const updated = await api.pricingTemplates.update(editingPricingTemplate.id, payload);
         commitPricingTemplates((current) =>
@@ -172,7 +171,6 @@ export function usePricingTemplatesPageData(revision: number) {
           cached_input_price: cachedInputPrice,
           cache_creation_price: cacheCreationPrice,
           reasoning_price: reasoningPrice,
-          missing_special_token_price_policy: pricingTemplateForm.missing_special_token_price_policy,
         };
         const created = await api.pricingTemplates.create(payload);
         commitPricingTemplates((current) => [created, ...current]);

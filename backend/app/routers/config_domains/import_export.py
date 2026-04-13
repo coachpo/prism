@@ -40,7 +40,7 @@ def _build_preview_error_response(
 ) -> ConfigImportPreviewResponse:
     return ConfigImportPreviewResponse(
         ready=False,
-        version=2,
+        version=3,
         bundle_kind="profile_config",
         endpoints_imported=len(data.endpoints),
         pricing_templates_imported=len(data.pricing_templates),

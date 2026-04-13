@@ -265,7 +265,7 @@ Vendor records remain global and are shared across all profiles.
 Lifecycle notes:
 - Vendor rows are managed globally from Settings → Global.
 - Vendor catalog import/export now lives under `/api/config/vendors/*` and is the authoritative bundle path for shared vendor metadata.
-- Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` when present and never mutate existing global vendor metadata from profile-bundle hint drift.
+- Profile config import/export now lives under `/api/config/profile/*`; profile bundles resolve vendors by `vendor_key` when present and never mutate existing global vendor metadata from profile bundle hint drift.
 - Canonical system vendor keys (`openai`, `anthropic`, `gemini`) surface through the API with a derived `is_readonly` flag and reject identity edits or deletion through `/api/vendors/*`; `is_readonly` is behavior, not a persisted table column.
 - `icon_key` is shared global metadata and is presentation-only; runtime routing and compatibility continue to use `api_family` on model rows.
 - `model_configs.vendor_id` references these shared rows as optional metadata; deleting a vendor never cascades into model deletion.
@@ -428,7 +428,6 @@ Reusable token pricing definitions that can be attached to many connections with
 | cached_input_price | VARCHAR(20) | NULLABLE | Cached input token price |
 | cache_creation_price | VARCHAR(20) | NULLABLE | Cache write token price |
 | reasoning_price | VARCHAR(20) | NULLABLE | Reasoning token price |
-| missing_special_token_price_policy | VARCHAR(20) | NOT NULL, DEFAULT 'MAP_TO_OUTPUT' | `MAP_TO_OUTPUT` or `ZERO_COST` |
 | version | INTEGER | NOT NULL, DEFAULT 1 | Auto-incremented on pricing-impacting changes |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
@@ -829,12 +828,12 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is config version `2` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
+- Canonical profile export format is config version `3` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is config version `2` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v2` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
+- Profile import accepts `v3` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
-- Persisted rows created by import always receive fresh database IDs; the v2 profile-bundle contract omits internal IDs entirely and relies on name-based references.
+- Persisted rows created by import always receive fresh database IDs; the v3 profile bundle contract omits internal IDs entirely and relies on name-based references.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
 - Profile import reuses exact global vendor keys when provided, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
 

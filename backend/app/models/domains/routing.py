@@ -285,9 +285,6 @@ class PricingTemplate(Base):
     cached_input_price: Mapped[str | None] = mapped_column(String(20), nullable=True)
     cache_creation_price: Mapped[str | None] = mapped_column(String(20), nullable=True)
     reasoning_price: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    missing_special_token_price_policy: Mapped[str] = mapped_column(
-        String(20), default="MAP_TO_OUTPUT", nullable=False
-    )
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now

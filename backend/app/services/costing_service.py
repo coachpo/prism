@@ -52,7 +52,6 @@ class CostFieldPayload(TypedDict):
     pricing_snapshot_cache_read_input: str | None
     pricing_snapshot_cache_creation_input: str | None
     pricing_snapshot_reasoning: str | None
-    pricing_snapshot_missing_special_token_price_policy: str | None
     pricing_config_version_used: int | None
 
 
@@ -173,7 +172,6 @@ def compute_cost_fields(
         "pricing_snapshot_cache_read_input": None,
         "pricing_snapshot_cache_creation_input": None,
         "pricing_snapshot_reasoning": None,
-        "pricing_snapshot_missing_special_token_price_policy": None,
         "pricing_config_version_used": None,
     }
 
@@ -334,7 +332,6 @@ def compute_cost_fields(
                 cache_creation_price
             ),
             "pricing_snapshot_reasoning": _normalize_decimal_string(reasoning_price),
-            "pricing_snapshot_missing_special_token_price_policy": pricing_template.missing_special_token_price_policy,
             "pricing_config_version_used": pricing_template.version,
         }
     )

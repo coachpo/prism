@@ -77,9 +77,6 @@ class ConfigPricingTemplateExport(BaseModel):
     cached_input_price: str | None = None
     cache_creation_price: str | None = None
     reasoning_price: str | None = None
-    missing_special_token_price_policy: Literal["MAP_TO_OUTPUT", "ZERO_COST"] = (
-        "MAP_TO_OUTPUT"
-    )
     version: int = 1
 
 
@@ -323,7 +320,7 @@ class ConfigSecretPayload(BaseModel):
 
 
 class ConfigExportResponse(BaseModel):
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     bundle_kind: Literal["profile_config"] = "profile_config"
     exported_at: datetime
     vendor_refs: list[ConfigVendorRef] = Field(default_factory=list)
@@ -341,7 +338,7 @@ class ConfigExportResponse(BaseModel):
 class ConfigImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     bundle_kind: Literal["profile_config"] = "profile_config"
     exported_at: datetime | None = None
     vendor_refs: list[ConfigVendorRef] = Field(default_factory=list)
@@ -372,7 +369,7 @@ class ConfigImportVendorResolution(BaseModel):
 
 class ConfigImportPreviewResponse(BaseModel):
     ready: bool
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     bundle_kind: Literal["profile_config"] = "profile_config"
     endpoints_imported: int
     pricing_templates_imported: int

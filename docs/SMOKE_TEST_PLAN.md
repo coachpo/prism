@@ -325,7 +325,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=2`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable `api_key_secret_ref`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, ordered `proxy_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
+| H01 | P0 | Export schema and metadata | `version=3`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable `api_key_secret_ref`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, ordered `proxy_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Profile export excludes global vendor audit policy | Profile bundle uses `vendor_refs` only for actually referenced vendor rows; vendor audit metadata remains in the vendor-catalog bundle/global vendor rows |
@@ -485,7 +485,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| L01 | P0 | Create pricing template | `201`, template persisted with expected version and policy defaults |
+| L01 | P0 | Create pricing template | `201`, template persisted with expected version and explicit token prices |
 | L02 | P0 | Update pricing template pricing fields | `200`, template `version` increments |
 | L03 | P0 | Update connection pricing template assignment | `200`, `pricing_template_id` updates |
 | L04 | P0 | GET `/api/settings/costing` | Returns defaults |
@@ -498,7 +498,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Includes `version: 2`, `bundle_kind: profile_config`, `vendor_refs` for actually referenced vendor rows, encrypted `secret_payload`, ordered `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Includes `version: 3`, `bundle_kind: profile_config`, `vendor_refs` for actually referenced vendor rows, encrypted `secret_payload`, ordered `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config import current format | Restores vendors, strategies, proxy targets, templates, connections, vendorless models, and settings into target profile |
 | L16 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L17 | P1 | FX conversion with custom rate | Correct converted cost |
@@ -506,8 +506,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L19 | P1 | Spending report pagination | `limit`/`offset` respected |
 | L20 | P1 | Spending report `top_n` | Returns correct top spenders |
 | L21 | P1 | Older request logs without pricing data | Unpriced rows aggregate under `UNKNOWN` bucket when reason is null/empty |
-| L22 | P1 | `MAP_TO_OUTPUT` fallback price policy | Missing special tokens use output price |
-| L23 | P1 | `ZERO_COST` fallback price policy | Missing special tokens use zero price |
+| L22 | P1 | Special token pricing uses explicit values | Templates use explicit token prices only |
 
 | L28 | P1 | Pricing template usage endpoint | `/connections` response matches current assignments |
 | L27 | P0 | Delete pricing template not in use | `200`/success response and template removed from list |
@@ -537,7 +536,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M13 | P0 | Proxy target exists only in another profile | Ordered target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=2`, `bundle_kind=profile_config`, and includes `vendor_refs`, encrypted `secret_payload`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, ordered `proxy_targets`, nullable model `vendor_key`, required `api_family`, pricing templates, and `profile_settings` |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=3`, `bundle_kind=profile_config`, and includes `vendor_refs`, encrypted `secret_payload`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, ordered `proxy_targets`, nullable model `vendor_key`, required `api_family`, pricing templates, and `profile_settings` |
 | M17 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
 | M18 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |

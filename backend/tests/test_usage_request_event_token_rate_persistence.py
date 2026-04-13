@@ -13,7 +13,7 @@ from app.routers.proxy_domains.attempt_streaming import build_streaming_response
 
 def _build_cost_fields(connection, status_code, tokens=None) -> dict[str, object]:
     return {
-        "pricing_snapshot_missing_special_token_price_policy": "ZERO_COST",
+        "pricing_snapshot_reasoning": "0.000000",
     }
 
 
@@ -105,7 +105,9 @@ def test_buffered_request_scoped_completion_duration(monkeypatch) -> None:
             return True
 
         deps = SimpleNamespace(
-            filter_response_headers_fn=lambda headers, was_requested_compressed: dict(headers),
+            filter_response_headers_fn=lambda headers, was_requested_compressed: dict(
+                headers
+            ),
             log_request_fn=log_request_fn,
             log_usage_request_event_fn=log_usage_request_event_fn,
             proxy_request_fn=proxy_request_fn,
@@ -133,10 +135,10 @@ def test_buffered_request_scoped_completion_duration(monkeypatch) -> None:
         assert response.status_code == 200
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] == 1000
-        assert request_log_kwargs["pricing_snapshot_missing_special_token_price_policy"] == "ZERO_COST"
+        assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] == 1000
-        assert usage_event_kwargs["pricing_snapshot_missing_special_token_price_policy"] == "ZERO_COST"
+        assert usage_event_kwargs["pricing_snapshot_reasoning"] == "0.000000"
 
     asyncio.run(run())
 
@@ -212,12 +214,13 @@ def test_completed_stream_uses_full_completion_duration(monkeypatch) -> None:
         ]
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] == 1000
-        assert request_log_kwargs["pricing_snapshot_missing_special_token_price_policy"] == "ZERO_COST"
+        assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] == 1000
-        assert usage_event_kwargs["pricing_snapshot_missing_special_token_price_policy"] == "ZERO_COST"
+        assert usage_event_kwargs["pricing_snapshot_reasoning"] == "0.000000"
 
     asyncio.run(run())
+
 
 def test_incomplete_stream_completion_duration_null(monkeypatch) -> None:
     async def run() -> None:
@@ -299,9 +302,9 @@ def test_incomplete_stream_completion_duration_null(monkeypatch) -> None:
 
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] is None
-        assert request_log_kwargs["pricing_snapshot_missing_special_token_price_policy"] == "ZERO_COST"
+        assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] is None
-        assert usage_event_kwargs["pricing_snapshot_missing_special_token_price_policy"] == "ZERO_COST"
+        assert usage_event_kwargs["pricing_snapshot_reasoning"] == "0.000000"
 
     asyncio.run(run())

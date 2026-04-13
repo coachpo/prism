@@ -119,7 +119,6 @@ export interface RequestLogEntry {
   pricing_snapshot_cache_read_input: string | null;
   pricing_snapshot_cache_creation_input: string | null;
   pricing_snapshot_reasoning: string | null;
-  pricing_snapshot_missing_special_token_price_policy: string | null;
   pricing_config_version_used: number | null;
   request_path: string;
   error_detail: string | null;
@@ -230,7 +229,6 @@ export interface RequestLogDetailPricing {
   pricing_snapshot_cache_read_input: string | null;
   pricing_snapshot_cache_creation_input: string | null;
   pricing_snapshot_reasoning: string | null;
-  pricing_snapshot_missing_special_token_price_policy: string | null;
   pricing_config_version_used: number | null;
 }
 

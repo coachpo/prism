@@ -63,7 +63,6 @@ async def create_pricing_template(
         cached_input_price=body.cached_input_price,
         cache_creation_price=body.cache_creation_price,
         reasoning_price=body.reasoning_price,
-        missing_special_token_price_policy=body.missing_special_token_price_policy,
         version=1,
     )
     db.add(template)

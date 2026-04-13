@@ -10,13 +10,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useLocale } from "@/i18n/useLocale";
 import type { PricingTemplate } from "@/lib/types";
 import type { PricingTemplateFormState } from "./pricingTemplateFormState";
@@ -108,12 +101,6 @@ export function PricingTemplateDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-col gap-5">
-          <input
-            type="hidden"
-            name="missing_special_token_price_policy"
-            value={pricingTemplateForm.missing_special_token_price_policy}
-          />
-
           <DialogBody className="min-h-0 flex-1 overflow-y-auto pr-1">
             <div className="flex flex-col gap-5">
               <section className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
@@ -236,36 +223,6 @@ export function PricingTemplateDialog({
                     }
                     placeholder={dialogMessages.pricePlaceholder}
                   />
-                </div>
-              </section>
-
-              <section className="flex flex-col gap-4 rounded-lg border p-4">
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium text-foreground">{dialogMessages.specialTokenPolicySectionTitle}</p>
-                  <p className="text-sm text-muted-foreground">{dialogMessages.missingSpecialTokenPolicyHint}</p>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="template-missing-special-token-policy">
-                    {dialogMessages.missingSpecialTokenPolicyLabel}
-                  </Label>
-                  <Select
-                    value={pricingTemplateForm.missing_special_token_price_policy}
-                    onValueChange={(value: "MAP_TO_OUTPUT" | "ZERO_COST") =>
-                      setPricingTemplateForm((prev) => ({
-                        ...prev,
-                        missing_special_token_price_policy: value,
-                      }))
-                    }
-                  >
-                    <SelectTrigger id="template-missing-special-token-policy">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="MAP_TO_OUTPUT">{dialogMessages.mapToOutputPrice}</SelectItem>
-                      <SelectItem value="ZERO_COST">{dialogMessages.zeroCost}</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </section>
             </div>

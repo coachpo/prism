@@ -4,6 +4,8 @@ from app.schemas.schemas import ConfigImportRequest
 from app.services.proxy_service import normalize_base_url, validate_base_url
 
 VALID_API_FAMILIES = {"openai", "anthropic", "gemini"}
+EXPECTED_PROFILE_CONFIG_BUNDLE_VERSION = 3
+EXPECTED_PROFILE_CONFIG_BUNDLE_KIND = "profile_config"
 
 
 def _validate_optional_connection_limiter_fields(*, model_id: str, connection) -> None:
@@ -99,6 +101,24 @@ def _resolve_pricing_template_reference_name(
 
 
 def validate_import_payload(data: ConfigImportRequest) -> None:
+    if data.version != EXPECTED_PROFILE_CONFIG_BUNDLE_VERSION:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported profile config bundle version "
+                f"'{data.version}'; expected {EXPECTED_PROFILE_CONFIG_BUNDLE_VERSION}"
+            ),
+        )
+
+    if data.bundle_kind != EXPECTED_PROFILE_CONFIG_BUNDLE_KIND:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported profile config bundle kind "
+                f"'{data.bundle_kind}'; expected '{EXPECTED_PROFILE_CONFIG_BUNDLE_KIND}'"
+            ),
+        )
+
     vendor_keys_in_file: set[str] = set()
     for vendor in data.vendor_refs:
         if vendor.key in vendor_keys_in_file:
@@ -382,4 +402,9 @@ def validate_import_payload(data: ConfigImportRequest) -> None:
         seen_blocklist_rules.add(key)
 
 
-__all__ = ["VALID_API_FAMILIES", "validate_import_payload"]
+__all__ = [
+    "EXPECTED_PROFILE_CONFIG_BUNDLE_KIND",
+    "EXPECTED_PROFILE_CONFIG_BUNDLE_VERSION",
+    "VALID_API_FAMILIES",
+    "validate_import_payload",
+]

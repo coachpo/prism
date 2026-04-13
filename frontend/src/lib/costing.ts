@@ -10,13 +10,6 @@ function getPricingUnitLabels(): Record<string, string> {
   };
 }
 
-function getMissingSpecialTokenPolicyLabels(): Record<string, string> {
-  return {
-    MAP_TO_OUTPUT: getStaticMessages().costingUi.mapToOutputPrice,
-    ZERO_COST: getStaticMessages().costingUi.zeroCost,
-  };
-}
-
 function getUnpricedReasonLabels(): Record<string, string> {
   return {
     PRICING_DISABLED: getStaticMessages().costingUi.pricingDisabled,
@@ -101,12 +94,6 @@ export function isValidPositiveDecimalString(value: string): boolean {
 
 export function formatPricingUnitLabel(value: string | null | undefined): string {
   return formatEnumLabel(value, getPricingUnitLabels());
-}
-
-export function formatMissingSpecialTokenPolicyLabel(
-  value: string | null | undefined
-): string {
-  return formatEnumLabel(value, getMissingSpecialTokenPolicyLabels());
 }
 
 export function formatUnpricedReasonLabel(value: string | null | undefined): string {

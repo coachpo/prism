@@ -13,7 +13,6 @@ export type PricingTemplateFormState = {
   cached_input_price: string;
   cache_creation_price: string;
   reasoning_price: string;
-  missing_special_token_price_policy: "MAP_TO_OUTPUT" | "ZERO_COST";
 };
 
 export const DEFAULT_PRICING_TEMPLATE_FORM: PricingTemplateFormState = {
@@ -25,7 +24,6 @@ export const DEFAULT_PRICING_TEMPLATE_FORM: PricingTemplateFormState = {
   cached_input_price: "",
   cache_creation_price: "",
   reasoning_price: "",
-  missing_special_token_price_policy: "MAP_TO_OUTPUT",
 };
 
 export const pricingTemplateFormStateFromTemplate = (
@@ -39,7 +37,6 @@ export const pricingTemplateFormStateFromTemplate = (
   cached_input_price: template.cached_input_price ?? "",
   cache_creation_price: template.cache_creation_price ?? "",
   reasoning_price: template.reasoning_price ?? "",
-  missing_special_token_price_policy: template.missing_special_token_price_policy,
 });
 
 export const normalizeOptionalTemplatePrice = (value: string): string | null => {

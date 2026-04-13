@@ -4,7 +4,6 @@ import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatMissingSpecialTokenPolicyLabel } from "@/lib/costing";
 import {
   Table,
   TableBody,
@@ -123,12 +122,6 @@ export function PricingTemplatesTable({
                           <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                             <span>
                               {dialogCopy.reasoningPriceLabel}: {template.reasoning_price ?? missingValuePlaceholder}
-                            </span>
-                            <span>
-                              {dialogCopy.missingSpecialTokenPolicyLabel}:{" "}
-                              {formatMissingSpecialTokenPolicyLabel(
-                                template.missing_special_token_price_policy,
-                              )}
                             </span>
                           </div>
                         </div>

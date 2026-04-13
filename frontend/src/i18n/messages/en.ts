@@ -343,9 +343,6 @@ export interface Messages {
     descriptionPlaceholder: string;
     editTitle: string;
     inputPriceLabel: string;
-    mapToOutputPrice: string;
-    missingSpecialTokenPolicyHint: string;
-    missingSpecialTokenPolicyLabel: string;
     nameLabel: string;
     namePlaceholder: string;
     optionalRatesSectionDescription: string;
@@ -357,8 +354,6 @@ export interface Messages {
     reasoningPriceLabel: string;
     save: string;
     saving: string;
-    specialTokenPolicySectionTitle: string;
-    zeroCost: string;
   };
   vendorManagement: {
     actions: string;
@@ -694,13 +689,11 @@ export interface Messages {
   costingUi: {
     default1To1: string;
     endpointSpecificRate: string;
-    mapToOutputPrice: string;
     missingEndpoint: string;
     missingPriceData: string;
     missingTokenUsage: string;
     per1mTokens: string;
     pricingDisabled: string;
-    zeroCost: string;
   };
   settingsBilling: {
     addMapping: string;
@@ -1921,10 +1914,6 @@ export const enMessages: Messages = {
     descriptionPlaceholder: "Optional details about this template",
     editTitle: "Edit Pricing Template",
     inputPriceLabel: "Input Price (per 1M tokens)",
-    mapToOutputPrice: "Map to Output Price",
-    missingSpecialTokenPolicyHint:
-      "How to price special tokens (like reasoning) if their specific price is not set.",
-    missingSpecialTokenPolicyLabel: "Missing Special Token Policy",
     nameLabel: "Name",
     namePlaceholder: "e.g., GPT-4o Standard",
     optionalRatesSectionDescription:
@@ -1937,8 +1926,6 @@ export const enMessages: Messages = {
     reasoningPriceLabel: "Reasoning Price (Optional)",
     save: "Save Template",
     saving: "Saving...",
-    specialTokenPolicySectionTitle: "Special-token fallback policy",
-    zeroCost: "Zero Cost",
   },
   vendorManagement: {
     actions: "Actions",
@@ -2241,7 +2228,7 @@ export const enMessages: Messages = {
     exportsContainApiKeys: "Exports include encrypted endpoint secrets and can be imported only on instances that use the matching bundle key.",
     import: "Import",
     importConfiguration: "Import Configuration",
-    importDescription: "Upload a version 2 profile bundle, review the preview result, and then restore this profile's configuration.",
+    importDescription: "Upload a version 3 profile bundle, review the preview result, and then restore this profile's configuration.",
     importInProgress: "Importing...",
     loadedSummary: (fileName, endpoints, strategies, models, connections) =>
       `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} connections.`,
@@ -2296,13 +2283,11 @@ export const enMessages: Messages = {
   costingUi: {
     default1To1: "Default (1:1)",
     endpointSpecificRate: "Endpoint-specific rate",
-    mapToOutputPrice: "Map to output price",
     missingEndpoint: "Missing endpoint",
     missingPriceData: "Missing price data",
     missingTokenUsage: "Missing token usage",
     per1mTokens: "Per 1M tokens",
     pricingDisabled: "Pricing disabled",
-    zeroCost: "Zero cost",
   },
   settingsBilling: {
     addMapping: "Add Mapping",

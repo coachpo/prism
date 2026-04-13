@@ -17,7 +17,7 @@ from app.routers.proxy_domains.attempt_streaming import build_streaming_response
 
 def _build_cost_fields(connection, status_code, tokens=None) -> dict[str, object]:
     return {
-        "pricing_snapshot_missing_special_token_price_policy": "ZERO_COST",
+        "pricing_snapshot_reasoning": "0.000000",
     }
 
 
@@ -218,9 +218,11 @@ def test_completed_stream_persists_ttft(monkeypatch) -> None:
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["ttft_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] == 1000
+        assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["ttft_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] == 1000
+        assert usage_event_kwargs["pricing_snapshot_reasoning"] == "0.000000"
 
     asyncio.run(run())
 
@@ -627,5 +629,6 @@ def test_terminal_all_attempts_failed_usage_event_keeps_ttft_null(monkeypatch) -
 
         assert usage_event_kwargs["ttft_ms"] is None
         assert usage_event_kwargs["completion_duration_ms"] == 1000
+        assert usage_event_kwargs["pricing_snapshot_reasoning"] == "0.000000"
 
     asyncio.run(run())

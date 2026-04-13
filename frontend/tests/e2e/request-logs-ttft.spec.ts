@@ -143,7 +143,6 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
       pricing_snapshot_cache_read_input: null,
       pricing_snapshot_cache_creation_input: null,
       pricing_snapshot_reasoning: null,
-      pricing_snapshot_missing_special_token_price_policy: null,
       pricing_config_version_used: 1,
     },
     ...overrides,

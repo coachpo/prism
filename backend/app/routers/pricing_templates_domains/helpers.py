@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +16,6 @@ PRICING_AFFECTING_FIELDS = {
     "cached_input_price",
     "cache_creation_price",
     "reasoning_price",
-    "missing_special_token_price_policy",
 }
 
 
@@ -43,7 +44,7 @@ async def ensure_unique_template_name(
     *,
     profile_id: int,
     name: str,
-    exclude_id: int | None = None,
+    exclude_id: Optional[int] = None,
 ) -> None:
     query = select(PricingTemplate).where(
         PricingTemplate.profile_id == profile_id,
@@ -104,7 +105,7 @@ def build_connection_usage_item(
     )
 
 
-def build_connection_usage_detail(connection: Connection) -> dict[str, object | None]:
+def build_connection_usage_detail(connection: Connection) -> dict[str, object]:
     return {
         "connection_id": connection.id,
         "connection_name": connection.name,

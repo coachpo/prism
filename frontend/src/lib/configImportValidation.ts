@@ -24,9 +24,6 @@ const PricingTemplateImportSchema = z.strictObject({
   cached_input_price: z.string().nullable().optional(),
   cache_creation_price: z.string().nullable().optional(),
   reasoning_price: z.string().nullable().optional(),
-  missing_special_token_price_policy: z
-    .enum(["MAP_TO_OUTPUT", "ZERO_COST"])
-    .optional(),
   version: z.number().int().min(1).optional(),
 });
 
@@ -175,7 +172,7 @@ const SecretPayloadSchema = z.strictObject({
 });
 
 export const ConfigImportSchema = z.strictObject({
-  version: z.literal(2),
+  version: z.literal(3),
   bundle_kind: z.literal("profile_config"),
   exported_at: z.string().optional(),
   vendor_refs: z.array(VendorRefImportSchema),

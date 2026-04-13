@@ -47,7 +47,6 @@ FINAL_USAGE_EVENT_COST_FIELDS = (
     "pricing_snapshot_cache_creation_input",
     "pricing_snapshot_reasoning",
     "pricing_config_version_used",
-    "pricing_snapshot_missing_special_token_price_policy",
 )
 
 

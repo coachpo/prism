@@ -51,7 +51,6 @@ async def log_final_usage_request_event(
     pricing_snapshot_cache_creation_input: str | None = None,
     pricing_snapshot_reasoning: str | None = None,
     pricing_config_version_used: int | None = None,
-    pricing_snapshot_missing_special_token_price_policy: str | None = None,
     attempt_count: int,
     request_path: str,
 ) -> int | None:
@@ -97,7 +96,6 @@ async def log_final_usage_request_event(
             pricing_snapshot_cache_read_input=pricing_snapshot_cache_read_input,
             pricing_snapshot_cache_creation_input=pricing_snapshot_cache_creation_input,
             pricing_snapshot_reasoning=pricing_snapshot_reasoning,
-            pricing_snapshot_missing_special_token_price_policy=pricing_snapshot_missing_special_token_price_policy,
             pricing_config_version_used=pricing_config_version_used,
             attempt_count=attempt_count,
             request_path=request_path,

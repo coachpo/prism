@@ -64,7 +64,6 @@ class RequestLogResponse(BaseModel):
     pricing_snapshot_cache_read_input: str | None = None
     pricing_snapshot_cache_creation_input: str | None = None
     pricing_snapshot_reasoning: str | None = None
-    pricing_snapshot_missing_special_token_price_policy: str | None = None
     pricing_config_version_used: int | None = None
     request_path: str
     error_detail: str | None
@@ -185,7 +184,6 @@ class RequestLogDetailPricingResponse(BaseModel):
     pricing_snapshot_cache_read_input: str | None = None
     pricing_snapshot_cache_creation_input: str | None = None
     pricing_snapshot_reasoning: str | None = None
-    pricing_snapshot_missing_special_token_price_policy: str | None = None
     pricing_config_version_used: int | None = None
 
 
@@ -281,7 +279,6 @@ class RequestLogDetailResponse(BaseModel):
                 pricing_snapshot_cache_read_input=entry.pricing_snapshot_cache_read_input,
                 pricing_snapshot_cache_creation_input=entry.pricing_snapshot_cache_creation_input,
                 pricing_snapshot_reasoning=entry.pricing_snapshot_reasoning,
-                pricing_snapshot_missing_special_token_price_policy=entry.pricing_snapshot_missing_special_token_price_policy,
                 pricing_config_version_used=entry.pricing_config_version_used,
             ),
         )
