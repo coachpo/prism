@@ -98,5 +98,6 @@ def test_list_contract_exposes_completion_duration() -> None:
     ).model_dump()
 
     assert payload["completion_duration_ms"] == 987
+    assert payload["output_tokens"] == 22
     assert payload["response_time_ms"] == 321
     assert payload["user_agent_overridden"] is False

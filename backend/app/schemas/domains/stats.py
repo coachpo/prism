@@ -89,6 +89,7 @@ class RequestLogListItemResponse(BaseModel):
     ttft_ms: int | None = None
     completion_duration_ms: int | None = None
     is_stream: bool
+    output_tokens: int | None = None
     total_tokens: int | None = None
     total_cost_user_currency_micros: int | None = None
     report_currency_symbol: str | None = None
