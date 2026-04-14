@@ -30,6 +30,7 @@ function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
     status_code: entry.status_code,
     response_time_ms: entry.response_time_ms,
     is_stream: entry.is_stream,
+    output_tokens: entry.output_tokens,
     total_tokens: entry.total_tokens,
     total_cost_user_currency_micros: entry.total_cost_user_currency_micros,
     report_currency_symbol: entry.report_currency_symbol,
