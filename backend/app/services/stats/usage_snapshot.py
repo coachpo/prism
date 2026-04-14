@@ -48,7 +48,7 @@ class _SnapshotEvent:
     response_time_ms: int | None
     ttft_ms: int | None
     completion_duration_ms: int | None
-    has_total_tokens: bool
+    has_output_tokens: bool
     total_cost_micros: int
     total_tokens: int
 
@@ -61,8 +61,8 @@ class _EndpointAggregate:
     success_count: int = 0
     failed_count: int = 0
     ttft_ms_values: list[int] = field(default_factory=list)
-    token_rate_sum: float = 0.0
-    has_ineligible_token_rate: bool = False
+    output_rate_sum: float = 0.0
+    has_ineligible_output_rate: bool = False
     total_tokens: int = 0
     total_cost_micros: int = 0
 
@@ -76,8 +76,8 @@ class _ModelAggregate:
     success_count: int = 0
     failed_count: int = 0
     ttft_ms_values: list[int] = field(default_factory=list)
-    token_rate_sum: float = 0.0
-    has_ineligible_token_rate: bool = False
+    output_rate_sum: float = 0.0
+    has_ineligible_output_rate: bool = False
     total_tokens: int = 0
     total_cost_micros: int = 0
 
@@ -110,12 +110,15 @@ def _success_rate(*, success_count: int, total_count: int) -> float:
     return round((success_count / total_count) * 100.0, 2)
 
 
-def _request_token_rate(event: _SnapshotEvent) -> float | None:
-    if not event.has_total_tokens:
+def _request_output_rate_tps(event: _SnapshotEvent) -> float | None:
+    if not event.has_output_tokens:
         return None
-    if event.completion_duration_ms is None or event.completion_duration_ms <= 0:
+    if event.ttft_ms is None or event.completion_duration_ms is None:
         return None
-    return (event.total_tokens * 1000) / event.completion_duration_ms
+    post_ttft_duration_ms = event.completion_duration_ms - event.ttft_ms
+    if post_ttft_duration_ms <= 0:
+        return None
+    return (event.output_tokens * 1000) / post_ttft_duration_ms
 
 
 def _percentile_cont_int(values: list[int], percentile: float) -> int | None:
@@ -581,11 +584,11 @@ def _build_endpoint_statistics(events: list[_SnapshotEvent]) -> list[dict[str, o
         group.failed_count += int(not event.success_flag)
         if event.ttft_ms is not None:
             group.ttft_ms_values.append(event.ttft_ms)
-        token_rate = _request_token_rate(event)
-        if token_rate is None:
-            group.has_ineligible_token_rate = True
+        output_rate = _request_output_rate_tps(event)
+        if output_rate is None:
+            group.has_ineligible_output_rate = True
         else:
-            group.token_rate_sum += token_rate
+            group.output_rate_sum += output_rate
         group.total_tokens += event.total_tokens
         group.total_cost_micros += event.total_cost_micros
 
@@ -602,10 +605,10 @@ def _build_endpoint_statistics(events: list[_SnapshotEvent]) -> list[dict[str, o
                 ),
                 "p50_ttft_ms": _percentile_cont_int(group.ttft_ms_values, 0.5),
                 "p95_ttft_ms": _percentile_cont_int(group.ttft_ms_values, 0.95),
-                "avg_token_rate": (
+                "avg_output_rate_tps": (
                     None
-                    if group.has_ineligible_token_rate
-                    else round(group.token_rate_sum / group.request_count, 2)
+                    if group.has_ineligible_output_rate
+                    else round(group.output_rate_sum / group.request_count, 2)
                 ),
                 "total_tokens": group.total_tokens,
                 "total_cost_micros": group.total_cost_micros,
@@ -638,11 +641,11 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
         group.failed_count += int(not event.success_flag)
         if event.ttft_ms is not None:
             group.ttft_ms_values.append(event.ttft_ms)
-        token_rate = _request_token_rate(event)
-        if token_rate is None:
-            group.has_ineligible_token_rate = True
+        output_rate = _request_output_rate_tps(event)
+        if output_rate is None:
+            group.has_ineligible_output_rate = True
         else:
-            group.token_rate_sum += token_rate
+            group.output_rate_sum += output_rate
         group.total_tokens += event.total_tokens
         group.total_cost_micros += event.total_cost_micros
 
@@ -659,10 +662,10 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
                 ),
                 "p50_ttft_ms": _percentile_cont_int(row.ttft_ms_values, 0.5),
                 "p95_ttft_ms": _percentile_cont_int(row.ttft_ms_values, 0.95),
-                "avg_token_rate": (
+                "avg_output_rate_tps": (
                     None
-                    if row.has_ineligible_token_rate
-                    else round(row.token_rate_sum / row.request_count, 2)
+                    if row.has_ineligible_output_rate
+                    else round(row.output_rate_sum / row.request_count, 2)
                 ),
                 "total_tokens": row.total_tokens,
                 "total_cost_micros": row.total_cost_micros,
@@ -837,7 +840,7 @@ async def _load_snapshot_events(
                 resolved_target_model_id=row.resolved_target_model_id,
                 status_code=int(row.status_code),
                 success_flag=bool(row.success_flag),
-                has_total_tokens=row.total_tokens is not None,
+                has_output_tokens=row.output_tokens is not None,
                 total_cost_micros=_coalesce_int(row.total_cost_user_currency_micros),
                 total_tokens=_coalesce_int(row.total_tokens),
             )

@@ -177,7 +177,7 @@ class UsageEndpointStatistic(BaseModel):
     success_rate: float
     p50_ttft_ms: int | None = None
     p95_ttft_ms: int | None = None
-    avg_token_rate: float | None
+    avg_output_rate_tps: float | None
     total_tokens: int
     total_cost_micros: int
 
@@ -191,7 +191,7 @@ class UsageModelStatistic(BaseModel):
     p95_ttft_ms: int | None = None
     total_tokens: int
     total_cost_micros: int
-    avg_token_rate: float | None
+    avg_output_rate_tps: float | None
 
 
 class UsageProxyApiKeyStatistic(BaseModel):

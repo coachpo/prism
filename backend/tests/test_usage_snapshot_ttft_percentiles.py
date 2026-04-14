@@ -38,6 +38,7 @@ class _FakeSession:
 
 def _row(
     *,
+    output_tokens: int | None,
     total_tokens: int | None,
     completion_duration_ms: int | None,
     ttft_ms: int | None,
@@ -57,7 +58,7 @@ def _row(
         ingress_request_id="req-1",
         input_tokens=1,
         model_id=model_id,
-        output_tokens=2,
+        output_tokens=output_tokens,
         proxy_api_key_id=None,
         proxy_api_key_name_snapshot=None,
         reasoning_tokens=0,
@@ -113,13 +114,30 @@ def test_percentile_helper_matches_postgresql_percentile_cont_interpolation() ->
     assert _percentile_cont_int([], 0.5) is None
 
 
-def test_endpoint_statistics_use_only_eligible_ttft_rows() -> None:
+def test_endpoint_statistics_preserve_ttft_percentiles_when_output_rate_becomes_null() -> (
+    None
+):
     rows = asyncio.run(
         _build_endpoint_stats(
             [
-                _row(total_tokens=100, completion_duration_ms=1000, ttft_ms=100),
-                _row(total_tokens=300, completion_duration_ms=1500, ttft_ms=400),
-                _row(total_tokens=500, completion_duration_ms=2500, ttft_ms=None),
+                _row(
+                    output_tokens=90,
+                    total_tokens=100,
+                    completion_duration_ms=1000,
+                    ttft_ms=100,
+                ),
+                _row(
+                    output_tokens=220,
+                    total_tokens=300,
+                    completion_duration_ms=1500,
+                    ttft_ms=400,
+                ),
+                _row(
+                    output_tokens=500,
+                    total_tokens=500,
+                    completion_duration_ms=2500,
+                    ttft_ms=None,
+                ),
             ]
         )
     )
@@ -132,21 +150,31 @@ def test_endpoint_statistics_use_only_eligible_ttft_rows() -> None:
             "success_rate": 100.0,
             "p50_ttft_ms": 250,
             "p95_ttft_ms": 385,
-            "avg_token_rate": 166.67,
+            "avg_output_rate_tps": None,
             "total_tokens": 900,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_model_statistics_return_null_ttft_percentiles_when_no_rows_are_eligible() -> (
+def test_model_statistics_return_null_when_every_row_is_ineligible_for_output_rate() -> (
     None
 ):
     rows = asyncio.run(
         _build_model_stats(
             [
-                _row(total_tokens=100, completion_duration_ms=1000, ttft_ms=None),
-                _row(total_tokens=300, completion_duration_ms=1500, ttft_ms=None),
+                _row(
+                    output_tokens=100,
+                    total_tokens=100,
+                    completion_duration_ms=1000,
+                    ttft_ms=None,
+                ),
+                _row(
+                    output_tokens=None,
+                    total_tokens=300,
+                    completion_duration_ms=1500,
+                    ttft_ms=None,
+                ),
             ]
         )
     )
@@ -159,30 +187,35 @@ def test_model_statistics_return_null_ttft_percentiles_when_no_rows_are_eligible
             "success_rate": 100.0,
             "p50_ttft_ms": None,
             "p95_ttft_ms": None,
-            "avg_token_rate": 150.0,
+            "avg_output_rate_tps": None,
             "total_tokens": 400,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_usage_snapshot_response_validates_ttft_percentiles() -> None:
+def test_usage_snapshot_response_validates_ttft_percentiles_with_null_output_rate() -> (
+    None
+):
     snapshot = asyncio.run(
         _build_snapshot(
             [
                 _row(
+                    output_tokens=90,
                     total_tokens=100,
                     completion_duration_ms=1000,
                     ttft_ms=100,
                     model_display_name="GPT 5.4",
                 ),
                 _row(
+                    output_tokens=220,
                     total_tokens=300,
                     completion_duration_ms=1500,
                     ttft_ms=400,
                     model_display_name="GPT 5.4",
                 ),
                 _row(
+                    output_tokens=500,
                     total_tokens=500,
                     completion_duration_ms=2500,
                     ttft_ms=None,
@@ -195,9 +228,21 @@ def test_usage_snapshot_response_validates_ttft_percentiles() -> None:
     assert len(snapshot.endpoint_statistics) == 1
     assert snapshot.endpoint_statistics[0].p50_ttft_ms == 250
     assert snapshot.endpoint_statistics[0].p95_ttft_ms == 385
-    assert snapshot.endpoint_statistics[0].avg_token_rate == 166.67
+    assert snapshot.endpoint_statistics[0].avg_output_rate_tps is None
 
     assert len(snapshot.model_statistics) == 1
-    assert snapshot.model_statistics[0].p50_ttft_ms == 250
-    assert snapshot.model_statistics[0].p95_ttft_ms == 385
-    assert snapshot.model_statistics[0].avg_token_rate == 166.67
+    statistic = snapshot.model_statistics[0]
+    assert statistic.p50_ttft_ms == 250
+    assert statistic.p95_ttft_ms == 385
+    assert statistic.avg_output_rate_tps is None
+    assert set(statistic.model_dump()) == {
+        "model_id",
+        "model_label",
+        "request_count",
+        "success_rate",
+        "p50_ttft_ms",
+        "p95_ttft_ms",
+        "total_tokens",
+        "total_cost_micros",
+        "avg_output_rate_tps",
+    }

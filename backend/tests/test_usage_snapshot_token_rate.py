@@ -5,14 +5,15 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import cast
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.schemas.schemas import UsageSnapshotResponse
 from app.services.stats.usage_snapshot import (
     _build_endpoint_statistics,
     _build_model_statistics,
-    get_usage_snapshot,
     _load_snapshot_events,
+    get_usage_snapshot,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class _FakeResult:
@@ -36,11 +37,14 @@ class _FakeSession:
 
 def _row(
     *,
+    output_tokens: int | None,
     total_tokens: int | None,
-    response_time_ms: int | None,
+    ttft_ms: int | None,
     completion_duration_ms: int | None,
     endpoint_id: int | None = 1,
     endpoint_name: str | None = "Primary Endpoint",
+    model_id: str = "gpt-5.4",
+    model_display_name: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         api_family="openai",
@@ -52,20 +56,21 @@ def _row(
         endpoint_id=endpoint_id,
         ingress_request_id="req-1",
         input_tokens=1,
-        model_id="gpt-5.4",
-        output_tokens=2,
+        model_id=model_id,
+        output_tokens=output_tokens,
         proxy_api_key_id=None,
         proxy_api_key_name_snapshot=None,
         reasoning_tokens=0,
         request_path="/v1/chat/completions",
-        response_time_ms=response_time_ms,
+        response_time_ms=1000,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         resolved_target_model_id=None,
         status_code=200,
         success_flag=True,
         total_cost_user_currency_micros=0,
         total_tokens=total_tokens,
-        model_display_name=None,
+        model_display_name=model_display_name,
         endpoint_name=endpoint_name,
         endpoint_base_url=None,
         current_proxy_api_key_name=None,
@@ -102,19 +107,23 @@ async def _build_snapshot(rows: list[SimpleNamespace]) -> UsageSnapshotResponse:
     return UsageSnapshotResponse.model_validate(snapshot)
 
 
-def test_buffered_and_stream_completion_rates_return_avg_token_rate() -> None:
+def test_endpoint_statistics_return_avg_output_rate_tps_for_eligible_streamed_rows() -> (
+    None
+):
     rows = asyncio.run(
         _build_stats(
             [
                 _row(
+                    output_tokens=100,
                     total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=5000,
+                    ttft_ms=100,
+                    completion_duration_ms=5100,
                 ),
                 _row(
+                    output_tokens=180,
                     total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1500,
+                    ttft_ms=100,
+                    completion_duration_ms=4600,
                 ),
             ]
         )
@@ -126,76 +135,32 @@ def test_buffered_and_stream_completion_rates_return_avg_token_rate() -> None:
             "endpoint_label": "Primary Endpoint",
             "request_count": 2,
             "success_rate": 100.0,
-            "p50_ttft_ms": None,
-            "p95_ttft_ms": None,
-            "avg_token_rate": 110.0,
+            "p50_ttft_ms": 100,
+            "p95_ttft_ms": 100,
+            "avg_output_rate_tps": 30.0,
             "total_tokens": 400,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_legacy_or_incomplete_rows_return_null_when_completion_duration_missing() -> (
+def test_model_statistics_return_avg_output_rate_tps_for_eligible_streamed_rows() -> (
     None
 ):
-    rows = asyncio.run(
-        _build_stats(
-            [
-                _row(
-                    total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=1000,
-                ),
-                _row(
-                    total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=None,
-                ),
-            ]
-        )
-    )
-
-    assert rows[0]["avg_token_rate"] is None
-    assert rows[0]["total_tokens"] == 400
-    assert rows[0]["request_count"] == 2
-
-
-def test_ineligible_rows_return_null_when_tokens_missing() -> None:
-    rows = asyncio.run(
-        _build_stats(
-            [
-                _row(
-                    total_tokens=None,
-                    response_time_ms=1000,
-                    completion_duration_ms=1000,
-                ),
-                _row(
-                    total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1000,
-                ),
-            ]
-        )
-    )
-
-    assert rows[0]["avg_token_rate"] is None
-    assert rows[0]["total_tokens"] == 300
-    assert rows[0]["request_count"] == 2
-
-
-def test_model_statistics_return_avg_token_rate_for_completion_duration_rows() -> None:
     rows = asyncio.run(
         _build_model_stats(
             [
                 _row(
+                    output_tokens=100,
                     total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=5000,
+                    ttft_ms=100,
+                    completion_duration_ms=5100,
                 ),
                 _row(
+                    output_tokens=180,
                     total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1500,
+                    ttft_ms=100,
+                    completion_duration_ms=4600,
                 ),
             ]
         )
@@ -207,32 +172,77 @@ def test_model_statistics_return_avg_token_rate_for_completion_duration_rows() -
             "model_label": "gpt-5.4",
             "request_count": 2,
             "success_rate": 100.0,
-            "p50_ttft_ms": None,
-            "p95_ttft_ms": None,
-            "avg_token_rate": 110.0,
+            "p50_ttft_ms": 100,
+            "p95_ttft_ms": 100,
+            "avg_output_rate_tps": 30.0,
             "total_tokens": 400,
             "total_cost_micros": 0,
         }
     ]
 
 
-def test_usage_snapshot_response_validates_with_model_avg_token_rate() -> None:
+def test_zero_output_rows_still_count_as_zero_avg_output_rate_tps() -> None:
+    rows = asyncio.run(
+        _build_stats(
+            [
+                _row(
+                    output_tokens=0,
+                    total_tokens=50,
+                    ttft_ms=200,
+                    completion_duration_ms=1000,
+                ),
+            ]
+        )
+    )
+
+    assert rows == [
+        {
+            "endpoint_id": 1,
+            "endpoint_label": "Primary Endpoint",
+            "request_count": 1,
+            "success_rate": 100.0,
+            "p50_ttft_ms": 200,
+            "p95_ttft_ms": 200,
+            "avg_output_rate_tps": 0.0,
+            "total_tokens": 50,
+            "total_cost_micros": 0,
+        }
+    ]
+
+
+def test_usage_snapshot_response_validates_with_model_avg_output_rate_tps() -> None:
     snapshot = asyncio.run(
         _build_snapshot(
             [
                 _row(
+                    output_tokens=100,
                     total_tokens=100,
-                    response_time_ms=1000,
-                    completion_duration_ms=5000,
+                    ttft_ms=100,
+                    completion_duration_ms=5100,
+                    model_display_name="GPT 5.4",
                 ),
                 _row(
+                    output_tokens=180,
                     total_tokens=300,
-                    response_time_ms=1000,
-                    completion_duration_ms=1500,
+                    ttft_ms=100,
+                    completion_duration_ms=4600,
+                    model_display_name="GPT 5.4",
                 ),
             ]
         )
     )
 
     assert len(snapshot.model_statistics) == 1
-    assert snapshot.model_statistics[0].avg_token_rate == 110.0
+    statistic = snapshot.model_statistics[0]
+    assert statistic.avg_output_rate_tps == 30.0
+    assert set(statistic.model_dump()) == {
+        "model_id",
+        "model_label",
+        "request_count",
+        "success_rate",
+        "p50_ttft_ms",
+        "p95_ttft_ms",
+        "total_tokens",
+        "total_cost_micros",
+        "avg_output_rate_tps",
+    }
