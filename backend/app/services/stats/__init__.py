@@ -13,10 +13,14 @@ from app.services.stats.throughput import get_throughput_stats
 from app.services.stats.time_presets import resolve_time_preset
 from app.services.stats.usage_snapshot import get_usage_snapshot
 from app.services.stats.usage_extractors import extract_token_usage
-from app.services.stats.usage_events import log_final_usage_request_event
+from app.services.stats.usage_events import (
+    backfill_usage_request_event_billing_fields,
+    log_final_usage_request_event,
+)
 
 __all__ = [
     "extract_token_usage",
+    "backfill_usage_request_event_billing_fields",
     "get_endpoint_model_statistics",
     "get_connection_success_rates",
     "get_endpoint_success_rates",

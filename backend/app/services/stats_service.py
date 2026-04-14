@@ -1,4 +1,5 @@
 from app.services.stats import (
+    backfill_usage_request_event_billing_fields,
     extract_token_usage,
     get_connection_success_rates,
     get_endpoint_model_statistics,
@@ -16,6 +17,7 @@ from app.services.stats import (
 )
 
 __all__ = [
+    "backfill_usage_request_event_billing_fields",
     "extract_token_usage",
     "get_connection_success_rates",
     "get_endpoint_model_statistics",

@@ -3,7 +3,7 @@ import logging
 import os
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 
 from app.core import database as database_core
 from app.core.config import ensure_postgresql_database_url, get_settings
@@ -16,6 +16,7 @@ from app.models.models import (
     LoadbalanceStrategy,
     ModelConfig,
     Profile,
+    UsageRequestEvent,
     UserAgentClientRule,
     UserSetting,
     Vendor,
@@ -458,12 +459,47 @@ async def run_startup_migrations() -> None:
     logger.info("Applied database migrations")
 
 
+async def reconcile_usage_request_event_billing_fields() -> None:
+    from app.services.stats_service import backfill_usage_request_event_billing_fields
+
+    async with database_core.AsyncSessionLocal() as session:
+        pending_usage_event_count = int(
+            (
+                await session.scalar(
+                    select(func.count())
+                    .select_from(UsageRequestEvent)
+                    .where(
+                        or_(
+                            UsageRequestEvent.billable_flag.is_(None),
+                            UsageRequestEvent.priced_flag.is_(None),
+                        )
+                    )
+                )
+            )
+            or 0
+        )
+        if pending_usage_event_count == 0:
+            return
+
+        reconciliation = await backfill_usage_request_event_billing_fields(session)
+
+    logger.info(
+        "Reconciled UsageRequestEvent billing fields for %d pending row(s) "
+        "(matched=%d unmatched=%d duplicate_candidates=%d)",
+        pending_usage_event_count,
+        reconciliation["matched_request_log_count"],
+        reconciliation["unmatched_usage_event_count"],
+        reconciliation["duplicate_candidate_count"],
+    )
+
+
 async def run_startup_sequence() -> None:
     if os.getenv(SKIP_STARTUP_SEQUENCE_ENV) == "1":
         logger.info("Skipping startup bootstrap; launcher already applied it")
         return
 
     await run_startup_migrations()
+    await reconcile_usage_request_event_billing_fields()
     await seed_vendors()
     await seed_profile_invariants()
     await seed_loadbalance_strategy_presets()
@@ -495,6 +531,7 @@ __all__ = [
     "SYSTEM_BLOCKLIST_DEFAULTS",
     "build_http_client",
     "encrypt_endpoint_secrets",
+    "reconcile_usage_request_event_billing_fields",
     "run_startup_migrations",
     "run_startup_sequence",
     "seed_app_auth_settings",
