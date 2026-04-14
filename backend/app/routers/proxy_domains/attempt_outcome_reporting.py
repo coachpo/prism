@@ -25,6 +25,9 @@ TokenUsage = dict[str, Optional[int]]
 CostFieldsBuilder = Callable[[Optional[TokenUsage]], CostFieldPayload]
 
 FINAL_USAGE_EVENT_COST_FIELDS = (
+    "billable_flag",
+    "priced_flag",
+    "unpriced_reason",
     "cache_read_input_tokens",
     "cache_creation_input_tokens",
     "reasoning_tokens",

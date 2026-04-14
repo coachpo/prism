@@ -2,12 +2,178 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
 
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import UsageRequestEvent
+from app.models.models import RequestLog, UsageRequestEvent
 
 logger = logging.getLogger(__name__)
+MISSING_REQUEST_LOG_BACKFILL_REASON = "MISSING_REQUEST_LOG_BACKFILL"
+
+
+@dataclass(frozen=True)
+class _RequestLogBillingCandidate:
+    id: int
+    attempt_number: int | None
+    created_at: datetime
+    billable_flag: bool | None
+    priced_flag: bool | None
+    unpriced_reason: str | None
+
+
+def _request_log_backfill_sort_key(
+    candidate: _RequestLogBillingCandidate,
+) -> tuple[int, datetime, int]:
+    attempt_number = (
+        candidate.attempt_number if candidate.attempt_number is not None else -1
+    )
+    return (attempt_number, candidate.created_at, candidate.id)
+
+
+def _select_final_request_log_candidate(
+    candidates: list[_RequestLogBillingCandidate],
+) -> _RequestLogBillingCandidate:
+    return max(candidates, key=_request_log_backfill_sort_key)
+
+
+async def backfill_usage_request_event_billing_fields(
+    session: AsyncSession,
+    *,
+    profile_id: int | None = None,
+) -> dict[str, int]:
+    usage_events_stmt = select(
+        UsageRequestEvent.id,
+        UsageRequestEvent.profile_id,
+        UsageRequestEvent.ingress_request_id,
+        UsageRequestEvent.billable_flag,
+        UsageRequestEvent.priced_flag,
+    )
+    if profile_id is not None:
+        usage_events_stmt = usage_events_stmt.where(
+            UsageRequestEvent.profile_id == profile_id
+        )
+
+    usage_event_rows = (await session.execute(usage_events_stmt)).all()
+    if not usage_event_rows:
+        return {
+            "matched_request_log_count": 0,
+            "unmatched_usage_event_count": 0,
+            "duplicate_candidate_count": 0,
+        }
+
+    usage_keys = {(row.profile_id, row.ingress_request_id) for row in usage_event_rows}
+    ingress_request_ids = sorted({row.ingress_request_id for row in usage_event_rows})
+
+    request_logs_stmt = select(
+        RequestLog.id,
+        RequestLog.profile_id,
+        RequestLog.ingress_request_id,
+        RequestLog.attempt_number,
+        RequestLog.created_at,
+        RequestLog.billable_flag,
+        RequestLog.priced_flag,
+        RequestLog.unpriced_reason,
+    ).where(RequestLog.ingress_request_id.is_not(None))
+    if profile_id is not None:
+        request_logs_stmt = request_logs_stmt.where(RequestLog.profile_id == profile_id)
+    else:
+        profile_ids = sorted({row.profile_id for row in usage_event_rows})
+        request_logs_stmt = request_logs_stmt.where(
+            RequestLog.profile_id.in_(profile_ids)
+        )
+    request_logs_stmt = request_logs_stmt.where(
+        RequestLog.ingress_request_id.in_(ingress_request_ids)
+    )
+
+    request_log_rows = (await session.execute(request_logs_stmt)).all()
+    request_log_candidates_by_key: defaultdict[
+        tuple[int, str], list[_RequestLogBillingCandidate]
+    ] = defaultdict(list)
+    for row in request_log_rows:
+        key = (row.profile_id, row.ingress_request_id)
+        if key not in usage_keys:
+            continue
+        request_log_candidates_by_key[key].append(
+            _RequestLogBillingCandidate(
+                id=row.id,
+                attempt_number=row.attempt_number,
+                created_at=row.created_at,
+                billable_flag=row.billable_flag,
+                priced_flag=row.priced_flag,
+                unpriced_reason=row.unpriced_reason,
+            )
+        )
+
+    matched_request_log_count = 0
+    unmatched_usage_event_count = 0
+    duplicate_candidate_count = 0
+    update_payloads: list[dict[str, int | bool | str | None]] = []
+
+    for usage_event_row in usage_event_rows:
+        key = (usage_event_row.profile_id, usage_event_row.ingress_request_id)
+        candidates = request_log_candidates_by_key.get(key, [])
+
+        if candidates:
+            matched_request_log_count += 1
+            if len(candidates) > 1:
+                duplicate_candidate_count += 1
+        else:
+            unmatched_usage_event_count += 1
+
+        if (
+            usage_event_row.billable_flag is not None
+            and usage_event_row.priced_flag is not None
+        ):
+            continue
+
+        if candidates:
+            final_candidate = _select_final_request_log_candidate(candidates)
+            update_payloads.append(
+                {
+                    "usage_event_id": usage_event_row.id,
+                    "billable_flag": bool(final_candidate.billable_flag),
+                    "priced_flag": bool(final_candidate.priced_flag),
+                    "unpriced_reason": final_candidate.unpriced_reason,
+                }
+            )
+            continue
+
+        update_payloads.append(
+            {
+                "usage_event_id": usage_event_row.id,
+                "billable_flag": False,
+                "priced_flag": False,
+                "unpriced_reason": MISSING_REQUEST_LOG_BACKFILL_REASON,
+            }
+        )
+
+    try:
+        for payload in update_payloads:
+            await session.execute(
+                update(UsageRequestEvent)
+                .where(UsageRequestEvent.id == payload["usage_event_id"])
+                .values(
+                    billable_flag=payload["billable_flag"],
+                    priced_flag=payload["priced_flag"],
+                    unpriced_reason=payload["unpriced_reason"],
+                )
+            )
+        if update_payloads:
+            await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    return {
+        "matched_request_log_count": matched_request_log_count,
+        "unmatched_usage_event_count": unmatched_usage_event_count,
+        "duplicate_candidate_count": duplicate_candidate_count,
+    }
 
 
 async def log_final_usage_request_event(
@@ -29,6 +195,9 @@ async def log_final_usage_request_event(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     total_tokens: int | None = None,
+    billable_flag: bool | None = None,
+    priced_flag: bool | None = None,
+    unpriced_reason: str | None = None,
     cache_read_input_tokens: int | None = None,
     cache_creation_input_tokens: int | None = None,
     reasoning_tokens: int | None = None,
@@ -72,6 +241,9 @@ async def log_final_usage_request_event(
             ttft_ms=ttft_ms,
             completion_duration_ms=completion_duration_ms,
             success_flag=success_flag,
+            billable_flag=billable_flag,
+            priced_flag=priced_flag,
+            unpriced_reason=unpriced_reason,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=total_tokens,
@@ -122,4 +294,8 @@ async def log_final_usage_request_event(
         return None
 
 
-__all__ = ["log_final_usage_request_event"]
+__all__ = [
+    "MISSING_REQUEST_LOG_BACKFILL_REASON",
+    "backfill_usage_request_event_billing_fields",
+    "log_final_usage_request_event",
+]

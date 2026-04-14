@@ -23,6 +23,9 @@ class UsageRequestEventResponse(BaseModel):
     proxy_api_key_name_snapshot: str | None = None
     status_code: int
     success_flag: bool
+    billable_flag: bool | None = None
+    priced_flag: bool | None = None
+    unpriced_reason: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
@@ -186,9 +189,17 @@ class UsageModelStatistic(BaseModel):
     model_id: str
     model_label: str
     request_count: int
+    success_count: int | None = None
+    failed_count: int | None = None
+    priced_request_count: int | None = None
+    unpriced_request_count: int | None = None
     success_rate: float
     p50_ttft_ms: int | None = None
     p95_ttft_ms: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_tokens: int | None = None
+    reasoning_tokens: int | None = None
     total_tokens: int
     total_cost_micros: int
     avg_output_rate_tps: float | None
