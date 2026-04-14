@@ -132,25 +132,29 @@ async def get_endpoint_model_statistics(
         filters.append(UsageRequestEvent.created_at >= normalized_start_at)
 
     success_count = case((UsageRequestEvent.success_flag.is_(True), 1), else_=0)
-    avg_token_rate_eligible = and_(
-        UsageRequestEvent.total_tokens.is_not(None),
+    avg_output_rate_tps_eligible = and_(
+        UsageRequestEvent.output_tokens.is_not(None),
+        UsageRequestEvent.ttft_ms.is_not(None),
         UsageRequestEvent.completion_duration_ms.is_not(None),
-        UsageRequestEvent.completion_duration_ms > 0,
+        UsageRequestEvent.completion_duration_ms > UsageRequestEvent.ttft_ms,
     )
-    token_rate_expr = (cast(UsageRequestEvent.total_tokens, Float) * 1000.0) / cast(
-        UsageRequestEvent.completion_duration_ms, Float
+    output_rate_tps_expr = (
+        cast(UsageRequestEvent.output_tokens, Float) * 1000.0
+    ) / cast(
+        UsageRequestEvent.completion_duration_ms - UsageRequestEvent.ttft_ms,
+        Float,
     )
-    eligible_token_rate_expr = case(
-        (avg_token_rate_eligible, token_rate_expr),
+    eligible_output_rate_tps_expr = case(
+        (avg_output_rate_tps_eligible, output_rate_tps_expr),
         else_=None,
     )
-    avg_token_rate = case(
+    avg_output_rate_tps = case(
         (
-            func.count(case((avg_token_rate_eligible, 1))) == func.count(),
-            func.avg(eligible_token_rate_expr),
+            func.count(case((avg_output_rate_tps_eligible, 1))) == func.count(),
+            func.avg(eligible_output_rate_tps_expr),
         ),
         else_=None,
-    ).label("avg_token_rate")
+    ).label("avg_output_rate_tps")
     ttft_percentile_p50 = func.percentile_cont(0.5).within_group(
         UsageRequestEvent.ttft_ms.asc()
     )
@@ -175,7 +179,7 @@ async def get_endpoint_model_statistics(
             ),
             0,
         ).label("total_cost_micros"),
-        avg_token_rate,
+        avg_output_rate_tps,
     ]
     if dialect_name == "postgresql":
         query_columns.extend(
@@ -233,9 +237,9 @@ async def get_endpoint_model_statistics(
                     0.95,
                 )
             ),
-            "avg_token_rate": (
-                round(float(row.avg_token_rate), 2)
-                if row.avg_token_rate is not None
+            "avg_output_rate_tps": (
+                round(float(row.avg_output_rate_tps), 2)
+                if row.avg_output_rate_tps is not None
                 else None
             ),
         }

@@ -57,6 +57,7 @@ def _usage_event(
     model_id: str,
     created_at: datetime,
     total_tokens: int | None,
+    output_tokens: int | None,
     completion_duration_ms: int | None,
     ttft_ms: int | None,
 ) -> UsageRequestEvent:
@@ -76,7 +77,7 @@ def _usage_event(
         completion_duration_ms=completion_duration_ms,
         success_flag=True,
         input_tokens=None,
-        output_tokens=None,
+        output_tokens=output_tokens,
         total_tokens=total_tokens,
         total_cost_user_currency_micros=0,
         attempt_count=1,
@@ -85,7 +86,7 @@ def _usage_event(
     )
 
 
-def test_mixed_null_ttft_rows_keep_avg_token_rate_and_compute_percentiles() -> None:
+def test_mixed_null_ttft_rows_return_null_output_rate_and_compute_percentiles() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 10
@@ -124,6 +125,7 @@ def test_mixed_null_ttft_rows_keep_avg_token_rate_and_compute_percentiles() -> N
                         model_id=model_id,
                         created_at=created_at,
                         total_tokens=100,
+                        output_tokens=90,
                         completion_duration_ms=1000,
                         ttft_ms=100,
                     ),
@@ -133,6 +135,7 @@ def test_mixed_null_ttft_rows_keep_avg_token_rate_and_compute_percentiles() -> N
                         model_id=model_id,
                         created_at=created_at + timedelta(minutes=1),
                         total_tokens=300,
+                        output_tokens=220,
                         completion_duration_ms=1500,
                         ttft_ms=400,
                     ),
@@ -142,6 +145,7 @@ def test_mixed_null_ttft_rows_keep_avg_token_rate_and_compute_percentiles() -> N
                         model_id=model_id,
                         created_at=created_at + timedelta(minutes=2),
                         total_tokens=500,
+                        output_tokens=500,
                         completion_duration_ms=2500,
                         ttft_ms=None,
                     ),
@@ -167,21 +171,21 @@ def test_mixed_null_ttft_rows_keep_avg_token_rate_and_compute_percentiles() -> N
                     "total_cost_micros": 0,
                     "p50_ttft_ms": 250,
                     "p95_ttft_ms": 385,
-                    "avg_token_rate": 166.67,
+                    "avg_output_rate_tps": None,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
             assert statistic.p50_ttft_ms == 250
             assert statistic.p95_ttft_ms == 385
-            assert statistic.avg_token_rate == 166.67
+            assert statistic.avg_output_rate_tps is None
         finally:
             session.close()
 
     asyncio.run(run())
 
 
-def test_zero_eligible_ttft_rows_return_null_percentiles() -> None:
+def test_all_ineligible_ttft_rows_return_null_percentiles_and_output_rate() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 11
@@ -220,6 +224,7 @@ def test_zero_eligible_ttft_rows_return_null_percentiles() -> None:
                         model_id=model_id,
                         created_at=created_at,
                         total_tokens=100,
+                        output_tokens=100,
                         completion_duration_ms=1000,
                         ttft_ms=None,
                     ),
@@ -229,6 +234,7 @@ def test_zero_eligible_ttft_rows_return_null_percentiles() -> None:
                         model_id=model_id,
                         created_at=created_at + timedelta(minutes=1),
                         total_tokens=300,
+                        output_tokens=None,
                         completion_duration_ms=1500,
                         ttft_ms=None,
                     ),
@@ -254,14 +260,14 @@ def test_zero_eligible_ttft_rows_return_null_percentiles() -> None:
                     "total_cost_micros": 0,
                     "p50_ttft_ms": None,
                     "p95_ttft_ms": None,
-                    "avg_token_rate": 150.0,
+                    "avg_output_rate_tps": None,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
             assert statistic.p50_ttft_ms is None
             assert statistic.p95_ttft_ms is None
-            assert statistic.avg_token_rate == 150.0
+            assert statistic.avg_output_rate_tps is None
         finally:
             session.close()
 

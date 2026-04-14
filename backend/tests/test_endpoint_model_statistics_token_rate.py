@@ -54,8 +54,9 @@ def _usage_event(
     model_id: str,
     created_at: datetime,
     total_tokens: int | None,
-    response_time_ms: int | None,
+    output_tokens: int | None,
     completion_duration_ms: int | None,
+    ttft_ms: int | None,
 ) -> UsageRequestEvent:
     return UsageRequestEvent(
         profile_id=1,
@@ -68,11 +69,12 @@ def _usage_event(
         proxy_api_key_id=None,
         proxy_api_key_name_snapshot=None,
         status_code=200,
-        response_time_ms=response_time_ms,
+        response_time_ms=1000,
+        ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         success_flag=True,
         input_tokens=None,
-        output_tokens=None,
+        output_tokens=output_tokens,
         total_tokens=total_tokens,
         total_cost_user_currency_micros=0,
         attempt_count=1,
@@ -81,7 +83,7 @@ def _usage_event(
     )
 
 
-def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
+def test_streamed_rows_return_avg_output_rate_tps_for_eligible_decode_windows() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 10
@@ -120,8 +122,9 @@ def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
                         model_id=model_id,
                         created_at=created_at,
                         total_tokens=100,
-                        response_time_ms=1000,
-                        completion_duration_ms=5000,
+                        output_tokens=100,
+                        completion_duration_ms=5100,
+                        ttft_ms=100,
                     ),
                     _usage_event(
                         ingress_request_id="req-2",
@@ -129,8 +132,9 @@ def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
                         model_id=model_id,
                         created_at=created_at + timedelta(minutes=1),
                         total_tokens=300,
-                        response_time_ms=1000,
-                        completion_duration_ms=1500,
+                        output_tokens=180,
+                        completion_duration_ms=4600,
+                        ttft_ms=100,
                     ),
                 ]
             )
@@ -152,21 +156,21 @@ def test_buffered_and_stream_completion_rates_use_per_request_avg() -> None:
                     "success_rate": 100.0,
                     "total_tokens": 400,
                     "total_cost_micros": 0,
-                    "p50_ttft_ms": None,
-                    "p95_ttft_ms": None,
-                    "avg_token_rate": 110.0,
+                    "p50_ttft_ms": 100,
+                    "p95_ttft_ms": 100,
+                    "avg_output_rate_tps": 30.0,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
-            assert statistic.avg_token_rate == 110.0
+            assert statistic.avg_output_rate_tps == 30.0
         finally:
             session.close()
 
     asyncio.run(run())
 
 
-def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
+def test_zero_output_rows_still_return_zero_avg_output_rate_tps() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 11
@@ -204,18 +208,10 @@ def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
                         endpoint_id=endpoint_id,
                         model_id=model_id,
                         created_at=created_at,
-                        total_tokens=100,
-                        response_time_ms=1000,
+                        total_tokens=50,
+                        output_tokens=0,
                         completion_duration_ms=1000,
-                    ),
-                    _usage_event(
-                        ingress_request_id="req-4",
-                        endpoint_id=endpoint_id,
-                        model_id=model_id,
-                        created_at=created_at - timedelta(hours=12),
-                        total_tokens=300,
-                        response_time_ms=1000,
-                        completion_duration_ms=None,
+                        ttft_ms=200,
                     ),
                 ]
             )
@@ -233,18 +229,18 @@ def test_legacy_or_incomplete_rows_return_null_grouped_avg_token_rate() -> None:
                 {
                     "model_id": model_id,
                     "model_label": "GPT 5.4 Mini",
-                    "request_count": 2,
+                    "request_count": 1,
                     "success_rate": 100.0,
-                    "total_tokens": 400,
+                    "total_tokens": 50,
                     "total_cost_micros": 0,
-                    "p50_ttft_ms": None,
-                    "p95_ttft_ms": None,
-                    "avg_token_rate": None,
+                    "p50_ttft_ms": 200,
+                    "p95_ttft_ms": 200,
+                    "avg_output_rate_tps": 0.0,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
-            assert statistic.avg_token_rate is None
+            assert statistic.avg_output_rate_tps == 0.0
         finally:
             session.close()
 
