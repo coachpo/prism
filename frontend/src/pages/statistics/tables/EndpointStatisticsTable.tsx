@@ -121,8 +121,8 @@ export function EndpointStatisticsTable({
                           <span className="block truncate">{item.endpoint_label}</span>
                         </div>
                         <MetricCell>{formatTtft(formatNumber, item.p50_ttft_ms)}</MetricCell>
-                        <MetricCell>{formatTtft(formatNumber, item.p95_ttft_ms)}</MetricCell>
-                        <MetricCell>{formatTokenRate(formatNumber, item.avg_token_rate)}</MetricCell>
+                           <MetricCell>{formatTtft(formatNumber, item.p95_ttft_ms)}</MetricCell>
+                           <MetricCell>{formatOutputRate(formatNumber, item.avg_output_rate_tps)}</MetricCell>
                         <MetricCell>{formatNumber(item.request_count)}</MetricCell>
                         <MetricCell className={getSuccessRateClass(item.success_rate)}>
                           {formatRate(formatNumber, item.success_rate)}
@@ -185,7 +185,7 @@ export function EndpointStatisticsTable({
                           </div>
                           <MetricCell>{formatTtft(formatNumber, item.p50_ttft_ms)}</MetricCell>
                           <MetricCell>{formatTtft(formatNumber, item.p95_ttft_ms)}</MetricCell>
-                          <MetricCell>{formatTokenRate(formatNumber, item.avg_token_rate)}</MetricCell>
+                           <MetricCell>{formatOutputRate(formatNumber, item.avg_output_rate_tps)}</MetricCell>
                           <MetricCell>{formatNumber(item.request_count)}</MetricCell>
                           <MetricCell className={getSuccessRateClass(item.success_rate)}>
                             {formatRate(formatNumber, item.success_rate)}
@@ -254,7 +254,7 @@ export function EndpointStatisticsTable({
                                         {formatTtft(formatNumber, model.p95_ttft_ms)}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
-                                        {formatTokenRate(formatNumber, model.avg_token_rate)}
+                                        {formatOutputRate(formatNumber, model.avg_output_rate_tps)}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
                                         {formatNumber(model.request_count)}
@@ -317,15 +317,15 @@ function formatRate(
   })}%`;
 }
 
-function formatTokenRate(
+function formatOutputRate(
   formatNumber: ReturnType<typeof useLocale>["formatNumber"],
-  avgTokenRate: number | null,
+  avgOutputRateTps: number | null,
 ) {
-  if (avgTokenRate === null) {
+  if (avgOutputRateTps === null) {
     return "—";
   }
 
-  return `${formatNumber(avgTokenRate, {
+  return `${formatNumber(avgOutputRateTps, {
     maximumFractionDigits: 1,
     minimumFractionDigits: 1,
   })} tok/s`;

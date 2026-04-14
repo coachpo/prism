@@ -160,7 +160,7 @@ async function mockStatisticsRoutes(
 }
 
 test.describe("statistics endpoint TTFT percentiles", () => {
-  test("renders P50/P95 TTFT columns before avg token rate for endpoint and model rows", async ({ page }) => {
+  test("renders P50/P95 TTFT columns before avg output rate for endpoint and model rows", async ({ page }) => {
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
@@ -168,7 +168,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
           endpoint_label: "TTFT endpoint",
           p50_ttft_ms: 123.4,
           p95_ttft_ms: 456.6,
-          avg_token_rate: 120.45,
+          avg_output_rate_tps: 120.45,
           request_count: 8,
           success_rate: 87.5,
           total_tokens: 960,
@@ -179,7 +179,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
           endpoint_label: "Unknown TTFT endpoint",
           p50_ttft_ms: 10.2,
           p95_ttft_ms: 99.8,
-          avg_token_rate: 45.55,
+          avg_output_rate_tps: 45.55,
           request_count: 3,
           success_rate: 100,
           total_tokens: 690,
@@ -193,7 +193,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
             model_label: "TTFT model",
             p50_ttft_ms: 222.2,
             p95_ttft_ms: 777.7,
-            avg_token_rate: 95.44,
+            avg_output_rate_tps: 95.44,
             request_count: 5,
             success_rate: 100,
             total_tokens: 600,
@@ -212,7 +212,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
     await expect(headerRow.locator(":scope > div").nth(0)).toHaveText("Endpoint");
     await expect(headerRow.locator(":scope > div").nth(1)).toHaveText("P50 TTFT");
     await expect(headerRow.locator(":scope > div").nth(2)).toHaveText("P95 TTFT");
-    await expect(headerRow.locator(":scope > div").nth(3)).toHaveText("Avg Token Rate");
+    await expect(headerRow.locator(":scope > div").nth(3)).toHaveText("Avg Output Rate");
     await expect(headerRow.locator(":scope > div").nth(4)).toHaveText("Requests");
     await expect(headerRow.locator(":scope > div").nth(5)).toHaveText("Success Rate");
     await expect(headerRow.locator(":scope > div").nth(6)).toHaveText("Total Tokens");
@@ -238,7 +238,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
     await expect(endpointModelHeaders.nth(0)).toHaveText("Model");
     await expect(endpointModelHeaders.nth(1)).toHaveText("P50 TTFT");
     await expect(endpointModelHeaders.nth(2)).toHaveText("P95 TTFT");
-    await expect(endpointModelHeaders.nth(3)).toHaveText("Avg Token Rate");
+    await expect(endpointModelHeaders.nth(3)).toHaveText("Avg Output Rate");
     await expect(endpointModelHeaders.nth(4)).toHaveText("Requests");
     await expect(endpointModelHeaders.nth(5)).toHaveText("Success Rate");
     await expect(endpointModelHeaders.nth(6)).toHaveText("Total Tokens");
@@ -259,7 +259,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
           endpoint_label: "Null TTFT endpoint",
           p50_ttft_ms: null,
           p95_ttft_ms: null,
-          avg_token_rate: null,
+          avg_output_rate_tps: null,
           request_count: 5,
           success_rate: 80,
           total_tokens: 500,
@@ -270,7 +270,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
           endpoint_label: "Null TTFT unknown endpoint",
           p50_ttft_ms: null,
           p95_ttft_ms: null,
-          avg_token_rate: null,
+          avg_output_rate_tps: null,
           request_count: 2,
           success_rate: 50,
           total_tokens: 200,
@@ -284,7 +284,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
             model_label: "Null TTFT model",
             p50_ttft_ms: null,
             p95_ttft_ms: null,
-            avg_token_rate: null,
+            avg_output_rate_tps: null,
             request_count: 5,
             success_rate: 80,
             total_tokens: 500,

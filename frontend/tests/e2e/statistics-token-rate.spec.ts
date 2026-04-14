@@ -161,8 +161,8 @@ async function mockStatisticsRoutes(
   });
 }
 
-test.describe("statistics endpoint avg token rate", () => {
-  test("renders numeric avg token rates for buffered/completed groups in top-level and expanded endpoint rows", async ({ page }) => {
+test.describe("statistics endpoint avg output rate", () => {
+  test("renders numeric avg output rates for eligible groups in top-level and expanded endpoint rows", async ({ page }) => {
     const endpointModelRequests: number[] = [];
 
     await mockStatisticsRoutes(page, {
@@ -172,7 +172,7 @@ test.describe("statistics endpoint avg token rate", () => {
           endpoint_label: "Buffered + completed endpoint",
           p50_ttft_ms: 120,
           p95_ttft_ms: 250,
-          avg_token_rate: 120.45,
+          avg_output_rate_tps: 120.45,
           request_count: 8,
           success_rate: 87.5,
           total_tokens: 960,
@@ -183,7 +183,7 @@ test.describe("statistics endpoint avg token rate", () => {
           endpoint_label: "Buffered + completed unknown endpoint",
           p50_ttft_ms: 80,
           p95_ttft_ms: 180,
-          avg_token_rate: 45.55,
+          avg_output_rate_tps: 45.55,
           request_count: 3,
           success_rate: 100,
           total_tokens: 690,
@@ -197,7 +197,7 @@ test.describe("statistics endpoint avg token rate", () => {
             model_label: "Buffered success model",
             p50_ttft_ms: 110,
             p95_ttft_ms: 210,
-            avg_token_rate: 95.44,
+            avg_output_rate_tps: 95.44,
             request_count: 5,
             success_rate: 100,
             total_tokens: 600,
@@ -208,7 +208,7 @@ test.describe("statistics endpoint avg token rate", () => {
             model_label: "Completed stream model",
             p50_ttft_ms: 140,
             p95_ttft_ms: 320,
-            avg_token_rate: 150.04,
+            avg_output_rate_tps: 150.04,
             request_count: 3,
             success_rate: 66.7,
             total_tokens: 360,
@@ -228,7 +228,7 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(headerRow.locator(":scope > div").nth(0)).toHaveText("Endpoint");
     await expect(headerRow.locator(":scope > div").nth(1)).toHaveText("P50 TTFT");
     await expect(headerRow.locator(":scope > div").nth(2)).toHaveText("P95 TTFT");
-    await expect(headerRow.locator(":scope > div").nth(3)).toHaveText("Avg Token Rate");
+    await expect(headerRow.locator(":scope > div").nth(3)).toHaveText("Avg Output Rate");
     await expect(headerRow.locator(":scope > div").nth(4)).toHaveText("Requests");
     await expect(headerRow.locator(":scope > div").nth(5)).toHaveText("Success Rate");
     await expect(headerRow.locator(":scope > div").nth(6)).toHaveText("Total Tokens");
@@ -253,7 +253,7 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(endpointModelHeaders.nth(0)).toHaveText("Model");
     await expect(endpointModelHeaders.nth(1)).toHaveText("P50 TTFT");
     await expect(endpointModelHeaders.nth(2)).toHaveText("P95 TTFT");
-    await expect(endpointModelHeaders.nth(3)).toHaveText("Avg Token Rate");
+    await expect(endpointModelHeaders.nth(3)).toHaveText("Avg Output Rate");
     await expect(endpointModelHeaders.nth(4)).toHaveText("Requests");
     await expect(endpointModelHeaders.nth(5)).toHaveText("Success Rate");
     await expect(endpointModelHeaders.nth(6)).toHaveText("Total Tokens");
@@ -268,15 +268,15 @@ test.describe("statistics endpoint avg token rate", () => {
     await expect(secondModelRowCells.nth(3)).toHaveText("150.0 tok/s");
   });
 
-  test("renders em dash for legacy/incomplete avg token rate groups in top-level and expanded rows", async ({ page }) => {
+  test("renders em dash for mixed or ineligible avg output rate aggregates in top-level and expanded rows", async ({ page }) => {
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
           endpoint_id: 8,
-          endpoint_label: "Legacy / incomplete endpoint",
+          endpoint_label: "Mixed / ineligible endpoint",
           p50_ttft_ms: null,
           p95_ttft_ms: null,
-          avg_token_rate: null,
+          avg_output_rate_tps: null,
           request_count: 5,
           success_rate: 80,
           total_tokens: 500,
@@ -284,10 +284,10 @@ test.describe("statistics endpoint avg token rate", () => {
         },
         {
           endpoint_id: null,
-          endpoint_label: "Legacy / incomplete unknown endpoint",
+          endpoint_label: "All ineligible unknown endpoint",
           p50_ttft_ms: null,
           p95_ttft_ms: null,
-          avg_token_rate: null,
+          avg_output_rate_tps: null,
           request_count: 2,
           success_rate: 50,
           total_tokens: 200,
@@ -298,10 +298,10 @@ test.describe("statistics endpoint avg token rate", () => {
         8: [
           {
             model_id: "legacy-model",
-            model_label: "Legacy / incomplete model",
+            model_label: "Mixed / ineligible model",
             p50_ttft_ms: null,
             p95_ttft_ms: null,
-            avg_token_rate: null,
+            avg_output_rate_tps: null,
             request_count: 5,
             success_rate: 80,
             total_tokens: 500,
@@ -316,11 +316,11 @@ test.describe("statistics endpoint avg token rate", () => {
 
     const table = page.getByTestId("statistics-endpoint-table");
     const unknownEndpointRow = table
-      .getByText("Legacy / incomplete unknown endpoint")
+      .getByText("All ineligible unknown endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
     await expect(unknownEndpointRow.locator(":scope > div").nth(3)).toHaveText("—");
 
-    const endpointRow = page.getByRole("button", { name: "#8 Legacy / incomplete endpoint" });
+    const endpointRow = page.getByRole("button", { name: "#8 Mixed / ineligible endpoint" });
     await expect(endpointRow.locator(":scope > div").nth(3)).toHaveText("—");
 
     await endpointRow.click();
@@ -328,7 +328,7 @@ test.describe("statistics endpoint avg token rate", () => {
     const endpointModelTable = page.getByTestId("statistics-endpoint-model-table-8");
     await expect(endpointModelTable).toBeVisible();
     const firstModelRowCells = endpointModelTable.locator("tbody tr").nth(0).locator("td");
-    await expect(firstModelRowCells.nth(0)).toHaveText("Legacy / incomplete model");
+    await expect(firstModelRowCells.nth(0)).toHaveText("Mixed / ineligible model");
     await expect(firstModelRowCells.nth(3)).toHaveText("—");
   });
 });
