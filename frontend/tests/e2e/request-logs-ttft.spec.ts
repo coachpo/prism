@@ -59,6 +59,7 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     status_code: 200,
     response_time_ms: 4500,
     is_stream: true,
+    output_tokens: 150,
     total_tokens: 150,
     total_cost_user_currency_micros: 750000,
     report_currency_symbol: "$",
@@ -162,6 +163,7 @@ async function mockRequestLogRoutes(page: Page) {
       completion_duration_ms: 400,
       response_time_ms: 2100,
       is_stream: false,
+      output_tokens: 120,
       total_tokens: 120,
       total_cost_user_currency_micros: 500000,
     }),
@@ -172,6 +174,7 @@ async function mockRequestLogRoutes(page: Page) {
       ttft_ms: 80,
       completion_duration_ms: null,
       response_time_ms: 900,
+      output_tokens: 25,
       total_tokens: 45,
       total_cost_user_currency_micros: 500000,
     }),
@@ -183,6 +186,7 @@ async function mockRequestLogRoutes(page: Page) {
       completion_duration_ms: null,
       response_time_ms: 240,
       is_stream: false,
+      output_tokens: null,
       total_tokens: 90,
       total_cost_user_currency_micros: 250000,
     }),
@@ -282,7 +286,7 @@ async function mockRequestLogRoutes(page: Page) {
 }
 
 test.describe("request logs TTFT", () => {
-  test("table renders TTFT between latency and token rate with correct null handling", async ({ page }) => {
+  test("table renders TTFT between latency and Output Rate with post-TTFT null handling", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
     await page.goto("/request-logs");
@@ -292,17 +296,17 @@ test.describe("request logs TTFT", () => {
 
     await expect(headerCells.nth(2)).toHaveText("Latency");
     await expect(headerCells.nth(3)).toHaveText("TTFT");
-    await expect(headerCells.nth(4)).toHaveText("Token Rate");
+    await expect(headerCells.nth(4)).toHaveText("Output Rate");
 
     const completedStreamRow = page.getByRole("button").filter({ hasText: "Completed Stream" });
     await expect(completedStreamRow.locator(":scope > div").nth(2)).toHaveText("4,500ms");
     await expect(completedStreamRow.locator(":scope > div").nth(3)).toHaveText("120ms");
-    await expect(completedStreamRow.locator(":scope > div").nth(4)).toHaveText("500.0 tok/s");
+    await expect(completedStreamRow.locator(":scope > div").nth(4)).toHaveText("833.3 tok/s");
 
     const bufferedCompletedRow = page.getByRole("button").filter({ hasText: "Buffered Completed" });
     await expect(bufferedCompletedRow.locator(":scope > div").nth(2)).toHaveText("2,100ms");
     await expect(bufferedCompletedRow.locator(":scope > div").nth(3)).toHaveText("—");
-    await expect(bufferedCompletedRow.locator(":scope > div").nth(4)).toHaveText("300.0 tok/s");
+    await expect(bufferedCompletedRow.locator(":scope > div").nth(4)).toHaveText("—");
 
     const interruptedStreamRow = page.getByRole("button").filter({ hasText: "Interrupted Stream" });
     await expect(interruptedStreamRow.locator(":scope > div").nth(2)).toHaveText("900ms");
@@ -332,7 +336,7 @@ test.describe("request logs TTFT", () => {
     await expect(summaryStrip.locator("[data-slot='metric-label']")).toHaveText([
       "Latency",
       "TTFT",
-      "Token Rate",
+      "Output Rate",
       "Total tokens",
       "Total cost",
       "Timestamp",

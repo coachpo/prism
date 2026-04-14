@@ -158,7 +158,7 @@ export function RequestLogOverviewTab({
               />
               <SummaryStat
                 label={messages.requestLogs.tokenRate}
-                value={formatTokenRate(usage.total_tokens, summary.completion_duration_ms ?? null)}
+                value={formatTokenRate(usage.output_tokens, summary.ttft_ms, summary.completion_duration_ms)}
                 valueClassName="font-mono"
               />
               <SummaryStat

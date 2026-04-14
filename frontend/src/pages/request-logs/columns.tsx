@@ -27,18 +27,31 @@ function formatTtft(ttftMs: number | null | undefined): string {
   return `${formatNumber(ttftMs, getCurrentLocale())}ms`;
 }
 
-function formatTokenRate(tokens: number | null, completionDurationMs: number | null): string {
+function formatTokenRate(
+  outputTokens: number | null | undefined,
+  ttftMs: number | null | undefined,
+  completionDurationMs: number | null | undefined,
+): string {
   if (
-    tokens === null ||
-    !Number.isFinite(tokens) ||
+    outputTokens === null ||
+    outputTokens === undefined ||
+    !Number.isFinite(outputTokens) ||
+    ttftMs === null ||
+    ttftMs === undefined ||
+    !Number.isFinite(ttftMs) ||
     completionDurationMs === null ||
-    !Number.isFinite(completionDurationMs) ||
-    completionDurationMs <= 0
+    completionDurationMs === undefined ||
+    !Number.isFinite(completionDurationMs)
   ) {
     return "—";
   }
 
-  const tokensPerSecond = (tokens * 1000) / completionDurationMs;
+  const decodeDurationMs = completionDurationMs - ttftMs;
+  if (decodeDurationMs <= 0) {
+    return "—";
+  }
+
+  const tokensPerSecond = (outputTokens * 1000) / decodeDurationMs;
   return `${formatNumber(tokensPerSecond, getCurrentLocale(), {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
@@ -178,7 +191,7 @@ export function getColumns(): ColumnDef[] {
       align: "right",
       render: (row) => (
         <span className="text-xs font-mono text-muted-foreground">
-          {formatTokenRate(row.total_tokens, row.completion_duration_ms)}
+          {formatTokenRate(row.output_tokens, row.ttft_ms, row.completion_duration_ms)}
         </span>
       ),
     },
