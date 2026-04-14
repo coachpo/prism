@@ -76,6 +76,8 @@ def _usage_event(
         ttft_ms=ttft_ms,
         completion_duration_ms=completion_duration_ms,
         success_flag=True,
+        billable_flag=True,
+        priced_flag=True,
         input_tokens=None,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
@@ -166,12 +168,14 @@ def test_mixed_null_ttft_rows_return_null_output_rate_and_compute_percentiles() 
                     "model_id": model_id,
                     "model_label": "GPT 5.4",
                     "request_count": 3,
+                    "priced_request_count": 3,
                     "success_rate": 100.0,
                     "total_tokens": 900,
                     "total_cost_micros": 0,
                     "p50_ttft_ms": 250,
                     "p95_ttft_ms": 385,
                     "avg_output_rate_tps": None,
+                    "unpriced_request_count": 0,
                 }
             ]
 
@@ -255,12 +259,14 @@ def test_all_ineligible_ttft_rows_return_null_percentiles_and_output_rate() -> N
                     "model_id": model_id,
                     "model_label": "GPT 5.4 Mini",
                     "request_count": 2,
+                    "priced_request_count": 2,
                     "success_rate": 100.0,
                     "total_tokens": 400,
                     "total_cost_micros": 0,
                     "p50_ttft_ms": None,
                     "p95_ttft_ms": None,
                     "avg_output_rate_tps": None,
+                    "unpriced_request_count": 0,
                 }
             ]
 

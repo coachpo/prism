@@ -132,6 +132,33 @@ async def get_endpoint_model_statistics(
         filters.append(UsageRequestEvent.created_at >= normalized_start_at)
 
     success_count = case((UsageRequestEvent.success_flag.is_(True), 1), else_=0)
+    priced_request_count = case(
+        (
+            and_(
+                UsageRequestEvent.success_flag.is_(True),
+                UsageRequestEvent.priced_flag.is_(True),
+            ),
+            1,
+        ),
+        else_=0,
+    )
+    unpriced_request_count = case(
+        (
+            and_(
+                UsageRequestEvent.success_flag.is_(True),
+                UsageRequestEvent.priced_flag.is_not(True),
+            ),
+            1,
+        ),
+        else_=0,
+    )
+    spend_case = case(
+        (
+            UsageRequestEvent.billable_flag.is_(True),
+            func.coalesce(UsageRequestEvent.total_cost_user_currency_micros, 0),
+        ),
+        else_=0,
+    )
     avg_output_rate_tps_eligible = and_(
         UsageRequestEvent.output_tokens.is_not(None),
         UsageRequestEvent.ttft_ms.is_not(None),
@@ -167,16 +194,15 @@ async def get_endpoint_model_statistics(
         ModelConfig.display_name.label("model_display_name"),
         func.count().label("request_count"),
         func.coalesce(func.sum(success_count), 0).label("success_count"),
+        func.coalesce(func.sum(priced_request_count), 0).label("priced_request_count"),
+        func.coalesce(func.sum(unpriced_request_count), 0).label(
+            "unpriced_request_count"
+        ),
         func.coalesce(
             func.sum(func.coalesce(UsageRequestEvent.total_tokens, 0)), 0
         ).label("total_tokens"),
         func.coalesce(
-            func.sum(
-                func.coalesce(
-                    UsageRequestEvent.total_cost_user_currency_micros,
-                    0,
-                )
-            ),
+            func.sum(spend_case),
             0,
         ).label("total_cost_micros"),
         avg_output_rate_tps,
@@ -215,6 +241,8 @@ async def get_endpoint_model_statistics(
             "model_id": row.model_id,
             "model_label": row.model_display_name or row.model_id,
             "request_count": int(row.request_count or 0),
+            "priced_request_count": int(row.priced_request_count or 0),
+            "unpriced_request_count": int(row.unpriced_request_count or 0),
             "success_rate": _success_rate(
                 success_count=int(row.success_count or 0),
                 total_count=int(row.request_count or 0),

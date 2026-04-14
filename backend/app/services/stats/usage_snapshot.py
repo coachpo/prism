@@ -25,17 +25,18 @@ SERVICE_HEALTH_INTERVAL_MINUTES = 15
 class _SnapshotEvent:
     api_family: str
     attempt_count: int
+    billable_flag: bool
     cached_tokens: int
     connection_id: int | None
     created_at: datetime
     endpoint_id: int | None
     endpoint_label: str
-    has_pricing_data: bool
     ingress_request_id: str
     input_tokens: int
     model_id: str
     model_label: str
     output_tokens: int
+    priced_flag: bool
     proxy_api_key_id: int | None
     proxy_api_key_label: str | None
     proxy_api_key_stats_label: str
@@ -75,6 +76,12 @@ class _ModelAggregate:
     request_count: int = 0
     success_count: int = 0
     failed_count: int = 0
+    priced_request_count: int = 0
+    unpriced_request_count: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    reasoning_tokens: int = 0
     ttft_ms_values: list[int] = field(default_factory=list)
     output_rate_sum: float = 0.0
     has_ineligible_output_rate: bool = False
@@ -535,10 +542,10 @@ def _build_cost_overview(
     end_at: datetime,
 ) -> dict[str, object]:
     priced_request_count = sum(
-        1 for event in events if event.success_flag and event.has_pricing_data
+        1 for event in events if event.success_flag and event.priced_flag
     )
     unpriced_request_count = sum(
-        1 for event in events if event.success_flag and not event.has_pricing_data
+        1 for event in events if event.success_flag and not event.priced_flag
     )
 
     def _points(granularity: Literal["hour", "day"]) -> list[dict[str, object]]:
@@ -639,6 +646,11 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
         group.request_count += 1
         group.success_count += int(event.success_flag)
         group.failed_count += int(not event.success_flag)
+        if event.success_flag:
+            if event.priced_flag:
+                group.priced_request_count += 1
+            else:
+                group.unpriced_request_count += 1
         if event.ttft_ms is not None:
             group.ttft_ms_values.append(event.ttft_ms)
         output_rate = _request_output_rate_tps(event)
@@ -646,6 +658,10 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
             group.has_ineligible_output_rate = True
         else:
             group.output_rate_sum += output_rate
+        group.input_tokens += event.input_tokens
+        group.output_tokens += event.output_tokens
+        group.cached_tokens += event.cached_tokens
+        group.reasoning_tokens += event.reasoning_tokens
         group.total_tokens += event.total_tokens
         group.total_cost_micros += event.total_cost_micros
 
@@ -656,6 +672,10 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
                 "model_id": row.model_id,
                 "model_label": row.model_label,
                 "request_count": row.request_count,
+                "success_count": row.success_count,
+                "failed_count": row.failed_count,
+                "priced_request_count": row.priced_request_count,
+                "unpriced_request_count": row.unpriced_request_count,
                 "success_rate": _success_rate(
                     success_count=row.success_count,
                     total_count=row.request_count,
@@ -667,6 +687,10 @@ def _build_model_statistics(events: list[_SnapshotEvent]) -> list[dict[str, obje
                     if row.has_ineligible_output_rate
                     else round(row.output_rate_sum / row.request_count, 2)
                 ),
+                "input_tokens": row.input_tokens,
+                "output_tokens": row.output_tokens,
+                "cached_tokens": row.cached_tokens,
+                "reasoning_tokens": row.reasoning_tokens,
                 "total_tokens": row.total_tokens,
                 "total_cost_micros": row.total_cost_micros,
             }
@@ -748,6 +772,7 @@ async def _load_snapshot_events(
             select(
                 UsageRequestEvent.api_family,
                 UsageRequestEvent.attempt_count,
+                UsageRequestEvent.billable_flag,
                 UsageRequestEvent.cache_creation_input_tokens,
                 UsageRequestEvent.cache_read_input_tokens,
                 UsageRequestEvent.connection_id,
@@ -757,6 +782,7 @@ async def _load_snapshot_events(
                 UsageRequestEvent.input_tokens,
                 UsageRequestEvent.model_id,
                 UsageRequestEvent.output_tokens,
+                UsageRequestEvent.priced_flag,
                 UsageRequestEvent.proxy_api_key_id,
                 UsageRequestEvent.proxy_api_key_name_snapshot,
                 UsageRequestEvent.reasoning_tokens,
@@ -801,6 +827,8 @@ async def _load_snapshot_events(
 
     events: list[_SnapshotEvent] = []
     for row in rows:
+        raw_billable_flag = getattr(row, "billable_flag", None)
+        raw_priced_flag = getattr(row, "priced_flag", None)
         endpoint_label = row.endpoint_name or row.endpoint_base_url
         if endpoint_label is None and row.endpoint_id is not None:
             endpoint_label = f"Endpoint {row.endpoint_id}"
@@ -816,18 +844,19 @@ async def _load_snapshot_events(
             _SnapshotEvent(
                 api_family=row.api_family,
                 attempt_count=int(row.attempt_count),
+                billable_flag=raw_billable_flag is True,
                 cached_tokens=_coalesce_int(row.cache_read_input_tokens)
                 + _coalesce_int(row.cache_creation_input_tokens),
                 connection_id=row.connection_id,
                 created_at=_normalize_datetime(row.created_at),
                 endpoint_id=row.endpoint_id,
                 endpoint_label=endpoint_label,
-                has_pricing_data=row.total_cost_user_currency_micros is not None,
                 ingress_request_id=row.ingress_request_id,
                 input_tokens=_coalesce_int(row.input_tokens),
                 model_id=row.model_id,
                 model_label=row.model_display_name or row.model_id,
                 output_tokens=_coalesce_int(row.output_tokens),
+                priced_flag=raw_priced_flag is True,
                 proxy_api_key_id=row.proxy_api_key_id,
                 proxy_api_key_label=proxy_api_key_label,
                 proxy_api_key_stats_label=proxy_api_key_stats_label,
@@ -841,7 +870,11 @@ async def _load_snapshot_events(
                 status_code=int(row.status_code),
                 success_flag=bool(row.success_flag),
                 has_output_tokens=row.output_tokens is not None,
-                total_cost_micros=_coalesce_int(row.total_cost_user_currency_micros),
+                total_cost_micros=(
+                    _coalesce_int(row.total_cost_user_currency_micros)
+                    if raw_billable_flag is True
+                    else 0
+                ),
                 total_tokens=_coalesce_int(row.total_tokens),
             )
         )
