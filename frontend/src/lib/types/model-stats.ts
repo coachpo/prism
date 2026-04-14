@@ -144,6 +144,7 @@ export interface RequestLogListItem {
   status_code: number;
   response_time_ms: number;
   is_stream: boolean;
+  output_tokens: number | null;
   total_tokens: number | null;
   total_cost_user_currency_micros: number | null;
   report_currency_symbol: string | null;

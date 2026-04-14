@@ -2881,7 +2881,7 @@ export const enMessages: Messages = {
     requestHeaders: "Request headers",
     search: "Search",
     searchPlaceholder: "model, vendor, path, or error",
-    tokenRate: "Token Rate",
+    tokenRate: "Output Rate",
     relaxScope: "Relax the scope or clear local refinements to widen the investigation surface.",
     returnToRequestList: "Return to request list",
     response: (status) => `Response (${status})`,
@@ -2968,7 +2968,7 @@ export const enMessages: Messages = {
   statistics: {
     addLine: "Add Line",
     averageRpm: "Average RPM",
-    avgTokenRate: "Avg Token Rate",
+    avgTokenRate: "Avg Output Rate",
     adjustFiltersOrTimeRange: "Try adjusting your filters or time range.",
     aggregation: "Aggregation",
     all: "All",

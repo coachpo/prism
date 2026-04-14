@@ -146,7 +146,7 @@ export interface UsageEndpointStatistic {
   request_count: number;
   success_rate: number;
   total_tokens: number;
-  avg_token_rate: number | null;
+  avg_output_rate_tps: number | null;
   total_cost_micros: number;
 }
 
@@ -158,7 +158,7 @@ export interface UsageModelStatistic {
   request_count: number;
   success_rate: number;
   total_tokens: number;
-  avg_token_rate: number | null;
+  avg_output_rate_tps: number | null;
   total_cost_micros: number;
 }
 
