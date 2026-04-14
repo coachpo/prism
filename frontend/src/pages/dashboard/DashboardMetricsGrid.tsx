@@ -5,6 +5,24 @@ import { formatMoneyMicros } from "@/lib/costing";
 import { cn } from "@/lib/utils";
 import type { DashboardMetricSnapshot } from "./useDashboardPageData";
 
+function formatSpendCoverageDetail(
+  pricedRequestCount: number,
+  unpricedRequestCount: number,
+  messages: ReturnType<typeof useLocale>["messages"],
+) {
+  const detailParts = [messages.statistics.requestBasedSpend];
+
+  if (pricedRequestCount > 0) {
+    detailParts.push(messages.statistics.pricedRequests(String(pricedRequestCount)));
+  }
+
+  if (unpricedRequestCount > 0) {
+    detailParts.push(messages.statistics.unpriced(String(unpricedRequestCount)));
+  }
+
+  return detailParts.join(" · ");
+}
+
 interface DashboardMetricsGridProps {
   highlighted: boolean;
   snapshot: DashboardMetricSnapshot;
@@ -40,7 +58,11 @@ export function DashboardMetricsGrid({
       <MetricCard
         label={messages.dashboard.spending30d}
         value={formatMoneyMicros(snapshot.totalCost, undefined, undefined, 2, 6, locale)}
-        detail={messages.dashboard.estimatedCost}
+        detail={formatSpendCoverageDetail(
+          snapshot.pricedRequestCount,
+          snapshot.unpricedRequestCount,
+          messages,
+        )}
         icon={<DollarSign className="h-4 w-4" />}
         className={cn(
           "[&_[data-slot=icon]]:bg-emerald-500/10 [&_[data-slot=icon]]:text-emerald-500",

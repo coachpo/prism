@@ -56,8 +56,9 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
       {snapshot ? (
         <div className="flex flex-col gap-6">
           <UsageOverviewSection
+            costSummary={data.costSummary ?? snapshot.cost_overview}
             currency={snapshot.currency}
-            overview={snapshot.overview}
+            overview={data.overview ?? snapshot.overview}
             requestTrendSeries={data.requestTrendSeries}
             tokenUsageTrendSeries={data.tokenUsageTrendSeries}
           />
@@ -85,12 +86,12 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
               costOverview: state.state.chartGranularity.costOverview,
               tokenTypeBreakdown: state.state.chartGranularity.tokenTypeBreakdown,
             }}
-            costOverview={snapshot.cost_overview}
+            costSummary={data.costSummary ?? snapshot.cost_overview}
             costOverviewSeries={data.costOverviewSeries}
             currency={snapshot.currency}
-            endpointStatistics={snapshot.endpoint_statistics}
-            modelStatistics={snapshot.model_statistics}
+            modelStatistics={data.modelStatistics}
             onSetChartGranularity={state.setChartGranularity}
+            topEndpointSpendStatistics={data.topEndpointSpendStatistics}
             tokenTypeBreakdown={data.tokenTypeBreakdown}
           />
 
@@ -100,7 +101,7 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
             endpointModelStatisticsErrors={data.endpointModelStatisticsErrors}
             endpointModelStatisticsLoading={data.endpointModelStatisticsLoading}
             endpointStatistics={snapshot.endpoint_statistics}
-            modelStatistics={snapshot.model_statistics}
+            modelStatistics={data.modelStatistics}
             onLoadEndpointModelStatistics={data.loadEndpointModelStatistics}
             proxyApiKeyStatistics={snapshot.proxy_api_key_statistics}
             tableResetKey={String(data.endpointModelStatisticsScopeKey)}

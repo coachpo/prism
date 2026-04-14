@@ -14,9 +14,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { formatMoneyMicros } from "@/lib/costing";
 import type {
   UsageChartGranularity,
-  UsageCostOverview,
   UsageCostOverviewPoint,
-  UsageEndpointStatistic,
   UsageModelStatistic,
   UsageSnapshotCurrency,
   UsageStatisticsChartKey,
@@ -28,23 +26,30 @@ interface UsageBreakdownSectionProps {
     costOverview: UsageChartGranularity;
     tokenTypeBreakdown: UsageChartGranularity;
   };
-  costOverview: UsageCostOverview;
+  costSummary: {
+    priced_request_count: number | null;
+    total_cost_micros: number;
+    unpriced_request_count: number | null;
+  };
   costOverviewSeries: UsageCostOverviewPoint[];
   currency: UsageSnapshotCurrency;
-  endpointStatistics: UsageEndpointStatistic[];
   modelStatistics: UsageModelStatistic[];
   onSetChartGranularity: (key: UsageStatisticsChartKey, granularity: UsageChartGranularity) => void;
+  topEndpointSpendStatistics: Array<{
+    endpoint_label: string;
+    total_cost_micros: number;
+  }>;
   tokenTypeBreakdown: UsageTokenTypeBreakdownPoint[];
 }
 
 export function UsageBreakdownSection({
   chartGranularity,
-  costOverview,
+  costSummary,
   costOverviewSeries,
   currency,
-  endpointStatistics,
   modelStatistics,
   onSetChartGranularity,
+  topEndpointSpendStatistics,
   tokenTypeBreakdown,
 }: UsageBreakdownSectionProps) {
   const { formatNumber, locale, messages } = useLocale();
@@ -67,11 +72,16 @@ export function UsageBreakdownSection({
   const tokenData = tokenTypeBreakdown;
   const topEndpointItems = useMemo(
     () =>
-      [...endpointStatistics]
+      [...topEndpointSpendStatistics]
         .sort((left, right) => right.total_cost_micros - left.total_cost_micros)
         .slice(0, 5)
         .map((item) => ({ label: item.endpoint_label, costMicros: item.total_cost_micros })),
-    [endpointStatistics],
+    [topEndpointSpendStatistics],
+  );
+  const topEndpointTotalCostMicros = useMemo(
+    () =>
+      topEndpointSpendStatistics.reduce((sum, item) => sum + item.total_cost_micros, 0),
+    [topEndpointSpendStatistics],
   );
   const topModelItems = useMemo(
     () =>
@@ -91,8 +101,9 @@ export function UsageBreakdownSection({
     }).format(date);
   };
 
-  const hasPricingCoverage = costOverview.priced_request_count > 0;
-  const hasMissingPricing = !hasPricingCoverage && costOverview.unpriced_request_count > 0;
+  const hasPricingCoverage =
+    costSummary.total_cost_micros > 0 || (costSummary.priced_request_count ?? 0) > 0;
+  const hasMissingPricing = !hasPricingCoverage && (costSummary.unpriced_request_count ?? 0) > 0;
 
   return (
     <section className="space-y-4">
@@ -155,7 +166,7 @@ export function UsageBreakdownSection({
           <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-4">
             <div className="space-y-1">
               <h3 className="text-base font-semibold tracking-tight">{messages.statistics.costOverviewTitle}</h3>
-              <p className="text-sm text-muted-foreground">{messages.statistics.totalSpend}</p>
+              <p className="text-sm text-muted-foreground">{messages.statistics.requestBasedSpend}</p>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -191,16 +202,18 @@ export function UsageBreakdownSection({
           ) : (
             <div className="space-y-6 pt-6">
               <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
+                <div data-testid="usage-cost-summary-card">
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{messages.statistics.totalSpend}</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">
-                    {formatMoneyMicros(costOverview.total_cost_micros, currency.symbol, currency.code, 2, 6, locale)}
+                  <p className="mt-2 text-3xl font-semibold tracking-tight" data-testid="usage-cost-summary-total">
+                    {formatMoneyMicros(costSummary.total_cost_micros, currency.symbol, currency.code, 2, 6, locale)}
                   </p>
                 </div>
                 <div className="text-right text-sm text-muted-foreground">
-                  <p>{messages.statistics.totalRequests(String(costOverview.priced_request_count))}</p>
-                  {costOverview.unpriced_request_count > 0 ? (
-                    <p>{messages.statistics.unpriced(String(costOverview.unpriced_request_count))}</p>
+                  {costSummary.priced_request_count !== null ? (
+                    <p>{messages.statistics.pricedRequests(String(costSummary.priced_request_count))}</p>
+                  ) : null}
+                  {(costSummary.unpriced_request_count ?? 0) > 0 ? (
+                    <p>{messages.statistics.unpriced(String(costSummary.unpriced_request_count))}</p>
                   ) : null}
                 </div>
               </div>
@@ -253,20 +266,24 @@ export function UsageBreakdownSection({
               </ChartContainer>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <TopSpendingCard
-                  currencyCode={currency.code}
-                  currencySymbol={currency.symbol}
-                  items={topEndpointItems}
-                  title={messages.statistics.topEndpointsByCost}
-                  totalCostMicros={costOverview.total_cost_micros}
-                />
-                <TopSpendingCard
-                  currencyCode={currency.code}
-                  currencySymbol={currency.symbol}
-                  items={topModelItems}
-                  title={messages.statistics.topModelsByCost}
-                  totalCostMicros={costOverview.total_cost_micros}
-                />
+                <div data-testid="usage-top-endpoints-card">
+                  <TopSpendingCard
+                    currencyCode={currency.code}
+                    currencySymbol={currency.symbol}
+                    items={topEndpointItems}
+                    title={messages.statistics.topEndpointsByCost}
+                    totalCostMicros={topEndpointTotalCostMicros}
+                  />
+                </div>
+                <div data-testid="usage-top-models-card">
+                  <TopSpendingCard
+                    currencyCode={currency.code}
+                    currencySymbol={currency.symbol}
+                    items={topModelItems}
+                    title={messages.statistics.topModelsByCost}
+                    totalCostMicros={costSummary.total_cost_micros}
+                  />
+                </div>
               </div>
             </div>
           )}

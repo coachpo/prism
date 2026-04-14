@@ -155,8 +155,16 @@ export interface UsageModelStatistic {
   model_label: string;
   p50_ttft_ms: number | null;
   p95_ttft_ms: number | null;
+  success_count: number | null;
+  failed_count: number | null;
+   priced_request_count: number | null;
+   unpriced_request_count: number | null;
   request_count: number;
   success_rate: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cached_tokens: number | null;
+  reasoning_tokens: number | null;
   total_tokens: number;
   avg_output_rate_tps: number | null;
   total_cost_micros: number;

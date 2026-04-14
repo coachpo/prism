@@ -18,11 +18,13 @@ export interface DashboardMetricSnapshot {
   avgLatency: number;
   errorRate: number;
   p95Latency: number;
+  pricedRequestCount: number;
   streamShare: number;
   successRate: number;
   totalCost: number;
   totalModels: number;
   totalRequests: number;
+  unpricedRequestCount: number;
 }
 
 export interface DashboardStrategyFamilySummary {
@@ -112,11 +114,13 @@ export function useDashboardPageData({
       avgLatency,
       errorRate: Math.max(0, 100 - successRate),
       p95Latency,
+      pricedRequestCount: spending?.summary.priced_request_count ?? 0,
       streamShare,
       successRate,
       totalCost,
       totalModels: models.length,
       totalRequests,
+      unpricedRequestCount: spending?.summary.unpriced_request_count ?? 0,
     };
   }, [models, recentRequests, spending, stats, throughput]);
 

@@ -62,7 +62,6 @@ export interface Messages {
     averageRpm: string;
     avgLatency: string;
     errorRate: string;
-    estimatedCost: string;
     inspectSpendingBreakdown: string;
     dashboardDescription: string;
     dashboardTitle: string;
@@ -1457,6 +1456,7 @@ export interface Messages {
     noProxyApiKeyUsageTitle: string;
     openPricingTemplates: string;
     overviewTitle: string;
+    pricedRequests: (count: string) => string;
     pricingDataMissingDescription: string;
     pricingDataMissingTitle: string;
     proxyApiKey: string;
@@ -1464,6 +1464,7 @@ export interface Messages {
     removeLine: (label: string) => string;
     previousPage: string;
     nextPage: string;
+    requestBasedSpend: string;
     requestTrendsTitle: string;
     avgTokenRate: string;
     requestsTab: string;
@@ -1614,7 +1615,6 @@ export const enMessages: Messages = {
     dashboardDescription: "System overview and health status",
     dashboardTitle: "Dashboard",
     errorRate: "Error Rate",
-    estimatedCost: "Estimated cost",
     inspectSpendingBreakdown: "Inspect Spending Breakdown",
     noRecentActivity: "No recent activity",
     noRecentActivityDescription: "Requests will appear here once processed.",
@@ -1671,7 +1671,7 @@ export const enMessages: Messages = {
     routingDescription:
       "Trace active endpoint-to-model paths in one view. Link width reflects active route count, while color reflects 24-hour route health.",
     routingLoadingDescription: "Loading live routing volume and 24-hour health data",
-    spending30d: "30d Spending",
+    spending30d: "30d Total Spend",
     streamingShare: "Streaming Share",
     successfulRequests24h: (count) => `${count} successful requests in 24h`,
     activeRoutes: (count) => `${count} active route${count === "1" ? "" : "s"}`,
@@ -1682,8 +1682,8 @@ export const enMessages: Messages = {
     totalRequests: (count) => `${count} total requests`,
     successRate: (rate) => `${rate}% success rate`,
     p95Latency: "P95 Latency",
-    topSpendingModels: "Top Spending Models",
-    topSpendingModelsDescription: "Highest cost models (last 30 days)",
+    topSpendingModels: "Top Models by Spend",
+    topSpendingModelsDescription: "Highest request-based spend in the last 30 days",
     viewFullReport: "View Full Report",
   },
   locale: {
@@ -3059,6 +3059,7 @@ export const enMessages: Messages = {
     noProxyApiKeyUsageTitle: "No proxy API key usage in this time range",
     openPricingTemplates: "Open Pricing Templates",
     overviewTitle: "Overview",
+    pricedRequests: (count) => `${count} priced`,
     pricingDataMissingDescription: "Attach pricing templates to connections to unlock cost coverage on the statistics page.",
     pricingDataMissingTitle: "Pricing data is missing for this time range",
     proxyApiKey: "Proxy API Key",
@@ -3066,6 +3067,7 @@ export const enMessages: Messages = {
     removeLine: (label) => `Remove line ${label}`,
     previousPage: "Previous Page",
     nextPage: "Next Page",
+    requestBasedSpend: "Request-based spend",
     requestTrendsTitle: "Request Trends",
     requestsInWindow: (count) => `${count} reqs in window`,
     requestsTab: "Requests",

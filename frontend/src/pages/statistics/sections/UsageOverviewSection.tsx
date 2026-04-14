@@ -10,6 +10,11 @@ import type {
 import { UsageKpiCard } from "../charts/UsageKpiCard";
 
 interface UsageOverviewSectionProps {
+  costSummary: {
+    priced_request_count: number | null;
+    total_cost_micros: number;
+    unpriced_request_count: number | null;
+  };
   currency: UsageSnapshotCurrency;
   overview: UsageSnapshotOverview;
   requestTrendSeries: UsageRequestTrendSeries[];
@@ -20,7 +25,25 @@ function resolveTrendSeriesLabel<T extends { key: string }>(series: T[]): T | nu
   return series.find((item) => item.key === "all") ?? series[0] ?? null;
 }
 
+function formatSpendCoverageDetail(
+  costSummary: UsageOverviewSectionProps["costSummary"],
+  messages: ReturnType<typeof useLocale>["messages"],
+) {
+  const detailParts = [messages.statistics.requestBasedSpend];
+
+  if ((costSummary.priced_request_count ?? 0) > 0) {
+    detailParts.push(messages.statistics.pricedRequests(String(costSummary.priced_request_count)));
+  }
+
+  if ((costSummary.unpriced_request_count ?? 0) > 0) {
+    detailParts.push(messages.statistics.unpriced(String(costSummary.unpriced_request_count)));
+  }
+
+  return detailParts.join(" · ");
+}
+
 export function UsageOverviewSection({
+  costSummary,
   currency,
   overview,
   requestTrendSeries,
@@ -130,7 +153,7 @@ export function UsageOverviewSection({
           <div data-testid="usage-kpi-card">
             <UsageKpiCard
               accentClassName="bg-chart-3/10 text-foreground"
-              detail={messages.statistics.successful(formatNumber(overview.success_requests))}
+              detail={formatSpendCoverageDetail(costSummary, messages)}
               icon={<DollarSign className="h-4 w-4" />}
               label={messages.statistics.totalSpend}
               sparkline={tokenSparkline}

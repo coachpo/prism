@@ -198,6 +198,9 @@ async function mockDashboardRoutes(page: Page) {
       return fulfillJson({
         summary: {
           total_cost_micros: 250000,
+          successful_request_count: 11,
+          priced_request_count: 9,
+          unpriced_request_count: 2,
         },
         top_spending_models: [
           {
@@ -242,8 +245,14 @@ test.describe("dashboard reporting currency", () => {
 
     const metricValues = page.locator('[data-slot="metric-card"] [data-slot="metric-value"]');
     const spendingMetric = metricValues.nth(2);
+    const spendingCard = page.locator('[data-slot="metric-card"]').filter({ hasText: "30d Total Spend" }).first();
 
     await expect(spendingMetric).toHaveText("¥0.25 CNY");
+    await expect(spendingCard).toContainText("Request-based spend");
+    await expect(spendingCard).toContainText("9 priced");
+    await expect(spendingCard).toContainText("2 unpriced");
+    await expect(page.getByText("Top Models by Spend")).toBeVisible();
+    await expect(page.getByText("Highest request-based spend in the last 30 days")).toBeVisible();
     await expect(page.getByText("¥0.25 CNY")).toHaveCount(2);
 
     await page.getByTestId("shell-profile-switcher").getByRole("combobox").click();
