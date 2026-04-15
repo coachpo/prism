@@ -2,7 +2,7 @@
 // navigator.clipboard.writeText. There is not a broadly supported text-only
 // fallback with meaningfully better compatibility today, so Prism keeps this
 // path to preserve copy behavior across supported environments.
-function fallbackCopyText(text: string): boolean {
+function fallbackCopyText(text: string, container?: HTMLElement | null): boolean {
   if (typeof document === "undefined") return false;
 
   const textarea = document.createElement("textarea");
@@ -12,7 +12,8 @@ function fallbackCopyText(text: string): boolean {
   textarea.style.opacity = "0";
   textarea.style.left = "-9999px";
   textarea.style.top = "0";
-  document.body.appendChild(textarea);
+  const mountTarget = container ?? document.body;
+  mountTarget.appendChild(textarea);
   textarea.focus();
   textarea.select();
   textarea.setSelectionRange(0, textarea.value.length);
@@ -22,19 +23,19 @@ function fallbackCopyText(text: string): boolean {
   } catch {
     return false;
   } finally {
-    document.body.removeChild(textarea);
+    mountTarget.removeChild(textarea);
   }
 }
 
-export async function copyTextToClipboard(text: string): Promise<boolean> {
+export async function copyTextToClipboard(text: string, container?: HTMLElement | null): Promise<boolean> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      return fallbackCopyText(text);
+      return fallbackCopyText(text, container);
     }
   }
 
-  return fallbackCopyText(text);
+  return fallbackCopyText(text, container);
 }
