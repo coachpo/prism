@@ -14,6 +14,7 @@ def _make_request_log(
     *,
     ttft_ms: int | None,
     completion_duration_ms: int | None,
+    audit_enabled_at_request: bool | None = False,
 ) -> RequestLog:
     entry = RequestLog(
         id=101,
@@ -77,6 +78,7 @@ def _make_request_log(
     setattr(entry, "upstream_client_display", "CLI")
     setattr(entry, "user_agent_overridden", False)
     setattr(entry, "endpoint_label", "Primary endpoint")
+    setattr(entry, "audit_enabled_at_request", audit_enabled_at_request)
     return entry
 
 
@@ -128,3 +130,16 @@ def test_detail_contract_exposes_ttft() -> None:
     assert payload["summary"]["response_time_ms"] == 321
     assert payload["summary"]["completion_duration_ms"] == 987
     assert payload["request"]["request_path"] == "/v1/chat/completions"
+    assert payload["routing"]["audit_enabled_at_request"] is False
+
+
+def test_detail_contract_preserves_nullable_audit_snapshot() -> None:
+    payload = RequestLogDetailResponse.from_request_log(
+        _make_request_log(
+            ttft_ms=123,
+            completion_duration_ms=987,
+            audit_enabled_at_request=None,
+        )
+    ).model_dump()
+
+    assert payload["routing"]["audit_enabled_at_request"] is None

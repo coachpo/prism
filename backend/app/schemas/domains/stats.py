@@ -161,6 +161,7 @@ class RequestLogDetailRoutingResponse(BaseModel):
     connection_id: int | None
     endpoint_base_url: str | None
     endpoint_description: str | None = None
+    audit_enabled_at_request: bool | None = None
 
 
 class RequestLogDetailUsageResponse(BaseModel):
@@ -259,6 +260,7 @@ class RequestLogDetailResponse(BaseModel):
                 connection_id=entry.connection_id,
                 endpoint_base_url=entry.endpoint_base_url,
                 endpoint_description=entry.endpoint_description,
+                audit_enabled_at_request=entry.audit_enabled_at_request,
             ),
             usage=RequestLogDetailUsageResponse(
                 input_tokens=entry.input_tokens,
