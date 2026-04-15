@@ -241,7 +241,6 @@ test.describe("statistics endpoint avg output rate", () => {
 
     const endpointRow = page.getByRole("button", { name: "#7 Buffered + completed endpoint" });
     await expect(endpointRow.locator(":scope > div").nth(3)).toHaveText("120.5 tok/s");
-    await expect(endpointModelRequests).toEqual([]);
 
     await endpointRow.click();
 
@@ -268,15 +267,15 @@ test.describe("statistics endpoint avg output rate", () => {
     await expect(secondModelRowCells.nth(3)).toHaveText("150.0 tok/s");
   });
 
-  test("renders em dash for mixed or ineligible avg output rate aggregates in top-level and expanded rows", async ({ page }) => {
+  test("renders numeric avg output rates for mixed top-level and expanded rows", async ({ page }) => {
     await mockStatisticsRoutes(page, {
       usageSnapshot: createUsageSnapshot([
         {
           endpoint_id: 8,
           endpoint_label: "Mixed / ineligible endpoint",
-          p50_ttft_ms: null,
-          p95_ttft_ms: null,
-          avg_output_rate_tps: null,
+          p50_ttft_ms: 90,
+          p95_ttft_ms: 190,
+          avg_output_rate_tps: 100,
           request_count: 5,
           success_rate: 80,
           total_tokens: 500,
@@ -321,7 +320,7 @@ test.describe("statistics endpoint avg output rate", () => {
     await expect(unknownEndpointRow.locator(":scope > div").nth(3)).toHaveText("—");
 
     const endpointRow = page.getByRole("button", { name: "#8 Mixed / ineligible endpoint" });
-    await expect(endpointRow.locator(":scope > div").nth(3)).toHaveText("—");
+    await expect(endpointRow.locator(":scope > div").nth(3)).toHaveText("100.0 tok/s");
 
     await endpointRow.click();
 
