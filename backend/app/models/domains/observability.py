@@ -68,6 +68,9 @@ class RequestLog(Base):
     ttft_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_stream: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    audit_enabled_at_request: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
