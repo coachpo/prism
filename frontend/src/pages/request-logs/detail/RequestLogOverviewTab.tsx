@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, formatApiFamily } from "@/lib/utils";
+import type { MouseEvent } from "react";
 import type { RequestLogDetail } from "@/lib/types";
 import {
   formatCost,
@@ -107,6 +108,13 @@ export function RequestLogOverviewTab({
     || requestInfo.caller_user_agent !== null
     || requestInfo.user_agent_overridden;
 
+  const handleCopyErrorDetail = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!formattedErrorDetail) return;
+
+    const container = event.currentTarget.closest("[data-clipboard-fallback-root]") as HTMLElement | null;
+    void copyRequestLogText(formattedErrorDetail, messages.requestLogs.errorDetail, container);
+  };
+
   return (
     <div className="space-y-3">
       <Card className={cn("overflow-hidden border shadow-sm", tone.card)}>
@@ -200,9 +208,7 @@ export function RequestLogOverviewTab({
                   variant="outline"
                   size="sm"
                   className="h-7 rounded-full border-red-500/20 px-2.5 text-[11px] text-red-700 hover:border-red-500/40 hover:bg-red-500/10 dark:text-red-200"
-                  onClick={() => {
-                    void copyRequestLogText(formattedErrorDetail, messages.requestLogs.errorDetail);
-                  }}
+                  onClick={handleCopyErrorDetail}
                 >
                   <Copy className="h-3 w-3" />
                   {messages.requestLogs.copy}

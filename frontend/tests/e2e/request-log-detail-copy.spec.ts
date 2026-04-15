@@ -12,6 +12,10 @@ const auditHeaders = "content-type: application/json\r\nauthorization: Bearer [R
 const auditRequestBody = "line-1\r\nline-2\r\nline-3";
 const auditResponseBody = "event: response.created\r\ndata: {\"id\":\"resp_101\"}";
 
+function normalizeClipboardText(value: string) {
+  return value.replaceAll("\r\n", "\n");
+}
+
 function createRequestLogDetail() {
   return {
     summary: {
@@ -139,7 +143,11 @@ function createAuditDetail() {
 }
 
 async function readCopiedText(page: Page) {
-  return page.evaluate(() => navigator.clipboard.readText());
+  return page.evaluate(() => (window as Window & { __copiedText?: string }).__copiedText ?? "");
+}
+
+async function readFallbackMountState(page: Page) {
+  return page.evaluate(() => (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot ?? false);
 }
 
 async function mockRequestLogDetailRoutes(page: Page) {
@@ -228,6 +236,32 @@ async function mockRequestLogDetailRoutes(page: Page) {
 async function openRequestLogDetail(page: Page, context: BrowserContext) {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await mockRequestLogDetailRoutes(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: () => Promise.reject(new Error("clipboard unavailable")),
+      },
+      configurable: true,
+    });
+
+    const windowWithCopyCapture = window as Window & { __copiedText?: string };
+    windowWithCopyCapture.__copiedText = "";
+    (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot = false;
+
+    document.execCommand = ((command: string) => {
+      if (command === "copy") {
+        const textarea = document.querySelector("textarea") as HTMLTextAreaElement | null;
+        const usedSheetRoot = Boolean(textarea?.closest("[data-testid='request-log-detail-sheet']"));
+
+        (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot = usedSheetRoot;
+        windowWithCopyCapture.__copiedText = usedSheetRoot ? textarea?.value ?? "" : "";
+
+        return usedSheetRoot;
+      }
+
+      return false;
+    }) as typeof document.execCommand;
+  });
   await page.goto("/request-logs?request_id=101");
   await page.waitForLoadState("networkidle");
 
@@ -250,6 +284,7 @@ test.describe("request log detail copy regression", () => {
     await drawer.locator("button:visible").filter({ hasText: "Copy" }).click();
 
     await expect.poll(() => readCopiedText(page)).toBe(formattedErrorDetail);
+    await expect.poll(() => readFallbackMountState(page)).toBe(true);
   });
 
   test("audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {
@@ -270,12 +305,15 @@ test.describe("request log detail copy regression", () => {
     });
 
     await copyButtons.nth(0).click();
-    await expect.poll(() => readCopiedText(page)).toBe(auditHeaders);
+    await expect.poll(() => readCopiedText(page)).toBe(normalizeClipboardText(auditHeaders));
+    await expect.poll(() => readFallbackMountState(page)).toBe(true);
 
     await copyButtons.nth(1).click();
-    await expect.poll(() => readCopiedText(page)).toBe(auditRequestBody);
+    await expect.poll(() => readCopiedText(page)).toBe(normalizeClipboardText(auditRequestBody));
+    await expect.poll(() => readFallbackMountState(page)).toBe(true);
 
     await copyButtons.nth(2).click();
-    await expect.poll(() => readCopiedText(page)).toBe(auditResponseBody);
+    await expect.poll(() => readCopiedText(page)).toBe(normalizeClipboardText(auditResponseBody));
+    await expect.poll(() => readFallbackMountState(page)).toBe(true);
   });
 });

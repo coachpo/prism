@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import { Copy } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,13 @@ export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBloc
   const { messages } = useLocale();
   const hasContent = content.length > 0;
 
+  const handleCopy = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!hasContent) return;
+
+    const container = event.currentTarget.closest("[data-clipboard-fallback-root]") as HTMLElement | null;
+    void copyRequestLogText(content, title.toLowerCase(), container);
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -22,11 +30,7 @@ export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBloc
           size="sm"
           className="h-7 rounded-full px-2.5 text-[11px]"
           disabled={!hasContent}
-          onClick={() => {
-            if (hasContent) {
-              void copyRequestLogText(content, title.toLowerCase());
-            }
-          }}
+          onClick={handleCopy}
         >
           <Copy className="h-3 w-3" />
           {messages.requestLogs.copy}
