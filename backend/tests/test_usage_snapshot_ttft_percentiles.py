@@ -114,7 +114,7 @@ def test_percentile_helper_matches_postgresql_percentile_cont_interpolation() ->
     assert _percentile_cont_int([], 0.5) is None
 
 
-def test_endpoint_statistics_preserve_ttft_percentiles_when_output_rate_becomes_null() -> (
+def test_endpoint_statistics_preserve_ttft_percentiles_when_some_rows_are_ineligible_for_output_rate() -> (
     None
 ):
     rows = asyncio.run(
@@ -150,8 +150,45 @@ def test_endpoint_statistics_preserve_ttft_percentiles_when_output_rate_becomes_
             "success_rate": 100.0,
             "p50_ttft_ms": 250,
             "p95_ttft_ms": 385,
-            "avg_output_rate_tps": None,
+            "avg_output_rate_tps": 150.0,
             "total_tokens": 900,
+            "total_cost_micros": 0,
+        }
+    ]
+
+
+def test_endpoint_statistics_return_null_when_every_row_is_ineligible_for_output_rate() -> (
+    None
+):
+    rows = asyncio.run(
+        _build_endpoint_stats(
+            [
+                _row(
+                    output_tokens=100,
+                    total_tokens=100,
+                    completion_duration_ms=1000,
+                    ttft_ms=None,
+                ),
+                _row(
+                    output_tokens=200,
+                    total_tokens=300,
+                    completion_duration_ms=400,
+                    ttft_ms=400,
+                ),
+            ]
+        )
+    )
+
+    assert rows == [
+        {
+            "endpoint_id": 1,
+            "endpoint_label": "Primary Endpoint",
+            "request_count": 2,
+            "success_rate": 100.0,
+            "p50_ttft_ms": 400,
+            "p95_ttft_ms": 400,
+            "avg_output_rate_tps": None,
+            "total_tokens": 400,
             "total_cost_micros": 0,
         }
     ]
@@ -186,6 +223,8 @@ def test_model_statistics_return_null_when_every_row_is_ineligible_for_output_ra
             "request_count": 2,
             "success_count": 2,
             "failed_count": 0,
+            "priced_request_count": 0,
+            "unpriced_request_count": 2,
             "success_rate": 100.0,
             "p50_ttft_ms": None,
             "p95_ttft_ms": None,
@@ -200,7 +239,7 @@ def test_model_statistics_return_null_when_every_row_is_ineligible_for_output_ra
     ]
 
 
-def test_usage_snapshot_response_validates_ttft_percentiles_with_null_output_rate() -> (
+def test_usage_snapshot_response_validates_ttft_percentiles_with_eligible_only_grouped_output_rate() -> (
     None
 ):
     snapshot = asyncio.run(
@@ -234,19 +273,23 @@ def test_usage_snapshot_response_validates_ttft_percentiles_with_null_output_rat
     assert len(snapshot.endpoint_statistics) == 1
     assert snapshot.endpoint_statistics[0].p50_ttft_ms == 250
     assert snapshot.endpoint_statistics[0].p95_ttft_ms == 385
-    assert snapshot.endpoint_statistics[0].avg_output_rate_tps is None
+    assert snapshot.endpoint_statistics[0].avg_output_rate_tps == 150.0
 
     assert len(snapshot.model_statistics) == 1
     statistic = snapshot.model_statistics[0]
     assert statistic.p50_ttft_ms == 250
     assert statistic.p95_ttft_ms == 385
-    assert statistic.avg_output_rate_tps is None
+    assert statistic.avg_output_rate_tps == 150.0
+    assert statistic.priced_request_count == 0
+    assert statistic.unpriced_request_count == 3
     assert set(statistic.model_dump()) == {
         "model_id",
         "model_label",
         "request_count",
         "success_count",
         "failed_count",
+        "priced_request_count",
+        "unpriced_request_count",
         "success_rate",
         "p50_ttft_ms",
         "p95_ttft_ms",

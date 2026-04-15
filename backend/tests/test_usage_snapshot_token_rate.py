@@ -144,7 +144,7 @@ def test_endpoint_statistics_return_avg_output_rate_tps_for_eligible_streamed_ro
     ]
 
 
-def test_model_statistics_return_avg_output_rate_tps_for_eligible_streamed_rows() -> (
+def test_model_statistics_return_avg_output_rate_tps_for_mixed_eligible_and_ineligible_rows() -> (
     None
 ):
     rows = asyncio.run(
@@ -162,6 +162,12 @@ def test_model_statistics_return_avg_output_rate_tps_for_eligible_streamed_rows(
                     ttft_ms=100,
                     completion_duration_ms=4600,
                 ),
+                _row(
+                    output_tokens=75,
+                    total_tokens=125,
+                    ttft_ms=None,
+                    completion_duration_ms=900,
+                ),
             ]
         )
     )
@@ -170,18 +176,20 @@ def test_model_statistics_return_avg_output_rate_tps_for_eligible_streamed_rows(
         {
             "model_id": "gpt-5.4",
             "model_label": "gpt-5.4",
-            "request_count": 2,
-            "success_count": 2,
+            "request_count": 3,
+            "success_count": 3,
             "failed_count": 0,
+            "priced_request_count": 0,
+            "unpriced_request_count": 3,
             "success_rate": 100.0,
             "p50_ttft_ms": 100,
             "p95_ttft_ms": 100,
             "avg_output_rate_tps": 30.0,
-            "input_tokens": 2,
-            "output_tokens": 280,
+            "input_tokens": 3,
+            "output_tokens": 355,
             "cached_tokens": 0,
             "reasoning_tokens": 0,
-            "total_tokens": 400,
+            "total_tokens": 525,
             "total_cost_micros": 0,
         }
     ]
@@ -241,12 +249,16 @@ def test_usage_snapshot_response_validates_with_model_avg_output_rate_tps() -> N
     assert len(snapshot.model_statistics) == 1
     statistic = snapshot.model_statistics[0]
     assert statistic.avg_output_rate_tps == 30.0
+    assert statistic.priced_request_count == 0
+    assert statistic.unpriced_request_count == 2
     assert set(statistic.model_dump()) == {
         "model_id",
         "model_label",
         "request_count",
         "success_count",
         "failed_count",
+        "priced_request_count",
+        "unpriced_request_count",
         "success_rate",
         "p50_ttft_ms",
         "p95_ttft_ms",
