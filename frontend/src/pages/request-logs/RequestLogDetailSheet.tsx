@@ -48,6 +48,7 @@ export function RequestLogDetailSheet({
     <Sheet open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
       <SheetContent
         className="w-full overflow-y-auto border-l border-border/70 bg-background/98 px-0 sm:max-w-3xl xl:max-w-[72rem]"
+        data-clipboard-fallback-root=""
         data-testid="request-log-detail-sheet"
       >
         <div className="space-y-4 px-5 pb-5 pt-4 sm:px-6">

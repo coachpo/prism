@@ -24,8 +24,8 @@ export function getStatusTone(statusCode: number) {
   return { card: "border-l-red-500 bg-red-500/[0.06]" };
 }
 
-export async function copyRequestLogText(content: string, label: string) {
-  const copied = await copyTextToClipboard(content);
+export async function copyRequestLogText(content: string, label: string, container?: HTMLElement | null) {
+  const copied = await copyTextToClipboard(content, container);
   if (copied) {
     toast.success(getMessages().requestLogsDetail.copied(label));
     return;
