@@ -81,7 +81,7 @@ SYSTEM_BLOCKLIST_DEFAULTS: list[dict[str, str]] = [
 SYSTEM_USER_AGENT_CLIENT_RULE_DEFAULTS: list[dict[str, str]] = [
     {"name": "Opencode", "pattern": "opencode"},
     {"name": "Codex", "pattern": "codex"},
-    {"name": "Claude Code", "pattern": "claude(?:\\s|-)?code"},
+    {"name": "Claude Code", "pattern": "claude(?:\\s|-)?(?:code|cli)"},
     {"name": "Gemini", "pattern": "gemini"},
     {"name": "Python", "pattern": "python"},
     {"name": "Curl", "pattern": "curl"},
@@ -338,25 +338,44 @@ async def seed_header_blocklist_rules() -> None:
 async def seed_user_agent_client_rules() -> None:
     async with database_core.AsyncSessionLocal() as session:
         changed = False
-        for default_rule in SYSTEM_USER_AGENT_CLIENT_RULE_DEFAULTS:
-            existing = (
+        existing_rules = list(
+            (
                 await session.execute(
-                    select(UserAgentClientRule).where(
-                        UserAgentClientRule.pattern == default_rule["pattern"],
-                        UserAgentClientRule.is_system == True,  # noqa: E712
-                    )
-                )
-            ).scalar_one_or_none()
-            if existing is not None:
-                continue
-            session.add(
-                UserAgentClientRule(
-                    name=default_rule["name"],
-                    pattern=default_rule["pattern"],
-                    enabled=True,
-                    is_system=True,
+                    select(UserAgentClientRule)
+                    .where(UserAgentClientRule.is_system == True)  # noqa: E712
+                    .order_by(UserAgentClientRule.id.asc())
                 )
             )
+            .scalars()
+            .all()
+        )
+        for default_rule in SYSTEM_USER_AGENT_CLIENT_RULE_DEFAULTS:
+            existing = next(
+                (
+                    rule
+                    for rule in existing_rules
+                    if rule.name == default_rule["name"]
+                    or rule.pattern == default_rule["pattern"]
+                ),
+                None,
+            )
+            if existing is not None:
+                if (
+                    existing.name != default_rule["name"]
+                    or existing.pattern != default_rule["pattern"]
+                ):
+                    existing.name = default_rule["name"]
+                    existing.pattern = default_rule["pattern"]
+                    changed = True
+                continue
+            new_rule = UserAgentClientRule(
+                name=default_rule["name"],
+                pattern=default_rule["pattern"],
+                enabled=True,
+                is_system=True,
+            )
+            session.add(new_rule)
+            existing_rules.append(new_rule)
             changed = True
 
         if changed:
