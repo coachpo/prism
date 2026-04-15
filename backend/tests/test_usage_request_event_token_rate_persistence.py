@@ -17,10 +17,14 @@ def _build_cost_fields(connection, status_code, tokens=None) -> dict[str, object
     }
 
 
-def _make_state(*, completion_duration_ms: int | None = 1000) -> SimpleNamespace:
+def _make_state(
+    *,
+    completion_duration_ms: int | None = 1000,
+    audit_enabled: bool = False,
+) -> SimpleNamespace:
     setup = SimpleNamespace(
         audit_capture_bodies=False,
-        audit_enabled=False,
+        audit_enabled=audit_enabled,
         api_family="openai",
         build_cost_fields=_build_cost_fields,
         caller_user_agent="caller-agent",
@@ -135,6 +139,7 @@ def test_buffered_request_scoped_completion_duration(monkeypatch) -> None:
         assert response.status_code == 200
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] == 1000
+        assert request_log_kwargs["audit_enabled_at_request"] is False
         assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] == 1000
@@ -183,7 +188,7 @@ def test_completed_stream_uses_full_completion_duration(monkeypatch) -> None:
             record_connection_recovery_fn=record_connection_recovery_fn,
             release_connection_lease_fn=release_connection_lease_fn,
         )
-        state = _make_state(completion_duration_ms=1000)
+        state = _make_state(completion_duration_ms=1000, audit_enabled=True)
         target = _make_target()
         upstream_resp = SimpleNamespace(
             headers={"content-type": "text/event-stream", "x-request-id": "provider-2"},
@@ -214,6 +219,7 @@ def test_completed_stream_uses_full_completion_duration(monkeypatch) -> None:
         ]
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] == 1000
+        assert request_log_kwargs["audit_enabled_at_request"] is True
         assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] == 1000
@@ -302,6 +308,7 @@ def test_incomplete_stream_completion_duration_null(monkeypatch) -> None:
 
         assert request_log_kwargs["response_time_ms"] == 250
         assert request_log_kwargs["completion_duration_ms"] is None
+        assert request_log_kwargs["audit_enabled_at_request"] is False
         assert request_log_kwargs["pricing_snapshot_reasoning"] == "0.000000"
         assert usage_event_kwargs["response_time_ms"] == 250
         assert usage_event_kwargs["completion_duration_ms"] is None

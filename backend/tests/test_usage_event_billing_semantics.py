@@ -33,11 +33,11 @@ def _build_cost_fields(connection, status_code, tokens=None) -> CostFieldPayload
     )
 
 
-def _make_state() -> SimpleNamespace:
+def _make_state(*, audit_enabled: bool = False) -> SimpleNamespace:
     setup = SimpleNamespace(
         api_family="openai",
         audit_capture_bodies=False,
-        audit_enabled=False,
+        audit_enabled=audit_enabled,
         build_cost_fields=_build_cost_fields,
         caller_user_agent="caller-agent",
         ingress_request_id="req-finalized",
@@ -117,7 +117,7 @@ def test_buffered_finalized_request_preserves_billing_field_parity() -> None:
             log_request_fn=log_request_fn,
             log_usage_request_event_fn=log_usage_request_event_fn,
         )
-        state = _make_state()
+        state = _make_state(audit_enabled=True)
         target = _make_target()
 
         await record_request_log(
@@ -169,7 +169,7 @@ def test_stream_finalized_request_preserves_billing_field_parity() -> None:
             log_usage_request_event_fn=log_usage_request_event_fn,
             record_audit_log_fn=record_audit_log_fn,
         )
-        state = _make_state()
+        state = _make_state(audit_enabled=True)
         target = _make_target()
 
         snapshot = build_stream_finalization_snapshot(
@@ -194,6 +194,7 @@ def test_stream_finalized_request_preserves_billing_field_parity() -> None:
         await _persist_stream_request_log(snapshot)
         await _persist_stream_usage_request_event(snapshot)
 
+        assert request_log_kwargs["audit_enabled_at_request"] is True
         assert _billing_fields(request_log_kwargs) == _EXPECTED_BILLING_FIELDS
         assert _billing_fields(usage_event_kwargs) == _EXPECTED_BILLING_FIELDS
         assert _billing_fields(usage_event_kwargs) == _billing_fields(
