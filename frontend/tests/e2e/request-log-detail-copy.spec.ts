@@ -150,6 +150,37 @@ async function readFallbackMountState(page: Page) {
   return page.evaluate(() => (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot ?? false);
 }
 
+async function readDownloadAttempted(page: Page) {
+  return page.evaluate(() => (window as Window & { __downloadAttempted?: boolean }).__downloadAttempted ?? false);
+}
+
+async function resetCopyHarnessState(page: Page) {
+  await page.evaluate(() => {
+    (window as Window & { __copiedText?: string }).__copiedText = "";
+    (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot = false;
+    (window as Window & { __downloadAttempted?: boolean }).__downloadAttempted = false;
+  });
+}
+
+async function expectCopyWithoutDownload(page: Page, trigger: () => Promise<void>, expectedText: string) {
+  await resetCopyHarnessState(page);
+
+  const downloadTriggeredPromise = page
+    .waitForEvent("download", { timeout: 500 })
+    .then(async (download) => {
+      await download.cancel().catch(() => {});
+      return true;
+    })
+    .catch(() => false);
+
+  await trigger();
+
+  await expect.poll(() => readCopiedText(page)).toBe(expectedText);
+  await expect.poll(() => readFallbackMountState(page)).toBe(true);
+  await expect.poll(() => readDownloadAttempted(page)).toBe(false);
+  expect(await downloadTriggeredPromise).toBe(false);
+}
+
 async function mockRequestLogDetailRoutes(page: Page) {
   const detail = createRequestLogDetail();
   const auditListItem = createAuditListItem();
@@ -247,6 +278,19 @@ async function openRequestLogDetail(page: Page, context: BrowserContext) {
     const windowWithCopyCapture = window as Window & { __copiedText?: string };
     windowWithCopyCapture.__copiedText = "";
     (window as Window & { __fallbackUsedSheetRoot?: boolean }).__fallbackUsedSheetRoot = false;
+    (window as Window & { __downloadAttempted?: boolean }).__downloadAttempted = false;
+
+    const nativeAnchorClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function clickWithDownloadCapture(this: HTMLAnchorElement) {
+      const href = this.getAttribute("href") ?? this.href ?? "";
+      const looksLikeDownload = this.hasAttribute("download") || href.startsWith("blob:") || href.startsWith("data:");
+
+      if (looksLikeDownload) {
+        (window as Window & { __downloadAttempted?: boolean }).__downloadAttempted = true;
+      }
+
+      return nativeAnchorClick.call(this);
+    };
 
     document.execCommand = ((command: string) => {
       if (command === "copy") {
@@ -274,6 +318,9 @@ async function openRequestLogDetail(page: Page, context: BrowserContext) {
 test.describe("request log detail copy regression", () => {
   test("overview error detail copy button writes the formatted block text", async ({ page, context }) => {
     const drawer = await openRequestLogDetail(page, context);
+    const overviewCopyButton = drawer.getByRole("button", { name: /^Copy$/ });
+
+    await expect(overviewCopyButton).toHaveCount(1);
 
     await drawer.locator("pre:visible").evaluateAll((elements) => {
       elements.forEach((element, index) => {
@@ -281,10 +328,7 @@ test.describe("request log detail copy regression", () => {
       });
     });
 
-    await drawer.locator("button:visible").filter({ hasText: "Copy" }).click();
-
-    await expect.poll(() => readCopiedText(page)).toBe(formattedErrorDetail);
-    await expect.poll(() => readFallbackMountState(page)).toBe(true);
+    await expectCopyWithoutDownload(page, () => overviewCopyButton.click(), formattedErrorDetail);
   });
 
   test("audit payload copy buttons write their corresponding payload blocks", async ({ page, context }) => {
@@ -292,7 +336,7 @@ test.describe("request log detail copy regression", () => {
 
     await drawer.getByRole("tab", { name: "Audit" }).click();
 
-    const copyButtons = drawer.locator("button:visible").filter({ hasText: "Copy" });
+    const copyButtons = drawer.getByRole("button", { name: /^Copy$/ });
     const visiblePreBlocks = drawer.locator("pre:visible");
 
     await expect(copyButtons).toHaveCount(3);
@@ -304,16 +348,8 @@ test.describe("request log detail copy regression", () => {
       elements[3].textContent = "mutated-audit-response";
     });
 
-    await copyButtons.nth(0).click();
-    await expect.poll(() => readCopiedText(page)).toBe(normalizeClipboardText(auditHeaders));
-    await expect.poll(() => readFallbackMountState(page)).toBe(true);
-
-    await copyButtons.nth(1).click();
-    await expect.poll(() => readCopiedText(page)).toBe(normalizeClipboardText(auditRequestBody));
-    await expect.poll(() => readFallbackMountState(page)).toBe(true);
-
-    await copyButtons.nth(2).click();
-    await expect.poll(() => readCopiedText(page)).toBe(normalizeClipboardText(auditResponseBody));
-    await expect.poll(() => readFallbackMountState(page)).toBe(true);
+    await expectCopyWithoutDownload(page, () => copyButtons.nth(0).click(), normalizeClipboardText(auditHeaders));
+    await expectCopyWithoutDownload(page, () => copyButtons.nth(1).click(), normalizeClipboardText(auditRequestBody));
+    await expectCopyWithoutDownload(page, () => copyButtons.nth(2).click(), normalizeClipboardText(auditResponseBody));
   });
 });
