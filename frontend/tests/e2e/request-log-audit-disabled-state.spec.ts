@@ -1,0 +1,206 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const timestamp = "2026-04-13T00:00:00Z";
+
+function createRequestLogDetail(auditEnabledAtRequest: boolean | null) {
+  return {
+    summary: {
+      id: 101,
+      created_at: timestamp,
+      model_id: "gpt-4o-mini",
+      resolved_target_model_id: null,
+      api_family: "openai",
+      vendor_id: 1,
+      vendor_key: "openai",
+      vendor_name: "OpenAI",
+      status_code: 502,
+      response_time_ms: 125,
+      is_stream: false,
+    },
+    request: {
+      request_path: "/v1/responses",
+      ingress_request_id: "ingress-101",
+      attempt_number: 1,
+      provider_correlation_id: "provider-corr-101",
+      proxy_api_key_id: null,
+      proxy_api_key_name_snapshot: null,
+      caller_user_agent: "Prism QA Browser",
+      upstream_user_agent: "Prism QA Browser",
+      caller_client_display: "Prism QA Browser",
+      upstream_client_display: "Prism QA Browser",
+      user_agent_overridden: false,
+      error_detail: null,
+    },
+    routing: {
+      profile_id: 1,
+      model_id: "gpt-4o-mini",
+      resolved_target_model_id: null,
+      api_family: "openai",
+      vendor_id: 1,
+      vendor_key: "openai",
+      vendor_name: "OpenAI",
+      endpoint_id: 1,
+      connection_id: null,
+      endpoint_base_url: "https://api.example.test",
+      endpoint_description: "Primary endpoint",
+      audit_enabled_at_request: auditEnabledAtRequest,
+    },
+    usage: {
+      input_tokens: 12,
+      output_tokens: 8,
+      total_tokens: 20,
+      success_flag: false,
+      billable_flag: true,
+      priced_flag: true,
+      unpriced_reason: null,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      reasoning_tokens: 0,
+    },
+    costing: {
+      input_cost_micros: 1000,
+      output_cost_micros: 2000,
+      cache_read_input_cost_micros: 0,
+      cache_creation_input_cost_micros: 0,
+      reasoning_cost_micros: 0,
+      total_cost_original_micros: 3000,
+      total_cost_user_currency_micros: 3000,
+      currency_code_original: "USD",
+      report_currency_code: "USD",
+      report_currency_symbol: "$",
+      fx_rate_used: "1",
+      fx_rate_source: "manual",
+    },
+    pricing: {
+      pricing_snapshot_unit: "1M tokens",
+      pricing_snapshot_input: "0.10",
+      pricing_snapshot_output: "0.20",
+      pricing_snapshot_cache_read_input: null,
+      pricing_snapshot_cache_creation_input: null,
+      pricing_snapshot_reasoning: null,
+      pricing_config_version_used: 1,
+    },
+  };
+}
+
+async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boolean | null) {
+  const detail = createRequestLogDetail(auditEnabledAtRequest);
+  let auditListRequests = 0;
+  let auditDetailRequests = 0;
+
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname, searchParams } = url;
+
+    if (!pathname.startsWith("/api/")) {
+      return route.continue();
+    }
+
+    const fulfillJson = (body: unknown, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+
+    if (pathname === "/api/auth/status") {
+      return fulfillJson({ auth_enabled: false });
+    }
+
+    if (pathname === "/api/profiles/bootstrap") {
+      return fulfillJson({
+        profiles: [
+          {
+            id: 1,
+            name: "Default",
+            description: null,
+            is_active: true,
+            is_default: true,
+            is_editable: true,
+            version: 1,
+            created_at: timestamp,
+            deleted_at: null,
+            updated_at: timestamp,
+          },
+        ],
+        active_profile: {
+          id: 1,
+          name: "Default",
+          description: null,
+          is_active: true,
+          is_default: true,
+          is_editable: true,
+          version: 1,
+          created_at: timestamp,
+          deleted_at: null,
+          updated_at: timestamp,
+        },
+        profile_limits: { max_profiles: 5 },
+      });
+    }
+
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson({ timezone_preference: "UTC" });
+    }
+
+    if (pathname === "/api/stats/requests/101") {
+      return fulfillJson(detail);
+    }
+
+    if (pathname === "/api/audit/logs") {
+      auditListRequests += 1;
+      return fulfillJson({
+        items: searchParams.get("request_log_id") === "101" ? [] : [],
+        total: 0,
+        limit: 20,
+        offset: 0,
+      });
+    }
+
+    if (pathname.startsWith("/api/audit/logs/")) {
+      auditDetailRequests += 1;
+      return fulfillJson({}, 404);
+    }
+
+    return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+  });
+
+  await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
+
+  return {
+    getAuditListRequests: () => auditListRequests,
+    getAuditDetailRequests: () => auditDetailRequests,
+  };
+}
+
+async function openRequestLogDetail(page: Page, auditEnabledAtRequest: boolean | null) {
+  const counters = await mockRequestLogDetailRoutes(page, auditEnabledAtRequest);
+
+  await page.goto("/request-logs?request_id=101");
+
+  const drawer = page.getByTestId("request-log-detail-sheet");
+  await expect(drawer).toBeVisible({ timeout: 15000 });
+
+  return { drawer, counters };
+}
+
+test.describe("request log audit disabled state", () => {
+  test("disabled snapshots make zero audit API requests", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, false);
+
+    await drawer.getByRole("tab", { name: "Audit" }).click();
+
+    await expect(drawer.getByText("Audit capture unavailable")).toBeVisible();
+    await expect(drawer.getByText("Audit logging may be disabled for this vendor.")).toBeVisible();
+    expect(counters.getAuditListRequests()).toBe(0);
+    expect(counters.getAuditDetailRequests()).toBe(0);
+  });
+
+  test("unknown snapshots still lazily request audit logs", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, null);
+
+    await drawer.getByRole("tab", { name: "Audit" }).click();
+
+    await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+  });
+});

@@ -37,6 +37,7 @@ export function RequestLogDetailSheet({
   const { messages } = useLocale();
   const { audits, loading: auditLoading, error: auditError } = useAuditDetail({
     requestLogId: request?.summary.id ?? null,
+    auditEnabledAtRequest: request?.routing.audit_enabled_at_request ?? null,
     enabled: open && activeTab === "audit",
   });
   const hasResolvedTargetContext = Boolean(
