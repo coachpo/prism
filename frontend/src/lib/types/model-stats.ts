@@ -138,6 +138,7 @@ export interface RequestLogListItem {
   vendor_key?: string | null;
   vendor_name?: string | null;
   endpoint_id: number | null;
+  endpoint_label: string;
   connection_id: number | null;
   ttft_ms: number | null;
   completion_duration_ms: number | null;
@@ -242,11 +243,19 @@ export interface RequestLogDetail {
   pricing: RequestLogDetailPricing;
 }
 
+export interface RequestLogFilterEndpointOption {
+  endpoint_id: number;
+  endpoint_label: string;
+}
+
 export interface RequestLogListResponse {
   items: RequestLogListItem[];
   total: number;
   limit: number;
   offset: number;
+  filter_options: {
+    endpoints: RequestLogFilterEndpointOption[];
+  };
 }
 
 export interface StatGroup {

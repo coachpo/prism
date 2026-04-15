@@ -137,6 +137,51 @@ function createCostingSettings(profileId: number) {
   };
 }
 
+function createRequestLogsResponse(searchParams: URLSearchParams) {
+  const requestLogItems = [
+    {
+      id: 1,
+      created_at: timestamp,
+      model_id: "gpt-4o-mini",
+      resolved_target_model_id: null,
+      caller_client_display: null,
+      upstream_client_display: null,
+      user_agent_overridden: false,
+      api_family: "openai",
+      vendor_id: null,
+      vendor_key: null,
+      vendor_name: null,
+      endpoint_id: null,
+      endpoint_label: "Unknown Endpoint",
+      connection_id: null,
+      ttft_ms: null,
+      completion_duration_ms: null,
+      status_code: 200,
+      response_time_ms: 123,
+      is_stream: false,
+      output_tokens: 10,
+      total_tokens: 10,
+      total_cost_user_currency_micros: 1000,
+      report_currency_symbol: "¥",
+    },
+  ];
+  const limit = Number.parseInt(
+    searchParams.get("limit") ?? String(requestLogItems.length),
+    10,
+  );
+  const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
+
+  return {
+    items: requestLogItems.slice(offset, offset + limit),
+    total: requestLogItems.length,
+    limit,
+    offset,
+    filter_options: {
+      endpoints: [],
+    },
+  };
+}
+
 async function mockDashboardRoutes(page: Page) {
   const profiles = [
     createProfile(1, "Red Team", true),
@@ -145,7 +190,8 @@ async function mockDashboardRoutes(page: Page) {
 
   await page.route("**/*", async (route) => {
     const request = route.request();
-    const pathname = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const { pathname, searchParams } = url;
 
     if (!pathname.startsWith("/api/")) {
       return route.continue();
@@ -185,7 +231,7 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/stats/requests") {
-      return fulfillJson({ items: [] });
+      return fulfillJson(createRequestLogsResponse(searchParams));
     }
 
     if (pathname === "/api/stats/usage-snapshot") {

@@ -83,6 +83,7 @@ class RequestLogListItemResponse(BaseModel):
     vendor_key: str | None = None
     vendor_name: str | None = None
     endpoint_id: int | None
+    endpoint_label: str
     connection_id: int | None
     status_code: int
     response_time_ms: int
@@ -98,7 +99,19 @@ class RequestLogListItemResponse(BaseModel):
     user_agent_overridden: bool
 
 
+class RequestLogListEndpointOptionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    endpoint_id: int
+    endpoint_label: str
+
+
+class RequestLogListFilterOptionsResponse(BaseModel):
+    endpoints: list[RequestLogListEndpointOptionResponse]
+
+
 class RequestLogListResponse(BaseModel):
+    filter_options: RequestLogListFilterOptionsResponse
     items: list[RequestLogListItemResponse]
     total: int
     limit: int

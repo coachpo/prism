@@ -14,10 +14,7 @@ import { RequestLogDetailSheet } from "./request-logs/RequestLogDetailSheet";
 import { SearchX, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DetailTab } from "./request-logs/queryParams";
-import type {
-  RequestLogEndpointResolver,
-  RequestLogModelResolver,
-} from "./request-logs/columns";
+import type { RequestLogModelResolver } from "./request-logs/columns";
 
 export function RequestLogsPage() {
   const { revision } = useProfileContext();
@@ -65,11 +62,6 @@ export function RequestLogsPage() {
     () => new Map(filterOptions.models.map((model) => [model.model_id, model])),
     [filterOptions.models],
   );
-  const endpointLabelById = useMemo(
-    () => new Map(filterOptions.endpoints.map((endpoint) => [endpoint.id, endpoint.name || endpoint.base_url])),
-    [filterOptions.endpoints],
-  );
-
   const resolveModelLabel = useMemo<RequestLogModelResolver>(() => {
     return Object.assign(
       (modelId: string) => modelLabelById.get(modelId) ?? modelId,
@@ -78,15 +70,6 @@ export function RequestLogsPage() {
       },
     ) as RequestLogModelResolver;
   }, [modelLabelById, modelMetadataById]);
-  const resolveEndpointLabel = useMemo<RequestLogEndpointResolver>(() => {
-    return (endpointId) => {
-      if (endpointId === null) {
-        return "—";
-      }
-
-      return endpointLabelById.get(endpointId) ?? `#${endpointId}`;
-    };
-  }, [endpointLabelById]);
 
   const sheetOpen = selectedRequest !== null;
 
@@ -180,7 +163,6 @@ export function RequestLogsPage() {
             onPreviousPage={actions.goToPreviousPage}
             formatTimestamp={format}
             resolveModelLabel={resolveModelLabel}
-            resolveEndpointLabel={resolveEndpointLabel}
           />
         )}
 

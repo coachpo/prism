@@ -103,15 +103,12 @@ export interface ColumnDef {
     row: RequestLogListItem,
     formatTimestamp: (iso: string) => string,
     resolveModelLabel: RequestLogModelResolver,
-    resolveEndpointLabel: RequestLogEndpointResolver,
   ) => React.ReactNode;
 }
 
 export type RequestLogModelResolver = ((modelId: string) => string) & {
   getModelMetadata?: (modelId: string) => ModelConfigListItem | undefined;
 };
-
-export type RequestLogEndpointResolver = (endpointId: number | null) => string;
 
 function getRequestModelMetadata(
   resolveModelLabel: RequestLogModelResolver,
@@ -229,15 +226,11 @@ export function getColumns(): ColumnDef[] {
       label: messages.endpoint,
       width: 180,
       grow: 2,
-      render: (row, _formatTimestamp, _resolveModelLabel, resolveEndpointLabel) => {
-        const endpointLabel = resolveEndpointLabel(row.endpoint_id);
-
-        return (
-          <div className="min-w-0">
-            <span className="block truncate text-xs font-medium">{endpointLabel}</span>
-          </div>
-        );
-      },
+      render: (row) => (
+        <div className="min-w-0">
+          <span className="block truncate text-xs font-medium">{row.endpoint_label}</span>
+        </div>
+      ),
     },
     {
       key: "client",

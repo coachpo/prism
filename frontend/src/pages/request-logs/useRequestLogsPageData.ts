@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
-  Endpoint,
   ModelConfigListItem,
+  RequestLogFilterEndpointOption,
   RequestLogListItem,
 } from "@/lib/types";
 import type { RequestLogPageState } from "./queryParams";
@@ -11,7 +11,7 @@ import { timeRangeToFromTime } from "./queryParams";
 
 export interface FilterOptions {
   models: ModelConfigListItem[];
-  endpoints: Endpoint[];
+  endpoints: RequestLogFilterEndpointOption[];
 }
 
 const EMPTY_FILTER_OPTIONS: FilterOptions = {
@@ -32,42 +32,86 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
-  const [filterOptionsLoaded, setFilterOptionsLoaded] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [endpointOptionsLoaded, setEndpointOptionsLoaded] = useState(false);
 
   const fetchIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRevisionRef = useRef<number | null>(null);
+  const modelBootstrapIdRef = useRef(0);
+  const modelBootstrapInFlightRef = useRef(false);
+  const modelsLoadedOnceRef = useRef(false);
+  const endpointOptionsLoadedOnceRef = useRef(false);
 
-  const bootstrapFilterOptions = useCallback(async () => {
-    const [modelsResult, endpointsResult] =
-      await Promise.allSettled([
-        api.models.list(),
-        api.endpoints.list(),
-      ]);
+  const bootstrapModels = useCallback(async () => {
+    if (!enabled || modelsLoadedOnceRef.current || modelBootstrapInFlightRef.current) {
+      return;
+    }
 
-    const models = modelsResult.status === "fulfilled" ? modelsResult.value : [];
-    const endpoints = endpointsResult.status === "fulfilled" ? endpointsResult.value : [];
+    const requestId = ++modelBootstrapIdRef.current;
+    modelBootstrapInFlightRef.current = true;
 
-    setFilterOptions({ models, endpoints });
-    setFilterOptionsLoaded(true);
-  }, []);
+    try {
+      const models = await api.models.list();
+      if (requestId !== modelBootstrapIdRef.current) {
+        return;
+      }
+
+      setFilterOptions((prev) => ({ ...prev, models }));
+
+      if (!modelsLoadedOnceRef.current) {
+        modelsLoadedOnceRef.current = true;
+        setModelsLoaded(true);
+      }
+    } catch {
+      if (requestId !== modelBootstrapIdRef.current) {
+        return;
+      }
+    } finally {
+      if (requestId === modelBootstrapIdRef.current) {
+        modelBootstrapInFlightRef.current = false;
+      }
+    }
+  }, [enabled]);
 
   useEffect(() => {
+    const revisionChanged = lastRevisionRef.current !== revision;
+    if (!revisionChanged) {
+      return;
+    }
+
+    lastRevisionRef.current = revision;
+    fetchIdRef.current += 1;
+    if (debounceRef.current !== null) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    modelBootstrapIdRef.current += 1;
+    modelBootstrapInFlightRef.current = false;
+    modelsLoadedOnceRef.current = false;
+    endpointOptionsLoadedOnceRef.current = false;
+    setModelsLoaded(false);
+    setEndpointOptionsLoaded(false);
+    setFilterOptions(EMPTY_FILTER_OPTIONS);
+    setError(null);
+    setLoading(enabled);
+
     if (!enabled) {
       return;
     }
 
-    void revision;
     const bootstrapId = setTimeout(() => {
-      void bootstrapFilterOptions();
+      void bootstrapModels();
     }, 0);
 
     return () => {
       clearTimeout(bootstrapId);
     };
-  }, [bootstrapFilterOptions, enabled, revision]);
+  }, [bootstrapModels, enabled, revision]);
 
   const fetchData = useCallback(() => {
     const id = ++fetchIdRef.current;
+    void bootstrapModels();
     setLoading(true);
     setError(null);
 
@@ -89,6 +133,15 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
         if (id !== fetchIdRef.current) return;
         setItems(res.items);
         setTotal(res.total);
+        setFilterOptions((prev) => ({
+          ...prev,
+          endpoints: res.filter_options.endpoints,
+        }));
+
+        if (!endpointOptionsLoadedOnceRef.current) {
+          endpointOptionsLoadedOnceRef.current = true;
+          setEndpointOptionsLoaded(true);
+        }
       })
       .catch((err) => {
         if (id !== fetchIdRef.current) return;
@@ -109,6 +162,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     state.limit,
     state.offset,
     messages.requestLogs.loadFailed,
+    bootstrapModels,
   ]);
 
   useEffect(() => {
@@ -144,6 +198,8 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
 
     fetchData();
   }, [enabled, fetchData]);
+
+  const filterOptionsLoaded = modelsLoaded && endpointOptionsLoaded;
 
   return {
     items: enabled ? items : [],

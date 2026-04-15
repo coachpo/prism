@@ -76,6 +76,7 @@ def _make_request_log(
     setattr(entry, "caller_client_display", "CLI")
     setattr(entry, "upstream_client_display", "CLI")
     setattr(entry, "user_agent_overridden", False)
+    setattr(entry, "endpoint_label", "Primary endpoint")
     return entry
 
 

@@ -114,6 +114,7 @@ function createRequestLogItems() {
       vendor_key: "openai",
       vendor_name: "OpenAI",
       endpoint_id: 1,
+      endpoint_label: "Primary endpoint",
       connection_id: null,
       status_code: 200,
       ttft_ms: 95,
@@ -137,6 +138,7 @@ function createRequestLogItems() {
       vendor_key: "openai",
       vendor_name: "OpenAI",
       endpoint_id: 1,
+      endpoint_label: "Primary endpoint",
       connection_id: null,
       status_code: 200,
       ttft_ms: null,
@@ -148,6 +150,32 @@ function createRequestLogItems() {
       report_currency_symbol: null,
     },
   ];
+}
+
+function createRequestLogsResponse(
+  requestLogItems: ReturnType<typeof createRequestLogItems>,
+  searchParams: URLSearchParams,
+) {
+  const limit = Number.parseInt(
+    searchParams.get("limit") ?? String(requestLogItems.length),
+    10,
+  );
+  const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
+
+  return {
+    items: requestLogItems.slice(offset, offset + limit),
+    total: requestLogItems.length,
+    limit,
+    offset,
+    filter_options: {
+      endpoints: [
+        {
+          endpoint_id: 1,
+          endpoint_label: "Primary endpoint",
+        },
+      ],
+    },
+  };
 }
 
 async function mockCurrencyRoutes(page: Page) {
@@ -209,16 +237,9 @@ async function mockCurrencyRoutes(page: Page) {
     }
 
     if (pathname === "/api/endpoints") {
-      return fulfillJson([
-        {
-          id: 1,
-          name: "Primary endpoint",
-          base_url: "https://api.example.test",
-          provider: "openai",
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]);
+      throw new Error(
+        "Unexpected /api/endpoints request during request-logs browse mode",
+      );
     }
 
     if (pathname === "/api/stats/models/metrics" && request.method() === "POST") {
@@ -236,15 +257,7 @@ async function mockCurrencyRoutes(page: Page) {
     }
 
     if (pathname === "/api/stats/requests") {
-      const limit = Number.parseInt(searchParams.get("limit") ?? String(requestLogItems.length), 10);
-      const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
-
-      return fulfillJson({
-        items: requestLogItems,
-        total: requestLogItems.length,
-        limit,
-        offset,
-      });
+      return fulfillJson(createRequestLogsResponse(requestLogItems, searchParams));
     }
 
     if (pathname === "/api/stats/summary") {

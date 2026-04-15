@@ -128,8 +128,8 @@ export function FiltersBarPrimaryFilters({
             <SelectItem value="__all__">{messages.requestLogs.allEndpoints}</SelectItem>
             {filterOptionsLoaded &&
               filterOptions.endpoints.map((endpoint) => (
-                <SelectItem key={endpoint.id} value={String(endpoint.id)}>
-                  {endpoint.name || endpoint.base_url}
+                <SelectItem key={endpoint.endpoint_id} value={String(endpoint.endpoint_id)}>
+                  {endpoint.endpoint_label}
                 </SelectItem>
               ))}
           </SelectContent>

@@ -1,4 +1,5 @@
 from app.services.stats import (
+    RequestLogListResult,
     backfill_usage_request_event_billing_fields,
     extract_token_usage,
     get_connection_success_rates,
@@ -24,6 +25,7 @@ __all__ = [
     "get_endpoint_success_rates",
     "get_model_health_stats",
     "get_model_metrics_batch",
+    "RequestLogListResult",
     "get_request_logs",
     "get_spending_report",
     "get_stats_summary",

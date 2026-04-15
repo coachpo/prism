@@ -1,13 +1,93 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from datetime import datetime
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import and_, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import RequestLog, UserAgentClientRule
+from app.models.models import Endpoint, RequestLog, UserAgentClientRule
 
 _CompiledUserAgentClientRule = tuple[str, re.Pattern[str]]
+
+
+@dataclass
+class RequestLogListResult:
+    items: list[Any]
+    total: int
+    endpoints: list[Any] = field(default_factory=list)
+
+
+def _resolve_endpoint_label(
+    *,
+    endpoint_name: str | None,
+    endpoint_base_url: str | None,
+    request_log_endpoint_base_url: str | None = None,
+    endpoint_id: int | None,
+) -> str:
+    return (
+        endpoint_name
+        or endpoint_base_url
+        or request_log_endpoint_base_url
+        or (f"Endpoint {endpoint_id}" if endpoint_id is not None else None)
+        or "Unknown Endpoint"
+    )
+
+
+def _serialize_endpoint_option(endpoint: Endpoint) -> dict[str, object]:
+    return {
+        "endpoint_id": endpoint.id,
+        "endpoint_label": _resolve_endpoint_label(
+            endpoint_name=endpoint.name,
+            endpoint_base_url=endpoint.base_url,
+            endpoint_id=endpoint.id,
+        ),
+    }
+
+
+async def _load_current_endpoints(
+    db: AsyncSession,
+    *,
+    profile_id: int,
+) -> list[Endpoint]:
+    endpoints = (
+        (
+            await db.execute(
+                select(Endpoint)
+                .where(Endpoint.profile_id == profile_id)
+                .order_by(Endpoint.position.asc(), Endpoint.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(endpoints)
+
+
+def _build_endpoint_options(
+    current_endpoints: list[Endpoint],
+    *,
+    selected_endpoint_id: int | None,
+) -> list[dict[str, object]]:
+    endpoint_options = [
+        _serialize_endpoint_option(endpoint) for endpoint in current_endpoints
+    ]
+    if selected_endpoint_id is None:
+        return endpoint_options
+
+    current_endpoint_ids = {endpoint.id for endpoint in current_endpoints}
+    if selected_endpoint_id in current_endpoint_ids:
+        return endpoint_options
+
+    return [
+        {
+            "endpoint_id": selected_endpoint_id,
+            "endpoint_label": f"Endpoint {selected_endpoint_id}",
+        },
+        *endpoint_options,
+    ]
 
 
 async def _load_compiled_user_agent_client_rules(
@@ -77,6 +157,28 @@ def _annotate_request_log_user_agent_fields(
     return entry
 
 
+def _annotate_request_log_list_endpoint_label(
+    entry: RequestLog,
+    *,
+    current_endpoint: Endpoint | None,
+) -> RequestLog:
+    setattr(
+        entry,
+        "endpoint_label",
+        _resolve_endpoint_label(
+            endpoint_name=current_endpoint.name
+            if current_endpoint is not None
+            else None,
+            endpoint_base_url=(
+                current_endpoint.base_url if current_endpoint is not None else None
+            ),
+            request_log_endpoint_base_url=entry.endpoint_base_url,
+            endpoint_id=entry.endpoint_id,
+        ),
+    )
+    return entry
+
+
 def _build_request_log_browse_where(
     *,
     profile_id: int,
@@ -130,7 +232,7 @@ async def get_request_logs(
     endpoint_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
-) -> tuple[list[RequestLog], int]:
+) -> RequestLogListResult:
     where = _build_request_log_browse_where(
         profile_id=profile_id,
         ingress_request_id=ingress_request_id,
@@ -140,6 +242,8 @@ async def get_request_logs(
         endpoint_id=endpoint_id,
     )
     total = await _get_request_log_total(db, where)
+    current_endpoints = await _load_current_endpoints(db, profile_id=profile_id)
+    current_endpoints_by_id = {endpoint.id: endpoint for endpoint in current_endpoints}
 
     q = (
         select(RequestLog)
@@ -150,9 +254,24 @@ async def get_request_logs(
     )
     rows = (await db.execute(q)).scalars().all()
     rules = await _load_compiled_user_agent_client_rules(db, profile_id=profile_id)
-    return [
-        _annotate_request_log_user_agent_fields(row, rules) for row in list(rows)
-    ], total
+    return RequestLogListResult(
+        items=[
+            _annotate_request_log_list_endpoint_label(
+                _annotate_request_log_user_agent_fields(row, rules),
+                current_endpoint=(
+                    current_endpoints_by_id.get(row.endpoint_id)
+                    if row.endpoint_id is not None
+                    else None
+                ),
+            )
+            for row in list(rows)
+        ],
+        total=total,
+        endpoints=_build_endpoint_options(
+            current_endpoints,
+            selected_endpoint_id=endpoint_id,
+        ),
+    )
 
 
 async def get_request_log_detail(

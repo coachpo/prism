@@ -24,6 +24,9 @@ function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
     vendor_key: entry.vendor_key,
     vendor_name: entry.vendor_name,
     endpoint_id: entry.endpoint_id,
+    endpoint_label:
+      entry.endpoint_base_url ??
+      (entry.endpoint_id === null ? "Unknown Endpoint" : `Endpoint ${entry.endpoint_id}`),
     connection_id: entry.connection_id,
     ttft_ms: entry.ttft_ms,
     completion_duration_ms: entry.completion_duration_ms,

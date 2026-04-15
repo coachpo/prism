@@ -1,7 +1,7 @@
 from app.services.stats.endpoint_model_statistics import get_endpoint_model_statistics
 from app.services.stats.logging import log_request
 from app.services.stats.model_metrics import get_model_metrics_batch
-from app.services.stats.request_logs import get_request_logs
+from app.services.stats.request_logs import RequestLogListResult, get_request_logs
 from app.services.stats.spending import get_spending_report
 from app.services.stats.summary import (
     get_connection_success_rates,
@@ -26,6 +26,7 @@ __all__ = [
     "get_endpoint_success_rates",
     "get_model_health_stats",
     "get_model_metrics_batch",
+    "RequestLogListResult",
     "get_request_logs",
     "get_spending_report",
     "get_stats_summary",

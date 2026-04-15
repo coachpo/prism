@@ -16,7 +16,6 @@ import {
   getColumns,
   ROW_HEIGHT,
   type ColumnDef,
-  type RequestLogEndpointResolver,
   type RequestLogModelResolver,
 } from "./columns";
 import { PAGE_SIZE_OPTIONS } from "./queryParams";
@@ -34,7 +33,6 @@ interface RequestLogsTableProps {
   onPreviousPage: () => void;
   formatTimestamp: (iso: string) => string;
   resolveModelLabel: RequestLogModelResolver;
-  resolveEndpointLabel: RequestLogEndpointResolver;
 }
 
 interface ResolvedColumn extends ColumnDef {
@@ -105,7 +103,6 @@ export function RequestLogsTable({
   onPreviousPage,
   formatTimestamp,
   resolveModelLabel,
-  resolveEndpointLabel,
 }: RequestLogsTableProps) {
   const { formatNumber, messages } = useLocale();
   const columns = useMemo(() => getColumns(), []);
@@ -236,11 +233,11 @@ export function RequestLogsTable({
                           col.align === "center" && "justify-center text-center"
                          )}
                          style={{ width: col.resolvedWidth }}
-                       >
-                         {col.render(row, formatTimestamp, resolveModelLabel, resolveEndpointLabel)}
-                       </div>
-                     ))}
-                   </button>
+                        >
+                          {col.render(row, formatTimestamp, resolveModelLabel)}
+                        </div>
+                      ))}
+                    </button>
                 );
               })}
             </div>

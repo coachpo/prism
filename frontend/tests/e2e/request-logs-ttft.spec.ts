@@ -53,6 +53,7 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     vendor_key: "openai",
     vendor_name: "OpenAI",
     endpoint_id: 1,
+    endpoint_label: "Primary endpoint",
     connection_id: null,
     ttft_ms: 120,
     completion_duration_ms: 300,
@@ -64,6 +65,32 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     total_cost_user_currency_micros: 750000,
     report_currency_symbol: "$",
     ...overrides,
+  };
+}
+
+function createRequestLogsResponse(
+  requestLogItems: Record<string, unknown>[],
+  searchParams: URLSearchParams,
+) {
+  const limit = Number.parseInt(
+    searchParams.get("limit") ?? String(requestLogItems.length),
+    10,
+  );
+  const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
+
+  return {
+    items: requestLogItems.slice(offset, offset + limit),
+    total: requestLogItems.length,
+    limit,
+    offset,
+    filter_options: {
+      endpoints: [
+        {
+          endpoint_id: 1,
+          endpoint_label: "Primary endpoint",
+        },
+      ],
+    },
   };
 }
 
@@ -249,28 +276,13 @@ async function mockRequestLogRoutes(page: Page) {
     }
 
     if (pathname === "/api/endpoints") {
-      return fulfillJson([
-        {
-          id: 1,
-          name: "Primary endpoint",
-          base_url: "https://api.example.test",
-          provider: "openai",
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]);
+      throw new Error(
+        "Unexpected /api/endpoints request during request-logs browse mode",
+      );
     }
 
     if (pathname === "/api/stats/requests") {
-      const limit = Number.parseInt(searchParams.get("limit") ?? String(requestLogItems.length), 10);
-      const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
-
-      return fulfillJson({
-        items: requestLogItems,
-        total: requestLogItems.length,
-        limit,
-        offset,
-      });
+      return fulfillJson(createRequestLogsResponse(requestLogItems, searchParams));
     }
 
     if (pathname.startsWith("/api/stats/requests/")) {

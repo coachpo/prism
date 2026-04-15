@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 
@@ -7,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.schemas import (
     BatchDeleteResponse,
     RequestLogDetailResponse,
+    RequestLogListEndpointOptionResponse,
+    RequestLogListFilterOptionsResponse,
     RequestLogListItemResponse,
     RequestLogListResponse,
 )
@@ -15,9 +20,11 @@ from app.services.background_cleanup import (
     delete_statistics_in_background,
 )
 from app.services.stats.request_logs import get_request_log_detail
-from app.services.stats_service import get_request_logs
+from app.services.stats_service import RequestLogListResult, get_request_logs
 
 from .helpers import normalize_datetime_filter
+
+GetRequestLogsFn = Callable[..., Awaitable[RequestLogListResult]]
 
 
 async def list_request_logs(
@@ -31,11 +38,11 @@ async def list_request_logs(
     limit: int = 50,
     offset: int = 0,
     *,
-    get_request_logs_fn=get_request_logs,
+    get_request_logs_fn: GetRequestLogsFn = get_request_logs,
 ):
     normalized_from_time = normalize_datetime_filter(from_time)
 
-    items, total = await get_request_logs_fn(
+    result = await get_request_logs_fn(
         db,
         ingress_request_id=ingress_request_id,
         model_id=model_id,
@@ -47,11 +54,18 @@ async def list_request_logs(
         offset=offset,
     )
     serialized_items = [
-        RequestLogListItemResponse.model_validate(item) for item in items
+        RequestLogListItemResponse.model_validate(item) for item in result.items
+    ]
+    serialized_endpoints = [
+        RequestLogListEndpointOptionResponse.model_validate(endpoint)
+        for endpoint in result.endpoints
     ]
     return RequestLogListResponse(
+        filter_options=RequestLogListFilterOptionsResponse(
+            endpoints=serialized_endpoints,
+        ),
         items=serialized_items,
-        total=total,
+        total=result.total,
         limit=limit,
         offset=offset,
     )
