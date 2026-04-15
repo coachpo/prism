@@ -177,7 +177,7 @@ def test_streamed_rows_return_avg_output_rate_tps_for_eligible_decode_windows() 
     asyncio.run(run())
 
 
-def test_zero_output_rows_still_return_zero_avg_output_rate_tps() -> None:
+def test_zero_output_rows_still_contribute_to_avg_output_rate_tps() -> None:
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 11
@@ -220,6 +220,26 @@ def test_zero_output_rows_still_return_zero_avg_output_rate_tps() -> None:
                         completion_duration_ms=1000,
                         ttft_ms=200,
                     ),
+                    _usage_event(
+                        ingress_request_id="req-4",
+                        endpoint_id=endpoint_id,
+                        model_id=model_id,
+                        created_at=created_at + timedelta(minutes=1),
+                        total_tokens=80,
+                        output_tokens=80,
+                        completion_duration_ms=1000,
+                        ttft_ms=200,
+                    ),
+                    _usage_event(
+                        ingress_request_id="req-5",
+                        endpoint_id=endpoint_id,
+                        model_id=model_id,
+                        created_at=created_at + timedelta(minutes=2),
+                        total_tokens=120,
+                        output_tokens=120,
+                        completion_duration_ms=1000,
+                        ttft_ms=None,
+                    ),
                 ]
             )
             session.commit()
@@ -229,27 +249,27 @@ def test_zero_output_rows_still_return_zero_avg_output_rate_tps() -> None:
                 profile_id=1,
                 endpoint_id=endpoint_id,
                 from_time=created_at - timedelta(days=1),
-                to_time=created_at + timedelta(minutes=1),
+                to_time=created_at + timedelta(minutes=3),
             )
 
             assert rows == [
                 {
                     "model_id": model_id,
                     "model_label": "GPT 5.4 Mini",
-                    "request_count": 1,
-                    "priced_request_count": 1,
+                    "request_count": 3,
+                    "priced_request_count": 3,
                     "success_rate": 100.0,
-                    "total_tokens": 50,
+                    "total_tokens": 250,
                     "total_cost_micros": 0,
                     "p50_ttft_ms": 200,
                     "p95_ttft_ms": 200,
-                    "avg_output_rate_tps": 0.0,
+                    "avg_output_rate_tps": 50.0,
                     "unpriced_request_count": 0,
                 }
             ]
 
             statistic = UsageModelStatistic.model_validate(rows[0])
-            assert statistic.avg_output_rate_tps == 0.0
+            assert statistic.avg_output_rate_tps == 50.0
         finally:
             session.close()
 

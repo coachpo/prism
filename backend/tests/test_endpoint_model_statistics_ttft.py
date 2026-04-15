@@ -88,7 +88,9 @@ def _usage_event(
     )
 
 
-def test_mixed_null_ttft_rows_return_null_output_rate_and_compute_percentiles() -> None:
+def test_mixed_null_ttft_rows_average_eligible_output_rate_and_compute_percentiles() -> (
+    None
+):
     async def run() -> None:
         async_db, session = _build_test_session()
         endpoint_id = 10
@@ -174,7 +176,7 @@ def test_mixed_null_ttft_rows_return_null_output_rate_and_compute_percentiles() 
                     "total_cost_micros": 0,
                     "p50_ttft_ms": 250,
                     "p95_ttft_ms": 385,
-                    "avg_output_rate_tps": None,
+                    "avg_output_rate_tps": 150.0,
                     "unpriced_request_count": 0,
                 }
             ]
@@ -182,7 +184,7 @@ def test_mixed_null_ttft_rows_return_null_output_rate_and_compute_percentiles() 
             statistic = UsageModelStatistic.model_validate(rows[0])
             assert statistic.p50_ttft_ms == 250
             assert statistic.p95_ttft_ms == 385
-            assert statistic.avg_output_rate_tps is None
+            assert statistic.avg_output_rate_tps == 150.0
         finally:
             session.close()
 

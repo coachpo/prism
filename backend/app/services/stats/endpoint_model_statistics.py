@@ -175,13 +175,9 @@ async def get_endpoint_model_statistics(
         (avg_output_rate_tps_eligible, output_rate_tps_expr),
         else_=None,
     )
-    avg_output_rate_tps = case(
-        (
-            func.count(case((avg_output_rate_tps_eligible, 1))) == func.count(),
-            func.avg(eligible_output_rate_tps_expr),
-        ),
-        else_=None,
-    ).label("avg_output_rate_tps")
+    avg_output_rate_tps = func.avg(eligible_output_rate_tps_expr).label(
+        "avg_output_rate_tps"
+    )
     ttft_percentile_p50 = func.percentile_cont(0.5).within_group(
         UsageRequestEvent.ttft_ms.asc()
     )
