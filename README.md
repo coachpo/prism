@@ -12,7 +12,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 - **Multi-API-family support**: OpenAI on `/v1/*`, Anthropic on `/v1/messages*`, and Gemini on `/v1beta/models/*`
 - **Proxy model routing**: public model IDs can forward to native targets while preserving their vendor metadata
-- **Dual routing strategies**: reusable native-model strategies can be `legacy` or `adaptive`, with one seeded default of each on the default profile
+- **Dual routing strategies**: reusable native-model strategies can be `legacy` or `adaptive`, with canonical defaults available through an explicit selected-profile action on the Loadbalance Strategies page
 - **Streaming**: SSE responses pass through transparently
 
 ### Observability & management
@@ -163,7 +163,7 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`
 
 Prism uses PostgreSQL with Alembic migrations applied automatically on backend startup.
 
-Load-balance strategy defaults are seeded on startup for the default profile as:
+Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as:
 
 - `Default legacy routing`
 - `Default adaptive routing`

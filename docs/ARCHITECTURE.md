@@ -251,8 +251,8 @@ Proxy request completes
 
 - Native models still attach one profile-scoped loadbalance strategy, but strategy rows now use a top-level family discriminator: `strategy_type = legacy | adaptive`.
 - `legacy` strategies carry `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`. `adaptive` strategies carry `routing_policy` with `routing_objective`, `hedge`, `circuit_breaker`, and `admission` branches.
-- Startup seeds the default profile with two editable preset strategies: `Default legacy routing` and `Default adaptive routing`.
-- Backend fallback settings such as `FAILOVER_COOLDOWN_SECONDS`, `FAILOVER_FAILURE_THRESHOLD`, `FAILOVER_BACKOFF_MULTIPLIER`, `FAILOVER_MAX_COOLDOWN_SECONDS`, and `FAILOVER_JITTER_RATIO` still shape the seeded circuit-breaker defaults.
+- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default legacy routing` and `Default adaptive routing` for that profile.
+- Backend fallback settings such as `FAILOVER_COOLDOWN_SECONDS`, `FAILOVER_FAILURE_THRESHOLD`, `FAILOVER_BACKOFF_MULTIPLIER`, `FAILOVER_MAX_COOLDOWN_SECONDS`, and `FAILOVER_JITTER_RATIO` still shape the explicit circuit-breaker defaults created for the adaptive strategy template.
 - Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
 
 ### 4.2 Runtime execution pipeline
