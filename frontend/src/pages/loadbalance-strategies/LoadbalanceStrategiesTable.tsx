@@ -1,4 +1,4 @@
-import { Loader2, Pencil, Plus, Scale, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plus, Scale, Sparkles, Trash2 } from "lucide-react";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
 import { useLocale } from "@/i18n/useLocale";
 import { TypeBadge } from "@/components/StatusBadge";
@@ -23,8 +23,10 @@ import type { LoadbalanceStrategy } from "@/lib/types";
 interface LoadbalanceStrategiesTableProps {
   loadbalanceStrategies: LoadbalanceStrategy[];
   loadbalanceStrategiesLoading: boolean;
+  loadbalanceStrategyDefaultsCreating: boolean;
   loadbalanceStrategyPreparingEditId: number | null;
   onCreate: () => void;
+  onCreateDefaults: () => Promise<void>;
   onDelete: (strategy: LoadbalanceStrategy) => void;
   onEdit: (strategy: LoadbalanceStrategy) => Promise<void>;
 }
@@ -32,8 +34,10 @@ interface LoadbalanceStrategiesTableProps {
 export function LoadbalanceStrategiesTable({
   loadbalanceStrategies,
   loadbalanceStrategiesLoading,
+  loadbalanceStrategyDefaultsCreating,
   loadbalanceStrategyPreparingEditId,
   onCreate,
+  onCreateDefaults,
   onDelete,
   onEdit,
 }: LoadbalanceStrategiesTableProps) {
@@ -126,7 +130,23 @@ export function LoadbalanceStrategiesTable({
             <CardDescription className="text-xs">{tableCopy.description}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" onClick={onCreate}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={loadbalanceStrategyDefaultsCreating}
+              onClick={() => {
+                void onCreateDefaults();
+              }}
+            >
+              {loadbalanceStrategyDefaultsCreating ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-3.5 w-3.5" />
+              )}
+              {tableCopy.createDefaults}
+            </Button>
+            <Button type="button" size="sm" disabled={loadbalanceStrategyDefaultsCreating} onClick={onCreate}>
               <Plus className="mr-2 h-3.5 w-3.5" />
               {tableCopy.addStrategy}
             </Button>
@@ -142,6 +162,31 @@ export function LoadbalanceStrategiesTable({
         ) : loadbalanceStrategies.length === 0 ? (
           <div className="rounded-md border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">{tableCopy.noStrategiesConfigured}</p>
+            <div className="mt-4 flex flex-col items-center justify-center gap-2 sm:flex-row">
+              <Button
+                type="button"
+                disabled={loadbalanceStrategyDefaultsCreating}
+                onClick={() => {
+                  void onCreateDefaults();
+                }}
+              >
+                {loadbalanceStrategyDefaultsCreating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                {tableCopy.createDefaults}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={loadbalanceStrategyDefaultsCreating}
+                onClick={onCreate}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {tableCopy.addStrategy}
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="rounded-md border">

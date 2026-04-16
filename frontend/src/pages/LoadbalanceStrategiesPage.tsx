@@ -40,8 +40,10 @@ export function LoadbalanceStrategiesPage() {
       <LoadbalanceStrategiesTable
         loadbalanceStrategies={data.loadbalanceStrategies}
         loadbalanceStrategiesLoading={data.loadbalanceStrategiesLoading}
+        loadbalanceStrategyDefaultsCreating={data.loadbalanceStrategyDefaultsCreating}
         loadbalanceStrategyPreparingEditId={data.loadbalanceStrategyPreparingEditId}
         onCreate={data.openCreateLoadbalanceStrategyDialog}
+        onCreateDefaults={data.handleCreateLoadbalanceStrategyDefaults}
         onDelete={data.handleDeleteLoadbalanceStrategyClick}
         onEdit={data.handleEditLoadbalanceStrategy}
       />
