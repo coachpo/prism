@@ -15,7 +15,7 @@ When generating test cases, use these sources in order:
 5. `frontend/src/App.tsx` for the mounted route surface.
 6. `backend/app/main.py` for the mounted backend router surface and `/health`.
 7. Child AGENTS files under `frontend/` and `backend/` for local ownership boundaries inside the monorepo.
-8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in backend and frontend automated test trees are no longer present, so derive regression structure from the current ownership docs and live product surface instead of deleted suite paths.
+8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in automated regression trees remain present under `backend/tests/` and `frontend/tests/`; use those test roots plus the current ownership docs and live product surface when deriving regression structure.
 
 Do not generate cases for behavior that is not supported by those sources.
 

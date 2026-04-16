@@ -69,7 +69,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Manual health check remains available for each connection from the management UI.
 - Health probes send a minimal request using the connection's configured model ID and the same URL-building logic as the proxy engine to validate URL routing, authentication, and model availability end to end.
 - API-family-specific request format:
-  - **OpenAI**: `POST {base_url}/v1/responses` by default, or `POST {base_url}/v1/chat/completions` when that connection's `openai_probe_endpoint_variant` is set to `chat_completions`
+  - **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on `openai_probe_endpoint_variant`; the current OpenAI variants are `responses_minimal`, `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`
   - **Anthropic**: `POST {base_url}/v1/messages` with `model`, `max_tokens: 1`, and a simple message
   - **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload
   - 2xx response → `healthy`
@@ -220,7 +220,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ### 4.15 Profile Isolation & Management
 - Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
 - Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes (profiles, vendors, auth, realtime, and auth-setting flows) stay outside selected-profile scoping
+- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes (profiles, vendors, auth, realtime, auth-setting flows, vendor-catalog config flows, and profile-import preview) stay outside selected-profile scoping
 - Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
 - Active profile deletion is rejected; activation uses an optimistic CAS guard (`expected_active_profile_id`) and returns `409` on conflict
 - Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted
@@ -255,4 +255,4 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 - User authentication / auth-based multi-tenancy (profile namespace isolation for one operator is in scope)
 - Usage-based billing/accounting integrations beyond Prism's built-in telemetry and costing reports
 - Rate limiting on the proxy itself
-- API key encryption at rest
+- External secret-manager integrations beyond Prism's built-in endpoint-secret encryption at rest
