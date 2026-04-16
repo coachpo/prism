@@ -139,13 +139,14 @@ Prepare seed state through API (not manual DB edits):
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
 | `GET /api/stats/requests` | E01-E04, M14 |
+| `GET /api/stats/endpoints/{endpoint_id}/models` | E16, M14 |
 | `GET /api/stats/summary` | E05-E06, M14 |
 | `POST /api/stats/models/metrics` | E13, M14 |
-| `POST /api/stats/models/connections/metrics` | E14, M14 |
 | `GET /api/stats/connection-success-rates` | E07 |
 | `GET /api/stats/throughput` | E15, M14 |
 | `GET /api/stats/spending` | L11-L13, L19-L20, M19 |
 | `DELETE /api/stats/requests` | G01-G03, M14 |
+| `DELETE /api/stats/statistics` | G20, M14 |
 | `GET /api/audit/logs` | F10, F12, M15 |
 | `GET /api/audit/logs/{id}` | F11, M15 |
 | `DELETE /api/audit/logs` | F13, G04-G05, M15 |
@@ -157,11 +158,19 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/config/profile/export` | H01-H04, L14, M16 |
 | `POST /api/config/profile/import/preview` | H05-H07, L15-L16, M17-M18 |
 | `POST /api/config/profile/import` | H05-H07, L15-L16, M17-M18 |
+| `GET /api/config/vendors/export` | H10 |
+| `POST /api/config/vendors/import/preview` | H11 |
+| `POST /api/config/vendors/import` | H12 |
 | `GET /api/config/header-blocklist-rules` | K01, M20 |
 | `GET /api/config/header-blocklist-rules/{id}` | K05-K06, M20 |
 | `POST /api/config/header-blocklist-rules` | K02-K04, K12-K15, M20 |
 | `PATCH /api/config/header-blocklist-rules/{id}` | K07-K09, M20 |
 | `DELETE /api/config/header-blocklist-rules/{id}` | K10-K11, M20 |
+| `GET /api/config/user-agent-client-rules` | K37, M20 |
+| `GET /api/config/user-agent-client-rules/{id}` | K38, M20 |
+| `POST /api/config/user-agent-client-rules` | K39, M20 |
+| `PATCH /api/config/user-agent-client-rules/{id}` | K40-K41, M20 |
+| `DELETE /api/config/user-agent-client-rules/{id}` | K42-K43, M20 |
 | `GET /api/settings/costing` | L04, M19 |
 | `GET /api/settings/timezone` | L29, M19 |
 | `GET /api/pricing-templates/{id}/connections` | L26, L28 |
@@ -210,6 +219,7 @@ Prepare seed state through API (not manual DB edits):
 | B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
 | B12 | P0 | List profile-scoped endpoints | `200`, returns array scoped to effective profile |
 | B12A | P0 | List profile-scoped endpoints preserves persisted order | Response order follows `position ASC, id ASC` |
+| B12B | P0 | List endpoint connections dropdown | `200`, returns connection dropdown items scoped to the effective profile |
 | B13 | P0 | Create profile-scoped endpoint | `201`, endpoint stored in effective profile |
 | B13A | P0 | Create profile-scoped endpoint appends position | New endpoint gets the next contiguous `position` |
 | B13B | P0 | Duplicate profile-scoped endpoint | `201`, new endpoint created with "Copy of" name |
@@ -264,7 +274,7 @@ Prepare seed state through API (not manual DB edits):
 |---|---|---|---|
 | E01 | P0 | Successful request logging | `request_logs` row exists with required fields |
 | E02 | P0 | Failover attempt logging | Both failed and successful attempts logged |
-| E03 | P0 | Request log filters (`model`, `api_family`, `status`, `success`, time) | Correct subsets returned |
+| E03 | P0 | Request log filters (`ingress_request_id`, `model_id`, `status_family`, `endpoint_id`, `from_time`) | Correct subsets returned |
 | E04 | P0 | Pagination (`limit`, `offset`, `total`) | Consistent counts and windows |
 | E05 | P0 | Summary without `from_time` | Uses all historical data |
 | E06 | P1 | Summary grouping (`model/api_family/endpoint`) | Groups and aggregates correct |
@@ -275,8 +285,8 @@ Prepare seed state through API (not manual DB edits):
 | E11 | P1 | Streaming without usage fields | Token fields null |
 | E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
 | E13 | P0 | Model metrics batch API | Returns metrics for multiple models |
-| E14 | P0 | Connection metrics batch API | Returns metrics for multiple connections |
 | E15 | P1 | Throughput API | Returns aggregate RPM metrics plus time buckets for the selected scope |
+| E16 | P0 | Endpoint model statistics API | Returns per-model counts, success rates, TTFT percentiles, token totals, and cost for the selected endpoint scope |
 
 ## F. Audit Logging
 
@@ -320,6 +330,7 @@ Prepare seed state through API (not manual DB edits):
 | G17 | P0 | Get loadbalance event detail | Returns full event metadata |
 | G18 | P0 | List current loadbalance state for a model | Returns derived per-connection current-state rows in effective profile scope |
 | G19 | P0 | Reset current loadbalance state for a connection | `200`, returns `{ connection_id, cleared }`; idempotent when no row exists |
+| G20 | P0 | Delete aggregated statistics data | `200`, returns `{ accepted: true }` and schedules background cleanup |
 
 ## H. Config Export and Import
 
@@ -333,6 +344,7 @@ Prepare seed state through API (not manual DB edits):
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
 | H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
 | H05D | P0 | Import vendorless model | Imported model persists with `vendor_id = null` while keeping required `api_family` |
+| H05E | P0 | Import preview without selected-profile header | Preview remains available without `X-Profile-Id`, reports readiness or blocking errors, and does not mutate profile state |
 | H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
 | H05B | P0 | Import payload without endpoint position | Imported endpoint order follows file order and remains valid |
 | H05C | P0 | Import with duplicate/gapped connection priorities | Imported connections are normalized to contiguous `0..N-1` while preserving relative order by imported priority then payload order |
@@ -340,6 +352,9 @@ Prepare seed state through API (not manual DB edits):
 | H07 | P0 | Validation matrix | Correct `400` errors |
 | H08 | P1 | Settings UI export filename | `gateway-config-YYYY-MM-DD.json` |
 | H09 | P1 | Settings UI import error paths | Parse/backend errors surfaced in toast |
+| H10 | P0 | Vendor catalog export schema and metadata | `version=2`, `bundle_kind=vendor_catalog`, audit flags, descriptions, and `icon_key` included |
+| H11 | P0 | Vendor catalog preview validation | Preview is global/no-header, returns create/update counts, and rejects duplicate keys/names or readonly overwrite attempts before mutation |
+| H12 | P0 | Vendor catalog import | Editable vendor metadata upserts correctly while readonly system vendors remain protected |
 
 ## I. Frontend Workflow Smoke
 
@@ -376,12 +391,12 @@ Prepare seed state through API (not manual DB edits):
 | I26 | P0 | Dashboard websocket data-push recent activity | New request appears in Recent Activity within 1s of a proxy request |
 | I27 | P0 | Request logs manual refresh and exact-request mode | Refresh reloads the current server slice; `request_id` mode fetches only the targeted request |
 | I28 | P0 | Loadbalance events tab REST refresh | Refresh or page revisit loads the latest failover/recovery events for the model |
-| I29 | P0 | Requests audit drawer lazy fetch and retry | Opening the audit tab triggers linked-audit lookup and retries up to five times |
+| I29 | P0 | Requests audit drawer lazy fetch and retry | Opening the audit tab triggers linked-audit lookup, skips fetches when audit was disabled for that request, and retries empty/transient failures up to five times |
 | I30 | P0 | Dashboard reconnect reconciliation | Dashboard refetches ground truth after websocket reconnect and resumes push updates |
 | I31 | P1 | Dashboard websocket payload completeness | `dashboard.update` refreshes summary, api_family, spending, throughput, and routing data without a second signal |
 | I32 | P1 | Recent activity insertion animations | New dashboard websocket-driven rows animate on insert, with reduced-motion fallback showing static highlight only |
 | I33 | P1 | Request-log scroll preservation | Virtualized browsing preserves scroll position while filters, page changes, or detail selection update the view |
-| I34 | P1 | Request-log filter gating | Client-side refinements hide non-matching rows without mutating unrelated server-backed filter state |
+| I34 | P1 | Request-log retained-filter state | Changing one retained filter preserves unrelated URL-backed filter state, resets pagination, and refreshes the server-backed slice without client-side refinement gating |
 | I35 | P0 | Frontend locale switch (public + protected) | Switching between `en` and `zh-CN` updates shell and page copy, persists across refresh, and updates `document.documentElement.lang` |
 | I36 | P0 | Locale-aware management formatting | Settings, statistics, request logs, and proxy-key metadata render numbers/timestamps in the selected locale |
 
@@ -431,7 +446,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | K08 | P0 | Update system rule `enabled` only | `200`, change persists |
 | K09 | P0 | Update system rule immutable fields | `400` |
 | K10 | P0 | Delete user rule | `200`, returns `{ "deleted": true }` |
-| K11 | P0 | Delete system rule | `400` |
+| K11 | P0 | Delete system rule | `404` because the delete route only targets profile-owned user rules |
 
 ### K.2 Validation
 
@@ -477,9 +492,21 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | K34 | P0 | Add user rule via dialog | Rule appears in user rules table |
 | K35 | P0 | Edit user rule via dialog | Changes reflected |
 | K36 | P0 | Delete user rule via dialog | Rule removed from table |
-| K37 | P0 | System rule edit/delete buttons disabled | Icons disabled for system rules |
-| K38 | P1 | Add rule validation: prefix without trailing `-` | Error toast prevents save |
-| K39 | P1 | Add rule validation: empty name or pattern | Save button behavior prevents empty submission |
+
+### K.6 User-Agent Client Rules
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| K37 | P0 | List user-agent client rules | `200`, includes seeded system rules plus effective-profile rules |
+| K38 | P0 | Get single user-agent client rule by ID | `200` for in-scope rule; `404` for missing or out-of-scope rule |
+| K39 | P0 | Create user-agent client rule | `201`, regex pattern persists on a profile-scoped rule |
+| K40 | P0 | Update profile-scoped user-agent client rule | `200`, mutable fields persist |
+| K41 | P0 | Update system user-agent client rule immutable fields | `400`; only `enabled` may change on system rules |
+| K42 | P0 | Delete profile-scoped user-agent client rule | `200`, returns `{ "deleted": true }` |
+| K43 | P0 | Delete system user-agent client rule | `404`, because the delete route only targets profile-owned user rules |
+| K44 | P0 | System rule edit/delete buttons disabled | Icons disabled for system rules |
+| K45 | P1 | Add user-agent client rule validation: invalid regex | Backend validation error is surfaced without saving the rule |
+| K46 | P1 | Add user-agent client rule validation: empty name or pattern | Submit is blocked by validation toast; the dialog does not save an empty rule |
 
 ## L. Token Costing and Spending Reports
 

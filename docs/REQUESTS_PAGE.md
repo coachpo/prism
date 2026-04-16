@@ -79,12 +79,9 @@ Required behavior:
 
 ### 6.2 Filter Option Bootstrap
 
-The page should load shared reference data in parallel with `Promise.allSettled()`:
+The page bootstraps model reference data separately through `api.models.list()` and derives endpoint filter options from the paginated `/api/stats/requests` response (`filter_options.endpoints`).
 
-- models
-- endpoints
-
-Partial failure in one reference dataset must not block the rest of the page from rendering.
+Partial failure in model bootstrap must not block request browsing, and endpoint filter options should become ready when the current list response arrives.
 
 ### 6.3 Linked Audit Resolution
 
@@ -98,7 +95,9 @@ Audit APIs:
 Required behavior:
 
 - Avoid audit fetches during normal table browsing.
-- Retry linked-audit lookup up to five times with a one-second delay when indexing lag prevents immediate resolution.
+- Skip linked-audit fetches entirely when `audit_enabled_at_request` is `false`.
+- Retry linked-audit lookup up to five times with a one-second delay when the linked audit list is still empty or audit fetches fail transiently.
+- Resolve audit detail rows with `Promise.allSettled()` so one failed detail fetch does not hide other captured rows.
 - Keep audit loading isolated from the main request-list fetch lifecycle.
 
 ## 7. UX Workflow Requirements
@@ -199,7 +198,7 @@ The Requests page must remain compatible with the following backend-facing and s
 3. The retained browse filters update URL state with `replace: true` semantics and drive refreshed list requests directly, without a client-side search or triage refinement layer.
 4. Visiting `/request-logs?request_id=<id>` opens exact-request investigation mode with the focus banner and detail-drawer support.
 5. Visiting `/request-logs?ingress_request_id=<id>` filters the request list to all per-attempt rows for that incoming runtime request without breaking numeric `request_id` deep links.
-6. Opening the `audit` tab triggers lazy audit resolution and supports retry behavior for eventually indexed audit rows.
+6. Opening the `audit` tab triggers lazy audit resolution, skips fetches when audit capture was disabled for that request, and supports retry behavior for temporarily missing or transiently failing linked-audit lookups.
 7. The table remains usable at large result counts through virtualization, sticky headers, and explicit pagination controls.
 8. The list view stays on the slim list payload, while exact-request investigation uses the dedicated detail payload without re-expanding the table schema.
 9. Dashboard and Model Detail can emit deep links into `/request-logs` without inventing route-local state outside the documented query contract.

@@ -1,11 +1,11 @@
 # Prism Workflows Reference
 
-This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the live local stack started with `./start.sh full`, the running backend contract at `http://localhost:18000/openapi.json`, and the current route shell in `frontend/src/App.tsx`.
+This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the backend router assembly in `backend/app/main.py`, and the current backend contract surfaced through `app.openapi()`.
 
-Validated again against a live local stack on 2026-04-09:
-- `GET /health` returned `{"status":"ok","version":"0.2.19"}` and `/openapi.json` exposed 79 mounted paths.
-- The rendered frontend confirmed `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/statistics` as live protected routes.
-- A supplied OpenAI-compatible upstream passed Prism connection health checks and two non-streaming proxy requests (`/v1/chat/completions` and `/v1/responses`), and both requests appeared in Request Logs plus Dashboard activity.
+Validated again against current repo surfaces on 2026-04-17:
+- `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.2.34`, which is the current backend version returned by `/health`.
+- `app.openapi()` currently exposes 80 documented HTTP paths.
+- The protected frontend route shell in `frontend/src/App.tsx` still mounts `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/statistics`.
 
 ## Evidence Sources
 
@@ -30,7 +30,7 @@ Validated again against a live local stack on 2026-04-09:
 - Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/statistics`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, and `/request-logs`.
 - `selectedProfile` controls management scope through `X-Profile-Id` on profile-scoped `/api/*` requests.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
-- Global management routes include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, and `/api/realtime/ws`.
+- Global management routes include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, and `/api/realtime/ws`.
 
 ## 1. Sign In And Session Bootstrap
 
@@ -61,6 +61,8 @@ Validated again against a live local stack on 2026-04-09:
 - `POST /api/auth/webauthn/register/verify`
 - `POST /api/auth/webauthn/authenticate/options`
 - `POST /api/auth/webauthn/authenticate/verify`
+- `GET /api/auth/webauthn/credentials`
+- `DELETE /api/auth/webauthn/credentials/{credential_id}`
 
 ## 2. Shell Bootstrap And Profile Selection
 
@@ -196,7 +198,6 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `GET /api/stats/requests/{request_id}`
 - `GET /api/audit/logs`
 - `GET /api/audit/logs/{log_id}`
-- `GET /api/endpoints`
 - `GET /api/models`
 - `GET /api/settings/timezone`
 
@@ -226,9 +227,13 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 - `POST /api/config/profile/import/preview`
 - `POST /api/config/profile/import`
 - `GET /api/config/header-blocklist-rules`
+- `PATCH /api/config/header-blocklist-rules/{rule_id}`
+- `DELETE /api/config/header-blocklist-rules/{rule_id}`
 - `POST /api/config/header-blocklist-rules`
 - `GET /api/config/user-agent-client-rules`
 - `POST /api/config/user-agent-client-rules`
+- `PATCH /api/config/user-agent-client-rules/{rule_id}`
+- `DELETE /api/config/user-agent-client-rules/{rule_id}`
 - `GET /api/settings/auth`
 - `PUT /api/settings/auth`
 - `POST /api/settings/auth/email-verification/request`
@@ -246,6 +251,8 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 - `DELETE /api/stats/statistics`
 - `DELETE /api/audit/logs`
 - `DELETE /api/loadbalance/events`
+
+Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is the one config readiness route in this workflow that stays global and does not require `X-Profile-Id`.
 
 ## 8. Runtime Proxy Traffic
 
