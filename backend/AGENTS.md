@@ -20,6 +20,7 @@ backend/
 ├── app/services/AGENTS.md
 ├── app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md
 ├── alembic.ini
+├── tests/AGENTS.md
 ├── docker-compose.yml
 ├── pyproject.toml
 └── uv.lock
@@ -34,6 +35,7 @@ backend/
 - `app/routers/{auth,config,endpoints,models,pricing_templates,profiles,settings,stats}_domains/AGENTS.md`: management router-domain leaves.
 - `app/routers/connections_domains/AGENTS.md`, `app/routers/proxy_domains/AGENTS.md`: dense router packages with their own boundaries.
 - `app/services/AGENTS.md` and `app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md`: service-root boundaries and deeper package ownership.
+- `tests/AGENTS.md`: backend contract and regression test boundary.
 
 ## RUNTIME FACTS
 
@@ -42,6 +44,7 @@ backend/
 - Management requests use effective-profile scope, while runtime proxy traffic uses the active profile only.
 - `/api/*` keeps operator session auth, and `/v1/*` plus `/v1beta/*` keep proxy API-key auth.
 - Realtime room state lives in `services/realtime/connection_manager.py`, and dashboard update emission lives in `services/stats/logging.py`.
+- `tests/` is the contract-heavy backend regression surface, with clusters around config import and export timeout contracts, request-log token-rate and TTFT contracts, loadbalance defaults and summary, realtime connection manager, proxy timeout and runtime behavior, usage-event persistence and backfill, startup seeding, pricing-template policy removal, and user-agent seeding.
 
 ## WHERE TO LOOK
 
@@ -51,6 +54,7 @@ backend/
 - Router map, shared router helpers, and router-domain leaves: `app/routers/AGENTS.md`, `app/routers/shared/AGENTS.md`, `app/routers/`
 - Public schema and model import boundaries: `app/schemas/AGENTS.md`, `app/models/AGENTS.md`
 - Shared worker lifecycle, realtime room state, dashboard updates, and reporting helpers: `app/services/AGENTS.md`, `app/services/realtime/connection_manager.py`, `app/services/stats/logging.py`
+- Backend regression coverage and contract clusters: `tests/AGENTS.md`, `tests/`
 - Migration source of truth: `alembic.ini`, `app/alembic/`, `app/alembic/AGENTS.md`, `app/core/migrations.py`
 
 ## CONVENTIONS
