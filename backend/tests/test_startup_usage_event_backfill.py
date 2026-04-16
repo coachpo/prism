@@ -117,9 +117,6 @@ def test_run_startup_sequence_includes_usage_event_billing_reconciliation(
         async def _seed_profile_invariants() -> None:
             await _record("seed_profile_invariants")
 
-        async def _seed_loadbalance_strategy_presets() -> None:
-            await _record("seed_loadbalance_strategy_presets")
-
         async def _seed_user_settings() -> None:
             await _record("seed_user_settings")
 
@@ -152,11 +149,6 @@ def test_run_startup_sequence_includes_usage_event_billing_reconciliation(
             "seed_profile_invariants",
             _seed_profile_invariants,
         )
-        monkeypatch.setattr(
-            startup_module,
-            "seed_loadbalance_strategy_presets",
-            _seed_loadbalance_strategy_presets,
-        )
         monkeypatch.setattr(startup_module, "seed_user_settings", _seed_user_settings)
         monkeypatch.setattr(
             startup_module,
@@ -186,7 +178,6 @@ def test_run_startup_sequence_includes_usage_event_billing_reconciliation(
             "reconcile_usage_request_event_billing_fields",
             "seed_vendors",
             "seed_profile_invariants",
-            "seed_loadbalance_strategy_presets",
             "seed_user_settings",
             "seed_user_agent_client_rules",
             "seed_app_auth_settings",

@@ -13,17 +13,12 @@ from app.models.models import (
     AppAuthSettings,
     Endpoint,
     HeaderBlocklistRule,
-    LoadbalanceStrategy,
     ModelConfig,
     Profile,
     UsageRequestEvent,
     UserAgentClientRule,
     UserSetting,
     Vendor,
-)
-from app.services.loadbalancer.policy import (
-    build_default_auto_recovery_document,
-    build_default_routing_policy_document,
 )
 from app.services.profile_invariants import ensure_profile_invariants
 from app.vendor_catalog import (
@@ -86,13 +81,6 @@ SYSTEM_USER_AGENT_CLIENT_RULE_DEFAULTS: list[dict[str, str]] = [
     {"name": "Python", "pattern": "python"},
     {"name": "Curl", "pattern": "curl"},
 ]
-
-DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME = "Default adaptive routing"
-DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME = "Default legacy routing"
-DEFAULT_LOADBALANCE_STRATEGY_PRESET_NAME = (
-    DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME
-)
-LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME = "Default failover"
 
 
 async def seed_vendors() -> None:
@@ -166,146 +154,6 @@ async def seed_profile_invariants() -> None:
         _ = await ensure_profile_invariants(session)
         await session.commit()
         logger.info("Ensured default profile invariants")
-
-
-def _canonicalize_seeded_legacy_strategy(strategy: LoadbalanceStrategy) -> bool:
-    before = (
-        strategy.name,
-        strategy.strategy_type,
-        strategy.legacy_strategy_type,
-        strategy.auto_recovery,
-        strategy.routing_policy,
-    )
-    auto_recovery = build_default_auto_recovery_document()
-    strategy.name = DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
-    strategy.strategy_type = "legacy"
-    strategy.legacy_strategy_type = "round-robin"
-    strategy.auto_recovery = auto_recovery
-    strategy.routing_policy = None
-    after = (
-        strategy.name,
-        strategy.strategy_type,
-        strategy.legacy_strategy_type,
-        strategy.auto_recovery,
-        strategy.routing_policy,
-    )
-    return before != after
-
-
-def _canonicalize_seeded_adaptive_strategy(strategy: LoadbalanceStrategy) -> bool:
-    before = (
-        strategy.name,
-        strategy.strategy_type,
-        strategy.legacy_strategy_type,
-        strategy.auto_recovery,
-        strategy.routing_policy,
-    )
-    routing_policy = build_default_routing_policy_document()
-    strategy.name = DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME
-    strategy.strategy_type = "adaptive"
-    strategy.legacy_strategy_type = None
-    strategy.auto_recovery = None
-    strategy.routing_policy = routing_policy
-    after = (
-        strategy.name,
-        strategy.strategy_type,
-        strategy.legacy_strategy_type,
-        strategy.auto_recovery,
-        strategy.routing_policy,
-    )
-    return before != after
-
-
-async def seed_loadbalance_strategy_presets() -> None:
-    async with database_core.AsyncSessionLocal() as session:
-        default_profile = (
-            await session.execute(
-                select(Profile)
-                .where(Profile.is_default.is_(True), Profile.deleted_at.is_(None))
-                .order_by(Profile.id.asc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if default_profile is None:
-            return
-
-        existing_strategies = list(
-            (
-                await session.execute(
-                    select(LoadbalanceStrategy)
-                    .where(
-                        LoadbalanceStrategy.profile_id == default_profile.id,
-                        LoadbalanceStrategy.name.in_(
-                            [
-                                DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME,
-                                DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME,
-                                LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME,
-                            ]
-                        ),
-                    )
-                    .order_by(LoadbalanceStrategy.id.asc())
-                )
-            )
-            .scalars()
-            .all()
-        )
-        adaptive_strategy = next(
-            (
-                strategy
-                for strategy in existing_strategies
-                if strategy.name == DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME
-            ),
-            None,
-        )
-        legacy_strategy = next(
-            (
-                strategy
-                for strategy in existing_strategies
-                if strategy.name == DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
-            ),
-            None,
-        )
-        old_failover_strategy = next(
-            (
-                strategy
-                for strategy in existing_strategies
-                if strategy.name == LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME
-            ),
-            None,
-        )
-
-        changed = False
-
-        if adaptive_strategy is None:
-            adaptive_strategy = LoadbalanceStrategy(profile_id=default_profile.id)
-            session.add(adaptive_strategy)
-            changed = True
-        changed = _canonicalize_seeded_adaptive_strategy(adaptive_strategy) or changed
-
-        if legacy_strategy is None and old_failover_strategy is not None:
-            legacy_strategy = old_failover_strategy
-            changed = True
-
-        if legacy_strategy is None:
-            legacy_strategy = LoadbalanceStrategy(profile_id=default_profile.id)
-            session.add(legacy_strategy)
-            changed = True
-        changed = _canonicalize_seeded_legacy_strategy(legacy_strategy) or changed
-
-        if (
-            old_failover_strategy is not None
-            and old_failover_strategy is not legacy_strategy
-        ):
-            await session.delete(old_failover_strategy)
-            changed = True
-
-        await session.flush()
-        if changed:
-            await session.commit()
-            logger.info(
-                "Seeded default loadbalance strategy presets for profile %d",
-                default_profile.id,
-            )
 
 
 async def seed_header_blocklist_rules() -> None:
@@ -521,7 +369,6 @@ async def run_startup_sequence() -> None:
     await reconcile_usage_request_event_billing_fields()
     await seed_vendors()
     await seed_profile_invariants()
-    await seed_loadbalance_strategy_presets()
     await seed_user_settings()
     await seed_user_agent_client_rules()
     await seed_app_auth_settings()
@@ -545,7 +392,6 @@ def build_http_client() -> httpx.AsyncClient:
 
 __all__ = [
     "DEFAULT_VENDORS",
-    "DEFAULT_LOADBALANCE_STRATEGY_PRESET_NAME",
     "SKIP_STARTUP_SEQUENCE_ENV",
     "SYSTEM_BLOCKLIST_DEFAULTS",
     "build_http_client",
@@ -555,7 +401,6 @@ __all__ = [
     "run_startup_sequence",
     "seed_app_auth_settings",
     "seed_header_blocklist_rules",
-    "seed_loadbalance_strategy_presets",
     "seed_profile_invariants",
     "seed_user_agent_client_rules",
     "seed_vendors",
