@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TypedDict
+
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,8 @@ from app.schemas.schemas import (
 )
 
 from .policy import (
+    build_default_auto_recovery_document,
+    build_default_routing_policy_document,
     canonicalize_auto_recovery_document,
     canonicalize_routing_policy_document,
     resolve_effective_loadbalance_policy,
@@ -20,6 +24,66 @@ from .policy import (
     serialize_routing_policy,
 )
 from .state import clear_strategy_state
+
+DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME = "Default legacy routing"
+DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME = "Default adaptive routing"
+
+_CANONICAL_LEGACY_AUTO_RECOVERY = build_default_auto_recovery_document()
+_CANONICAL_ADAPTIVE_ROUTING_POLICY = build_default_routing_policy_document()
+
+
+class _CanonicalStrategySpec(TypedDict):
+    name: str
+    strategy_type: str
+    legacy_strategy_type: str | None
+    auto_recovery: dict[str, object] | None
+    routing_policy: dict[str, object] | None
+
+
+def _canonical_default_strategy_specs() -> list[_CanonicalStrategySpec]:
+    return [
+        {
+            "name": DEFAULT_LEGACY_LOADBALANCE_STRATEGY_PRESET_NAME,
+            "strategy_type": "legacy",
+            "legacy_strategy_type": "round-robin",
+            "auto_recovery": _CANONICAL_LEGACY_AUTO_RECOVERY,
+            "routing_policy": None,
+        },
+        {
+            "name": DEFAULT_ADAPTIVE_LOADBALANCE_STRATEGY_PRESET_NAME,
+            "strategy_type": "adaptive",
+            "legacy_strategy_type": None,
+            "auto_recovery": None,
+            "routing_policy": _CANONICAL_ADAPTIVE_ROUTING_POLICY,
+        },
+    ]
+
+
+def _strategy_matches_canonical_default(
+    strategy: LoadbalanceStrategy,
+    *,
+    expected: _CanonicalStrategySpec,
+) -> bool:
+    return (
+        strategy.strategy_type == expected["strategy_type"]
+        and strategy.legacy_strategy_type == expected["legacy_strategy_type"]
+        and strategy.auto_recovery == expected["auto_recovery"]
+        and strategy.routing_policy == expected["routing_policy"]
+    )
+
+
+def _build_defaults_response(
+    items: list[LoadbalanceStrategyResponse],
+    *,
+    created_names: list[str],
+    existing_names: list[str],
+) -> dict[str, object]:
+    return {
+        "items": items,
+        "created_count": len(created_names),
+        "created_names": created_names,
+        "existing_names": existing_names,
+    }
 
 
 async def _ensure_unique_strategy_name(
@@ -254,8 +318,70 @@ async def delete_loadbalance_strategy(
     return {"deleted": True}
 
 
+async def create_loadbalance_strategy_defaults(
+    db: AsyncSession,
+    *,
+    profile_id: int,
+) -> dict[str, object]:
+    canonical_specs = _canonical_default_strategy_specs()
+    canonical_names = [spec["name"] for spec in canonical_specs]
+    result = await db.execute(
+        select(LoadbalanceStrategy).where(
+            LoadbalanceStrategy.profile_id == profile_id,
+            LoadbalanceStrategy.name.in_(canonical_names),
+        )
+    )
+    existing_by_name = {strategy.name: strategy for strategy in result.scalars().all()}
+
+    conflicting_names: list[str] = []
+    existing_names: list[str] = []
+    for spec in canonical_specs:
+        current = existing_by_name.get(spec["name"])
+        if current is None:
+            continue
+        if _strategy_matches_canonical_default(current, expected=spec):
+            existing_names.append(spec["name"])
+            continue
+        conflicting_names.append(spec["name"])
+
+    if conflicting_names:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Canonical loadbalance strategy default name conflict",
+                "conflicting_names": conflicting_names,
+            },
+        )
+
+    created_names: list[str] = []
+    for spec in canonical_specs:
+        if spec["name"] in existing_names:
+            continue
+        strategy = LoadbalanceStrategy(
+            profile_id=profile_id,
+            name=spec["name"],
+            strategy_type=spec["strategy_type"],
+        )
+        strategy.legacy_strategy_type = spec["legacy_strategy_type"]
+        strategy.auto_recovery = spec["auto_recovery"]
+        strategy.routing_policy = spec["routing_policy"]
+        db.add(strategy)
+        created_names.append(spec["name"])
+
+    if created_names:
+        await db.flush()
+
+    items = await list_loadbalance_strategies(db, profile_id=profile_id)
+    return _build_defaults_response(
+        items,
+        created_names=created_names,
+        existing_names=existing_names,
+    )
+
+
 __all__ = [
     "create_loadbalance_strategy",
+    "create_loadbalance_strategy_defaults",
     "delete_loadbalance_strategy",
     "get_loadbalance_strategy",
     "list_loadbalance_strategies",
