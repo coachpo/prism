@@ -55,7 +55,7 @@ backend/
 │   │   ├── loadbalance.py      # /api/loadbalance/current-state reset/list + events list/detail/batch delete
 │   │   ├── settings.py         # /api/settings/costing, /api/settings/timezone, /api/settings/auth, /api/settings/auth/proxy-keys
 │   │   ├── auth.py             # /api/auth login/logout/refresh/session/password-reset/webauthn
-│   │   ├── config.py           # /api/config/profile/* + /api/config/vendors/* + header blocklist CRUD
+│   │   ├── config.py           # /api/config/profile/* + /api/config/vendors/* + header blocklist CRUD + user-agent client rule CRUD
 │   │   └── proxy.py            # /v1/* and /v1beta/* catch-all proxy handlers
 │   └── services/               # Business logic + shared app infrastructure
 │       ├── auth/               # Session, password reset, proxy-key internals
@@ -189,7 +189,7 @@ Vendor rows are global publisher metadata. Models may keep `vendor_id = null` an
 ### 3.5 Management API Profile Scoping
 - Profile-scoped management routes use explicit `X-Profile-Id` and effective-profile resolution.
 - Profile-scoped config bundle routes now live under `/api/config/profile/*`.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
+- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
 - Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 
@@ -197,7 +197,7 @@ The protected frontend shell now boots profile state from `GET /api/profiles/boo
 
 The Settings shell mirrors that split: the Profile tab keeps backup, billing and currency, timezone, audit and privacy, and retention flows scoped to the selected profile, while the Global tab owns instance-wide authentication and the shared vendor catalog.
 
-The v2 config workflow also mirrors that ownership split:
+The current split-bundle config workflow also mirrors that ownership split:
 - profile export/import uses `bundle_kind = profile_config` and is authoritative only for profile-scoped rows
 - vendor catalog export/import uses `bundle_kind = vendor_catalog` and is authoritative only for shared vendor metadata
 - profile bundles never export plaintext endpoint API keys; endpoint secrets move through an encrypted `secret_payload`
@@ -307,7 +307,7 @@ Manual health checks use one lightweight probe runner so connection verification
 
 Health checks send api-family-specific lightweight requests using the connection's configured model ID and a simple prompt. This validates full-chain URL routing, authentication, and model availability using the same URL-building logic as the proxy engine.
 
-- **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the connection's persisted `openai_probe_endpoint_variant` (`responses` default).
+- **OpenAI**: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the connection's persisted `openai_probe_endpoint_variant`; current variants are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`.
 - **Anthropic**: `POST {base_url}/v1/messages` with `{"model":"{model_id}","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
 - **Gemini**: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload and `maxOutputTokens: 1`.
 

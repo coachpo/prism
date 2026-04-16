@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current v2 split-bundle configuration format.
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current split-bundle configuration format (profile bundle v3, vendor catalog bundle v2).
 
 ## 1. Entity Relationship Diagram
 
@@ -283,7 +283,7 @@ Profiles are isolated configuration namespaces. One profile is active for runtim
 | description | TEXT | NULLABLE | Optional description |
 | is_active | BOOLEAN | NOT NULL, DEFAULT FALSE | Runtime-active marker |
 | is_default | BOOLEAN | NOT NULL, DEFAULT FALSE | Seeded default marker |
-| is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag (false for system default) |
+| is_editable | BOOLEAN | NOT NULL, DEFAULT TRUE | Editable flag; current startup invariants keep the system default profile editable |
 | version | INTEGER | NOT NULL, DEFAULT 0 | Optimistic concurrency token for activation CAS |
 | deleted_at | DATETIME | NULLABLE | Soft-delete marker for inactive profiles |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
@@ -291,6 +291,7 @@ Profiles are isolated configuration namespaces. One profile is active for runtim
 
 Constraints and lifecycle rules:
 - Exactly one non-deleted profile is active at any time (partial unique index).
+- Startup invariants ensure the single default profile exists and remains editable.
 - Routine delete is soft-delete (`deleted_at`) and only allowed for inactive profiles.
 - Capacity limit: maximum 10 non-deleted profiles (`deleted_at IS NULL`) enforced at application level.
 
@@ -376,7 +377,7 @@ Reusable credential objects scoped to one profile.
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
-- Profile config export never emits plaintext `api_key`; the v2 bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
+- Profile config export never emits plaintext `api_key`; the version 3 profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
 - Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
 ### 2.5 `connections` (profile-scoped routing)
@@ -400,7 +401,7 @@ Model-to-endpoint routing objects within one profile.
 | qps_limit | INTEGER | NULLABLE | Per-connection QPS cap; `NULL` means unlimited |
 | max_in_flight_non_stream | INTEGER | NULLABLE | Concurrent non-stream request cap; `NULL` means unlimited |
 | max_in_flight_stream | INTEGER | NULLABLE | Concurrent stream request cap; `NULL` means unlimited |
-| openai_probe_endpoint_variant | VARCHAR(30) | NOT NULL, DEFAULT `responses` | OpenAI-family probe target: `responses` or `chat_completions` |
+| openai_probe_endpoint_variant | VARCHAR(40) | NULLABLE | OpenAI-family probe target and payload variant; `responses_minimal` is the default for OpenAI connections, while non-OpenAI connections persist `NULL` |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 

@@ -6,7 +6,7 @@ Local `./start.sh` base URL: `http://localhost:18000`
 
 ## 0. Profile Context Semantics
 - Profile routes (`/api/profiles/*`) are global and do not require `X-Profile-Id`.
-- Profile-scoped management endpoints require `X-Profile-Id` to select explicit profile scope; global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, and `/api/settings/auth*`.
+- Profile-scoped management endpoints require `X-Profile-Id` to select explicit profile scope; global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/vendors/*`, and `POST /api/config/profile/import/preview`.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 
@@ -419,7 +419,7 @@ After a successful delete, later endpoints in the same profile are compacted so 
 
 #### List Connections for Model
 ```
-GET /api/models/{model_id}/connections
+GET /api/models/{model_config_id}/connections
 ```
 Response `200`: Array of connection objects ordered by `priority ASC, id ASC`.
 
@@ -437,7 +437,7 @@ Response `200`: `items[]`, where each item contains a `model_config_id` and its 
 
 #### Create Connection
 ```
-POST /api/models/{model_id}/connections
+POST /api/models/{model_config_id}/connections
 ```
 Request (using existing endpoint):
 ```json
@@ -448,7 +448,7 @@ Request (using existing endpoint):
   "custom_headers": {
     "X-Custom-Org": "org-123"
   },
-  "openai_probe_endpoint_variant": "responses",
+    "openai_probe_endpoint_variant": "responses_minimal",
   "pricing_template_id": 2,
   "qps_limit": 3,
   "max_in_flight_non_stream": 6,
@@ -465,7 +465,7 @@ Request (inline endpoint creation):
   },
   "is_active": true,
   "name": "Regional fallback",
-  "openai_probe_endpoint_variant": "responses",
+    "openai_probe_endpoint_variant": "responses_minimal",
   "pricing_template_id": null,
   "qps_limit": null,
   "max_in_flight_non_stream": null,
@@ -476,7 +476,7 @@ Response `201`: Created connection object.
 New connections always append at the end of the ordered list (`priority == current_connection_count`).
 Create payloads that include `priority` are rejected with `422`.
 Limiter fields are optional. `null` means unlimited. Positive integers apply per-connection request admission limits.
-`openai_probe_endpoint_variant` selects the lightweight OpenAI probe route for that connection: `responses` (default) or `chat_completions`. For non-OpenAI models, the backend normalizes the stored value to `responses`.
+`openai_probe_endpoint_variant` selects the lightweight OpenAI probe target plus payload variant for OpenAI-family connections. Supported values are `responses_minimal` (default), `responses_reasoning_none`, `chat_completions_minimal`, and `chat_completions_reasoning_none`. For non-OpenAI families, providing this field is rejected and omitted values persist as `null`.
 
 #### Update Connection
 ```
@@ -489,7 +489,7 @@ Response `200`: Updated connection object.
 
 #### Move Connection Priority
 ```
-PATCH /api/models/{model_id}/connections/{connection_id}/priority
+PATCH /api/models/{model_config_id}/connections/{connection_id}/priority
 ```
 Request:
 ```json
@@ -506,7 +506,7 @@ Behavior:
 
 #### Update Connection Pricing Template
 ```
-PUT /api/connections/{id}/pricing-template
+PUT /api/connections/{connection_id}/pricing-template
 ```
 Request:
 ```json
@@ -520,27 +520,31 @@ Response `200`: Updated connection object.
 
 #### Delete Connection
 ```
-DELETE /api/connections/{id}
+DELETE /api/connections/{connection_id}
 ```
 Response `200`: `{ "deleted": true }`.
 After a successful delete, later connections for the same `(profile_id, model_config_id)` are compacted so `priority` remains contiguous.
 
 #### Get Connection Owner
 ```
-GET /api/connections/{id}/owner
+GET /api/connections/{connection_id}/owner
 ```
 Response `200`:
 ```json
 {
   "connection_id": 1,
   "model_config_id": 2,
-  "model_id": "gpt-4o"
+  "model_id": "gpt-4o",
+  "connection_name": "Primary production key",
+  "endpoint_id": 12,
+  "endpoint_name": "Primary OpenAI",
+  "endpoint_base_url": "https://api.openai.com"
 }
 ```
 
 #### Health Check Connection
 ```
-POST /api/connections/{id}/health-check
+POST /api/connections/{connection_id}/health-check
 ```
 Sends an api-family-specific lightweight request using the configured model ID to validate URL routing, authentication, and model availability end to end. This manual check uses the same probe builder and runner as the model-detail health-check preview flow.
 
@@ -555,9 +559,27 @@ Response `200`:
 }
 ```
 API-family-specific health-check probes:
-- OpenAI: `POST {base_url}/v1/responses` by default, or `POST {base_url}/v1/chat/completions` when the connection's persisted `openai_probe_endpoint_variant` is `chat_completions`.
+- OpenAI: `POST {base_url}/v1/responses` or `POST {base_url}/v1/chat/completions` based on the persisted `openai_probe_endpoint_variant`; the specific variant also controls whether the probe uses the minimal payload shape or the `reasoning: none` payload shape.
 - Anthropic: `POST {base_url}/v1/messages` with a one-token user prompt.
 - Gemini: `POST {base_url}/v1beta/models/{model}:generateContent` with minimal content payload.
+
+#### Health Check Preview
+```
+POST /api/models/{model_config_id}/connections/health-check-preview
+```
+Request: Same inline connection payload accepted by `POST /api/models/{model_config_id}/connections`.
+
+Response `200`:
+```json
+{
+  "health_status": "healthy",
+  "checked_at": "2025-01-15T10:30:00Z",
+  "detail": "Connection successful",
+  "response_time_ms": 523
+}
+```
+
+The preview route runs the same lightweight probe as the persisted connection health check without creating or updating a connection row.
 
 #### Base URL Validation
 
@@ -693,6 +715,8 @@ POST /api/config/profile/import/preview
 ```
 Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
 
+This preview route is a global readiness check and does not require `X-Profile-Id`.
+
 Response `200`:
 ```json
 {
@@ -732,6 +756,8 @@ POST /api/config/profile/import
 ```
 Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
 
+This import route is profile-targeted and requires `X-Profile-Id`.
+
 Response `200`:
 ```json
 {
@@ -767,6 +793,8 @@ Profile import semantics:
 ```
 GET /api/config/vendors/export
 ```
+Vendor catalog routes are global and do not require `X-Profile-Id`.
+
 Response `200`:
 ```json
 {
@@ -928,7 +956,76 @@ There is no standalone `/api/settings/monitoring` route or `/api/monitoring/*` f
 
 ---
 
-### 1.8 Header Blocklist Rules (System Global + User Profile-Scoped)
+### 1.8 User-Agent Client Rules (System Global + User Profile-Scoped)
+
+#### List User-Agent Client Rules
+```
+GET /api/config/user-agent-client-rules
+```
+Query parameters:
+- `include_disabled` (boolean, default `true`): Whether to include disabled rules in the list.
+
+Response `200`:
+```json
+[
+  {
+    "id": 1,
+    "name": "Codex",
+    "pattern": "codex",
+    "enabled": true,
+    "is_system": true,
+    "profile_id": null,
+    "created_at": "2025-01-01T00:00:00Z",
+    "updated_at": "2025-01-01T00:00:00Z"
+  }
+]
+```
+
+The list returns system rules plus any user rules in the effective profile.
+
+#### Get User-Agent Client Rule
+```
+GET /api/config/user-agent-client-rules/{rule_id}
+```
+Response `200`: Single rule object.
+
+#### Create User-Agent Client Rule
+```
+POST /api/config/user-agent-client-rules
+```
+Request:
+```json
+{
+  "name": "My SDK",
+  "pattern": "my-sdk",
+  "enabled": true
+}
+```
+Response `201`: Created rule object. `pattern` must be a valid regular expression.
+
+#### Update User-Agent Client Rule
+```
+PATCH /api/config/user-agent-client-rules/{rule_id}
+```
+Request (all fields optional):
+```json
+{
+  "enabled": false
+}
+```
+Response `200`: Updated rule object.
+Note: For system rules (`is_system: true`), only `enabled` is mutable. Attempting to change `name` or `pattern` returns `400`.
+
+#### Delete User-Agent Client Rule
+```
+DELETE /api/config/user-agent-client-rules/{rule_id}
+```
+Response `200`: `{ "deleted": true }`.
+Note: Delete is only available for effective-profile user rules. Attempting to delete a system rule through this route returns `404` because system rows are not in the profile-owned delete scope.
+
+---
+
+### 1.9 Header Blocklist Rules (System Global + User Profile-Scoped)
 
 #### List Header Blocklist Rules
 ```
@@ -993,7 +1090,7 @@ Note: For system rules (`is_system: true`), only the `enabled` field can be modi
 DELETE /api/config/header-blocklist-rules/{id}
 ```
 Response `200`: `{ "deleted": true }`.
-Note: System rules cannot be deleted. Attempting to delete a system rule returns `400`.
+Note: Delete is only available for effective-profile user rules. Attempting to delete a system rule through this route returns `404` because system rows are not in the profile-owned delete scope.
 
 ---
 
@@ -1120,6 +1217,19 @@ The snapshot is still aggregated from persisted usage-event rows, and the `/stat
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
+### 4.1A Endpoint Model Statistics
+```
+GET /api/stats/endpoints/{endpoint_id}/models
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `preset` | string | `1h` | Time preset: `1h`, `6h`, `24h`, `7d`, `30d`, `all` |
+| `from_time` | datetime | — | Optional explicit start time |
+| `to_time` | datetime | — | Optional explicit end time |
+
+Response `200`: Array of per-model endpoint statistics. Each item includes `model_id`, `model_label`, request counts, success rates, TTFT percentiles, token totals, total cost, and average output rate for the selected endpoint scope.
+
 ### 4.2 List Request Logs
 ```
 GET /api/stats/requests
@@ -1138,6 +1248,14 @@ Query parameters:
 Response `200`:
 ```json
 {
+  "filter_options": {
+    "endpoints": [
+      {
+        "endpoint_id": 12,
+        "endpoint_label": "Primary OpenAI"
+      }
+    ]
+  },
   "items": [
     {
       "id": 1,
@@ -1148,13 +1266,19 @@ Response `200`:
       "vendor_key": "openai",
       "vendor_name": "OpenAI",
       "endpoint_id": 12,
+      "endpoint_label": "Primary OpenAI",
       "connection_id": 1,
       "status_code": 200,
       "response_time_ms": 1234,
+      "ttft_ms": 320,
+      "completion_duration_ms": 914,
       "is_stream": false,
       "total_tokens": 57,
       "total_cost_user_currency_micros": 1250,
       "report_currency_symbol": "$",
+      "caller_client_display": "Codex",
+      "upstream_client_display": "OpenAI SDK",
+      "user_agent_overridden": false,
       "created_at": "2025-01-15T10:30:00Z"
     }
   ],
@@ -1164,7 +1288,7 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, includes vendor metadata for display only, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, includes vendor metadata for display only, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default.
 
 `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. For proxy traffic, `model_id` stays the requested proxy model and `resolved_target_model_id` captures the selected native target model for that attempt. Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` instead of the paginated list-query surface.
 
@@ -1187,6 +1311,8 @@ Response `200`:
     "vendor_name": "OpenAI",
     "status_code": 200,
     "response_time_ms": 1234,
+    "ttft_ms": 320,
+    "completion_duration_ms": 914,
     "is_stream": false
   },
   "request": {
@@ -1196,6 +1322,11 @@ Response `200`:
     "provider_correlation_id": "req_upstream_abc123",
     "proxy_api_key_id": null,
     "proxy_api_key_name_snapshot": null,
+    "caller_user_agent": "codex/1.0",
+    "upstream_user_agent": "OpenAI/Python 1.0",
+    "caller_client_display": "Codex",
+    "upstream_client_display": "OpenAI SDK",
+    "user_agent_overridden": false,
     "error_detail": null
   },
   "routing": {
@@ -1209,7 +1340,8 @@ Response `200`:
     "endpoint_id": 12,
     "connection_id": 1,
     "endpoint_base_url": "https://api.openai.com",
-    "endpoint_description": "Primary production key"
+    "endpoint_description": "Primary production key",
+    "audit_enabled_at_request": false
   },
   "usage": {
     "input_tokens": 15,
@@ -1307,20 +1439,6 @@ Request:
 ```
 Response `200`: `items[]`, where each item contains `model_id`, `success_rate`, `request_count_24h`, `p95_latency_ms`, and `spend_30d_micros`.
 
-### 4.5 Connection Metrics (Batch)
-```
-POST /api/stats/models/connections/metrics
-```
-Request:
-```json
-{
-  "model_id": "gpt-4o",
-  "connection_ids": [1, 2, 3],
-  "summary_window_hours": 24
-}
-```
-Response `200`: `items[]`, where each item contains `connection_id`, `success_rate_24h`, `request_count_24h`, `p95_latency_ms`, `five_xx_rate`, `heuristic_failover_events`, and `last_failover_like_at`.
-
 ### 4.6 Get Connection Success Rates
 ```
 GET /api/stats/connection-success-rates
@@ -1389,6 +1507,27 @@ Query parameters:
 Exactly one of `older_than_days` or `delete_all=true` must be provided. If both are provided, returns `400`. If neither is provided, returns `400`.
 
 When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`. Cleanup is scheduled immediately after the response and runs in the background with a fresh async DB session.
+
+Response `200`:
+```json
+{
+  "accepted": true
+}
+```
+
+The response acknowledges that cleanup was scheduled; it does not include a final row count.
+
+### 4.8A Delete Aggregated Statistics Data
+```
+DELETE /api/stats/statistics
+```
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `older_than_days` | integer | — | Delete aggregated statistics data older than N days. Must be ≥ 1. |
+| `delete_all` | boolean | false | Delete all aggregated statistics data. |
+
+Exactly one of `older_than_days` or `delete_all=true` must be provided.
 
 Response `200`:
 ```json
