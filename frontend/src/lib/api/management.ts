@@ -6,6 +6,7 @@ import type {
   LoadbalanceBanMode,
   LoadbalanceRoutingPolicy,
   LoadbalanceStrategy,
+  LoadbalanceStrategyDefaultsResponse,
   LoadbalanceStrategyCreate,
   LoadbalanceStrategyFamily,
   LoadbalanceStrategySummary,
@@ -65,6 +66,13 @@ type RawLoadbalanceStrategy = {
   attached_model_count: number;
   created_at: string;
   updated_at: string;
+};
+
+type RawLoadbalanceStrategyDefaultsResponse = {
+  items: RawLoadbalanceStrategy[];
+  created_count: number;
+  created_names: string[];
+  existing_names: string[];
 };
 
 type RawModelConfigListItem = Omit<ModelConfigListItem, "loadbalance_strategy"> & {
@@ -468,6 +476,15 @@ export const loadbalanceStrategies = {
     request<RawLoadbalanceStrategy[]>("/api/loadbalance/strategies").then((strategies) =>
       strategies.map(normalizeLoadbalanceStrategy),
     ),
+  createDefaults: () =>
+    request<RawLoadbalanceStrategyDefaultsResponse>("/api/loadbalance/strategies/defaults", {
+      method: "POST",
+    }).then((response) => ({
+      items: response.items.map(normalizeLoadbalanceStrategy),
+      created_count: response.created_count,
+      created_names: response.created_names,
+      existing_names: response.existing_names,
+    }) as LoadbalanceStrategyDefaultsResponse),
   get: (id: number) =>
     request<RawLoadbalanceStrategy>(`/api/loadbalance/strategies/${id}`).then(
       normalizeLoadbalanceStrategy,

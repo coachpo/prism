@@ -130,6 +130,13 @@ export type LoadbalanceStrategyCreate =
 
 export type LoadbalanceStrategyUpdate = LoadbalanceStrategyCreate;
 
+export interface LoadbalanceStrategyDefaultsResponse {
+  items: LoadbalanceStrategy[];
+  created_count: number;
+  created_names: string[];
+  existing_names: string[];
+}
+
 export interface LoadbalanceCurrentStateItem {
   connection_id: number;
   consecutive_failures: number;
