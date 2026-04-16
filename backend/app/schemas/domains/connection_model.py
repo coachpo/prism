@@ -400,6 +400,13 @@ class LoadbalanceStrategyResponse(LoadbalanceStrategySummary):
     updated_at: datetime
 
 
+class LoadbalanceStrategyDefaultsResponse(BaseModel):
+    items: list[LoadbalanceStrategyResponse]
+    created_count: int
+    created_names: list[str]
+    existing_names: list[str]
+
+
 class ProxyTargetReference(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -564,6 +571,7 @@ __all__ = [
     "EndpointModelsBatchRequest",
     "EndpointModelsBatchResponse",
     "HealthCheckResponse",
+    "LoadbalanceStrategyDefaultsResponse",
     "LoadbalanceStrategyCreate",
     "LoadbalanceStrategyResponse",
     "LoadbalanceStrategySummary",
