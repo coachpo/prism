@@ -281,6 +281,7 @@ export const zhCNMessages: Messages = {
     adaptiveBanTemporary: (strikes, durationSeconds) => `在 ${strikes} 次最大打开窗口后临时封禁 • ${durationSeconds} 秒`,
     actions: "操作",
     addStrategy: "新增策略",
+    createDefaults: "创建默认策略",
     attachedModels: "已绑定模型",
     autoRecoveryDisabled: "自动恢复已禁用",
     autoRecoveryEnabled: "自动恢复已启用",
@@ -306,6 +307,8 @@ export const zhCNMessages: Messages = {
   },
   loadbalanceStrategiesData: {
     created: "负载均衡策略已创建",
+    defaultsAlreadyExisted: "默认负载均衡策略已存在",
+    defaultsCreated: "默认负载均衡策略已创建",
     deleted: "负载均衡策略已删除",
     deleteFailed: "删除负载均衡策略失败",
     loadFailed: "加载负载均衡策略失败",

@@ -28,6 +28,7 @@ export function useLoadbalanceStrategiesPageData(revision: number) {
   const [loadbalanceStrategyPreparingEditId, setLoadbalanceStrategyPreparingEditId] = useState<number | null>(null);
   const [loadbalanceStrategyForm, setLoadbalanceStrategyForm] = useState<LoadbalanceStrategyFormState>(DEFAULT_LOADBALANCE_STRATEGY_FORM);
   const [loadbalanceStrategySaving, setLoadbalanceStrategySaving] = useState(false);
+  const [loadbalanceStrategyDefaultsCreating, setLoadbalanceStrategyDefaultsCreating] = useState(false);
   const [deleteLoadbalanceStrategyConfirm, setDeleteLoadbalanceStrategyConfirm] = useState<LoadbalanceStrategy | null>(null);
   const [deleteLoadbalanceStrategyDialogOpen, setDeleteLoadbalanceStrategyDialogOpen] = useState(false);
   const [displayedDeleteLoadbalanceStrategyConfirm, setDisplayedDeleteLoadbalanceStrategyConfirm] = useState<LoadbalanceStrategy | null>(null);
@@ -128,6 +129,28 @@ export function useLoadbalanceStrategiesPageData(revision: number) {
     }
   };
 
+  const handleCreateLoadbalanceStrategyDefaults = async () => {
+    const messages = getStaticMessages();
+
+    setLoadbalanceStrategyDefaultsCreating(true);
+    try {
+      const response = await api.loadbalanceStrategies.createDefaults();
+      const next = sortLoadbalanceStrategies(response.items);
+      setLoadbalanceStrategies(next);
+      setSharedLoadbalanceStrategies(revision, next);
+
+      toast.success(
+        response.created_count > 0
+          ? messages.loadbalanceStrategiesData.defaultsCreated
+          : messages.loadbalanceStrategiesData.defaultsAlreadyExisted,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : messages.loadbalanceStrategiesData.saveFailed);
+    } finally {
+      setLoadbalanceStrategyDefaultsCreating(false);
+    }
+  };
+
   const handleDeleteLoadbalanceStrategyClick = (strategy: LoadbalanceStrategy) => {
     setDeleteLoadbalanceStrategyConfirm(strategy);
     setDisplayedDeleteLoadbalanceStrategyConfirm(strategy);
@@ -176,9 +199,11 @@ export function useLoadbalanceStrategiesPageData(revision: number) {
     handleDeleteLoadbalanceStrategy,
     handleDeleteLoadbalanceStrategyClick,
     handleEditLoadbalanceStrategy,
+    handleCreateLoadbalanceStrategyDefaults,
     handleSaveLoadbalanceStrategy,
     loadbalanceStrategies,
     loadbalanceStrategiesLoading,
+    loadbalanceStrategyDefaultsCreating,
     loadbalanceStrategyDeleting,
     loadbalanceStrategyDialogOpen,
     loadbalanceStrategyForm,

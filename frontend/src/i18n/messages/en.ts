@@ -276,6 +276,7 @@ export interface Messages {
     adaptiveBanTemporary: (strikes: string, durationSeconds: string) => string;
     actions: string;
     addStrategy: string;
+    createDefaults: string;
     attachedModels: string;
     autoRecoveryDisabled: string;
     autoRecoveryEnabled: string;
@@ -299,6 +300,8 @@ export interface Messages {
   };
   loadbalanceStrategiesData: {
     created: string;
+    defaultsAlreadyExisted: string;
+    defaultsCreated: string;
     deleted: string;
     deleteFailed: string;
     loadFailed: string;
@@ -1845,6 +1848,7 @@ export const enMessages: Messages = {
     adaptiveBanTemporary: (strikes, durationSeconds) => `Temporary ban after ${strikes} max-open strikes • ${durationSeconds}s`,
     actions: "Actions",
     addStrategy: "Add Strategy",
+    createDefaults: "Create Defaults",
     attachedModels: "Attached Models",
     autoRecoveryDisabled: "Auto recovery disabled",
     autoRecoveryEnabled: "Auto recovery enabled",
@@ -1871,6 +1875,8 @@ export const enMessages: Messages = {
   },
   loadbalanceStrategiesData: {
     created: "Loadbalance strategy created",
+    defaultsAlreadyExisted: "Default loadbalance strategies already exist",
+    defaultsCreated: "Default loadbalance strategies created",
     deleted: "Loadbalance strategy deleted",
     deleteFailed: "Failed to delete loadbalance strategy",
     loadFailed: "Failed to load loadbalance strategies",
