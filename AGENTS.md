@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-12 | branch: main | commit: 36b1769 -->
+<!-- Generated: 2026-04-16 | branch: main | commit: 47ac8484 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -29,7 +29,9 @@ prism/
 
 ## HIERARCHY
 - `backend/AGENTS.md`: backend monorepo directory root for runtime, package, and test boundaries.
+- `backend/tests/AGENTS.md`: backend contract and regression test boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, and typed browser/backend seams.
+- `frontend/tests/AGENTS.md`: frontend contract and Playwright test boundary.
 - `docs/AGENTS.md`: docs ownership, source-of-truth routing, archive boundaries, and active-plan handoff out of `docs/`.
 - `docs/archive/AGENTS.md`: archive boundary for finished notes and retained evidence.
 
@@ -45,7 +47,7 @@ prism/
 - Backend/frontend version surfaces: `backend/VERSION`, `backend/pyproject.toml`, `frontend/VERSION`, `frontend/package.json`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
-- Backend/frontend ownership trees: `backend/AGENTS.md`, `frontend/AGENTS.md`
+- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/tests/AGENTS.md`
 - Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.sisyphus/plans/`
 
 ## CONVENTIONS
