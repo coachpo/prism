@@ -1623,7 +1623,31 @@ GET /api/loadbalance/strategies
 ```
 Response `200`: Array of strategy objects in the effective profile scope.
 
-### 6.2 Create Loadbalance Strategy
+### 6.2 Create Loadbalance Strategy Defaults
+```
+POST /api/loadbalance/strategies/defaults
+```
+No request body.
+
+This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical defaults for that profile only.
+
+Response `200`:
+```json
+{
+  "items": [
+    { "id": 12, "profile_id": 3, "name": "Default legacy routing" }
+  ],
+  "created_count": 1,
+  "created_names": ["Default legacy routing"],
+  "existing_names": ["Default adaptive routing"]
+}
+```
+
+The response includes the full current strategy list in `items` plus creation metadata so the caller can tell which canonical rows were created versus already present.
+
+Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in the selected profile. In that case, the error payload includes `detail.conflicting_names` with the conflicting names.
+
+### 6.3 Create Loadbalance Strategy
 ```
 POST /api/loadbalance/strategies
 ```
@@ -1667,7 +1691,7 @@ Validation rules:
 - `circuit_breaker.ban_mode = "temporary"` requires both `max_open_strikes_before_ban >= 1` and `ban_duration_seconds >= 1`.
 - `circuit_breaker.ban_mode = "manual"` requires `max_open_strikes_before_ban >= 1` and a zero duration value.
 
-### 6.3 Update Loadbalance Strategy
+### 6.4 Update Loadbalance Strategy
 ```
 PUT /api/loadbalance/strategies/{strategy_id}
 ```
@@ -1716,14 +1740,14 @@ Strategy responses include the persisted/effective family-specific strategy docu
 
 Legacy strategy responses use the same envelope but replace `routing_policy` with `legacy_strategy_type` plus `auto_recovery`.
 
-### 6.4 Delete Loadbalance Strategy
+### 6.5 Delete Loadbalance Strategy
 ```
 DELETE /api/loadbalance/strategies/{strategy_id}
 ```
 Response `200`: `{ "deleted": true }`.
 Returns `409` when the strategy is still attached to one or more native models; the response detail includes `attached_model_count`.
 
-### 6.5 List Current Loadbalance State for a Model
+### 6.6 List Current Loadbalance State for a Model
 ```
 GET /api/loadbalance/current-state
 ```
@@ -1769,7 +1793,7 @@ Returns `404` when the model config does not exist in the effective profile.
 
 `state` is one of `counting`, `blocked`, `probe_eligible`, or `banned`. `banned` is derived from `ban_mode` plus `banned_until_at`, while the additional fields expose the current circuit state, admission counters, and recent probe-derived health signals.
 
-### 6.6 Reset Current Loadbalance State for a Connection
+### 6.7 Reset Current Loadbalance State for a Connection
 ```
 POST /api/loadbalance/current-state/{connection_id}/reset
 ```
@@ -1784,7 +1808,7 @@ Response `200`:
 `cleared=false` is returned when no persisted current-state row existed for that `(profile_id, connection_id)` pair.
 Reset clears cooldown, strike, and ban state together.
 
-### 6.7 List Loadbalance Events
+### 6.8 List Loadbalance Events
 ```
 GET /api/loadbalance/events
 ```

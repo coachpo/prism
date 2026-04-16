@@ -152,6 +152,7 @@ Validated again against a live local stack on 2026-04-09:
 2. Loadbalance strategies define reusable `legacy` or `adaptive` routing policies for native models.
 3. Pricing templates define reusable cost models attached to connections.
 4. These resources are profile-scoped and are usually managed before or alongside model-detail work.
+5. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
 
 **Backend touchpoints**
 
@@ -162,10 +163,13 @@ Validated again against a live local stack on 2026-04-09:
 - `PATCH /api/endpoints/{endpoint_id}/position`
 - `POST /api/endpoints/{endpoint_id}/duplicate`
 - `GET /api/loadbalance/strategies`
+- `POST /api/loadbalance/strategies/defaults`
 - `POST /api/loadbalance/strategies`
 - `GET /api/loadbalance/strategies/{strategy_id}`
 - `PUT /api/loadbalance/strategies/{strategy_id}`
 - `DELETE /api/loadbalance/strategies/{strategy_id}`
+
+The loadbalance strategy routes continue to use selected-profile scope through `X-Profile-Id`, and the defaults action is a no-body POST that returns the created/current canonical rows plus creation metadata.
 - `GET /api/pricing-templates`
 - `POST /api/pricing-templates`
 - `GET /api/pricing-templates/{template_id}`

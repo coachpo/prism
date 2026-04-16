@@ -9,6 +9,7 @@ from app.dependencies import get_db, get_effective_profile_id
 from app.schemas.schemas import (
     LoadbalanceCurrentStateListResponse,
     LoadbalanceCurrentStateResetResponse,
+    LoadbalanceStrategyDefaultsResponse,
     LoadbalanceStrategyCreate,
     LoadbalanceStrategyResponse,
     LoadbalanceStrategyUpdate,
@@ -24,6 +25,7 @@ from app.services.loadbalancer.admin import (
     reset_connection_current_state,
 )
 from app.services.loadbalancer.strategies import (
+    create_loadbalance_strategy_defaults,
     create_loadbalance_strategy,
     delete_loadbalance_strategy,
     get_loadbalance_strategy,
@@ -52,6 +54,20 @@ async def create_strategy(
         db,
         profile_id=profile_id,
         body=body,
+    )
+
+
+@router.post(
+    "/strategies/defaults",
+    response_model=LoadbalanceStrategyDefaultsResponse,
+)
+async def create_strategy_defaults(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    profile_id: Annotated[int, Depends(get_effective_profile_id)],
+):
+    return await create_loadbalance_strategy_defaults(
+        db,
+        profile_id=profile_id,
     )
 
 
