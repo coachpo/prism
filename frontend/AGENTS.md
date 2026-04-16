@@ -6,23 +6,27 @@
 ## STRUCTURE
 ```text
 frontend/
-└── src/
-    ├── App.tsx
-    ├── main.tsx
-    ├── components/AGENTS.md
-    ├── components/layout/app-layout/AGENTS.md
-    ├── components/loadbalance/AGENTS.md
-    ├── components/statistics/AGENTS.md
-    ├── components/ui/AGENTS.md
-    ├── context/AGENTS.md
-    ├── context/auth/AGENTS.md
-    ├── context/profile/AGENTS.md
-    ├── hooks/AGENTS.md
-    ├── i18n/AGENTS.md
-    ├── lib/AGENTS.md
-    ├── lib/api/AGENTS.md
-    ├── lib/websocket/AGENTS.md
-    └── pages/AGENTS.md
+├── src/
+│   ├── App.tsx
+│   ├── main.tsx
+│   ├── components/AGENTS.md
+│   ├── components/layout/app-layout/AGENTS.md
+│   ├── components/loadbalance/AGENTS.md
+│   ├── components/statistics/AGENTS.md
+│   ├── components/ui/AGENTS.md
+│   ├── context/AGENTS.md
+│   ├── context/auth/AGENTS.md
+│   ├── context/profile/AGENTS.md
+│   ├── hooks/AGENTS.md
+│   ├── i18n/AGENTS.md
+│   ├── lib/AGENTS.md
+│   ├── lib/api/AGENTS.md
+│   ├── lib/websocket/AGENTS.md
+│   └── pages/AGENTS.md
+├── tests/AGENTS.md
+├── package.json
+├── playwright.config.ts
+└── vite.config.ts
 ```
 
 ## ROUTE MAP
@@ -38,16 +42,20 @@ frontend/
 - `src/components/layout/app-layout/AGENTS.md` owns the shell-navigation and profile-switcher seam, including the handoff from shell state into route-scoped navigation.
 - `src/components/ui/AGENTS.md` owns the shadcn/ui primitives and local wrappers checked into `src/components/ui/`.
 - `src/lib/websocket/AGENTS.md` owns the helper split beneath the singleton realtime client.
+- `tests/AGENTS.md` owns the test split between Playwright flows and contract seams.
 
 ## WHERE TO LOOK
 - Mounted routes, auth/public split, and protected shell mounts: `src/App.tsx`
 - Shell chrome, sidebar entries, profile-prefixed navigation, visible version label, and profile-switcher dialog state: `src/components/AGENTS.md`, `src/components/layout/app-layout/AGENTS.md`
 - Shared widgets, shell-safe controls, and design-system wrappers: `src/components/AGENTS.md`, `src/components/ui/AGENTS.md`
+- Provider stack, browser mount, and app bootstrap (`LocaleProvider` -> `ThemeProvider` -> `TooltipProvider` -> `App` + `Toaster`): `src/main.tsx`
 - Selected-profile state, revision bumps, auth bootstrap, and `X-Profile-Id` management scoping, distinct from active runtime routing: `src/context/AGENTS.md`, `src/context/auth/AGENTS.md`, `src/context/profile/AGENTS.md`
 - Typed API boundary and shared request plumbing: `src/lib/AGENTS.md`, `src/lib/api/AGENTS.md`, `src/lib/api.ts`
 - Realtime websocket ownership and consumers: `src/lib/websocket.ts`, `src/lib/websocket/AGENTS.md`, `src/hooks/useRealtimeData.ts`
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
 - Frontend locale state and shared formatting: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`
+- Vite version injection (`VITE_APP_VERSION`, `VITE_GIT_RUN_NUMBER`, `VITE_GIT_REVISION`), dev or preview `/health`, and build metadata: `vite.config.ts`, `package.json`
+- Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `playwright.config.ts`
 - Page hierarchy and route-domain handoff: `src/pages/AGENTS.md`
 
 ## CONVENTIONS
