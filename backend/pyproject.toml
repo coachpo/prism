@@ -43,3 +43,9 @@ include = ["app*"]
 dev = [
     "pytest>=8.3.5",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "backend_smoke: non-destructive backend smoke checks for merge-gating runs",
+    "backend_smoke_destructive: destructive backend smoke checks for explicit delete and cleanup runs",
+]
