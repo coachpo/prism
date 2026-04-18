@@ -12,5 +12,9 @@ export function DashboardAnalyticsContent() {
     state: state.state,
   });
 
-  return <UsageStatisticsContent data={data} state={state} />;
+  return (
+    <div className="flex flex-col gap-[var(--density-page-gap)]">
+      <UsageStatisticsContent data={data} state={state} />
+    </div>
+  );
 }

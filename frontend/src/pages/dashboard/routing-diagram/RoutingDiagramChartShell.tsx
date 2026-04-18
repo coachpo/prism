@@ -10,6 +10,13 @@ import type {
   RoutingNodeShapeProps,
 } from "./routingDiagramChartTypes";
 import { getChartPayload, isRoutingDiagramNode } from "./routingDiagramChartUtils";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+} from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 
 interface RoutingDiagramChartShellProps extends RoutingDiagramChartProps {
@@ -26,53 +33,60 @@ export function RoutingDiagramChartShell({
   const { messages } = useLocale();
 
   return (
-    <div className="rounded-2xl border bg-gradient-to-br from-background via-background to-muted/35 p-3 sm:p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <Network className="h-3.5 w-3.5" />
-          <span>{messages.dashboard.routingChartHint}</span>
+    <Card className="overflow-hidden border-border/70 bg-card/95 shadow-none">
+      <CardHeader className="gap-3 border-b">
+        <div className="grid min-w-0 flex-1 gap-1">
+          <CardDescription className="flex items-start gap-2 text-xs leading-relaxed">
+            <Network className="mt-0.5 size-3.5 shrink-0" />
+            <span>{messages.dashboard.routingChartHint}</span>
+          </CardDescription>
         </div>
-        <span className="rounded-full border bg-background/80 px-2.5 py-1 font-medium text-foreground">
-          {messages.dashboard.routingChartActionHint}
-        </span>
-      </div>
 
-      {children}
+        <CardAction className="flex items-center">
+          <span className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 px-3 py-1 text-xs font-medium text-foreground">
+            {messages.dashboard.routingChartActionHint}
+          </span>
+        </CardAction>
+      </CardHeader>
 
-      <div style={{ height: chartHeight }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <Sankey
-            data={chartData}
-            nodePadding={isCompact ? 18 : 24}
-            nodeWidth={isCompact ? 14 : 18}
-            margin={{
-              top: 12,
-              right: isCompact ? 84 : 148,
-              bottom: isCompact ? 28 : 36,
-              left: isCompact ? 84 : 148,
-            }}
-            sort={false}
-            onClick={(item: unknown, elementType: unknown) => {
-              if (elementType === "node") {
-                const node = getChartPayload(item);
-                if (isRoutingDiagramNode(node) && node.kind === "model") {
-                  onActivateNode(node);
+      <CardContent className="flex flex-col gap-4 pt-4 sm:pt-5">
+        {children}
+
+        <div style={{ height: chartHeight }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <Sankey
+              data={chartData}
+              nodePadding={isCompact ? 18 : 24}
+              nodeWidth={isCompact ? 14 : 18}
+              margin={{
+                top: 12,
+                right: isCompact ? 84 : 148,
+                bottom: isCompact ? 28 : 36,
+                left: isCompact ? 84 : 148,
+              }}
+              sort={false}
+              onClick={(item: unknown, elementType: unknown) => {
+                if (elementType === "node") {
+                  const node = getChartPayload(item);
+                  if (isRoutingDiagramNode(node) && node.kind === "model") {
+                    onActivateNode(node);
+                  }
                 }
-              }
-            }}
-            node={(props: RoutingNodeShapeProps) => (
-              <RoutingDiagramNodeShape compact={isCompact} onActivate={onActivateNode} props={props} />
-            )}
-            link={(props: RoutingLinkShapeProps) => <RoutingDiagramLinkShape props={props} />}
-          >
-            <RechartsTooltip
-              cursor={false}
-              wrapperStyle={{ outline: "none" }}
-              content={<RoutingDiagramTooltip />}
-            />
-          </Sankey>
-        </ResponsiveContainer>
-      </div>
-    </div>
+              }}
+              node={(props: RoutingNodeShapeProps) => (
+                <RoutingDiagramNodeShape compact={isCompact} onActivate={onActivateNode} props={props} />
+              )}
+              link={(props: RoutingLinkShapeProps) => <RoutingDiagramLinkShape props={props} />}
+            >
+              <RechartsTooltip
+                cursor={false}
+                wrapperStyle={{ outline: "none" }}
+                content={<RoutingDiagramTooltip />}
+              />
+            </Sankey>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
