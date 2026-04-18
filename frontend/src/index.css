@@ -148,25 +148,6 @@
     --info-foreground: oklch(0.985 0 0);
     --unhealthy: oklch(0.637 0.237 25.331);
     --unhealthy-foreground: oklch(0.985 0 0);
-
-    --density-page-gap: 1.5rem;
-    --density-page-pad-y: 1.5rem;
-    --density-page-pad-x: 1rem;
-    --density-shell-header-pad-y: 0.625rem;
-    --density-shell-header-pad-x: 1rem;
-    --density-card-gap: 1.25rem;
-    --density-card-pad-y: 1.25rem;
-    --density-card-pad-x: 1.25rem;
-    --density-metric-pad: 1rem;
-    --density-control-h: 2.25rem;
-    --density-control-h-sm: 2rem;
-    --density-control-h-xs: 1.75rem;
-    --density-table-head-h: 2.25rem;
-    --density-table-cell-py: 0.5rem;
-    --density-table-cell-px: 0.5rem;
-    --density-empty-pad-y: 2.5rem;
-    --density-sheet-pad: 1rem;
-    --density-dialog-pad: 1.25rem;
 }
 
 @layer base {
@@ -177,28 +158,51 @@
         height: 100%;
     }
     html {
-        --density-page-gap: 1.5rem;
-        --density-page-pad-y: 1.5rem;
-        --density-page-pad-x: 1rem;
+        --density-page-gap: 1.25rem;
+        --density-page-pad-y: 1.25rem;
+        --density-page-pad-x: 0.875rem;
         --density-shell-header-pad-y: 0.625rem;
-        --density-shell-header-pad-x: 1rem;
-        --density-card-gap: 1.25rem;
-        --density-card-pad-y: 1.25rem;
-        --density-card-pad-x: 1.25rem;
-        --density-metric-pad: 1rem;
+        --density-shell-header-pad-x: 0.875rem;
+        --density-card-gap: 1rem;
+        --density-card-pad-y: 1rem;
+        --density-card-pad-x: 1rem;
+        --density-metric-pad: 0.9375rem;
         --density-control-h: 2.25rem;
         --density-control-h-sm: 2rem;
         --density-control-h-xs: 1.75rem;
         --density-table-head-h: 2.25rem;
         --density-table-cell-py: 0.5rem;
         --density-table-cell-px: 0.5rem;
-        --density-empty-pad-y: 2.5rem;
-        --density-sheet-pad: 1rem;
-        --density-dialog-pad: 1.25rem;
+        --density-empty-pad-y: 2rem;
+        --density-sheet-pad: 0.875rem;
+        --density-dialog-pad: 1rem;
     }
     body {
         @apply bg-background text-foreground antialiased;
         font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    }
+}
+
+@media (min-width: 768px) {
+    html {
+        --density-page-gap: 1.5rem;
+        --density-page-pad-y: 1.5rem;
+        --density-page-pad-x: 1rem;
+        --density-shell-header-pad-x: 1rem;
+        --density-card-gap: 1.25rem;
+        --density-card-pad-y: 1.25rem;
+        --density-card-pad-x: 1.25rem;
+        --density-metric-pad: 1rem;
+        --density-empty-pad-y: 2.5rem;
+        --density-sheet-pad: 1rem;
+        --density-dialog-pad: 1.25rem;
+    }
+}
+
+@media (min-width: 1280px) {
+    html {
+        --density-page-pad-x: 1.25rem;
+        --density-shell-header-pad-x: 1.25rem;
     }
 }
 
@@ -257,11 +261,14 @@
     }
     .shell-section {
         gap: var(--density-page-gap);
+        min-width: 0;
     }
     .shell-frame {
         @apply mx-auto w-full max-w-screen-2xl;
+        min-width: 0;
     }
     .shell-page {
+        min-width: 0;
         padding-inline: var(--density-page-pad-x);
         padding-block: var(--density-page-pad-y);
     }

@@ -59,7 +59,7 @@ export function DashboardOverviewTab({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-[var(--density-page-gap)]">
       <DashboardMetricsGrid snapshot={metricSnapshot} highlighted={metricsHighlighted} />
 
       <DashboardHighlightsGrid
@@ -80,7 +80,7 @@ export function DashboardOverviewTab({
         onDrillDownRequests={onDrillDownRequests}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+      <div className="grid gap-[var(--density-card-gap)] md:grid-cols-2 lg:grid-cols-7">
         <RecentActivityCard
           recentRequests={recentRequests}
           recentNewIds={recentNewIds}

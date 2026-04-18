@@ -20,7 +20,7 @@ export function TopSpendingModelsCard({
   const { locale, messages } = useLocale();
 
   return (
-    <Card className="col-span-3">
+    <Card className="md:col-span-2 lg:col-span-3">
       <CardHeader>
         <CardTitle>{messages.dashboard.topSpendingModels}</CardTitle>
         <CardDescription>{messages.dashboard.topSpendingModelsDescription}</CardDescription>

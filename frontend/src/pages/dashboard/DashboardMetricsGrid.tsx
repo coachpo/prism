@@ -35,7 +35,7 @@ export function DashboardMetricsGrid({
   const { formatNumber, locale, messages } = useLocale();
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-[var(--density-card-gap)] md:grid-cols-2 lg:grid-cols-4">
       <MetricCard
         label={messages.dashboard.activeModels}
         value={snapshot.activeModels}
@@ -50,8 +50,8 @@ export function DashboardMetricsGrid({
         )}
         icon={<Activity className="h-4 w-4" />}
         className={cn(
-          "[&_[data-slot=icon]]:bg-blue-500/10 [&_[data-slot=icon]]:text-blue-500",
-          snapshot.successRate < 95 && "text-amber-600",
+          "[&_[data-slot=icon]]:bg-info/10 [&_[data-slot=icon]]:text-info",
+          snapshot.successRate < 95 && "[&_[data-slot=metric-value]]:text-warning",
           highlighted && "ws-value-updated"
         )}
       />
@@ -65,7 +65,7 @@ export function DashboardMetricsGrid({
         )}
         icon={<DollarSign className="h-4 w-4" />}
         className={cn(
-          "[&_[data-slot=icon]]:bg-emerald-500/10 [&_[data-slot=icon]]:text-emerald-500",
+          "[&_[data-slot=icon]]:bg-success/10 [&_[data-slot=icon]]:text-success",
           highlighted && "ws-value-updated"
         )}
       />

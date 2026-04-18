@@ -26,7 +26,7 @@ export function RecentActivityCard({
   const { formatNumber, locale, messages } = useLocale();
 
   return (
-    <Card className="col-span-4">
+    <Card className="md:col-span-2 lg:col-span-4">
       <CardHeader>
         <CardTitle>{messages.dashboard.recentActivity}</CardTitle>
         <CardDescription>{messages.dashboard.recentActivityDescription}</CardDescription>

@@ -56,7 +56,7 @@ export function RoutingDiagramShell({
 
       <CardContent className="space-y-4">
         {error ? (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <div className="rounded-xl border border-warning/35 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
             {error}
           </div>
         ) : null}
