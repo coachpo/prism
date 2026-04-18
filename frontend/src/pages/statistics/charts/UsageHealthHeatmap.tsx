@@ -10,8 +10,6 @@ interface UsageHealthHeatmapProps {
   intervalMinutes: number;
 }
 
-const CELL_SIZE_PX = 12;
-const CELL_GAP_PX = 4;
 const HEATMAP_ROW_COUNT = 12;
 const HEATMAP_COLUMN_COUNT = 56;
 const HEATMAP_CELL_COUNT = HEATMAP_ROW_COUNT * HEATMAP_COLUMN_COUNT;
@@ -24,11 +22,11 @@ const BUCKET_LABEL_FORMAT_OPTIONS = {
   year: undefined,
 } satisfies Intl.DateTimeFormatOptions;
 const AVAILABILITY_PALETTE = [
-  "rgb(203, 213, 225)",
-  "rgb(239, 68, 68)",
-  "rgb(250, 204, 21)",
-  "rgb(142, 201, 58)",
-  "rgb(34, 197, 94)",
+  "color-mix(in oklab, var(--muted-foreground) 16%, var(--card))",
+  "color-mix(in oklab, var(--unhealthy) 78%, var(--card))",
+  "color-mix(in oklab, var(--warning) 82%, var(--card))",
+  "color-mix(in oklab, var(--chart-4) 84%, var(--card))",
+  "color-mix(in oklab, var(--success) 84%, var(--card))",
 ];
 
 type HeatmapCell = {
@@ -56,93 +54,104 @@ export function UsageHealthHeatmap({ cells, intervalMinutes }: UsageHealthHeatma
   );
 
   return (
-    <div className="space-y-3" data-testid="usage-health-heatmap">
-      <div className="space-y-3" data-testid="usage-health-heatmap-calendar">
-        <ScrollArea className="w-full" data-testid="usage-health-grid-scroll">
-          <div className="flex w-full justify-center px-1 py-2">
-            <TooltipProvider delayDuration={0} disableHoverableContent>
-              <section
-                aria-label={messages.statistics.serviceHealthTitle}
-                className="flex min-w-max flex-col"
-                data-testid="usage-health-grid"
-                style={{ gap: `${CELL_GAP_PX}px` }}
-              >
-                {rows.map((row) => (
-                  <div
-                    className="flex flex-row"
-                    data-testid="usage-health-row"
-                    key={row[0]?.key ?? "usage-health-row"}
-                    style={{ gap: `${CELL_GAP_PX}px` }}
-                  >
-                    {row.map((cell) => (
-                      <Tooltip key={cell.key}>
-                        <TooltipTrigger asChild>
-                          <button
-                            aria-label={`${cell.label} ${statusLabels[cell.bucket.status]} ${formatAvailabilityLine(cell.bucket, formatNumber, messages.statistics.availability)}`}
-                            className="rounded-[3px] outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                            data-level={String(cell.level)}
-                            data-status={cell.bucket.status}
-                            data-testid="usage-health-cell"
-                            style={{
-                              backgroundColor: AVAILABILITY_PALETTE[clampLevel(cell.level, AVAILABILITY_PALETTE.length)],
-                              height: CELL_SIZE_PX,
-                              width: CELL_SIZE_PX,
-                            }}
-                            type="button"
-                          />
-                        </TooltipTrigger>
-                        <TooltipContent data-testid="usage-health-tooltip" side="top" sideOffset={6}>
-                          <div className="space-y-1.5">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-background/80">
-                              {cell.rangeLabel}
-                            </p>
-                            <p className="font-medium text-background/90">{statusLabels[cell.bucket.status]}</p>
-                            <p className="font-medium">
-                              {formatAvailabilityLine(cell.bucket, formatNumber, messages.statistics.availability)}
-                            </p>
-                            <p>
-                              {messages.statistics.requests} {formatNumber(cell.bucket.request_count)}
-                            </p>
-                            <p>
-                              {messages.statistics.successfulCount(formatNumber(cell.bucket.success_count))} · {" "}
-                              {messages.statistics.failedCount(formatNumber(cell.bucket.failed_count))}
-                            </p>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </div>
-                ))}
-              </section>
-            </TooltipProvider>
-          </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+    <div className="flex flex-col gap-4" data-testid="usage-health-heatmap">
+      <div className="flex flex-col gap-4" data-testid="usage-health-heatmap-calendar">
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/20">
+          <ScrollArea className="w-full" data-testid="usage-health-grid-scroll">
+            <div className="flex w-full justify-center px-3 py-3 sm:px-4">
+              <TooltipProvider delayDuration={0} disableHoverableContent>
+                <section
+                  aria-label={messages.statistics.serviceHealthTitle}
+                  className="flex min-w-max flex-col gap-1"
+                  data-testid="usage-health-grid"
+                >
+                  {rows.map((row) => (
+                    <div
+                      className="flex flex-row gap-1"
+                      data-testid="usage-health-row"
+                      key={row[0]?.key ?? "usage-health-row"}
+                    >
+                      {row.map((cell) => (
+                        <Tooltip key={cell.key}>
+                          <TooltipTrigger asChild>
+                            <button
+                              aria-label={`${cell.label} ${statusLabels[cell.bucket.status]} ${formatAvailabilityLine(cell.bucket, formatNumber, messages.statistics.availability)}`}
+                              className="size-3 rounded-sm outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              data-level={String(cell.level)}
+                              data-status={cell.bucket.status}
+                              data-testid="usage-health-cell"
+                              style={{
+                                backgroundColor: AVAILABILITY_PALETTE[clampLevel(cell.level, AVAILABILITY_PALETTE.length)],
+                              }}
+                              type="button"
+                            />
+                          </TooltipTrigger>
+                          <TooltipContent
+                            className="rounded-xl border border-border/70 bg-popover/95 px-3 py-2 shadow-md backdrop-blur-sm"
+                            data-testid="usage-health-tooltip"
+                            side="top"
+                            sideOffset={6}
+                          >
+                            <div className="flex flex-col gap-1.5">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                {cell.rangeLabel}
+                              </p>
+                              <p className="font-medium text-foreground">{statusLabels[cell.bucket.status]}</p>
+                              <p className="font-medium">
+                                {formatAvailabilityLine(cell.bucket, formatNumber, messages.statistics.availability)}
+                              </p>
+                              <p>
+                                {messages.statistics.requests} {formatNumber(cell.bucket.request_count)}
+                              </p>
+                              <p>
+                                {messages.statistics.successfulCount(formatNumber(cell.bucket.success_count))} · {" "}
+                                {messages.statistics.failedCount(formatNumber(cell.bucket.failed_count))}
+                              </p>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      ))}
+                    </div>
+                  ))}
+                </section>
+              </TooltipProvider>
+            </div>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
 
         <div
-          className="mx-auto flex w-fit items-center justify-center gap-2 text-center text-xs text-muted-foreground"
+          className="flex flex-wrap items-center justify-center gap-3 text-center text-xs text-muted-foreground"
           data-testid="usage-health-legend"
         >
-          <span data-testid="usage-health-legend-oldest">{messages.statistics.oldest}</span>
+          <span className="font-medium" data-testid="usage-health-legend-oldest">
+            {messages.statistics.oldest}
+          </span>
 
-          <div className="flex items-center justify-center" style={{ gap: `${CELL_GAP_PX}px` }}>
-            {AVAILABILITY_PALETTE.map((color, level) => (
-              <div
-                aria-hidden="true"
-                className="rounded-[3px]"
-                data-level={String(level)}
-                data-testid="usage-health-legend-swatch"
-                key={`usage-health-legend-${color}`}
-                style={{
-                  backgroundColor: color,
-                  height: CELL_SIZE_PX,
-                  width: CELL_SIZE_PX,
-                }}
-              />
-            ))}
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+            <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {messages.statistics.heatmapLegendLessAvailability}
+            </span>
+            <div className="flex items-center justify-center gap-1">
+              {AVAILABILITY_PALETTE.map((color, level) => (
+                <div
+                  aria-hidden="true"
+                  className="size-3 rounded-sm"
+                  data-level={String(level)}
+                  data-testid="usage-health-legend-swatch"
+                  key={`usage-health-legend-${color}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+            <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+              {messages.statistics.heatmapLegendMoreAvailability}
+            </span>
           </div>
 
-          <span data-testid="usage-health-legend-latest">{messages.statistics.latest}</span>
+          <span className="font-medium" data-testid="usage-health-legend-latest">
+            {messages.statistics.latest}
+          </span>
         </div>
       </div>
     </div>

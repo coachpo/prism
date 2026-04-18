@@ -1,4 +1,10 @@
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import type { UsageServiceHealth } from "@/lib/types";
 import { UsageHealthHeatmap } from "../charts/UsageHealthHeatmap";
@@ -21,29 +27,39 @@ export function UsageServiceHealthSection({ serviceHealth }: UsageServiceHealthS
 
   return (
     <section>
-      <Card className="border-border/70 bg-card/95 shadow-none" data-testid="usage-service-health-card">
-        <CardHeader className="grid-cols-[1fr_auto] grid-rows-1 items-start gap-4 pb-2">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">{messages.statistics.serviceHealthTitle}</h2>
+      <Card
+        className="@container/card border-border/70 bg-card/95 shadow-none"
+        data-testid="usage-service-health-card"
+      >
+        <CardHeader className="gap-3 border-b">
+          <div className="grid min-w-0 flex-1 gap-1">
+            <CardTitle className="text-base">
+              <h2>{messages.statistics.serviceHealthTitle}</h2>
+            </CardTitle>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2" data-testid="usage-health-header-meta">
-            <p
-              className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground"
-              data-testid="usage-health-window-label"
-            >
-              {messages.statistics.serviceHealthWindowDays(windowDayCount)}
-            </p>
+          <CardAction className="flex items-center">
             <div
-              className="inline-flex items-center rounded-full border border-border/50 bg-muted/20 px-3 py-1 text-sm font-semibold tabular-nums"
-              data-testid="usage-health-availability-badge"
+              className="flex flex-wrap items-center justify-end gap-2"
+              data-testid="usage-health-header-meta"
             >
-              {availabilitySummary}
+              <p
+                className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
+                data-testid="usage-health-window-label"
+              >
+                {messages.statistics.serviceHealthWindowDays(windowDayCount)}
+              </p>
+              <div
+                className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 px-3 py-1 text-sm font-semibold tabular-nums"
+                data-testid="usage-health-availability-badge"
+              >
+                {availabilitySummary}
+              </div>
             </div>
-          </div>
+          </CardAction>
         </CardHeader>
 
-        <CardContent className="pt-5">
+        <CardContent className="pt-4 sm:pt-5">
           <UsageHealthHeatmap cells={serviceHealth.cells} intervalMinutes={serviceHealth.interval_minutes} />
         </CardContent>
       </Card>

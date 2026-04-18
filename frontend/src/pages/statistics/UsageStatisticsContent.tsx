@@ -31,7 +31,7 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
   const snapshot = data.snapshot;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-[var(--density-page-gap)]">
       <UsageControlsBar
         generatedAt={snapshot?.generated_at ?? null}
         loading={data.loading}
@@ -54,7 +54,7 @@ export function UsageStatisticsContent({ data, state }: UsageStatisticsContentPr
       {data.error ? <UsageErrorBanner error={data.error} /> : null}
 
       {snapshot ? (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-[var(--density-page-gap)]">
           <UsageOverviewSection
             costSummary={data.costSummary ?? snapshot.cost_overview}
             currency={snapshot.currency}
