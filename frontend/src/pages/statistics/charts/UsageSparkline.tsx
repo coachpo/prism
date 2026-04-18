@@ -1,5 +1,7 @@
+import { useId } from "react";
 import { Area, AreaChart } from "recharts";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import { cn } from "@/lib/utils";
 
 export interface UsageSparklinePoint {
   label: string;
@@ -19,6 +21,7 @@ export function UsageSparkline({
   color = "var(--color-chart-1)",
   points,
 }: UsageSparklineProps) {
+  const gradientId = `${useId().replace(/:/g, "")}-usage-sparkline-fill`;
   const config: ChartConfig = {
     value: {
       color,
@@ -27,21 +30,27 @@ export function UsageSparkline({
   };
 
   return (
-    <ChartContainer aria-label={ariaLabel} className={className ?? "h-14 w-full"} config={config}>
-      <AreaChart data={points} margin={{ bottom: 0, left: 0, right: 0, top: 0 }}>
+    <ChartContainer
+      aria-label={ariaLabel}
+      className={cn("aspect-auto h-14 w-full", className)}
+      config={config}
+    >
+      <AreaChart accessibilityLayer data={points} margin={{ bottom: 0, left: 2, right: 2, top: 2 }}>
         <defs>
-          <linearGradient id="usage-sparkline-fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.38} />
+            <stop offset="95%" stopColor={color} stopOpacity={0.02} />
           </linearGradient>
         </defs>
         <Area
           dataKey="value"
-          fill="url(#usage-sparkline-fill)"
+          fill={`url(#${gradientId})`}
           isAnimationActive={false}
           stroke={color}
-          strokeWidth={2}
-          type="monotone"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.75}
+          type="natural"
         />
       </AreaChart>
     </ChartContainer>

@@ -1,15 +1,23 @@
-import { useMemo } from "react";
-import { Line, LineChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { useId, useMemo } from "react";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { UsageChartGranularity } from "@/lib/types";
 import { useLocale } from "@/i18n/useLocale";
+import type { UsageChartGranularity } from "@/lib/types";
 
 export interface UsageTrendChartSeriesPoint {
   bucket_start: string;
@@ -33,7 +41,7 @@ interface UsageTrendChartProps {
   title: string;
 }
 
-const LINE_COLORS = [
+const SERIES_COLORS = [
   "var(--color-chart-1)",
   "var(--color-chart-2)",
   "var(--color-chart-3)",
@@ -44,6 +52,12 @@ const LINE_COLORS = [
   "var(--color-warning)",
   "var(--color-info)",
 ];
+
+type ChartSeries = UsageTrendChartSeries & {
+  gradientId: string;
+  isPrimary: boolean;
+  safeKey: string;
+};
 
 export function UsageTrendChart({
   description,
@@ -56,10 +70,22 @@ export function UsageTrendChart({
   title,
 }: UsageTrendChartProps) {
   const { locale, messages } = useLocale();
+  const chartId = useId().replace(/:/g, "");
 
-  const chartSeries = useMemo(
-    () => series.map((item, index) => ({ ...item, safeKey: `series_${index}` })),
-    [series],
+  const chartSeries = useMemo<ChartSeries[]>(
+    () =>
+      series.map((item, index) => ({
+        ...item,
+        gradientId: `${chartId}-series-${index}`,
+        isPrimary: item.key === "all",
+        safeKey: `series_${index}`,
+      })),
+    [chartId, series],
+  );
+
+  const renderedSeries = useMemo(
+    () => [...chartSeries].sort((left, right) => Number(left.isPrimary) - Number(right.isPrimary)),
+    [chartSeries],
   );
 
   const chartData = useMemo(() => {
@@ -84,7 +110,7 @@ export function UsageTrendChart({
     () =>
       chartSeries.reduce<ChartConfig>((accumulator, item, index) => {
         accumulator[item.safeKey] = {
-          color: LINE_COLORS[index % LINE_COLORS.length],
+          color: SERIES_COLORS[index % SERIES_COLORS.length],
           label: item.label,
         };
         return accumulator;
@@ -101,81 +127,121 @@ export function UsageTrendChart({
     }).format(date);
   };
 
-  return (
-    <div className="rounded-xl border border-border/70 bg-card/95 p-[var(--density-card-pad-x)] shadow-none">
-      <div className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <h3 className="text-base font-semibold tracking-tight">{title}</h3>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => onGranularityChange("hourly")}
-            size="sm"
-            variant={granularity === "hourly" ? "default" : "outline"}
-          >
-            {messages.statistics.byHour}
-          </Button>
-          <Button
-            onClick={() => onGranularityChange("daily")}
-            size="sm"
-            variant={granularity === "daily" ? "default" : "outline"}
-          >
-            {messages.statistics.byDay}
-          </Button>
-        </div>
-      </div>
+  const isEmpty = chartSeries.length === 0 || chartData.length === 0;
 
-      {chartSeries.length === 0 || chartData.length === 0 ? (
-        <EmptyState className="py-10" description={emptyDescription} title={emptyTitle} />
+  return (
+    <Card className="@container/card border-border/70 bg-card/95 shadow-none">
+      <CardHeader className="gap-3 border-b">
+        <div className="grid flex-1 gap-1">
+          <CardTitle className="text-base">
+            <h3>{title}</h3>
+          </CardTitle>
+          <CardDescription className="max-w-[48ch]">{description}</CardDescription>
+        </div>
+        <CardAction className="flex items-center">
+          <div className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+            <Button
+              aria-pressed={granularity === "hourly"}
+              className="shadow-none"
+              onClick={() => onGranularityChange("hourly")}
+              size="sm"
+              type="button"
+              variant={granularity === "hourly" ? "secondary" : "ghost"}
+            >
+              {messages.statistics.byHour}
+            </Button>
+            <Button
+              aria-pressed={granularity === "daily"}
+              className="shadow-none"
+              onClick={() => onGranularityChange("daily")}
+              size="sm"
+              type="button"
+              variant={granularity === "daily" ? "secondary" : "ghost"}
+            >
+              {messages.statistics.byDay}
+            </Button>
+          </div>
+        </CardAction>
+      </CardHeader>
+
+      {isEmpty ? (
+        <CardContent className="pt-2">
+          <EmptyState className="py-10" description={emptyDescription} title={emptyTitle} />
+        </CardContent>
       ) : (
-        <ChartContainer className="mt-6 h-72 w-full" config={config}>
-          <LineChart data={chartData} margin={{ bottom: 0, left: 0, right: 12, top: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis
-              axisLine={false}
-              dataKey="bucket_start"
-              minTickGap={24}
-              tickFormatter={(value) => formatBucket(String(value))}
-              tickLine={false}
-            />
-            <YAxis
-              axisLine={false}
-              tickFormatter={(value) => (formatValue ? formatValue(Number(value)) : String(value))}
-              tickLine={false}
-              width={72}
-            />
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  formatter={(value, name) => (
-                    <div className="flex w-full items-center justify-between gap-3">
-                      <span className="text-muted-foreground">{name}</span>
-                      <span className="font-medium text-foreground">
-                        {formatValue ? formatValue(Number(value)) : String(value)}
-                      </span>
-                    </div>
-                  )}
-                  labelFormatter={(value) => formatBucket(String(value))}
-                />
-              }
-            />
-            {chartSeries.map((item, index) => (
-              <Line
-                dataKey={item.safeKey}
-                dot={false}
-                isAnimationActive={false}
-                key={item.safeKey}
-                name={item.label}
-                stroke={LINE_COLORS[index % LINE_COLORS.length]}
-                strokeLinecap="round"
-                strokeWidth={item.key === "all" ? 3 : 2}
-                type="monotone"
+        <CardContent className="pt-4 sm:pt-6">
+          <ChartContainer className="aspect-auto h-72 w-full" config={config}>
+            <AreaChart
+              accessibilityLayer
+              data={chartData}
+              margin={{ bottom: 0, left: 12, right: 12, top: 8 }}
+            >
+              <defs>
+                {chartSeries.map((item) => {
+                  const startOpacity = item.isPrimary ? 0.5 : 0.22;
+                  const endOpacity = item.isPrimary ? 0.06 : 0.01;
+
+                  return (
+                    <linearGradient id={item.gradientId} key={item.gradientId} x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="5%" stopColor={`var(--color-${item.safeKey})`} stopOpacity={startOpacity} />
+                      <stop offset="95%" stopColor={`var(--color-${item.safeKey})`} stopOpacity={endOpacity} />
+                    </linearGradient>
+                  );
+                })}
+              </defs>
+              <CartesianGrid vertical={false} />
+              <XAxis
+                axisLine={false}
+                dataKey="bucket_start"
+                minTickGap={32}
+                tickFormatter={(value) => formatBucket(String(value))}
+                tickLine={false}
+                tickMargin={8}
               />
-            ))}
-          </LineChart>
-        </ChartContainer>
+              <YAxis
+                axisLine={false}
+                tickFormatter={(value) => (formatValue ? formatValue(Number(value)) : String(value))}
+                tickLine={false}
+                tickMargin={10}
+                tickCount={4}
+                width={72}
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    formatter={(value, name) => (
+                      <div className="flex w-full items-center justify-between gap-3">
+                        <span className="text-muted-foreground">{name}</span>
+                        <span className="font-medium text-foreground">
+                          {formatValue ? formatValue(Number(value)) : String(value)}
+                        </span>
+                      </div>
+                    )}
+                    indicator={chartSeries.length > 1 ? "dot" : "line"}
+                    labelFormatter={(value) => formatBucket(String(value))}
+                  />
+                }
+                cursor={false}
+              />
+              {renderedSeries.map((item) => (
+                <Area
+                  activeDot={{ r: item.isPrimary ? 4 : 3 }}
+                  dataKey={item.safeKey}
+                  fill={`url(#${item.gradientId})`}
+                  isAnimationActive={false}
+                  key={item.safeKey}
+                  name={item.label}
+                  stroke={`var(--color-${item.safeKey})`}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={item.isPrimary ? 2.5 : 2}
+                  type="natural"
+                />
+              ))}
+            </AreaChart>
+          </ChartContainer>
+        </CardContent>
       )}
-    </div>
+    </Card>
   );
 }
