@@ -3,7 +3,16 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "rec
 import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
 import { TopSpendingCard } from "@/components/statistics/TopSpendingCard";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
@@ -42,6 +51,45 @@ interface UsageBreakdownSectionProps {
   tokenTypeBreakdown: UsageTokenTypeBreakdownPoint[];
 }
 
+interface ChartGranularityToggleProps {
+  activeGranularity: UsageChartGranularity;
+  dayLabel: string;
+  hourLabel: string;
+  onChange: (granularity: UsageChartGranularity) => void;
+}
+
+function ChartGranularityToggle({
+  activeGranularity,
+  dayLabel,
+  hourLabel,
+  onChange,
+}: ChartGranularityToggleProps) {
+  return (
+    <div className="inline-flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
+      <Button
+        aria-pressed={activeGranularity === "hourly"}
+        className="shadow-none"
+        onClick={() => onChange("hourly")}
+        size="sm"
+        type="button"
+        variant={activeGranularity === "hourly" ? "secondary" : "ghost"}
+      >
+        {hourLabel}
+      </Button>
+      <Button
+        aria-pressed={activeGranularity === "daily"}
+        className="shadow-none"
+        onClick={() => onChange("daily")}
+        size="sm"
+        type="button"
+        variant={activeGranularity === "daily" ? "secondary" : "ghost"}
+      >
+        {dayLabel}
+      </Button>
+    </div>
+  );
+}
+
 export function UsageBreakdownSection({
   chartGranularity,
   costSummary,
@@ -60,7 +108,12 @@ export function UsageBreakdownSection({
       output_tokens: { color: "var(--color-chart-2)", label: messages.statistics.output },
       reasoning_tokens: { color: "var(--color-chart-3)", label: messages.requestLogs.reasoning },
     }),
-    [messages.requestLogs.reasoning, messages.statistics.cachedPrefix, messages.statistics.input, messages.statistics.output],
+    [
+      messages.requestLogs.reasoning,
+      messages.statistics.cachedPrefix,
+      messages.statistics.input,
+      messages.statistics.output,
+    ],
   );
   const costConfig = useMemo<ChartConfig>(
     () => ({
@@ -79,8 +132,7 @@ export function UsageBreakdownSection({
     [topEndpointSpendStatistics],
   );
   const topEndpointTotalCostMicros = useMemo(
-    () =>
-      topEndpointSpendStatistics.reduce((sum, item) => sum + item.total_cost_micros, 0),
+    () => topEndpointSpendStatistics.reduce((sum, item) => sum + item.total_cost_micros, 0),
     [topEndpointSpendStatistics],
   );
   const topModelItems = useMemo(
@@ -106,161 +158,244 @@ export function UsageBreakdownSection({
   const hasMissingPricing = !hasPricingCoverage && (costSummary.unpriced_request_count ?? 0) > 0;
 
   return (
-    <section className="space-y-4">
-      <div className="space-y-1">
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold tracking-tight">{messages.statistics.tokenTypeBreakdownTitle}</h2>
         <p className="text-sm text-muted-foreground">{messages.statistics.costOverviewTitle}</p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-xl border border-border/70 bg-card/95 p-[var(--density-card-pad-x)] shadow-none">
-          <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-4">
-            <div className="space-y-1">
-              <h3 className="text-base font-semibold tracking-tight">{messages.statistics.tokenTypeBreakdownTitle}</h3>
-              <p className="text-sm text-muted-foreground">{messages.statistics.inputOutputSpecial}</p>
+        <Card className="border-border/70 bg-card/95 shadow-none">
+          <CardHeader className="gap-3 border-b">
+            <div className="grid flex-1 gap-1">
+              <CardTitle className="text-base">
+                <h3>{messages.statistics.tokenTypeBreakdownTitle}</h3>
+              </CardTitle>
+              <CardDescription>{messages.statistics.inputOutputSpecial}</CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => onSetChartGranularity("tokenTypeBreakdown", "hourly")}
-                size="sm"
-                variant={chartGranularity.tokenTypeBreakdown === "hourly" ? "default" : "outline"}
-              >
-                {messages.statistics.byHour}
-              </Button>
-              <Button
-                onClick={() => onSetChartGranularity("tokenTypeBreakdown", "daily")}
-                size="sm"
-                variant={chartGranularity.tokenTypeBreakdown === "daily" ? "default" : "outline"}
-              >
-                {messages.statistics.byDay}
-              </Button>
-            </div>
-          </div>
-          {tokenData.length === 0 ? (
-            <EmptyState className="py-10" description={messages.statistics.adjustFiltersOrTimeRange} title={messages.statistics.noTokenUsage} />
-          ) : (
-            <ChartContainer className="mt-6 h-80 w-full" config={tokenBreakdownConfig}>
-              <BarChart data={tokenData} margin={{ bottom: 0, left: 0, right: 12, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  axisLine={false}
-                  dataKey="bucket_start"
-                  minTickGap={24}
-                  tickFormatter={(value) => formatBucket(String(value), chartGranularity.tokenTypeBreakdown)}
-                  tickLine={false}
-                />
-                <YAxis axisLine={false} tickFormatter={(value) => formatNumber(Number(value))} tickLine={false} width={72} />
-                <ChartTooltip
-                  content={<ChartTooltipContent labelFormatter={(value) => formatBucket(String(value), chartGranularity.tokenTypeBreakdown)} />}
-                />
-                <Bar dataKey="input_tokens" fill="var(--color-chart-1)" isAnimationActive={false} radius={[4, 4, 0, 0]} stackId="tokens" />
-                <Bar dataKey="output_tokens" fill="var(--color-chart-2)" isAnimationActive={false} radius={[4, 4, 0, 0]} stackId="tokens" />
-                <Bar dataKey="cached_tokens" fill="var(--color-chart-4)" isAnimationActive={false} radius={[4, 4, 0, 0]} stackId="tokens" />
-                <Bar dataKey="reasoning_tokens" fill="var(--color-chart-3)" isAnimationActive={false} radius={[4, 4, 0, 0]} stackId="tokens" />
-              </BarChart>
-            </ChartContainer>
-          )}
-        </div>
+            <CardAction className="flex items-center">
+              <ChartGranularityToggle
+                activeGranularity={chartGranularity.tokenTypeBreakdown}
+                dayLabel={messages.statistics.byDay}
+                hourLabel={messages.statistics.byHour}
+                onChange={(granularity) => onSetChartGranularity("tokenTypeBreakdown", granularity)}
+              />
+            </CardAction>
+          </CardHeader>
 
-        <div className="rounded-xl border border-border/70 bg-card/95 p-[var(--density-card-pad-x)] shadow-none">
-          <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-4">
-            <div className="space-y-1">
-              <h3 className="text-base font-semibold tracking-tight">{messages.statistics.costOverviewTitle}</h3>
-              <p className="text-sm text-muted-foreground">{messages.statistics.requestBasedSpend}</p>
+          {tokenData.length === 0 ? (
+            <CardContent className="pt-2">
+              <EmptyState
+                className="py-10"
+                description={messages.statistics.adjustFiltersOrTimeRange}
+                title={messages.statistics.noTokenUsage}
+              />
+            </CardContent>
+          ) : (
+            <CardContent className="pt-4 sm:pt-6">
+              <ChartContainer className="aspect-auto h-80 w-full" config={tokenBreakdownConfig}>
+                <BarChart
+                  accessibilityLayer
+                  barCategoryGap="28%"
+                  data={tokenData}
+                  margin={{ bottom: 0, left: 12, right: 12, top: 8 }}
+                >
+                  <CartesianGrid vertical={false} />
+                  <XAxis
+                    axisLine={false}
+                    dataKey="bucket_start"
+                    minTickGap={32}
+                    tickFormatter={(value) => formatBucket(String(value), chartGranularity.tokenTypeBreakdown)}
+                    tickLine={false}
+                    tickMargin={8}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickCount={4}
+                    tickFormatter={(value) => formatNumber(Number(value))}
+                    tickLine={false}
+                    tickMargin={10}
+                    width={72}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(value) => formatBucket(String(value), chartGranularity.tokenTypeBreakdown)}
+                      />
+                    }
+                    cursor={false}
+                  />
+                  <Bar
+                    dataKey="input_tokens"
+                    fill="var(--color-chart-1)"
+                    isAnimationActive={false}
+                    radius={[4, 4, 0, 0]}
+                    stackId="tokens"
+                    stroke="var(--background)"
+                    strokeWidth={1}
+                  />
+                  <Bar
+                    dataKey="output_tokens"
+                    fill="var(--color-chart-2)"
+                    isAnimationActive={false}
+                    radius={[4, 4, 0, 0]}
+                    stackId="tokens"
+                    stroke="var(--background)"
+                    strokeWidth={1}
+                  />
+                  <Bar
+                    dataKey="cached_tokens"
+                    fill="var(--color-chart-4)"
+                    isAnimationActive={false}
+                    radius={[4, 4, 0, 0]}
+                    stackId="tokens"
+                    stroke="var(--background)"
+                    strokeWidth={1}
+                  />
+                  <Bar
+                    dataKey="reasoning_tokens"
+                    fill="var(--color-chart-3)"
+                    isAnimationActive={false}
+                    radius={[4, 4, 0, 0]}
+                    stackId="tokens"
+                    stroke="var(--background)"
+                    strokeWidth={1}
+                  />
+                </BarChart>
+              </ChartContainer>
+            </CardContent>
+          )}
+        </Card>
+
+        <Card className="border-border/70 bg-card/95 shadow-none">
+          <CardHeader className="gap-3 border-b">
+            <div className="grid flex-1 gap-1">
+              <CardTitle className="text-base">
+                <h3>{messages.statistics.costOverviewTitle}</h3>
+              </CardTitle>
+              <CardDescription>{messages.statistics.requestBasedSpend}</CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => onSetChartGranularity("costOverview", "hourly")}
-                size="sm"
-                variant={chartGranularity.costOverview === "hourly" ? "default" : "outline"}
-              >
-                {messages.statistics.byHour}
-              </Button>
-              <Button
-                onClick={() => onSetChartGranularity("costOverview", "daily")}
-                size="sm"
-                variant={chartGranularity.costOverview === "daily" ? "default" : "outline"}
-              >
-                {messages.statistics.byDay}
-              </Button>
-            </div>
-          </div>
+            <CardAction className="flex items-center">
+              <ChartGranularityToggle
+                activeGranularity={chartGranularity.costOverview}
+                dayLabel={messages.statistics.byDay}
+                hourLabel={messages.statistics.byHour}
+                onChange={(granularity) => onSetChartGranularity("costOverview", granularity)}
+              />
+            </CardAction>
+          </CardHeader>
 
           {hasMissingPricing ? (
-            <EmptyState
-              action={
-                <Button asChild size="sm">
-                  <Link to="/pricing-templates">{messages.statistics.openPricingTemplates}</Link>
-                </Button>
-              }
-              className="py-10"
-              description={messages.statistics.pricingDataMissingDescription}
-              title={messages.statistics.pricingDataMissingTitle}
-            />
+            <CardContent className="pt-2">
+              <EmptyState
+                action={
+                  <Button asChild size="sm">
+                    <Link to="/pricing-templates">{messages.statistics.openPricingTemplates}</Link>
+                  </Button>
+                }
+                className="py-10"
+                description={messages.statistics.pricingDataMissingDescription}
+                title={messages.statistics.pricingDataMissingTitle}
+              />
+            </CardContent>
           ) : !hasPricingCoverage || costOverviewSeries.length === 0 ? (
-            <EmptyState className="py-10" description={messages.statistics.adjustFiltersOrTimeRange} title={messages.statistics.noCostRecordsFound} />
+            <CardContent className="pt-2">
+              <EmptyState
+                className="py-10"
+                description={messages.statistics.adjustFiltersOrTimeRange}
+                title={messages.statistics.noCostRecordsFound}
+              />
+            </CardContent>
           ) : (
-            <div className="space-y-6 pt-6">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div data-testid="usage-cost-summary-card">
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{messages.statistics.totalSpend}</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight" data-testid="usage-cost-summary-total">
-                    {formatMoneyMicros(costSummary.total_cost_micros, currency.symbol, currency.code, 2, 6, locale)}
-                  </p>
-                </div>
-                <div className="text-right text-sm text-muted-foreground">
-                  {costSummary.priced_request_count !== null ? (
-                    <p>{messages.statistics.pricedRequests(String(costSummary.priced_request_count))}</p>
-                  ) : null}
-                  {(costSummary.unpriced_request_count ?? 0) > 0 ? (
-                    <p>{messages.statistics.unpriced(String(costSummary.unpriced_request_count))}</p>
-                  ) : null}
+            <CardContent className="flex flex-col gap-6 pt-4 sm:pt-6">
+              <div
+                className="rounded-xl border border-border/60 bg-muted/20 p-4"
+                data-testid="usage-cost-summary-card"
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {messages.statistics.totalSpend}
+                    </p>
+                    <p
+                      className="text-3xl font-semibold tracking-tight sm:text-[2rem]"
+                      data-testid="usage-cost-summary-total"
+                    >
+                      {formatMoneyMicros(costSummary.total_cost_micros, currency.symbol, currency.code, 2, 6, locale)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    {costSummary.priced_request_count !== null ? (
+                      <Badge className="font-medium tabular-nums" variant="secondary">
+                        {messages.statistics.pricedRequests(String(costSummary.priced_request_count))}
+                      </Badge>
+                    ) : null}
+                    {(costSummary.unpriced_request_count ?? 0) > 0 ? (
+                      <Badge className="font-medium tabular-nums" variant="outline">
+                        {messages.statistics.unpriced(String(costSummary.unpriced_request_count))}
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
-              <ChartContainer className="h-56 w-full" config={costConfig}>
-                <AreaChart data={costOverviewSeries} margin={{ bottom: 0, left: 0, right: 12, top: 8 }}>
+              <ChartContainer className="aspect-auto h-56 w-full" config={costConfig}>
+                <AreaChart
+                  accessibilityLayer
+                  data={costOverviewSeries}
+                  margin={{ bottom: 0, left: 12, right: 12, top: 8 }}
+                >
                   <defs>
                     <linearGradient id="usage-cost-fill" x1="0" x2="0" y1="0" y2="1">
                       <stop offset="0%" stopColor="var(--color-chart-3)" stopOpacity={0.35} />
                       <stop offset="100%" stopColor="var(--color-chart-3)" stopOpacity={0.04} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid vertical={false} />
                   <XAxis
                     axisLine={false}
                     dataKey="bucket_start"
-                    minTickGap={24}
+                    minTickGap={32}
                     tickFormatter={(value) => formatBucket(String(value), chartGranularity.costOverview)}
                     tickLine={false}
+                    tickMargin={8}
                   />
                   <YAxis
                     axisLine={false}
+                    tickCount={4}
                     tickFormatter={(value) =>
                       formatMoneyMicros(Number(value), currency.symbol, currency.code, 0, 3, locale)
                     }
                     tickLine={false}
-                    width={90}
+                    tickMargin={10}
+                    width={92}
                   />
                   <ChartTooltip
                     content={
                       <ChartTooltipContent
                         formatter={(value) => (
-                          <span className="font-medium text-foreground">
-                            {formatMoneyMicros(Number(value), currency.symbol, currency.code, 2, 6, locale)}
-                          </span>
+                          <div className="flex w-full items-center justify-between gap-3">
+                            <span className="text-muted-foreground">{messages.statistics.totalSpend}</span>
+                            <span className="font-medium text-foreground">
+                              {formatMoneyMicros(Number(value), currency.symbol, currency.code, 2, 6, locale)}
+                            </span>
+                          </div>
                         )}
                         labelFormatter={(value) => formatBucket(String(value), chartGranularity.costOverview)}
                       />
                     }
+                    cursor={false}
                   />
                   <Area
+                    activeDot={{ r: 4 }}
                     dataKey="total_cost_micros"
                     fill="url(#usage-cost-fill)"
                     isAnimationActive={false}
                     stroke="var(--color-chart-3)"
-                    strokeWidth={2}
-                    type="monotone"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    type="natural"
                   />
                 </AreaChart>
               </ChartContainer>
@@ -285,9 +420,9 @@ export function UsageBreakdownSection({
                   />
                 </div>
               </div>
-            </div>
+            </CardContent>
           )}
-        </div>
+        </Card>
       </div>
     </section>
   );

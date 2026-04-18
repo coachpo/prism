@@ -1,7 +1,7 @@
+import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLocale } from "@/i18n/useLocale";
 import { formatMoneyMicros } from "@/lib/costing";
-import { Progress } from "@/components/ui/progress";
 
 interface TopSpendingItem {
   label: string;
@@ -26,25 +26,27 @@ export function TopSpendingCard({
   const { locale, messages } = useLocale();
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+    <Card className="border-border/70 bg-card/95 shadow-none">
+      <CardHeader className="gap-1 border-b">
+        <CardTitle className="text-sm font-medium">
+          <h4>{title}</h4>
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-col gap-4 pt-4 sm:pt-5">
         {items.length === 0 ? (
           <p className="text-sm text-muted-foreground">{messages.statistics.noDataAvailable}</p>
         ) : (
           items.map((item) => {
             const percentage = totalCostMicros > 0 ? (item.costMicros / totalCostMicros) * 100 : 0;
             return (
-              <div key={`${item.label}-${item.costMicros}`} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium truncate max-w-[180px]">{item.label}</span>
+              <div key={`${item.label}-${item.costMicros}`} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="max-w-[16rem] truncate font-medium">{item.label}</span>
                   <span className="text-muted-foreground tabular-nums">
                     {formatMoneyMicros(item.costMicros, currencySymbol, currencyCode, 2, 6, locale)}
                   </span>
                 </div>
-                <Progress value={percentage} className="h-2" />
+                <Progress className="h-1.5 bg-primary/12" value={percentage} />
               </div>
             );
           })
