@@ -32,7 +32,7 @@ export function AppLayout() {
           sidebarItems={state.sidebarItems}
         />
 
-        <SidebarInset className="min-h-screen">
+        <SidebarInset className="min-h-svh overflow-hidden">
           <AppHeader
             activeProfileName={state.activeProfileName}
             authEnabled={state.authEnabled}
@@ -65,8 +65,8 @@ export function AppLayout() {
             username={state.username}
           />
 
-          <main className="flex-1 overflow-y-auto scrollbar-thin">
-            <div className="shell-frame shell-page">
+          <main className="flex-1 overflow-y-auto bg-background scrollbar-thin">
+            <div className="shell-frame shell-page flex min-h-full flex-col">
               <Outlet />
             </div>
           </main>
