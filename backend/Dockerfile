@@ -1,4 +1,4 @@
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26.2-bookworm AS builder
 
 WORKDIR /app/backend
 
@@ -20,7 +20,6 @@ RUN apt-get update \
 COPY --from=builder /out/prism-backend /usr/local/bin/prism-backend
 COPY backend/VERSION ./VERSION
 COPY backend/migrations ./migrations
-COPY backend/testdata/schema/cutover-live.sql ./testdata/schema/cutover-live.sql
 COPY docs/openapi.json /app/docs/openapi.json
 
 EXPOSE 8000

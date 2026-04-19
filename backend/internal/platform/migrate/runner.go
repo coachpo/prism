@@ -2,7 +2,6 @@ package migrate
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,13 +17,11 @@ type Outcome string
 
 const (
 	OutcomeApply Outcome = "apply"
-	OutcomeStamp Outcome = "stamp"
 	OutcomeNoop  Outcome = "noop"
 )
 
 type Options struct {
-	MigrationsDir     string
-	CutoverSchemaPath string
+	MigrationsDir string
 }
 
 type Result struct {
@@ -33,8 +30,7 @@ type Result struct {
 }
 
 type Runner struct {
-	migrationsDir     string
-	cutoverSchemaPath string
+	migrationsDir string
 }
 
 type fileMigration struct {
@@ -53,22 +49,11 @@ func New(options Options) (Runner, error) {
 		migrationsDir = DefaultMigrationsDir()
 	}
 
-	cutoverSchemaPath := options.CutoverSchemaPath
-	if strings.TrimSpace(cutoverSchemaPath) == "" {
-		cutoverSchemaPath = DefaultCutoverSchemaPath()
-	}
-
 	if _, err := os.Stat(migrationsDir); err != nil {
 		return Runner{}, fmt.Errorf("stat migrations directory: %w", err)
 	}
-	if _, err := os.Stat(cutoverSchemaPath); err != nil {
-		return Runner{}, fmt.Errorf("stat cutover schema artifact: %w", err)
-	}
 
-	return Runner{
-		migrationsDir:     migrationsDir,
-		cutoverSchemaPath: cutoverSchemaPath,
-	}, nil
+	return Runner{migrationsDir: migrationsDir}, nil
 }
 
 func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
@@ -93,25 +78,10 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 	}
 
 	if len(appliedVersions) == 0 && len(applicationTables) > 0 {
-		if _, _, err := r.requireCutoverEquivalence(ctx, conn); err != nil {
-			return Result{}, err
-		}
-
-		if err := runInTransaction(ctx, conn, func(tx pgx.Tx) error {
-			if err := ensureHistoryTable(ctx, tx); err != nil {
-				return err
-			}
-			for _, migration := range pending {
-				if err := recordMigration(ctx, tx, migration.Version); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
-			return Result{}, err
-		}
-
-		return Result{Outcome: OutcomeStamp, Versions: migrationVersions(pending)}, nil
+		return Result{}, fmt.Errorf(
+			"database contains existing application tables but %s is missing; reset the database and let Prism reapply Go migrations",
+			HistoryTable,
+		)
 	}
 
 	if err := runInTransaction(ctx, conn, func(tx pgx.Tx) error {
@@ -138,46 +108,6 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 
 func (r Runner) SnapshotApplicationSchema(ctx context.Context, conn *pgx.Conn) (string, error) {
 	return SnapshotApplicationSchema(ctx, conn)
-}
-
-func (r Runner) ApplicationSchemaMatchesCutover(ctx context.Context, conn *pgx.Conn) (bool, string, string, error) {
-	actual, expected, err := r.requireCutoverEquivalence(ctx, conn)
-	if err != nil {
-		var mismatch *schemaMismatchError
-		if errors.As(err, &mismatch) {
-			return false, mismatch.actual, mismatch.expected, nil
-		}
-		return false, "", "", err
-	}
-
-	return true, actual, expected, nil
-}
-
-func (r Runner) requireCutoverEquivalence(ctx context.Context, conn *pgx.Conn) (string, string, error) {
-	actual, err := SnapshotApplicationSchema(ctx, conn)
-	if err != nil {
-		return "", "", err
-	}
-
-	expected, err := readExpectedSchema(r.cutoverSchemaPath)
-	if err != nil {
-		return "", "", err
-	}
-
-	if actual != expected {
-		return actual, expected, &schemaMismatchError{actual: actual, expected: expected}
-	}
-
-	return actual, expected, nil
-}
-
-type schemaMismatchError struct {
-	actual   string
-	expected string
-}
-
-func (e *schemaMismatchError) Error() string {
-	return "application schema does not match the cutover artifact"
 }
 
 func (r Runner) loadMigrations() ([]fileMigration, error) {
@@ -233,15 +163,6 @@ func migrationVersions(migrations []fileMigration) []string {
 		versions = append(versions, migration.Version)
 	}
 	return versions
-}
-
-func readExpectedSchema(path string) (string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read cutover schema artifact: %w", err)
-	}
-
-	return NormalizeSchemaSQL(string(raw)), nil
 }
 
 func runInTransaction(ctx context.Context, conn *pgx.Conn, run func(pgx.Tx) error) error {
@@ -345,7 +266,7 @@ func listApplicationTables(ctx context.Context, conn *pgx.Conn) ([]string, error
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("scan public table inventory: %w", err)
 		}
-		if tableName == HistoryTable || tableName == LegacyAlembicVersionTable {
+		if tableName == HistoryTable {
 			continue
 		}
 		tables = append(tables, tableName)

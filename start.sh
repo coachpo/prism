@@ -65,19 +65,6 @@ load_dotenv_file() {
 
 load_dotenv_file "$ROOT_DIR/.env"
 
-normalize_database_url() {
-    local database_url="$1"
-
-    case "$database_url" in
-        postgresql+asyncpg://*)
-            printf 'postgresql://%s' "${database_url#postgresql+asyncpg://}"
-            ;;
-        *)
-            printf '%s' "$database_url"
-            ;;
-    esac
-}
-
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_GO_BIN="${BACKEND_GO_BIN:-go}"
@@ -93,7 +80,7 @@ DATABASE_URL_FROM_ENV=true
 if [[ -z "${DATABASE_URL:-}" ]]; then
     DATABASE_URL_FROM_ENV=false
 fi
-DATABASE_URL="$(normalize_database_url "${DATABASE_URL:-$DEFAULT_DATABASE_URL}")"
+DATABASE_URL="${DATABASE_URL:-$DEFAULT_DATABASE_URL}"
 export DATABASE_URL
 LAUNCHER_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prism-start.XXXXXX")"
 BACKEND_BINARY_PATH="$LAUNCHER_TMP_DIR/prism-backend"
@@ -249,57 +236,6 @@ wait_for_database_container() {
     exit 1
 }
 
-database_uses_launcher_postgres() {
-    local database_url="$1"
-    local host_port
-    local db_host
-    local db_port
-
-    if ! host_port="$(parse_database_host_port "$database_url")"; then
-        return 1
-    fi
-    if ! read -r db_host db_port <<<"$host_port"; then
-        return 1
-    fi
-
-    case "$db_host" in
-        localhost|127.0.0.1)
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-
-    [[ "$db_port" == "$DATABASE_PORT" ]]
-}
-
-launcher_database_needs_reset() {
-    local reset_required
-
-    reset_required="$(cd "$BACKEND_DIR" && docker compose exec -T postgres psql -U prism -d prism -tAc "SELECT CASE WHEN to_regclass('public.prism_schema_migrations') IS NULL AND (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT IN ('alembic_version', 'prism_schema_migrations')) > 0 THEN 1 ELSE 0 END")"
-    [[ "$reset_required" == "1" ]]
-}
-
-reset_database_container_volume() {
-    echo "Resetting launcher-managed PostgreSQL volume to replace an incompatible pre-Go schema..."
-    (cd "$BACKEND_DIR" && docker compose down --remove-orphans --volumes >/dev/null 2>&1) || true
-    start_database_container
-    wait_for_database_container
-}
-
-ensure_launcher_database_schema_compatible() {
-    local database_url
-    database_url="$(read_backend_database_url)"
-
-    if ! database_uses_launcher_postgres "$database_url"; then
-        return
-    fi
-
-    if launcher_database_needs_reset; then
-        reset_database_container_volume
-    fi
-}
-
 ensure_backend_database_ready() {
     local database_url
     local host_port
@@ -313,11 +249,18 @@ ensure_backend_database_ready() {
     fi
     echo "Backend database URL: $database_url"
 
+    if [[ "$database_url" =~ ^postgresql\+asyncpg:// ]]; then
+        echo "Error: DATABASE_URL uses the retired Python-era asyncpg DSN format."
+        echo "Use postgres:// or postgresql:// instead."
+        echo "Current value: $database_url"
+        exit 1
+    fi
+
     case "$database_url" in
-        [Pp][Oo][Ss][Tt][Gg][Rr][Ee][Ss][Qq][Ll]*)
+        [Pp][Oo][Ss][Tt][Gg][Rr][Ee][Ss]://*|[Pp][Oo][Ss][Tt][Gg][Rr][Ee][Ss][Qq][Ll]://*)
             ;;
         *)
-            echo "Error: DATABASE_URL must point to PostgreSQL."
+            echo "Error: DATABASE_URL must point to PostgreSQL using postgres:// or postgresql://."
             echo "Current value: $database_url"
             exit 1
             ;;
@@ -439,7 +382,6 @@ start_database_container
 echo "Building backend with Go..."
 build_backend_binary
 wait_for_database_container
-ensure_launcher_database_schema_compatible
 ensure_backend_database_ready
 
 if [ "$START_FRONTEND" = true ]; then

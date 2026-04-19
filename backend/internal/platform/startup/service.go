@@ -54,7 +54,6 @@ type Options struct {
 	DatabaseURL         string
 	SecretEncryptionKey string
 	MigrationsDir       string
-	CutoverSchemaPath   string
 	TimeNow             func() time.Time
 	StepObserver        func(Step)
 }
@@ -75,8 +74,7 @@ type queryExecutor interface {
 
 func New(options Options) (Service, error) {
 	migrateRunner, err := migrate.New(migrate.Options{
-		MigrationsDir:     options.MigrationsDir,
-		CutoverSchemaPath: options.CutoverSchemaPath,
+		MigrationsDir: options.MigrationsDir,
 	})
 	if err != nil {
 		return Service{}, fmt.Errorf("build startup migration runner: %w", err)

@@ -6,17 +6,12 @@ import (
 )
 
 const (
-	LegacyAlembicVersionTable = "alembic_version"
-	HistoryTable              = "prism_schema_migrations"
-	DefaultBaselineVersion    = "000001_baseline"
+	HistoryTable           = "prism_schema_migrations"
+	DefaultBaselineVersion = "000001_baseline"
 )
 
 func DefaultMigrationsDir() string {
 	return packageRelativePath("..", "..", "..", "migrations")
-}
-
-func DefaultCutoverSchemaPath() string {
-	return packageRelativePath("..", "..", "..", "testdata", "schema", "cutover-live.sql")
 }
 
 func packageRelativePath(parts ...string) string {

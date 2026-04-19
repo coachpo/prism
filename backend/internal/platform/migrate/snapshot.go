@@ -41,8 +41,7 @@ type snapshotOptions struct {
 func SnapshotApplicationSchema(ctx context.Context, conn *pgx.Conn) (string, error) {
 	return snapshotPublicSchema(ctx, conn, snapshotOptions{
 		ExcludedTables: map[string]struct{}{
-			HistoryTable:              {},
-			LegacyAlembicVersionTable: {},
+			HistoryTable: {},
 		},
 	})
 }

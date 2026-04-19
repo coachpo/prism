@@ -6,10 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,8 +15,6 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
-
-const legacyAlembicTip = "0026_request_log_audit_enabled_at_request"
 
 func TestBaselineFreshApply(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -43,78 +38,61 @@ func TestBaselineFreshApply(t *testing.T) {
 	}
 
 	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion})
-	assertCutoverMatch(t, testContext, runner, conn)
 }
 
-func TestBaselineExistingStamp(t *testing.T) {
+func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "existing_stamp")
+	conn := harness.openDatabase(t, testContext, "existing_without_history")
 	defer conn.Close(testContext)
 
-	applySQLFile(t, testContext, conn, cutoverSchemaPath(t))
-	seedLegacyAlembicVersion(t, testContext, conn)
-
-	before := snapshotApplicationSchema(t, testContext, runner, conn)
+	if _, err := conn.Exec(testContext, `CREATE TABLE unmanaged_table (id BIGSERIAL PRIMARY KEY)`); err != nil {
+		t.Fatalf("seed unmanaged table: %v", err)
+	}
 
 	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("stamp matching schema: %v", err)
+	if err == nil {
+		t.Fatalf("expected unmanaged database without migration history to fail, got %+v", result)
+	}
+	if !strings.Contains(err.Error(), "prism_schema_migrations is missing") {
+		t.Fatalf("expected missing history error, got %v", err)
 	}
 
-	if result.Outcome != migrate.OutcomeStamp {
-		t.Fatalf("expected existing matching schema to stamp baseline, got %q", result.Outcome)
-	}
-	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("expected stamped versions %v, got %v", want, got)
-	}
-
-	after := snapshotApplicationSchema(t, testContext, runner, conn)
-	if before != after {
-		t.Fatalf("expected stamp path to leave application schema unchanged")
-	}
-
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion})
-	assertLegacyAlembicVersion(t, testContext, conn, legacyAlembicTip)
+	assertHistoryTableMissing(t, testContext, conn)
 }
 
-func TestBaselineSchemaEquivalence(t *testing.T) {
+func TestBaselineSecondRunNoop(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "baseline_second_run_noop")
+	defer conn.Close(testContext)
 
-	baselineConn := harness.openDatabase(t, testContext, "schema_equivalence_baseline")
-	defer baselineConn.Close(testContext)
-	result, err := runner.Run(testContext, baselineConn)
+	firstResult, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run baseline for schema equivalence: %v", err)
+		t.Fatalf("run baseline before noop check: %v", err)
 	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected baseline database to apply migration, got %q", result.Outcome)
+	if firstResult.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected first run to apply baseline, got %q", firstResult.Outcome)
 	}
 
-	cutoverConn := harness.openDatabase(t, testContext, "schema_equivalence_cutover")
-	defer cutoverConn.Close(testContext)
-	applySQLFile(t, testContext, cutoverConn, cutoverSchemaPath(t))
+	secondResult, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("rerun baseline after apply: %v", err)
+	}
+	if secondResult.Outcome != migrate.OutcomeNoop {
+		t.Fatalf("expected second run to noop, got %q", secondResult.Outcome)
+	}
+	if len(secondResult.Versions) != 0 {
+		t.Fatalf("expected noop run to report no versions, got %v", secondResult.Versions)
+	}
 
-	baselineSnapshot := snapshotApplicationSchema(t, testContext, runner, baselineConn)
-	cutoverSnapshot := snapshotApplicationSchema(t, testContext, runner, cutoverConn)
-	expected := readNormalizedFile(t, cutoverSchemaPath(t))
-
-	if baselineSnapshot != expected {
-		t.Fatalf("expected baseline output to match cutover artifact")
-	}
-	if cutoverSnapshot != expected {
-		t.Fatalf("expected direct cutover schema to match cutover artifact")
-	}
-	if baselineSnapshot != cutoverSnapshot {
-		t.Fatalf("expected baseline output and cutover artifact application to be equivalent")
-	}
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion})
 }
 
 type postgresHarness struct {
@@ -171,29 +149,6 @@ func newRunner(t *testing.T) migrate.Runner {
 	return runner
 }
 
-func snapshotApplicationSchema(t *testing.T, ctx context.Context, runner migrate.Runner, conn *pgx.Conn) string {
-	t.Helper()
-
-	snapshot, err := runner.SnapshotApplicationSchema(ctx, conn)
-	if err != nil {
-		t.Fatalf("snapshot application schema: %v", err)
-	}
-
-	return snapshot
-}
-
-func assertCutoverMatch(t *testing.T, ctx context.Context, runner migrate.Runner, conn *pgx.Conn) {
-	t.Helper()
-
-	match, actual, expected, err := runner.ApplicationSchemaMatchesCutover(ctx, conn)
-	if err != nil {
-		t.Fatalf("compare application schema to cutover artifact: %v", err)
-	}
-	if !match {
-		t.Fatalf("expected application schema to match cutover artifact\n--- actual ---\n%s\n--- expected ---\n%s", actual, expected)
-	}
-}
-
 func assertHistoryVersions(t *testing.T, ctx context.Context, conn *pgx.Conn, expected []string) {
 	t.Helper()
 
@@ -225,80 +180,23 @@ func assertHistoryVersions(t *testing.T, ctx context.Context, conn *pgx.Conn, ex
 	}
 }
 
-func seedLegacyAlembicVersion(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func assertHistoryTableMissing(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL PRIMARY KEY)`,
-		`INSERT INTO alembic_version (version_num) VALUES ('` + legacyAlembicTip + `')`,
+	var exists bool
+	if err := conn.QueryRow(
+		ctx,
+		`SELECT EXISTS (
+			SELECT 1
+			FROM pg_tables
+			WHERE schemaname = 'public' AND tablename = 'prism_schema_migrations'
+		)`,
+	).Scan(&exists); err != nil {
+		t.Fatalf("check prism migration history table existence: %v", err)
 	}
-	for _, statement := range statements {
-		if _, err := conn.Exec(ctx, statement); err != nil {
-			t.Fatalf("seed legacy alembic version table: %v", err)
-		}
+	if exists {
+		t.Fatalf("expected prism migration history table to remain absent")
 	}
-}
-
-func assertLegacyAlembicVersion(t *testing.T, ctx context.Context, conn *pgx.Conn, expected string) {
-	t.Helper()
-
-	var version string
-	if err := conn.QueryRow(ctx, `SELECT version_num FROM alembic_version`).Scan(&version); err != nil {
-		t.Fatalf("read legacy alembic version row: %v", err)
-	}
-	if version != expected {
-		t.Fatalf("expected legacy alembic version %q, got %q", expected, version)
-	}
-}
-
-func applySQLFile(t *testing.T, ctx context.Context, conn *pgx.Conn, path string) {
-	t.Helper()
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read SQL file %s: %v", path, err)
-	}
-
-	for _, statement := range splitSQLStatements(string(raw)) {
-		if _, err := conn.Exec(ctx, statement); err != nil {
-			t.Fatalf("apply SQL file %s: %v\nstatement:\n%s", path, err, statement)
-		}
-	}
-}
-
-func splitSQLStatements(sql string) []string {
-	rawStatements := strings.Split(sql, ";")
-	statements := make([]string, 0, len(rawStatements))
-	for _, rawStatement := range rawStatements {
-		statement := strings.TrimSpace(rawStatement)
-		if statement == "" {
-			continue
-		}
-		statements = append(statements, statement)
-	}
-	return statements
-}
-
-func readNormalizedFile(t *testing.T, path string) string {
-	t.Helper()
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read file %s: %v", path, err)
-	}
-
-	return migrate.NormalizeSchemaSQL(string(raw))
-}
-
-func cutoverSchemaPath(t *testing.T) string {
-	t.Helper()
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve integration test path")
-	}
-
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "testdata", "schema", "cutover-live.sql"))
 }
 
 func connect(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
