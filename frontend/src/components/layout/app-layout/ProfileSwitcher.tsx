@@ -62,7 +62,6 @@ export function ProfileSwitcher({
   const triggerLabel = hasNoProfiles
     ? messages.profiles.noProfilesTitle
     : messages.profiles.profileTriggerTitle(selectedProfileName, activeProfileName);
-  const triggerInitial = selectedProfileName.trim().charAt(0).toUpperCase() || "?";
 
   return (
     <SidebarMenu>
@@ -75,9 +74,6 @@ export function ProfileSwitcher({
                 disabled={isActivating}
                 className="rounded-xl border border-sidebar-border/70 bg-sidebar-accent/35 px-2.5 py-2 shadow-sm hover:bg-sidebar-accent/60 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
               >
-                <div className="flex size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/45 text-sm font-semibold text-sidebar-foreground shadow-sm">
-                  {hasNoProfiles ? "?" : triggerInitial}
-                </div>
                 <div className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
                   <span className="truncate text-[11px] text-sidebar-foreground/60">
                     {messages.shell.profile}

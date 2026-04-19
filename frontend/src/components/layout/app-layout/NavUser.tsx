@@ -26,25 +26,14 @@ type Props = {
   username: string | null;
 };
 
-function getInitials(name: string) {
-  return (
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((part) => part[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "?"
-  );
-}
-
 export function NavUser({ authEnabled, handleLogout, username }: Props) {
   const { locale, messages, setLocale } = useLocale();
   const { theme = "system", setTheme } = useTheme();
   const { isMobile } = useSidebar();
 
-  const displayName = username?.trim() || messages.shell.signedOut;
-  const initials = getInitials(displayName);
+  const displayName = authEnabled
+    ? username?.trim() || messages.shell.signedOut
+    : messages.settingsAuthentication.authenticationDisabled;
   const languageOptions = [
     { value: "en", label: messages.locale.options.en },
     { value: "zh-CN", label: messages.locale.options["zh-CN"] },
@@ -65,9 +54,6 @@ export function NavUser({ authEnabled, handleLogout, username }: Props) {
               tooltip={`${displayName} · ${VERSION_LABEL}`}
               className="rounded-xl border border-sidebar-border/70 bg-sidebar-accent/35 px-2.5 py-2 shadow-sm hover:bg-sidebar-accent/60 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <div className="flex size-8 items-center justify-center rounded-lg border border-sidebar-border/70 bg-sidebar-accent/45 text-sm font-semibold text-sidebar-foreground shadow-sm">
-                {initials}
-              </div>
               <div className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-sm font-semibold">{displayName}</span>
                 <span className="truncate text-[11px] text-sidebar-foreground/60">{VERSION_LABEL}</span>
