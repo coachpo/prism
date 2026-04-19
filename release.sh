@@ -272,7 +272,7 @@ verify_backend_version_metadata() {
 
     local temp_file
     local status=0
-    temp_file="$(mktemp "$BACKEND_DIR/.release-version-check.XXXXXX.go")"
+    temp_file="$(mktemp "$BACKEND_DIR/release-version-check.XXXXXX.go")"
 
     cat > "$temp_file" <<'GO'
 package main
