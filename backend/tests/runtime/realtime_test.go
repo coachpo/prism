@@ -139,6 +139,37 @@ func TestRealtimeSubscriptions(t *testing.T) {
 	_ = unsubscribeConn.Close()
 }
 
+func TestRealtimeSameOriginHandshakeAllowed(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	conn, response, err := harness.dialWebSocketWithOrigin(t, false, harness.url)
+	if err != nil {
+		statusCode := 0
+		if response != nil {
+			statusCode = response.StatusCode
+		}
+		t.Fatalf("expected same-origin websocket handshake success, got err=%v status=%d", err, statusCode)
+	}
+	assertRealtimeMessageType(t, conn, "authenticated")
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+	_ = conn.Close()
+}
+
+func TestRealtimeRejectsDisallowedCrossOriginHandshake(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	conn, response, err := harness.dialWebSocketWithOrigin(t, false, "http://example.invalid")
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("expected cross-origin websocket handshake failure")
+	}
+	if response == nil || response.StatusCode != http.StatusForbidden {
+		statusCode := 0
+		if response != nil {
+			statusCode = response.StatusCode
+		}
+		t.Fatalf("expected forbidden websocket handshake response, got %d with err=%v", statusCode, err)
+	}
+}
+
 func TestRealtimePong(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	conn := harness.dialWebSocket(t, false)
@@ -277,6 +308,15 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 
 func (h *realtimeHarness) dialWebSocket(t *testing.T, includeCookies bool) *websocket.Conn {
 	t.Helper()
+	conn, _, err := h.dialWebSocketWithOrigin(t, includeCookies, "")
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	return conn
+}
+
+func (h *realtimeHarness) dialWebSocketWithOrigin(t *testing.T, includeCookies bool, origin string) (*websocket.Conn, *http.Response, error) {
+	t.Helper()
 	requestURL, err := url.Parse(h.url)
 	if err != nil {
 		t.Fatalf("parse harness URL: %v", err)
@@ -292,11 +332,10 @@ func (h *realtimeHarness) dialWebSocket(t *testing.T, includeCookies bool) *webs
 			headers.Set("Cookie", strings.Join(cookiePairs, "; "))
 		}
 	}
-	conn, _, err := websocket.DefaultDialer.Dial(strings.Replace(h.url, "http://", "ws://", 1)+"/api/realtime/ws", headers)
-	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
+	if strings.TrimSpace(origin) != "" {
+		headers.Set("Origin", origin)
 	}
-	return conn
+	return websocket.DefaultDialer.Dial(strings.Replace(h.url, "http://", "ws://", 1)+"/api/realtime/ws", headers)
 }
 
 func (h *realtimeHarness) seedRealtimeDashboardRoute(t *testing.T, profileID int, suffix string) seededDashboardRoute {

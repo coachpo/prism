@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -110,7 +111,32 @@ func (s *Service) checkOrigin(request *http.Request) bool {
 		return true
 	}
 	_, ok := s.allowedOrigins[origin]
-	return ok
+	if ok {
+		return true
+	}
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if !originURL.IsAbs() {
+		return false
+	}
+	host := strings.TrimSpace(request.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(request.Host)
+	}
+	if host == "" || !strings.EqualFold(originURL.Host, host) {
+		return false
+	}
+	scheme := strings.TrimSpace(request.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	return strings.EqualFold(originURL.Scheme, scheme)
 }
 
 func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
