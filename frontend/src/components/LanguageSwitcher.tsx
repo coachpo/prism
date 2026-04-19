@@ -9,11 +9,44 @@ import {
 import { useLocale } from "@/i18n/useLocale";
 import { cn } from "@/lib/utils";
 
+type LanguageOption = {
+  value: "en" | "zh-CN";
+  label: string;
+};
+
 type LanguageSwitcherProps = {
   align?: "start" | "center" | "end";
   buttonClassName?: string;
   menuClassName?: string;
 };
+
+type LanguageMenuItemsProps = {
+  locale: string;
+  languageOptions: readonly LanguageOption[];
+  setLocale: (value: LanguageOption["value"]) => void;
+};
+
+export function LanguageMenuItems({
+  locale,
+  languageOptions,
+  setLocale,
+}: LanguageMenuItemsProps) {
+  return languageOptions.map((option) => (
+    <DropdownMenuItem
+      key={option.value}
+      onClick={() => setLocale(option.value)}
+      className="justify-between"
+    >
+      {option.label}
+      <Check
+        className={cn(
+          "h-4 w-4 text-primary transition-opacity",
+          locale === option.value ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </DropdownMenuItem>
+  ));
+}
 
 export function LanguageSwitcher({
   align = "end",
@@ -46,21 +79,11 @@ export function LanguageSwitcher({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className={cn("w-36", menuClassName)}>
-        {languageOptions.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            onClick={() => setLocale(option.value)}
-            className="justify-between"
-          >
-            {option.label}
-            <Check
-              className={cn(
-                "h-4 w-4 text-primary transition-opacity",
-                locale === option.value ? "opacity-100" : "opacity-0",
-              )}
-            />
-          </DropdownMenuItem>
-        ))}
+        <LanguageMenuItems
+          locale={locale}
+          languageOptions={languageOptions}
+          setLocale={setLocale}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );

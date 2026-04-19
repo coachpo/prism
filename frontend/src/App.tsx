@@ -4,7 +4,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { ReportingCurrencyProvider } from "@/context/ReportingCurrencyContext";
 import { useAuth } from "@/context/useAuth";
 import { ProfileProvider } from "@/context/ProfileContext";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { Page } from "@/components/layout/page";
 import { useLocale } from "@/i18n/useLocale";
 
 const DashboardPage = lazy(() =>
@@ -81,7 +81,7 @@ function ProtectedAppShell() {
   return (
     <ProfileProvider>
       <ReportingCurrencyProvider fallback={<RouteFallback />}>
-        <AppLayout />
+        <Page />
       </ReportingCurrencyProvider>
     </ProfileProvider>
   );

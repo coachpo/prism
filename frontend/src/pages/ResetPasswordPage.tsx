@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
-import { GlobalPreferencesControls } from "@/components/GlobalPreferencesControls";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,11 +35,16 @@ export function ResetPasswordPage() {
   return (
     <div className="min-h-screen px-4 py-4 sm:px-6 sm:py-6">
       <div className="mx-auto flex max-w-6xl justify-end pb-6">
-        <GlobalPreferencesControls
-          languageSwitcherClassName="border-border/70 bg-background/70 shadow-sm backdrop-blur-xl"
-          themeToggleButtonClassName="h-9 w-9 rounded-full border border-border/70 bg-background/70 text-foreground shadow-sm backdrop-blur-xl hover:bg-background/90"
-          themeToggleMenuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
-        />
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher
+            buttonClassName="border-border/70 bg-background/70 shadow-sm backdrop-blur-xl"
+            menuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
+          />
+          <ThemeToggle
+            buttonClassName="h-9 w-9 rounded-full border border-border/70 bg-background/70 text-foreground shadow-sm backdrop-blur-xl hover:bg-background/90"
+            menuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
+          />
+        </div>
       </div>
       <div className="mx-auto flex max-w-md items-center justify-center">
         <Card className="w-full">

@@ -2,12 +2,12 @@ import type { CSSProperties } from "react";
 import { Outlet } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { ProfileDialogs } from "./app-layout/ProfileDialogs";
-import { AppHeader } from "./app-layout/AppHeader";
 import { AppSidebar } from "./app-layout/AppSidebar";
+import { ProfileDialogs } from "./app-layout/ProfileDialogs";
+import { SiteHeader } from "./app-layout/SiteHeader";
 import { useAppLayoutState } from "./app-layout/useAppLayoutState";
 
-export function AppLayout() {
+export function Page() {
   const state = useAppLayoutState();
   const { messages } = useLocale();
 
@@ -16,60 +16,41 @@ export function AppLayout() {
       <SidebarProvider
         open={!state.desktopSidebarCollapsed}
         onOpenChange={state.setDesktopSidebarOpen}
-        style={
-          {
-            "--sidebar-width": "20rem",
-            "--sidebar-width-icon": "4.5rem",
-            "--sidebar-width-mobile": "min(88vw, 20rem)",
-          } as CSSProperties
-        }
+        style={{ "--sidebar-width": "20rem" } as CSSProperties}
       >
         <AppSidebar
+          activeProfileId={state.activeProfileId}
           activeProfileName={state.activeProfileName}
+          authEnabled={state.authEnabled}
+          canCreateProfile={state.canCreateProfile}
           closeProfileSwitcher={state.closeProfileSwitcher}
+          deleteDisabledReason={state.deleteDisabledReason}
+          editDisabledReason={state.editDisabledReason}
+          handleLogout={state.handleLogout}
+          handleManageProfiles={state.handleManageProfiles}
+          handleSelectProfile={state.handleSelectProfile}
           hasMismatch={state.hasMismatch}
+          hasNoProfiles={state.hasNoProfiles}
+          isActivating={state.isActivating}
+          openActivateDialog={state.openActivateDialog}
+          openCreateDialog={state.openCreateDialog}
+          openDeleteDialog={state.openDeleteDialog}
+          openEditDialog={state.openEditDialog}
+          profileSwitcherOpen={state.profileSwitcherOpen}
+          profiles={state.profiles}
+          selectedIsActive={state.selectedIsActive}
+          selectedProfileId={state.selectedProfileId}
           selectedProfileName={state.selectedProfileName}
+          setProfileSwitcherOpen={state.setProfileSwitcherOpen}
           sidebarItems={state.sidebarItems}
+          username={state.username}
         />
 
         <SidebarInset className="min-h-svh overflow-hidden">
-          <AppHeader
-            activeProfileName={state.activeProfileName}
-            authEnabled={state.authEnabled}
-            breadcrumbs={state.breadcrumbs}
-            canCreateProfile={state.canCreateProfile}
-            deleteDisabledReason={state.deleteDisabledReason}
-            editDisabledReason={state.editDisabledReason}
-            filteredProfiles={state.filteredProfiles}
-            handleLogout={state.handleLogout}
-            handleManageProfiles={state.handleManageProfiles}
-            handleSelectProfile={state.handleSelectProfile}
-            hasMismatch={state.hasMismatch}
-            hasNoMatches={state.hasNoMatches}
-            hasNoProfiles={state.hasNoProfiles}
-            isActivating={state.isActivating}
-            isProfileScopedPage={state.isProfileScopedPage}
-            openActivateDialog={state.openActivateDialog}
-            openCreateDialog={state.openCreateDialog}
-            openDeleteDialog={state.openDeleteDialog}
-            openEditDialog={state.openEditDialog}
-            profileQuery={state.profileQuery}
-            profileSearchInputRef={state.profileSearchInputRef}
-            profileSwitcherOpen={state.profileSwitcherOpen}
-            selectedIsActive={state.selectedIsActive}
-            selectedProfileButtonRef={state.selectedProfileButtonRef}
-            selectedProfileId={state.selectedProfileId}
-            selectedProfileName={state.selectedProfileName}
-            setProfileQuery={state.setProfileQuery}
-            setProfileSwitcherOpen={state.setProfileSwitcherOpen}
-            username={state.username}
-          />
-
-          <main className="flex-1 overflow-y-auto bg-background scrollbar-thin">
-            <div className="shell-frame shell-page flex min-h-full flex-col">
-              <Outlet />
-            </div>
-          </main>
+          <SiteHeader breadcrumbs={state.breadcrumbs} />
+          <div className="flex flex-1 flex-col gap-4 p-4">
+            <Outlet />
+          </div>
         </SidebarInset>
       </SidebarProvider>
 

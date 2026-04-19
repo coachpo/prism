@@ -4,7 +4,8 @@ import { Fingerprint } from "lucide-react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-import { GlobalPreferencesControls } from "@/components/GlobalPreferencesControls";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -117,11 +118,16 @@ export function LoginPage() {
           <div className="flex items-center justify-between px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
             <div />
 
-            <GlobalPreferencesControls
-              languageSwitcherClassName="border-border/70 bg-background/70 shadow-sm backdrop-blur-xl"
-              themeToggleButtonClassName="h-9 w-9 rounded-full border border-border/70 bg-background/70 text-foreground shadow-sm backdrop-blur-xl hover:bg-background/90"
-              themeToggleMenuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
-            />
+            <div className="flex items-center gap-2">
+              <LanguageSwitcher
+                buttonClassName="border-border/70 bg-background/70 shadow-sm backdrop-blur-xl"
+                menuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
+              />
+              <ThemeToggle
+                buttonClassName="h-9 w-9 rounded-full border border-border/70 bg-background/70 text-foreground shadow-sm backdrop-blur-xl hover:bg-background/90"
+                menuClassName="border-border/70 bg-popover/95 backdrop-blur-xl"
+              />
+            </div>
           </div>
 
           <div className="mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-4 pb-8 pt-6 sm:px-6 sm:pb-10 lg:px-8">

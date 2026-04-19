@@ -1344,26 +1344,22 @@ export interface Messages {
     copied: (label: string) => string;
   };
   shell: {
-     activate: string;
-     activateProfile: string;
-     activating: string;
-     activeRuntime: (name: string) => string;
-     aligned: string;
-    collapseSidebar: string;
-    closeSidebar: string;
-    expandSidebar: string;
+    activate: string;
+    activating: string;
+    activeRuntime: (name: string) => string;
+    groupLabels: {
+      overview: string;
+      configuration: string;
+      observability: string;
+      access: string;
+    };
+    runningShort: (name: string) => string;
     logoutFailed: string;
-    mismatch: string;
-     mismatchWarning: (selected: string, active: string) => string;
-     openSidebar: string;
-     out: string;
     primaryNavigation: string;
     profile: string;
-    profileRuntime: string;
-    runtime: string;
+    signedOut: string;
     signOut: string;
-    viewing: string;
-  };
+  },
   statistics: {
     addLine: string;
     averageRpm: string;
@@ -2951,25 +2947,20 @@ export const enMessages: Messages = {
   },
   shell: {
     activate: "Activate",
-    activateProfile: "Activate profile",
     activating: "Activating...",
     activeRuntime: (name) => `Active runtime: ${name}`,
-    aligned: "Aligned",
-    collapseSidebar: "Collapse sidebar",
-    closeSidebar: "Close sidebar",
-    expandSidebar: "Expand sidebar",
+    groupLabels: {
+      overview: "Overview",
+      configuration: "Configuration",
+      observability: "Observability",
+      access: "Access",
+    },
+    runningShort: (name) => `${name} running`,
     logoutFailed: "Failed to sign out",
-    mismatch: "Mismatch",
-    mismatchWarning: (selected, active) =>
-      `You're viewing ${selected}, but runtime traffic is served by ${active}.`,
-    openSidebar: "Open sidebar",
-    out: "Out",
     primaryNavigation: "Primary navigation",
     profile: "Profile:",
-    profileRuntime: "Profile runtime",
-    runtime: "Runtime",
+    signedOut: "Signed out",
     signOut: "Sign out",
-    viewing: "Viewing",
   },
   statistics: {
     addLine: "Add Line",

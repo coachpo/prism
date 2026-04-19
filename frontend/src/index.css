@@ -263,19 +263,6 @@
         gap: var(--density-page-gap);
         min-width: 0;
     }
-    .shell-frame {
-        @apply mx-auto w-full max-w-screen-2xl;
-        min-width: 0;
-    }
-    .shell-page {
-        min-width: 0;
-        padding-inline: var(--density-page-pad-x);
-        padding-block: var(--density-page-pad-y);
-    }
-    .shell-header {
-        padding-inline: var(--density-shell-header-pad-x);
-        padding-block: var(--density-shell-header-pad-y);
-    }
     .scrollbar-thin {
         scrollbar-width: thin;
         scrollbar-color: var(--border) transparent;

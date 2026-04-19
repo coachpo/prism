@@ -5,9 +5,9 @@ import { useAuth } from "@/context/useAuth";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useLocale } from "@/i18n/useLocale";
 import { readSidebarCollapsed, writeSidebarCollapsed } from "./sidebarPersistence";
-import { useShellNavigation } from "./useShellNavigation";
 import { useProfileDialogState } from "./useProfileDialogState";
 import { useProfileSwitcherState } from "./useProfileSwitcherState";
+import { useShellNavigation } from "./useShellNavigation";
 
 export function useAppLayoutState() {
   const navigate = useNavigate();
@@ -27,8 +27,11 @@ export function useAppLayoutState() {
     deleteProfile,
   } = useProfileContext();
 
-  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() => readSidebarCollapsed());
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(() =>
+    readSidebarCollapsed()
+  );
 
+  const activeProfileId = activeProfile?.id ?? null;
   const canCreateProfile = profiles.length < maxProfiles;
   const selectedIsActive =
     selectedProfile !== null && activeProfile !== null && selectedProfile.id === activeProfile.id;
@@ -50,8 +53,6 @@ export function useAppLayoutState() {
     : !selectedIsEditable
       ? messages.profiles.lockedProfileEditDisabled
       : null;
-
-  const isProfileScopedPage = shellNavigation.isProfileScopedPage;
 
   const switcherState = useProfileSwitcherState({
     profiles,
@@ -99,11 +100,14 @@ export function useAppLayoutState() {
       await logout();
       navigate("/login", { replace: true });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.shell.logoutFailed);
+      toast.error(
+        error instanceof Error ? error.message : messages.shell.logoutFailed
+      );
     }
   };
 
   return {
+    activeProfileId,
     activeProfileName,
     authEnabled,
     breadcrumbs: shellNavigation.breadcrumbs,
@@ -114,7 +118,8 @@ export function useAppLayoutState() {
     handleLogout,
     handleManageProfiles,
     hasMismatch,
-    isProfileScopedPage,
+    isProfileScopedPage: shellNavigation.isProfileScopedPage,
+    profiles,
     selectedIsActive,
     selectedProfile,
     selectedProfileId,
