@@ -14,18 +14,16 @@ import (
 )
 
 const (
-	SkipStartupSequenceEnv          = "PRISM_SKIP_STARTUP_SEQUENCE"
-	DefaultProfileName              = "Default"
-	DefaultProfileDescription       = "System default profile"
-	AppAuthSingletonKey             = "app"
-	MissingRequestLogBackfillReason = "MISSING_REQUEST_LOG_BACKFILL"
+	SkipStartupSequenceEnv    = "PRISM_SKIP_STARTUP_SEQUENCE"
+	DefaultProfileName        = "Default"
+	DefaultProfileDescription = "System default profile"
+	AppAuthSingletonKey       = "app"
 )
 
 type Step string
 
 const (
 	StepMigrations                  Step = "migrations"
-	StepUsageEventBillingReconcile  Step = "usage_event_billing_reconcile"
 	StepVendorSeed                  Step = "vendor_seed"
 	StepProfileInvariantSeed        Step = "profile_invariant_seed"
 	StepUserSettingsSeed            Step = "user_settings_seed"
@@ -35,19 +33,10 @@ const (
 	StepHeaderBlocklistRuleSeed     Step = "header_blocklist_rule_seed"
 )
 
-type BillingReconciliationResult struct {
-	PendingRowCount          int
-	Ran                      bool
-	MatchedRequestLogCount   int
-	UnmatchedUsageEventCount int
-	DuplicateCandidateCount  int
-}
-
 type Result struct {
-	Skipped               bool
-	ExecutedSteps         []Step
-	Migration             migrate.Result
-	BillingReconciliation BillingReconciliationResult
+	Skipped       bool
+	ExecutedSteps []Step
+	Migration     migrate.Result
 }
 
 type Options struct {
@@ -119,7 +108,7 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 		return Result{}, fmt.Errorf("secret encryption key is required")
 	}
 
-	result := Result{ExecutedSteps: make([]Step, 0, 9)}
+	result := Result{ExecutedSteps: make([]Step, 0, 8)}
 
 	if err := s.runStep(ctx, &result, StepMigrations, func() error {
 		migrationResult, err := s.migrateRunner.Run(ctx, conn)
@@ -127,17 +116,6 @@ func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error
 			return err
 		}
 		result.Migration = migrationResult
-		return nil
-	}); err != nil {
-		return result, err
-	}
-
-	if err := s.runStep(ctx, &result, StepUsageEventBillingReconcile, func() error {
-		reconciliation, err := s.reconcileUsageRequestEventBillingFields(ctx, conn)
-		if err != nil {
-			return err
-		}
-		result.BillingReconciliation = reconciliation
 		return nil
 	}); err != nil {
 		return result, err

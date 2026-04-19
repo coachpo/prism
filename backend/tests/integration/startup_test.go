@@ -33,9 +33,6 @@ func TestStartupSeeds(t *testing.T) {
 	if result.Migration.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected startup to apply baseline on empty database, got %q", result.Migration.Outcome)
 	}
-	if result.BillingReconciliation.Ran {
-		t.Fatalf("expected billing reconciliation to skip when no pending rows exist")
-	}
 
 	profile := loadSingleProfile(t, testContext, conn, "name = 'Default'")
 	if profile.Description != DefaultProfileDescription {
@@ -245,105 +242,6 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM header_blocklist_rules WHERE is_system = TRUE`, len(startup.SystemHeaderBlocklistDefaults))
 }
 
-func TestStartupReconciliation(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	conn := harness.openDatabase(t, testContext, "startup_reconciliation")
-	defer conn.Close(testContext)
-
-	runner := newRunner(t)
-	if _, err := runner.Run(testContext, conn); err != nil {
-		t.Fatalf("apply baseline before reconciliation test: %v", err)
-	}
-
-	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
-	profileID := insertProfile(t, testContext, conn, profileSeed{
-		Name:      "Reconciliation Profile",
-		IsActive:  true,
-		IsDefault: false,
-		Version:   0,
-		CreatedAt: now,
-		UpdatedAt: now,
-	})
-	insertRequestLog(t, testContext, conn, requestLogSeed{
-		ProfileID:        profileID,
-		IngressRequestID: "req-reconcile-1",
-		AttemptNumber:    sql.NullInt32{Int32: 2, Valid: true},
-		ModelID:          "gpt-5.4",
-		APIFamily:        "openai",
-		StatusCode:       200,
-		ResponseTimeMS:   123,
-		IsStream:         false,
-		SuccessFlag:      sql.NullBool{Bool: true, Valid: true},
-		BillableFlag:     sql.NullBool{Bool: true, Valid: true},
-		PricedFlag:       sql.NullBool{Bool: false, Valid: true},
-		UnpricedReason:   sql.NullString{String: "MATCHED_PENDING_PRICE", Valid: true},
-		RequestPath:      "/v1/chat/completions",
-		CreatedAt:        now,
-	})
-	insertUsageRequestEvent(t, testContext, conn, usageRequestEventSeed{
-		ProfileID:        profileID,
-		IngressRequestID: "req-reconcile-1",
-		ModelID:          "gpt-5.4",
-		APIFamily:        "openai",
-		StatusCode:       200,
-		SuccessFlag:      true,
-		AttemptCount:     2,
-		RequestPath:      "/v1/chat/completions",
-		CreatedAt:        now,
-	})
-
-	observedSteps := make([]startup.Step, 0, 9)
-	service := newStartupService(t, harness.connectionString("startup_reconciliation"), func(step startup.Step) {
-		observedSteps = append(observedSteps, step)
-	})
-
-	firstResult, err := service.RunWithConn(testContext, conn)
-	if err != nil {
-		t.Fatalf("run startup sequence with pending usage-event rows: %v", err)
-	}
-
-	assertStartupStepOrder(t, firstResult)
-	assertObservedStepOrder(t, observedSteps)
-	if !firstResult.BillingReconciliation.Ran {
-		t.Fatalf("expected billing reconciliation to run when pending rows exist")
-	}
-	if firstResult.BillingReconciliation.PendingRowCount != 1 {
-		t.Fatalf("expected one pending usage-event row, got %d", firstResult.BillingReconciliation.PendingRowCount)
-	}
-	if firstResult.BillingReconciliation.MatchedRequestLogCount != 1 || firstResult.BillingReconciliation.UnmatchedUsageEventCount != 0 || firstResult.BillingReconciliation.DuplicateCandidateCount != 0 {
-		t.Fatalf("unexpected billing reconciliation summary: %+v", firstResult.BillingReconciliation)
-	}
-
-	var billableFlag bool
-	var pricedFlag bool
-	var unpricedReason sql.NullString
-	if err := conn.QueryRow(
-		testContext,
-		`SELECT billable_flag, priced_flag, unpriced_reason FROM usage_request_events WHERE ingress_request_id = 'req-reconcile-1'`,
-	).Scan(&billableFlag, &pricedFlag, &unpricedReason); err != nil {
-		t.Fatalf("load reconciled usage_request_event row: %v", err)
-	}
-	if !billableFlag || pricedFlag || !unpricedReason.Valid || unpricedReason.String != "MATCHED_PENDING_PRICE" {
-		t.Fatalf("expected reconciled usage_request_event row to match request_log billing fields, got billable=%v priced=%v unpriced_reason=%v", billableFlag, pricedFlag, unpricedReason)
-	}
-	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM vendors`, len(startup.DefaultVendors))
-	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM app_auth_settings`, 1)
-
-	observedSteps = observedSteps[:0]
-	secondResult, err := service.RunWithConn(testContext, conn)
-	if err != nil {
-		t.Fatalf("rerun startup sequence after reconciliation cleared pending rows: %v", err)
-	}
-	assertStartupStepOrder(t, secondResult)
-	assertObservedStepOrder(t, observedSteps)
-	if secondResult.BillingReconciliation.Ran || secondResult.BillingReconciliation.PendingRowCount != 0 {
-		t.Fatalf("expected billing reconciliation to skip once pending rows are cleared, got %+v", secondResult.BillingReconciliation)
-	}
-}
-
 func TestStartupIdempotency(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -382,9 +280,6 @@ func TestStartupIdempotency(t *testing.T) {
 		t.Fatalf("run first startup sequence for idempotency: %v", err)
 	}
 	assertStartupStepOrder(t, firstResult)
-	if firstResult.BillingReconciliation.Ran {
-		t.Fatalf("expected no billing reconciliation work in idempotency setup, got %+v", firstResult.BillingReconciliation)
-	}
 
 	firstSnapshot := snapshotStartupState(t, testContext, conn)
 	var normalizedAPIKey string
@@ -400,9 +295,6 @@ func TestStartupIdempotency(t *testing.T) {
 		t.Fatalf("run second startup sequence for idempotency: %v", err)
 	}
 	assertStartupStepOrder(t, secondResult)
-	if secondResult.BillingReconciliation.Ran {
-		t.Fatalf("expected second startup run to skip billing reconciliation, got %+v", secondResult.BillingReconciliation)
-	}
 
 	secondSnapshot := snapshotStartupState(t, testContext, conn)
 	if firstSnapshot != secondSnapshot {
@@ -466,35 +358,6 @@ type systemHeaderBlocklistRuleSeed struct {
 	Enabled   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
-}
-
-type requestLogSeed struct {
-	ProfileID        int
-	IngressRequestID string
-	AttemptNumber    sql.NullInt32
-	ModelID          string
-	APIFamily        string
-	StatusCode       int
-	ResponseTimeMS   int
-	IsStream         bool
-	SuccessFlag      sql.NullBool
-	BillableFlag     sql.NullBool
-	PricedFlag       sql.NullBool
-	UnpricedReason   sql.NullString
-	RequestPath      string
-	CreatedAt        time.Time
-}
-
-type usageRequestEventSeed struct {
-	ProfileID        int
-	IngressRequestID string
-	ModelID          string
-	APIFamily        string
-	StatusCode       int
-	SuccessFlag      bool
-	AttemptCount     int
-	RequestPath      string
-	CreatedAt        time.Time
 }
 
 type endpointSeed struct {
@@ -614,7 +477,6 @@ func assertObservedStepOrder(t *testing.T, steps []startup.Step) {
 	t.Helper()
 	want := []startup.Step{
 		startup.StepMigrations,
-		startup.StepUsageEventBillingReconcile,
 		startup.StepVendorSeed,
 		startup.StepProfileInvariantSeed,
 		startup.StepUserSettingsSeed,
@@ -789,86 +651,6 @@ func insertSystemHeaderBlocklistRule(t *testing.T, ctx context.Context, conn *pg
 		seed.UpdatedAt,
 	); err != nil {
 		t.Fatalf("insert system header blocklist rule %q: %v", seed.Name, err)
-	}
-}
-
-func insertRequestLog(t *testing.T, ctx context.Context, conn *pgx.Conn, seed requestLogSeed) {
-	t.Helper()
-	if _, err := conn.Exec(
-		ctx,
-		`INSERT INTO request_logs (
-			profile_id,
-			model_id,
-			api_family,
-			ingress_request_id,
-			attempt_number,
-			status_code,
-			response_time_ms,
-			is_stream,
-			success_flag,
-			billable_flag,
-			priced_flag,
-			unpriced_reason,
-			request_path,
-			created_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14
-		)`,
-		seed.ProfileID,
-		seed.ModelID,
-		seed.APIFamily,
-		seed.IngressRequestID,
-		nullInt32(seed.AttemptNumber),
-		seed.StatusCode,
-		seed.ResponseTimeMS,
-		seed.IsStream,
-		nullBool(seed.SuccessFlag),
-		nullBool(seed.BillableFlag),
-		nullBool(seed.PricedFlag),
-		nullString(seed.UnpricedReason),
-		seed.RequestPath,
-		seed.CreatedAt,
-	); err != nil {
-		t.Fatalf("insert request_log %q: %v", seed.IngressRequestID, err)
-	}
-}
-
-func insertUsageRequestEvent(t *testing.T, ctx context.Context, conn *pgx.Conn, seed usageRequestEventSeed) {
-	t.Helper()
-	if _, err := conn.Exec(
-		ctx,
-		`INSERT INTO usage_request_events (
-			profile_id,
-			ingress_request_id,
-			model_id,
-			api_family,
-			status_code,
-			success_flag,
-			attempt_count,
-			request_path,
-			created_at,
-			billable_flag,
-			priced_flag,
-			unpriced_reason
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12
-		)`,
-		seed.ProfileID,
-		seed.IngressRequestID,
-		seed.ModelID,
-		seed.APIFamily,
-		seed.StatusCode,
-		seed.SuccessFlag,
-		seed.AttemptCount,
-		seed.RequestPath,
-		seed.CreatedAt,
-		nil,
-		nil,
-		nil,
-	); err != nil {
-		t.Fatalf("insert usage_request_event %q: %v", seed.IngressRequestID, err)
 	}
 }
 
@@ -1192,20 +974,6 @@ func queryRows(t *testing.T, ctx context.Context, conn *pgx.Conn, query string) 
 		t.Fatalf("iterate rows for query %q: %v", query, err)
 	}
 	return values
-}
-
-func nullBool(value sql.NullBool) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.Bool
-}
-
-func nullInt32(value sql.NullInt32) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.Int32
 }
 
 func nullInt64(value sql.NullInt64) any {

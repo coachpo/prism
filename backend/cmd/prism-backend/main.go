@@ -46,8 +46,6 @@ func main() {
 		startupResult.Skipped,
 		"migration_outcome",
 		startupResult.Migration.Outcome,
-		"billing_reconciliation_ran",
-		startupResult.BillingReconciliation.Ran,
 	)
 
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
