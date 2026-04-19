@@ -18,16 +18,16 @@ components/
 ├── SwitchController.tsx                               # Shared switch wrapper and control row
 ├── VendorIcon.tsx + VendorSelect.tsx + vendorIcon*.tsx # Shared vendor icon and picker helpers
 ├── WebSocketStatusIndicator.tsx                       # Shared realtime connection badge
-├── layout/app-layout/AGENTS.md                        # Dense shell-state cluster behind AppLayout
+├── layout/app-layout/AGENTS.md                        # Post-upgrade shell cluster behind the mounted page wrapper
 ├── loadbalance/AGENTS.md                              # Shared loadbalance renderers
 ├── statistics/AGENTS.md                               # Shared statistics renderers
 └── ui/AGENTS.md                                       # shadcn/ui primitives and local wrappers
 ```
 
 ## WHERE TO LOOK
-- Shell chrome and layout handoff: `layout/AppLayout.tsx`
+- Shell chrome and layout handoff: `layout/page.tsx`
 - Shell state cluster, nav/version ownership, and profile-switcher behavior: `layout/app-layout/AGENTS.md`
-- Shared language/theme controls: `GlobalPreferencesControls.tsx`, `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
+- Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
 - Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SwitchController.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared vendor icon and picker surfaces: `VendorIcon.tsx`, `VendorSelect.tsx`, `vendorIconRegistry.tsx`, `vendorIconComponents.tsx`
@@ -36,7 +36,7 @@ components/
 - Design-system primitives and local wrappers: `ui/`
 
 ## CHILD DOCS
-- `layout/app-layout/AGENTS.md`: shell chrome, profile switcher, profile dialogs, and visible version-label ownership.
+- `layout/app-layout/AGENTS.md`: mounted shell chrome, profile switcher, profile dialogs, mismatch footer, user footer, and visible version-label ownership.
 - `loadbalance/AGENTS.md`: shared loadbalance badges, table, and event detail sheet.
 - `statistics/AGENTS.md`: shared statistics cards and token metric cells.
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
@@ -55,3 +55,4 @@ components/
 - Do not move nav-link, profile-dialog, or version-label logic out of `layout/app-layout/`.
 - Do not put page-specific fetches or route-state parsing in shared components.
 - Do not duplicate vendor icon fallback logic or websocket-health badges across route folders.
+- Do not refer to deleted shell files or the old shell wrapper, header, or profile popover surfaces as live shared components.
