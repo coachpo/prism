@@ -184,6 +184,85 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	assertErrorResponse(t, wrongProfileResponse, http.StatusNotFound, "Pricing template not found")
 }
 
+func TestPricingTemplateManagementCRUD(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	otherProfileID := insertContractProfile(t, harness, "S10 Other CRUD Profile")
+	existingTemplateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S10 Existing Template")
+	_ = insertContractPricingTemplate(t, harness, otherProfileID, "S10 Other Profile Template")
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/pricing-templates", nil, modelHeader(defaultProfileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listed []map[string]any
+	decodeJSONResponse(t, listResponse, &listed)
+	if len(listed) != 1 || jsonInt(t, listed[0]["id"]) != existingTemplateID || listed[0]["name"] != "S10 Existing Template" {
+		t.Fatalf("expected pricing template list for effective profile only, got %+v", listed)
+	}
+
+	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d", existingTemplateID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, getResponse, http.StatusOK)
+	var existing map[string]any
+	decodeJSONResponse(t, getResponse, &existing)
+	if jsonInt(t, existing["profile_id"]) != defaultProfileID || existing["pricing_unit"] != "PER_1M" {
+		t.Fatalf("expected pricing template payload for profile %d, got %+v", defaultProfileID, existing)
+	}
+
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Created Template", "description": "created via contract", "pricing_currency_code": "usd", "input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": nil, "reasoning_price": nil}, modelHeader(defaultProfileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, createResponse, &created)
+	createdID := jsonInt(t, created["id"])
+	if created["name"] != "S10 Created Template" || created["pricing_currency_code"] != "USD" || created["version"] != float64(1) {
+		t.Fatalf("expected created pricing template payload, got %+v", created)
+	}
+
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "description": "updated via contract", "input_price": "3.75", "reasoning_price": "0.50"}, modelHeader(defaultProfileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	var updated map[string]any
+	decodeJSONResponse(t, updateResponse, &updated)
+	if updated["description"] != "updated via contract" || updated["input_price"] != "3.75" || updated["reasoning_price"] != "0.50" || updated["version"] != float64(2) {
+		t.Fatalf("expected updated pricing template payload, got %+v", updated)
+	}
+
+	staleUpdate := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "name": "Stale Update"}, modelHeader(defaultProfileID))
+	assertErrorResponse(t, staleUpdate, http.StatusConflict, "Pricing template has changed. Please refresh and retry.")
+
+	deleteResponse := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/pricing-templates/%d", createdID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, deleteResponse, http.StatusOK)
+	var deleted map[string]any
+	decodeJSONResponse(t, deleteResponse, &deleted)
+	if deleted["deleted"] != true {
+		t.Fatalf("expected deleted response payload, got %+v", deleted)
+	}
+
+	missingAfterDelete := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d", createdID), nil, modelHeader(defaultProfileID))
+	assertErrorResponse(t, missingAfterDelete, http.StatusNotFound, "Pricing template not found")
+}
+
+func TestPricingTemplateDeleteConflict(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S10 Pricing Delete Conflict Strategy")
+	modelConfigID := modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s10-pricing-delete-model", nil, "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, defaultProfileID, "Pricing Delete Conflict Endpoint", 0)
+	templateID := insertContractPricingTemplate(t, harness, defaultProfileID, "S10 Delete Conflict Template")
+	_ = insertContractConnectionWithState(t, harness, defaultProfileID, modelConfigID, endpointID, &templateID, 0, true, nil, stringPtr("Conflict Connection"), "healthy", nil, nil)
+
+	blockedDelete := harness.requestJSON(t, harness.client, http.MethodDelete, fmt.Sprintf("/api/pricing-templates/%d", templateID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, blockedDelete, http.StatusConflict)
+	var payload map[string]any
+	decodeJSONResponse(t, blockedDelete, &payload)
+	detail := asMap(t, payload["detail"])
+	if detail["message"] != "Cannot delete pricing template that is referenced by connections" {
+		t.Fatalf("expected delete conflict message, got %+v", payload)
+	}
+	connections := detail["connections"].([]any)
+	if len(connections) != 1 || jsonInt(t, asMap(t, connections[0])["model_config_id"]) != modelConfigID || jsonInt(t, asMap(t, connections[0])["endpoint_id"]) != endpointID {
+		t.Fatalf("expected delete conflict dependency payload, got %+v", payload)
+	}
+}
+
 func TestPricingTemplateConnections(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 

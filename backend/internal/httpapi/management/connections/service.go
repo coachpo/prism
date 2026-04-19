@@ -103,7 +103,14 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Delete("/connections/{connection_id}", s.handleDeleteConnection)
 	api.Post("/connections/{connection_id}/health-check", s.handleConnectionHealthCheck)
 	api.Get("/connections/{connection_id}/owner", s.handleGetConnectionOwner)
-	api.Get("/pricing-templates/{template_id}/connections", s.handleListPricingTemplateConnections)
+	api.Route("/pricing-templates", func(router chi.Router) {
+		router.Get("/", s.handleListPricingTemplates)
+		router.Post("/", s.handleCreatePricingTemplate)
+		router.Get("/{template_id}", s.handleGetPricingTemplate)
+		router.Put("/{template_id}", s.handleUpdatePricingTemplate)
+		router.Delete("/{template_id}", s.handleDeletePricingTemplate)
+		router.Get("/{template_id}/connections", s.handleListPricingTemplateConnections)
+	})
 }
 
 func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {

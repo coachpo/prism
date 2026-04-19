@@ -63,6 +63,25 @@ type pricingTemplateConnectionUsageRecord struct {
 	EndpointName   *string
 }
 
+type pricingTemplateResponse struct {
+	ID                  int       `json:"id"`
+	ProfileID           int       `json:"profile_id"`
+	Name                string    `json:"name"`
+	Description         *string   `json:"description"`
+	PricingUnit         string    `json:"pricing_unit"`
+	PricingCurrencyCode string    `json:"pricing_currency_code"`
+	InputPrice          string    `json:"input_price"`
+	OutputPrice         string    `json:"output_price"`
+	CachedInputPrice    *string   `json:"cached_input_price"`
+	CacheCreationPrice  *string   `json:"cache_creation_price"`
+	ReasoningPrice      *string   `json:"reasoning_price"`
+	Version             int       `json:"version"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at FROM pricing_templates`
+
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) (modelRecord, bool, error) {
 	record, err := scanModelRecord(exec.QueryRow(ctx, `SELECT id, profile_id, model_id, model_type, api_family FROM model_configs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, modelConfigID))
 	if err == pgx.ErrNoRows {
@@ -131,6 +150,21 @@ func ensureUniqueEndpointName(ctx context.Context, exec queryExecutor, profileID
 	return fmt.Errorf("query endpoint name availability for %q: %w", endpointName, err)
 }
 
+func ensureUniquePricingTemplateName(ctx context.Context, exec queryExecutor, profileID int, templateName string, excludeID *int) error {
+	var existingID int
+	err := exec.QueryRow(ctx, `SELECT id FROM pricing_templates WHERE profile_id = $1 AND name = $2 LIMIT 1`, profileID, templateName).Scan(&existingID)
+	if err == nil {
+		if excludeID != nil && existingID == *excludeID {
+			return nil
+		}
+		return &domainError{StatusCode: 409, Detail: fmt.Sprintf("Pricing template name '%s' already exists", templateName)}
+	}
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	return fmt.Errorf("query pricing template name availability for %q: %w", templateName, err)
+}
+
 func nextEndpointPosition(ctx context.Context, exec queryExecutor, profileID int) (int, error) {
 	var maxPosition sql.NullInt32
 	if err := exec.QueryRow(ctx, `SELECT MAX(position) FROM endpoints WHERE profile_id = $1`, profileID).Scan(&maxPosition); err != nil {
@@ -186,6 +220,64 @@ func validatePricingTemplateID(ctx context.Context, exec queryExecutor, profileI
 	}
 	resolved := existingID
 	return &resolved, nil
+}
+
+func loadPricingTemplate(ctx context.Context, exec queryExecutor, profileID int, templateID int, forUpdate bool) (pricingTemplateResponse, bool, error) {
+	query := pricingTemplateSelectQuery + ` WHERE profile_id = $1 AND id = $2`
+	if forUpdate {
+		query += ` FOR UPDATE OF pricing_templates`
+	}
+	query += ` LIMIT 1`
+	item, err := scanPricingTemplateResponse(exec.QueryRow(ctx, query, profileID, templateID))
+	if err == pgx.ErrNoRows {
+		return pricingTemplateResponse{}, false, nil
+	}
+	if err != nil {
+		return pricingTemplateResponse{}, false, fmt.Errorf("load pricing template %d in profile %d: %w", templateID, profileID, err)
+	}
+	return item, true, nil
+}
+
+func listPricingTemplates(ctx context.Context, exec queryExecutor, profileID int) ([]pricingTemplateResponse, error) {
+	rows, err := exec.Query(ctx, pricingTemplateSelectQuery+` WHERE profile_id = $1 ORDER BY updated_at DESC, id DESC`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("query pricing templates for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	items := make([]pricingTemplateResponse, 0)
+	for rows.Next() {
+		item, scanErr := scanPricingTemplateResponse(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pricing templates for profile %d: %w", profileID, err)
+	}
+	return items, nil
+}
+
+func insertPricingTemplate(ctx context.Context, exec queryExecutor, item pricingTemplateResponse) (pricingTemplateResponse, error) {
+	created, err := scanPricingTemplateResponse(exec.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id, profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at`, item.ProfileID, item.Name, nullableString(item.Description), item.PricingUnit, item.PricingCurrencyCode, item.InputPrice, item.OutputPrice, nullableString(item.CachedInputPrice), nullableString(item.CacheCreationPrice), nullableString(item.ReasoningPrice), item.Version, item.CreatedAt, item.UpdatedAt))
+	if err != nil {
+		return pricingTemplateResponse{}, fmt.Errorf("insert pricing template %q: %w", item.Name, err)
+	}
+	return created, nil
+}
+
+func updatePricingTemplate(ctx context.Context, exec queryExecutor, item pricingTemplateResponse) error {
+	if _, err := exec.Exec(ctx, `UPDATE pricing_templates SET name = $2, description = $3, pricing_unit = $4, pricing_currency_code = $5, input_price = $6, output_price = $7, cached_input_price = $8, cache_creation_price = $9, reasoning_price = $10, version = $11, updated_at = $12 WHERE id = $1`, item.ID, item.Name, nullableString(item.Description), item.PricingUnit, item.PricingCurrencyCode, item.InputPrice, item.OutputPrice, nullableString(item.CachedInputPrice), nullableString(item.CacheCreationPrice), nullableString(item.ReasoningPrice), item.Version, item.UpdatedAt); err != nil {
+		return fmt.Errorf("update pricing template %d: %w", item.ID, err)
+	}
+	return nil
+}
+
+func deletePricingTemplate(ctx context.Context, exec queryExecutor, templateID int) error {
+	if _, err := exec.Exec(ctx, `DELETE FROM pricing_templates WHERE id = $1`, templateID); err != nil {
+		return fmt.Errorf("delete pricing template %d: %w", templateID, err)
+	}
+	return nil
 }
 
 func loadConnectionRecord(ctx context.Context, exec queryExecutor, profileID int, connectionID int, forUpdate bool) (connectionResponse, bool, error) {
@@ -434,6 +526,24 @@ func scanPricingTemplateConnectionUsageRecord(scanner interface{ Scan(...any) er
 	item.ConnectionName = nullableStringValue(connectionName)
 	item.ModelID = nullableStringValue(modelID)
 	item.EndpointName = nullableStringValue(endpointName)
+	return item, nil
+}
+
+func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (pricingTemplateResponse, error) {
+	var description sql.NullString
+	var cachedInputPrice sql.NullString
+	var cacheCreationPrice sql.NullString
+	var reasoningPrice sql.NullString
+	item := pricingTemplateResponse{}
+	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.Name, &description, &item.PricingUnit, &item.PricingCurrencyCode, &item.InputPrice, &item.OutputPrice, &cachedInputPrice, &cacheCreationPrice, &reasoningPrice, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		return pricingTemplateResponse{}, err
+	}
+	item.Description = nullableStringValue(description)
+	item.CachedInputPrice = nullableStringValue(cachedInputPrice)
+	item.CacheCreationPrice = nullableStringValue(cacheCreationPrice)
+	item.ReasoningPrice = nullableStringValue(reasoningPrice)
+	item.CreatedAt = item.CreatedAt.UTC()
+	item.UpdatedAt = item.UpdatedAt.UTC()
 	return item, nil
 }
 
