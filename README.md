@@ -35,7 +35,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 ### Prerequisites
 
-- Go toolchain
+- Go 1.26.2 toolchain
 - Node.js 24+
 - pnpm
 - Git
@@ -108,7 +108,7 @@ The checked-in `docs/` tree is reserved for durable reference material and archi
 
 ### Version management
 
-`backend/` and `frontend/` keep their version metadata inside this monorepo checkout. `backend/VERSION` is the backend runtime version surface, `backend/pyproject.toml` is a non-runtime cutover metadata stub, and the frontend keeps its runtime-visible version in `frontend/package.json` alongside `frontend/VERSION`. Root `VERSION` stays aligned with those surfaces during releases.
+`backend/` and `frontend/` keep their version metadata inside this monorepo checkout. `backend/VERSION` is the backend runtime version surface, and the frontend keeps its runtime-visible version in `frontend/package.json` alongside `frontend/VERSION`. Root `VERSION` stays aligned with those surfaces during releases.
 
 ### Root release flow
 
@@ -127,7 +127,7 @@ The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/d
 ./start.sh headless
 
 cd backend
-go test ./tests/contract ./tests/integration
+go test ./tests/contract ./tests/integration ./tests/runtime
 go build ./cmd/prism-backend
 ```
 

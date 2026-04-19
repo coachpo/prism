@@ -39,7 +39,7 @@ backend/
 │   ├── platform/
 │   │   ├── config/             # environment and runtime settings
 │   │   ├── http/               # server assembly and route mounting
-│   │   ├── migrate/            # SQL migration runner and cutover helpers
+│   │   ├── migrate/            # SQL migration runner and schema helpers
 │   │   ├── startup/            # startup sequencing and default seeding
 │   │   └── version/            # VERSION loader
 │   ├── domain/
@@ -50,11 +50,10 @@ backend/
 │   ├── profiledomain/          # selected vs active profile helpers
 │   └── vendordomain/           # shared vendor catalog helpers
 ├── migrations/                 # SQL migration chain applied at startup
-├── testdata/                   # checked-in OpenAPI, bundle, realtime, and cutover fixtures
-├── tests/                      # regression roots, including Go cutover suites
+├── testdata/                   # checked-in OpenAPI, bundle, and realtime fixtures
+├── tests/                      # Go contract, integration, and runtime regressions
 ├── Dockerfile                  # live Go backend image build
 ├── docker-compose.yml          # local PostgreSQL helper on host port 15432
-├── pyproject.toml              # non-runtime cutover metadata stub
 └── VERSION                     # backend version surface
 ```
 
@@ -106,7 +105,6 @@ frontend/
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
 - Root local orchestration lives in `start.sh`: it loads `.env`, starts PostgreSQL from `backend/docker-compose.yml`, and launches the Go backend service on `18000`.
 - `./start.sh full` also launches the frontend on `15173` with `VITE_API_BASE=http://localhost:18000`; local dev does not rely on a Vite proxy.
-- `backend/pyproject.toml` is a non-runtime metadata stub kept only to make backend-local cutover metadata explicit; it does not define a live Python package surface.
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 

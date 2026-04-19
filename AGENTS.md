@@ -28,7 +28,7 @@ prism/
 ```
 
 ## HIERARCHY
-- `backend/AGENTS.md`: backend monorepo directory root for runtime, package, and test boundaries.
+- `backend/AGENTS.md`: backend monorepo directory root for runtime and test boundaries.
 - `backend/tests/AGENTS.md`: backend contract and regression test boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, and typed browser/backend seams.
 - `frontend/tests/AGENTS.md`: frontend contract and Playwright test boundary.
@@ -44,7 +44,7 @@ prism/
 
 ## WHERE TO LOOK
 - Operator-facing launcher and release summary: `README.md`, `start.sh`, `release.sh`
-- Backend/frontend version surfaces: `backend/VERSION`, `backend/pyproject.toml`, `frontend/VERSION`, `frontend/package.json`
+- Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
 - Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/tests/AGENTS.md`

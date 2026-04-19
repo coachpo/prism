@@ -54,7 +54,7 @@ This plan is synthesized from:
 
 ## 4. Environment Prerequisites
 
-- Go toolchain, Node `24+`, pnpm `10.30.1`, Docker, and Docker Compose.
+- Go 1.26.2 toolchain, Node `24+`, pnpm `10.30.1`, Docker, and Docker Compose.
 - When using the checked-in launcher, backend available at `http://localhost:18000` and frontend at `http://localhost:15173`.
 - `backend/docker-compose.yml` binds PostgreSQL on `15432` for local orchestration.
 - Upstream behavior controlled by test doubles or known test endpoints.

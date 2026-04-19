@@ -215,7 +215,7 @@ Allow users to configure custom HTTP headers on individual connections. These he
 - Vendor records are publisher metadata, not runtime compatibility switches
 
 ### 4.14 Configurable Header Blocklist
-Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied in `proxy_service.py` on every request.
+Database-backed header blocklist with CRUD API. Supports exact and prefix match types. System defaults for Cloudflare tunnel metadata, tracing headers, and standard proxy headers. Applied by the Go runtime on every request.
 
 ### 4.15 Profile Isolation & Management
 - Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
@@ -243,7 +243,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 
 | Component | Technology |
 |---|---|
-| Backend | Go 1.26, chi, pgx, gorilla/websocket |
+| Backend | Go 1.26.2, chi, pgx, gorilla/websocket |
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
 | Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, React Router 7 |

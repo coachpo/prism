@@ -28,7 +28,7 @@ docs/
 
 ## WHERE TO LOOK
 - Launcher and release facts: `../README.md`, `../start.sh`, `../release.sh`, `../.env.example`
-- Backend/frontend version surfaces: `../backend/VERSION`, `../backend/pyproject.toml`, `../frontend/VERSION`, `../frontend/package.json`
+- Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Frontend request-log context: `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
@@ -48,7 +48,7 @@ docs/
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
-- Do not add generic FastAPI, React, Vite, or uv explainers.
+- Do not add generic framework or tool explainers.
 - Do not invent CI jobs, unsupported routes, unsupported providers, or extra compose files.
 - Do not reintroduce any live-plan sink under `docs/`.
 - Do not treat archived notes as the source of truth when a live doc or child AGENTS file already owns the topic.
