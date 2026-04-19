@@ -14,7 +14,7 @@ FROM debian:bookworm-slim
 WORKDIR /app/backend
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /out/prism-backend /usr/local/bin/prism-backend
