@@ -1,9 +1,0 @@
-# Non-runtime metadata stub retained during final Go cutover verification.
-# The live backend is the Go service under cmd/prism-backend.
-# Do not reintroduce Python runtime, dependency, or packaging declarations here.
-
-[tool.prism_backend_metadata]
-version_file = "VERSION"
-live_runtime = "go"
-python_runtime_retired = true
-purpose = "backend-local metadata stub kept during cutover verification"
