@@ -327,8 +327,8 @@ test.describe("reporting currency provider", () => {
     await expect.poll(() => requestCounts.modelsByProfile["1"] ?? 0).toBeGreaterThan(0);
     await expect.poll(() => requestCounts.usageSnapshotByProfile["1"] ?? 0).toBeGreaterThan(0);
 
-    await page.getByTestId("shell-profile-switcher").getByRole("combobox").click();
-    await page.getByRole("button", { name: /Blue Team/ }).click();
+    await page.getByTestId("shell-profile-switcher").getByRole("button").click();
+    await page.getByRole("menuitem", { name: /Blue Team/ }).click();
 
     await expect(page.getByText("Loading application...")).toBeVisible();
     await expect.poll(getLastCostingProfileHeader).toBe("2");

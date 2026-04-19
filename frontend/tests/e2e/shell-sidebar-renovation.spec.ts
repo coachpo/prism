@@ -364,13 +364,15 @@ test.describe("shell sidebar renovation regression", () => {
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
     await expect.poll(() => readSidebarCollapsed(page)).toBe("false");
 
-    await page.getByRole("button", { name: "Collapse sidebar" }).click();
-    await expect.poll(() => readSidebarCollapsed(page)).toBe("true");
-    await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+    const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
 
-    await page.getByRole("button", { name: "Expand sidebar" }).click();
+    await sidebarToggle.click();
+    await expect.poll(() => readSidebarCollapsed(page)).toBe("true");
+    await expect(sidebarToggle).toBeVisible();
+
+    await sidebarToggle.click();
     await expect.poll(() => readSidebarCollapsed(page)).toBe("false");
-    await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+    await expect(sidebarToggle).toBeVisible();
   });
 
   test("renders settings hash breadcrumbs with the section leaf as current", async ({ page }) => {
@@ -396,23 +398,29 @@ test.describe("shell sidebar renovation regression", () => {
 
     await page.goto("/dashboard?tab=analytics");
 
+    const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
+
     await expect(page.getByTestId("shell-breadcrumb")).toBeVisible();
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
-    await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Open sidebar" }).click();
+    await sidebarToggle.click();
     await expect(page.getByTestId("shell-sidebar")).toBeVisible();
+    await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
 
     await page.getByTestId("shell-sidebar").getByRole("link", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings$/);
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Settings");
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
+
+    await sidebarToggle.click();
+    await expect(page.getByTestId("shell-sidebar")).toBeVisible();
     await expect(page.getByTestId("shell-profile-switcher")).toBeVisible();
 
-    await page.getByRole("button", { name: "Open sidebar" }).click();
-    await expect(page.getByTestId("shell-sidebar")).toBeVisible();
-    await page.getByTestId("shell-sidebar").getByRole("button", { name: "Close sidebar" }).click();
+    await page.locator('[data-slot="sheet-overlay"]').click({ position: { x: 380, y: 20 } });
     await expect(page.getByTestId("shell-sidebar")).toHaveCount(0);
+    await expect(page.getByTestId("shell-profile-switcher")).toHaveCount(0);
   });
 });

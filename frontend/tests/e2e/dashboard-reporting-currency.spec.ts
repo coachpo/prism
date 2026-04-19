@@ -301,8 +301,8 @@ test.describe("dashboard reporting currency", () => {
     await expect(page.getByText("Highest request-based spend in the last 30 days")).toBeVisible();
     await expect(page.getByText("¥0.25 CNY")).toHaveCount(2);
 
-    await page.getByTestId("shell-profile-switcher").getByRole("combobox").click();
-    await page.getByRole("button", { name: "Blue Team" }).click();
+    await page.getByTestId("shell-profile-switcher").getByRole("button").click();
+    await page.getByRole("menuitem", { name: /Blue Team/ }).click();
 
     await expect(spendingMetric).toHaveText("$0.25 USD");
     await expect(page.getByText("$0.25 USD")).toHaveCount(2);
