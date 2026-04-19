@@ -1,0 +1,590 @@
+package auth
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+)
+
+var publicManagementPaths = map[string]struct{}{
+	"/api/auth/status":                 {},
+	"/api/auth/public-bootstrap":       {},
+	"/api/auth/login":                  {},
+	"/api/auth/logout":                 {},
+	"/api/auth/refresh":                {},
+	"/api/auth/password-reset/request": {},
+	"/api/auth/password-reset/confirm": {},
+	"/api/realtime/ws":                 {},
+}
+
+func (s *Service) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || !requiresAuthHandling(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+		if err != nil {
+			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			if !settingsRow.AuthEnabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if _, ok := publicManagementPaths[r.URL.Path]; ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authSubject, ok := s.authSubjectFromAccessCookie(r, settingsRow)
+			if !ok {
+				writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Authentication required")
+				return
+			}
+			contextWithSubject := context.WithValue(r.Context(), authSubjectContextKey{}, authSubject)
+			next.ServeHTTP(w, r.WithContext(contextWithSubject))
+			return
+		}
+
+		if !settingsRow.AuthEnabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rawKey, _ := extractProxyAPIKey(r.Header)
+		if rawKey == "" {
+			writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Proxy API key required")
+			return
+		}
+		proxyKey, err := s.verifyProxyAPIKey(r.Context(), rawKey)
+		if err != nil {
+			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to verify proxy API key")
+			return
+		}
+		if proxyKey == nil {
+			writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Invalid proxy API key")
+			return
+		}
+		contextWithProxyKey := context.WithValue(r.Context(), runtimeProxyKeyContextKey{}, runtimeProxyKey{ID: proxyKey.ID, Name: proxyKey.Name})
+		if err := s.recordProxyAPIKeyUsage(contextWithProxyKey, proxyKey.ID, s.nowUTC(), requestIP(r)); err != nil {
+			slog.Error("failed to record proxy API key usage", "error", err, "key_id", proxyKey.ID)
+		}
+		next.ServeHTTP(w, r.WithContext(contextWithProxyKey))
+	})
+}
+
+func requiresAuthHandling(path string) bool {
+	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/")
+}
+
+func extractProxyAPIKey(header http.Header) (string, string) {
+	authorization := strings.TrimSpace(header.Get("Authorization"))
+	if authorization != "" {
+		parts := strings.SplitN(authorization, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), "Bearer") && strings.TrimSpace(parts[1]) != "" {
+			return strings.TrimSpace(parts[1]), "authorization"
+		}
+	}
+	for _, name := range []string{"X-API-Key", "X-Goog-Api-Key"} {
+		value := strings.TrimSpace(header.Get(name))
+		if value != "" {
+			return value, strings.ToLower(name)
+		}
+	}
+	return "", ""
+}
+
+func requestIP(request *http.Request) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(request.RemoteAddr))
+	if err == nil {
+		return host
+	}
+	return strings.TrimSpace(request.RemoteAddr)
+}
+
+func (s *Service) authSubjectFromAccessCookie(request *http.Request, settingsRow appAuthSettingsRow) (authSubject, bool) {
+	cookie, err := request.Cookie(s.accessCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return authSubject{}, false
+	}
+	claims, err := parseAccessToken(s.nowUTC(), s.authJWTSecret, cookie.Value)
+	if err != nil {
+		return authSubject{}, false
+	}
+	subjectID, err := strconv.Atoi(strings.TrimSpace(claims.Sub))
+	if err != nil {
+		return authSubject{}, false
+	}
+	if subjectID != settingsRow.ID || claims.TokenVersion != settingsRow.TokenVersion {
+		return authSubject{}, false
+	}
+	return authSubject{ID: settingsRow.ID, TokenVersion: settingsRow.TokenVersion, Username: claims.Username}, true
+}
+
+func (s *Service) handleGetAuthStatus(w http.ResponseWriter, r *http.Request) {
+	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, authStatusResponse{AuthEnabled: settingsRow.AuthEnabled})
+}
+
+func (s *Service) handleGetPublicBootstrap(w http.ResponseWriter, r *http.Request) {
+	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+		return
+	}
+	if !settingsRow.AuthEnabled {
+		s.clearAuthCookies(w)
+		writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: false, Username: nil})
+		return
+	}
+	if authSubject, ok := s.authSubjectFromAccessCookie(r, settingsRow); ok {
+		writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: true, Username: stringPointer(authSubject.Username)})
+		return
+	}
+	bundle, err := s.withRefreshCookie(r.Context(), r)
+	if err != nil {
+		var authErr *domainError
+		if errors.As(err, &authErr) && authErr.StatusCode == http.StatusUnauthorized {
+			s.clearAuthCookies(w)
+			writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: true, Username: nil})
+			return
+		}
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	s.setAuthCookies(w, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
+	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: true, Username: nullableString(bundle.SettingsRow.Username)})
+}
+
+func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var requestBody loginRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	duration, err := normalizeSessionDuration(requestBody.SessionDuration)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid session duration")
+		return
+	}
+	bundle, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (sessionBundle, error) {
+		return s.authenticateUser(
+			r.Context(),
+			tx,
+			strings.TrimSpace(requestBody.Username),
+			requestBody.Password,
+			duration,
+			r.UserAgent(),
+			requestIP(r),
+		)
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	s.setAuthCookies(w, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
+	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
+}
+
+func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if err := s.withTx(r.Context(), func(tx pgx.Tx) error {
+		cookie, cookieErr := r.Cookie(s.refreshCookieName)
+		if cookieErr == nil && strings.TrimSpace(cookie.Value) != "" {
+			return s.revokeRefreshToken(r.Context(), tx, cookie.Value)
+		}
+		return nil
+	}); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+		return
+	}
+	s.clearAuthCookies(w)
+	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: settingsRow.AuthEnabled, Username: nil})
+}
+
+func (s *Service) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	bundle, err := s.withRefreshCookie(r.Context(), r)
+	if err != nil {
+		var authErr *domainError
+		if errors.As(err, &authErr) && authErr.StatusCode == http.StatusUnauthorized {
+			s.clearAuthCookies(w)
+			writeJSON(w, http.StatusOK, sessionResponse{Authenticated: false, AuthEnabled: true, Username: nil})
+			return
+		}
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	s.setAuthCookies(w, bundle.AccessToken, bundle.RefreshToken, bundle.RefreshExpiresAt, bundle.SessionDuration)
+	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: bundle.SettingsRow.AuthEnabled, Username: nullableString(bundle.SettingsRow.Username)})
+}
+
+func (s *Service) withRefreshCookie(ctx context.Context, request *http.Request) (sessionBundle, error) {
+	cookie, err := request.Cookie(s.refreshCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return sessionBundle{}, &domainError{StatusCode: http.StatusUnauthorized, Detail: "Invalid refresh token"}
+	}
+	return withTxValue(ctx, s.pool, func(tx pgx.Tx) (sessionBundle, error) {
+		return s.rotateRefreshToken(ctx, tx, cookie.Value, request.UserAgent(), requestIP(request))
+	})
+}
+
+func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	authSubject, ok := authSubjectFromRequest(r)
+	if !ok {
+		writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+		return
+	}
+	username := authSubject.Username
+	if username == "" {
+		username = stringValue(settingsRow.Username)
+	}
+	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true, AuthEnabled: settingsRow.AuthEnabled, Username: stringPointer(username)})
+}
+
+func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
+	var requestBody passwordResetRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	identifier := strings.TrimSpace(requestBody.UsernameOrEmail)
+	result, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct {
+		SettingsRow appAuthSettingsRow
+		OTPCode     string
+		ShouldSend  bool
+	}, error) {
+		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
+		if loadErr != nil {
+			return struct {
+				SettingsRow appAuthSettingsRow
+				OTPCode     string
+				ShouldSend  bool
+			}{}, fmt.Errorf("load auth settings: %w", loadErr)
+		}
+		if !settingsRow.AuthEnabled || !settingsRow.Email.Valid || identifier == "" {
+			return struct {
+				SettingsRow appAuthSettingsRow
+				OTPCode     string
+				ShouldSend  bool
+			}{SettingsRow: settingsRow}, nil
+		}
+		allowedIdentifiers := map[string]struct{}{}
+		if settingsRow.Username.Valid {
+			allowedIdentifiers[settingsRow.Username.String] = struct{}{}
+		}
+		allowedIdentifiers[settingsRow.Email.String] = struct{}{}
+		if _, ok := allowedIdentifiers[identifier]; !ok {
+			return struct {
+				SettingsRow appAuthSettingsRow
+				OTPCode     string
+				ShouldSend  bool
+			}{SettingsRow: settingsRow}, nil
+		}
+		otpCode, createErr := s.createPasswordResetChallenge(r.Context(), tx, settingsRow, requestIP(r))
+		if createErr != nil {
+			return struct {
+				SettingsRow appAuthSettingsRow
+				OTPCode     string
+				ShouldSend  bool
+			}{}, createErr
+		}
+		return struct {
+			SettingsRow appAuthSettingsRow
+			OTPCode     string
+			ShouldSend  bool
+		}{SettingsRow: settingsRow, OTPCode: otpCode, ShouldSend: true}, nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	if result.ShouldSend {
+		if sendErr := s.mailer.SendPasswordResetEmail(r.Context(), result.SettingsRow.Email.String, result.OTPCode); sendErr != nil {
+			slog.Error("failed to send password reset email", "error", sendErr, "auth_subject_id", result.SettingsRow.ID)
+		}
+	}
+	writeJSON(w, http.StatusOK, successResponse{Success: true})
+}
+
+func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
+	var requestBody passwordResetConfirmRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := s.withTx(r.Context(), func(tx pgx.Tx) error {
+		return s.consumePasswordResetChallenge(r.Context(), tx, strings.TrimSpace(requestBody.OTPCode), requestBody.NewPassword)
+	}); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	s.clearAuthCookies(w)
+	writeJSON(w, http.StatusOK, successResponse{Success: true})
+}
+
+func (s *Service) handleGetAuthSettings(w http.ResponseWriter, r *http.Request) {
+	settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(settingsRow))
+}
+
+func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) {
+	var requestBody authSettingsUpdateRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	updatedRow, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (appAuthSettingsRow, error) {
+		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
+		if loadErr != nil {
+			return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", loadErr)
+		}
+		return s.updateAuthSettings(r.Context(), tx, settingsRow, requestBody)
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(updatedRow))
+}
+
+func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.Request) {
+	var requestBody emailVerificationRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	email, err := validateEmail(requestBody.Email)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	var updatedRow appAuthSettingsRow
+	err = s.withTx(r.Context(), func(tx pgx.Tx) error {
+		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
+		if loadErr != nil {
+			return fmt.Errorf("load auth settings: %w", loadErr)
+		}
+		currentRow, otpCode, beginErr := s.beginEmailVerification(r.Context(), tx, settingsRow, email)
+		if beginErr != nil {
+			return beginErr
+		}
+		if sendErr := s.mailer.SendEmailVerificationOTP(r.Context(), email, otpCode); sendErr != nil {
+			return fmt.Errorf("send email verification code: %w", sendErr)
+		}
+		updatedRow = currentRow
+		return nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
+}
+
+func (s *Service) handleEmailVerificationConfirm(w http.ResponseWriter, r *http.Request) {
+	var requestBody emailVerificationConfirmRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	updatedRow, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (appAuthSettingsRow, error) {
+		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
+		if loadErr != nil {
+			return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", loadErr)
+		}
+		return s.confirmEmailVerification(r.Context(), tx, settingsRow, strings.TrimSpace(requestBody.OTPCode))
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
+}
+
+func (s *Service) handleListProxyKeys(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.listProxyAPIKeys(r.Context(), s.pool)
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load proxy API keys")
+		return
+	}
+	response := make([]proxyAPIKeyResponse, 0, len(rows))
+	for _, row := range rows {
+		response = append(response, s.serializeProxyAPIKey(row))
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Service) handleCreateProxyKey(w http.ResponseWriter, r *http.Request) {
+	var requestBody proxyAPIKeyCreateRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	name, err := validateProxyKeyName(requestBody.Name)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	notes := normalizeNotes(requestBody.Notes)
+	result, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
+		rawKey, row, createErr := s.createProxyAPIKey(r.Context(), tx, name, notes, authSubjectIDFromRequest(r))
+		if createErr != nil {
+			return proxyAPIKeyMutationResponse{}, createErr
+		}
+		return proxyAPIKeyMutationResponse{Key: rawKey, Item: s.serializeProxyAPIKey(row)}, nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Service) handleUpdateProxyKey(w http.ResponseWriter, r *http.Request) {
+	keyID, err := routeInt(r, "key_id")
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		return
+	}
+	var requestBody proxyAPIKeyUpdateRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	name, err := validateProxyKeyName(requestBody.Name)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	notes := normalizeNotes(requestBody.Notes)
+	updatedRow, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (proxyAPIKeyRow, error) {
+		return s.updateProxyAPIKey(r.Context(), tx, keyID, name, notes, requestBody.IsActive)
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.serializeProxyAPIKey(updatedRow))
+}
+
+func (s *Service) handleRotateProxyKey(w http.ResponseWriter, r *http.Request) {
+	keyID, err := routeInt(r, "key_id")
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
+		rawKey, row, rotateErr := s.rotateProxyAPIKey(r.Context(), tx, keyID)
+		if rotateErr != nil {
+			return proxyAPIKeyMutationResponse{}, rotateErr
+		}
+		return proxyAPIKeyMutationResponse{Key: rawKey, Item: s.serializeProxyAPIKey(row)}, nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
+	keyID, err := routeInt(r, "key_id")
+	if err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.withTx(r.Context(), func(tx pgx.Tx) error {
+		return s.deleteProxyAPIKey(r.Context(), tx, keyID)
+	}); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, deletedResponse{Deleted: true})
+}
+
+func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
+	proxyKey, ok := runtimeProxyKeyFromRequest(r)
+	if !ok || proxyKey.ID <= 0 {
+		writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Proxy API key required")
+		return
+	}
+	writeError(w, r, s.allowedOrigins, http.StatusNotImplemented, "Runtime proxy not implemented in S5")
+}
+
+func decodeJSONBody(request *http.Request, target any) error {
+	defer request.Body.Close()
+	decoder := json.NewDecoder(request.Body)
+	return decoder.Decode(target)
+}
+
+func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+	var authErr *domainError
+	if errors.As(err, &authErr) {
+		writeError(w, r, allowedOrigins, authErr.StatusCode, authErr.Detail)
+		return
+	}
+	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+}
+
+func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" {
+		if _, ok := allowedOrigins[origin]; ok {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
+		}
+	}
+	writeJSON(w, statusCode, map[string]string{"detail": detail})
+}
+
+func routeInt(request *http.Request, name string) (int, error) {
+	value := strings.TrimSpace(chi.URLParam(request, name))
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("invalid %s", name)
+	}
+	return parsed, nil
+}
+
+func stringPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	result := value
+	return &result
+}

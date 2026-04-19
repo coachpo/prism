@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "bundle_kind": "vendor_catalog",
+  "exported_at": "2026-04-18T12:00:00Z",
+  "vendors": [
+    {
+      "key": "openai",
+      "name": "OpenAI",
+      "description": "OpenAI API (GPT models)",
+      "icon_key": "openai",
+      "audit_enabled": false,
+      "audit_capture_bodies": true
+    },
+    {
+      "key": "anthropic",
+      "name": "Anthropic",
+      "description": "Anthropic Claude models",
+      "icon_key": "anthropic",
+      "audit_enabled": true,
+      "audit_capture_bodies": false
+    }
+  ]
+}

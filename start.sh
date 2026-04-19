@@ -65,23 +65,38 @@ load_dotenv_file() {
 
 load_dotenv_file "$ROOT_DIR/.env"
 
+normalize_database_url() {
+    local database_url="$1"
+
+    case "$database_url" in
+        postgresql+asyncpg://*)
+            printf 'postgresql://%s' "${database_url#postgresql+asyncpg://}"
+            ;;
+        *)
+            printf '%s' "$database_url"
+            ;;
+    esac
+}
+
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-BACKEND_UV_BIN="${BACKEND_UV_BIN:-uv}"
-BACKEND_PYTHON_BIN="${BACKEND_PYTHON_BIN:-python3.13}"
+BACKEND_GO_BIN="${BACKEND_GO_BIN:-go}"
+FRONTEND_PNPM_BIN="${FRONTEND_PNPM_BIN:-pnpm}"
 DATABASE_PORT=15432
 BACKEND_PORT=18000
 FRONTEND_PORT=15173
 MODE="${1:-full}"
 FRONTEND_ORIGIN="http://localhost:${FRONTEND_PORT}"
 FRONTEND_LOOPBACK_ORIGIN="http://127.0.0.1:${FRONTEND_PORT}"
-DEFAULT_DATABASE_URL="postgresql+asyncpg://prism:prism@localhost:${DATABASE_PORT}/prism"
+DEFAULT_DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"
 DATABASE_URL_FROM_ENV=true
 if [[ -z "${DATABASE_URL:-}" ]]; then
     DATABASE_URL_FROM_ENV=false
 fi
-DATABASE_URL="${DATABASE_URL:-$DEFAULT_DATABASE_URL}"
+DATABASE_URL="$(normalize_database_url "${DATABASE_URL:-$DEFAULT_DATABASE_URL}")"
 export DATABASE_URL
+LAUNCHER_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prism-start.XXXXXX")"
+BACKEND_BINARY_PATH="$LAUNCHER_TMP_DIR/prism-backend"
 CLEANED_UP=false
 
 append_csv_value_if_missing() {
@@ -154,47 +169,37 @@ read_backend_database_url() {
     echo "$DATABASE_URL"
 }
 
-backend_uv() {
-    (cd "$BACKEND_DIR" && "$BACKEND_UV_BIN" "$@")
+build_backend_binary() {
+    (cd "$BACKEND_DIR" && "$BACKEND_GO_BIN" build -o "$BACKEND_BINARY_PATH" ./cmd/prism-backend)
 }
 
 parse_database_host_port() {
     local database_url="$1"
+    local host
+    local port
 
-    backend_uv run --no-sync --python "$BACKEND_PYTHON_BIN" -- python - "$database_url" <<'PY'
-import sys
-from urllib.parse import urlparse
+    if [[ "$database_url" =~ ^postgres(ql)?://([^@/]+@)?(\[[^]]+\]|[^:/?#]+):([0-9]+)([/?#].*)?$ ]]; then
+        host="${BASH_REMATCH[3]}"
+        port="${BASH_REMATCH[4]}"
+        host="${host#[}"
+        host="${host%]}"
+        printf '%s %s\n' "$host" "$port"
+        return 0
+    fi
 
-parsed = urlparse(sys.argv[1])
-host = parsed.hostname
-port = parsed.port
-
-if not host or port is None:
-    sys.exit(1)
-
-print(f"{host} {port}")
-PY
+    return 1
 }
 
 tcp_port_open() {
     local host="$1"
     local port="$2"
 
-    backend_uv run --no-sync --python "$BACKEND_PYTHON_BIN" -- python - "$host" "$port" <<'PY'
-import socket
-import sys
+    if command -v nc >/dev/null 2>&1; then
+        nc -z "$host" "$port" >/dev/null 2>&1
+        return
+    fi
 
-host = sys.argv[1]
-port = int(sys.argv[2])
-
-try:
-    with socket.create_connection((host, port), timeout=1.5):
-        pass
-except OSError:
-    sys.exit(1)
-
-sys.exit(0)
-PY
+    (exec 3<>"/dev/tcp/$host/$port") >/dev/null 2>&1
 }
 
 ensure_docker_compose_available() {
@@ -242,6 +247,57 @@ wait_for_database_container() {
 
     echo "Error: PostgreSQL did not become ready in time."
     exit 1
+}
+
+database_uses_launcher_postgres() {
+    local database_url="$1"
+    local host_port
+    local db_host
+    local db_port
+
+    if ! host_port="$(parse_database_host_port "$database_url")"; then
+        return 1
+    fi
+    if ! read -r db_host db_port <<<"$host_port"; then
+        return 1
+    fi
+
+    case "$db_host" in
+        localhost|127.0.0.1)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    [[ "$db_port" == "$DATABASE_PORT" ]]
+}
+
+launcher_database_needs_reset() {
+    local reset_required
+
+    reset_required="$(cd "$BACKEND_DIR" && docker compose exec -T postgres psql -U prism -d prism -tAc "SELECT CASE WHEN to_regclass('public.prism_schema_migrations') IS NULL AND (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name NOT IN ('alembic_version', 'prism_schema_migrations')) > 0 THEN 1 ELSE 0 END")"
+    [[ "$reset_required" == "1" ]]
+}
+
+reset_database_container_volume() {
+    echo "Resetting launcher-managed PostgreSQL volume to replace an incompatible pre-Go schema..."
+    (cd "$BACKEND_DIR" && docker compose down --remove-orphans --volumes >/dev/null 2>&1) || true
+    start_database_container
+    wait_for_database_container
+}
+
+ensure_launcher_database_schema_compatible() {
+    local database_url
+    database_url="$(read_backend_database_url)"
+
+    if ! database_uses_launcher_postgres "$database_url"; then
+        return
+    fi
+
+    if launcher_database_needs_reset; then
+        reset_database_container_volume
+    fi
 }
 
 ensure_backend_database_ready() {
@@ -358,6 +414,7 @@ cleanup() {
     kill_running_on_port "$BACKEND_PORT" "backend"
     kill_running_on_port "$FRONTEND_PORT" "frontend"
     kill_running_on_port "$DATABASE_PORT" "database"
+    [[ -n "${LAUNCHER_TMP_DIR:-}" ]] && rm -rf "$LAUNCHER_TMP_DIR"
     echo "Done."
 }
 trap cleanup EXIT INT TERM
@@ -367,35 +424,35 @@ configure_local_frontend_backend_integration
 kill_existing_instances
 
 # --- Backend setup ---
-if ! command -v "$BACKEND_UV_BIN" >/dev/null 2>&1; then
-    echo "Error: $BACKEND_UV_BIN is required to manage the backend environment."
+if ! command -v "$BACKEND_GO_BIN" >/dev/null 2>&1; then
+    echo "Error: $BACKEND_GO_BIN is required to build and run the backend."
     exit 1
 fi
 
-if ! command -v "$BACKEND_PYTHON_BIN" >/dev/null 2>&1; then
-    echo "Error: $BACKEND_PYTHON_BIN is required to create the backend uv environment."
-    echo "Set BACKEND_PYTHON_BIN to a Python 3.13 interpreter if needed."
+if [ "$START_FRONTEND" = true ] && ! command -v "$FRONTEND_PNPM_BIN" >/dev/null 2>&1; then
+    echo "Error: $FRONTEND_PNPM_BIN is required to manage the frontend."
     exit 1
 fi
 
 start_database_container
 
-echo "Syncing backend dependencies with uv..."
-backend_uv sync --locked --python "$BACKEND_PYTHON_BIN"
+echo "Building backend with Go..."
+build_backend_binary
 wait_for_database_container
+ensure_launcher_database_schema_compatible
 ensure_backend_database_ready
 
 if [ "$START_FRONTEND" = true ]; then
     # --- Frontend setup ---
     if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
         echo "Installing frontend dependencies..."
-        (cd "$FRONTEND_DIR" && pnpm install)
+        (cd "$FRONTEND_DIR" && "$FRONTEND_PNPM_BIN" install)
     fi
 fi
 
 # --- Start backend ---
 echo "Starting backend on port $BACKEND_PORT..."
-(cd "$BACKEND_DIR" && "$BACKEND_UV_BIN" run --no-sync --python "$BACKEND_PYTHON_BIN" prism-backend --reload --port "$BACKEND_PORT") &
+(cd "$BACKEND_DIR" && PORT="$BACKEND_PORT" "$BACKEND_BINARY_PATH") &
 BACKEND_PID=$!
 
 if [ "$START_FRONTEND" = true ]; then
@@ -403,7 +460,7 @@ if [ "$START_FRONTEND" = true ]; then
     # Frontend calls backend directly (no dev proxy) via VITE_API_BASE
     echo "Starting frontend on port $FRONTEND_PORT..."
     (cd "$FRONTEND_DIR" && VITE_API_BASE="http://localhost:$BACKEND_PORT" \
-        pnpm exec vite --port "$FRONTEND_PORT" --host) &
+        "$FRONTEND_PNPM_BIN" exec vite --port "$FRONTEND_PORT" --host) &
     FRONTEND_PID=$!
 fi
 

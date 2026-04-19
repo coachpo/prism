@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current split-bundle configuration format (profile bundle v3, vendor catalog bundle v2).
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current split-bundle configuration format (profile bundle v1, vendor catalog bundle v1).
 
 ## 1. Entity Relationship Diagram
 
@@ -829,12 +829,12 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is config version `3` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
-- Canonical global vendor export format is config version `2` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v3` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
+- Canonical profile export format is Go-era config version `1` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
+- Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
+- Profile import accepts `v1` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
-- Persisted rows created by import always receive fresh database IDs; the v3 profile bundle contract omits internal IDs entirely and relies on name-based references.
+- Persisted rows created by import always receive fresh database IDs; the v1 profile bundle contract omits internal IDs entirely and relies on name-based references.
 - Profile import replace semantics are targeted by effective profile context and do not globally delete other profiles.
 - Profile import reuses exact global vendor keys when provided, creates missing vendors when the proposed name is unique, and rejects duplicate bundle keys or vendor-name collisions before destructive profile-scoped replacement begins.
 

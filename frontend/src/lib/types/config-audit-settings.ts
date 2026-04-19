@@ -159,7 +159,7 @@ export interface ConfigVendorExport {
 export type ConfigVendorImport = ConfigVendorExport;
 
 export interface ConfigExportResponse {
-  version: 3;
+  version: 1;
   bundle_kind: "profile_config";
   exported_at: string;
   vendor_refs: ConfigVendorRef[];
@@ -173,7 +173,7 @@ export interface ConfigExportResponse {
 }
 
 export interface ConfigImportRequest {
-  version: 3;
+  version: 1;
   bundle_kind: "profile_config";
   exported_at?: string;
   vendor_refs: ConfigVendorRef[];
@@ -202,7 +202,7 @@ export interface ConfigImportVendorResolution {
 
 export interface ConfigImportPreviewResponse {
   ready: boolean;
-  version: 3;
+  version: 1;
   bundle_kind: "profile_config";
   endpoints_imported: number;
   pricing_templates_imported: number;

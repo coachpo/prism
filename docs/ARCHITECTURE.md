@@ -25,56 +25,37 @@
 
 ## 2. Component Architecture
 
-### 2.1 Backend (FastAPI)
+### 2.1 Backend (Go runtime)
 
 ```
 backend/
-├── app/
-│   ├── alembic/                # Packaged Alembic env + revisions used at runtime
-│   ├── main.py                 # CLI entrypoint, app factory, lifespan, CORS, router mounting
-│   ├── dependencies.py         # Shared FastAPI dependencies (active/effective profile scope)
-│   ├── core/
-│   │   ├── config.py           # App settings (pydantic-settings)
-│   │   ├── database.py         # Async engine, session factory, Base
-│   │   └── migrations.py       # Programmatic Alembic runner
-│   ├── models/
-│   │   ├── models.py           # ORM re-export boundary
-│   │   └── domains/            # Identity, routing, and observability tables
-│   ├── schemas/
-│   │   ├── schemas.py          # Pydantic re-export boundary
-│   │   └── domains/            # Auth, routing, stats, pricing, and profile contracts
-│   ├── routers/                # API route handlers
-│   │   ├── profiles.py         # /api/profiles CRUD + CAS activation
-│   │   ├── vendors.py          # /api/vendors global catalog CRUD + usage lookup + delete safety
-│   │   ├── models.py           # /api/models CRUD
-│   │   ├── endpoints.py        # /api/endpoints CRUD + duplication + reordering
-│   │   ├── connections.py      # /api/models/{id}/connections CRUD + health-check + owner
-│   │   ├── pricing_templates.py # /api/pricing-templates CRUD + usage
-│   │   ├── stats.py            # /api/stats requests/summary/success-rates/spending + batch metrics + batch delete
-│   │   ├── audit.py            # /api/audit/logs list/detail/batch delete
-│   │   ├── loadbalance.py      # /api/loadbalance/current-state reset/list + events list/detail/batch delete
-│   │   ├── settings.py         # /api/settings/costing, /api/settings/timezone, /api/settings/auth, /api/settings/auth/proxy-keys
-│   │   ├── auth.py             # /api/auth login/logout/refresh/session/password-reset/webauthn
-│   │   ├── config.py           # /api/config/profile/* + /api/config/vendors/* + header blocklist CRUD + user-agent client rule CRUD
-│   │   └── proxy.py            # /v1/* and /v1beta/* catch-all proxy handlers
-│   └── services/               # Business logic + shared app infrastructure
-│       ├── auth/               # Session, password reset, proxy-key internals
-│       ├── auth_service.py     # Auth public boundary
-│       ├── background_tasks.py # Lifespan-managed async worker queue
-│       ├── connection_health.py # Manual health-check request builder
-│       ├── proxy_service.py    # Request forwarding, streaming, header sanitization
-│       ├── loadbalancer/       # Planner, persistent state, recovery, events, and admin facade
-│       ├── stats_service.py    # Request logging, aggregation queries, metrics batching
-│       ├── audit_service.py    # Audit recording, redaction
-│       ├── costing_service.py  # Token costing, FX conversion, pricing snapshots
-│       ├── realtime/           # WebSocket room state and broadcasts
-│       ├── webauthn/           # Passkey registration/authentication internals
-│       └── webauthn_service.py # Passkey public boundary
-├── Dockerfile                  # Runtime image; copies uv and installs from `uv.lock`
-├── docker-compose.yml          # Local PostgreSQL helper on host port 15432
-├── pyproject.toml              # Runtime deps, dev dependency group, package data, and console script
-├── uv.lock                     # Locked dependency graph consumed by `uv sync --locked`
-└── alembic.ini                 # Root Alembic CLI config pointing at `app/alembic`
+├── cmd/prism-backend/          # Go process entrypoint
+├── internal/
+│   ├── httpapi/
+│   │   ├── management/         # /api/* management handlers
+│   │   ├── runtime/            # /v1/* and /v1beta/* proxy handlers
+│   │   ├── realtime/           # WebSocket room management and publishing
+│   │   └── openapi/            # checked-in OpenAPI loader and docs handlers
+│   ├── platform/
+│   │   ├── config/             # environment and runtime settings
+│   │   ├── http/               # server assembly and route mounting
+│   │   ├── migrate/            # SQL migration runner and cutover helpers
+│   │   ├── startup/            # startup sequencing and default seeding
+│   │   └── version/            # VERSION loader
+│   ├── domain/
+│   │   ├── audit/              # audit persistence and redaction helpers
+│   │   ├── loadbalance/        # routing, recovery, and state logic
+│   │   └── stats/              # request-log and aggregate query logic
+│   ├── endpointdomain/         # endpoint and connection helpers
+│   ├── profiledomain/          # selected vs active profile helpers
+│   └── vendordomain/           # shared vendor catalog helpers
+├── migrations/                 # SQL migration chain applied at startup
+├── testdata/                   # checked-in OpenAPI, bundle, realtime, and cutover fixtures
+├── tests/                      # regression roots, including Go cutover suites
+├── Dockerfile                  # live Go backend image build
+├── docker-compose.yml          # local PostgreSQL helper on host port 15432
+├── pyproject.toml              # non-runtime cutover metadata stub
+└── VERSION                     # backend version surface
 ```
 
 ### 2.2 Frontend (React + Vite)
@@ -123,10 +104,10 @@ frontend/
 ### 2.3 Local Tooling and Build Workflow
 
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
-- Root local orchestration lives in `start.sh`: it loads `.env`, starts PostgreSQL from `backend/docker-compose.yml`, syncs the backend with `uv sync --locked --python "$BACKEND_PYTHON_BIN"`, and runs `prism-backend` via `uv run --no-sync --python "$BACKEND_PYTHON_BIN" ...` on port `18000`.
+- Root local orchestration lives in `start.sh`: it loads `.env`, starts PostgreSQL from `backend/docker-compose.yml`, and launches the Go backend service on `18000`.
 - `./start.sh full` also launches the frontend on `15173` with `VITE_API_BASE=http://localhost:18000`; local dev does not rely on a Vite proxy.
-- `backend/pyproject.toml` is the backend dependency declaration source of truth, while `backend/uv.lock` pins the resolved environment used by local sync, tests, and Docker builds.
-- `backend/Dockerfile` copies `uv` from `ghcr.io/astral-sh/uv:0.9.8`, performs two locked runtime-only sync passes into `/app/.venv`, and runs `prism-backend` from that environment.
+- `backend/pyproject.toml` is a non-runtime metadata stub kept only to make backend-local cutover metadata explicit; it does not define a live Python package surface.
+- `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
 ## 3. Request Flow
@@ -167,7 +148,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
   -> Proxy target resolution (if needed) finishes before native adaptive routing begins
   -> Planner resolves the live candidate set and executor claims a streaming lease before opening the upstream stream
   -> ProxyService opens streaming connection to the selected upstream endpoint
-  -> SSE chunks piped directly to client via StreamingResponse
+  -> SSE chunks stream directly back to the client from the Go runtime transport layer
   -> Streaming heartbeats keep the lease fresh while the stream is open
   -> On upstream error: release the stream lease, classify the failure, and continue only if another candidate and hedge rules still allow another attempt
   -> On stream finalization or cancellation: release the stream lease, persist the per-attempt request log, and record runtime feedback
@@ -227,13 +208,13 @@ Custom headers are a power-user feature. While they can override most headers, t
 
 ```
 Dashboard page -> WebSocket connect /api/realtime/ws
-  -> If auth enabled: access-token cookie is validated in `routers/realtime.py`
+  -> If auth enabled: management auth handlers validate the access-token cookie
   -> Client sends {type: "subscribe", profile_id, channel: "dashboard"}
-  -> Connection manager stores room membership keyed by (profile_id, channel)
+  -> Realtime manager stores room membership keyed by (profile_id, channel)
 
 Proxy request completes
-  -> `services/stats/logging.py` commits `request_logs` row
-  -> build_dashboard_update_message() gathers:
+  -> Stats service persists the `request_logs` row
+  -> Dashboard publisher gathers:
      - request_log
      - stats_summary_24h
      - api_family_summary_24h
@@ -427,13 +408,13 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
            -> Link to request_log entry via request_log_id
            -> Store immutable profile_id attribution
            -> response_body = NULL (streaming bodies are never stored)
-           -> INSERT into audit_logs (separate AsyncSessionLocal)
+            -> INSERT into audit_logs using a dedicated audit write path
 ```
 
 ### 8.4 Non-Interference Guarantees
 
-- Audit INSERT runs in try/except — failures logged to console, never propagated
-- Streaming audit uses its own DB session (request-scoped session is closed)
+- Audit INSERT failures are logged and never propagated to the client
+- Streaming audit uses its own write path, separate from the request-scoped runtime state
 - No modification to request or response pipeline
 - Minimal overhead when `audit_enabled = FALSE` (flag checked once, no payload serialization)
 
@@ -462,17 +443,17 @@ The audit detail view is a right-side sheet with tabs for:
 
 ### 8.8 Conditional Decompression (Performance Optimization)
 
-**Background:** httpx automatically decompresses gzip/deflate/brotli responses by default. When body auditing is disabled, the proxy doesn't need the decompressed body content, so requesting compressed responses wastes CPU cycles.
+**Background:** the Go runtime only requests decompressed response bodies when audit capture needs them. When body auditing is disabled, the proxy avoids unnecessary body decoding work.
 
 **Implementation:**
 
 1. **Compression Request Control:**
-   - When `audit_enabled=True AND audit_capture_bodies=True`: Allow httpx to request compressed responses (default behavior)
+   - When `audit_enabled=True AND audit_capture_bodies=True`: allow the upstream client to return a body suitable for capture
    - When body auditing is disabled: Send `Accept-Encoding: identity` to request uncompressed responses
    - Decision made via `should_request_compressed_response(audit_enabled, audit_capture_bodies)` helper
 
 2. **Header Filtering:**
-   - When compression was requested: Strip `content-encoding` and `content-length` headers (stale after httpx decompression)
+   - When compression/body decoding was used: strip `content-encoding` and `content-length` headers as needed
    - When compression was NOT requested and upstream returns identity/no encoding: preserve `content-length`
    - If upstream still responds with compressed encoding, strip stale `content-encoding` and `content-length`
    - Controlled via `filter_response_headers(headers, was_requested_compressed=...)` parameter
@@ -563,3 +544,16 @@ The runtime plane exclusively supports three fixed API families:
 
 The vendor catalog is separate and global. Models always carry required `api_family`, while `vendor_id` remains optional metadata, so operators may create additional vendor metadata rows such as `OpenRouter` without changing runtime compatibility. The Global settings tab exposes vendor create/edit/delete flows, and deleting a vendor clears live model vendor metadata instead of blocking the delete.
  clears live model vendor metadata instead of blocking the delete.
+
+
+
+ instead of blocking the delete.
+
+
+
+
+
+
+
+ing the delete.
+

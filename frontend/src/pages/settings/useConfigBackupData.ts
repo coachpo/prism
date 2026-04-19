@@ -10,6 +10,11 @@ interface UseConfigBackupDataInput {
   bumpRevision: () => void;
 }
 
+function buildProfileConfigExportFilename(now: Date = new Date()) {
+  const date = now.toISOString().split("T")[0];
+  return `prism-profile-config-v1-${date}.json`;
+}
+
 export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) {
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -58,9 +63,8 @@ export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) 
       });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
-      const date = new Date().toISOString().split("T")[0];
       anchor.href = url;
-      anchor.download = `gateway-config-${date}.json`;
+      anchor.download = buildProfileConfigExportFilename();
       anchor.click();
       URL.revokeObjectURL(url);
       toast.success(messages.settingsBackupData.exportSucceeded);

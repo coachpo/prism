@@ -1,28 +1,27 @@
-FROM python:3.13-slim
+FROM golang:1.26-bookworm AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+WORKDIR /app/backend
 
-WORKDIR /app
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+COPY backend/cmd ./cmd
+COPY backend/internal ./internal
+RUN CGO_ENABLED=0 go build -o /out/prism-backend ./cmd/prism-backend
+
+FROM debian:bookworm-slim
+
+WORKDIR /app/backend
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.9.8 /uv /uvx /bin/
-
-COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
-
-COPY app ./app
-COPY VERSION ./VERSION
-RUN uv sync --locked --no-dev --no-editable
-
-ENV PATH="/app/.venv/bin:$PATH"
-
+COPY --from=builder /out/prism-backend /usr/local/bin/prism-backend
+COPY backend/VERSION ./VERSION
+COPY backend/migrations ./migrations
+COPY backend/testdata/schema/cutover-live.sql ./testdata/schema/cutover-live.sql
+COPY docs/openapi.json /app/docs/openapi.json
 
 EXPOSE 8000
 

@@ -7,11 +7,14 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
+      - "docs/openapi.json"
+      - ".github/workflows/docker-images.yml"
   pull_request:
     branches: [main]
     paths:
       - "backend/**"
       - "frontend/**"
+      - "docs/openapi.json"
       - ".github/workflows/docker-images.yml"
   workflow_dispatch:
     inputs:
@@ -95,8 +98,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.buildx.outputs.name }}
-          context: ./${{ matrix.service }}
-          file: ./${{ matrix.service }}/Dockerfile
+          context: ${{ matrix.service == 'backend' && '.' || format('./{0}', matrix.service) }}
+          file: ${{ matrix.service == 'backend' && './backend/Dockerfile' || format('./{0}/Dockerfile', matrix.service) }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

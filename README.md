@@ -24,9 +24,9 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 ### Architecture
 
-- **Backend**: Python 3.13+ with FastAPI, async SQLAlchemy, and `asyncpg`
+- **Backend**: Go runtime service for the management API and runtime proxy surface
 - **Frontend**: React 19 with TypeScript, Vite, TailwindCSS, and shadcn/ui
-- **Database**: PostgreSQL with Alembic migrations
+- **Database**: PostgreSQL with schema migrations managed by the backend runtime
 - **Deployment**: GHCR images or local runs via `./start.sh`
 
 ---
@@ -35,8 +35,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 ### Prerequisites
 
-- Python 3.13+
-- uv
+- Go toolchain
 - Node.js 24+
 - pnpm
 - Git
@@ -56,7 +55,7 @@ The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
 
 For subproject-specific setup and commands, use:
 
-- [`backend/README.md`](backend/README.md) for backend-only setup and migrations
+- [`backend/README.md`](backend/README.md) for backend runtime, migrations, and verification
 - [`frontend/README.md`](frontend/README.md) for frontend-only dev, build, and lint flows
 
 ### Docker Compose
@@ -74,7 +73,7 @@ docker pull ghcr.io/coachpo/prism-frontend:latest
 docker run -d \
   --name prism-backend \
   -p 8000:8000 \
-  -e DATABASE_URL="postgresql+asyncpg://prism:prism@<postgres-host>:5432/prism" \
+  -e DATABASE_URL="postgres://prism:prism@<postgres-host>:5432/prism?sslmode=disable" \
   -e AUTH_JWT_SECRET="replace-with-a-long-random-jwt-secret" \
   -e SECRET_ENCRYPTION_KEY="replace-with-a-long-random-encryption-key" \
   -e CONFIG_BUNDLE_ENCRYPTION_KEY="replace-with-a-long-random-bundle-encryption-key" \
@@ -109,7 +108,7 @@ The checked-in `docs/` tree is reserved for durable reference material and archi
 
 ### Version management
 
-`backend/` and `frontend/` keep their version metadata inside this monorepo checkout. The backend package version resolves from `backend/VERSION` via `backend/pyproject.toml`, while the frontend keeps its runtime-visible version in `frontend/package.json` alongside `frontend/VERSION`. Root `VERSION` stays aligned with those surfaces during releases.
+`backend/` and `frontend/` keep their version metadata inside this monorepo checkout. `backend/VERSION` is the backend runtime version surface, `backend/pyproject.toml` is a non-runtime cutover metadata stub, and the frontend keeps its runtime-visible version in `frontend/package.json` alongside `frontend/VERSION`. Root `VERSION` stays aligned with those surfaces during releases.
 
 ### Root release flow
 
@@ -125,12 +124,14 @@ The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/d
 ### Backend
 
 ```bash
+./start.sh headless
+
 cd backend
-uv sync --locked
-uv run prism-backend --reload
+go test ./tests/contract ./tests/integration
+go build ./cmd/prism-backend
 ```
 
-`./start.sh` defaults to `BACKEND_PYTHON_BIN=python3.13`; set `BACKEND_PYTHON_BIN=<your-python-3.13-command>` first if your local 3.13 interpreter uses a different name.
+`./start.sh` launches the live Go backend through the checked-in service, while direct backend work uses the Go entrypoint and Go test packages under `backend/`.
 
 ### Frontend
 
@@ -161,7 +162,7 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`
 
 ### Database
 
-Prism uses PostgreSQL with Alembic migrations applied automatically on backend startup.
+Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup.
 
 Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as:
 

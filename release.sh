@@ -4,9 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-BACKEND_UV_BIN="${BACKEND_UV_BIN:-uv}"
-BACKEND_PYTHON_BIN="${BACKEND_PYTHON_BIN:-python3.13}"
+BACKEND_GO_BIN="${BACKEND_GO_BIN:-go}"
+NODE_BIN="${NODE_BIN:-node}"
 FRONTEND_PNPM_BIN="${FRONTEND_PNPM_BIN:-pnpm}"
 DRY_RUN=false
 ASSUME_YES=false
@@ -90,40 +89,33 @@ write_frontend_package_version() {
         return 0
     fi
 
-    "$PYTHON_BIN" - "$FRONTEND_DIR/package.json" "$version" <<'PY'
-import json
-import pathlib
-import sys
+    "$NODE_BIN" - "$FRONTEND_DIR/package.json" "$version" <<'NODE'
+const fs = require("node:fs");
 
-package_path = pathlib.Path(sys.argv[1])
-version = sys.argv[2]
-
-data = json.loads(package_path.read_text(encoding="utf-8"))
-data["version"] = version
-package_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-PY
+const packagePath = process.argv[2];
+const version = process.argv[3];
+const data = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+data.version = version;
+fs.writeFileSync(packagePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+NODE
 }
 
 read_text_file() {
     local path="$1"
-    "$PYTHON_BIN" - "$path" <<'PY'
-import pathlib
-import sys
+    "$NODE_BIN" - "$path" <<'NODE'
+const fs = require("node:fs");
 
-print(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").strip())
-PY
+process.stdout.write(fs.readFileSync(process.argv[2], "utf8").trim());
+NODE
 }
 
 read_frontend_package_version() {
-    "$PYTHON_BIN" - "$FRONTEND_DIR/package.json" <<'PY'
-import json
-import pathlib
-import sys
+    "$NODE_BIN" - "$FRONTEND_DIR/package.json" <<'NODE'
+const fs = require("node:fs");
 
-package_path = pathlib.Path(sys.argv[1])
-data = json.loads(package_path.read_text(encoding="utf-8"))
-print(str(data.get("version", "")).strip())
-PY
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+process.stdout.write(String(data.version ?? "").trim());
+NODE
 }
 
 validate_exact_version() {
@@ -272,6 +264,56 @@ verify_aligned_versions() {
     [[ "$frontend_package_version" == "$expected_version" ]] || fail "frontend/package.json version is $frontend_package_version, expected $expected_version"
 }
 
+verify_backend_version_metadata() {
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] verify backend version metadata via go run temporary checker"
+        return 0
+    fi
+
+    local temp_file
+    local status=0
+    temp_file="$(mktemp "$BACKEND_DIR/.release-version-check.XXXXXX.go")"
+
+    cat > "$temp_file" <<'GO'
+package main
+
+import (
+    "fmt"
+    "os"
+    "strings"
+
+    "github.com/coachpo/prism/backend/internal/platform/version"
+)
+
+func main() {
+    expectedRaw, err := os.ReadFile("VERSION")
+    if err != nil {
+        panic(fmt.Errorf("read backend version file: %w", err))
+    }
+
+    expected := strings.TrimSpace(string(expectedRaw))
+    actual, err := version.Load()
+    if err != nil {
+        panic(fmt.Errorf("load backend version metadata: %w", err))
+    }
+
+    if actual != expected {
+        panic(fmt.Sprintf("backend version mismatch: expected %s, got %s", expected, actual))
+    }
+
+    fmt.Printf("Backend version metadata OK: %s\n", actual)
+}
+GO
+
+    (
+        cd "$BACKEND_DIR"
+        "$BACKEND_GO_BIN" run "$temp_file"
+    ) || status=$?
+
+    rm -f "$temp_file"
+    return "$status"
+}
+
 require_forward_version() {
     local current_version="$1"
     local target_version="$2"
@@ -374,11 +416,11 @@ update_version_surfaces() {
 }
 
 run_release_verification() {
-    log "Syncing backend environment"
-    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" sync --locked --python "$BACKEND_PYTHON_BIN" --reinstall-package prism-backend
+    log "Verifying backend build"
+    run_in_dir "$BACKEND_DIR" "$BACKEND_GO_BIN" test ./cmd/prism-backend
 
     log "Verifying backend version metadata"
-    run_in_dir "$BACKEND_DIR" "$BACKEND_UV_BIN" run --locked --no-sync --python "$BACKEND_PYTHON_BIN" python -c "from pathlib import Path; from app.core.version import get_backend_version; expected = Path('VERSION').read_text(encoding='utf-8').strip(); actual = get_backend_version(); print(f'Backend version metadata OK: {actual}'); raise SystemExit(0 if actual == expected else f'Backend version mismatch: expected {expected}, got {actual}')"
+    verify_backend_version_metadata
 
     log "Verifying frontend build"
     run_in_dir "$FRONTEND_DIR" "$FRONTEND_PNPM_BIN" run build
@@ -430,8 +472,8 @@ if [[ -z "$TARGET_SPEC" ]]; then
 fi
 
 require_command git
-require_command "$PYTHON_BIN"
-require_command "$BACKEND_UV_BIN"
+require_command "$BACKEND_GO_BIN"
+require_command "$NODE_BIN"
 require_command "$FRONTEND_PNPM_BIN"
 
 prepare_release_repo

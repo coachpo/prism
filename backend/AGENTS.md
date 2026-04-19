@@ -1,78 +1,59 @@
 # BACKEND KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/` is Prism's monorepo-owned backend. It owns the management API, the runtime proxy API, the packaged `app/` runtime, and the backend-local release and setup surfaces. Keep this doc as the top-level map, and push package detail into the child AGENTS files.
+`backend/` is Prism's monorepo-owned Go backend tree. The live runtime is compiled from `cmd/prism-backend`. The legacy Python runtime surface has been retired from the checked-in backend tree; only explicit non-runtime artifacts called out below remain.
 
 ## STRUCTURE
-```
+```text
 backend/
-├── app/AGENTS.md
-├── app/alembic/AGENTS.md
-├── app/bootstrap/AGENTS.md
-├── app/core/AGENTS.md
-├── app/models/AGENTS.md
-├── app/routers/AGENTS.md
-├── app/routers/shared/AGENTS.md
-├── app/routers/{auth,config,endpoints,models,pricing_templates,profiles,settings,stats}_domains/AGENTS.md
-├── app/routers/connections_domains/AGENTS.md
-├── app/routers/proxy_domains/AGENTS.md
-├── app/schemas/AGENTS.md
-├── app/services/AGENTS.md
-├── app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md
-├── alembic.ini
-├── tests/AGENTS.md
+├── cmd/prism-backend/
+├── internal/
+│   ├── domain/
+│   ├── endpointdomain/
+│   ├── httpapi/
+│   ├── platform/
+│   ├── profiledomain/
+│   └── vendordomain/
+├── migrations/
+├── testdata/
+├── tests/
 ├── docker-compose.yml
+├── Dockerfile
 ├── pyproject.toml
-└── uv.lock
+├── VERSION
+└── AGENTS.md
 ```
 
 ## CHILD DOCS
-
-- `app/AGENTS.md`: runtime map and app-owned boundaries.
-- `app/alembic/AGENTS.md`, `app/bootstrap/AGENTS.md`, `app/core/AGENTS.md`, `app/models/AGENTS.md`, `app/schemas/AGENTS.md`: startup, migrations, shared infra, ORM, and contract boundaries.
-- `app/routers/AGENTS.md`: API surface map and router handoff rules.
-- `app/routers/shared/AGENTS.md`: shared router-layer helpers.
-- `app/routers/{auth,config,endpoints,models,pricing_templates,profiles,settings,stats}_domains/AGENTS.md`: management router-domain leaves.
-- `app/routers/connections_domains/AGENTS.md`, `app/routers/proxy_domains/AGENTS.md`: dense router packages with their own boundaries.
-- `app/services/AGENTS.md` and `app/services/{auth,loadbalancer,proxy_support,realtime,stats,webauthn}/AGENTS.md`: service-root boundaries and deeper package ownership.
-- `tests/AGENTS.md`: backend contract and regression test boundary.
+- `tests/AGENTS.md`: backend regression and cutover verification boundary.
 
 ## RUNTIME FACTS
-
-- `pyproject.toml` exposes `prism-backend = "app.main:main"` as the CLI entrypoint.
-- `app/main.py` owns app assembly, router mounting, CORS and auth middleware, and shared lifespan-managed infrastructure.
-- Management requests use effective-profile scope, while runtime proxy traffic uses the active profile only.
-- `/api/*` keeps operator session auth, and `/v1/*` plus `/v1beta/*` keep proxy API-key auth.
-- Realtime room state lives in `services/realtime/connection_manager.py`, and dashboard update emission lives in `services/stats/logging.py`.
-- `tests/` is the contract-heavy backend regression surface, with clusters around config import and export timeout contracts, request-log token-rate and TTFT contracts, loadbalance defaults and summary, realtime connection manager, proxy timeout and runtime behavior, usage-event persistence and backfill, startup seeding, pricing-template policy removal, and user-agent seeding.
+- `cmd/prism-backend/main.go` is the backend process entrypoint.
+- `internal/platform/http/server.go` mounts management, runtime proxy, realtime, health, and docs routes.
+- `internal/platform/migrate/` owns the SQL migration runner, cutover compatibility logic, and migration-path helpers.
+- `internal/httpapi/management/`, `internal/httpapi/runtime/`, and `internal/httpapi/realtime/` own the live HTTP and websocket surfaces.
+- `docs/openapi.json` is the checked-in management/health contract served by the Go backend at `/openapi.json`.
+- `pyproject.toml` is a non-runtime metadata stub retained only so backend-local cutover metadata stays explicit; it is not a Python package surface.
+- `tests/contract/` and `tests/integration/` are the Go cutover-verification packages. Other files under `tests/` are regression/support artifacts and do not represent a live backend runtime.
 
 ## WHERE TO LOOK
-
-- App assembly, router registration, lifespan startup, and shared infra wiring: `app/main.py`
-- Startup sequencing and startup-only seed logic: `app/bootstrap/startup.py`
-- Management versus runtime scope rules: `app/dependencies.py`
-- Router map, shared router helpers, and router-domain leaves: `app/routers/AGENTS.md`, `app/routers/shared/AGENTS.md`, `app/routers/`
-- Public schema and model import boundaries: `app/schemas/AGENTS.md`, `app/models/AGENTS.md`
-- Shared worker lifecycle, realtime room state, dashboard updates, and reporting helpers: `app/services/AGENTS.md`, `app/services/realtime/connection_manager.py`, `app/services/stats/logging.py`
-- Backend regression coverage and contract clusters: `tests/AGENTS.md`, `tests/`
-- Migration source of truth: `alembic.ini`, `app/alembic/`, `app/alembic/AGENTS.md`, `app/core/migrations.py`
-
+- Process entrypoint and top-level dependency wiring: `cmd/prism-backend/main.go`
+- Router and server assembly: `internal/platform/http/server.go`
+- Management API handlers: `internal/httpapi/management/`
+- Runtime proxy path handling: `internal/httpapi/runtime/`
+- Realtime websocket delivery: `internal/httpapi/realtime/`
+- SQL migrations and legacy cutover table compatibility: `internal/platform/migrate/`, `migrations/`, `testdata/schema/cutover-live.sql`
+- Version loading: `internal/platform/version/`, `VERSION`
+- Regression boundaries: `tests/AGENTS.md`, `tests/`
 ## CONVENTIONS
-
-- Keep backend workflow and commands uv-native.
-- Keep parent docs summary-oriented and push package detail down into child AGENTS files.
-- Keep app-owned shared infrastructure in `app/main.py`, and let feature code consume `app.state.http_client` and `app.state.background_task_manager`.
-- Keep routers thin. Dense logic belongs in `*_domains/`, `connections_domains/`, `proxy_domains/`, or service modules.
-- Use `app.schemas.schemas`, `app.models.models`, and the service-root `*_service.py` modules as the supported re-export boundaries.
-- Keep management auth and profile rules separate from runtime proxy auth and API-family-native routing semantics.
+- Keep backend docs focused on the live Go runtime and explicitly label any retained cutover artifact as non-runtime.
+- Keep SQL migrations under `migrations/` as the live schema source of truth for startup.
+- Keep management selected-profile behavior separate from runtime active-profile routing.
+- Keep implementation detail in the Go ownership tree instead of reintroducing retired `backend/app/**` paths.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
-
-- Do not invent unsupported vendors, API families, routes, or CI jobs.
-- Do not describe schema state as coming from ORM models or startup side effects; Alembic revisions under `app/alembic/` are the source of truth.
-- Do not reintroduce manual venv or `pip install` setup language.
-- Do not describe `docker-compose.yml` as a full stack definition. It provisions PostgreSQL only.
-- Do not import schema, model, or service leaf modules when a documented re-export boundary exists.
-- Do not blur management effective-profile behavior with runtime active-profile routing or proxy-key auth.
-- Do not stale-claim that most router-domain packages are parent-covered; the management `*_domains/` packages now have their own AGENTS leaves.
+- Do not describe Prism as a mixed Go+Python live backend.
+- Do not point readers to `backend/app/**`, `alembic.ini`, or `uv.lock` as current surfaces.
+- Do not reintroduce live Alembic CLI, uv, or Python package setup flows.
+- Do not invent unsupported providers, routes, or CI jobs.

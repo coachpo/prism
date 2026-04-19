@@ -13,9 +13,9 @@ When generating test cases, use these sources in order:
 3. `docs/PRD.md` for intended operator workflows and product expectations.
 4. `docs/SMOKE_TEST_PLAN.md` for existing manual smoke coverage.
 5. `frontend/src/App.tsx` for the mounted route surface.
-6. `backend/app/main.py` for the mounted backend router surface and `/health`.
+6. the live Go backend surface for the mounted backend router surface and `/health`.
 7. Child AGENTS files under `frontend/` and `backend/` for local ownership boundaries inside the monorepo.
-8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in automated regression trees remain present under `backend/tests/` and `frontend/tests/`; use those test roots plus the current ownership docs and live product surface when deriving regression structure.
+8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in regression trees remain present under `backend/tests/` and `frontend/tests/`; when grounding backend coverage, prefer the Go runtime under `backend/cmd/`, `backend/internal/`, `backend/migrations/`, and the Go cutover-verification packages under `backend/tests/{contract,integration}` over any retired Python-runtime surface.
 
 Do not generate cases for behavior that is not supported by those sources.
 

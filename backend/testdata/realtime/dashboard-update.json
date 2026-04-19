@@ -1,0 +1,177 @@
+{
+  "type": "dashboard.update",
+  "request_log": {
+    "id": 101,
+    "profile_id": 2,
+    "model_id": "gpt-4o",
+    "api_family": "openai",
+    "vendor_id": 1,
+    "vendor_key": "openai",
+    "vendor_name": "OpenAI",
+    "resolved_target_model_id": "gpt-4o-native",
+    "endpoint_id": 12,
+    "connection_id": 34,
+    "proxy_api_key_id": null,
+    "proxy_api_key_name_snapshot": null,
+    "ingress_request_id": "ingress_req_42",
+    "attempt_number": 2,
+    "provider_correlation_id": "req_upstream_abc123",
+    "endpoint_base_url": "https://api.openai.com",
+    "status_code": 200,
+    "response_time_ms": 1234,
+    "ttft_ms": 320,
+    "completion_duration_ms": 914,
+    "is_stream": false,
+    "input_tokens": 15,
+    "output_tokens": 42,
+    "total_tokens": 57,
+    "success_flag": true,
+    "billable_flag": true,
+    "priced_flag": true,
+    "unpriced_reason": null,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "reasoning_tokens": 0,
+    "input_cost_micros": 500,
+    "output_cost_micros": 750,
+    "cache_read_input_cost_micros": 0,
+    "cache_creation_input_cost_micros": 0,
+    "reasoning_cost_micros": 0,
+    "total_cost_original_micros": 1250,
+    "total_cost_user_currency_micros": 1250,
+    "currency_code_original": "USD",
+    "report_currency_code": "USD",
+    "report_currency_symbol": "$",
+    "fx_rate_used": "1.000000",
+    "fx_rate_source": "DEFAULT_1_TO_1",
+    "pricing_snapshot_unit": "1M tokens",
+    "pricing_snapshot_input": "2.500000",
+    "pricing_snapshot_output": "10.000000",
+    "pricing_snapshot_cache_read_input": "1.250000",
+    "pricing_snapshot_cache_creation_input": "0.000000",
+    "pricing_snapshot_reasoning": "0.000000",
+    "pricing_config_version_used": 1,
+    "request_path": "/v1/chat/completions",
+    "error_detail": null,
+    "endpoint_description": "Primary production key",
+    "created_at": "2026-04-18T12:34:56Z"
+  },
+  "stats_summary_24h": {
+    "total_requests": 42,
+    "success_count": 41,
+    "error_count": 1,
+    "success_rate": 97.62,
+    "avg_response_time_ms": 850,
+    "p95_response_time_ms": 2100,
+    "total_input_tokens": 500,
+    "total_output_tokens": 900,
+    "total_tokens": 1400,
+    "groups": [
+      {
+        "key": "gpt-4o",
+        "total_requests": 42,
+        "success_count": 41,
+        "error_count": 1,
+        "avg_response_time_ms": 850,
+        "total_tokens": 1400
+      }
+    ]
+  },
+  "api_family_summary_24h": {
+    "total_requests": 42,
+    "success_count": 41,
+    "error_count": 1,
+    "success_rate": 97.62,
+    "avg_response_time_ms": 850,
+    "p95_response_time_ms": 2100,
+    "total_input_tokens": 500,
+    "total_output_tokens": 900,
+    "total_tokens": 1400,
+    "groups": [
+      {
+        "key": "openai",
+        "total_requests": 42,
+        "success_count": 41,
+        "error_count": 1,
+        "avg_response_time_ms": 850,
+        "total_tokens": 1400
+      }
+    ]
+  },
+  "spending_summary_30d": {
+    "summary": {
+      "total_cost_micros": 1250000,
+      "successful_request_count": 41,
+      "priced_request_count": 41,
+      "unpriced_request_count": 1,
+      "total_input_tokens": 500,
+      "total_output_tokens": 900,
+      "total_cache_read_input_tokens": 0,
+      "total_cache_creation_input_tokens": 0,
+      "total_reasoning_tokens": 0,
+      "total_tokens": 1400,
+      "avg_cost_per_successful_request_micros": 30487
+    },
+    "groups": [
+      {
+        "key": "gpt-4o",
+        "total_cost_micros": 1250000,
+        "total_requests": 42,
+        "priced_requests": 41,
+        "unpriced_requests": 1,
+        "total_tokens": 1400
+      }
+    ],
+    "groups_total": 1,
+    "top_spending_models": [
+      {
+        "model_id": "gpt-4o",
+        "total_cost_micros": 1250000
+      }
+    ],
+    "top_spending_endpoints": [
+      {
+        "endpoint_id": 12,
+        "endpoint_label": "Primary OpenAI",
+        "total_cost_micros": 1250000
+      }
+    ],
+    "unpriced_breakdown": {
+      "missing_pricing_template": 1
+    },
+    "report_currency_code": "USD",
+    "report_currency_symbol": "$"
+  },
+  "throughput_24h": {
+    "average_rpm": 1.75,
+    "peak_rpm": 3.0,
+    "current_rpm": 1.0,
+    "total_requests": 42,
+    "time_window_seconds": 86400,
+    "buckets": [
+      {
+        "timestamp": "2026-04-18T12:00:00Z",
+        "request_count": 21,
+        "rpm": 1.5
+      },
+      {
+        "timestamp": "2026-04-18T12:30:00Z",
+        "request_count": 21,
+        "rpm": 2.0
+      }
+    ]
+  },
+  "routing_route_24h": {
+    "model_id": "gpt-4o",
+    "model_config_id": 77,
+    "model_label": "GPT-4o Proxy",
+    "endpoint_id": 12,
+    "endpoint_label": "Primary OpenAI",
+    "active_connection_count": 1,
+    "traffic_request_count_24h": 42,
+    "request_count_24h": 42,
+    "success_count_24h": 41,
+    "error_count_24h": 1,
+    "success_rate_24h": 97.62
+  }
+}

@@ -644,7 +644,7 @@ Response `200`: Usage payload with `template_id` and `items[]` (`connection_id`,
 
 ### 1.6 Config Export/Import
 
-Prism now uses a breaking `version: 3` profile config bundle contract with two explicit ownership domains:
+Prism now uses a breaking `version: 1` profile config bundle contract with two explicit ownership domains:
 
 - **Profile bundle**: profile-scoped config only
 - **Vendor catalog bundle**: global vendor metadata only
@@ -656,7 +656,7 @@ GET /api/config/profile/export
 Response `200`:
 ```json
 {
-  "version": 3,
+  "version": 1,
   "bundle_kind": "profile_config",
   "exported_at": "2026-04-04T15:00:00Z",
   "vendor_refs": [
@@ -698,7 +698,7 @@ Response `200`:
   }
 }
 ```
-The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="gateway-config-YYYY-MM-DD.json"`.
+The response includes a `Content-Disposition` header to trigger a file download: `attachment; filename="prism-profile-config-v1-YYYY-MM-DD.json"`.
 
 Profile export semantics:
 - `bundle_kind` is always `profile_config`.
@@ -713,7 +713,7 @@ Profile export semantics:
 ```
 POST /api/config/profile/import/preview
 ```
-Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
 
 This preview route is a global readiness check and does not require `X-Profile-Id`.
 
@@ -721,7 +721,7 @@ Response `200`:
 ```json
 {
   "ready": true,
-  "version": 3,
+  "version": 1,
   "bundle_kind": "profile_config",
   "endpoints_imported": 2,
   "pricing_templates_imported": 4,
@@ -754,7 +754,7 @@ Preview semantics:
 ```
 POST /api/config/profile/import
 ```
-Request: Full profile bundle using `version: 3` and `bundle_kind: "profile_config"`.
+Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
 
 This import route is profile-targeted and requires `X-Profile-Id`.
 
@@ -1211,7 +1211,7 @@ Query parameters:
 |---|---|---|---|
 | `preset` | string | `1h` | Snapshot range preset. Supported values: `1h`, `6h`, `24h`, `7d`, `30d`, `all` |
 
-The snapshot is backed by `backend/app/services/stats/usage_snapshot.py` and `backend/app/routers/stats_domains/usage_snapshot_route_handlers.py`, with schema types in `backend/app/schemas/domains/usage_statistics.py`.
+The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
 The snapshot is still aggregated from persisted usage-event rows, and the `/statistics` page stays focused on aggregate views. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
 

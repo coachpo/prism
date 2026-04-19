@@ -172,7 +172,7 @@ const SecretPayloadSchema = z.strictObject({
 });
 
 export const ConfigImportSchema = z.strictObject({
-  version: z.literal(3),
+  version: z.literal(1),
   bundle_kind: z.literal("profile_config"),
   exported_at: z.string().optional(),
   vendor_refs: z.array(VendorRefImportSchema),

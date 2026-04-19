@@ -1,10 +1,10 @@
 # Prism Workflows Reference
 
-This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the backend router assembly in `backend/app/main.py`, and the current backend contract surfaced through `app.openapi()`.
+This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the checked-in Go-served contract in `docs/openapi.json`.
 
-Validated again against current repo surfaces on 2026-04-17:
-- `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.2.34`, which is the current backend version returned by `/health`.
-- `app.openapi()` currently exposes 80 documented HTTP paths.
+Validated again against current repo surfaces on 2026-04-19:
+- `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.2.35`, which is the current backend version returned by `/health`.
+- `docs/openapi.json` is the management and health OpenAPI artifact served by the Go backend at `/openapi.json`.
 - The protected frontend route shell in `frontend/src/App.tsx` still mounts `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/statistics`.
 
 ## Evidence Sources
@@ -13,8 +13,8 @@ Validated again against current repo surfaces on 2026-04-17:
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
 - Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`
-- Backend router assembly: `backend/app/main.py`
-- Live backend contract: `http://localhost:18000/openapi.json`
+- Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
+- Checked-in backend contract: `docs/openapi.json` (served at `/openapi.json` by the Go backend)
 - Request-log details: `docs/REQUESTS_PAGE.md`
 
 ## Runtime URLs
@@ -275,7 +275,7 @@ Profile export and import stay selected-profile scoped. `POST /api/config/profil
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
 
-These routes are implemented in `backend/app/routers/proxy.py` and the `backend/app/routers/proxy_domains/` package, but they are intentionally excluded from the live OpenAPI document.
+These routes are implemented in `backend/internal/httpapi/runtime/runtime.go` plus the related helpers under `backend/internal/httpapi/runtime/`, and they are intentionally excluded from the management-only OpenAPI document.
 
 ## Cross-References
 

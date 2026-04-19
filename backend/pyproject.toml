@@ -1,51 +1,9 @@
-[build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
+# Non-runtime metadata stub retained during final Go cutover verification.
+# The live backend is the Go service under cmd/prism-backend.
+# Do not reintroduce Python runtime, dependency, or packaging declarations here.
 
-[project]
-name = "prism-backend"
-dynamic = ["version"]
-description = "Prism FastAPI backend"
-requires-python = ">=3.13"
-dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
-    "sqlalchemy[asyncio]>=2.0.0",
-    "asyncpg>=0.30.0",
-    "alembic>=1.14.0",
-    "httpx>=0.27.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "PyJWT>=2.10.0",
-    "argon2-cffi>=23.1.0",
-    "cryptography>=44.0.0",
-    "webauthn==2.2.0",
-]
-
-[project.scripts]
-prism-backend = "app.main:main"
-
-[tool.setuptools.dynamic]
-version = { file = ["VERSION"] }
-
-[tool.setuptools.package-data]
-app = [
-    "alembic.ini",
-    "alembic/env.py",
-    "alembic/script.py.mako",
-    "alembic/versions/*.py",
-]
-
-[tool.setuptools.packages.find]
-include = ["app*"]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.3.5",
-]
-
-[tool.pytest.ini_options]
-markers = [
-    "backend_smoke: non-destructive backend smoke checks for merge-gating runs",
-    "backend_smoke_destructive: destructive backend smoke checks for explicit delete and cleanup runs",
-]
+[tool.prism_backend_metadata]
+version_file = "VERSION"
+live_runtime = "go"
+python_runtime_retired = true
+purpose = "backend-local metadata stub kept during cutover verification"
