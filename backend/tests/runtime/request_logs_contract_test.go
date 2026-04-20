@@ -222,6 +222,101 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 	}
 }
 
+func TestRuntimeRequestLogPersistsStreamedAnthropicUsage(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: message_start\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n")
+		_, _ = io.WriteString(w, "event: message_delta\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":13}}\n\n")
+		_, _ = io.WriteString(w, "event: message_stop\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer upstream.Close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "anthropic",
+		PublicModelID:   "stream-anthropic-public-" + randomSuffix(),
+		TargetModelID:   "stream-anthropic-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "runtime-anthropic-stream-key",
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/messages",
+		map[string]any{
+			"model":      route.PublicModelID,
+			"max_tokens": 16,
+			"stream":     true,
+			"messages":   []map[string]any{{"role": "user", "content": "你好"}},
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+}
+
+func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好\"}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20}}\n\n")
+	}))
+	defer upstream.Close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "gemini",
+		PublicModelID:   "stream-gemini-public-" + randomSuffix(),
+		TargetModelID:   "stream-gemini-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "runtime-gemini-stream-key",
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/v1beta/models/%s:generateContent?alt=sse", route.PublicModelID),
+		map[string]any{
+			"contents": []map[string]any{{
+				"role":  "user",
+				"parts": []map[string]any{{"text": "你好"}},
+			}},
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
+}
+
+func assertLatestRequestLogUsage(t *testing.T, conn *pgx.Conn, profileID int, expectStream bool, wantInput int64, wantOutput int64, wantTotal int64) {
+	t.Helper()
+	var isStream bool
+	var inputTokens sql.NullInt64
+	var outputTokens sql.NullInt64
+	var totalTokens sql.NullInt64
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT is_stream, input_tokens, output_tokens, total_tokens FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+		profileID,
+	).Scan(&isStream, &inputTokens, &outputTokens, &totalTokens); err != nil {
+		t.Fatalf("load latest streamed request log usage: %v", err)
+	}
+	if isStream != expectStream {
+		t.Fatalf("expected request log is_stream=%t, got %t", expectStream, isStream)
+	}
+	if !inputTokens.Valid || inputTokens.Int64 != wantInput || !outputTokens.Valid || outputTokens.Int64 != wantOutput || !totalTokens.Valid || totalTokens.Int64 != wantTotal {
+		t.Fatalf("expected streamed usage %d/%d/%d, got input=%+v output=%+v total=%+v", wantInput, wantOutput, wantTotal, inputTokens, outputTokens, totalTokens)
+	}
+}
+
 func TestAuditLogsRejectDisabledRequestSnapshot(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)

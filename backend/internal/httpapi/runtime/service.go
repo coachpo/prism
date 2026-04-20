@@ -176,6 +176,7 @@ type sseCompletedResponseCapture struct {
 	currentEvent      string
 	currentDataLines  []string
 	completedResponse []byte
+	usage             responseUsage
 }
 
 func (capture *sseCompletedResponseCapture) consumeLine(line []byte) {
@@ -194,11 +195,110 @@ func (capture *sseCompletedResponseCapture) consumeLine(line []byte) {
 }
 
 func (capture *sseCompletedResponseCapture) finishEvent() {
-	if capture.currentEvent == "response.completed" && len(capture.currentDataLines) > 0 {
-		capture.completedResponse = []byte(strings.Join(capture.currentDataLines, "\n"))
+	if len(capture.currentDataLines) > 0 {
+		capture.consumePayload([]byte(strings.Join(capture.currentDataLines, "\n")))
 	}
 	capture.currentEvent = ""
 	capture.currentDataLines = nil
+}
+
+func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte) {
+	var payload map[string]any
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return
+	}
+	if usagePayload, ok := responseUsagePayload(payload); ok {
+		capture.mergeStandardUsagePayload(usagePayload)
+	}
+	if messagePayload, ok := payload["message"].(map[string]any); ok {
+		if usagePayload, ok := messagePayload["usage"].(map[string]any); ok {
+			capture.mergeStandardUsagePayload(usagePayload)
+		}
+	}
+	if usageMetadata, ok := payload["usageMetadata"].(map[string]any); ok {
+		capture.mergeGeminiUsagePayload(usageMetadata)
+	}
+	if usageBody := capture.buildUsageBody(); len(usageBody) > 0 {
+		capture.completedResponse = usageBody
+	}
+}
+
+func (capture *sseCompletedResponseCapture) mergeStandardUsagePayload(usagePayload map[string]any) {
+	if inputTokens := intPointerFromAny(firstValue(usagePayload, "prompt_tokens", "input_tokens")); inputTokens != nil {
+		capture.usage.InputTokens = inputTokens
+	}
+	if outputTokens := intPointerFromAny(firstValue(usagePayload, "completion_tokens", "output_tokens")); outputTokens != nil {
+		capture.usage.OutputTokens = outputTokens
+	}
+	if totalTokens := intPointerFromAny(usagePayload["total_tokens"]); totalTokens != nil {
+		capture.usage.TotalTokens = totalTokens
+	}
+	if cacheReadTokens := intPointerFromAny(usagePayload["cache_read_input_tokens"]); cacheReadTokens != nil {
+		capture.usage.CacheReadInputTokens = cacheReadTokens
+	}
+	if cacheCreationTokens := intPointerFromAny(usagePayload["cache_creation_input_tokens"]); cacheCreationTokens != nil {
+		capture.usage.CacheCreationInputTokens = cacheCreationTokens
+	}
+	if reasoningTokens := intPointerFromAny(firstValue(
+		map[string]any{
+			"completion": nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"),
+			"output":     nestedValue(usagePayload, "output_tokens_details", "reasoning_tokens"),
+		},
+		"completion",
+		"output",
+	)); reasoningTokens != nil {
+		capture.usage.ReasoningTokens = reasoningTokens
+	}
+}
+
+func (capture *sseCompletedResponseCapture) mergeGeminiUsagePayload(usagePayload map[string]any) {
+	if inputTokens := intPointerFromAny(usagePayload["promptTokenCount"]); inputTokens != nil {
+		capture.usage.InputTokens = inputTokens
+	}
+	if outputTokens := intPointerFromAny(usagePayload["candidatesTokenCount"]); outputTokens != nil {
+		capture.usage.OutputTokens = outputTokens
+	}
+	if totalTokens := intPointerFromAny(usagePayload["totalTokenCount"]); totalTokens != nil {
+		capture.usage.TotalTokens = totalTokens
+	}
+	if cacheReadTokens := intPointerFromAny(usagePayload["cachedContentTokenCount"]); cacheReadTokens != nil {
+		capture.usage.CacheReadInputTokens = cacheReadTokens
+	}
+}
+
+func (capture *sseCompletedResponseCapture) buildUsageBody() []byte {
+	usage := map[string]any{}
+	if capture.usage.InputTokens != nil {
+		usage["input_tokens"] = *capture.usage.InputTokens
+	}
+	if capture.usage.OutputTokens != nil {
+		usage["output_tokens"] = *capture.usage.OutputTokens
+	}
+	totalTokens := capture.usage.TotalTokens
+	if totalTokens == nil && (capture.usage.InputTokens != nil || capture.usage.OutputTokens != nil) {
+		total := intValue(capture.usage.InputTokens) + intValue(capture.usage.OutputTokens)
+		totalTokens = &total
+	}
+	if totalTokens != nil {
+		usage["total_tokens"] = *totalTokens
+	}
+	if capture.usage.CacheReadInputTokens != nil {
+		usage["cache_read_input_tokens"] = *capture.usage.CacheReadInputTokens
+	}
+	if capture.usage.CacheCreationInputTokens != nil {
+		usage["cache_creation_input_tokens"] = *capture.usage.CacheCreationInputTokens
+	}
+	if capture.usage.ReasoningTokens != nil {
+		usage["output_tokens_details"] = map[string]any{"reasoning_tokens": *capture.usage.ReasoningTokens}
+	}
+	if len(usage) == 0 {
+		return nil
+	}
+	body, err := json.Marshal(map[string]any{"usage": usage})
+	if err != nil {
+		return nil
+	}
+	return body
 }
 
 func trimSSEFieldValue(value string) string {
