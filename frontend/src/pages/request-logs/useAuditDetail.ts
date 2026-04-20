@@ -9,7 +9,7 @@ export type AuditDetailErrorKind = "capture_unavailable" | "load_failed";
 
 interface UseAuditDetailParams {
   requestLogId: number | null;
-  auditEnabledAtRequest: boolean | null;
+  auditEnabledAtRequest: boolean;
   enabled: boolean;
 }
 
@@ -20,9 +20,8 @@ export function useAuditDetail({ requestLogId, auditEnabledAtRequest, enabled }:
   const [loadedRequestLogId, setLoadedRequestLogId] = useState<number | null>(null);
   const activeLogIdRef = useRef<number | null>(null);
   const isActive = enabled && requestLogId !== null;
-  const isExplicitlyDisabled = auditEnabledAtRequest === false;
-  const hasCurrentRequestState = requestLogId !== null
-    && (loadedRequestLogId === requestLogId || isExplicitlyDisabled);
+  const isAuditDisabled = !auditEnabledAtRequest;
+  const hasLoadedCurrentRequest = requestLogId !== null && loadedRequestLogId === requestLogId;
 
   const fetchAudits = useCallback(async (logId: number) => {
     activeLogIdRef.current = logId;
@@ -84,8 +83,12 @@ export function useAuditDetail({ requestLogId, auditEnabledAtRequest, enabled }:
       return;
     }
 
-    if (auditEnabledAtRequest === false) {
+    if (isAuditDisabled) {
       activeLogIdRef.current = null;
+      setLoadedRequestLogId(requestLogId);
+      setAudits([]);
+      setError(null);
+      setLoading(false);
       return;
     }
 
@@ -97,15 +100,27 @@ export function useAuditDetail({ requestLogId, auditEnabledAtRequest, enabled }:
       clearTimeout(fetchTimeoutId);
       activeLogIdRef.current = null;
     };
-  }, [auditEnabledAtRequest, fetchAudits, isActive, requestLogId]);
+  }, [fetchAudits, isActive, isAuditDisabled, requestLogId]);
+
+  if (!isActive) {
+    return {
+      audits: [],
+      error: null,
+      loading: false,
+    };
+  }
+
+  if (isAuditDisabled) {
+    return {
+      audits: [],
+      error: "capture_unavailable" as const,
+      loading: false,
+    };
+  }
 
   return {
-    audits: isActive && hasCurrentRequestState && !isExplicitlyDisabled ? audits : [],
-    error: isActive && hasCurrentRequestState
-      ? (isExplicitlyDisabled ? "capture_unavailable" : error)
-      : null,
-    loading: isActive
-      ? (isExplicitlyDisabled ? false : !hasCurrentRequestState || loading)
-      : false,
+    audits: hasLoadedCurrentRequest ? audits : [],
+    error: hasLoadedCurrentRequest ? error : null,
+    loading: !hasLoadedCurrentRequest || loading,
   };
 }

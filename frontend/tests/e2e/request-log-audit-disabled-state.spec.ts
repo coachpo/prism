@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-13T00:00:00Z";
 
-function createRequestLogDetail(auditEnabledAtRequest: boolean | null) {
+function createRequestLogDetail(auditEnabledAtRequest: boolean) {
   return {
     summary: {
       id: 101,
@@ -83,8 +83,56 @@ function createRequestLogDetail(auditEnabledAtRequest: boolean | null) {
   };
 }
 
-async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boolean | null) {
+function createAuditListItem() {
+  return {
+    id: 201,
+    request_log_id: 101,
+    profile_id: 1,
+    vendor_id: 1,
+    model_id: "gpt-4o-mini",
+    endpoint_id: 1,
+    connection_id: null,
+    endpoint_base_url: "https://api.example.test",
+    endpoint_description: "Primary endpoint",
+    request_method: "POST",
+    request_url: "https://api.example.test/v1/responses",
+    request_headers: "content-type: application/json\nauthorization: Bearer [REDACTED]",
+    request_body_preview: '{"input":"hello"}',
+    response_status: 200,
+    is_stream: false,
+    duration_ms: 125,
+    created_at: timestamp,
+  };
+}
+
+function createAuditDetail() {
+  return {
+    id: 201,
+    request_log_id: 101,
+    profile_id: 1,
+    vendor_id: 1,
+    model_id: "gpt-4o-mini",
+    endpoint_id: 1,
+    connection_id: null,
+    endpoint_base_url: "https://api.example.test",
+    endpoint_description: "Primary endpoint",
+    request_method: "POST",
+    request_url: "https://api.example.test/v1/responses",
+    request_headers: "content-type: application/json\nauthorization: Bearer [REDACTED]",
+    request_body: '{"input":"hello"}',
+    response_status: 200,
+    response_headers: "content-type: application/json",
+    response_body: '{"id":"resp_101","status":"ok"}',
+    is_stream: false,
+    duration_ms: 125,
+    created_at: timestamp,
+  };
+}
+
+async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boolean) {
   const detail = createRequestLogDetail(auditEnabledAtRequest);
+  const auditListItem = createAuditListItem();
+  const auditDetail = createAuditDetail();
   let auditListRequests = 0;
   let auditDetailRequests = 0;
 
@@ -149,12 +197,20 @@ async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boo
 
     if (pathname === "/api/audit/logs") {
       auditListRequests += 1;
+      if (!auditEnabledAtRequest) {
+        return fulfillJson({ detail: "Audit capture unavailable for this request" }, 409);
+      }
       return fulfillJson({
-        items: searchParams.get("request_log_id") === "101" ? [] : [],
-        total: 0,
+        items: searchParams.get("request_log_id") === "101" ? [auditListItem] : [],
+        total: searchParams.get("request_log_id") === "101" ? 1 : 0,
         limit: 20,
         offset: 0,
       });
+    }
+
+    if (pathname === "/api/audit/logs/201") {
+      auditDetailRequests += 1;
+      return fulfillJson(auditDetail);
     }
 
     if (pathname.startsWith("/api/audit/logs/")) {
@@ -173,7 +229,7 @@ async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boo
   };
 }
 
-async function openRequestLogDetail(page: Page, auditEnabledAtRequest: boolean | null) {
+async function openRequestLogDetail(page: Page, auditEnabledAtRequest: boolean) {
   const counters = await mockRequestLogDetailRoutes(page, auditEnabledAtRequest);
 
   await page.goto("/request-logs?request_id=101");
@@ -196,11 +252,15 @@ test.describe("request log audit disabled state", () => {
     expect(counters.getAuditDetailRequests()).toBe(0);
   });
 
-  test("unknown snapshots still lazily request audit logs", async ({ page }) => {
-    const { drawer, counters } = await openRequestLogDetail(page, null);
+  test("enabled snapshots request audit logs", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, true);
 
     await drawer.getByRole("tab", { name: "Audit" }).click();
 
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+    await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
+    await expect(drawer.getByText("Audit capture unavailable")).not.toBeVisible();
+    await expect(drawer.getByText('{"input":"hello"}')).toBeVisible();
+    await expect(drawer.getByText('{"id":"resp_101","status":"ok"}')).toBeVisible();
   });
 });
