@@ -154,11 +154,13 @@ Use [`.env.example`](.env.example) as a direct-run sample, not as a launcher-saf
 - `./start.sh` loads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, and uses backend `18000`, frontend `15173`, and PostgreSQL `15432`
 - Direct backend runs use environment variables such as `HOST`, `PORT`, `DATABASE_URL`, `CORS_ALLOWED_ORIGINS`, auth settings, WebAuthn settings, and SMTP settings from `.env.example`
 - Frontend build/runtime metadata uses `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`
+- `./start.sh full` serves the browser through the launcher origin, with Vite proxying `/api`, `/v1`, and `/v1beta` to the backend so local browser traffic stays same-origin
+- Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 - `CONFIG_BUNDLE_ENCRYPTION_KEY` controls config profile/vendor bundle encryption; when unset, the backend falls back to `SECRET_ENCRYPTION_KEY`
 
 If you copy `.env.example` to `.env` for `./start.sh`, update launcher-sensitive values such as `DATABASE_URL` and `WEBAUTHN_ORIGIN` to match the launcher ports, or leave them unset so `start.sh` can supply its own defaults.
 
-When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` sets `VITE_API_BASE` to the backend URL automatically instead of relying on a Vite dev proxy.
+When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` keeps browser traffic same-origin through the launcher origin and Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 
 ### Database
 

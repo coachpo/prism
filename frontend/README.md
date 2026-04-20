@@ -18,7 +18,8 @@ When started through the checked-in root launcher, Prism serves the frontend at 
 ## Runtime notes
 
 - `VITE_API_BASE` is optional. If it is unset, the frontend uses same-origin requests to `/api`, `/v1`, and `/v1beta`.
-- Local Vite development does not install a dev proxy in `vite.config.ts`; use `VITE_API_BASE` directly or launch the full stack through `../start.sh full`.
+- `../start.sh full` enables a launcher-only Vite proxy so browser traffic stays same-origin while `/api`, `/v1`, and `/v1beta` reach the backend.
+- Standalone frontend development can still use explicit `VITE_API_BASE` when you want the dev server to talk to a remote backend.
 - The production container serves the built `dist/` output through `server.mjs`, which also exposes `/health`.
 
 ## Route and ownership map

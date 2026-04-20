@@ -36,4 +36,8 @@ frontend/node_modules/
 .opencode/
 .playwright-mcp
 */test-results/
+.claude/
+
+
+# Binary
 backend/prism-backend
