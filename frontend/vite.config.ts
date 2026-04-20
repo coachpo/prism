@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig, loadEnv, type ProxyOptions } from "vite"
 
 const APP_VERSION = resolveAppVersion()
 const HEALTH_RESPONSE = JSON.stringify({ status: "ok", version: APP_VERSION })
@@ -67,28 +67,67 @@ function createHealthMiddleware() {
   }
 }
 
-export default defineConfig({
-  define: {
-    "import.meta.env.VITE_APP_VERSION": JSON.stringify(APP_VERSION),
-    "import.meta.env.VITE_GIT_RUN_NUMBER": JSON.stringify(GIT_RUN_NUMBER),
-    "import.meta.env.VITE_GIT_REVISION": JSON.stringify(GIT_REVISION),
-  },
-  plugins: [
-    react(),
-    tailwindcss(),
-    {
-      name: "health-endpoint",
-      configureServer(server) {
-        server.middlewares.use(createHealthMiddleware())
+function isTruthyEnvFlag(value: string | undefined) {
+  return value === "1" || value?.toLowerCase() === "true"
+}
+
+function createLauncherProxyConfig(target: string): Record<string, string | ProxyOptions> {
+  return {
+    "/api/realtime/ws": {
+      target,
+      changeOrigin: true,
+      ws: true,
+    },
+    "/api": {
+      target,
+      changeOrigin: true,
+    },
+    "/v1": {
+      target,
+      changeOrigin: true,
+    },
+    "/v1beta": {
+      target,
+      changeOrigin: true,
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, "")
+  const launcherProxyEnabled = isTruthyEnvFlag(env.PRISM_VITE_PROXY_ENABLED)
+  const launcherProxyTarget = env.PRISM_VITE_PROXY_TARGET?.trim() || "http://localhost:18000"
+  const browserApiBase = launcherProxyEnabled ? "" : env.VITE_API_BASE?.trim() || ""
+
+  return {
+    define: {
+      "import.meta.env.VITE_API_BASE": JSON.stringify(browserApiBase),
+      "import.meta.env.VITE_APP_VERSION": JSON.stringify(APP_VERSION),
+      "import.meta.env.VITE_GIT_RUN_NUMBER": JSON.stringify(GIT_RUN_NUMBER),
+      "import.meta.env.VITE_GIT_REVISION": JSON.stringify(GIT_REVISION),
+    },
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: "health-endpoint",
+        configureServer(server) {
+          server.middlewares.use(createHealthMiddleware())
+        },
+        configurePreviewServer(server) {
+          server.middlewares.use(createHealthMiddleware())
+        },
       },
-      configurePreviewServer(server) {
-        server.middlewares.use(createHealthMiddleware())
+    ],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
       },
     },
-  ],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
+    server: launcherProxyEnabled
+      ? {
+          proxy: createLauncherProxyConfig(launcherProxyTarget),
+        }
+      : undefined,
+  }
 })

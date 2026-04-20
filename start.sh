@@ -399,9 +399,10 @@ BACKEND_PID=$!
 
 if [ "$START_FRONTEND" = true ]; then
     # --- Start frontend ---
-    # Frontend calls backend directly (no dev proxy) via VITE_API_BASE
+    # Frontend keeps browser traffic same-origin and proxies backend routes locally.
     echo "Starting frontend on port $FRONTEND_PORT..."
-    (cd "$FRONTEND_DIR" && VITE_API_BASE="http://localhost:$BACKEND_PORT" \
+    (cd "$FRONTEND_DIR" && env -u VITE_API_BASE PRISM_VITE_PROXY_ENABLED=1 \
+        PRISM_VITE_PROXY_TARGET="http://localhost:$BACKEND_PORT" \
         "$FRONTEND_PNPM_BIN" exec vite --port "$FRONTEND_PORT" --host) &
     FRONTEND_PID=$!
 fi
