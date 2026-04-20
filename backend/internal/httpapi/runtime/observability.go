@@ -311,7 +311,7 @@ func extractResponseUsage(body []byte) responseUsage {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return responseUsage{}
 	}
-	usagePayload, ok := payload["usage"].(map[string]any)
+	usagePayload, ok := responseUsagePayload(payload)
 	if !ok {
 		return responseUsage{}
 	}
@@ -322,7 +322,14 @@ func extractResponseUsage(body []byte) responseUsage {
 		total := intValue(inputTokens) + intValue(outputTokens)
 		totalTokens = &total
 	}
-	reasoningTokens := intPointerFromAny(nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"))
+	reasoningTokens := intPointerFromAny(firstValue(
+		map[string]any{
+			"completion": nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"),
+			"output":     nestedValue(usagePayload, "output_tokens_details", "reasoning_tokens"),
+		},
+		"completion",
+		"output",
+	))
 	return responseUsage{
 		InputTokens:              inputTokens,
 		OutputTokens:             outputTokens,
@@ -331,6 +338,18 @@ func extractResponseUsage(body []byte) responseUsage {
 		CacheCreationInputTokens: intPointerFromAny(usagePayload["cache_creation_input_tokens"]),
 		ReasoningTokens:          reasoningTokens,
 	}
+}
+
+func responseUsagePayload(payload map[string]any) (map[string]any, bool) {
+	if usagePayload, ok := payload["usage"].(map[string]any); ok {
+		return usagePayload, true
+	}
+	responsePayload, ok := payload["response"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	usagePayload, ok := responsePayload["usage"].(map[string]any)
+	return usagePayload, ok
 }
 
 func billingState(success bool) (*bool, *bool, *string) {

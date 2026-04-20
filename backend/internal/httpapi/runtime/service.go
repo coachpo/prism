@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -134,8 +135,8 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 	var responseBody []byte
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	if strings.Contains(contentType, "text/event-stream") {
-		_, _ = io.Copy(w, execution.Response.Body)
-		s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, nil)
+		responseBody, _ = proxyEventStreamAndCaptureCompletedResponse(w, execution.Response.Body)
+		s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseBody)
 		return
 	}
 	responseBody, err = io.ReadAll(execution.Response.Body)
@@ -145,6 +146,63 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = io.Copy(w, bytes.NewReader(responseBody))
 	s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseBody)
+}
+
+func proxyEventStreamAndCaptureCompletedResponse(dst io.Writer, src io.Reader) ([]byte, error) {
+	reader := bufio.NewReader(src)
+	capture := sseCompletedResponseCapture{}
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			capture.consumeLine(line)
+			if _, writeErr := dst.Write(line); writeErr != nil {
+				capture.finishEvent()
+				return capture.completedResponse, writeErr
+			}
+		}
+		if err == nil {
+			continue
+		}
+		capture.finishEvent()
+		if errors.Is(err, io.EOF) {
+			return capture.completedResponse, nil
+		}
+		return capture.completedResponse, err
+	}
+}
+
+type sseCompletedResponseCapture struct {
+	currentEvent      string
+	currentDataLines  []string
+	completedResponse []byte
+}
+
+func (capture *sseCompletedResponseCapture) consumeLine(line []byte) {
+	trimmed := strings.TrimRight(string(line), "\r\n")
+	if trimmed == "" {
+		capture.finishEvent()
+		return
+	}
+	if strings.HasPrefix(trimmed, "event:") {
+		capture.currentEvent = trimSSEFieldValue(strings.TrimPrefix(trimmed, "event:"))
+		return
+	}
+	if strings.HasPrefix(trimmed, "data:") {
+		capture.currentDataLines = append(capture.currentDataLines, trimSSEFieldValue(strings.TrimPrefix(trimmed, "data:")))
+	}
+}
+
+func (capture *sseCompletedResponseCapture) finishEvent() {
+	if capture.currentEvent == "response.completed" && len(capture.currentDataLines) > 0 {
+		capture.completedResponse = []byte(strings.Join(capture.currentDataLines, "\n"))
+	}
+	capture.currentEvent = ""
+	capture.currentDataLines = nil
+}
+
+func trimSSEFieldValue(value string) string {
+	return strings.TrimLeft(value, " ")
 }
 
 func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {

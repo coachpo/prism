@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -158,6 +159,66 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 	}
 	if !auditEnabledAtRequest {
 		t.Fatalf("expected runtime request log to persist audit_enabled_at_request=true for audit-enabled executed vendor")
+	}
+}
+
+func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.created\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n")
+		_, _ = io.WriteString(w, "event: response.completed\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20,\"output_tokens_details\":{\"reasoning_tokens\":0}}}}\n\n")
+	}))
+	defer upstream.Close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "stream-public-" + randomSuffix(),
+		TargetModelID:   "stream-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "runtime-stream-key",
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		map[string]any{
+			"model": route.PublicModelID,
+			"input": []map[string]any{{
+				"type": "message",
+				"role": "user",
+				"content": []map[string]any{{
+					"type": "input_text",
+					"text": "你好",
+				}},
+			}},
+			"stream": true,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+
+	var isStream bool
+	var inputTokens sql.NullInt64
+	var outputTokens sql.NullInt64
+	var totalTokens sql.NullInt64
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT is_stream, input_tokens, output_tokens, total_tokens FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+		profileID,
+	).Scan(&isStream, &inputTokens, &outputTokens, &totalTokens); err != nil {
+		t.Fatalf("load persisted streamed request log usage: %v", err)
+	}
+	if !isStream {
+		t.Fatalf("expected streamed responses request to persist is_stream=true")
+	}
+	if !inputTokens.Valid || inputTokens.Int64 != 7 || !outputTokens.Valid || outputTokens.Int64 != 13 || !totalTokens.Valid || totalTokens.Int64 != 20 {
+		t.Fatalf("expected streamed responses usage to persist 7/13/20, got input=%+v output=%+v total=%+v", inputTokens, outputTokens, totalTokens)
 	}
 }
 
