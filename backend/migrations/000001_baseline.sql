@@ -289,7 +289,7 @@ CREATE TABLE "public"."request_logs" (
     "upstream_user_agent" text,
     "completion_duration_ms" integer,
     "ttft_ms" integer,
-    "audit_enabled_at_request" boolean
+    "audit_enabled_at_request" boolean DEFAULT false NOT NULL
 );
 
 CREATE UNLOGGED TABLE "public"."routing_connection_runtime_leases" (

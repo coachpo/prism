@@ -81,6 +81,7 @@ type runtimeModelRecord struct {
 	VendorID              *int
 	VendorKey             *string
 	VendorName            *string
+	AuditEnabled          bool
 	LoadbalanceStrategyID *int
 }
 
@@ -125,6 +126,7 @@ type requestPlan struct {
 	RequestedVendorName   *string
 	ProfileID             int
 	APIFamily             string
+	AuditEnabledAtRequest bool
 	EffectiveRequestPath  string
 	RawRequestBody        []byte
 	UpstreamBody          []byte
@@ -212,6 +214,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		RequestedVendorName:   requestedModel.VendorName,
 		ProfileID:             activeProfile.ID,
 		APIFamily:             targetModel.APIFamily,
+		AuditEnabledAtRequest: targetModel.AuditEnabled,
 		EffectiveRequestPath:  effectiveRequestPath,
 		RawRequestBody:        rawBody,
 		UpstreamBody:          upstreamBody,
@@ -283,7 +286,7 @@ func loadEnabledModelByModelID(ctx context.Context, tx pgx.Tx, profileID int, mo
 	record := runtimeModelRecord{}
 	err := tx.QueryRow(
 		ctx,
-		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.model_type, vendors.id, vendors.key, vendors.name, model_configs.loadbalance_strategy_id
+		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.model_type, vendors.id, vendors.key, vendors.name, COALESCE(vendors.audit_enabled, FALSE), model_configs.loadbalance_strategy_id
 		FROM model_configs
 		LEFT JOIN vendors ON vendors.id = model_configs.vendor_id
 		WHERE model_configs.profile_id = $1 AND model_configs.model_id = $2 AND model_configs.is_enabled = TRUE
@@ -291,7 +294,7 @@ func loadEnabledModelByModelID(ctx context.Context, tx pgx.Tx, profileID int, mo
 		LIMIT 1`,
 		profileID,
 		modelID,
-	).Scan(&record.ID, &record.ProfileID, &record.APIFamily, &record.ModelID, &record.ModelType, &vendorID, &vendorKey, &vendorName, &strategyID)
+	).Scan(&record.ID, &record.ProfileID, &record.APIFamily, &record.ModelID, &record.ModelType, &vendorID, &vendorKey, &vendorName, &record.AuditEnabled, &strategyID)
 	if err == pgx.ErrNoRows {
 		return runtimeModelRecord{}, false, nil
 	}

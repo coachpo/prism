@@ -63,7 +63,7 @@ type requestLogDetailRow struct {
 	ConnectionID                      *int
 	EndpointBaseURL                   *string
 	EndpointDescription               *string
-	AuditEnabledAtRequest             *bool
+	AuditEnabledAtRequest             bool
 	InputTokens                       *int
 	OutputTokens                      *int
 	TotalTokens                       *int
@@ -523,7 +523,6 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var connectionID sql.NullInt32
 	var endpointBaseURL sql.NullString
 	var endpointDescription sql.NullString
-	var auditEnabledAtRequest sql.NullBool
 	var inputTokens sql.NullInt32
 	var outputTokens sql.NullInt32
 	var totalTokens sql.NullInt32
@@ -554,7 +553,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var pricingSnapshotReasoning sql.NullString
 	var pricingConfigVersionUsed sql.NullInt32
 	item := requestLogDetailRow{}
-	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &auditEnabledAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
+	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
 		return requestLogDetailRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -576,7 +575,6 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.ConnectionID = nullableInt32(connectionID)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
 	item.EndpointDescription = nullableString(endpointDescription)
-	item.AuditEnabledAtRequest = nullableBool(auditEnabledAtRequest)
 	item.InputTokens = nullableInt32(inputTokens)
 	item.OutputTokens = nullableInt32(outputTokens)
 	item.TotalTokens = nullableInt32(totalTokens)

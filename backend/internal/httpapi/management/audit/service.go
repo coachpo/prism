@@ -84,6 +84,15 @@ func (s *Service) handleListLogs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return auditdomain.AuditLogListResponse{}, err
 		}
+		if params.RequestLogID != nil {
+			auditEnabledAtRequest, exists, err := loadRequestLogAuditCaptureState(r.Context(), tx, profile.ID, *params.RequestLogID)
+			if err != nil {
+				return auditdomain.AuditLogListResponse{}, err
+			}
+			if exists && !auditEnabledAtRequest {
+				return auditdomain.AuditLogListResponse{}, &auditdomain.HTTPError{StatusCode: http.StatusConflict, Detail: "Audit capture unavailable for this request"}
+			}
+		}
 		return auditdomain.ListLogs(r.Context(), tx, params)
 	})
 	if err != nil {
@@ -268,6 +277,17 @@ func routeInt(r *http.Request, name string) (int, error) {
 		return 0, fmt.Errorf("invalid %s", name)
 	}
 	return parsed, nil
+}
+
+func loadRequestLogAuditCaptureState(ctx context.Context, tx pgx.Tx, profileID int, requestLogID int) (bool, bool, error) {
+	var auditEnabledAtRequest bool
+	if err := tx.QueryRow(ctx, `SELECT audit_enabled_at_request FROM request_logs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, requestLogID).Scan(&auditEnabledAtRequest); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, false, nil
+		}
+		return false, false, fmt.Errorf("load request-log %d audit snapshot for profile %d: %w", requestLogID, profileID, err)
+	}
+	return auditEnabledAtRequest, true, nil
 }
 
 func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {

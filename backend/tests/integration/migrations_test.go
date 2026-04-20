@@ -33,11 +33,12 @@ func TestBaselineFreshApply(t *testing.T) {
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected empty database to apply baseline, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion}; len(got) != len(want) || got[0] != want[0] {
+	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null"})
+	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 }
 
 func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
@@ -92,7 +93,45 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 		t.Fatalf("expected noop run to report no versions, got %v", secondResult.Versions)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null"})
+}
+
+func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "request_logs_audit_enabled_backfill")
+	defer conn.Close(testContext)
+
+	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+		t.Fatalf("create prism migration history table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, migrate.DefaultBaselineVersion); err != nil {
+		t.Fatalf("seed prism baseline history: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, audit_enabled_at_request boolean)`); err != nil {
+		t.Fatalf("create legacy request_logs table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (audit_enabled_at_request) VALUES (NULL), (TRUE), (FALSE)`); err != nil {
+		t.Fatalf("seed legacy request_logs rows: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run request-log audit snapshot migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected legacy request_logs database to apply migration, got %q", result.Outcome)
+	}
+	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("expected applied versions %v, got %v", want, got)
+	}
+
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null"})
+	assertRequestLogAuditEnabledRows(t, testContext, conn, []bool{false, true, false})
+	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 }
 
 type postgresHarness struct {
@@ -196,6 +235,57 @@ func assertHistoryTableMissing(t *testing.T, ctx context.Context, conn *pgx.Conn
 	}
 	if exists {
 		t.Fatalf("expected prism migration history table to remain absent")
+	}
+}
+
+func assertRequestLogAuditEnabledRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected []bool) {
+	t.Helper()
+
+	rows, err := conn.Query(ctx, `SELECT audit_enabled_at_request FROM request_logs ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query request_logs audit_enabled_at_request rows: %v", err)
+	}
+	defer rows.Close()
+
+	values := make([]bool, 0, len(expected))
+	for rows.Next() {
+		var value bool
+		if err := rows.Scan(&value); err != nil {
+			t.Fatalf("scan request_logs audit_enabled_at_request row: %v", err)
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate request_logs audit_enabled_at_request rows: %v", err)
+	}
+	if len(values) != len(expected) {
+		t.Fatalf("expected request_logs audit_enabled_at_request rows %v, got %v", expected, values)
+	}
+	for index := range expected {
+		if values[index] != expected[index] {
+			t.Fatalf("expected request_logs audit_enabled_at_request rows %v, got %v", expected, values)
+		}
+	}
+}
+
+func assertRequestLogAuditEnabledColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+
+	var isNullable string
+	var columnDefault string
+	if err := conn.QueryRow(
+		ctx,
+		`SELECT is_nullable, COALESCE(column_default, '')
+		FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'request_logs' AND column_name = 'audit_enabled_at_request'`,
+	).Scan(&isNullable, &columnDefault); err != nil {
+		t.Fatalf("load request_logs audit_enabled_at_request column contract: %v", err)
+	}
+	if isNullable != "NO" {
+		t.Fatalf("expected request_logs.audit_enabled_at_request to be NOT NULL, got is_nullable=%q", isNullable)
+	}
+	if !strings.Contains(strings.ToLower(columnDefault), "false") {
+		t.Fatalf("expected request_logs.audit_enabled_at_request default to contain false, got %q", columnDefault)
 	}
 }
 

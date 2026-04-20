@@ -12733,14 +12733,7 @@
             "title": "Endpoint Description"
           },
           "audit_enabled_at_request": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "boolean",
             "title": "Audit Enabled At Request"
           }
         },
@@ -12750,7 +12743,8 @@
           "endpoint_label",
           "endpoint_id",
           "connection_id",
-          "endpoint_base_url"
+          "endpoint_base_url",
+          "audit_enabled_at_request"
         ],
         "title": "RequestLogDetailRoutingResponse"
       },

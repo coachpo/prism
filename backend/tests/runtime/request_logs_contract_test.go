@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
@@ -37,7 +38,7 @@ func TestRequestLogListContract(t *testing.T) {
 	seedRequestLogEndpoints(t, harness, profileID)
 	seedRequestLogUserAgentRules(t, harness, profileID)
 	seedFixtureRequestLog(t, harness, profileID)
-	seedSimpleRequestLog(t, harness, profileID, 102, 999, nil, time.Date(2026, 4, 18, 12, 20, 0, 0, time.UTC))
+	seedSimpleRequestLog(t, harness, profileID, 102, 999, nil, time.Date(2026, 4, 18, 12, 20, 0, 0, time.UTC), false)
 
 	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
@@ -102,6 +103,10 @@ func TestRequestLogDetailContract(t *testing.T) {
 		t.Fatalf("expected request-log detail payload to match fixture, got %+v", payload)
 	}
 	routing := asMapRuntime(t, payload["routing"])
+	auditEnabledAtRequest, ok := routing["audit_enabled_at_request"].(bool)
+	if !ok || auditEnabledAtRequest {
+		t.Fatalf("expected request-log detail routing.audit_enabled_at_request=false boolean, got %+v", routing)
+	}
 	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name"} {
 		if _, ok := routing[absent]; ok {
 			t.Fatalf("did not expect routing field %s in detail payload, got %+v", absent, routing)
@@ -117,6 +122,60 @@ func TestRequestLogDetailContract(t *testing.T) {
 	}
 }
 
+func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable audit for runtime vendor: %v", err)
+	}
+	publicModelID := "audit-public-" + randomSuffix()
+	targetModelID := "audit-target-" + randomSuffix()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: harness.upstream.baseURL("/audit-enabled"),
+		EndpointAPIKey:  "runtime-audit-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to audit-enabled vendor: %v", err)
+	}
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "persist audit snapshot"}}, "model": route.PublicModelID},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+
+	var auditEnabledAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT audit_enabled_at_request FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&auditEnabledAtRequest); err != nil {
+		t.Fatalf("load persisted runtime audit snapshot: %v", err)
+	}
+	if !auditEnabledAtRequest {
+		t.Fatalf("expected runtime request log to persist audit_enabled_at_request=true for audit-enabled executed vendor")
+	}
+}
+
+func TestAuditLogsRejectDisabledRequestSnapshot(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	seedSimpleRequestLog(t, harness, profileID, 104, 12, nil, time.Date(2026, 4, 18, 12, 50, 0, 0, time.UTC), false)
+
+	response := harness.requestJSON(t, http.MethodGet, "/api/audit/logs?request_log_id=104&limit=20", nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusConflict)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if payload["detail"] != "Audit capture unavailable for this request" {
+		t.Fatalf("expected disabled request snapshot to reject audit list, got %+v", payload)
+	}
+}
+
 func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
 	harness := newRequestLogContractHarness(t)
 	profileID := loadRuntimeDefaultProfileID(t, harness)
@@ -124,7 +183,7 @@ func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
 	seedRequestLogUserAgentRules(t, harness, profileID)
 	seedRequestLogModels(t, harness, profileID)
 	seedFixtureRequestLog(t, harness, profileID)
-	seedSimpleRequestLog(t, harness, profileID, 103, 12, nil, time.Date(2026, 4, 18, 12, 40, 0, 0, time.UTC))
+	seedSimpleRequestLog(t, harness, profileID, 103, 12, nil, time.Date(2026, 4, 18, 12, 40, 0, 0, time.UTC), false)
 
 	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
@@ -190,7 +249,12 @@ func newRequestLogContractHarness(t *testing.T) *requestLogContractHarness {
 		t.Fatalf("build stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-runtime-test", StatsService: statsService})
+	auditService, err := managementaudit.NewService(settings, managementaudit.Options{Pool: pool})
+	if err != nil {
+		t.Fatalf("build audit service: %v", err)
+	}
+	t.Cleanup(auditService.Close)
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-runtime-test", AuditService: auditService, StatsService: statsService})
 	if err != nil {
 		t.Fatalf("build runtime request-log handler: %v", err)
 	}
@@ -272,13 +336,13 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	}
 }
 
-func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, endpointID int, endpointBaseURL *string, createdAt time.Time) {
+func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int, id int, endpointID int, endpointBaseURL *string, createdAt time.Time, auditEnabledAtRequest bool) {
 	t.Helper()
 	var historicalBaseURL any
 	if endpointBaseURL != nil {
 		historicalBaseURL = *endpointBaseURL
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at) VALUES ($1, $2, 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request) VALUES ($1, $2, 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
 	}
 }
@@ -307,8 +371,13 @@ func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, prof
 
 func loadRequestLogVendorIDByKey(t *testing.T, harness *requestLogContractHarness, key string) int {
 	t.Helper()
+	return loadVendorIDByKey(t, harness.conn, key)
+}
+
+func loadVendorIDByKey(t *testing.T, conn *pgx.Conn, key string) int {
+	t.Helper()
 	var vendorID int
-	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM vendors WHERE key = $1 LIMIT 1`, key).Scan(&vendorID); err != nil {
+	if err := conn.QueryRow(context.Background(), `SELECT id FROM vendors WHERE key = $1 LIMIT 1`, key).Scan(&vendorID); err != nil {
 		t.Fatalf("load vendor %q for request-log contract test: %v", key, err)
 	}
 	return vendorID

@@ -64,6 +64,7 @@ type requestLogInsert struct {
 	UpstreamUserAgent           *string
 	CompletionDurationMS        *int
 	TTFTMS                      *int
+	AuditEnabledAtRequest       bool
 }
 
 type usageEventInsert struct {
@@ -157,6 +158,7 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 		UpstreamUserAgent:           upstreamUserAgent,
 		CompletionDurationMS:        nil,
 		TTFTMS:                      nil,
+		AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
 	}
 	usageEvent := usageEventInsert{
 		ProfileID:                   plan.ProfileID,
@@ -204,7 +206,7 @@ func (s *Service) insertRequestLogAndUsageEvent(ctx context.Context, requestLog 
 		var requestLogID int
 		err := tx.QueryRow(
 			ctx,
-			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_original_micros, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39) RETURNING id`,
+			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_original_micros, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -244,6 +246,7 @@ func (s *Service) insertRequestLogAndUsageEvent(ctx context.Context, requestLog 
 			nullableStringArg(requestLog.UpstreamUserAgent),
 			nullableIntArg(requestLog.CompletionDurationMS),
 			nullableIntArg(requestLog.TTFTMS),
+			requestLog.AuditEnabledAtRequest,
 		).Scan(&requestLogID)
 		if err != nil {
 			return 0, fmt.Errorf("insert request log: %w", err)
