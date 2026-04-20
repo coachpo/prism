@@ -108,7 +108,7 @@ export function FiltersBarPrimaryFilters({
             {filterOptionsLoaded &&
               filterOptions.models.map((model) => (
                 <SelectItem key={model.model_id} value={model.model_id}>
-                  {model.display_name || model.model_id}
+                  {model.model_label}
                 </SelectItem>
               ))}
           </SelectContent>

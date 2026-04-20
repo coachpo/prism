@@ -4,7 +4,7 @@ import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { formatMoneyMicros } from "@/lib/costing";
 import { cn, formatApiFamily } from "@/lib/utils";
-import type { ModelConfigListItem, RequestLogListItem } from "@/lib/types";
+import type { RequestLogListItem } from "@/lib/types";
 import { AlertCircle, Clock } from "lucide-react";
 
 export const ROW_HEIGHT = 45;
@@ -102,33 +102,7 @@ export interface ColumnDef {
   render: (
     row: RequestLogListItem,
     formatTimestamp: (iso: string) => string,
-    resolveModelLabel: RequestLogModelResolver,
   ) => React.ReactNode;
-}
-
-export type RequestLogModelResolver = ((modelId: string) => string) & {
-  getModelMetadata?: (modelId: string) => ModelConfigListItem | undefined;
-};
-
-function getRequestModelMetadata(
-  resolveModelLabel: RequestLogModelResolver,
-  modelId: string,
-): ModelConfigListItem | undefined {
-  return resolveModelLabel.getModelMetadata?.(modelId);
-}
-
-export function isProxyOriginRequest(
-  row: Pick<RequestLogListItem, "model_id" | "resolved_target_model_id">,
-  resolveModelLabel: RequestLogModelResolver,
-): boolean {
-  if (
-    row.resolved_target_model_id !== null &&
-    row.resolved_target_model_id !== row.model_id
-  ) {
-    return true;
-  }
-
-  return getRequestModelMetadata(resolveModelLabel, row.model_id)?.model_type === "proxy";
 }
 
 export function getColumns(): ColumnDef[] {
@@ -197,29 +171,21 @@ export function getColumns(): ColumnDef[] {
       label: messages.model,
       width: 240,
       grow: 3,
-      render: (row, _formatTimestamp, resolveModelLabel) => {
-        const requestedModelLabel = resolveModelLabel(row.model_id);
-        const resolvedTargetLabel = row.resolved_target_model_id
-          ? resolveModelLabel(row.resolved_target_model_id)
-          : null;
-        const isProxyOrigin = isProxyOriginRequest(row, resolveModelLabel);
-
-        return (
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span className="block min-w-0 truncate text-xs font-medium">{requestedModelLabel}</span>
-              {isProxyOrigin ? (
-                <TypeBadge label={messages.proxyOrigin} intent="accent" className="px-2 py-0.5" />
-              ) : null}
-            </div>
-            {resolvedTargetLabel && row.resolved_target_model_id !== row.model_id ? (
-              <span className="block truncate text-[11px] text-muted-foreground">
-                {messages.resolvedTarget} → {resolvedTargetLabel}
-              </span>
+      render: (row) => (
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="block min-w-0 truncate text-xs font-medium">{row.model_label}</span>
+            {row.is_proxy_origin ? (
+              <TypeBadge label={messages.proxyOrigin} intent="accent" className="px-2 py-0.5" />
             ) : null}
           </div>
-        );
-      },
+          {row.resolved_target_model_label && row.resolved_target_model_id !== row.model_id ? (
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {messages.resolvedTarget} → {row.resolved_target_model_label}
+            </span>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: "endpoint_id",

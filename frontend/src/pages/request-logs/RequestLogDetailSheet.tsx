@@ -13,7 +13,6 @@ import type { DetailTab } from "./queryParams";
 import { useAuditDetail } from "./useAuditDetail";
 import { RequestLogAuditTab } from "./detail/RequestLogAuditTab";
 import { RequestLogOverviewTab } from "./detail/RequestLogOverviewTab";
-import type { RequestLogModelResolver } from "./columns";
 
 interface RequestLogDetailSheetProps {
   request: RequestLogDetail | null;
@@ -22,7 +21,6 @@ interface RequestLogDetailSheetProps {
   onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
   formatTimestamp: (iso: string) => string;
-  resolveModelLabel: RequestLogModelResolver;
 }
 
 export function RequestLogDetailSheet({
@@ -32,7 +30,6 @@ export function RequestLogDetailSheet({
   onTabChange,
   onClose,
   formatTimestamp,
-  resolveModelLabel,
 }: RequestLogDetailSheetProps) {
   const { messages } = useLocale();
   const { audits, loading: auditLoading, error: auditError } = useAuditDetail({
@@ -84,7 +81,6 @@ export function RequestLogDetailSheet({
                 <RequestLogOverviewTab
                   request={request}
                   formatTimestamp={formatTimestamp}
-                  resolveModelLabel={resolveModelLabel}
                 />
               </TabsContent>
 

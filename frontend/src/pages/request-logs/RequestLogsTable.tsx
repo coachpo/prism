@@ -16,7 +16,6 @@ import {
   getColumns,
   ROW_HEIGHT,
   type ColumnDef,
-  type RequestLogModelResolver,
 } from "./columns";
 import { PAGE_SIZE_OPTIONS } from "./queryParams";
 
@@ -32,7 +31,6 @@ interface RequestLogsTableProps {
   onNextPage: () => void;
   onPreviousPage: () => void;
   formatTimestamp: (iso: string) => string;
-  resolveModelLabel: RequestLogModelResolver;
 }
 
 interface ResolvedColumn extends ColumnDef {
@@ -102,7 +100,6 @@ export function RequestLogsTable({
   onNextPage,
   onPreviousPage,
   formatTimestamp,
-  resolveModelLabel,
 }: RequestLogsTableProps) {
   const { formatNumber, messages } = useLocale();
   const columns = useMemo(() => getColumns(), []);
@@ -234,7 +231,7 @@ export function RequestLogsTable({
                          )}
                          style={{ width: col.resolvedWidth }}
                         >
-                          {col.render(row, formatTimestamp, resolveModelLabel)}
+                          {col.render(row, formatTimestamp)}
                         </div>
                       ))}
                     </button>

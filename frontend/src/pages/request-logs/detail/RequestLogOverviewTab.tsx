@@ -13,8 +13,6 @@ import {
   formatTokenRate,
   formatTtft,
   formatTokens,
-  isProxyOriginRequest,
-  type RequestLogModelResolver,
 } from "../columns";
 import {
   ApiFamilyPill,
@@ -27,7 +25,6 @@ import { copyRequestLogText, getStatusIntent, getStatusTone } from "./requestLog
 interface RequestLogOverviewTabProps {
   request: RequestLogDetail;
   formatTimestamp: (iso: string) => string;
-  resolveModelLabel: RequestLogModelResolver;
 }
 
 function formatErrorDetail(errorDetail: string) {
@@ -74,7 +71,6 @@ function renderClientDetailValue(display: string | null, rawUserAgent: string | 
 export function RequestLogOverviewTab({
   request,
   formatTimestamp,
-  resolveModelLabel,
 }: RequestLogOverviewTabProps) {
   const { formatNumber, messages } = useLocale();
   const summary = request.summary;
@@ -83,14 +79,11 @@ export function RequestLogOverviewTab({
   const usage = request.usage;
   const costing = request.costing;
   const tone = getStatusTone(summary.status_code);
-  const requestedModelLabel = resolveModelLabel(summary.model_id);
-  const resolvedTargetLabel = summary.resolved_target_model_id
-    ? resolveModelLabel(summary.resolved_target_model_id)
-    : null;
+  const requestedModelLabel = summary.model_label;
+  const resolvedTargetLabel = summary.resolved_target_model_label;
   const formattedErrorDetail = requestInfo.error_detail ? formatErrorDetail(requestInfo.error_detail) : null;
   const hasFormattedErrorDetail = formattedErrorDetail !== null && formattedErrorDetail !== requestInfo.error_detail;
   const apiFamily = summary.api_family;
-  const isProxyOrigin = isProxyOriginRequest(summary, resolveModelLabel);
   const callerClientPrimaryValue = getClientPrimaryValue(
     requestInfo.caller_client_display,
     requestInfo.caller_user_agent,
@@ -124,7 +117,7 @@ export function RequestLogOverviewTab({
               <div className="flex flex-wrap items-center gap-2">
                 <ValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
                 {summary.is_stream && <TypeBadge label={messages.requestLogs.streaming} intent="blue" className="px-2 py-0.5" />}
-                {isProxyOrigin ? (
+                {summary.is_proxy_origin ? (
                   <TypeBadge label={messages.requestLogs.proxyOrigin} intent="accent" className="px-2 py-0.5" />
                 ) : null}
                 <ApiFamilyPill apiFamily={apiFamily} />
@@ -317,14 +310,16 @@ export function RequestLogOverviewTab({
 
             <div className="space-y-1 border-t border-border/60 pt-3">
               <SectionSubheading>{messages.requestLogs.routingContext}</SectionSubheading>
-              {routing.endpoint_id !== null ? (
-                <DetailRow label={messages.requestLogs.endpoint}>
-                  <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    #{routing.endpoint_id}
-                    {routing.endpoint_description ? ` - ${routing.endpoint_description}` : ""}
-                  </span>
-                </DetailRow>
-              ) : null}
+              <DetailRow label={messages.requestLogs.endpoint}>
+                <div className="space-y-1">
+                  <p>{routing.endpoint_label}</p>
+                  {routing.endpoint_id !== null ? (
+                    <p className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      #{routing.endpoint_id}
+                    </p>
+                  ) : null}
+                </div>
+              </DetailRow>
               {routing.endpoint_base_url ? (
                 <DetailRow label={messages.requestLogs.baseUrl}>
                   <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">

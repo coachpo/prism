@@ -95,6 +95,12 @@ type requestLogDetailRow struct {
 	PricingConfigVersionUsed          *int
 }
 
+type requestLogModelRecord struct {
+	ModelID     string
+	DisplayName *string
+	ModelType   string
+}
+
 func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogListParams) (RequestLogListResponse, error) {
 	limit := params.Limit
 	if limit <= 0 {
@@ -105,6 +111,10 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		offset = 0
 	}
 	currentEndpoints, currentEndpointsByID, err := loadCurrentEndpoints(ctx, exec, params.ProfileID)
+	if err != nil {
+		return RequestLogListResponse{}, err
+	}
+	currentModels, currentModelsByID, err := loadRequestLogModels(ctx, exec, params.ProfileID)
 	if err != nil {
 		return RequestLogListResponse{}, err
 	}
@@ -137,12 +147,15 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 		if scanErr != nil {
 			return RequestLogListResponse{}, scanErr
 		}
-		currentEndpoint, currentFound := endpointFromMap(currentEndpointsByID, item.EndpointID)
+		currentEndpoint, _ := endpointFromMap(currentEndpointsByID, item.EndpointID)
 		items = append(items, RequestLogListItem{
 			ID:                          item.ID,
 			CreatedAt:                   item.CreatedAt.UTC(),
 			ModelID:                     item.ModelID,
+			ModelLabel:                  resolveRequestLogModelLabel(currentModelsByID, item.ModelID),
 			ResolvedTargetModelID:       item.ResolvedTargetModelID,
+			ResolvedTargetModelLabel:    resolveRequestLogResolvedTargetModelLabel(currentModelsByID, item.ResolvedTargetModelID),
+			IsProxyOrigin:               resolveRequestLogIsProxyOrigin(currentModelsByID, item.ModelID, item.ResolvedTargetModelID),
 			APIFamily:                   item.APIFamily,
 			VendorID:                    item.VendorID,
 			VendorKey:                   item.VendorKey,
@@ -163,7 +176,6 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			UpstreamClientDisplay:       classifyUserAgentDisplay(item.UpstreamUserAgent, rules),
 			UserAgentOverridden:         userAgentOverridden(item.CallerUserAgent, item.UpstreamUserAgent),
 		})
-		_ = currentFound
 	}
 	if err := rows.Err(); err != nil {
 		return RequestLogListResponse{}, fmt.Errorf("iterate request logs for profile %d: %w", params.ProfileID, err)
@@ -171,6 +183,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	return RequestLogListResponse{
 		FilterOptions: RequestLogListFilterOptions{
 			Endpoints: buildRequestLogEndpointOptions(currentEndpoints, params.EndpointID),
+			Models:    buildRequestLogModelOptions(currentModels, params.ModelID),
 		},
 		Items:  items,
 		Total:  total,
@@ -180,10 +193,6 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 }
 
 func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int, requestID int) (*RequestLogDetailResponse, error) {
-	rules, err := loadCompiledUserAgentRules(ctx, exec, profileID)
-	if err != nil {
-		return nil, err
-	}
 	row, found, err := loadRequestLogDetailRow(ctx, exec, profileID, requestID)
 	if err != nil {
 		return nil, err
@@ -191,23 +200,39 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 	if !found {
 		return nil, nil
 	}
+	_, currentEndpointsByID, err := loadCurrentEndpoints(ctx, exec, profileID)
+	if err != nil {
+		return nil, err
+	}
+	_, currentModelsByID, err := loadRequestLogModels(ctx, exec, profileID)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := loadCompiledUserAgentRules(ctx, exec, profileID)
+	if err != nil {
+		return nil, err
+	}
+	currentEndpoint, _ := endpointFromMap(currentEndpointsByID, row.EndpointID)
 	callerClientDisplay := classifyUserAgentDisplay(row.CallerUserAgent, rules)
 	upstreamClientDisplay := classifyUserAgentDisplay(row.UpstreamUserAgent, rules)
 	response := &RequestLogDetailResponse{
 		Summary: RequestLogDetailSummary{
-			ID:                    row.ID,
-			CreatedAt:             row.CreatedAt.UTC(),
-			ModelID:               row.ModelID,
-			ResolvedTargetModelID: row.ResolvedTargetModelID,
-			APIFamily:             row.APIFamily,
-			VendorID:              row.VendorID,
-			VendorKey:             row.VendorKey,
-			VendorName:            row.VendorName,
-			StatusCode:            row.StatusCode,
-			ResponseTimeMS:        row.ResponseTimeMS,
-			TTFTMS:                row.TTFTMS,
-			CompletionDurationMS:  row.CompletionDurationMS,
-			IsStream:              row.IsStream,
+			ID:                       row.ID,
+			CreatedAt:                row.CreatedAt.UTC(),
+			ModelID:                  row.ModelID,
+			ModelLabel:               resolveRequestLogModelLabel(currentModelsByID, row.ModelID),
+			ResolvedTargetModelID:    row.ResolvedTargetModelID,
+			ResolvedTargetModelLabel: resolveRequestLogResolvedTargetModelLabel(currentModelsByID, row.ResolvedTargetModelID),
+			IsProxyOrigin:            resolveRequestLogIsProxyOrigin(currentModelsByID, row.ModelID, row.ResolvedTargetModelID),
+			APIFamily:                row.APIFamily,
+			VendorID:                 row.VendorID,
+			VendorKey:                row.VendorKey,
+			VendorName:               row.VendorName,
+			StatusCode:               row.StatusCode,
+			ResponseTimeMS:           row.ResponseTimeMS,
+			TTFTMS:                   row.TTFTMS,
+			CompletionDurationMS:     row.CompletionDurationMS,
+			IsStream:                 row.IsStream,
 		},
 		Request: RequestLogDetailRequest{
 			RequestPath:             row.RequestPath,
@@ -225,12 +250,7 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 		},
 		Routing: RequestLogDetailRouting{
 			ProfileID:             row.ProfileID,
-			ModelID:               row.ModelID,
-			ResolvedTargetModelID: row.ResolvedTargetModelID,
-			APIFamily:             row.APIFamily,
-			VendorID:              row.VendorID,
-			VendorKey:             row.VendorKey,
-			VendorName:            row.VendorName,
+			EndpointLabel:         resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, row.EndpointBaseURL, row.EndpointID, "Unknown Endpoint"),
 			EndpointID:            row.EndpointID,
 			ConnectionID:          row.ConnectionID,
 			EndpointBaseURL:       row.EndpointBaseURL,
@@ -323,6 +343,98 @@ func buildRequestLogEndpointOptions(currentEndpoints []endpointRecord, selectedE
 		return items
 	}
 	return append([]RequestLogFilterEndpointOption{{EndpointID: *selectedEndpointID, EndpointLabel: fmt.Sprintf("Endpoint %d", *selectedEndpointID)}}, items...)
+}
+
+func loadRequestLogModels(ctx context.Context, exec queryExecutor, profileID int) ([]requestLogModelRecord, map[string]requestLogModelRecord, error) {
+	rows, err := exec.Query(ctx, `SELECT model_id, display_name, model_type FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query request-log models for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	items := make([]requestLogModelRecord, 0)
+	itemsByID := map[string]requestLogModelRecord{}
+	for rows.Next() {
+		var modelID string
+		var displayName sql.NullString
+		var modelType string
+		if err := rows.Scan(&modelID, &displayName, &modelType); err != nil {
+			return nil, nil, fmt.Errorf("scan request-log model record: %w", err)
+		}
+		trimmedModelID := strings.TrimSpace(modelID)
+		if trimmedModelID == "" {
+			continue
+		}
+		item := requestLogModelRecord{
+			ModelID:     trimmedModelID,
+			DisplayName: normalizeOptionalString(nullableString(displayName)),
+			ModelType:   strings.TrimSpace(strings.ToLower(modelType)),
+		}
+		items = append(items, item)
+		if _, exists := itemsByID[item.ModelID]; !exists {
+			itemsByID[item.ModelID] = item
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterate request-log models for profile %d: %w", profileID, err)
+	}
+	return items, itemsByID, nil
+}
+
+func buildRequestLogModelOptions(currentModels []requestLogModelRecord, selectedModelID *string) []RequestLogFilterModelOption {
+	items := make([]RequestLogFilterModelOption, 0, len(currentModels)+1)
+	currentIDs := map[string]struct{}{}
+	for _, model := range currentModels {
+		if _, exists := currentIDs[model.ModelID]; exists {
+			continue
+		}
+		items = append(items, RequestLogFilterModelOption{
+			ModelID:    model.ModelID,
+			ModelLabel: requestLogModelLabel(model),
+		})
+		currentIDs[model.ModelID] = struct{}{}
+	}
+	selected := normalizeOptionalString(selectedModelID)
+	if selected == nil {
+		return items
+	}
+	if _, ok := currentIDs[*selected]; ok {
+		return items
+	}
+	return append([]RequestLogFilterModelOption{{ModelID: *selected, ModelLabel: *selected}}, items...)
+}
+
+func requestLogModelLabel(model requestLogModelRecord) string {
+	if model.DisplayName != nil && strings.TrimSpace(*model.DisplayName) != "" {
+		return strings.TrimSpace(*model.DisplayName)
+	}
+	return strings.TrimSpace(model.ModelID)
+}
+
+func resolveRequestLogModelLabel(currentModelsByID map[string]requestLogModelRecord, modelID string) string {
+	trimmedModelID := strings.TrimSpace(modelID)
+	if currentModel, ok := currentModelsByID[trimmedModelID]; ok {
+		return requestLogModelLabel(currentModel)
+	}
+	return trimmedModelID
+}
+
+func resolveRequestLogResolvedTargetModelLabel(currentModelsByID map[string]requestLogModelRecord, resolvedTargetModelID *string) *string {
+	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
+	if resolvedTarget == nil {
+		return nil
+	}
+	label := resolveRequestLogModelLabel(currentModelsByID, *resolvedTarget)
+	return &label
+}
+
+func resolveRequestLogIsProxyOrigin(currentModelsByID map[string]requestLogModelRecord, modelID string, resolvedTargetModelID *string) bool {
+	trimmedModelID := strings.TrimSpace(modelID)
+	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
+	if resolvedTarget != nil && *resolvedTarget != trimmedModelID {
+		return true
+	}
+	currentModel, ok := currentModelsByID[trimmedModelID]
+	return ok && currentModel.ModelType == "proxy"
 }
 
 func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRecord, bool) {

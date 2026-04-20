@@ -1254,13 +1254,22 @@ Response `200`:
         "endpoint_id": 12,
         "endpoint_label": "Primary OpenAI"
       }
+    ],
+    "models": [
+      {
+        "model_id": "gpt-4o",
+        "model_label": "GPT-4o"
+      }
     ]
   },
   "items": [
     {
       "id": 1,
       "model_id": "gpt-4o",
+      "model_label": "GPT-4o",
       "resolved_target_model_id": null,
+      "resolved_target_model_label": null,
+      "is_proxy_origin": false,
       "api_family": "openai",
       "vendor_id": 1,
       "vendor_key": "openai",
@@ -1288,9 +1297,11 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown, includes vendor metadata for display only, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes `model_label`, `resolved_target_model_label`, and `is_proxy_origin` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default.
 
-`ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. For proxy traffic, `model_id` stays the requested proxy model and `resolved_target_model_id` captures the selected native target model for that attempt. Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` instead of the paginated list-query surface.
+`filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log native and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. For proxy traffic, `model_id` stays the requested proxy model and `resolved_target_model_id` captures the selected native target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
+
+Exact single-request investigation now lives on `GET /api/stats/requests/{request_id}` instead of the paginated list-query surface.
 
 ### 4.3 Get Request Log Detail
 ```
@@ -1304,7 +1315,10 @@ Response `200`:
     "id": 1,
     "created_at": "2025-01-15T10:30:00Z",
     "model_id": "gpt-4o",
+    "model_label": "GPT-4o",
     "resolved_target_model_id": null,
+    "resolved_target_model_label": null,
+    "is_proxy_origin": false,
     "api_family": "openai",
     "vendor_id": 1,
     "vendor_key": "openai",
@@ -1331,12 +1345,7 @@ Response `200`:
   },
   "routing": {
     "profile_id": 2,
-    "model_id": "gpt-4o",
-    "resolved_target_model_id": null,
-    "api_family": "openai",
-    "vendor_id": 1,
-    "vendor_key": "openai",
-    "vendor_name": "OpenAI",
+    "endpoint_label": "Primary OpenAI",
     "endpoint_id": 12,
     "connection_id": 1,
     "endpoint_base_url": "https://api.openai.com",

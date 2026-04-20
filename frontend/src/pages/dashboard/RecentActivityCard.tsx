@@ -66,7 +66,7 @@ export function RecentActivityCard({
                   <div className="space-y-1">
                     <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">
-                        {modelDisplayNames.get(request.model_id) || request.model_id}
+                        {request.model_label || modelDisplayNames.get(request.model_id) || request.model_id}
                       </p>
                       <p className="text-xs text-muted-foreground">{request.model_id}</p>
                     </div>

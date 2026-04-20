@@ -19,34 +19,15 @@ function createProfile() {
   };
 }
 
-function createModelListItem() {
-  return {
-    id: 1,
-    vendor_id: null,
-    vendor: null,
-    api_family: "openai",
-    model_id: "gpt-4o-mini",
-    display_name: modelOptionLabel,
-    model_type: "native",
-    proxy_targets: [],
-    loadbalance_strategy_id: null,
-    loadbalance_strategy: null,
-    is_enabled: true,
-    connection_count: 0,
-    active_connection_count: 0,
-    health_success_rate: null,
-    health_total_requests: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
-  };
-}
-
 function createRequestLogItem(overrides: Record<string, unknown> = {}) {
   return {
     id: 101,
     created_at: timestamp,
     model_id: "gpt-4o-mini",
+    model_label: modelOptionLabel,
     resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    is_proxy_origin: false,
     caller_client_display: "Browse Fixture Row",
     upstream_client_display: "Browse Fixture Row",
     user_agent_overridden: false,
@@ -73,6 +54,12 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
 function createRequestLogsResponse(
   requestLogItems: Record<string, unknown>[],
   searchParams: URLSearchParams,
+  modelOptions: Record<string, unknown>[] = [
+    {
+      model_id: "gpt-4o-mini",
+      model_label: modelOptionLabel,
+    },
+  ],
 ) {
   const limit = Number.parseInt(
     searchParams.get("limit") ?? String(requestLogItems.length),
@@ -86,6 +73,7 @@ function createRequestLogsResponse(
     limit,
     offset,
     filter_options: {
+      models: modelOptions,
       endpoints: [
         {
           endpoint_id: 1,
@@ -97,8 +85,8 @@ function createRequestLogsResponse(
 }
 
 interface MockRouteState {
-  failModels: boolean;
   failRequestLogs: boolean;
+  modelOptions?: Record<string, unknown>[];
 }
 
 async function mockRequestLogRoutes(
@@ -106,7 +94,6 @@ async function mockRequestLogRoutes(
   state: MockRouteState,
 ) {
   const profile = createProfile();
-  const model = createModelListItem();
   const requestLogItems = [createRequestLogItem()];
 
   await page.route("**/*", async (route) => {
@@ -150,14 +137,6 @@ async function mockRequestLogRoutes(
       return fulfillJson({ timezone_preference: "UTC" });
     }
 
-    if (pathname === "/api/models") {
-      if (state.failModels) {
-        return fulfillJson({ detail: "Failed to load models" }, 500);
-      }
-
-      return fulfillJson([model]);
-    }
-
     if (pathname === "/api/vendors") {
       return fulfillJson([]);
     }
@@ -172,12 +151,24 @@ async function mockRequestLogRoutes(
       );
     }
 
+    if (pathname === "/api/models") {
+      throw new Error(
+        "Unexpected /api/models request during request-logs browse mode",
+      );
+    }
+
     if (pathname === "/api/stats/requests") {
       if (state.failRequestLogs) {
         return fulfillJson({ detail: "Failed to load request logs" }, 500);
       }
 
-      return fulfillJson(createRequestLogsResponse(requestLogItems, searchParams));
+      return fulfillJson(
+        createRequestLogsResponse(
+          requestLogItems,
+          searchParams,
+          state.modelOptions,
+        ),
+      );
     }
 
     return fulfillJson({}, 404);
@@ -187,19 +178,18 @@ async function mockRequestLogRoutes(
 }
 
 test.describe("request logs filter option loading", () => {
-  test("keeps filter controls unloaded until models and stats endpoint options have both succeeded once", async ({
+  test("keeps filter controls unloaded until the request-log payload has returned filter options once", async ({
     page,
   }) => {
     const routeState: MockRouteState = {
-      failModels: true,
-      failRequestLogs: false,
+      failRequestLogs: true,
     };
 
     await mockRequestLogRoutes(page, routeState);
 
     await page.goto("/request-logs");
 
-    await expect(page.getByText("Browse Fixture Row")).toBeVisible();
+    await expect(page.getByText("Failed to load request logs")).toBeVisible();
 
     await page.getByText("All models", { exact: true }).click();
     await expect(page.getByRole("option", { name: modelOptionLabel })).toHaveCount(0);
@@ -209,8 +199,9 @@ test.describe("request logs filter option loading", () => {
     await expect(page.getByRole("option", { name: endpointOptionLabel })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    routeState.failModels = false;
+    routeState.failRequestLogs = false;
     await page.getByRole("button", { name: "Refresh request logs" }).click();
+    await expect(page.getByText("Browse Fixture Row")).toBeVisible();
 
     await page.getByText("All models", { exact: true }).click();
     await expect(page.getByRole("option", { name: modelOptionLabel })).toBeVisible();
@@ -222,7 +213,6 @@ test.describe("request logs filter option loading", () => {
 
   test("retains loaded filter controls after later request-list failures", async ({ page }) => {
     const routeState: MockRouteState = {
-      failModels: false,
       failRequestLogs: false,
     };
 
@@ -245,6 +235,25 @@ test.describe("request logs filter option loading", () => {
 
     await page.getByText("All models", { exact: true }).click();
     await expect(page.getByRole("option", { name: modelOptionLabel })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.getByText("All endpoints", { exact: true }).click();
+    await expect(page.getByRole("option", { name: endpointOptionLabel })).toBeVisible();
+  });
+
+  test("accepts empty model filter arrays from the request-log payload", async ({ page }) => {
+    const routeState: MockRouteState = {
+      failRequestLogs: false,
+      modelOptions: [],
+    };
+
+    await mockRequestLogRoutes(page, routeState);
+
+    await page.goto("/request-logs");
+    await expect(page.getByText("Browse Fixture Row")).toBeVisible();
+
+    await page.getByText("All models", { exact: true }).click();
+    await expect(page.getByRole("option", { name: modelOptionLabel })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     await page.getByText("All endpoints", { exact: true }).click();

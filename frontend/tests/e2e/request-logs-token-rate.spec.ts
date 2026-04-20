@@ -17,34 +17,15 @@ function createProfile() {
   };
 }
 
-function createModelListItem() {
-  return {
-    id: 1,
-    vendor_id: null,
-    vendor: null,
-    api_family: "openai",
-    model_id: "gpt-4o-mini",
-    display_name: "GPT-4o mini",
-    model_type: "native",
-    proxy_targets: [],
-    loadbalance_strategy_id: null,
-    loadbalance_strategy: null,
-    is_enabled: true,
-    connection_count: 0,
-    active_connection_count: 0,
-    health_success_rate: null,
-    health_total_requests: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
-  };
-}
-
 function createRequestLogItem(overrides: Record<string, unknown> = {}) {
   return {
     id: 101,
     created_at: timestamp,
     model_id: "gpt-4o-mini",
+    model_label: "GPT-4o mini",
     resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    is_proxy_origin: false,
     caller_client_display: "Prism QA Browser",
     upstream_client_display: "Prism QA Browser",
     user_agent_overridden: false,
@@ -84,6 +65,12 @@ function createRequestLogsResponse(
     limit,
     offset,
     filter_options: {
+      models: [
+        {
+          model_id: "gpt-4o-mini",
+          model_label: "GPT-4o mini",
+        },
+      ],
       endpoints: [
         {
           endpoint_id: 1,
@@ -96,7 +83,6 @@ function createRequestLogsResponse(
 
 async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, unknown>[]) {
   const profile = createProfile();
-  const model = createModelListItem();
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -140,7 +126,9 @@ async function mockRequestLogRoutes(page: Page, requestLogItems: Record<string, 
     }
 
     if (pathname === "/api/models") {
-      return fulfillJson([model]);
+      throw new Error(
+        "Unexpected /api/models request during request-logs browse mode",
+      );
     }
 
     if (pathname === "/api/vendors") {

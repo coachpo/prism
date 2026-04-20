@@ -12684,62 +12684,9 @@
             "type": "integer",
             "title": "Profile Id"
           },
-          "model_id": {
+          "endpoint_label": {
             "type": "string",
-            "title": "Model Id"
-          },
-          "resolved_target_model_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resolved Target Model Id"
-          },
-          "api_family": {
-            "type": "string",
-            "enum": [
-              "openai",
-              "anthropic",
-              "gemini"
-            ],
-            "title": "Api Family"
-          },
-          "vendor_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vendor Id"
-          },
-          "vendor_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vendor Key"
-          },
-          "vendor_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vendor Name"
+            "title": "Endpoint Label"
           },
           "endpoint_id": {
             "anyOf": [
@@ -12800,8 +12747,7 @@
         "type": "object",
         "required": [
           "profile_id",
-          "model_id",
-          "api_family",
+          "endpoint_label",
           "endpoint_id",
           "connection_id",
           "endpoint_base_url"
@@ -12823,6 +12769,10 @@
             "type": "string",
             "title": "Model Id"
           },
+          "model_label": {
+            "type": "string",
+            "title": "Model Label"
+          },
           "resolved_target_model_id": {
             "anyOf": [
               {
@@ -12833,6 +12783,21 @@
               }
             ],
             "title": "Resolved Target Model Id"
+          },
+          "resolved_target_model_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Target Model Label"
+          },
+          "is_proxy_origin": {
+            "type": "boolean",
+            "title": "Is Proxy Origin"
           },
           "api_family": {
             "type": "string",
@@ -12916,6 +12881,9 @@
           "id",
           "created_at",
           "model_id",
+          "model_label",
+          "resolved_target_model_label",
+          "is_proxy_origin",
           "api_family",
           "status_code",
           "response_time_ms",
@@ -13057,6 +13025,24 @@
         ],
         "title": "RequestLogListEndpointOptionResponse"
       },
+      "RequestLogListModelOptionResponse": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "model_label": {
+            "type": "string",
+            "title": "Model Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "model_label"
+        ],
+        "title": "RequestLogListModelOptionResponse"
+      },
       "RequestLogListFilterOptionsResponse": {
         "properties": {
           "endpoints": {
@@ -13065,11 +13051,19 @@
             },
             "type": "array",
             "title": "Endpoints"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/RequestLogListModelOptionResponse"
+            },
+            "type": "array",
+            "title": "Models"
           }
         },
         "type": "object",
         "required": [
-          "endpoints"
+          "endpoints",
+          "models"
         ],
         "title": "RequestLogListFilterOptionsResponse"
       },
@@ -13088,6 +13082,10 @@
             "type": "string",
             "title": "Model Id"
           },
+          "model_label": {
+            "type": "string",
+            "title": "Model Label"
+          },
           "resolved_target_model_id": {
             "anyOf": [
               {
@@ -13098,6 +13096,21 @@
               }
             ],
             "title": "Resolved Target Model Id"
+          },
+          "resolved_target_model_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Target Model Label"
+          },
+          "is_proxy_origin": {
+            "type": "boolean",
+            "title": "Is Proxy Origin"
           },
           "api_family": {
             "type": "string",
@@ -13277,6 +13290,9 @@
           "id",
           "created_at",
           "model_id",
+          "model_label",
+          "resolved_target_model_label",
+          "is_proxy_origin",
           "api_family",
           "endpoint_id",
           "endpoint_label",

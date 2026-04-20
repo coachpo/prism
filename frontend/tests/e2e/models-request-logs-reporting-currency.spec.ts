@@ -105,7 +105,10 @@ function createRequestLogItems() {
       id: 101,
       created_at: timestamp,
       model_id: "gpt-4o-mini",
+      model_label: "GPT-4o mini",
       resolved_target_model_id: null,
+      resolved_target_model_label: null,
+      is_proxy_origin: false,
       caller_client_display: "Prism QA Browser",
       upstream_client_display: "Prism QA Browser",
       user_agent_overridden: false,
@@ -121,6 +124,7 @@ function createRequestLogItems() {
       completion_duration_ms: 500,
       response_time_ms: 125,
       is_stream: false,
+      output_tokens: 80,
       total_tokens: 150,
       total_cost_user_currency_micros: 750000,
       report_currency_symbol: "$",
@@ -129,7 +133,10 @@ function createRequestLogItems() {
       id: 102,
       created_at: timestamp,
       model_id: "gpt-4o-mini",
+      model_label: "GPT-4o mini",
       resolved_target_model_id: null,
+      resolved_target_model_label: null,
+      is_proxy_origin: false,
       caller_client_display: "Prism QA Browser",
       upstream_client_display: "Prism QA Browser",
       user_agent_overridden: false,
@@ -145,6 +152,7 @@ function createRequestLogItems() {
       completion_duration_ms: null,
       response_time_ms: 240,
       is_stream: false,
+      output_tokens: 50,
       total_tokens: 90,
       total_cost_user_currency_micros: 500000,
       report_currency_symbol: null,
@@ -168,6 +176,12 @@ function createRequestLogsResponse(
     limit,
     offset,
     filter_options: {
+      models: [
+        {
+          model_id: "gpt-4o-mini",
+          model_label: "GPT-4o mini",
+        },
+      ],
       endpoints: [
         {
           endpoint_id: 1,
@@ -225,6 +239,11 @@ async function mockCurrencyRoutes(page: Page) {
     }
 
     if (pathname === "/api/models") {
+      if (page.url().includes("/request-logs")) {
+        throw new Error(
+          "Unexpected /api/models request during request-logs browse mode",
+        );
+      }
       return fulfillJson([model]);
     }
 

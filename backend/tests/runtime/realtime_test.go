@@ -200,6 +200,15 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	if message.RequestLog.ID != requestLogID || message.RequestLog.ProfileID != profileID || message.RoutingRoute24H == nil {
 		t.Fatalf("expected built payload to include request log and route snapshot, got %+v", message)
 	}
+	if message.RequestLog.ModelLabel != route.PublicModelLabel {
+		t.Fatalf("expected realtime request_log.model_label=%q, got %+v", route.PublicModelLabel, message.RequestLog)
+	}
+	if message.RequestLog.ResolvedTargetModelLabel == nil || *message.RequestLog.ResolvedTargetModelLabel != route.TargetModelLabel {
+		t.Fatalf("expected realtime request_log.resolved_target_model_label=%q, got %+v", route.TargetModelLabel, message.RequestLog)
+	}
+	if !message.RequestLog.IsProxyOrigin {
+		t.Fatalf("expected realtime request_log.is_proxy_origin=true, got %+v", message.RequestLog)
+	}
 }
 
 func TestDashboardUpdateDelivery(t *testing.T) {
@@ -227,6 +236,15 @@ func TestDashboardUpdateDelivery(t *testing.T) {
 	requestLog := message["request_log"].(map[string]any)
 	if requestLog["profile_id"] != float64(profileID) || requestLog["model_id"] != route.PublicModelID || requestLog["request_path"] != "/v1/chat/completions" {
 		t.Fatalf("unexpected delivered request_log payload: %+v", requestLog)
+	}
+	if requestLog["model_label"] != route.PublicModelLabel {
+		t.Fatalf("expected delivered request_log.model_label=%q, got %+v", route.PublicModelLabel, requestLog)
+	}
+	if requestLog["resolved_target_model_label"] != route.TargetModelLabel {
+		t.Fatalf("expected delivered request_log.resolved_target_model_label=%q, got %+v", route.TargetModelLabel, requestLog)
+	}
+	if requestLog["is_proxy_origin"] != true {
+		t.Fatalf("expected delivered request_log.is_proxy_origin=true, got %+v", requestLog)
 	}
 	statsSummary := message["stats_summary_24h"].(map[string]any)
 	if statsSummary["total_requests"] != float64(1) || statsSummary["success_count"] != float64(1) {
@@ -341,14 +359,23 @@ func (h *realtimeHarness) dialWebSocketWithOrigin(t *testing.T, includeCookies b
 func (h *realtimeHarness) seedRealtimeDashboardRoute(t *testing.T, profileID int, suffix string) seededDashboardRoute {
 	t.Helper()
 	strategyID := h.seedLegacyStrategy(t, profileID, "s16-strategy-"+suffix+"-"+randomSuffix(), "round-robin")
-	targetModelConfigID := h.seedModel(t, profileID, "openai", "native-"+suffix+"-"+randomSuffix(), "native", &strategyID)
+	targetModelID := "native-" + suffix + "-" + randomSuffix()
+	targetModelLabel := "Native " + suffix + " route"
+	targetModelConfigID := h.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
 	publicModelID := "public-" + suffix + "-" + randomSuffix()
+	publicModelLabel := "Proxy " + suffix + " route"
 	publicModelConfigID := h.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
+	if _, err := h.conn.Exec(context.Background(), `UPDATE model_configs SET display_name = $1 WHERE id = $2`, targetModelLabel, targetModelConfigID); err != nil {
+		t.Fatalf("set realtime target model display name: %v", err)
+	}
+	if _, err := h.conn.Exec(context.Background(), `UPDATE model_configs SET display_name = $1 WHERE id = $2`, publicModelLabel, publicModelConfigID); err != nil {
+		t.Fatalf("set realtime public model display name: %v", err)
+	}
 	h.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	endpointName := "Endpoint " + suffix + " " + randomSuffix()
 	endpointID := h.seedEndpoint(t, profileID, endpointName, h.upstream.baseURL("/"+suffix), "endpoint-key-"+suffix, 0)
 	connectionID := h.seedConnection(t, profileID, targetModelConfigID, endpointID, "connection-"+suffix+"-"+randomSuffix(), nil, nil, 0)
-	return seededDashboardRoute{PublicModelID: publicModelID, EndpointID: endpointID, EndpointName: endpointName, EndpointBaseURL: h.upstream.baseURL("/" + suffix), ConnectionID: connectionID}
+	return seededDashboardRoute{PublicModelID: publicModelID, PublicModelLabel: publicModelLabel, TargetModelID: targetModelID, TargetModelLabel: targetModelLabel, EndpointID: endpointID, EndpointName: endpointName, EndpointBaseURL: h.upstream.baseURL("/" + suffix), ConnectionID: connectionID}
 }
 
 func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDashboardRoute, profileID int, requestLogID int, usageEventID int, createdAt time.Time) int {
@@ -359,7 +386,7 @@ func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDash
 		requestLogID,
 		profileID,
 		route.PublicModelID,
-		"native-target",
+		route.TargetModelID,
 		route.EndpointID,
 		route.ConnectionID,
 		fmt.Sprintf("ingress-%d", requestLogID),
@@ -377,7 +404,7 @@ func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDash
 		profileID,
 		fmt.Sprintf("ingress-%d", requestLogID),
 		route.PublicModelID,
-		"native-target",
+		route.TargetModelID,
 		route.EndpointID,
 		route.ConnectionID,
 		createdAt,
@@ -406,11 +433,14 @@ func seedRealtimeVerifiedAuthSettings(t *testing.T, harness *realtimeHarness, us
 }
 
 type seededDashboardRoute struct {
-	PublicModelID   string
-	EndpointID      int
-	EndpointName    string
-	EndpointBaseURL string
-	ConnectionID    int
+	PublicModelID    string
+	PublicModelLabel string
+	TargetModelID    string
+	TargetModelLabel string
+	EndpointID       int
+	EndpointName     string
+	EndpointBaseURL  string
+	ConnectionID     int
 }
 
 func assertRealtimeMessageType(t *testing.T, conn *websocket.Conn, wantType string) {

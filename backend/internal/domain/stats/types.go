@@ -18,15 +18,24 @@ type RequestLogFilterEndpointOption struct {
 	EndpointLabel string `json:"endpoint_label"`
 }
 
+type RequestLogFilterModelOption struct {
+	ModelID    string `json:"model_id"`
+	ModelLabel string `json:"model_label"`
+}
+
 type RequestLogListFilterOptions struct {
 	Endpoints []RequestLogFilterEndpointOption `json:"endpoints"`
+	Models    []RequestLogFilterModelOption    `json:"models"`
 }
 
 type RequestLogListItem struct {
 	ID                          int       `json:"id"`
 	CreatedAt                   time.Time `json:"created_at"`
 	ModelID                     string    `json:"model_id"`
+	ModelLabel                  string    `json:"model_label"`
 	ResolvedTargetModelID       *string   `json:"resolved_target_model_id"`
+	ResolvedTargetModelLabel    *string   `json:"resolved_target_model_label"`
+	IsProxyOrigin               bool      `json:"is_proxy_origin"`
 	APIFamily                   string    `json:"api_family"`
 	VendorID                    *int      `json:"vendor_id"`
 	VendorKey                   *string   `json:"vendor_key"`
@@ -57,19 +66,22 @@ type RequestLogListResponse struct {
 }
 
 type RequestLogDetailSummary struct {
-	ID                    int       `json:"id"`
-	CreatedAt             time.Time `json:"created_at"`
-	ModelID               string    `json:"model_id"`
-	ResolvedTargetModelID *string   `json:"resolved_target_model_id"`
-	APIFamily             string    `json:"api_family"`
-	VendorID              *int      `json:"vendor_id"`
-	VendorKey             *string   `json:"vendor_key"`
-	VendorName            *string   `json:"vendor_name"`
-	StatusCode            int       `json:"status_code"`
-	ResponseTimeMS        int       `json:"response_time_ms"`
-	TTFTMS                *int      `json:"ttft_ms"`
-	CompletionDurationMS  *int      `json:"completion_duration_ms"`
-	IsStream              bool      `json:"is_stream"`
+	ID                       int       `json:"id"`
+	CreatedAt                time.Time `json:"created_at"`
+	ModelID                  string    `json:"model_id"`
+	ModelLabel               string    `json:"model_label"`
+	ResolvedTargetModelID    *string   `json:"resolved_target_model_id"`
+	ResolvedTargetModelLabel *string   `json:"resolved_target_model_label"`
+	IsProxyOrigin            bool      `json:"is_proxy_origin"`
+	APIFamily                string    `json:"api_family"`
+	VendorID                 *int      `json:"vendor_id"`
+	VendorKey                *string   `json:"vendor_key"`
+	VendorName               *string   `json:"vendor_name"`
+	StatusCode               int       `json:"status_code"`
+	ResponseTimeMS           int       `json:"response_time_ms"`
+	TTFTMS                   *int      `json:"ttft_ms"`
+	CompletionDurationMS     *int      `json:"completion_duration_ms"`
+	IsStream                 bool      `json:"is_stream"`
 }
 
 type RequestLogDetailRequest struct {
@@ -89,12 +101,7 @@ type RequestLogDetailRequest struct {
 
 type RequestLogDetailRouting struct {
 	ProfileID             int     `json:"profile_id"`
-	ModelID               string  `json:"model_id"`
-	ResolvedTargetModelID *string `json:"resolved_target_model_id"`
-	APIFamily             string  `json:"api_family"`
-	VendorID              *int    `json:"vendor_id"`
-	VendorKey             *string `json:"vendor_key"`
-	VendorName            *string `json:"vendor_name"`
+	EndpointLabel         string  `json:"endpoint_label"`
 	EndpointID            *int    `json:"endpoint_id"`
 	ConnectionID          *int    `json:"connection_id"`
 	EndpointBaseURL       *string `json:"endpoint_base_url"`

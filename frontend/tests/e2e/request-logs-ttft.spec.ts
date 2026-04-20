@@ -17,34 +17,15 @@ function createProfile() {
   };
 }
 
-function createModelListItem() {
-  return {
-    id: 1,
-    vendor_id: null,
-    vendor: null,
-    api_family: "openai",
-    model_id: "gpt-4o-mini",
-    display_name: "GPT-4o mini",
-    model_type: "native",
-    proxy_targets: [],
-    loadbalance_strategy_id: null,
-    loadbalance_strategy: null,
-    is_enabled: true,
-    connection_count: 0,
-    active_connection_count: 0,
-    health_success_rate: null,
-    health_total_requests: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
-  };
-}
-
 function createRequestLogItem(overrides: Record<string, unknown> = {}) {
   return {
     id: 101,
     created_at: timestamp,
     model_id: "gpt-4o-mini",
+    model_label: "GPT-4o mini",
     resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    is_proxy_origin: false,
     caller_client_display: "Completed Stream",
     upstream_client_display: "Completed Stream",
     user_agent_overridden: false,
@@ -84,6 +65,12 @@ function createRequestLogsResponse(
     limit,
     offset,
     filter_options: {
+      models: [
+        {
+          model_id: "gpt-4o-mini",
+          model_label: "GPT-4o mini",
+        },
+      ],
       endpoints: [
         {
           endpoint_id: 1,
@@ -100,7 +87,10 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
       id: 103,
       created_at: timestamp,
       model_id: "gpt-4o-mini",
+      model_label: "GPT-4o mini",
       resolved_target_model_id: null,
+      resolved_target_model_label: null,
+      is_proxy_origin: false,
       api_family: "openai",
       vendor_id: 1,
       vendor_key: "openai",
@@ -127,16 +117,12 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
     },
     routing: {
       profile_id: 1,
-      model_id: "gpt-4o-mini",
-      resolved_target_model_id: null,
-      api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
+      endpoint_label: "Primary endpoint",
       endpoint_id: 1,
       connection_id: null,
       endpoint_base_url: "https://api.example.test",
       endpoint_description: "Primary endpoint",
+      audit_enabled_at_request: true,
     },
     usage: {
       input_tokens: 20,
@@ -179,7 +165,6 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
 
 async function mockRequestLogRoutes(page: Page) {
   const profile = createProfile();
-  const model = createModelListItem();
   const requestLogItems = [
     createRequestLogItem(),
     createRequestLogItem({
@@ -261,10 +246,6 @@ async function mockRequestLogRoutes(page: Page) {
 
     if (pathname === "/api/settings/timezone") {
       return fulfillJson({ timezone_preference: "UTC" });
-    }
-
-    if (pathname === "/api/models") {
-      return fulfillJson([model]);
     }
 
     if (pathname === "/api/vendors") {

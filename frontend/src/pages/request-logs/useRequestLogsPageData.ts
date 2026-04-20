@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
-  ModelConfigListItem,
+  RequestLogFilterModelOption,
   RequestLogFilterEndpointOption,
   RequestLogListItem,
 } from "@/lib/types";
@@ -10,7 +10,7 @@ import type { RequestLogPageState } from "./queryParams";
 import { timeRangeToFromTime } from "./queryParams";
 
 export interface FilterOptions {
-  models: ModelConfigListItem[];
+  models: RequestLogFilterModelOption[];
   endpoints: RequestLogFilterEndpointOption[];
 }
 
@@ -32,47 +32,12 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>(EMPTY_FILTER_OPTIONS);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
   const [endpointOptionsLoaded, setEndpointOptionsLoaded] = useState(false);
 
   const fetchIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRevisionRef = useRef<number | null>(null);
-  const modelBootstrapIdRef = useRef(0);
-  const modelBootstrapInFlightRef = useRef(false);
-  const modelsLoadedOnceRef = useRef(false);
   const endpointOptionsLoadedOnceRef = useRef(false);
-
-  const bootstrapModels = useCallback(async () => {
-    if (!enabled || modelsLoadedOnceRef.current || modelBootstrapInFlightRef.current) {
-      return;
-    }
-
-    const requestId = ++modelBootstrapIdRef.current;
-    modelBootstrapInFlightRef.current = true;
-
-    try {
-      const models = await api.models.list();
-      if (requestId !== modelBootstrapIdRef.current) {
-        return;
-      }
-
-      setFilterOptions((prev) => ({ ...prev, models }));
-
-      if (!modelsLoadedOnceRef.current) {
-        modelsLoadedOnceRef.current = true;
-        setModelsLoaded(true);
-      }
-    } catch {
-      if (requestId !== modelBootstrapIdRef.current) {
-        return;
-      }
-    } finally {
-      if (requestId === modelBootstrapIdRef.current) {
-        modelBootstrapInFlightRef.current = false;
-      }
-    }
-  }, [enabled]);
 
   useEffect(() => {
     const revisionChanged = lastRevisionRef.current !== revision;
@@ -86,32 +51,15 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    modelBootstrapIdRef.current += 1;
-    modelBootstrapInFlightRef.current = false;
-    modelsLoadedOnceRef.current = false;
     endpointOptionsLoadedOnceRef.current = false;
-    setModelsLoaded(false);
     setEndpointOptionsLoaded(false);
     setFilterOptions(EMPTY_FILTER_OPTIONS);
     setError(null);
     setLoading(enabled);
-
-    if (!enabled) {
-      return;
-    }
-
-    const bootstrapId = setTimeout(() => {
-      void bootstrapModels();
-    }, 0);
-
-    return () => {
-      clearTimeout(bootstrapId);
-    };
-  }, [bootstrapModels, enabled, revision]);
+  }, [enabled, revision]);
 
   const fetchData = useCallback(() => {
     const id = ++fetchIdRef.current;
-    void bootstrapModels();
     setLoading(true);
     setError(null);
 
@@ -135,6 +83,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
         setTotal(res.total);
         setFilterOptions((prev) => ({
           ...prev,
+          models: res.filter_options.models,
           endpoints: res.filter_options.endpoints,
         }));
 
@@ -162,7 +111,6 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     state.limit,
     state.offset,
     messages.requestLogs.loadFailed,
-    bootstrapModels,
   ]);
 
   useEffect(() => {
@@ -199,7 +147,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
     fetchData();
   }, [enabled, fetchData]);
 
-  const filterOptionsLoaded = modelsLoaded && endpointOptionsLoaded;
+  const filterOptionsLoaded = endpointOptionsLoaded;
 
   return {
     items: enabled ? items : [],

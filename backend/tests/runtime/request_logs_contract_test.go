@@ -44,27 +44,17 @@ func TestRequestLogListContract(t *testing.T) {
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	expected := loadRequestFixture(t, "request-log-list.json")
-	if payload["limit"] != expected["limit"] || payload["offset"] != expected["offset"] {
-		t.Fatalf("expected request-log envelope pagination to match fixture, got %+v", payload)
+	if !jsonBytesEqual(t, payload, expected) {
+		t.Fatalf("expected request-log list payload to match fixture, got %+v", payload)
 	}
-	if !jsonBytesEqual(t, payload["filter_options"], expected["filter_options"]) {
-		t.Fatalf("expected request-log filter options to match fixture, got %+v", payload["filter_options"])
+	filterOptions := asMapRuntime(t, payload["filter_options"])
+	models, ok := filterOptions["models"].([]any)
+	if !ok {
+		t.Fatalf("expected request-log filter options to always include models array, got %+v", filterOptions)
 	}
-	items := payload["items"].([]any)
-	expectedItem := expected["items"].([]any)[0].(map[string]any)
-	if len(items) == 0 {
-		t.Fatalf("expected at least one request-log row, got %+v", payload)
+	if len(models) != 0 {
+		t.Fatalf("expected happy-path request-log filter options to expose empty models array when no current models exist, got %+v", filterOptions)
 	}
-	item := items[0].(map[string]any)
-	for _, key := range []string{"id", "created_at", "model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name", "endpoint_id", "endpoint_label", "connection_id", "status_code", "response_time_ms", "ttft_ms", "completion_duration_ms", "is_stream", "output_tokens", "total_tokens", "total_cost_user_currency_micros", "report_currency_symbol", "caller_client_display", "upstream_client_display"} {
-		if item[key] != expectedItem[key] {
-			t.Fatalf("expected request-log field %s to match fixture, got %+v", key, item)
-		}
-	}
-	if _, ok := item["user_agent_overridden"].(bool); !ok {
-		t.Fatalf("expected request-log user_agent_overridden boolean field, got %+v", item)
-	}
-
 	staleResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?endpoint_id=999&limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, staleResponse, http.StatusOK)
 	decodeJSONResponse(t, staleResponse, &payload)
@@ -81,6 +71,17 @@ func TestRequestLogListContract(t *testing.T) {
 	if firstEndpoint["endpoint_id"] != float64(999) || firstEndpoint["endpoint_label"] != "Endpoint 999" {
 		t.Fatalf("expected stale endpoint option to prepend synthetic label, got %+v", payload)
 	}
+	staleModelResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?model_id=stale-selected-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, staleModelResponse, http.StatusOK)
+	decodeJSONResponse(t, staleModelResponse, &payload)
+	models = payload["filter_options"].(map[string]any)["models"].([]any)
+	if len(models) == 0 {
+		t.Fatalf("expected model filters for stale-selected-model request, got %+v", payload)
+	}
+	firstModel := asMapRuntime(t, models[0])
+	if firstModel["model_id"] != "stale-selected-model" || firstModel["model_label"] != "stale-selected-model" {
+		t.Fatalf("expected stale selected model option to prepend synthetic label, got %+v", payload["filter_options"])
+	}
 }
 
 func TestRequestLogDetailContract(t *testing.T) {
@@ -95,35 +96,16 @@ func TestRequestLogDetailContract(t *testing.T) {
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	expected := loadRequestFixture(t, "request-log-detail.json")
-	summary := asMapRuntime(t, payload["summary"])
-	expectedSummary := expected["summary"].(map[string]any)
-	for _, key := range []string{"id", "created_at", "model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name", "status_code", "response_time_ms", "ttft_ms", "completion_duration_ms", "is_stream"} {
-		if summary[key] != expectedSummary[key] {
-			t.Fatalf("expected request-log detail summary field %s to match fixture, got %+v", key, summary)
-		}
-	}
-	request := asMapRuntime(t, payload["request"])
-	if request["request_path"] != "/v1/chat/completions" || request["ingress_request_id"] != "ingress_req_42" || request["attempt_number"] != float64(2) || request["provider_correlation_id"] != "req_upstream_abc123" || request["caller_client_display"] != "Codex" || request["upstream_client_display"] != "OpenAI SDK" {
-		t.Fatalf("unexpected request-log detail request payload: %+v", request)
-	}
-	if _, ok := request["user_agent_overridden"].(bool); !ok {
-		t.Fatalf("expected request-log detail user_agent_overridden boolean field, got %+v", request)
+	expectedRouting := asMapRuntime(t, expected["routing"])
+	expectedRouting["profile_id"] = float64(profileID)
+	if !jsonBytesEqual(t, payload, expected) {
+		t.Fatalf("expected request-log detail payload to match fixture, got %+v", payload)
 	}
 	routing := asMapRuntime(t, payload["routing"])
-	if routing["profile_id"] != float64(profileID) || routing["endpoint_id"] != float64(12) || routing["connection_id"] != float64(34) || routing["audit_enabled_at_request"] != false {
-		t.Fatalf("unexpected request-log detail routing payload: %+v", routing)
-	}
-	usage := asMapRuntime(t, payload["usage"])
-	if usage["input_tokens"] != float64(15) || usage["output_tokens"] != float64(42) || usage["total_tokens"] != float64(57) || usage["success_flag"] != true {
-		t.Fatalf("unexpected request-log detail usage payload: %+v", usage)
-	}
-	costing := asMapRuntime(t, payload["costing"])
-	if costing["total_cost_user_currency_micros"] != float64(1250) || costing["report_currency_symbol"] != "$" {
-		t.Fatalf("unexpected request-log detail costing payload: %+v", costing)
-	}
-	pricing := asMapRuntime(t, payload["pricing"])
-	if pricing["pricing_snapshot_unit"] != "1M tokens" || pricing["pricing_snapshot_input"] != "2.500000" || pricing["pricing_config_version_used"] != float64(1) {
-		t.Fatalf("unexpected request-log detail pricing payload: %+v", pricing)
+	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name"} {
+		if _, ok := routing[absent]; ok {
+			t.Fatalf("did not expect routing field %s in detail payload, got %+v", absent, routing)
+		}
 	}
 
 	missing := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/999999", nil, runtimeModelHeader(profileID))
@@ -132,6 +114,54 @@ func TestRequestLogDetailContract(t *testing.T) {
 	decodeJSONResponse(t, missing, &missingPayload)
 	if missingPayload["detail"] != "Request log not found" {
 		t.Fatalf("expected scoped request-log 404 detail, got %+v", missingPayload)
+	}
+}
+
+func TestRequestLogCurrentModelEnrichmentContract(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	seedRequestLogUserAgentRules(t, harness, profileID)
+	seedRequestLogModels(t, harness, profileID)
+	seedFixtureRequestLog(t, harness, profileID)
+	seedSimpleRequestLog(t, harness, profileID, 103, 12, nil, time.Date(2026, 4, 18, 12, 40, 0, 0, time.UTC))
+
+	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+
+	filterOptions := asMapRuntime(t, payload["filter_options"])
+	models := filterOptions["models"].([]any)
+	if !jsonBytesEqual(t, models, []any{
+		map[string]any{"model_id": "gpt-4o-native", "model_label": "GPT-4o Native"},
+		map[string]any{"model_id": "gpt-4o", "model_label": "GPT-4o Proxy"},
+	}) {
+		t.Fatalf("expected current model filter options to expose display-name enrichment, got %+v", models)
+	}
+
+	itemsByID := requestLogItemsByID(t, payload["items"].([]any))
+	fixtureItem := itemsByID[101]
+	if fixtureItem["model_label"] != "GPT-4o Proxy" || fixtureItem["resolved_target_model_label"] != "GPT-4o Native" || fixtureItem["is_proxy_origin"] != true {
+		t.Fatalf("expected fixture request log to use current model display-name enrichment, got %+v", fixtureItem)
+	}
+	proxyOnlyItem := itemsByID[103]
+	if proxyOnlyItem["model_label"] != "GPT-4o Proxy" || proxyOnlyItem["resolved_target_model_label"] != nil || proxyOnlyItem["is_proxy_origin"] != true {
+		t.Fatalf("expected current proxy model row to remain proxy-origin without resolved-target divergence, got %+v", proxyOnlyItem)
+	}
+
+	detailResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/101", nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	decodeJSONResponse(t, detailResponse, &payload)
+	summary := asMapRuntime(t, payload["summary"])
+	if summary["model_label"] != "GPT-4o Proxy" || summary["resolved_target_model_label"] != "GPT-4o Native" || summary["is_proxy_origin"] != true {
+		t.Fatalf("expected detail summary to use current model enrichment, got %+v", summary)
+	}
+	routing := asMapRuntime(t, payload["routing"])
+	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name"} {
+		if _, ok := routing[absent]; ok {
+			t.Fatalf("did not expect routing field %s in enriched detail payload, got %+v", absent, routing)
+		}
 	}
 }
 
@@ -251,6 +281,51 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at) VALUES ($1, $2, 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
 	}
+}
+
+func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, profileID int) {
+	t.Helper()
+	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	openAIVendorID := loadRequestLogVendorIDByKey(t, harness, "openai")
+	autoRecovery := `{"enabled":true,"check_interval_seconds":300,"max_retries":3}`
+	var strategyID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, 'legacy', 'round-robin', $3::jsonb, NULL, $4, $4) RETURNING id`, profileID, "request-log-current-models", autoRecovery, now).Scan(&strategyID); err != nil {
+		t.Fatalf("insert current request-log strategy: %v", err)
+	}
+	var nativeModelID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'native', $5, TRUE, $6, $6) RETURNING id`, profileID, openAIVendorID, "gpt-4o-native", "GPT-4o Native", strategyID, now).Scan(&nativeModelID); err != nil {
+		t.Fatalf("insert current native request-log model: %v", err)
+	}
+	var proxyModelID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'proxy', NULL, TRUE, $5, $5) RETURNING id`, profileID, openAIVendorID, "gpt-4o", "GPT-4o Proxy", now).Scan(&proxyModelID); err != nil {
+		t.Fatalf("insert current proxy request-log model: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, 0)`, proxyModelID, nativeModelID); err != nil {
+		t.Fatalf("insert request-log proxy target: %v", err)
+	}
+}
+
+func loadRequestLogVendorIDByKey(t *testing.T, harness *requestLogContractHarness, key string) int {
+	t.Helper()
+	var vendorID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM vendors WHERE key = $1 LIMIT 1`, key).Scan(&vendorID); err != nil {
+		t.Fatalf("load vendor %q for request-log contract test: %v", key, err)
+	}
+	return vendorID
+}
+
+func requestLogItemsByID(t *testing.T, rawItems []any) map[int]map[string]any {
+	t.Helper()
+	itemsByID := make(map[int]map[string]any, len(rawItems))
+	for _, rawItem := range rawItems {
+		item := asMapRuntime(t, rawItem)
+		id, ok := item["id"].(float64)
+		if !ok {
+			t.Fatalf("expected request-log item id number, got %+v", item)
+		}
+		itemsByID[int(id)] = item
+	}
+	return itemsByID
 }
 
 func loadRequestFixture(t *testing.T, name string) map[string]any {

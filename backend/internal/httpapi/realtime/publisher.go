@@ -24,6 +24,12 @@ type dashboardMetadataRow struct {
 	EndpointBaseURL  *string
 }
 
+type requestLogModelMetadata struct {
+	ModelID     string
+	DisplayName *string
+	ModelType   string
+}
+
 func (s *Service) PublishDashboardUpdate(ctx context.Context, requestLogID int, profileID int) (bool, error) {
 	s.setLatestRequestLogID(profileID, requestLogID)
 	if !s.manager.HasSubscribers(profileID, dashboardChannel) {
@@ -107,7 +113,11 @@ func loadRequestLogEntry(ctx context.Context, tx pgx.Tx, requestLogID int, profi
 		return RequestLogEntry{}, fmt.Errorf("decode request log %d: %w", requestLogID, err)
 	}
 	entry.CreatedAt = entry.CreatedAt.UTC()
-	return entry, nil
+	enrichedEntry, err := enrichRequestLogEntry(ctx, tx, entry)
+	if err != nil {
+		return RequestLogEntry{}, err
+	}
+	return enrichedEntry, nil
 }
 
 func buildDashboardRouteSnapshot(ctx context.Context, tx pgx.Tx, entry RequestLogEntry, fromTime time.Time, toTime time.Time) (*DashboardRouteSnapshot, error) {
@@ -276,6 +286,95 @@ func withRealtimeTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func
 		return zero, fmt.Errorf("commit realtime transaction: %w", err)
 	}
 	return value, nil
+}
+
+func enrichRequestLogEntry(ctx context.Context, tx pgx.Tx, entry RequestLogEntry) (RequestLogEntry, error) {
+	currentModelsByID, err := loadRequestLogModels(ctx, tx, entry.ProfileID)
+	if err != nil {
+		return RequestLogEntry{}, err
+	}
+	entry.ModelLabel = resolveRequestLogModelLabel(currentModelsByID, entry.ModelID)
+	entry.ResolvedTargetModelLabel = resolveRequestLogResolvedTargetModelLabel(currentModelsByID, entry.ResolvedTargetModelID)
+	entry.IsProxyOrigin = resolveRequestLogIsProxyOrigin(currentModelsByID, entry.ModelID, entry.ResolvedTargetModelID)
+	return entry, nil
+}
+
+func loadRequestLogModels(ctx context.Context, tx pgx.Tx, profileID int) (map[string]requestLogModelMetadata, error) {
+	rows, err := tx.Query(ctx, `SELECT model_id, display_name, model_type FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("query realtime request-log models for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+	itemsByID := map[string]requestLogModelMetadata{}
+	for rows.Next() {
+		var modelID string
+		var displayName sql.NullString
+		var modelType string
+		if err := rows.Scan(&modelID, &displayName, &modelType); err != nil {
+			return nil, fmt.Errorf("scan realtime request-log model: %w", err)
+		}
+		trimmedModelID := strings.TrimSpace(modelID)
+		if trimmedModelID == "" {
+			continue
+		}
+		if _, exists := itemsByID[trimmedModelID]; exists {
+			continue
+		}
+		itemsByID[trimmedModelID] = requestLogModelMetadata{
+			ModelID:     trimmedModelID,
+			DisplayName: normalizeOptionalString(nullableStringPointer(displayName)),
+			ModelType:   strings.TrimSpace(strings.ToLower(modelType)),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate realtime request-log models for profile %d: %w", profileID, err)
+	}
+	return itemsByID, nil
+}
+
+func requestLogModelLabel(model requestLogModelMetadata) string {
+	if model.DisplayName != nil && strings.TrimSpace(*model.DisplayName) != "" {
+		return strings.TrimSpace(*model.DisplayName)
+	}
+	return strings.TrimSpace(model.ModelID)
+}
+
+func resolveRequestLogModelLabel(currentModelsByID map[string]requestLogModelMetadata, modelID string) string {
+	trimmedModelID := strings.TrimSpace(modelID)
+	if currentModel, ok := currentModelsByID[trimmedModelID]; ok {
+		return requestLogModelLabel(currentModel)
+	}
+	return trimmedModelID
+}
+
+func resolveRequestLogResolvedTargetModelLabel(currentModelsByID map[string]requestLogModelMetadata, resolvedTargetModelID *string) *string {
+	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
+	if resolvedTarget == nil {
+		return nil
+	}
+	label := resolveRequestLogModelLabel(currentModelsByID, *resolvedTarget)
+	return &label
+}
+
+func resolveRequestLogIsProxyOrigin(currentModelsByID map[string]requestLogModelMetadata, modelID string, resolvedTargetModelID *string) bool {
+	trimmedModelID := strings.TrimSpace(modelID)
+	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
+	if resolvedTarget != nil && *resolvedTarget != trimmedModelID {
+		return true
+	}
+	currentModel, ok := currentModelsByID[trimmedModelID]
+	return ok && currentModel.ModelType == "proxy"
+}
+
+func normalizeOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func firstNonEmpty(values ...string) string {
