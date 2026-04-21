@@ -310,6 +310,129 @@ func TestStartupIdempotency(t *testing.T) {
 	}
 }
 
+func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	conn := harness.openDatabase(t, testContext, "startup_runtime_state_persistence")
+	defer conn.Close(testContext)
+
+	runner := newRunner(t)
+	if _, err := runner.Run(testContext, conn); err != nil {
+		t.Fatalf("apply baseline before runtime-state persistence test: %v", err)
+	}
+
+	service := newStartupService(t, harness.connectionString("startup_runtime_state_persistence"), nil)
+	initialResult, err := service.RunWithConn(testContext, conn)
+	if err != nil {
+		t.Fatalf("run initial startup sequence before runtime-state persistence test: %v", err)
+	}
+	assertStartupStepOrder(t, initialResult)
+
+	defaultProfile := loadSingleProfile(t, testContext, conn, "name = 'Default'")
+	now := time.Date(2026, 4, 18, 14, 0, 0, 0, time.UTC)
+	strategyID := insertLegacyLoadbalanceStrategy(t, testContext, conn, defaultProfile.ID, "Startup runtime persistence strategy", now)
+	openModelConfigID := insertModelConfig(t, testContext, conn, modelConfigSeed{
+		ProfileID:             defaultProfile.ID,
+		APIFamily:             "openai",
+		ModelID:               "startup-runtime-open-model",
+		ModelType:             "native",
+		LoadbalanceStrategyID: sql.NullInt64{Int64: int64(strategyID), Valid: true},
+		IsEnabled:             true,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	})
+	closedModelConfigID := insertModelConfig(t, testContext, conn, modelConfigSeed{
+		ProfileID:             defaultProfile.ID,
+		APIFamily:             "openai",
+		ModelID:               "startup-runtime-closed-model",
+		ModelType:             "native",
+		LoadbalanceStrategyID: sql.NullInt64{Int64: int64(strategyID), Valid: true},
+		IsEnabled:             true,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	})
+	openEndpointID := insertEndpoint(t, testContext, conn, endpointSeed{
+		ProfileID: defaultProfile.ID,
+		Name:      "Runtime open endpoint",
+		BaseURL:   "https://runtime-open.example.com",
+		APIKey:    "runtime-open-secret",
+		Position:  0,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	closedEndpointID := insertEndpoint(t, testContext, conn, endpointSeed{
+		ProfileID: defaultProfile.ID,
+		Name:      "Runtime closed endpoint",
+		BaseURL:   "https://runtime-closed.example.com",
+		APIKey:    "runtime-closed-secret",
+		Position:  1,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	openConnectionID := insertConnection(t, testContext, conn, connectionSeed{
+		ProfileID:     defaultProfile.ID,
+		ModelConfigID: openModelConfigID,
+		EndpointID:    openEndpointID,
+		Name:          "Runtime open connection",
+		Priority:      0,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	closedConnectionID := insertConnection(t, testContext, conn, connectionSeed{
+		ProfileID:     defaultProfile.ID,
+		ModelConfigID: closedModelConfigID,
+		EndpointID:    closedEndpointID,
+		Name:          "Runtime closed connection",
+		Priority:      1,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	failureKind := "transient_http"
+	openUntil := now.Add(5 * time.Minute)
+	failureObservedAt := now.Add(-1 * time.Minute)
+	successObservedAt := now.Add(-30 * time.Second)
+	latencyMS := int32(125)
+	insertRuntimeState(t, testContext, conn, runtimeStateSeed{
+		ProfileID:           defaultProfile.ID,
+		ConnectionID:        openConnectionID,
+		ConsecutiveFailures: 2,
+		LastFailureKind:     &failureKind,
+		LastCooldownSeconds: 120,
+		MaxCooldownStrikes:  2,
+		BanMode:             "off",
+		OpenUntilAt:         &openUntil,
+		ProbeAvailableAt:    &openUntil,
+		CircuitState:        "open",
+		LastLiveFailureKind: &failureKind,
+		LastLiveFailureAt:   &failureObservedAt,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	})
+	insertRuntimeState(t, testContext, conn, runtimeStateSeed{
+		ProfileID:         defaultProfile.ID,
+		ConnectionID:      closedConnectionID,
+		BanMode:           "off",
+		CircuitState:      "closed",
+		LiveP95LatencyMS:  &latencyMS,
+		LastLiveSuccessAt: &successObservedAt,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+
+	beforeRestartSnapshot := snapshotRuntimeStateRows(t, testContext, conn)
+	restartResult, err := service.RunWithConn(testContext, conn)
+	if err != nil {
+		t.Fatalf("run restart startup sequence for runtime-state persistence test: %v", err)
+	}
+	assertStartupStepOrder(t, restartResult)
+	afterRestartSnapshot := snapshotRuntimeStateRows(t, testContext, conn)
+	if beforeRestartSnapshot != afterRestartSnapshot {
+		t.Fatalf("expected startup restart to preserve routing_connection_runtime_state rows\n--- before ---\n%s\n--- after ---\n%s", beforeRestartSnapshot, afterRestartSnapshot)
+	}
+}
+
 type profileSeed struct {
 	Name        string
 	Description string
@@ -333,14 +456,15 @@ type vendorSeed struct {
 }
 
 type modelConfigSeed struct {
-	ProfileID int
-	VendorID  sql.NullInt64
-	APIFamily string
-	ModelID   string
-	ModelType string
-	IsEnabled bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ProfileID             int
+	VendorID              sql.NullInt64
+	APIFamily             string
+	ModelID               string
+	ModelType             string
+	LoadbalanceStrategyID sql.NullInt64
+	IsEnabled             bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type systemUserAgentRuleSeed struct {
@@ -368,6 +492,37 @@ type endpointSeed struct {
 	Position  int
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type connectionSeed struct {
+	ProfileID     int
+	ModelConfigID int
+	EndpointID    int
+	Name          string
+	Priority      int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type runtimeStateSeed struct {
+	ProfileID           int
+	ConnectionID        int
+	ConsecutiveFailures int
+	LastFailureKind     *string
+	LastCooldownSeconds float64
+	MaxCooldownStrikes  int
+	BanMode             string
+	BannedUntilAt       *time.Time
+	OpenUntilAt         *time.Time
+	ProbeEligibleLogged bool
+	CircuitState        string
+	ProbeAvailableAt    *time.Time
+	LiveP95LatencyMS    *int32
+	LastLiveFailureKind *string
+	LastLiveFailureAt   *time.Time
+	LastLiveSuccessAt   *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type vendorSnapshot struct {
@@ -438,6 +593,27 @@ type endpointSnapshot struct {
 	Position  int    `json:"position"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+type runtimeStateSnapshot struct {
+	ProfileID           int     `json:"profile_id"`
+	ConnectionID        int     `json:"connection_id"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	LastFailureKind     *string `json:"last_failure_kind"`
+	LastCooldownSeconds float64 `json:"last_cooldown_seconds"`
+	MaxCooldownStrikes  int     `json:"max_cooldown_strikes"`
+	BanMode             string  `json:"ban_mode"`
+	BannedUntilAt       *string `json:"banned_until_at"`
+	OpenUntilAt         *string `json:"open_until_at"`
+	ProbeEligibleLogged bool    `json:"probe_eligible_logged"`
+	CircuitState        string  `json:"circuit_state"`
+	ProbeAvailableAt    *string `json:"probe_available_at"`
+	LiveP95LatencyMS    *int32  `json:"live_p95_latency_ms"`
+	LastLiveFailureKind *string `json:"last_live_failure_kind"`
+	LastLiveFailureAt   *string `json:"last_live_failure_at"`
+	LastLiveSuccessAt   *string `json:"last_live_success_at"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
 }
 
 type startupStateSnapshot struct {
@@ -592,7 +768,7 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 		seed.ModelID,
 		nil,
 		seed.ModelType,
-		nil,
+		nullInt64(seed.LoadbalanceStrategyID),
 		seed.IsEnabled,
 		seed.CreatedAt,
 		seed.UpdatedAt,
@@ -600,6 +776,23 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 		t.Fatalf("insert model_config %q: %v", seed.ModelID, err)
 	}
 	return modelConfigID
+}
+
+func insertLegacyLoadbalanceStrategy(t *testing.T, ctx context.Context, conn *pgx.Conn, profileID int, name string, now time.Time) int {
+	t.Helper()
+	var strategyID int
+	if err := conn.QueryRow(
+		ctx,
+		`INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at)
+		 VALUES ($1, $2, 'legacy', 'round-robin', '{"mode":"disabled"}'::jsonb, NULL, $3, $3)
+		 RETURNING id`,
+		profileID,
+		name,
+		now,
+	).Scan(&strategyID); err != nil {
+		t.Fatalf("insert legacy loadbalance strategy %q: %v", name, err)
+	}
+	return strategyID
 }
 
 func insertSystemUserAgentRule(t *testing.T, ctx context.Context, conn *pgx.Conn, seed systemUserAgentRuleSeed) {
@@ -680,6 +873,96 @@ func insertEndpoint(t *testing.T, ctx context.Context, conn *pgx.Conn, seed endp
 		t.Fatalf("insert endpoint %q: %v", seed.Name, err)
 	}
 	return endpointID
+}
+
+func insertConnection(t *testing.T, ctx context.Context, conn *pgx.Conn, seed connectionSeed) int {
+	t.Helper()
+	var connectionID int
+	if err := conn.QueryRow(
+		ctx,
+		`INSERT INTO connections (
+			profile_id,
+			model_config_id,
+			endpoint_id,
+			pricing_template_id,
+			qps_limit,
+			max_in_flight_non_stream,
+			max_in_flight_stream,
+			openai_probe_endpoint_variant,
+			is_active,
+			priority,
+			name,
+			auth_type,
+			custom_headers,
+			health_status,
+			health_detail,
+			last_health_check,
+			created_at,
+			updated_at
+		) VALUES ($1, $2, $3, NULL, NULL, NULL, NULL, NULL, TRUE, $4, $5, NULL, NULL, 'healthy', NULL, NULL, $6, $7)
+		RETURNING id`,
+		seed.ProfileID,
+		seed.ModelConfigID,
+		seed.EndpointID,
+		seed.Priority,
+		seed.Name,
+		seed.CreatedAt,
+		seed.UpdatedAt,
+	).Scan(&connectionID); err != nil {
+		t.Fatalf("insert connection %q: %v", seed.Name, err)
+	}
+	return connectionID
+}
+
+func insertRuntimeState(t *testing.T, ctx context.Context, conn *pgx.Conn, seed runtimeStateSeed) {
+	t.Helper()
+	if _, err := conn.Exec(
+		ctx,
+		`INSERT INTO routing_connection_runtime_state (
+			profile_id,
+			connection_id,
+			window_started_at,
+			window_request_count,
+			in_flight_non_stream,
+			in_flight_stream,
+			consecutive_failures,
+			last_failure_kind,
+			last_cooldown_seconds,
+			max_cooldown_strikes,
+			ban_mode,
+			banned_until_at,
+			open_until_at,
+			probe_eligible_logged,
+			circuit_state,
+			probe_available_at,
+			live_p95_latency_ms,
+			last_live_failure_kind,
+			last_live_failure_at,
+			last_live_success_at,
+			created_at,
+			updated_at
+		) VALUES ($1, $2, NULL, 0, 0, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+		seed.ProfileID,
+		seed.ConnectionID,
+		seed.ConsecutiveFailures,
+		nullableSeedString(seed.LastFailureKind),
+		seed.LastCooldownSeconds,
+		seed.MaxCooldownStrikes,
+		normalizeSeedBanMode(seed.BanMode),
+		nullableSeedTime(seed.BannedUntilAt),
+		nullableSeedTime(seed.OpenUntilAt),
+		seed.ProbeEligibleLogged,
+		normalizeSeedCircuitState(seed.CircuitState),
+		nullableSeedTime(seed.ProbeAvailableAt),
+		nullableSeedInt32(seed.LiveP95LatencyMS),
+		nullableSeedString(seed.LastLiveFailureKind),
+		nullableSeedTime(seed.LastLiveFailureAt),
+		nullableSeedTime(seed.LastLiveSuccessAt),
+		seed.CreatedAt,
+		seed.UpdatedAt,
+	); err != nil {
+		t.Fatalf("insert runtime state for connection %d: %v", seed.ConnectionID, err)
+	}
 }
 
 func loadSingleProfile(t *testing.T, ctx context.Context, conn *pgx.Conn, predicate string) profileSeedRow {
@@ -954,6 +1237,82 @@ func loadEndpointSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []
 	return items
 }
 
+func snapshotRuntimeStateRows(t *testing.T, ctx context.Context, conn *pgx.Conn) string {
+	t.Helper()
+	rows, err := conn.Query(
+		ctx,
+		`SELECT profile_id, connection_id, consecutive_failures, last_failure_kind, last_cooldown_seconds::float8,
+			max_cooldown_strikes, ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state,
+			probe_available_at, live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at,
+			created_at, updated_at
+		FROM routing_connection_runtime_state
+		ORDER BY profile_id ASC, connection_id ASC`,
+	)
+	if err != nil {
+		t.Fatalf("query runtime-state snapshots: %v", err)
+	}
+	defer rows.Close()
+
+	items := []runtimeStateSnapshot{}
+	for rows.Next() {
+		var (
+			item                runtimeStateSnapshot
+			lastFailureKind     sql.NullString
+			bannedUntilAt       sql.NullTime
+			openUntilAt         sql.NullTime
+			probeAvailableAt    sql.NullTime
+			liveP95LatencyMS    sql.NullInt32
+			lastLiveFailureKind sql.NullString
+			lastLiveFailureAt   sql.NullTime
+			lastLiveSuccessAt   sql.NullTime
+			createdAt           time.Time
+			updatedAt           time.Time
+		)
+		if err := rows.Scan(
+			&item.ProfileID,
+			&item.ConnectionID,
+			&item.ConsecutiveFailures,
+			&lastFailureKind,
+			&item.LastCooldownSeconds,
+			&item.MaxCooldownStrikes,
+			&item.BanMode,
+			&bannedUntilAt,
+			&openUntilAt,
+			&item.ProbeEligibleLogged,
+			&item.CircuitState,
+			&probeAvailableAt,
+			&liveP95LatencyMS,
+			&lastLiveFailureKind,
+			&lastLiveFailureAt,
+			&lastLiveSuccessAt,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			t.Fatalf("scan runtime-state snapshot: %v", err)
+		}
+		item.LastFailureKind = formatNullableString(lastFailureKind)
+		item.BannedUntilAt = formatNullableTime(bannedUntilAt)
+		item.OpenUntilAt = formatNullableTime(openUntilAt)
+		item.ProbeAvailableAt = formatNullableTime(probeAvailableAt)
+		item.LiveP95LatencyMS = formatNullableInt32(liveP95LatencyMS)
+		item.LastLiveFailureKind = formatNullableString(lastLiveFailureKind)
+		item.LastLiveFailureAt = formatNullableTime(lastLiveFailureAt)
+		item.LastLiveSuccessAt = formatNullableTime(lastLiveSuccessAt)
+		item.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
+		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate runtime-state snapshots: %v", err)
+	}
+
+	raw, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal runtime-state snapshots: %v", err)
+	}
+	return string(raw)
+}
+
 func queryRows(t *testing.T, ctx context.Context, conn *pgx.Conn, query string) [][]any {
 	t.Helper()
 	rows, err := conn.Query(ctx, query)
@@ -1004,6 +1363,49 @@ func formatNullableString(value sql.NullString) *string {
 	}
 	formatted := value.String
 	return &formatted
+}
+
+func formatNullableInt32(value sql.NullInt32) *int32 {
+	if !value.Valid {
+		return nil
+	}
+	formatted := value.Int32
+	return &formatted
+}
+
+func nullableSeedString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableSeedTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UTC()
+}
+
+func nullableSeedInt32(value *int32) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func normalizeSeedBanMode(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "off"
+	}
+	return value
+}
+
+func normalizeSeedCircuitState(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "closed"
+	}
+	return value
 }
 
 const DefaultProfileDescription = "System default profile"
