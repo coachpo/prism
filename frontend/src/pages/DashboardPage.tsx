@@ -41,6 +41,7 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
     revision,
     selectedProfileId: selectedProfile?.id ?? null,
   });
+  const openAnalyticsTab = () => pageState.setTab("analytics");
 
   return (
     <>
@@ -76,8 +77,8 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
         strategyFamilySummary={data.strategyFamilySummary}
         topSpendingModels={data.topSpendingModels}
         formatTime={formatTime}
-        onOpenStatistics={() => navigate("/statistics")}
-        onInspectSpending={() => pageState.setTab("analytics")}
+        onOpenAnalytics={openAnalyticsTab}
+        onInspectSpending={openAnalyticsTab}
         onReviewRequests={() => navigate("/request-logs")}
         onSelectModel={(modelConfigId) => navigate(`/models/${modelConfigId}`)}
         onDrillDownRequests={(params) => {

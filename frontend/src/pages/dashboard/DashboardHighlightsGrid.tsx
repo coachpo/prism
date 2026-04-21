@@ -15,7 +15,7 @@ import type {
 interface DashboardHighlightsGridProps {
   highlighted: boolean;
   onInspectSpending: () => void;
-  onOpenStatistics: () => void;
+  onOpenAnalytics: () => void;
   onReviewRequests: () => void;
   apiFamilyRows: StatGroup[];
   snapshot: DashboardMetricSnapshot;
@@ -25,7 +25,7 @@ interface DashboardHighlightsGridProps {
 export function DashboardHighlightsGrid({
   highlighted,
   onInspectSpending,
-  onOpenStatistics,
+  onOpenAnalytics,
   onReviewRequests,
   apiFamilyRows,
   snapshot,
@@ -54,18 +54,18 @@ export function DashboardHighlightsGrid({
           <CardDescription>{messages.dashboard.performanceSnapshotDescription}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              {performanceTiles.map((tile) => (
-                <CompactMetricTile
-                  key={tile.label}
-                  className={cn(highlighted && "ws-value-updated")}
-                  label={tile.label}
-                  value={tile.value}
-                />
-              ))}
-            </div>
-          <Button variant="outline" className="w-full" onClick={onOpenStatistics}>
-            {messages.dashboard.openStatistics}
+          <div className="grid grid-cols-2 gap-3">
+            {performanceTiles.map((tile) => (
+              <CompactMetricTile
+                key={tile.label}
+                className={cn(highlighted && "ws-value-updated")}
+                label={tile.label}
+                value={tile.value}
+              />
+            ))}
+          </div>
+          <Button variant="outline" className="w-full" onClick={onOpenAnalytics}>
+            {messages.dashboard.analyticsTab}
             <ArrowUpRight className="ml-2 h-4 w-4" />
           </Button>
         </CardContent>

@@ -26,7 +26,7 @@ interface DashboardOverviewTabProps {
   strategyFamilySummary: DashboardStrategyFamilySummary;
   topSpendingModels: SpendingTopModel[];
   formatTime: (value: string) => string;
-  onOpenStatistics: () => void;
+  onOpenAnalytics: () => void;
   onInspectSpending: () => void;
   onReviewRequests: () => void;
   onSelectModel: (modelConfigId: number) => void;
@@ -48,7 +48,7 @@ export function DashboardOverviewTab({
   strategyFamilySummary,
   topSpendingModels,
   formatTime,
-  onOpenStatistics,
+  onOpenAnalytics,
   onInspectSpending,
   onReviewRequests,
   onSelectModel,
@@ -67,7 +67,7 @@ export function DashboardOverviewTab({
         apiFamilyRows={apiFamilyRows}
         strategyFamilySummary={strategyFamilySummary}
         highlighted={metricsHighlighted}
-        onOpenStatistics={onOpenStatistics}
+        onOpenAnalytics={onOpenAnalytics}
         onInspectSpending={onInspectSpending}
         onReviewRequests={onReviewRequests}
       />
@@ -98,3 +98,4 @@ export function DashboardOverviewTab({
     </div>
   );
 }
+
