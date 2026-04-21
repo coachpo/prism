@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
@@ -45,8 +45,6 @@ var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
 		ExtraHeaders: map[string]string{},
 	},
 }
-
-var defaultFailoverStatusCodes = []int{403, 422, 429, 500, 502, 503, 504, 529}
 
 var hopByHopHeaders = map[string]struct{}{
 	"connection":          {},
@@ -93,24 +91,18 @@ type runtimeEndpoint struct {
 }
 
 type runtimeConnection struct {
-	ID            int
-	ProfileID     int
-	ModelConfigID int
-	EndpointID    int
-	Priority      int
-	Name          *string
-	AuthType      *string
-	CustomHeaders map[string]any
-	Endpoint      runtimeEndpoint
-}
-
-type runtimeStrategyRecord struct {
-	ID                 int
-	Name               string
-	StrategyType       string
-	LegacyStrategyType *string
-	AutoRecoveryRaw    []byte
-	RoutingPolicyRaw   []byte
+	ID                   int
+	ProfileID            int
+	ModelConfigID        int
+	EndpointID           int
+	Priority             int
+	QPSLimit             *int
+	MaxInFlightNonStream *int
+	MaxInFlightStream    *int
+	Name                 *string
+	AuthType             *string
+	CustomHeaders        map[string]any
+	Endpoint             runtimeEndpoint
 }
 
 type headerBlocklistRule struct {
@@ -130,28 +122,65 @@ type requestPlan struct {
 	EffectiveRequestPath  string
 	RawRequestBody        []byte
 	UpstreamBody          []byte
+	IsStreamingRequest    bool
 	Connections           []runtimeConnection
+	RuntimeStates         map[int]loadbalance.RuntimeConnectionState
 	BlocklistRules        []headerBlocklistRule
 	ClientHeaders         map[string]string
 	FailoverStatusCodes   []int
+	Strategy              loadbalance.RuntimeStrategy
+}
+
+type executionAttempt struct {
+	Connection      runtimeConnection
+	RequestHeaders  map[string]string
+	ResponseHeaders http.Header
+	StatusCode      int
+	ResponseTimeMS  int
+	CompletedAt     time.Time
 }
 
 type executionResult struct {
 	Response       *http.Response
 	Connection     runtimeConnection
 	RequestHeaders map[string]string
+	AttemptCount   int
+	Attempts       []executionAttempt
 }
 
-type autoRecoveryDocument struct {
-	Mode        string `json:"mode"`
-	StatusCodes []int  `json:"status_codes"`
+type executionOutcome struct {
+	Connection                runtimeConnection
+	RequestHeaders            map[string]string
+	Response                  *http.Response
+	Attempt                   executionAttempt
+	Launched                  bool
+	Skipped                   bool
+	Err                       error
+	AdmissionReason           string
+	FailoverEligible          bool
+	Definitive                bool
+	SuppressTransportFeedback bool
+	FatalError                error
 }
 
-type routingPolicyDocument struct {
-	CircuitBreaker struct {
-		FailureStatusCodes []int `json:"failure_status_codes"`
-	} `json:"circuit_breaker"`
+type hedgedExecutionResult struct {
+	Winner              *executionOutcome
+	Attempts            []executionAttempt
+	LaunchedAttempts    int
+	AdmissionRejections int
+	LastAdmissionReason string
+	LastError           string
+	ConsumedConnections int
 }
+
+type hedgedAttemptResult struct {
+	Order   int
+	Outcome executionOutcome
+}
+
+var errHedgeLoserCanceled = errors.New("hedge loser canceled")
+
+const hedgeCanceledAttemptStatusCode = 499
 
 func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http.Request, rawBody []byte) (requestPlan, error) {
 	requestedModelID, err := resolveModelID(rawBody, request.URL.Path)
@@ -175,7 +204,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		return requestPlan{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", requestedModelID)}
 	}
 
-	targetModel, connections, strategy, err := resolveExecutionTarget(ctx, tx, activeProfile.ID, requestedModel)
+	targetModel, connections, runtimeStates, strategy, err := resolveExecutionTarget(ctx, tx, activeProfile.ID, requestedModel, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
@@ -183,10 +212,11 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		return requestPlan{}, err
 	}
 
-	orderedConnections, err := orderConnections(ctx, tx, activeProfile.ID, targetModel.ID, strategy, connections, s.nowUTC())
+	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(ctx, tx, activeProfile.ID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
+	orderedConnections := orderConnectionsByID(connections, orderedConnectionIDs)
 	if len(orderedConnections) == 0 {
 		return requestPlan{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
 	}
@@ -218,64 +248,92 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		EffectiveRequestPath:  effectiveRequestPath,
 		RawRequestBody:        rawBody,
 		UpstreamBody:          upstreamBody,
+		IsStreamingRequest:    requestWantsStream(rawBody),
 		Connections:           orderedConnections,
+		RuntimeStates:         runtimeStates,
 		BlocklistRules:        blocklistRules,
 		ClientHeaders:         flattenHeaders(request.Header),
-		FailoverStatusCodes:   resolveFailoverStatusCodes(strategy),
+		FailoverStatusCodes:   strategy.FailoverStatusCodes(),
+		Strategy:              strategy,
 	}, nil
 }
 
-func resolveExecutionTarget(ctx context.Context, tx pgx.Tx, profileID int, requestedModel runtimeModelRecord) (runtimeModelRecord, []runtimeConnection, runtimeStrategyRecord, error) {
+func resolveExecutionTarget(ctx context.Context, tx pgx.Tx, profileID int, requestedModel runtimeModelRecord, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
 	if requestedModel.ModelType != "proxy" {
-		return loadNativeExecutionTarget(ctx, tx, profileID, requestedModel.ModelID, requestedModel.ModelID)
+		return loadNativeExecutionTarget(ctx, tx, profileID, requestedModel.ModelID, requestedModel.ModelID, referenceNow)
 	}
 
 	targetModelIDs, err := listProxyTargetModelIDs(ctx, tx, requestedModel.ID)
 	if err != nil {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, err
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
 	}
 	for _, targetModelID := range targetModelIDs {
-		model, connections, strategy, loadErr := loadNativeExecutionTarget(ctx, tx, profileID, targetModelID, requestedModel.ModelID)
+		model, connections, runtimeStates, strategy, loadErr := loadNativeExecutionTarget(ctx, tx, profileID, targetModelID, requestedModel.ModelID, referenceNow)
 		if loadErr == nil {
-			return model, connections, strategy, nil
+			return model, connections, runtimeStates, strategy, nil
 		}
 		var runtimeErr *domainError
 		if errors.As(loadErr, &runtimeErr) && runtimeErr.StatusCode == http.StatusServiceUnavailable {
 			continue
 		}
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, loadErr
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, loadErr
 	}
-	return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Proxy model '%s' has no routable targets.", requestedModel.ModelID)}
+	return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Proxy model '%s' has no routable targets.", requestedModel.ModelID)}
 }
 
-func loadNativeExecutionTarget(ctx context.Context, tx pgx.Tx, profileID int, modelID string, requestedModelID string) (runtimeModelRecord, []runtimeConnection, runtimeStrategyRecord, error) {
+func loadNativeExecutionTarget(ctx context.Context, tx pgx.Tx, profileID int, modelID string, requestedModelID string, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
 	model, found, err := loadEnabledModelByModelID(ctx, tx, profileID, modelID)
 	if err != nil {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, err
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
 	}
 	if !found {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
 	}
 	if model.LoadbalanceStrategyID == nil {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, fmt.Errorf("native model %q is missing loadbalance_strategy", model.ModelID)
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, fmt.Errorf("native model %q is missing loadbalance_strategy", model.ModelID)
 	}
 
-	strategy, found, err := loadRuntimeStrategy(ctx, tx, profileID, *model.LoadbalanceStrategyID)
+	strategy, found, err := loadbalance.LoadRuntimeStrategy(ctx, tx, profileID, *model.LoadbalanceStrategyID)
 	if err != nil {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, err
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
 	}
 	if !found {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, fmt.Errorf("loadbalance strategy %d not found for model %q", *model.LoadbalanceStrategyID, model.ModelID)
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, fmt.Errorf("loadbalance strategy %d not found for model %q", *model.LoadbalanceStrategyID, model.ModelID)
 	}
 
 	connections, err := listActiveConnectionsForModel(ctx, tx, profileID, model.ID)
 	if err != nil {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, err
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
 	}
 	if len(connections) == 0 {
-		return runtimeModelRecord{}, nil, runtimeStrategyRecord{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
 	}
-	return model, connections, strategy, nil
+
+	runtimeStates, err := loadbalance.LoadRuntimeConnectionStates(ctx, tx, profileID, runtimeConnectionIDs(connections))
+	if err != nil {
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
+	}
+	for _, connection := range connections {
+		state, ok := runtimeStates[connection.ID]
+		if !ok || state.IsEligible(referenceNow) {
+			continue
+		}
+		if err := loadbalance.RecordRuntimePlanningSkip(ctx, tx, profileID, connection.ID, state, strategy, referenceNow); err != nil {
+			return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
+		}
+	}
+	eligibleConnectionIDs := loadbalance.FilterEligibleConnectionIDs(toConnectionOrderCandidates(connections), runtimeStates, referenceNow)
+	eligibleConnections := orderConnectionsByID(connections, eligibleConnectionIDs)
+	if len(eligibleConnections) == 0 {
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
+	}
+	eligibleRuntimeStates := make(map[int]loadbalance.RuntimeConnectionState, len(eligibleConnections))
+	for _, connectionID := range eligibleConnectionIDs {
+		if state, ok := runtimeStates[connectionID]; ok {
+			eligibleRuntimeStates[connectionID] = state
+		}
+	}
+	return model, eligibleConnections, eligibleRuntimeStates, strategy, nil
 }
 
 func loadEnabledModelByModelID(ctx context.Context, tx pgx.Tx, profileID int, modelID string) (runtimeModelRecord, bool, error) {
@@ -340,36 +398,12 @@ func listProxyTargetModelIDs(ctx context.Context, tx pgx.Tx, sourceModelConfigID
 	return items, nil
 }
 
-func loadRuntimeStrategy(ctx context.Context, tx pgx.Tx, profileID int, strategyID int) (runtimeStrategyRecord, bool, error) {
-	var legacyStrategyType sql.NullString
-	record := runtimeStrategyRecord{}
-	err := tx.QueryRow(
-		ctx,
-		`SELECT id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy
-		FROM loadbalance_strategies
-		WHERE profile_id = $1 AND id = $2
-		LIMIT 1`,
-		profileID,
-		strategyID,
-	).Scan(&record.ID, &record.Name, &record.StrategyType, &legacyStrategyType, &record.AutoRecoveryRaw, &record.RoutingPolicyRaw)
-	if err == pgx.ErrNoRows {
-		return runtimeStrategyRecord{}, false, nil
-	}
-	if err != nil {
-		return runtimeStrategyRecord{}, false, fmt.Errorf("load runtime strategy %d for profile %d: %w", strategyID, profileID, err)
-	}
-	if legacyStrategyType.Valid {
-		value := legacyStrategyType.String
-		record.LegacyStrategyType = &value
-	}
-	return record, true, nil
-}
-
 func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int) ([]runtimeConnection, error) {
 	rows, err := tx.Query(
 		ctx,
 		`SELECT connections.id, connections.profile_id, connections.model_config_id, connections.endpoint_id,
-			connections.priority, connections.name, connections.auth_type, connections.custom_headers,
+			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
+			connections.name, connections.auth_type, connections.custom_headers,
 			endpoints.id, endpoints.name, endpoints.base_url, endpoints.api_key
 		FROM connections
 		JOIN endpoints ON endpoints.id = connections.endpoint_id
@@ -385,6 +419,9 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 
 	items := make([]runtimeConnection, 0)
 	for rows.Next() {
+		var qpsLimit sql.NullInt32
+		var maxInFlightNonStream sql.NullInt32
+		var maxInFlightStream sql.NullInt32
 		var name sql.NullString
 		var authType sql.NullString
 		var customHeaders sql.NullString
@@ -396,6 +433,9 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 			&item.ModelConfigID,
 			&item.EndpointID,
 			&item.Priority,
+			&qpsLimit,
+			&maxInFlightNonStream,
+			&maxInFlightStream,
 			&name,
 			&authType,
 			&customHeaders,
@@ -406,6 +446,9 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 		); err != nil {
 			return nil, fmt.Errorf("scan runtime connection: %w", err)
 		}
+		item.QPSLimit = nullableInt32(qpsLimit)
+		item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
+		item.MaxInFlightStream = nullableInt32(maxInFlightStream)
 		if name.Valid {
 			value := name.String
 			item.Name = &value
@@ -454,123 +497,139 @@ func listEnabledHeaderBlocklistRules(ctx context.Context, tx pgx.Tx, profileID i
 	return items, nil
 }
 
-func orderConnections(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int, strategy runtimeStrategyRecord, connections []runtimeConnection, nowAt time.Time) ([]runtimeConnection, error) {
-	ordered := append([]runtimeConnection(nil), connections...)
-	sort.Slice(ordered, func(left int, right int) bool {
-		if ordered[left].Priority != ordered[right].Priority {
-			return ordered[left].Priority < ordered[right].Priority
+func toConnectionOrderCandidates(connections []runtimeConnection) []loadbalance.ConnectionOrderCandidate {
+	candidates := make([]loadbalance.ConnectionOrderCandidate, 0, len(connections))
+	for _, connection := range connections {
+		candidates = append(candidates, loadbalance.ConnectionOrderCandidate{ID: connection.ID, Priority: connection.Priority})
+	}
+	return candidates
+}
+
+func runtimeConnectionIDs(connections []runtimeConnection) []int {
+	ids := make([]int, 0, len(connections))
+	for _, connection := range connections {
+		ids = append(ids, connection.ID)
+	}
+	return ids
+}
+
+type runtimeLeaseResult struct {
+	Token    string
+	Acquired bool
+}
+
+func orderConnectionsByID(connections []runtimeConnection, orderedIDs []int) []runtimeConnection {
+	if len(orderedIDs) == 0 {
+		return nil
+	}
+	connectionsByID := make(map[int]runtimeConnection, len(connections))
+	for _, connection := range connections {
+		connectionsByID[connection.ID] = connection
+	}
+	ordered := make([]runtimeConnection, 0, len(orderedIDs))
+	for _, connectionID := range orderedIDs {
+		connection, ok := connectionsByID[connectionID]
+		if !ok {
+			continue
 		}
-		return ordered[left].ID < ordered[right].ID
-	})
-	if !isRoundRobinStrategy(strategy) || len(ordered) < 2 {
-		return ordered, nil
+		ordered = append(ordered, connection)
 	}
-	cursor, err := claimRoundRobinCursorPosition(ctx, tx, profileID, modelConfigID, len(ordered), nowAt)
-	if err != nil {
-		return nil, err
-	}
-	if cursor == 0 {
-		return ordered, nil
-	}
-	return append(ordered[cursor:], ordered[:cursor]...), nil
-}
-
-func claimRoundRobinCursorPosition(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int, connectionCount int, nowAt time.Time) (int, error) {
-	if connectionCount <= 0 {
-		return 0, nil
-	}
-	if _, err := tx.Exec(
-		ctx,
-		`INSERT INTO loadbalance_round_robin_state (profile_id, model_config_id, next_cursor, created_at, updated_at)
-		VALUES ($1, $2, 0, $3, $3)
-		ON CONFLICT (profile_id, model_config_id) DO NOTHING`,
-		profileID,
-		modelConfigID,
-		nowAt,
-	); err != nil {
-		return 0, fmt.Errorf("insert round-robin state for model %d: %w", modelConfigID, err)
-	}
-	var rowID int
-	var nextCursor int
-	if err := tx.QueryRow(
-		ctx,
-		`SELECT id, next_cursor
-		FROM loadbalance_round_robin_state
-		WHERE profile_id = $1 AND model_config_id = $2
-		FOR UPDATE`,
-		profileID,
-		modelConfigID,
-	).Scan(&rowID, &nextCursor); err != nil {
-		return 0, fmt.Errorf("load round-robin state for model %d: %w", modelConfigID, err)
-	}
-	cursor := nextCursor % connectionCount
-	if _, err := tx.Exec(
-		ctx,
-		`UPDATE loadbalance_round_robin_state SET next_cursor = $2, updated_at = $3 WHERE id = $1`,
-		rowID,
-		(cursor+1)%connectionCount,
-		nowAt,
-	); err != nil {
-		return 0, fmt.Errorf("update round-robin state for model %d: %w", modelConfigID, err)
-	}
-	return cursor, nil
-}
-
-func isRoundRobinStrategy(strategy runtimeStrategyRecord) bool {
-	if strings.ToLower(strings.TrimSpace(strategy.StrategyType)) != "legacy" {
-		return false
-	}
-	if strategy.LegacyStrategyType == nil {
-		return false
-	}
-	return strings.ToLower(strings.TrimSpace(*strategy.LegacyStrategyType)) == "round-robin"
-}
-
-func resolveFailoverStatusCodes(strategy runtimeStrategyRecord) []int {
-	defaultCodes := append([]int(nil), defaultFailoverStatusCodes...)
-	if strings.ToLower(strings.TrimSpace(strategy.StrategyType)) == "adaptive" {
-		var policy routingPolicyDocument
-		if len(strategy.RoutingPolicyRaw) == 0 || json.Unmarshal(strategy.RoutingPolicyRaw, &policy) != nil || len(policy.CircuitBreaker.FailureStatusCodes) == 0 {
-			return defaultCodes
-		}
-		return append([]int(nil), policy.CircuitBreaker.FailureStatusCodes...)
-	}
-
-	var recovery autoRecoveryDocument
-	if len(strategy.AutoRecoveryRaw) == 0 || json.Unmarshal(strategy.AutoRecoveryRaw, &recovery) != nil || len(recovery.StatusCodes) == 0 {
-		return defaultCodes
-	}
-	return append([]int(nil), recovery.StatusCodes...)
+	return ordered
 }
 
 func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string) (executionResult, error) {
-	attemptedAny := false
+	launchedAttempts := 0
+	attempts := make([]executionAttempt, 0, len(plan.Connections))
 	lastError := ""
-	for index, connection := range plan.Connections {
-		attemptedAny = true
-		headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
-		if err != nil {
-			return executionResult{}, err
-		}
-		upstreamURL, err := buildUpstreamURL(connection.Endpoint.BaseURL, plan.EffectiveRequestPath, requestQuery)
-		if err != nil {
-			return executionResult{}, err
-		}
-		response, err := s.doUpstreamRequest(ctx, method, upstreamURL, headers, plan.UpstreamBody)
-		if err != nil {
-			lastError = err.Error()
+	lastAdmissionReason := ""
+	admissionRejections := 0
+	hedgePolicy := plan.Strategy.HedgePolicy()
+	hedgeUsed := false
+
+	for index := 0; index < len(plan.Connections); index++ {
+		if !hedgeUsed && hedgePolicy.Enabled && hedgePolicy.MaxAdditionalAttempts > 0 && len(plan.Connections)-index >= 2 {
+			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, hedgePolicy)
+			if err != nil {
+				return executionResult{}, err
+			}
+			hedgeUsed = true
+			launchedAttempts += hedged.LaunchedAttempts
+			attempts = append(attempts, hedged.Attempts...)
+			admissionRejections += hedged.AdmissionRejections
+			if strings.TrimSpace(hedged.LastAdmissionReason) != "" {
+				lastAdmissionReason = hedged.LastAdmissionReason
+			}
+			if strings.TrimSpace(hedged.LastError) != "" {
+				lastError = hedged.LastError
+			}
+			if hedged.Winner != nil {
+				winner := hedged.Winner
+				if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
+					if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, winner.Connection.ID, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt); feedbackErr != nil {
+						_ = winner.Response.Body.Close()
+						return executionResult{}, feedbackErr
+					}
+				}
+				return executionResult{Response: winner.Response, Connection: winner.Connection, RequestHeaders: winner.RequestHeaders, AttemptCount: launchedAttempts, Attempts: attempts}, nil
+			}
+			index += hedged.ConsumedConnections - 1
 			continue
 		}
-		if shouldFailover(response.StatusCode, plan.FailoverStatusCodes) && index < len(plan.Connections)-1 {
-			lastError = fmt.Sprintf("Upstream returned %d", response.StatusCode)
-			_ = response.Body.Close()
+
+		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, plan.Connections[index])
+		if outcome.FatalError != nil {
+			return executionResult{}, outcome.FatalError
+		}
+		if outcome.Skipped {
 			continue
 		}
-		return executionResult{Response: response, Connection: connection, RequestHeaders: headers}, nil
+		if outcome.AdmissionReason != "" {
+			admissionRejections++
+			lastAdmissionReason = outcome.AdmissionReason
+			continue
+		}
+		if outcome.Launched {
+			launchedAttempts++
+			attempts = append(attempts, outcome.Attempt)
+		}
+		if outcome.Err != nil {
+			lastError = outcome.Err.Error()
+			if outcome.Launched && !outcome.SuppressTransportFeedback {
+				if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+					return executionResult{}, feedbackErr
+				}
+			}
+			continue
+		}
+		if outcome.FailoverEligible && outcome.Launched {
+			if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+				_ = outcome.Response.Body.Close()
+				return executionResult{}, feedbackErr
+			}
+		}
+		if outcome.FailoverEligible && index < len(plan.Connections)-1 {
+			lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
+			_ = outcome.Response.Body.Close()
+			continue
+		}
+		if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
+			if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt); feedbackErr != nil {
+				_ = outcome.Response.Body.Close()
+				return executionResult{}, feedbackErr
+			}
+		}
+		return executionResult{Response: outcome.Response, Connection: outcome.Connection, RequestHeaders: outcome.RequestHeaders, AttemptCount: launchedAttempts, Attempts: attempts}, nil
 	}
 
-	if !attemptedAny {
+	if len(plan.Connections) == 0 {
 		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", plan.RequestedModelID)}
+	}
+	if launchedAttempts == 0 && admissionRejections > 0 {
+		detail := fmt.Sprintf("All connections rejected for model '%s' because admission limits are exhausted.", plan.RequestedModelID)
+		if strings.TrimSpace(lastAdmissionReason) != "" {
+			detail = fmt.Sprintf("All connections rejected for model '%s' because admission limit '%s' is exhausted.", plan.RequestedModelID, lastAdmissionReason)
+		}
+		return executionResult{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: detail}
 	}
 	if strings.TrimSpace(lastError) == "" {
 		lastError = "Unknown upstream failure"
@@ -578,7 +637,345 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 	return executionResult{}, &domainError{StatusCode: http.StatusBadGateway, Detail: fmt.Sprintf("All connections failed for model '%s'. Last error: %s", plan.RequestedModelID, lastError)}
 }
 
-func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstreamURL string, headers map[string]string, rawBody []byte) (*http.Response, error) {
+func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy) (hedgedExecutionResult, error) {
+	primary := plan.Connections[startIndex]
+	secondary := plan.Connections[startIndex+1]
+	firstCtx, firstCancel := context.WithCancelCause(ctx)
+	defer firstCancel(nil)
+	results := make(chan hedgedAttemptResult, 2)
+	go func() {
+		results <- hedgedAttemptResult{Order: 0, Outcome: s.executeSingleAttempt(firstCtx, method, plan, requestQuery, primary)}
+	}()
+	inFlight := 1
+	secondStarted := false
+	consumedConnections := 1
+	var secondCancel context.CancelCauseFunc
+	timer := time.NewTimer(hedgePolicy.Delay)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+	launchSecond := func() {
+		if secondStarted {
+			return
+		}
+		secondStarted = true
+		consumedConnections = 2
+		secondCtx, cancel := context.WithCancelCause(ctx)
+		secondCancel = cancel
+		inFlight++
+		go func() {
+			results <- hedgedAttemptResult{Order: 1, Outcome: s.executeSingleAttempt(secondCtx, method, plan, requestQuery, secondary)}
+		}()
+	}
+
+	nonWinningAttempts := make([]executionAttempt, 0, 2)
+	result := hedgedExecutionResult{ConsumedConnections: consumedConnections}
+	var winner *executionOutcome
+
+	for inFlight > 0 {
+		var timerCh <-chan time.Time
+		if !secondStarted && winner == nil {
+			timerCh = timer.C
+		}
+		select {
+		case <-timerCh:
+			launchSecond()
+			result.ConsumedConnections = consumedConnections
+		case attemptResult := <-results:
+			inFlight--
+			outcome := attemptResult.Outcome
+			if outcome.FatalError != nil {
+				if secondCancel != nil {
+					secondCancel(nil)
+				}
+				firstCancel(nil)
+				return hedgedExecutionResult{}, outcome.FatalError
+			}
+			if outcome.Skipped {
+				continue
+			}
+			if outcome.AdmissionReason != "" {
+				result.AdmissionRejections++
+				result.LastAdmissionReason = outcome.AdmissionReason
+				continue
+			}
+			if outcome.Launched {
+				result.LaunchedAttempts++
+			}
+			if winner != nil {
+				if outcome.Response != nil {
+					_ = outcome.Response.Body.Close()
+				}
+				if outcome.Launched {
+					nonWinningAttempts = append(nonWinningAttempts, outcome.Attempt)
+				}
+				continue
+			}
+			if outcome.Err != nil {
+				if outcome.Launched {
+					nonWinningAttempts = append(nonWinningAttempts, outcome.Attempt)
+				}
+				if !outcome.SuppressTransportFeedback {
+					result.LastError = outcome.Err.Error()
+					if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+						return hedgedExecutionResult{}, feedbackErr
+					}
+				}
+				continue
+			}
+			if outcome.FailoverEligible {
+				if outcome.Launched {
+					nonWinningAttempts = append(nonWinningAttempts, outcome.Attempt)
+				}
+				result.LastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
+				if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+					_ = outcome.Response.Body.Close()
+					return hedgedExecutionResult{}, feedbackErr
+				}
+				_ = outcome.Response.Body.Close()
+				continue
+			}
+			winner = &outcome
+			if attemptResult.Order == 0 {
+				if secondCancel != nil {
+					secondCancel(errHedgeLoserCanceled)
+				}
+			} else {
+				firstCancel(errHedgeLoserCanceled)
+			}
+		}
+	}
+
+	result.ConsumedConnections = consumedConnections
+	if winner != nil {
+		result.Winner = winner
+		result.Attempts = append(nonWinningAttempts, winner.Attempt)
+	}
+	return result, nil
+}
+
+func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, connection runtimeConnection) executionOutcome {
+	state := plan.RuntimeStates[connection.ID]
+	admissionReason := loadbalance.AdmissionRejectionReason(
+		state,
+		loadbalance.RuntimeConnectionAdmission{
+			QPSLimit:             connection.QPSLimit,
+			MaxInFlightNonStream: connection.MaxInFlightNonStream,
+			MaxInFlightStream:    connection.MaxInFlightStream,
+		},
+		plan.Strategy.AdmissionPolicy(),
+		plan.IsStreamingRequest,
+		s.nowUTC(),
+	)
+	if admissionReason != "" {
+		if recordErr := s.recordRuntimeAdmissionRejection(ctx, plan.ProfileID, connection.ID, s.nowUTC()); recordErr != nil {
+			return executionOutcome{FatalError: recordErr}
+		}
+		return executionOutcome{Connection: connection, AdmissionReason: admissionReason}
+	}
+	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
+	if err != nil {
+		return executionOutcome{FatalError: err}
+	}
+	upstreamURL, err := buildUpstreamURL(connection.Endpoint.BaseURL, plan.EffectiveRequestPath, requestQuery)
+	if err != nil {
+		return executionOutcome{FatalError: err}
+	}
+	probeLease, err := s.acquireRuntimeProbeLease(ctx, plan.ProfileID, connection.ID, state, s.nowUTC())
+	if err != nil {
+		return executionOutcome{FatalError: err}
+	}
+	if !probeLease.Acquired {
+		return executionOutcome{Connection: connection, Skipped: true}
+	}
+	nonStreamLease, err := s.acquireRuntimeNonStreamLease(ctx, plan.ProfileID, connection, plan.Strategy, plan.IsStreamingRequest, s.nowUTC())
+	if err != nil {
+		if probeLease.Token != "" {
+			if releaseErr := s.releaseRuntimeLeaseDetached(ctx, probeLease.Token); releaseErr != nil {
+				return executionOutcome{FatalError: releaseErr}
+			}
+		}
+		return executionOutcome{FatalError: err}
+	}
+	if !nonStreamLease.Acquired {
+		if probeLease.Token != "" {
+			if releaseErr := s.releaseRuntimeLeaseDetached(ctx, probeLease.Token); releaseErr != nil {
+				return executionOutcome{FatalError: releaseErr}
+			}
+		}
+		if recordErr := s.recordRuntimeAdmissionRejection(ctx, plan.ProfileID, connection.ID, s.nowUTC()); recordErr != nil {
+			return executionOutcome{FatalError: recordErr}
+		}
+		return executionOutcome{Connection: connection, AdmissionReason: "max_in_flight_non_stream"}
+	}
+	attemptStartedAt := s.nowUTC()
+	response, launched, requestErr := s.doUpstreamRequest(ctx, method, upstreamURL, headers, plan.UpstreamBody)
+	if nonStreamLease.Token != "" {
+		if releaseErr := s.releaseRuntimeLeaseDetached(ctx, nonStreamLease.Token); releaseErr != nil {
+			if response != nil {
+				_ = response.Body.Close()
+			}
+			if probeLease.Token != "" {
+				_ = s.releaseRuntimeLeaseDetached(ctx, probeLease.Token)
+			}
+			return executionOutcome{FatalError: releaseErr}
+		}
+	}
+	if probeLease.Token != "" {
+		if releaseErr := s.releaseRuntimeLeaseDetached(ctx, probeLease.Token); releaseErr != nil {
+			if response != nil {
+				_ = response.Body.Close()
+			}
+			return executionOutcome{FatalError: releaseErr}
+		}
+	}
+	outcome := executionOutcome{Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr}
+	if launched {
+		attemptCompletedAt := s.nowUTC()
+		outcome.Attempt = executionAttempt{
+			Connection:     connection,
+			RequestHeaders: cloneStringMap(headers),
+			StatusCode:     http.StatusBadGateway,
+			ResponseTimeMS: durationMilliseconds(attemptCompletedAt.Sub(attemptStartedAt)),
+			CompletedAt:    attemptCompletedAt,
+		}
+		if response != nil {
+			outcome.Attempt.StatusCode = response.StatusCode
+			outcome.Attempt.ResponseHeaders = response.Header.Clone()
+		}
+		if s.isHedgeLoserCancellation(ctx, requestErr) {
+			outcome.Attempt.StatusCode = hedgeCanceledAttemptStatusCode
+			outcome.SuppressTransportFeedback = true
+		}
+	}
+	if requestErr != nil {
+		return outcome
+	}
+	outcome.FailoverEligible = shouldFailover(response.StatusCode, plan.FailoverStatusCodes)
+	outcome.Definitive = !outcome.FailoverEligible
+	return outcome
+}
+
+func (s *Service) isHedgeLoserCancellation(ctx context.Context, err error) bool {
+	return err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), errHedgeLoserCanceled)
+}
+
+func (s *Service) releaseRuntimeLeaseDetached(ctx context.Context, token string) error {
+	releaseCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	return s.releaseRuntimeLease(releaseCtx, token)
+}
+
+func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) error {
+	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+		return true, loadbalance.RecordRuntimeSuccess(feedbackCtx, tx, profileID, connectionID, strategy, responseTimeMS, completedAt)
+	})
+	if err != nil {
+		return fmt.Errorf("persist runtime success feedback: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) recordRuntimeAdmissionRejection(ctx context.Context, profileID int, connectionID int, observedAt time.Time) error {
+	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+		return true, loadbalance.RecordRuntimeAdmissionRejection(feedbackCtx, tx, profileID, connectionID, observedAt)
+	})
+	if err != nil {
+		return fmt.Errorf("persist runtime admission rejection feedback: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+		return true, loadbalance.RecordRuntimeFailoverHTTPFailure(feedbackCtx, tx, profileID, connectionID, strategy, completedAt)
+	})
+	if err != nil {
+		return fmt.Errorf("persist runtime failure feedback: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) recordRuntimeTransportFailure(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+		return true, loadbalance.RecordRuntimeTransportFailure(feedbackCtx, tx, profileID, connectionID, strategy, completedAt)
+	})
+	if err != nil {
+		return fmt.Errorf("persist runtime transport failure feedback: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) acquireRuntimeProbeLease(ctx context.Context, profileID int, connectionID int, state loadbalance.RuntimeConnectionState, observedAt time.Time) (runtimeLeaseResult, error) {
+	if !loadbalance.RequiresHalfOpenProbeLease(state, observedAt) {
+		return runtimeLeaseResult{Acquired: true}, nil
+	}
+	result, err := withTxValue(ctx, s.pool, func(tx pgx.Tx) (runtimeLeaseResult, error) {
+		leaseToken, acquired, leaseErr := loadbalance.TryAcquireRuntimeHalfOpenProbeLease(ctx, tx, profileID, connectionID, observedAt)
+		if leaseErr != nil {
+			return runtimeLeaseResult{}, leaseErr
+		}
+		return runtimeLeaseResult{Token: leaseToken, Acquired: acquired}, nil
+	})
+	if err != nil {
+		return runtimeLeaseResult{}, fmt.Errorf("acquire runtime probe lease: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Service) acquireRuntimeNonStreamLease(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, isStreamingRequest bool, observedAt time.Time) (runtimeLeaseResult, error) {
+	if isStreamingRequest || connection.MaxInFlightNonStream == nil || *connection.MaxInFlightNonStream <= 0 {
+		return runtimeLeaseResult{Acquired: true}, nil
+	}
+	if !strategy.AdmissionPolicy().RespectInFlightLimits {
+		return runtimeLeaseResult{Acquired: true}, nil
+	}
+	result, err := withTxValue(ctx, s.pool, func(tx pgx.Tx) (runtimeLeaseResult, error) {
+		leaseToken, acquired, leaseErr := loadbalance.TryAcquireRuntimeNonStreamLease(ctx, tx, profileID, connection.ID, *connection.MaxInFlightNonStream, observedAt)
+		if leaseErr != nil {
+			return runtimeLeaseResult{}, leaseErr
+		}
+		return runtimeLeaseResult{Token: leaseToken, Acquired: acquired}, nil
+	})
+	if err != nil {
+		return runtimeLeaseResult{}, fmt.Errorf("acquire runtime non-stream lease: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Service) releaseRuntimeLease(ctx context.Context, leaseToken string) error {
+	if strings.TrimSpace(leaseToken) == "" {
+		return nil
+	}
+	releaseCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	_, err := withTxValue(releaseCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+		return true, loadbalance.ReleaseRuntimeLease(releaseCtx, tx, leaseToken)
+	})
+	if err != nil {
+		return fmt.Errorf("release runtime lease: %w", err)
+	}
+	return nil
+}
+
+func runtimeFeedbackContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+}
+
+func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstreamURL string, headers map[string]string, rawBody []byte) (*http.Response, bool, error) {
 	var bodyReader *bytes.Reader
 	if rawBody == nil {
 		bodyReader = bytes.NewReader(nil)
@@ -587,7 +984,7 @@ func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstream
 	}
 	request, err := http.NewRequestWithContext(ctx, method, upstreamURL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
+		return nil, false, fmt.Errorf("build upstream request: %w", err)
 	}
 	for key, value := range headers {
 		request.Header.Set(key, value)
@@ -597,7 +994,8 @@ func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstream
 			request.Header["User-Agent"] = []string{""}
 		}
 	}
-	return s.httpClient.Do(request)
+	response, err := s.httpClient.Do(request)
+	return response, true, err
 }
 
 func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily string, clientHeaders map[string]string, rules []headerBlocklistRule) (map[string]string, error) {
@@ -701,6 +1099,17 @@ func flattenHeaders(header http.Header) map[string]string {
 		flattened[key] = strings.Join(values, ", ")
 	}
 	return flattened
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func normalizeHeaderValue(value string) (string, bool) {

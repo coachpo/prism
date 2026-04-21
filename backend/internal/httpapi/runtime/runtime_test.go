@@ -1,46 +1,12 @@
 package runtime
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 )
-
-func mustRuntimeJSON(t *testing.T, value any) []byte {
-	t.Helper()
-
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal runtime fixture: %v", err)
-	}
-	return raw
-}
-
-func TestResolveFailoverStatusCodes(t *testing.T) {
-	adaptive := runtimeStrategyRecord{
-		StrategyType:     "adaptive",
-		RoutingPolicyRaw: mustRuntimeJSON(t, map[string]any{"circuit_breaker": map[string]any{"failure_status_codes": []int{408, 429}}}),
-	}
-	if got := resolveFailoverStatusCodes(adaptive); !reflect.DeepEqual(got, []int{408, 429}) {
-		t.Fatalf("expected adaptive failover codes, got %v", got)
-	}
-
-	legacy := runtimeStrategyRecord{
-		StrategyType:    "legacy",
-		AutoRecoveryRaw: mustRuntimeJSON(t, map[string]any{"status_codes": []int{500, 503}}),
-	}
-	if got := resolveFailoverStatusCodes(legacy); !reflect.DeepEqual(got, []int{500, 503}) {
-		t.Fatalf("expected legacy failover codes, got %v", got)
-	}
-
-	invalid := runtimeStrategyRecord{StrategyType: "adaptive", RoutingPolicyRaw: []byte("{")}
-	if got := resolveFailoverStatusCodes(invalid); !reflect.DeepEqual(got, defaultFailoverStatusCodes) {
-		t.Fatalf("expected default failover codes on invalid payload, got %v", got)
-	}
-}
 
 func TestModelResolutionAndRewriteHelpers(t *testing.T) {
 	rawBody := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)
