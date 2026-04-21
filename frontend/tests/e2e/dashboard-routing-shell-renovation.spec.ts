@@ -301,4 +301,5 @@ test.describe("dashboard routing shell renovation", () => {
     await routingCard.getByText("Model A").click();
     await expect(page).toHaveURL(/\/models\/101$/);
   });
+
 });
