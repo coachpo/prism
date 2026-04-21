@@ -59,6 +59,7 @@ type requestLogInsert struct {
 	ReportCurrencyCode          *string
 	ReportCurrencySymbol        *string
 	RequestPath                 string
+	ErrorDetail                 *string
 	CreatedAt                   time.Time
 	CallerUserAgent             *string
 	UpstreamUserAgent           *string
@@ -100,7 +101,8 @@ type usageEventInsert struct {
 }
 
 func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseBody []byte) {
-	responseTimeMS := durationMilliseconds(s.nowUTC().Sub(startedAt))
+	requestCompletedAt := s.nowUTC()
+	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
 	usage := extractResponseUsage(responseBody)
 	successFlag := result.Response.StatusCode >= 200 && result.Response.StatusCode <= 299
 	billableFlag, pricedFlag, unpricedReason := billingState(successFlag)
@@ -110,55 +112,86 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 	}
 	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
 	if ingressRequestID == "" {
-		ingressRequestID = fmt.Sprintf("runtime-%d", s.nowUTC().UnixNano())
+		ingressRequestID = fmt.Sprintf("runtime-%d", requestCompletedAt.UnixNano())
 	}
 	proxyKey, _ := managementauth.RuntimeProxyKeyFromContext(request.Context())
-	providerCorrelationID := headerValuePointer(result.Response.Header, "x-request-id", "request-id")
 	callerUserAgent := trimmedStringPointer(request.UserAgent())
-	upstreamUserAgent := headerMapValuePointer(result.RequestHeaders, "User-Agent")
-	createdAt := s.nowUTC()
+	isStream := requestWantsStream(plan.RawRequestBody)
+	attempts := result.Attempts
+	if len(attempts) == 0 {
+		attempts = []executionAttempt{{
+			Connection:      result.Connection,
+			RequestHeaders:  result.RequestHeaders,
+			ResponseHeaders: result.Response.Header.Clone(),
+			StatusCode:      result.Response.StatusCode,
+			ResponseTimeMS:  responseTimeMS,
+			CompletedAt:     requestCompletedAt,
+		}}
+	}
 
-	requestLog := requestLogInsert{
-		ProfileID:                   plan.ProfileID,
-		ModelID:                     plan.RequestedModelID,
-		ResolvedTargetModelID:       plan.ResolvedTargetModelID,
-		APIFamily:                   plan.APIFamily,
-		VendorID:                    plan.RequestedVendorID,
-		VendorKey:                   plan.RequestedVendorKey,
-		VendorName:                  plan.RequestedVendorName,
-		EndpointID:                  result.Connection.Endpoint.ID,
-		ConnectionID:                result.Connection.ID,
-		ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		IngressRequestID:            ingressRequestID,
-		AttemptNumber:               1,
-		ProviderCorrelationID:       providerCorrelationID,
-		EndpointBaseURL:             result.Connection.Endpoint.BaseURL,
-		EndpointDescription:         result.Connection.Endpoint.Name,
-		StatusCode:                  result.Response.StatusCode,
-		ResponseTimeMS:              responseTimeMS,
-		IsStream:                    requestWantsStream(plan.RawRequestBody),
-		InputTokens:                 usage.InputTokens,
-		OutputTokens:                usage.OutputTokens,
-		TotalTokens:                 usage.TotalTokens,
-		SuccessFlag:                 successFlag,
-		BillableFlag:                billableFlag,
-		PricedFlag:                  pricedFlag,
-		UnpricedReason:              unpricedReason,
-		CacheReadInputTokens:        usage.CacheReadInputTokens,
-		CacheCreationInputTokens:    usage.CacheCreationInputTokens,
-		ReasoningTokens:             usage.ReasoningTokens,
-		TotalCostOriginalMicros:     int64Ptr(0),
-		TotalCostUserCurrencyMicros: int64Ptr(0),
-		ReportCurrencyCode:          reportCurrencyCode,
-		ReportCurrencySymbol:        reportCurrencySymbol,
-		RequestPath:                 request.URL.Path,
-		CreatedAt:                   createdAt,
-		CallerUserAgent:             callerUserAgent,
-		UpstreamUserAgent:           upstreamUserAgent,
-		CompletionDurationMS:        nil,
-		TTFTMS:                      nil,
-		AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
+	requestLogs := make([]requestLogInsert, 0, len(attempts))
+	for index, attempt := range attempts {
+		attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299
+		attemptBillableFlag, attemptPricedFlag, attemptUnpricedReason := billingState(attemptSuccess)
+		attemptCreatedAt := attempt.CompletedAt
+		if attemptCreatedAt.IsZero() || index == len(attempts)-1 {
+			attemptCreatedAt = requestCompletedAt
+		}
+		attemptResponseTimeMS := attempt.ResponseTimeMS
+		if attemptResponseTimeMS < 1 || index == len(attempts)-1 {
+			attemptResponseTimeMS = responseTimeMS
+		}
+		requestLog := requestLogInsert{
+			ProfileID:                   plan.ProfileID,
+			ModelID:                     plan.RequestedModelID,
+			ResolvedTargetModelID:       plan.ResolvedTargetModelID,
+			APIFamily:                   plan.APIFamily,
+			VendorID:                    plan.RequestedVendorID,
+			VendorKey:                   plan.RequestedVendorKey,
+			VendorName:                  plan.RequestedVendorName,
+			EndpointID:                  attempt.Connection.Endpoint.ID,
+			ConnectionID:                attempt.Connection.ID,
+			ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
+			ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
+			IngressRequestID:            ingressRequestID,
+			AttemptNumber:               index + 1,
+			ProviderCorrelationID:       headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
+			EndpointBaseURL:             attempt.Connection.Endpoint.BaseURL,
+			EndpointDescription:         attempt.Connection.Endpoint.Name,
+			StatusCode:                  attempt.StatusCode,
+			ResponseTimeMS:              attemptResponseTimeMS,
+			IsStream:                    isStream,
+			SuccessFlag:                 attemptSuccess,
+			BillableFlag:                attemptBillableFlag,
+			PricedFlag:                  attemptPricedFlag,
+			UnpricedReason:              attemptUnpricedReason,
+			TotalCostOriginalMicros:     int64Ptr(0),
+			TotalCostUserCurrencyMicros: int64Ptr(0),
+			ReportCurrencyCode:          reportCurrencyCode,
+			ReportCurrencySymbol:        reportCurrencySymbol,
+			RequestPath:                 request.URL.Path,
+			ErrorDetail:                 nil,
+			CreatedAt:                   attemptCreatedAt,
+			CallerUserAgent:             callerUserAgent,
+			UpstreamUserAgent:           headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
+			CompletionDurationMS:        nil,
+			TTFTMS:                      nil,
+			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
+		}
+		if index == len(attempts)-1 {
+			requestLog.InputTokens = usage.InputTokens
+			requestLog.OutputTokens = usage.OutputTokens
+			requestLog.TotalTokens = usage.TotalTokens
+			requestLog.CacheReadInputTokens = usage.CacheReadInputTokens
+			requestLog.CacheCreationInputTokens = usage.CacheCreationInputTokens
+			requestLog.ReasoningTokens = usage.ReasoningTokens
+		}
+		requestLogs = append(requestLogs, requestLog)
+	}
+
+	attemptCount := len(requestLogs)
+	if attemptCount < 1 {
+		attemptCount = 1
 	}
 	usageEvent := usageEventInsert{
 		ProfileID:                   plan.ProfileID,
@@ -184,14 +217,14 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 		TotalCostUserCurrencyMicros: int64Ptr(0),
 		ReportCurrencyCode:          reportCurrencyCode,
 		ReportCurrencySymbol:        reportCurrencySymbol,
-		AttemptCount:                1,
+		AttemptCount:                attemptCount,
 		RequestPath:                 request.URL.Path,
-		CreatedAt:                   createdAt,
+		CreatedAt:                   requestCompletedAt,
 		ResponseTimeMS:              intPtr(responseTimeMS),
 		CompletionDurationMS:        nil,
 		TTFTMS:                      nil,
 	}
-	requestLogID, err := s.insertRequestLogAndUsageEvent(ctx, requestLog, usageEvent)
+	requestLogID, err := s.insertRequestLogsAndUsageEvent(ctx, requestLogs, usageEvent)
 	if err != nil {
 		return
 	}
@@ -201,55 +234,58 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 	_, _ = s.dashboardUpdates.PublishDashboardUpdate(ctx, requestLogID, plan.ProfileID)
 }
 
-func (s *Service) insertRequestLogAndUsageEvent(ctx context.Context, requestLog requestLogInsert, usageEvent usageEventInsert) (int, error) {
+func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLogs []requestLogInsert, usageEvent usageEventInsert) (int, error) {
 	return withTxValue(ctx, s.pool, func(tx pgx.Tx) (int, error) {
 		var requestLogID int
-		err := tx.QueryRow(
-			ctx,
-			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_original_micros, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40) RETURNING id`,
-			requestLog.ProfileID,
-			requestLog.ModelID,
-			nullableStringArg(requestLog.ResolvedTargetModelID),
-			requestLog.APIFamily,
-			nullableIntArg(requestLog.VendorID),
-			nullableStringArg(requestLog.VendorKey),
-			nullableStringArg(requestLog.VendorName),
-			requestLog.EndpointID,
-			requestLog.ConnectionID,
-			nullableIntArg(requestLog.ProxyAPIKeyID),
-			nullableStringArg(requestLog.ProxyAPIKeyNameSnapshot),
-			requestLog.IngressRequestID,
-			requestLog.AttemptNumber,
-			nullableStringArg(requestLog.ProviderCorrelationID),
-			requestLog.EndpointBaseURL,
-			requestLog.StatusCode,
-			requestLog.ResponseTimeMS,
-			requestLog.IsStream,
-			nullableIntArg(requestLog.InputTokens),
-			nullableIntArg(requestLog.OutputTokens),
-			nullableIntArg(requestLog.TotalTokens),
-			requestLog.SuccessFlag,
-			nullableBoolArg(requestLog.BillableFlag),
-			nullableBoolArg(requestLog.PricedFlag),
-			nullableStringArg(requestLog.UnpricedReason),
-			nullableIntArg(requestLog.CacheReadInputTokens),
-			nullableIntArg(requestLog.CacheCreationInputTokens),
-			nullableIntArg(requestLog.ReasoningTokens),
-			nullableInt64Arg(requestLog.TotalCostOriginalMicros),
-			nullableInt64Arg(requestLog.TotalCostUserCurrencyMicros),
-			nullableStringArg(requestLog.ReportCurrencyCode),
-			nullableStringArg(requestLog.ReportCurrencySymbol),
-			requestLog.RequestPath,
-			nullableStringArg(requestLog.EndpointDescription),
-			requestLog.CreatedAt,
-			nullableStringArg(requestLog.CallerUserAgent),
-			nullableStringArg(requestLog.UpstreamUserAgent),
-			nullableIntArg(requestLog.CompletionDurationMS),
-			nullableIntArg(requestLog.TTFTMS),
-			requestLog.AuditEnabledAtRequest,
-		).Scan(&requestLogID)
-		if err != nil {
-			return 0, fmt.Errorf("insert request log: %w", err)
+		for _, requestLog := range requestLogs {
+			err := tx.QueryRow(
+				ctx,
+				`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_original_micros, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41) RETURNING id`,
+				requestLog.ProfileID,
+				requestLog.ModelID,
+				nullableStringArg(requestLog.ResolvedTargetModelID),
+				requestLog.APIFamily,
+				nullableIntArg(requestLog.VendorID),
+				nullableStringArg(requestLog.VendorKey),
+				nullableStringArg(requestLog.VendorName),
+				requestLog.EndpointID,
+				requestLog.ConnectionID,
+				nullableIntArg(requestLog.ProxyAPIKeyID),
+				nullableStringArg(requestLog.ProxyAPIKeyNameSnapshot),
+				requestLog.IngressRequestID,
+				requestLog.AttemptNumber,
+				nullableStringArg(requestLog.ProviderCorrelationID),
+				requestLog.EndpointBaseURL,
+				requestLog.StatusCode,
+				requestLog.ResponseTimeMS,
+				requestLog.IsStream,
+				nullableIntArg(requestLog.InputTokens),
+				nullableIntArg(requestLog.OutputTokens),
+				nullableIntArg(requestLog.TotalTokens),
+				requestLog.SuccessFlag,
+				nullableBoolArg(requestLog.BillableFlag),
+				nullableBoolArg(requestLog.PricedFlag),
+				nullableStringArg(requestLog.UnpricedReason),
+				nullableIntArg(requestLog.CacheReadInputTokens),
+				nullableIntArg(requestLog.CacheCreationInputTokens),
+				nullableIntArg(requestLog.ReasoningTokens),
+				nullableInt64Arg(requestLog.TotalCostOriginalMicros),
+				nullableInt64Arg(requestLog.TotalCostUserCurrencyMicros),
+				nullableStringArg(requestLog.ReportCurrencyCode),
+				nullableStringArg(requestLog.ReportCurrencySymbol),
+				requestLog.RequestPath,
+				nullableStringArg(requestLog.ErrorDetail),
+				nullableStringArg(requestLog.EndpointDescription),
+				requestLog.CreatedAt,
+				nullableStringArg(requestLog.CallerUserAgent),
+				nullableStringArg(requestLog.UpstreamUserAgent),
+				nullableIntArg(requestLog.CompletionDurationMS),
+				nullableIntArg(requestLog.TTFTMS),
+				requestLog.AuditEnabledAtRequest,
+			).Scan(&requestLogID)
+			if err != nil {
+				return 0, fmt.Errorf("insert request log: %w", err)
+			}
 		}
 		if _, err := tx.Exec(
 			ctx,

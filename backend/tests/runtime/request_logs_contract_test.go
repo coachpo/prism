@@ -160,6 +160,56 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 	if !auditEnabledAtRequest {
 		t.Fatalf("expected runtime request log to persist audit_enabled_at_request=true for audit-enabled executed vendor")
 	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+}
+
+func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "runtime-request-log-fill-first-" + suffix
+	targetModelID := "runtime-request-log-target-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-runtime-request-log-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, profileID, "runtime-request-log-fill-first-"+suffix, "fill-first")
+	targetModelConfigID := harness.seedModel(t, profileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-primary-endpoint-"+suffix, primaryUpstream.baseURL("/request-logs/fill-first/primary"), "runtime-request-log-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, profileID, "runtime-request-log-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/request-logs/fill-first/secondary"), "runtime-request-log-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, primaryEndpointID, "runtime-request-log-primary-connection-"+suffix, nil, nil, 0)
+	secondaryConnectionID := harness.seedConnection(t, profileID, targetModelConfigID, secondaryEndpointID, "runtime-request-log-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "persist failover attempt counts"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected primary upstream to receive one failover attempt, got %d requests", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected secondary upstream to receive one failover attempt, got %d requests", got)
+	}
+	assertLatestRuntimeAttemptSequence(t, harness.conn, profileID, []runtimeRequestLogAttempt{{
+		AttemptNumber: 1,
+		ConnectionID:  primaryConnectionID,
+		EndpointID:    primaryEndpointID,
+		StatusCode:    http.StatusServiceUnavailable,
+		SuccessFlag:   false,
+	}, {
+		AttemptNumber: 2,
+		ConnectionID:  secondaryConnectionID,
+		EndpointID:    secondaryEndpointID,
+		StatusCode:    http.StatusOK,
+		SuccessFlag:   true,
+	}})
 }
 
 func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
@@ -314,6 +364,117 @@ func assertLatestRequestLogUsage(t *testing.T, conn *pgx.Conn, profileID int, ex
 	}
 	if !inputTokens.Valid || inputTokens.Int64 != wantInput || !outputTokens.Valid || outputTokens.Int64 != wantOutput || !totalTokens.Valid || totalTokens.Int64 != wantTotal {
 		t.Fatalf("expected streamed usage %d/%d/%d, got input=%+v output=%+v total=%+v", wantInput, wantOutput, wantTotal, inputTokens, outputTokens, totalTokens)
+	}
+}
+
+type runtimeRequestLogAttempt struct {
+	AttemptNumber int
+	ConnectionID  int
+	EndpointID    int
+	StatusCode    int
+	SuccessFlag   bool
+}
+
+func loadLatestRuntimeIngressRequestID(t *testing.T, conn *pgx.Conn, profileID int) string {
+	t.Helper()
+	var ingressRequestID string
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT ingress_request_id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+		profileID,
+	).Scan(&ingressRequestID); err != nil {
+		t.Fatalf("load latest runtime ingress request id: %v", err)
+	}
+	return ingressRequestID
+}
+
+func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID int, wantRequestLogAttempt int, wantUsageEventAttempt int) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+
+	rows, err := conn.Query(
+		context.Background(),
+		`SELECT attempt_number FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number ASC, id ASC`,
+		profileID,
+		ingressRequestID,
+	)
+	if err != nil {
+		t.Fatalf("query runtime request-log attempts: %v", err)
+	}
+	defer rows.Close()
+
+	attemptNumbers := make([]int, 0)
+	for rows.Next() {
+		var attemptNumber int
+		if err := rows.Scan(&attemptNumber); err != nil {
+			t.Fatalf("scan runtime request-log attempt number: %v", err)
+		}
+		attemptNumbers = append(attemptNumbers, attemptNumber)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate runtime request-log attempt numbers: %v", err)
+	}
+	if len(attemptNumbers) != wantRequestLogAttempt {
+		t.Fatalf("expected %d request_logs rows for ingress_request_id %q, got %v", wantRequestLogAttempt, ingressRequestID, attemptNumbers)
+	}
+	for index, attemptNumber := range attemptNumbers {
+		wantAttemptNumber := index + 1
+		if attemptNumber != wantAttemptNumber {
+			t.Fatalf("expected request_logs attempt_number sequence %d..%d, got %v", 1, wantRequestLogAttempt, attemptNumbers)
+		}
+	}
+
+	var usageEventCount int
+	var usageEventAttempt int
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT COUNT(*), COALESCE(MAX(attempt_count), 0) FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2`,
+		profileID,
+		ingressRequestID,
+	).Scan(&usageEventCount, &usageEventAttempt); err != nil {
+		t.Fatalf("load runtime usage-event attempt count: %v", err)
+	}
+	if usageEventCount != 1 {
+		t.Fatalf("expected exactly 1 usage_request_events row for ingress_request_id %q, got %d", ingressRequestID, usageEventCount)
+	}
+	if usageEventAttempt != wantUsageEventAttempt {
+		t.Fatalf("expected usage_request_events attempt_count=%d, got %d", wantUsageEventAttempt, usageEventAttempt)
+	}
+}
+
+func assertLatestRuntimeAttemptSequence(t *testing.T, conn *pgx.Conn, profileID int, want []runtimeRequestLogAttempt) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+
+	rows, err := conn.Query(
+		context.Background(),
+		`SELECT attempt_number, connection_id, endpoint_id, status_code, success_flag FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number ASC, id ASC`,
+		profileID,
+		ingressRequestID,
+	)
+	if err != nil {
+		t.Fatalf("query runtime request-log attempt sequence: %v", err)
+	}
+	defer rows.Close()
+
+	got := make([]runtimeRequestLogAttempt, 0, len(want))
+	for rows.Next() {
+		var attempt runtimeRequestLogAttempt
+		if err := rows.Scan(&attempt.AttemptNumber, &attempt.ConnectionID, &attempt.EndpointID, &attempt.StatusCode, &attempt.SuccessFlag); err != nil {
+			t.Fatalf("scan runtime request-log attempt sequence: %v", err)
+		}
+		got = append(got, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate runtime request-log attempt sequence: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d request-log attempt rows for ingress_request_id %q, got %+v", len(want), ingressRequestID, got)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("expected request-log attempt sequence %+v for ingress_request_id %q, got %+v", want, ingressRequestID, got)
+		}
 	}
 }
 
