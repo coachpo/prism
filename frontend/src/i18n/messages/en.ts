@@ -71,7 +71,6 @@ export interface Messages {
     noRecentActivityDescription: string;
     noSpendingData: string;
     noSpendingDataDescription: string;
-    openStatistics: string;
     overviewTab: string;
     performanceSnapshot: string;
     performanceSnapshotDescription: string;
@@ -145,7 +144,6 @@ export interface Messages {
     pricingTemplates: string;
     requestLogs: string;
     settings: string;
-    statistics: string;
   };
   loadbalanceStrategyDialog: {
     addTitle: string;
@@ -1515,7 +1513,6 @@ export interface Messages {
     successRate: string;
     specialTokens: string;
     statisticsDescription: string;
-    statisticsTitle: string;
     topHttpErrors: string;
     timeWindow: string;
     timeWindowTotal: (seconds: string) => string;
@@ -1621,7 +1618,6 @@ export const enMessages: Messages = {
     noSpendingDataDescription: "Cost data will appear here once requests are priced.",
     noApiFamilyActivity: "No API family activity",
     noApiFamilyActivityDescription: "API family request distribution appears after traffic is processed.",
-    openStatistics: "Open Statistics",
     overviewTab: "Overview",
     performanceSnapshot: "Performance Snapshot",
     performanceSnapshotDescription: "Current operational profile (24h)",
@@ -1702,7 +1698,6 @@ export const enMessages: Messages = {
     pricingTemplates: "Pricing Templates",
     requestLogs: "Request Logs",
     settings: "Settings",
-    statistics: "Statistics",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
@@ -3113,7 +3108,6 @@ export const enMessages: Messages = {
     successRate: "Success Rate",
     specialTokens: "Special Tokens",
     statisticsDescription: "One request-based usage snapshot across requests, tokens, cost, endpoints, models, and proxy API keys.",
-    statisticsTitle: "Usage Statistics",
     tokenTypeBreakdownTitle: "Token Type Breakdown",
     tokenUsageTrendsTitle: "Token Usage Trends",
     topHttpErrors: "Top HTTP Errors",
@@ -3136,7 +3130,7 @@ export const enMessages: Messages = {
     unpricedBreakdown: "Unpriced Breakdown",
     unknownProxyApiKey: "No proxy API key",
     usageAndCost: "Usage & Cost",
-    usageStatisticsPagePlaceholder: "Usage statistics page placeholder",
+    usageStatisticsPagePlaceholder: "Usage statistics loading state",
     performance: "Performance",
     requestOutcomeOverTime: "Request Outcome Over Time",
   },
