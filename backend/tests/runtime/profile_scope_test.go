@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -38,6 +39,7 @@ type testPostgresHarness struct {
 }
 
 type runtimeHarness struct {
+	databaseName    string
 	client          *http.Client
 	conn            *pgx.Conn
 	authService     *managementauth.Service
@@ -66,6 +68,31 @@ type runtimeRouteSeed struct {
 	CustomHeaders   map[string]any
 }
 
+type runtimeStateSeed struct {
+	ProfileID           int
+	ConnectionID        int
+	ConsecutiveFailures int
+	LastFailureKind     *string
+	LastCooldownSeconds float64
+	MaxCooldownStrikes  int
+	BanMode             string
+	BannedUntilAt       *time.Time
+	BlockedUntilAt      *time.Time
+	ProbeAvailableAt    *time.Time
+	WindowStartedAt     *time.Time
+	WindowRequestCount  int
+	InFlightNonStream   int
+	InFlightStream      int
+	ProbeEligibleLogged bool
+	CircuitState        string
+	LiveP95LatencyMS    *int
+	LastLiveFailureKind *string
+	LastLiveFailureAt   *time.Time
+	LastLiveSuccessAt   *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
 type upstreamRequestSnapshot struct {
 	Method  string
 	URL     string
@@ -79,6 +106,28 @@ type upstreamRecorder struct {
 	server   *httptest.Server
 	mu       sync.Mutex
 	requests []upstreamRequestSnapshot
+}
+
+type scriptedUpstream struct {
+	server       *httptest.Server
+	mu           sync.Mutex
+	requests     []upstreamRequestSnapshot
+	statusCode   int
+	responseBody map[string]any
+}
+
+type blockingScriptedUpstream struct {
+	server       *httptest.Server
+	mu           sync.Mutex
+	requests     []upstreamRequestSnapshot
+	statusCode   int
+	responseBody map[string]any
+	waitFor      int
+	arrived      int
+	ready        chan struct{}
+	release      chan struct{}
+	readyOnce    sync.Once
+	releaseOnce  sync.Once
 }
 
 func TestMain(m *testing.M) {
@@ -364,6 +413,1324 @@ func TestRuntimeUserAgentRuleMerge(t *testing.T) {
 	}
 }
 
+func TestRuntimeLoadBalanceSkipsBlockedConnection(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-blocked-" + suffix
+	targetModelID := "native-loadbalance-blocked-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-loadbalance-blocked-"+suffix, "round-robin")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	blockedEndpointKey := "blocked-upstream-key"
+	eligibleEndpointKey := "eligible-upstream-key"
+	blockedEndpointID := harness.seedEndpoint(t, activeProfileID, "blocked-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/blocked"), blockedEndpointKey, 0)
+	eligibleEndpointID := harness.seedEndpoint(t, activeProfileID, "eligible-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/eligible"), eligibleEndpointKey, 1)
+	blockedConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, blockedEndpointID, "blocked-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, eligibleEndpointID, "eligible-connection-"+suffix, nil, nil, 1)
+	blockedUntilAt := time.Now().UTC().Add(10 * time.Minute)
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:      activeProfileID,
+		ConnectionID:   blockedConnectionID,
+		BanMode:        "off",
+		BlockedUntilAt: &blockedUntilAt,
+		CircuitState:   "open",
+	})
+
+	harness.upstream.clear()
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "blocked connection skip"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	upstreamRequest := harness.upstream.lastRequest(t)
+	if upstreamRequest.Path != "/loadbalance/eligible/v1/chat/completions" {
+		t.Fatalf("expected runtime to skip blocked connection and use eligible path, got %s", upstreamRequest.Path)
+	}
+	if upstreamRequest.Headers.Get("Authorization") != "Bearer "+eligibleEndpointKey {
+		t.Fatalf("expected runtime to use eligible upstream key, got %q", upstreamRequest.Headers.Get("Authorization"))
+	}
+	if requestModelID(t, upstreamRequest.Body) != targetModelID {
+		t.Fatalf("expected upstream body model %q, got %q", targetModelID, requestModelID(t, upstreamRequest.Body))
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, blockedConnectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 loadbalance event for blocked skip, got %+v", events)
+	}
+	if events[0].EventType != "opened" {
+		t.Fatalf("expected opened loadbalance event for blocked skip, got %+v", events[0])
+	}
+	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != blockedEndpointID {
+		t.Fatalf("expected blocked skip event model/endpoint snapshot %q/%d, got %+v", targetModelID, blockedEndpointID, events[0])
+	}
+}
+
+func TestRuntimeLoadBalancePrefersProxyTargetWithEligibleConnection(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-target-" + suffix
+	blockedTargetModelID := "native-loadbalance-target-blocked-" + suffix
+	eligibleTargetModelID := "native-loadbalance-target-eligible-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-loadbalance-targets-"+suffix, "round-robin")
+	blockedTargetModelConfigID := harness.seedModel(t, activeProfileID, "openai", blockedTargetModelID, "native", &strategyID)
+	eligibleTargetModelConfigID := harness.seedModel(t, activeProfileID, "openai", eligibleTargetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, blockedTargetModelConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, eligibleTargetModelConfigID, 1)
+	blockedEndpointID := harness.seedEndpoint(t, activeProfileID, "blocked-target-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/target-blocked"), "blocked-target-key", 0)
+	eligibleEndpointID := harness.seedEndpoint(t, activeProfileID, "eligible-target-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/target-eligible"), "eligible-target-key", 1)
+	blockedConnectionID := harness.seedConnection(t, activeProfileID, blockedTargetModelConfigID, blockedEndpointID, "blocked-target-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, eligibleTargetModelConfigID, eligibleEndpointID, "eligible-target-connection-"+suffix, nil, nil, 0)
+	bannedUntilAt := time.Now().UTC().Add(15 * time.Minute)
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:     activeProfileID,
+		ConnectionID:  blockedConnectionID,
+		BanMode:       "temporary",
+		BannedUntilAt: &bannedUntilAt,
+		CircuitState:  "closed",
+	})
+
+	harness.upstream.clear()
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "proxy target eligibility"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	upstreamRequest := harness.upstream.lastRequest(t)
+	if upstreamRequest.Path != "/loadbalance/target-eligible/v1/chat/completions" {
+		t.Fatalf("expected runtime to skip ineligible proxy target and use eligible path, got %s", upstreamRequest.Path)
+	}
+	if requestModelID(t, upstreamRequest.Body) != eligibleTargetModelID {
+		t.Fatalf("expected upstream body model %q, got %q", eligibleTargetModelID, requestModelID(t, upstreamRequest.Body))
+	}
+}
+
+func TestRuntimeAdmissionSkipsQPSExhaustedConnectionBeforeLaunch(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-admission-qps-" + suffix
+	targetModelID := "native-loadbalance-admission-qps-" + suffix
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-loadbalance-admission-qps-"+suffix)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	rejectedEndpointID := harness.seedEndpoint(t, activeProfileID, "admission-qps-rejected-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/admission/qps-rejected"), "admission-qps-rejected-key", 0)
+	eligibleEndpointID := harness.seedEndpoint(t, activeProfileID, "admission-qps-eligible-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/admission/qps-eligible"), "admission-qps-eligible-key", 1)
+	rejectedConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, rejectedEndpointID, "admission-qps-rejected-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, eligibleEndpointID, "admission-qps-eligible-connection-"+suffix, nil, nil, 1)
+	qpsLimit := 1
+	harness.updateConnectionAdmissionLimits(t, rejectedConnectionID, &qpsLimit, nil, nil)
+	windowStartedAt := time.Now().UTC()
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:          activeProfileID,
+		ConnectionID:       rejectedConnectionID,
+		WindowStartedAt:    &windowStartedAt,
+		WindowRequestCount: 1,
+		CircuitState:       "closed",
+	})
+
+	harness.upstream.clear()
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "qps admission skip"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	requests := harness.upstream.requestsSnapshot()
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly one upstream request after admission skip fallback, got %d", len(requests))
+	}
+	if requests[0].Path != "/loadbalance/admission/qps-eligible/v1/chat/completions" {
+		t.Fatalf("expected runtime to skip QPS-exhausted connection and use eligible path, got %s", requests[0].Path)
+	}
+	if requestModelID(t, requests[0].Body) != targetModelID {
+		t.Fatalf("expected fallback upstream body model %q, got %q", targetModelID, requestModelID(t, requests[0].Body))
+	}
+}
+
+func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-admission-all-rejected-" + suffix
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-loadbalance-admission-all-rejected-"+suffix)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", "native-loadbalance-admission-all-rejected-"+suffix, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "admission-all-rejected-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/admission/all-rejected"), "admission-all-rejected-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "admission-all-rejected-connection-"+suffix, nil, nil, 0)
+	maxInFlightNonStream := 1
+	harness.updateConnectionAdmissionLimits(t, connectionID, nil, &maxInFlightNonStream, nil)
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:         activeProfileID,
+		ConnectionID:      connectionID,
+		InFlightNonStream: 1,
+		CircuitState:      "closed",
+	})
+
+	harness.upstream.clear()
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "all admission rejected"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	detail, _ := payload["detail"].(string)
+	if !strings.Contains(detail, "admission limit 'max_in_flight_non_stream'") {
+		t.Fatalf("expected deterministic admission rejection detail, got %+v", payload)
+	}
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected no upstream attempts when all connections are admission-rejected, got %d", got)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected one loadbalance event for admission rejection, got %d: %+v", len(events), events)
+	}
+	if events[0].EventType != "not_opened" {
+		t.Fatalf("expected not_opened loadbalance event for admission rejection, got %+v", events[0])
+	}
+	if events[0].FailureKind.Valid || events[0].ConsecutiveFailures != 0 || events[0].CooldownSeconds != 0 {
+		t.Fatalf("expected admission rejection event to stay sparse, got %+v", events[0])
+	}
+}
+
+func TestRuntimeLoadBalanceSingleDoesNotFailOverAfterPrimaryFailure(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-single-" + suffix
+	targetModelID := "native-loadbalance-single-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "single primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-single-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-loadbalance-single-"+suffix, "single")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "single-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/single/primary"), "single-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "single-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/single/secondary"), "single-secondary-key", 1)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "single-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "single-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "single no failover"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected single strategy to call the primary upstream once, got %d requests", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected single strategy to avoid secondary failover, got %d requests", got)
+	}
+}
+
+func TestRuntimeLoadBalanceFillFirstFailsOverToNextEligibleConnection(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-fill-first-" + suffix
+	targetModelID := "native-loadbalance-fill-first-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "fill-first primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-fill-first-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-loadbalance-fill-first-"+suffix, "fill-first")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "fill-first-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/fill-first/primary"), "fill-first-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "fill-first-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/fill-first/secondary"), "fill-first-secondary-key", 1)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "fill-first-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "fill-first-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "fill-first failover"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-fill-first-secondary")
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected fill-first strategy to call the primary upstream once, got %d requests", got)
+	}
+	secondaryRequests := secondaryUpstream.requestsSnapshot()
+	if len(secondaryRequests) != 1 {
+		t.Fatalf("expected fill-first strategy to fail over to the secondary upstream once, got %d requests", len(secondaryRequests))
+	}
+	if requestModelID(t, secondaryRequests[0].Body) != targetModelID {
+		t.Fatalf("expected fill-first failover body model %q, got %q", targetModelID, requestModelID(t, secondaryRequests[0].Body))
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
+}
+
+func TestRuntimeBudgetUsesOneOverallDeadlineAcrossAttempts(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-budget-" + suffix
+	targetModelID := "native-loadbalance-budget-" + suffix
+	requestBudget := 500 * time.Millisecond
+	primaryDelay := 250 * time.Millisecond
+	secondaryStarted := make(chan struct{}, 1)
+
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-time.After(primaryDelay)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "budget primary unavailable"})
+	}))
+	t.Cleanup(primaryUpstream.Close)
+	secondaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case secondaryStarted <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(2 * time.Second):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-budget-secondary"})
+		}
+	}))
+	t.Cleanup(secondaryUpstream.Close)
+
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-loadbalance-budget-"+suffix, "fill-first")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "budget-primary-endpoint-"+suffix, primaryUpstream.URL+"/loadbalance/budget/primary", "budget-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "budget-secondary-endpoint-"+suffix, secondaryUpstream.URL+"/loadbalance/budget/secondary", "budget-secondary-key", 1)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "budget-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "budget-secondary-connection-"+suffix, nil, nil, 1)
+
+	rawBody, err := json.Marshal(map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "shared request budget"}},
+		"model":    publicModelID,
+	})
+	if err != nil {
+		t.Fatalf("marshal runtime budget request: %v", err)
+	}
+	budgetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), requestBudget)
+		defer cancel()
+		harness.server.Config.Handler.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	defer budgetServer.Close()
+	budgetClient := budgetServer.Client()
+	request, err := http.NewRequest(http.MethodPost, budgetServer.URL+"/v1/chat/completions", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("build runtime budget request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	startedAt := time.Now()
+	response, err := budgetClient.Do(request)
+	elapsed := time.Since(startedAt)
+	if err != nil {
+		t.Fatalf("perform runtime budget request: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusBadGateway {
+		body := readResponseBody(t, response)
+		t.Fatalf("expected overall deadline exhaustion to surface as 502 after failover, got status %d body %s", response.StatusCode, body)
+	}
+	if elapsed > requestBudget+(250*time.Millisecond) {
+		t.Fatalf("expected runtime request to stay within one overall budget, took %s for a %s budget", elapsed, requestBudget)
+	}
+
+	select {
+	case <-secondaryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected secondary upstream attempt to start before the overall request deadline")
+	}
+}
+
+func TestRuntimeLoadBalanceConcurrentRoundRobinRequestsUseDistinctCursorClaims(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-concurrent-round-robin-" + suffix
+	targetModelID := "native-loadbalance-concurrent-round-robin-" + suffix
+	firstUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-concurrent-round-robin-first"})
+	secondUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-concurrent-round-robin-second"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-loadbalance-concurrent-round-robin-"+suffix, "round-robin")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	firstEndpointID := harness.seedEndpoint(t, activeProfileID, "concurrent-round-robin-first-endpoint-"+suffix, firstUpstream.baseURL("/loadbalance/concurrent/round-robin/first"), "concurrent-round-robin-first-key", 0)
+	secondEndpointID := harness.seedEndpoint(t, activeProfileID, "concurrent-round-robin-second-endpoint-"+suffix, secondUpstream.baseURL("/loadbalance/concurrent/round-robin/second"), "concurrent-round-robin-second-key", 1)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, firstEndpointID, "concurrent-round-robin-first-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondEndpointID, "concurrent-round-robin-second-connection-"+suffix, nil, nil, 1)
+
+	results := executeConcurrentRuntimeJSONRequests(t, harness, 8, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "concurrent round-robin cursor claims"}},
+		"model":    publicModelID,
+	}, nil)
+	for _, result := range results {
+		if result.Err != nil {
+			t.Fatalf("expected concurrent round-robin request to succeed, got error: %v", result.Err)
+		}
+		if result.StatusCode != http.StatusOK {
+			t.Fatalf("expected concurrent round-robin request status 200, got %d with body %s", result.StatusCode, result.Body)
+		}
+	}
+
+	firstRequests := firstUpstream.requestsSnapshot()
+	secondRequests := secondUpstream.requestsSnapshot()
+	if len(firstRequests) != 4 || len(secondRequests) != 4 {
+		t.Fatalf("expected concurrent round-robin requests to split evenly across both upstreams, got first=%d second=%d", len(firstRequests), len(secondRequests))
+	}
+	for _, request := range append(firstRequests, secondRequests...) {
+		if got := requestModelID(t, request.Body); got != targetModelID {
+			t.Fatalf("expected concurrent round-robin request model %q, got %q", targetModelID, got)
+		}
+	}
+	if nextCursor := loadRoundRobinNextCursor(t, harness.conn, activeProfileID, targetModelConfigID); nextCursor != 0 {
+		t.Fatalf("expected concurrent round-robin next_cursor to wrap to 0 after 8 claims, got %d", nextCursor)
+	}
+}
+
+func TestRuntimeLoadBalanceConcurrentFailoverRequestsAccumulateRuntimeState(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-concurrent-failover-" + suffix
+	targetModelID := "native-loadbalance-concurrent-failover-" + suffix
+	primaryUpstream := newBlockingScriptedUpstream(t, 2, http.StatusServiceUnavailable, map[string]any{"error": "concurrent failover primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-concurrent-failover-secondary"})
+	autoRecovery := `{"mode":"enabled","status_codes":[503],"cooldown":{"base_seconds":60,"failure_threshold":1,"backoff_multiplier":2.0,"max_cooldown_seconds":900},"ban":{"mode":"off","max_cooldown_strikes_before_ban":0,"ban_duration_seconds":0}}`
+	strategyID := harness.seedLegacyStrategyWithAutoRecovery(t, activeProfileID, "runtime-loadbalance-concurrent-failover-"+suffix, "fill-first", autoRecovery)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "concurrent-failover-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/concurrent/failover/primary"), "concurrent-failover-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "concurrent-failover-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/concurrent/failover/secondary"), "concurrent-failover-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "concurrent-failover-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "concurrent-failover-secondary-connection-"+suffix, nil, nil, 1)
+
+	resultCh := make(chan []concurrentRuntimeRequestResult, 1)
+	go func() {
+		resultCh <- executeConcurrentRuntimeJSONRequests(t, harness, 2, http.MethodPost, "/v1/chat/completions", map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "concurrent failover feedback mutation"}},
+			"model":    publicModelID,
+		}, nil)
+	}()
+	primaryUpstream.waitUntilReady(t, 5*time.Second)
+	primaryUpstream.releaseRequests()
+	results := <-resultCh
+	for _, result := range results {
+		if result.Err != nil {
+			t.Fatalf("expected concurrent failover request to succeed, got error: %v", result.Err)
+		}
+		if result.StatusCode != http.StatusOK {
+			t.Fatalf("expected concurrent failover request status 200, got %d with body %s", result.StatusCode, result.Body)
+		}
+	}
+
+	if got := len(primaryUpstream.requestsSnapshot()); got != 2 {
+		t.Fatalf("expected concurrent failover requests to launch the shared primary twice before fallback, got %d requests", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 2 {
+		t.Fatalf("expected concurrent failover requests to reach the shared secondary twice, got %d requests", got)
+	}
+	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	if failureState.ConsecutiveFailures != 2 || failureState.CircuitState != "open" {
+		t.Fatalf("expected concurrent failover feedback to accumulate two failures on the shared runtime row, got %+v", failureState)
+	}
+	if !failureState.LastFailureKind.Valid || failureState.LastFailureKind.String != "transient_http" || !failureState.LastLiveFailureKind.Valid || failureState.LastLiveFailureKind.String != "transient_http" {
+		t.Fatalf("expected concurrent failover feedback to persist transient_http markers, got %+v", failureState)
+	}
+	if failureState.LastCooldownSeconds != 120 || failureState.MaxCooldownStrikes != 2 {
+		t.Fatalf("expected concurrent failover feedback to back off to 120s/2 strikes, got %+v", failureState)
+	}
+	if !failureState.OpenUntilAt.Valid || !failureState.ProbeAvailableAt.Valid || !failureState.LastLiveFailureAt.Valid {
+		t.Fatalf("expected concurrent failover feedback to persist open/probe/failure timestamps, got %+v", failureState)
+	}
+	primaryEvents := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID)
+	if len(primaryEvents) != 2 {
+		t.Fatalf("expected 2 loadbalance events for concurrent failover feedback, got %+v", primaryEvents)
+	}
+	var sawOpened bool
+	var sawExtended bool
+	for _, event := range primaryEvents {
+		if !event.ModelID.Valid || event.ModelID.String != targetModelID || !event.EndpointID.Valid || int(event.EndpointID.Int32) != primaryEndpointID {
+			t.Fatalf("expected concurrent failover event model/endpoint snapshot %q/%d, got %+v", targetModelID, primaryEndpointID, event)
+		}
+		switch {
+		case event.EventType == "opened" && event.ConsecutiveFailures == 1 && event.CooldownSeconds == 60:
+			sawOpened = true
+		case event.EventType == "extended" && event.ConsecutiveFailures == 2 && event.CooldownSeconds == 120:
+			sawExtended = true
+		}
+	}
+	if !sawOpened || !sawExtended {
+		t.Fatalf("expected concurrent failover events to contain one opened(1,60) and one extended(2,120) row, got %+v", primaryEvents)
+	}
+}
+
+func TestRuntimeLeaseHalfOpenProbeExclusivity(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-lease-probe-" + suffix
+	targetModelID := "native-lease-probe-" + suffix
+	primaryUpstream := newBlockingScriptedUpstream(t, 1, http.StatusOK, map[string]any{"id": "chatcmpl-lease-primary"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-lease-secondary"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-lease-probe-"+suffix, "fill-first")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "lease-probe-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/lease/probe/primary"), "lease-probe-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "lease-probe-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/lease/probe/secondary"), "lease-probe-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "lease-probe-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "lease-probe-secondary-connection-"+suffix, nil, nil, 1)
+	pastProbeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
+	priorFailureKind := "transient_http"
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:           activeProfileID,
+		ConnectionID:        primaryConnectionID,
+		ConsecutiveFailures: 1,
+		LastFailureKind:     &priorFailureKind,
+		LastCooldownSeconds: 60,
+		MaxCooldownStrikes:  1,
+		BanMode:             "off",
+		BlockedUntilAt:      &pastProbeEligibleAt,
+		ProbeAvailableAt:    &pastProbeEligibleAt,
+		CircuitState:        "open",
+		LastLiveFailureKind: &priorFailureKind,
+		LastLiveFailureAt:   &pastProbeEligibleAt,
+	})
+	requestBody := map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "probe lease exclusivity"}},
+		"model":    publicModelID,
+	}
+	rawBody, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal lease probe request body: %v", err)
+	}
+
+	firstResultCh := make(chan concurrentRuntimeRequestResult, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, harness.url+"/v1/chat/completions", bytes.NewReader(rawBody))
+		if requestErr != nil {
+			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("build first lease probe request: %w", requestErr)}
+			return
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, responseErr := harness.client.Do(request)
+		if responseErr != nil {
+			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("perform first lease probe request: %w", responseErr)}
+			return
+		}
+		defer response.Body.Close()
+		responseBody, readErr := io.ReadAll(response.Body)
+		if readErr != nil {
+			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("read first lease probe response body: %w", readErr)}
+			return
+		}
+		firstResultCh <- concurrentRuntimeRequestResult{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(responseBody))}
+	}()
+
+	primaryUpstream.waitUntilReady(t, 5*time.Second)
+	leasesWhileProbeInflight := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID)
+	if len(leasesWhileProbeInflight) != 1 {
+		t.Fatalf("expected exactly one in-flight probe lease, got %+v", leasesWhileProbeInflight)
+	}
+	if leasesWhileProbeInflight[0].LeaseKind != "half_open_probe" {
+		t.Fatalf("expected half_open_probe lease kind, got %+v", leasesWhileProbeInflight[0])
+	}
+
+	secondCtx, secondCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer secondCancel()
+	secondRequest, err := http.NewRequestWithContext(secondCtx, http.MethodPost, harness.url+"/v1/chat/completions", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("build second lease probe request: %v", err)
+	}
+	secondRequest.Header.Set("Content-Type", "application/json")
+	secondResponse, err := harness.client.Do(secondRequest)
+	if err != nil {
+		t.Fatalf("expected overlapping lease probe request to avoid the locked probe and complete via fallback, got error: %v", err)
+	}
+	secondBody := readResponseBody(t, secondResponse)
+	_ = secondResponse.Body.Close()
+	if secondResponse.StatusCode != http.StatusOK {
+		t.Fatalf("expected overlapping lease probe request status 200, got %d with body %s", secondResponse.StatusCode, secondBody)
+	}
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected probe lease to keep the primary probe at one launched request, got %d", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected overlapping request to reach the secondary once while the probe lease is held, got %d", got)
+	}
+	if got := requestModelID(t, secondaryUpstream.requestsSnapshot()[0].Body); got != targetModelID {
+		t.Fatalf("expected secondary fallback request model %q, got %q", targetModelID, got)
+	}
+
+	primaryUpstream.releaseRequests()
+	firstResult := <-firstResultCh
+	if firstResult.Err != nil {
+		t.Fatalf("expected first lease probe request to succeed after release, got error: %v", firstResult.Err)
+	}
+	if firstResult.StatusCode != http.StatusOK {
+		t.Fatalf("expected first lease probe request status 200, got %d with body %s", firstResult.StatusCode, firstResult.Body)
+	}
+	if leasesAfterRelease := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID); len(leasesAfterRelease) != 0 {
+		t.Fatalf("expected probe lease to release after the request completes, got %+v", leasesAfterRelease)
+	}
+}
+
+func TestRuntimeLeaseNonStreamInFlightExclusivity(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-lease-non-stream-" + suffix
+	targetModelID := "native-lease-non-stream-" + suffix
+	primaryUpstream := newBlockingScriptedUpstream(t, 1, http.StatusOK, map[string]any{"id": "chatcmpl-lease-non-stream-primary"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-lease-non-stream-secondary"})
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-lease-non-stream-"+suffix)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "lease-non-stream-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/lease/non-stream/primary"), "lease-non-stream-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "lease-non-stream-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/lease/non-stream/secondary"), "lease-non-stream-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "lease-non-stream-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "lease-non-stream-secondary-connection-"+suffix, nil, nil, 1)
+	maxInFlightNonStream := 1
+	harness.updateConnectionAdmissionLimits(t, primaryConnectionID, nil, &maxInFlightNonStream, nil)
+	requestBody := map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "non-stream lease exclusivity"}},
+		"model":    publicModelID,
+	}
+	rawBody, err := json.Marshal(requestBody)
+	if err != nil {
+		t.Fatalf("marshal non-stream lease request body: %v", err)
+	}
+
+	firstResultCh := make(chan concurrentRuntimeRequestResult, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, harness.url+"/v1/chat/completions", bytes.NewReader(rawBody))
+		if requestErr != nil {
+			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("build first non-stream lease request: %w", requestErr)}
+			return
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, responseErr := harness.client.Do(request)
+		if responseErr != nil {
+			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("perform first non-stream lease request: %w", responseErr)}
+			return
+		}
+		defer response.Body.Close()
+		responseBody, readErr := io.ReadAll(response.Body)
+		if readErr != nil {
+			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("read first non-stream lease response body: %w", readErr)}
+			return
+		}
+		firstResultCh <- concurrentRuntimeRequestResult{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(responseBody))}
+	}()
+
+	primaryUpstream.waitUntilReady(t, 5*time.Second)
+	leasesWhileInflight := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID)
+	if len(leasesWhileInflight) != 1 {
+		t.Fatalf("expected exactly one in-flight non-stream lease, got %+v", leasesWhileInflight)
+	}
+	if leasesWhileInflight[0].LeaseKind != "non_stream" {
+		t.Fatalf("expected non_stream lease kind, got %+v", leasesWhileInflight[0])
+	}
+
+	secondCtx, secondCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer secondCancel()
+	secondRequest, err := http.NewRequestWithContext(secondCtx, http.MethodPost, harness.url+"/v1/chat/completions", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("build second non-stream lease request: %v", err)
+	}
+	secondRequest.Header.Set("Content-Type", "application/json")
+	secondResponse, err := harness.client.Do(secondRequest)
+	if err != nil {
+		t.Fatalf("expected overlapping non-stream lease request to avoid the leased primary and complete via fallback, got error: %v", err)
+	}
+	secondBody := readResponseBody(t, secondResponse)
+	_ = secondResponse.Body.Close()
+	if secondResponse.StatusCode != http.StatusOK {
+		t.Fatalf("expected overlapping non-stream lease request status 200, got %d with body %s", secondResponse.StatusCode, secondBody)
+	}
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected non-stream lease to keep the primary at one launched request, got %d", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected overlapping request to reach the secondary once while the primary lease is held, got %d", got)
+	}
+	if got := requestModelID(t, secondaryUpstream.requestsSnapshot()[0].Body); got != targetModelID {
+		t.Fatalf("expected secondary fallback request model %q, got %q", targetModelID, got)
+	}
+
+	primaryUpstream.releaseRequests()
+	firstResult := <-firstResultCh
+	if firstResult.Err != nil {
+		t.Fatalf("expected first non-stream lease request to succeed after release, got error: %v", firstResult.Err)
+	}
+	if firstResult.StatusCode != http.StatusOK {
+		t.Fatalf("expected first non-stream lease request status 200, got %d with body %s", firstResult.StatusCode, firstResult.Body)
+	}
+	if leasesAfterRelease := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID); len(leasesAfterRelease) != 0 {
+		t.Fatalf("expected non-stream lease to release after the request completes, got %+v", leasesAfterRelease)
+	}
+}
+
+func TestRuntimeLoadBalanceFailoverEligibleFailureUpdatesRuntimeState(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-feedback-failure-" + suffix
+	targetModelID := "native-loadbalance-feedback-failure-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "feedback primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-feedback-secondary"})
+	autoRecovery := `{"mode":"enabled","status_codes":[503],"cooldown":{"base_seconds":60,"failure_threshold":1,"backoff_multiplier":2.0,"max_cooldown_seconds":900},"ban":{"mode":"off","max_cooldown_strikes_before_ban":0,"ban_duration_seconds":0}}`
+	strategyID := harness.seedLegacyStrategyWithAutoRecovery(t, activeProfileID, "runtime-feedback-failure-"+suffix, "fill-first", autoRecovery)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "feedback-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/feedback/primary"), "feedback-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "feedback-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/feedback/secondary"), "feedback-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "feedback-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "feedback-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "feedback failover mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	if failureState.ConsecutiveFailures != 1 || failureState.CircuitState != "open" {
+		t.Fatalf("expected primary runtime state to open after failover-eligible failure, got %+v", failureState)
+	}
+	if !failureState.LastFailureKind.Valid || failureState.LastFailureKind.String != "transient_http" || !failureState.LastLiveFailureKind.Valid || failureState.LastLiveFailureKind.String != "transient_http" {
+		t.Fatalf("expected transient_http failure markers, got %+v", failureState)
+	}
+	if !failureState.OpenUntilAt.Valid || !failureState.ProbeAvailableAt.Valid || !failureState.LastLiveFailureAt.Valid {
+		t.Fatalf("expected open/probe/failure timestamps after failover-eligible failure, got %+v", failureState)
+	}
+	if failureState.LastCooldownSeconds != 60 || failureState.MaxCooldownStrikes != 1 {
+		t.Fatalf("expected cooldown strike state 60s/1, got %+v", failureState)
+	}
+	if failureState.BanMode != "off" {
+		t.Fatalf("expected ban_mode off after first open interval, got %+v", failureState)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 loadbalance event for failover-eligible failure, got %+v", events)
+	}
+	if events[0].EventType != "opened" || !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" {
+		t.Fatalf("expected opened transient_http loadbalance event, got %+v", events[0])
+	}
+	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != primaryEndpointID {
+		t.Fatalf("expected loadbalance event model/endpoint snapshot %q/%d, got %+v", targetModelID, primaryEndpointID, events[0])
+	}
+}
+
+func TestRuntimeLoadBalanceProbeFailureReopensRuntimeState(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-probe-failure-" + suffix
+	targetModelID := "native-loadbalance-probe-failure-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "probe primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-probe-secondary"})
+	autoRecovery := `{"mode":"enabled","status_codes":[503],"cooldown":{"base_seconds":60,"failure_threshold":1,"backoff_multiplier":2.0,"max_cooldown_seconds":900},"ban":{"mode":"off","max_cooldown_strikes_before_ban":0,"ban_duration_seconds":0}}`
+	strategyID := harness.seedLegacyStrategyWithAutoRecovery(t, activeProfileID, "runtime-probe-failure-"+suffix, "fill-first", autoRecovery)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "probe-failure-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/probe/primary"), "probe-failure-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "probe-failure-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/probe/secondary"), "probe-failure-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "probe-failure-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "probe-failure-secondary-connection-"+suffix, nil, nil, 1)
+	pastProbeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
+	priorFailureKind := "transient_http"
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:           activeProfileID,
+		ConnectionID:        primaryConnectionID,
+		ConsecutiveFailures: 1,
+		LastFailureKind:     &priorFailureKind,
+		LastCooldownSeconds: 60,
+		MaxCooldownStrikes:  1,
+		BanMode:             "off",
+		BlockedUntilAt:      &pastProbeEligibleAt,
+		ProbeAvailableAt:    &pastProbeEligibleAt,
+		CircuitState:        "open",
+		LastLiveFailureKind: &priorFailureKind,
+		LastLiveFailureAt:   &pastProbeEligibleAt,
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "probe failure mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected probe-eligible primary to receive one launched probe attempt, got %d requests", got)
+	}
+	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	if failureState.ConsecutiveFailures != 2 || failureState.CircuitState != "open" {
+		t.Fatalf("expected probe failure to re-open the circuit with incremented streak, got %+v", failureState)
+	}
+	if !failureState.LastFailureKind.Valid || failureState.LastFailureKind.String != "transient_http" || !failureState.LastLiveFailureKind.Valid || failureState.LastLiveFailureKind.String != "transient_http" {
+		t.Fatalf("expected transient_http failure markers after probe failure, got %+v", failureState)
+	}
+	if !failureState.OpenUntilAt.Valid || !failureState.ProbeAvailableAt.Valid || !failureState.LastLiveFailureAt.Valid {
+		t.Fatalf("expected probe failure to persist new open/probe/failure timestamps, got %+v", failureState)
+	}
+	if failureState.LastCooldownSeconds != 120 || failureState.MaxCooldownStrikes != 2 {
+		t.Fatalf("expected probe failure to extend cooldown strike state to 120s/2, got %+v", failureState)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 loadbalance event for probe failure, got %+v", events)
+	}
+	if events[0].EventType != "opened" || !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" {
+		t.Fatalf("expected opened transient_http probe failure event, got %+v", events[0])
+	}
+	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != primaryEndpointID {
+		t.Fatalf("expected probe failure event model/endpoint snapshot %q/%d, got %+v", targetModelID, primaryEndpointID, events[0])
+	}
+}
+
+func TestRuntimeLoadBalanceTransportFailureUpdatesRuntimeState(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-feedback-transport-" + suffix
+	targetModelID := "native-loadbalance-feedback-transport-" + suffix
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-feedback-transport-secondary"})
+	failedUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	failedBaseURL := failedUpstream.URL
+	failedUpstream.Close()
+	autoRecovery := `{"mode":"enabled","status_codes":[503],"cooldown":{"base_seconds":60,"failure_threshold":1,"backoff_multiplier":2.0,"max_cooldown_seconds":900},"ban":{"mode":"off","max_cooldown_strikes_before_ban":0,"ban_duration_seconds":0}}`
+	strategyID := harness.seedLegacyStrategyWithAutoRecovery(t, activeProfileID, "runtime-feedback-transport-"+suffix, "fill-first", autoRecovery)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "feedback-transport-primary-endpoint-"+suffix, failedBaseURL+"/loadbalance/feedback/transport/primary", "feedback-transport-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "feedback-transport-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/feedback/transport/secondary"), "feedback-transport-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "feedback-transport-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "feedback-transport-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "feedback transport mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	if failureState.ConsecutiveFailures != 1 || failureState.CircuitState != "open" {
+		t.Fatalf("expected primary runtime state to open after transport failure, got %+v", failureState)
+	}
+	if !failureState.LastFailureKind.Valid || failureState.LastFailureKind.String != "connect_error" || !failureState.LastLiveFailureKind.Valid || failureState.LastLiveFailureKind.String != "connect_error" {
+		t.Fatalf("expected connect_error failure markers, got %+v", failureState)
+	}
+	if !failureState.OpenUntilAt.Valid || !failureState.ProbeAvailableAt.Valid || !failureState.LastLiveFailureAt.Valid {
+		t.Fatalf("expected open/probe/failure timestamps after transport failure, got %+v", failureState)
+	}
+	if failureState.LastCooldownSeconds != 60 || failureState.MaxCooldownStrikes != 1 {
+		t.Fatalf("expected cooldown strike state 60s/1 after transport failure, got %+v", failureState)
+	}
+	if failureState.BanMode != "off" {
+		t.Fatalf("expected ban_mode off after first transport failure, got %+v", failureState)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 loadbalance event for transport failure, got %+v", events)
+	}
+	if events[0].EventType != "opened" || !events[0].FailureKind.Valid || events[0].FailureKind.String != "connect_error" {
+		t.Fatalf("expected opened connect_error loadbalance event, got %+v", events[0])
+	}
+	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != primaryEndpointID {
+		t.Fatalf("expected transport failure event model/endpoint snapshot %q/%d, got %+v", targetModelID, primaryEndpointID, events[0])
+	}
+}
+
+func TestRuntimeLoadBalanceWinningSuccessUpdatesRuntimeState(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-feedback-success-" + suffix
+	targetModelID := "native-loadbalance-feedback-success-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-feedback-success-"+suffix, "round-robin")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "feedback-success-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/feedback/success"), "feedback-success-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "feedback-success-connection-"+suffix, nil, nil, 0)
+	expiredOpenUntil := time.Now().UTC().Add(-1 * time.Minute)
+	staleFailureAt := time.Now().UTC().Add(-2 * time.Minute)
+	staleLatency := 999
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:         activeProfileID,
+		ConnectionID:      connectionID,
+		BanMode:           "off",
+		BlockedUntilAt:    &expiredOpenUntil,
+		CircuitState:      "open",
+		LiveP95LatencyMS:  &staleLatency,
+		LastLiveFailureAt: &staleFailureAt,
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "feedback success mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	successState := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	if successState.ConsecutiveFailures != 0 || successState.CircuitState != "closed" {
+		t.Fatalf("expected success to reset recovery state, got %+v", successState)
+	}
+	if successState.OpenUntilAt.Valid || successState.ProbeAvailableAt.Valid {
+		t.Fatalf("expected success to clear open/probe timers, got %+v", successState)
+	}
+	if !successState.LastLiveSuccessAt.Valid || !successState.LiveP95LatencyMS.Valid || successState.LiveP95LatencyMS.Int32 < 1 {
+		t.Fatalf("expected success observation to persist latency and timestamp, got %+v", successState)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 loadbalance event for recovery success, got %+v", events)
+	}
+	if events[0].EventType != "recovered" {
+		t.Fatalf("expected recovered loadbalance event, got %+v", events[0])
+	}
+	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != endpointID {
+		t.Fatalf("expected recovery event model/endpoint snapshot %q/%d, got %+v", targetModelID, endpointID, events[0])
+	}
+}
+
+func TestRuntimeLoadBalanceProbeSuccessClosesRuntimeState(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-probe-success-" + suffix
+	targetModelID := "native-loadbalance-probe-success-" + suffix
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-probe-success-"+suffix, "round-robin")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "probe-success-endpoint-"+suffix, harness.upstream.baseURL("/loadbalance/probe/success"), "probe-success-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "probe-success-connection-"+suffix, nil, nil, 0)
+	pastProbeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
+	priorFailureKind := "transient_http"
+	staleLatency := 999
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:           activeProfileID,
+		ConnectionID:        connectionID,
+		ConsecutiveFailures: 1,
+		LastFailureKind:     &priorFailureKind,
+		LastCooldownSeconds: 60,
+		MaxCooldownStrikes:  1,
+		BanMode:             "off",
+		BlockedUntilAt:      &pastProbeEligibleAt,
+		ProbeAvailableAt:    &pastProbeEligibleAt,
+		CircuitState:        "open",
+		LiveP95LatencyMS:    &staleLatency,
+		LastLiveFailureKind: &priorFailureKind,
+		LastLiveFailureAt:   &pastProbeEligibleAt,
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "probe success mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	successState := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	if successState.ConsecutiveFailures != 0 || successState.CircuitState != "closed" {
+		t.Fatalf("expected probe success to close and reset recovery state, got %+v", successState)
+	}
+	if successState.OpenUntilAt.Valid || successState.ProbeAvailableAt.Valid {
+		t.Fatalf("expected probe success to clear open/probe timers, got %+v", successState)
+	}
+	if successState.LastFailureKind.Valid || successState.LastLiveFailureKind.Valid {
+		t.Fatalf("expected probe success to clear failure markers, got %+v", successState)
+	}
+	if !successState.LastLiveSuccessAt.Valid || !successState.LiveP95LatencyMS.Valid || successState.LiveP95LatencyMS.Int32 < 1 {
+		t.Fatalf("expected probe success to persist latency and success timestamp, got %+v", successState)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 loadbalance event for probe recovery, got %+v", events)
+	}
+	if events[0].EventType != "recovered" || !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" {
+		t.Fatalf("expected recovered transient_http probe success event, got %+v", events[0])
+	}
+	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != endpointID {
+		t.Fatalf("expected probe recovery event model/endpoint snapshot %q/%d, got %+v", targetModelID, endpointID, events[0])
+	}
+}
+
+func TestRuntimeStatePersistsOpenStateAcrossRestart(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-restart-open-" + suffix
+	targetModelID := "native-loadbalance-restart-open-" + suffix
+	primaryUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "restart primary unavailable"})
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-restart-secondary"})
+	autoRecovery := `{"mode":"enabled","status_codes":[503],"cooldown":{"base_seconds":60,"failure_threshold":1,"backoff_multiplier":2.0,"max_cooldown_seconds":900},"ban":{"mode":"off","max_cooldown_strikes_before_ban":0,"ban_duration_seconds":0}}`
+	strategyID := harness.seedLegacyStrategyWithAutoRecovery(t, activeProfileID, "runtime-restart-open-"+suffix, "fill-first", autoRecovery)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "restart-open-primary-endpoint-"+suffix, primaryUpstream.baseURL("/loadbalance/restart/primary"), "restart-open-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "restart-open-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/restart/secondary"), "restart-open-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "restart-open-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "restart-open-secondary-connection-"+suffix, nil, nil, 1)
+
+	initialResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "restart open persistence initial mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, initialResponse, http.StatusOK)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected initial request to hit the primary upstream once, got %d requests", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected initial request to fail over to the secondary upstream once, got %d requests", got)
+	}
+
+	openStateBeforeRestart := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	if openStateBeforeRestart.ConsecutiveFailures != 1 || openStateBeforeRestart.CircuitState != "open" {
+		t.Fatalf("expected failover-eligible failure to persist an open state before restart, got %+v", openStateBeforeRestart)
+	}
+	if !openStateBeforeRestart.LastFailureKind.Valid || openStateBeforeRestart.LastFailureKind.String != "transient_http" {
+		t.Fatalf("expected transient_http failure marker before restart, got %+v", openStateBeforeRestart)
+	}
+
+	restartedHarness := restartRuntimeHarness(t, harness.databaseName)
+	openStateAfterRestart := loadRuntimeState(t, restartedHarness.conn, activeProfileID, primaryConnectionID)
+	if openStateAfterRestart != openStateBeforeRestart {
+		t.Fatalf("expected restarted runtime to reload the same persisted open state\n--- before ---\n%+v\n--- after ---\n%+v", openStateBeforeRestart, openStateAfterRestart)
+	}
+
+	restartedResponse := restartedHarness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "restart open persistence reload"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, restartedResponse, http.StatusOK)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected restarted runtime to skip the persisted-open primary upstream, got %d total primary requests", got)
+	}
+	if got := len(secondaryUpstream.requestsSnapshot()); got != 2 {
+		t.Fatalf("expected restarted runtime to route the second request to the secondary upstream, got %d total secondary requests", got)
+	}
+}
+
+func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-restart-recovered-" + suffix
+	targetModelID := "native-loadbalance-restart-recovered-" + suffix
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-restart-recovered"})
+	strategyID := harness.seedLegacyStrategy(t, activeProfileID, "runtime-restart-recovered-"+suffix, "round-robin")
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "restart-recovered-endpoint-"+suffix, upstream.baseURL("/loadbalance/restart/recovered"), "restart-recovered-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "restart-recovered-connection-"+suffix, nil, nil, 0)
+	pastProbeEligibleAt := time.Now().UTC().Add(-1 * time.Minute)
+	priorFailureKind := "transient_http"
+	staleLatency := 999
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:           activeProfileID,
+		ConnectionID:        connectionID,
+		ConsecutiveFailures: 1,
+		LastFailureKind:     &priorFailureKind,
+		LastCooldownSeconds: 60,
+		MaxCooldownStrikes:  1,
+		BanMode:             "off",
+		BlockedUntilAt:      &pastProbeEligibleAt,
+		ProbeAvailableAt:    &pastProbeEligibleAt,
+		CircuitState:        "open",
+		LiveP95LatencyMS:    &staleLatency,
+		LastLiveFailureKind: &priorFailureKind,
+		LastLiveFailureAt:   &pastProbeEligibleAt,
+	})
+
+	initialResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "restart recovered persistence initial mutation"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, initialResponse, http.StatusOK)
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected initial recovery request to hit the upstream once, got %d requests", got)
+	}
+
+	recoveredStateBeforeRestart := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	if recoveredStateBeforeRestart.ConsecutiveFailures != 0 || recoveredStateBeforeRestart.CircuitState != "closed" {
+		t.Fatalf("expected successful recovery to persist a closed state before restart, got %+v", recoveredStateBeforeRestart)
+	}
+	if recoveredStateBeforeRestart.OpenUntilAt.Valid || recoveredStateBeforeRestart.ProbeAvailableAt.Valid {
+		t.Fatalf("expected successful recovery to clear open/probe timers before restart, got %+v", recoveredStateBeforeRestart)
+	}
+	if !recoveredStateBeforeRestart.LastLiveSuccessAt.Valid || !recoveredStateBeforeRestart.LiveP95LatencyMS.Valid {
+		t.Fatalf("expected successful recovery to persist latency and success timestamp before restart, got %+v", recoveredStateBeforeRestart)
+	}
+
+	restartedHarness := restartRuntimeHarness(t, harness.databaseName)
+	recoveredStateAfterRestart := loadRuntimeState(t, restartedHarness.conn, activeProfileID, connectionID)
+	if recoveredStateAfterRestart != recoveredStateBeforeRestart {
+		t.Fatalf("expected restarted runtime to reload the same persisted recovered state\n--- before ---\n%+v\n--- after ---\n%+v", recoveredStateBeforeRestart, recoveredStateAfterRestart)
+	}
+
+	restartedResponse := restartedHarness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "restart recovered persistence reload"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, restartedResponse, http.StatusOK)
+	if got := len(upstream.requestsSnapshot()); got != 2 {
+		t.Fatalf("expected restarted runtime to keep routing through the recovered primary connection, got %d total requests", got)
+	}
+}
+
+func TestRuntimeAdaptiveLoadBalancePrefersHealthierConnection(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-adaptive-" + suffix
+	targetModelID := "native-loadbalance-adaptive-" + suffix
+	degradedUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-adaptive-degraded"})
+	healthyUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-adaptive-healthy"})
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-loadbalance-adaptive-"+suffix)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	degradedEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-degraded-endpoint-"+suffix, degradedUpstream.baseURL("/loadbalance/adaptive/degraded"), "adaptive-degraded-key", 0)
+	healthyEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-healthy-endpoint-"+suffix, healthyUpstream.baseURL("/loadbalance/adaptive/healthy"), "adaptive-healthy-key", 1)
+	degradedConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, degradedEndpointID, "adaptive-degraded-connection-"+suffix, nil, nil, 0)
+	healthyConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, healthyEndpointID, "adaptive-healthy-connection-"+suffix, nil, nil, 1)
+	degradedLatency := 900
+	healthyLatency := 120
+	nowAt := time.Now().UTC()
+	degradedFailureAt := nowAt.Add(-30 * time.Second)
+	healthySuccessAt := nowAt.Add(-5 * time.Second)
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:         activeProfileID,
+		ConnectionID:      degradedConnectionID,
+		CircuitState:      "open",
+		LiveP95LatencyMS:  &degradedLatency,
+		LastLiveFailureAt: &degradedFailureAt,
+	})
+	harness.seedRuntimeState(t, runtimeStateSeed{
+		ProfileID:         activeProfileID,
+		ConnectionID:      healthyConnectionID,
+		CircuitState:      "closed",
+		LiveP95LatencyMS:  &healthyLatency,
+		LastLiveSuccessAt: &healthySuccessAt,
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "adaptive prefers healthier connection"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-adaptive-healthy")
+	if got := len(degradedUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected adaptive strategy to avoid degraded upstream, got %d requests", got)
+	}
+	healthyRequests := healthyUpstream.requestsSnapshot()
+	if len(healthyRequests) != 1 {
+		t.Fatalf("expected adaptive strategy to hit healthy upstream once, got %d requests", len(healthyRequests))
+	}
+	if requestModelID(t, healthyRequests[0].Body) != targetModelID {
+		t.Fatalf("expected adaptive upstream body model %q, got %q", targetModelID, requestModelID(t, healthyRequests[0].Body))
+	}
+}
+
+func TestRuntimeAdaptiveHedgeLaunchesSecondAttemptAndFasterHedgedPathWins(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-adaptive-hedge-" + suffix
+	targetModelID := "native-loadbalance-adaptive-hedge-" + suffix
+	primaryStarted := make(chan struct{}, 1)
+	var primaryMu sync.Mutex
+	primaryRequests := make([]upstreamRequestSnapshot, 0, 1)
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read adaptive hedge primary request body: %v", err)
+		}
+		_ = r.Body.Close()
+		primaryMu.Lock()
+		primaryRequests = append(primaryRequests, upstreamRequestSnapshot{
+			Method:  r.Method,
+			URL:     r.URL.String(),
+			Path:    r.URL.Path,
+			Query:   r.URL.RawQuery,
+			Headers: r.Header.Clone(),
+			Body:    append([]byte(nil), body...),
+		})
+		primaryMu.Unlock()
+		select {
+		case primaryStarted <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(750 * time.Millisecond):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-adaptive-hedge-primary"})
+		}
+	}))
+	defer primaryUpstream.Close()
+	secondaryUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-adaptive-hedge-secondary"})
+	routingPolicy := `{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":true,"delay_ms":50,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[403,422,429,500,502,503,504,529],"base_open_seconds":60,"failure_threshold":2,"backoff_multiplier":2.0,"max_open_seconds":900,"ban_mode":"off","max_open_strikes_before_ban":0,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`
+	strategyID := harness.seedAdaptiveStrategyWithRoutingPolicy(t, activeProfileID, "runtime-adaptive-hedge-"+suffix, routingPolicy)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-hedge-primary-endpoint-"+suffix, primaryUpstream.URL+"/loadbalance/adaptive/hedge/primary", "adaptive-hedge-primary-key", 0)
+	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-hedge-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/adaptive/hedge/secondary"), "adaptive-hedge-secondary-key", 1)
+	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "adaptive-hedge-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "adaptive-hedge-secondary-connection-"+suffix, nil, nil, 1)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "adaptive hedge overlap"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-adaptive-hedge-secondary")
+	select {
+	case <-primaryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected adaptive hedge primary request to launch before the hedged winner returned")
+	}
+	primaryMu.Lock()
+	gotPrimaryRequests := append([]upstreamRequestSnapshot(nil), primaryRequests...)
+	primaryMu.Unlock()
+	if len(gotPrimaryRequests) != 1 {
+		t.Fatalf("expected one launched primary hedge request, got %d", len(gotPrimaryRequests))
+	}
+	if requestModelID(t, gotPrimaryRequests[0].Body) != targetModelID {
+		t.Fatalf("expected primary hedge request model %q, got %q", targetModelID, requestModelID(t, gotPrimaryRequests[0].Body))
+	}
+	secondaryRequests := secondaryUpstream.requestsSnapshot()
+	if len(secondaryRequests) != 1 {
+		t.Fatalf("expected one launched secondary hedge request, got %d", len(secondaryRequests))
+	}
+	if requestModelID(t, secondaryRequests[0].Body) != targetModelID {
+		t.Fatalf("expected secondary hedge request model %q, got %q", targetModelID, requestModelID(t, secondaryRequests[0].Body))
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
+	if runtimeStateExists(t, harness.conn, activeProfileID, primaryConnectionID) {
+		t.Fatalf("expected canceled hedge loser to avoid runtime failure-state mutation for connection %d", primaryConnectionID)
+	}
+	if events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID); len(events) != 0 {
+		t.Fatalf("expected canceled hedge loser to avoid loadbalance failure events, got %+v", events)
+	}
+}
+
 func startSharedPostgresHarness() (testPostgresHarness, error) {
 	containerName := "prism-s14-runtime-" + randomSuffix()
 	if err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
@@ -405,6 +1772,24 @@ func newRuntimeHarness(t *testing.T) *runtimeHarness {
 	t.Cleanup(func() {
 		conn.Close(context.Background())
 	})
+	return newRuntimeHarnessForDatabase(t, databaseName, conn)
+}
+
+func restartRuntimeHarness(t *testing.T, databaseName string) *runtimeHarness {
+	t.Helper()
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	conn := connectDatabase(t, testContext, sharedPostgresHarness.connectionString(databaseName))
+	t.Cleanup(func() {
+		conn.Close(context.Background())
+	})
+	return newRuntimeHarnessForDatabase(t, databaseName, conn)
+}
+
+func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.Conn) *runtimeHarness {
+	t.Helper()
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
 	startupService, err := startup.New(startup.Options{
 		DatabaseURL:         sharedPostgresHarness.connectionString(databaseName),
@@ -471,6 +1856,7 @@ func newRuntimeHarness(t *testing.T) *runtimeHarness {
 	client := server.Client()
 	client.Jar = jar
 	return &runtimeHarness{
+		databaseName:    databaseName,
 		client:          client,
 		conn:            conn,
 		authService:     authService,
@@ -544,6 +1930,127 @@ func (u *upstreamRecorder) requestsSnapshot() []upstreamRequestSnapshot {
 	return cloned
 }
 
+func newScriptedUpstream(t *testing.T, statusCode int, responseBody map[string]any) *scriptedUpstream {
+	t.Helper()
+	upstream := &scriptedUpstream{statusCode: statusCode, responseBody: responseBody}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read scripted upstream request body: %v", err)
+		}
+		_ = r.Body.Close()
+		upstream.mu.Lock()
+		upstream.requests = append(upstream.requests, upstreamRequestSnapshot{
+			Method:  r.Method,
+			URL:     r.URL.String(),
+			Path:    r.URL.Path,
+			Query:   r.URL.RawQuery,
+			Headers: r.Header.Clone(),
+			Body:    append([]byte(nil), body...),
+		})
+		upstream.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(upstream.statusCode)
+		payload := upstream.responseBody
+		if payload == nil {
+			payload = map[string]any{"ok": upstream.statusCode < 400}
+		}
+		_ = json.NewEncoder(w).Encode(payload)
+	}))
+	t.Cleanup(upstream.server.Close)
+	return upstream
+}
+
+func newBlockingScriptedUpstream(t *testing.T, waitFor int, statusCode int, responseBody map[string]any) *blockingScriptedUpstream {
+	t.Helper()
+	if waitFor < 1 {
+		t.Fatalf("blocking upstream waitFor must be >= 1, got %d", waitFor)
+	}
+	upstream := &blockingScriptedUpstream{
+		statusCode:   statusCode,
+		responseBody: responseBody,
+		waitFor:      waitFor,
+		ready:        make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read blocking scripted upstream request body: %v", err)
+		}
+		_ = r.Body.Close()
+		upstream.mu.Lock()
+		upstream.requests = append(upstream.requests, upstreamRequestSnapshot{
+			Method:  r.Method,
+			URL:     r.URL.String(),
+			Path:    r.URL.Path,
+			Query:   r.URL.RawQuery,
+			Headers: r.Header.Clone(),
+			Body:    append([]byte(nil), body...),
+		})
+		upstream.arrived++
+		if upstream.arrived >= upstream.waitFor {
+			upstream.readyOnce.Do(func() {
+				close(upstream.ready)
+			})
+		}
+		release := upstream.release
+		upstream.mu.Unlock()
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(upstream.statusCode)
+		payload := upstream.responseBody
+		if payload == nil {
+			payload = map[string]any{"ok": upstream.statusCode < 400}
+		}
+		_ = json.NewEncoder(w).Encode(payload)
+	}))
+	t.Cleanup(func() {
+		upstream.releaseRequests()
+		upstream.server.Close()
+	})
+	return upstream
+}
+
+func (u *scriptedUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *scriptedUpstream) requestsSnapshot() []upstreamRequestSnapshot {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	cloned := make([]upstreamRequestSnapshot, len(u.requests))
+	copy(cloned, u.requests)
+	return cloned
+}
+
+func (u *blockingScriptedUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *blockingScriptedUpstream) waitUntilReady(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.ready:
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for %d blocking upstream requests", u.waitFor)
+	}
+}
+
+func (u *blockingScriptedUpstream) releaseRequests() {
+	u.releaseOnce.Do(func() {
+		close(u.release)
+	})
+}
+
+func (u *blockingScriptedUpstream) requestsSnapshot() []upstreamRequestSnapshot {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	cloned := make([]upstreamRequestSnapshot, len(u.requests))
+	copy(cloned, u.requests)
+	return cloned
+}
+
 func (h *runtimeHarness) activeProfileID(t *testing.T) int {
 	t.Helper()
 	response := h.requestJSON(t, http.MethodGet, "/api/profiles/active", nil, nil)
@@ -593,8 +2100,12 @@ func (h *runtimeHarness) seedProxyRoute(t *testing.T, seed runtimeRouteSeed) see
 
 func (h *runtimeHarness) seedLegacyStrategy(t *testing.T, profileID int, name string, legacyStrategyType string) int {
 	t.Helper()
+	return h.seedLegacyStrategyWithAutoRecovery(t, profileID, name, legacyStrategyType, `{"mode":"disabled"}`)
+}
+
+func (h *runtimeHarness) seedLegacyStrategyWithAutoRecovery(t *testing.T, profileID int, name string, legacyStrategyType string, autoRecovery string) int {
+	t.Helper()
 	now := time.Now().UTC()
-	autoRecovery := `{"mode":"disabled"}`
 	var strategyID int
 	if err := h.conn.QueryRow(
 		context.Background(),
@@ -608,6 +2119,31 @@ func (h *runtimeHarness) seedLegacyStrategy(t *testing.T, profileID int, name st
 		now,
 	).Scan(&strategyID); err != nil {
 		t.Fatalf("insert runtime strategy %q: %v", name, err)
+	}
+	return strategyID
+}
+
+func (h *runtimeHarness) seedAdaptiveStrategy(t *testing.T, profileID int, name string) int {
+	t.Helper()
+	routingPolicy := `{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":false,"delay_ms":1500,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[403,422,429,500,502,503,504,529]},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`
+	return h.seedAdaptiveStrategyWithRoutingPolicy(t, profileID, name, routingPolicy)
+}
+
+func (h *runtimeHarness) seedAdaptiveStrategyWithRoutingPolicy(t *testing.T, profileID int, name string, routingPolicy string) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var strategyID int
+	if err := h.conn.QueryRow(
+		context.Background(),
+		`INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at)
+		 VALUES ($1, $2, 'adaptive', NULL, NULL, $3::jsonb, $4, $4)
+		 RETURNING id`,
+		profileID,
+		name,
+		routingPolicy,
+		now,
+	).Scan(&strategyID); err != nil {
+		t.Fatalf("insert adaptive runtime strategy %q: %v", name, err)
 	}
 	return strategyID
 }
@@ -647,11 +2183,17 @@ func (h *runtimeHarness) seedModel(t *testing.T, profileID int, apiFamily string
 
 func (h *runtimeHarness) seedProxyTarget(t *testing.T, sourceModelConfigID int, targetModelConfigID int) {
 	t.Helper()
+	h.seedProxyTargetAtPosition(t, sourceModelConfigID, targetModelConfigID, 0)
+}
+
+func (h *runtimeHarness) seedProxyTargetAtPosition(t *testing.T, sourceModelConfigID int, targetModelConfigID int, position int) {
+	t.Helper()
 	if _, err := h.conn.Exec(
 		context.Background(),
-		`INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, 0)`,
+		`INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`,
 		sourceModelConfigID,
 		targetModelConfigID,
+		position,
 	); err != nil {
 		t.Fatalf("insert runtime proxy target: %v", err)
 	}
@@ -730,6 +2272,70 @@ func (h *runtimeHarness) updateConnectionCustomHeaders(t *testing.T, connectionI
 		now,
 	); err != nil {
 		t.Fatalf("update runtime connection %d custom headers: %v", connectionID, err)
+	}
+}
+
+func (h *runtimeHarness) updateConnectionAdmissionLimits(t *testing.T, connectionID int, qpsLimit *int, maxInFlightNonStream *int, maxInFlightStream *int) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`UPDATE connections SET qps_limit = $2, max_in_flight_non_stream = $3, max_in_flight_stream = $4, updated_at = $5 WHERE id = $1`,
+		connectionID,
+		nullableTestInt(qpsLimit),
+		nullableTestInt(maxInFlightNonStream),
+		nullableTestInt(maxInFlightStream),
+		now,
+	); err != nil {
+		t.Fatalf("update runtime connection %d admission limits: %v", connectionID, err)
+	}
+}
+
+func (h *runtimeHarness) seedRuntimeState(t *testing.T, seed runtimeStateSeed) {
+	t.Helper()
+	updatedAt := seed.UpdatedAt.UTC()
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	createdAt := seed.CreatedAt.UTC()
+	if createdAt.IsZero() {
+		createdAt = updatedAt
+	}
+	banMode := strings.TrimSpace(seed.BanMode)
+	if banMode == "" {
+		banMode = "off"
+	}
+	circuitState := strings.TrimSpace(seed.CircuitState)
+	if circuitState == "" {
+		circuitState = "closed"
+	}
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`INSERT INTO routing_connection_runtime_state (profile_id, connection_id, window_started_at, window_request_count, in_flight_non_stream, in_flight_stream, consecutive_failures, last_failure_kind, last_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state, probe_available_at, live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+		seed.ProfileID,
+		seed.ConnectionID,
+		nullableTestTime(seed.WindowStartedAt),
+		seed.WindowRequestCount,
+		seed.InFlightNonStream,
+		seed.InFlightStream,
+		seed.ConsecutiveFailures,
+		nullableTestString(seed.LastFailureKind),
+		seed.LastCooldownSeconds,
+		seed.MaxCooldownStrikes,
+		banMode,
+		nullableTestTime(seed.BannedUntilAt),
+		nullableTestTime(seed.BlockedUntilAt),
+		seed.ProbeEligibleLogged,
+		circuitState,
+		nullableTestTime(seed.ProbeAvailableAt),
+		nullableTestInt(seed.LiveP95LatencyMS),
+		nullableTestString(seed.LastLiveFailureKind),
+		nullableTestTime(seed.LastLiveFailureAt),
+		nullableTestTime(seed.LastLiveSuccessAt),
+		createdAt,
+		updatedAt,
+	); err != nil {
+		t.Fatalf("insert runtime state for connection %d: %v", seed.ConnectionID, err)
 	}
 }
 
@@ -817,6 +2423,245 @@ func readResponseBody(t *testing.T, response *http.Response) string {
 	return strings.TrimSpace(string(raw))
 }
 
+type concurrentRuntimeRequestResult struct {
+	StatusCode int
+	Body       string
+	Err        error
+}
+
+type persistedRuntimeState struct {
+	ConsecutiveFailures int
+	LastFailureKind     sql.NullString
+	LastCooldownSeconds float64
+	MaxCooldownStrikes  int
+	BanMode             string
+	BannedUntilAt       sql.NullTime
+	OpenUntilAt         sql.NullTime
+	ProbeEligibleLogged bool
+	CircuitState        string
+	ProbeAvailableAt    sql.NullTime
+	LiveP95LatencyMS    sql.NullInt32
+	LastLiveFailureKind sql.NullString
+	LastLiveFailureAt   sql.NullTime
+	LastLiveSuccessAt   sql.NullTime
+}
+
+type persistedLoadbalanceEvent struct {
+	EventType           string
+	FailureKind         sql.NullString
+	ConsecutiveFailures int
+	CooldownSeconds     float64
+	ModelID             sql.NullString
+	EndpointID          sql.NullInt32
+	BanMode             sql.NullString
+	BannedUntilAt       sql.NullTime
+}
+
+func TestRuntimeBanEscalationRecordsTemporaryBanStateAndEvent(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-ban-temporary-" + suffix
+	targetModelID := "native-ban-temporary-" + suffix
+	banUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "temporary ban trigger"})
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-ban-temporary-"+suffix)
+	if _, err := harness.conn.Exec(
+		context.Background(),
+		`UPDATE loadbalance_strategies
+		 SET routing_policy = $2::jsonb, updated_at = $3
+		 WHERE id = $1`,
+		strategyID,
+		`{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":false,"delay_ms":1500,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[503],"base_open_seconds":1,"failure_threshold":1,"backoff_multiplier":2.0,"max_open_seconds":60,"ban_mode":"temporary","max_open_strikes_before_ban":1,"ban_duration_seconds":600},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`,
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("update temporary ban routing policy: %v", err)
+	}
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "ban-temporary-endpoint-"+suffix, banUpstream.baseURL("/loadbalance/ban/temporary"), "ban-temporary-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "ban-temporary-connection-"+suffix, nil, nil, 0)
+	initialFailure := time.Now().UTC().Add(-time.Minute)
+	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: activeProfileID, ConnectionID: connectionID, CircuitState: "closed", UpdatedAt: initialFailure, CreatedAt: initialFailure})
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "trigger temporary ban"}}, "model": publicModelID}, nil)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	state := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	if state.BanMode != "temporary" || !state.BannedUntilAt.Valid || state.BannedUntilAt.Time.IsZero() || state.CircuitState != "open" {
+		t.Fatalf("expected temporary ban in runtime state, got %+v", state)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected one loadbalance event for temporary ban, got %+v", events)
+	}
+	if events[0].EventType != "banned" || !events[0].BanMode.Valid || events[0].BanMode.String != "temporary" || !events[0].BannedUntilAt.Valid {
+		t.Fatalf("expected banned event with temporary ban metadata, got %+v", events[0])
+	}
+}
+
+func TestRuntimeBanEscalationRecordsManualBanStateAndEvent(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-ban-manual-" + suffix
+	targetModelID := "native-ban-manual-" + suffix
+	banUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "manual ban trigger"})
+	strategyID := harness.seedAdaptiveStrategy(t, activeProfileID, "runtime-ban-manual-"+suffix)
+	if _, err := harness.conn.Exec(
+		context.Background(),
+		`UPDATE loadbalance_strategies
+		 SET routing_policy = $2::jsonb, updated_at = $3
+		 WHERE id = $1`,
+		strategyID,
+		`{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":false,"delay_ms":1500,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[503],"base_open_seconds":1,"failure_threshold":1,"backoff_multiplier":2.0,"max_open_seconds":60,"ban_mode":"manual","max_open_strikes_before_ban":1,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`,
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("update manual ban routing policy: %v", err)
+	}
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	endpointID := harness.seedEndpoint(t, activeProfileID, "ban-manual-endpoint-"+suffix, banUpstream.baseURL("/loadbalance/ban/manual"), "ban-manual-key", 0)
+	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "ban-manual-connection-"+suffix, nil, nil, 0)
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "trigger manual ban"}}, "model": publicModelID}, nil)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	state := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	if state.BanMode != "manual" || state.BannedUntilAt.Valid || state.CircuitState != "open" {
+		t.Fatalf("expected manual ban in runtime state, got %+v", state)
+	}
+	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
+	if len(events) != 1 {
+		t.Fatalf("expected one loadbalance event for manual ban, got %+v", events)
+	}
+	if events[0].EventType != "banned" || !events[0].BanMode.Valid || events[0].BanMode.String != "manual" || events[0].BannedUntilAt.Valid {
+		t.Fatalf("expected banned event with manual ban metadata, got %+v", events[0])
+	}
+}
+
+type persistedRuntimeLease struct {
+	LeaseToken   string
+	ConnectionID int
+	LeaseKind    string
+}
+
+func runtimeStateExists(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) bool {
+	t.Helper()
+	var exists bool
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id = $2)`,
+		profileID,
+		connectionID,
+	).Scan(&exists); err != nil {
+		t.Fatalf("check runtime state existence for connection %d: %v", connectionID, err)
+	}
+	return exists
+}
+
+func loadRuntimeState(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) persistedRuntimeState {
+	t.Helper()
+	state := persistedRuntimeState{}
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT consecutive_failures, last_failure_kind, last_cooldown_seconds::float8, max_cooldown_strikes,
+			ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state, probe_available_at,
+			live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at
+		FROM routing_connection_runtime_state
+		WHERE profile_id = $1 AND connection_id = $2`,
+		profileID,
+		connectionID,
+	).Scan(
+		&state.ConsecutiveFailures,
+		&state.LastFailureKind,
+		&state.LastCooldownSeconds,
+		&state.MaxCooldownStrikes,
+		&state.BanMode,
+		&state.BannedUntilAt,
+		&state.OpenUntilAt,
+		&state.ProbeEligibleLogged,
+		&state.CircuitState,
+		&state.ProbeAvailableAt,
+		&state.LiveP95LatencyMS,
+		&state.LastLiveFailureKind,
+		&state.LastLiveFailureAt,
+		&state.LastLiveSuccessAt,
+	); err != nil {
+		t.Fatalf("load runtime state for connection %d: %v", connectionID, err)
+	}
+	return state
+}
+
+func loadLoadbalanceEvents(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) []persistedLoadbalanceEvent {
+	t.Helper()
+	rows, err := conn.Query(
+		context.Background(),
+		`SELECT event_type, failure_kind, consecutive_failures, cooldown_seconds::float8, model_id, endpoint_id, ban_mode, banned_until_at
+		FROM loadbalance_events
+		WHERE profile_id = $1 AND connection_id = $2
+		ORDER BY created_at ASC, id ASC`,
+		profileID,
+		connectionID,
+	)
+	if err != nil {
+		t.Fatalf("query loadbalance events for connection %d: %v", connectionID, err)
+	}
+	defer rows.Close()
+	events := make([]persistedLoadbalanceEvent, 0)
+	for rows.Next() {
+		item := persistedLoadbalanceEvent{}
+		if err := rows.Scan(&item.EventType, &item.FailureKind, &item.ConsecutiveFailures, &item.CooldownSeconds, &item.ModelID, &item.EndpointID, &item.BanMode, &item.BannedUntilAt); err != nil {
+			t.Fatalf("scan loadbalance event for connection %d: %v", connectionID, err)
+		}
+		events = append(events, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate loadbalance events for connection %d: %v", connectionID, err)
+	}
+	return events
+}
+
+func loadRuntimeLeases(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) []persistedRuntimeLease {
+	t.Helper()
+	rows, err := conn.Query(
+		context.Background(),
+		`SELECT lease_token, connection_id, lease_kind
+		FROM routing_connection_runtime_leases
+		WHERE profile_id = $1 AND connection_id = $2 AND expires_at > NOW()
+		ORDER BY created_at ASC, lease_token ASC`,
+		profileID,
+		connectionID,
+	)
+	if err != nil {
+		t.Fatalf("query runtime leases for connection %d: %v", connectionID, err)
+	}
+	defer rows.Close()
+	leases := make([]persistedRuntimeLease, 0)
+	for rows.Next() {
+		item := persistedRuntimeLease{}
+		if err := rows.Scan(&item.LeaseToken, &item.ConnectionID, &item.LeaseKind); err != nil {
+			t.Fatalf("scan runtime lease for connection %d: %v", connectionID, err)
+		}
+		leases = append(leases, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate runtime leases for connection %d: %v", connectionID, err)
+	}
+	return leases
+}
+
+func loadRoundRobinNextCursor(t *testing.T, conn *pgx.Conn, profileID int, modelConfigID int) int {
+	t.Helper()
+	var nextCursor int
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT next_cursor FROM loadbalance_round_robin_state WHERE profile_id = $1 AND model_config_id = $2`,
+		profileID,
+		modelConfigID,
+	).Scan(&nextCursor); err != nil {
+		t.Fatalf("load round-robin cursor for model %d: %v", modelConfigID, err)
+	}
+	return nextCursor
+}
+
 func requestModelID(t *testing.T, body []byte) string {
 	t.Helper()
 	var payload map[string]any
@@ -853,6 +2698,13 @@ func nullableTestString(value *string) any {
 	return *value
 }
 
+func nullableTestTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UTC()
+}
+
 func jsonInt(t *testing.T, value any) int {
 	t.Helper()
 	floatValue, ok := value.(float64)
@@ -860,6 +2712,54 @@ func jsonInt(t *testing.T, value any) int {
 		t.Fatalf("expected JSON number, got %T", value)
 	}
 	return int(floatValue)
+}
+
+func executeConcurrentRuntimeJSONRequests(t *testing.T, harness *runtimeHarness, requestCount int, method string, path string, body any, headers map[string]string) []concurrentRuntimeRequestResult {
+	t.Helper()
+	if requestCount < 1 {
+		t.Fatalf("concurrent request count must be >= 1, got %d", requestCount)
+	}
+	rawBody, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal concurrent request body: %v", err)
+	}
+	results := make([]concurrentRuntimeRequestResult, requestCount)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for index := 0; index < requestCount; index++ {
+		wg.Add(1)
+		go func(resultIndex int) {
+			defer wg.Done()
+			<-start
+			request, requestErr := http.NewRequest(method, harness.url+path, bytes.NewReader(rawBody))
+			if requestErr != nil {
+				results[resultIndex] = concurrentRuntimeRequestResult{Err: fmt.Errorf("build request %s %s: %w", method, path, requestErr)}
+				return
+			}
+			request.Header.Set("Content-Type", "application/json")
+			for key, value := range headers {
+				request.Header.Set(key, value)
+			}
+			response, responseErr := harness.client.Do(request)
+			if responseErr != nil {
+				results[resultIndex] = concurrentRuntimeRequestResult{Err: fmt.Errorf("perform request %s %s: %w", method, path, responseErr)}
+				return
+			}
+			defer response.Body.Close()
+			responseBody, readErr := io.ReadAll(response.Body)
+			if readErr != nil {
+				results[resultIndex] = concurrentRuntimeRequestResult{Err: fmt.Errorf("read response body: %w", readErr)}
+				return
+			}
+			results[resultIndex] = concurrentRuntimeRequestResult{
+				StatusCode: response.StatusCode,
+				Body:       strings.TrimSpace(string(responseBody)),
+			}
+		}(index)
+	}
+	close(start)
+	wg.Wait()
+	return results
 }
 
 func connectDatabase(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
