@@ -21,7 +21,6 @@ export type ShellSidebarItemId =
   | "models"
   | "endpoints"
   | "loadbalance-strategies"
-  | "statistics"
   | "settings"
   | "proxy-api-keys"
   | "pricing-templates"
@@ -45,7 +44,6 @@ export interface ShellRouteMetadata {
   id: ShellRouteId;
   pathPattern: string;
   profileScoped: boolean;
-  routeLabelKey?: NavLabelKey;
   sidebarItemId: ShellSidebarItemId;
   sidebarItem?: ShellSidebarItemDefinition;
 }
@@ -120,14 +118,6 @@ export const SHELL_ROUTE_METADATA: readonly ShellRouteMetadata[] = [
       to: "/loadbalance-strategies",
     },
     sidebarItemId: "loadbalance-strategies",
-  },
-  {
-    canonicalPath: "/statistics",
-    id: "statistics",
-    pathPattern: "/statistics",
-    profileScoped: true,
-    routeLabelKey: "statistics",
-    sidebarItemId: "statistics",
   },
   {
     canonicalPath: "/settings",

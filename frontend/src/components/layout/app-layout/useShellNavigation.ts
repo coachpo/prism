@@ -103,10 +103,6 @@ function getTopLevelLabel(
   messages: Messages,
   route: ShellRouteMetadata,
 ): string {
-  if (route.routeLabelKey) {
-    return messages.nav[route.routeLabelKey];
-  }
-
   const sidebarItem = route.sidebarItem ?? SHELL_SIDEBAR_ITEMS.find((item) => item.id === route.sidebarItemId);
   return sidebarItem ? messages.nav[sidebarItem.labelKey] : messages.nav.dashboard;
 }
