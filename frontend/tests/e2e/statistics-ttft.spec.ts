@@ -204,9 +204,11 @@ test.describe("statistics endpoint TTFT percentiles", () => {
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-endpoint-table");
+    await expect(table).toBeVisible({ timeout: 15000 });
     const tableContainer = table.locator(".overflow-hidden.rounded-xl").first();
     const headerRow = tableContainer.locator(":scope > div").nth(0);
     await expect(headerRow.locator(":scope > div").nth(0)).toHaveText("Endpoint");
@@ -295,7 +297,7 @@ test.describe("statistics endpoint TTFT percentiles", () => {
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
     const table = page.getByTestId("statistics-endpoint-table");
     const unknownEndpointRow = table

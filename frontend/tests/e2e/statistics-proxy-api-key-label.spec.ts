@@ -221,9 +221,11 @@ test.describe("statistics proxy API key label regression", () => {
     await mockStatisticsRoutes(page);
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-proxy-key-table");
+    await expect(table).toBeVisible({ timeout: 15000 });
     await expect(table).toContainText("No proxy API key");
     await expect(table).toContainText("Team A key");
   });
@@ -232,10 +234,11 @@ test.describe("statistics proxy API key label regression", () => {
     await mockStatisticsRoutes(page);
     await page.addInitScript(() => localStorage.setItem("prism.locale", "zh-CN"));
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-proxy-key-table");
-    await expect(table).toContainText("无代理 API 密钥");
-    await expect(table).toContainText("Team A key");
+    await expect(table).toBeVisible({ timeout: 15000 });
+    await expect(table).toContainText("无代理 API 密钥");    await expect(table).toContainText("Team A key");
   });
 });

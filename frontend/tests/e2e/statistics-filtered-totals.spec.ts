@@ -380,11 +380,11 @@ test.describe("statistics selected-model totals", () => {
     const { endpointModelRequestCounts } = await mockStatisticsRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4"]);
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
-    await expect(page.getByTestId("usage-model-line-section")).toContainText("gpt-5.4");
-
-    const requestsCard = getMetricCard(page, "Requests");
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
+    await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("usage-model-line-section")).toContainText("gpt-5.4");    const requestsCard = getMetricCard(page, "Requests");
     await expect(requestsCard.locator('[data-slot="metric-value"]')).toHaveText("4");
 
     const tokensCard = getMetricCard(page, "Total Tokens");
@@ -453,10 +453,11 @@ test.describe("statistics selected-model totals", () => {
     const { endpointModelRequestCounts } = await mockStatisticsRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4", "claude-3.7-sonnet"]);
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
+    await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId("usage-model-line-section")).toContainText("2 / 9");
-
     const requestsCard = getMetricCard(page, "Requests");
     const tokensCard = getMetricCard(page, "Total Tokens");
     const spendCard = getMetricCard(page, "Total Spend");

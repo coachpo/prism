@@ -220,10 +220,12 @@ test.describe("statistics endpoint avg output rate", () => {
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
     const table = page.getByTestId("statistics-endpoint-table");
     const tableContainer = table.locator(".overflow-hidden.rounded-xl").first();
+    await expect(tableContainer).toBeVisible({ timeout: 15000 });
     const headerRow = tableContainer.locator(":scope > div").nth(0);
     await expect(headerRow.locator(":scope > div").nth(0)).toHaveText("Endpoint");
     await expect(headerRow.locator(":scope > div").nth(1)).toHaveText("P50 TTFT");
@@ -311,9 +313,11 @@ test.describe("statistics endpoint avg output rate", () => {
     });
     await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
-    await page.goto("/statistics");
+    await page.goto("/dashboard?tab=analytics");
 
+    await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     const table = page.getByTestId("statistics-endpoint-table");
+    await expect(table).toBeVisible({ timeout: 15000 });
     const unknownEndpointRow = table
       .getByText("All ineligible unknown endpoint")
       .locator("xpath=ancestor::div[contains(@class, 'grid')][1]");
