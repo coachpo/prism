@@ -22,9 +22,6 @@ const ProxyModelDetailPage = lazy(() =>
 const EndpointsPage = lazy(() =>
   import("@/pages/EndpointsPage").then((module) => ({ default: module.EndpointsPage }))
 );
-const StatisticsPage = lazy(() =>
-  import("@/pages/dashboard/StatisticsPage").then((module) => ({ default: module.StatisticsPage }))
-);
 const SettingsPage = lazy(() =>
   import("@/pages/SettingsPage").then((module) => ({ default: module.SettingsPage }))
 );
@@ -124,7 +121,6 @@ function App() {
             <Route path="/models/:id" element={withRouteSuspense(<ModelDetailPage />)} />
             <Route path="/endpoints" element={withRouteSuspense(<EndpointsPage />)} />
             <Route path="/loadbalance-strategies" element={withRouteSuspense(<LoadbalanceStrategiesPage />)} />
-            <Route path="/statistics" element={withRouteSuspense(<StatisticsPage />)} />
             <Route path="/settings" element={withRouteSuspense(<SettingsPage />)} />
             <Route path="/proxy-api-keys" element={withRouteSuspense(<ProxyApiKeysPage />)} />
             <Route path="/pricing-templates" element={withRouteSuspense(<PricingTemplatesPage />)} />
