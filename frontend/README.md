@@ -1,6 +1,6 @@
 # Prism Frontend
 
-React 19 management dashboard for Prism. This package owns the browser UI, the typed frontend API boundary, profile-scoped management flows, realtime updates, and the route shells for dashboard, models, model detail, endpoints, loadbalance strategies, statistics, settings, proxy API keys, pricing templates, and request logs.
+React 19 management dashboard for Prism. This package owns the browser UI, the typed frontend API boundary, profile-scoped management flows, realtime updates, and the route shells for dashboard, models, model detail, endpoints, loadbalance strategies, settings, proxy API keys, pricing templates, and request logs.
 
 ## Frontend-only commands
 
@@ -26,7 +26,7 @@ When started through the checked-in root launcher, Prism serves the frontend at 
 
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
 - `/` redirects to `/dashboard`
-- `src/App.tsx` mounts the public auth routes plus the protected shell routes for dashboard, models, model detail, `/models/:id/proxy`, endpoints, loadbalance strategies, statistics, settings, pricing templates, proxy API keys, and request logs.
+- `src/App.tsx` mounts the public auth routes plus the protected shell routes for dashboard, models, model detail, `/models/:id/proxy`, endpoints, loadbalance strategies, settings, pricing templates, proxy API keys, and request logs.
 - `src/pages/` owns route-domain shells and their dense local feature folders.
 - `src/main.tsx` owns browser mounting plus the locale, theme, tooltip, and toast providers.
 - `src/lib/api.ts` is the public typed API boundary.
