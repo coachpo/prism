@@ -3,6 +3,7 @@ package contract_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -366,6 +368,157 @@ func TestLoadbalanceDeleteEvents(t *testing.T) {
 	}
 }
 
+func TestLoadbalanceCurrentStateReflectsRuntimeOpenedTransition(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	suffix := randomSuffix()
+	publicModelID := "s15-runtime-current-state-proxy-" + suffix
+	targetModelID := "s15-runtime-current-state-native-" + suffix
+	autoRecovery := mustModelJSON(t, map[string]any{
+		"mode":         "enabled",
+		"status_codes": []int{503},
+		"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 1, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
+		"ban":          map[string]any{"mode": "off", "max_cooldown_strikes_before_ban": 0, "ban_duration_seconds": 0},
+	})
+	strategyID := s15InsertRuntimeLoadbalanceStrategy(t, harness, profileID, "S15 Runtime Current State "+suffix, "fill-first", autoRecovery)
+	targetModelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", targetModelID, stringPtr("S15 Runtime Current State Native"), "native", &strategyID, true)
+	publicModelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", publicModelID, stringPtr("S15 Runtime Current State Proxy"), "proxy", nil, true)
+	s15InsertProxyTarget(t, harness, publicModelConfigID, targetModelConfigID, 0)
+	primaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"primary unavailable"}`))
+	}))
+	defer primaryUpstream.Close()
+	secondaryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-s15-current-state"}`))
+	}))
+	defer secondaryUpstream.Close()
+	primaryEndpointID := s15InsertRuntimeEndpoint(t, harness, profileID, "S15 Runtime Current State Primary "+suffix, primaryUpstream.URL, "s15-primary-key", 0)
+	secondaryEndpointID := s15InsertRuntimeEndpoint(t, harness, profileID, "S15 Runtime Current State Secondary "+suffix, secondaryUpstream.URL, "s15-secondary-key", 1)
+	primaryConnectionID := modelInsertConnection(t, harness, profileID, targetModelConfigID, primaryEndpointID, 0, true, nil)
+	secondaryConnectionID := modelInsertConnection(t, harness, profileID, targetModelConfigID, secondaryEndpointID, 1, true, nil)
+
+	runtimeResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "opened transition"}},
+		"model":    publicModelID,
+	}, nil)
+	assertStatus(t, runtimeResponse, http.StatusOK)
+
+	currentStateResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/current-state?model_config_id=%d", targetModelConfigID), nil, modelHeader(profileID))
+	assertStatus(t, currentStateResponse, http.StatusOK)
+	var currentStatePayload map[string]any
+	decodeJSONResponse(t, currentStateResponse, &currentStatePayload)
+	primaryItem := s15CurrentStateItemByConnectionID(t, currentStatePayload, primaryConnectionID)
+	if primaryItem["state"] != "blocked" || primaryItem["circuit_state"] != "open" || jsonInt(t, primaryItem["consecutive_failures"]) != 1 || primaryItem["last_failure_kind"] != "transient_http" || primaryItem["blocked_until_at"] == nil {
+		t.Fatalf("expected primary current-state payload to reflect opened transition, got %+v", primaryItem)
+	}
+	blockedUntilAtRaw, ok := primaryItem["blocked_until_at"].(string)
+	if !ok {
+		t.Fatalf("expected blocked_until_at string in current-state payload, got %+v", primaryItem)
+	}
+	blockedUntilAt, err := time.Parse(time.RFC3339Nano, blockedUntilAtRaw)
+	if err != nil {
+		t.Fatalf("parse blocked_until_at %q: %v", blockedUntilAtRaw, err)
+	}
+	secondaryItem := s15CurrentStateItemByConnectionID(t, currentStatePayload, secondaryConnectionID)
+	if secondaryItem["state"] != "counting" || secondaryItem["circuit_state"] != "closed" || secondaryItem["last_live_success_at"] == nil || jsonInt(t, secondaryItem["live_p95_latency_ms"]) < 1 {
+		t.Fatalf("expected winning current-state payload to reflect recovered counting state, got %+v", secondaryItem)
+	}
+
+	eventsResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events?model_id=%s&limit=20&offset=0", targetModelID), nil, modelHeader(profileID))
+	assertStatus(t, eventsResponse, http.StatusOK)
+	var eventsPayload map[string]any
+	decodeJSONResponse(t, eventsResponse, &eventsPayload)
+	openedEvent := s15LoadbalanceEventByConnectionID(t, eventsPayload, primaryConnectionID)
+	if openedEvent["event_type"] != "opened" || openedEvent["failure_kind"] != "transient_http" || asMap(t, openedEvent["summary"])["event"] != "Connection opened its circuit" || asMap(t, openedEvent["summary"])["cooldown"] != "60 seconds" {
+		t.Fatalf("expected opened event payload to reflect runtime failure semantics, got %+v", openedEvent)
+	}
+	blockedUntilMono, ok := openedEvent["blocked_until_mono"].(float64)
+	if !ok {
+		t.Fatalf("expected opened event payload to include blocked_until_mono, got %+v", openedEvent)
+	}
+	expectedBlockedUntilMono := float64(blockedUntilAt.UTC().UnixNano()) / float64(time.Second)
+	if math.Abs(blockedUntilMono-expectedBlockedUntilMono) > 0.001 {
+		t.Fatalf("expected opened event blocked_until_mono %.6f to match current-state blocked_until_at %.6f", blockedUntilMono, expectedBlockedUntilMono)
+	}
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events/%d", jsonInt(t, openedEvent["id"])), nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	detailBlockedUntilMono, ok := detailPayload["blocked_until_mono"].(float64)
+	if !ok {
+		t.Fatalf("expected opened event detail payload to include blocked_until_mono, got %+v", detailPayload)
+	}
+	if math.Abs(detailBlockedUntilMono-expectedBlockedUntilMono) > 0.001 {
+		t.Fatalf("expected opened event detail blocked_until_mono %.6f to match current-state blocked_until_at %.6f", detailBlockedUntilMono, expectedBlockedUntilMono)
+	}
+	if jsonInt(t, detailPayload["failure_threshold"]) != 1 || jsonInt(t, detailPayload["max_cooldown_seconds"]) != 900 || detailPayload["ban_mode"] != "off" || jsonInt(t, detailPayload["endpoint_id"]) != primaryEndpointID {
+		t.Fatalf("expected opened event detail payload to match runtime policy, got %+v", detailPayload)
+	}
+}
+
+func TestLoadbalanceEventsReflectRuntimeRecoveredTransition(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	suffix := randomSuffix()
+	publicModelID := "s15-runtime-recovered-proxy-" + suffix
+	targetModelID := "s15-runtime-recovered-native-" + suffix
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "S15 Runtime Recovered "+suffix)
+	targetModelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", targetModelID, stringPtr("S15 Runtime Recovered Native"), "native", &strategyID, true)
+	publicModelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", publicModelID, stringPtr("S15 Runtime Recovered Proxy"), "proxy", nil, true)
+	s15InsertProxyTarget(t, harness, publicModelConfigID, targetModelConfigID, 0)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-s15-recovered"}`))
+	}))
+	defer upstream.Close()
+	endpointID := s15InsertRuntimeEndpoint(t, harness, profileID, "S15 Runtime Recovered Endpoint "+suffix, upstream.URL, "s15-recovered-key", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, targetModelConfigID, endpointID, 0, true, nil)
+	priorFailureKind := "transient_http"
+	insertRuntimeState(t, harness, runtimeStateSeed{
+		ProfileID:           profileID,
+		ConnectionID:        connectionID,
+		ConsecutiveFailures: 1,
+		LastFailureKind:     &priorFailureKind,
+		LastCooldownSeconds: 60,
+		MaxCooldownStrikes:  1,
+		BanMode:             "off",
+		BlockedUntilAt:      timePtr(fixedS15Now.Add(-1 * time.Minute)),
+		ProbeEligibleLogged: false,
+		CircuitState:        "open",
+		LiveP95LatencyMS:    intPtr(999),
+		LastLiveFailureAt:   timePtr(fixedS15Now.Add(-2 * time.Minute)),
+		CreatedAt:           fixedS15Now.Add(-10 * time.Minute),
+		UpdatedAt:           fixedS15Now.Add(-2 * time.Minute),
+	})
+
+	runtimeResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "recovered transition"}},
+		"model":    publicModelID,
+	}, nil)
+	assertStatus(t, runtimeResponse, http.StatusOK)
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events?model_id=%s&limit=20&offset=0", targetModelID), nil, modelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	recoveredEvent := s15LoadbalanceEventByConnectionID(t, listPayload, connectionID)
+	if recoveredEvent["event_type"] != "recovered" || recoveredEvent["failure_kind"] != "transient_http" || asMap(t, recoveredEvent["summary"])["event"] != "Connection recovered" || !strings.Contains(asMap(t, recoveredEvent["summary"])["cooldown"].(string), "Recovered after a 60 seconds open interval") {
+		t.Fatalf("expected recovered event payload to reflect runtime recovery semantics, got %+v", recoveredEvent)
+	}
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events/%d", jsonInt(t, recoveredEvent["id"])), nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	if jsonInt(t, detailPayload["failure_threshold"]) != 2 || jsonInt(t, detailPayload["max_cooldown_seconds"]) != 900 || detailPayload["ban_mode"] != "off" || jsonInt(t, detailPayload["connection_id"]) != connectionID {
+		t.Fatalf("expected recovered event detail payload to match runtime recovery state, got %+v", detailPayload)
+	}
+}
+
 func newS15ContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -401,7 +554,12 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("build stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, StatsService: statsService})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+	if err != nil {
+		t.Fatalf("build runtime service: %v", err)
+	}
+	t.Cleanup(runtimeService.Close)
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, RuntimeService: runtimeService, StatsService: statsService})
 	if err != nil {
 		t.Fatalf("build S15 handler: %v", err)
 	}
@@ -533,6 +691,65 @@ func insertLoadbalanceEvent(t *testing.T, harness *contractHarness, seed loadbal
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (id, profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds, blocked_until_mono, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`, seed.ID, seed.ProfileID, seed.ConnectionID, seed.EventType, nullableTestString(seed.FailureKind), seed.ConsecutiveFailures, seed.CooldownSeconds, nullableTestFloat64(seed.BlockedUntilMono), nullableTestString(seed.ModelID), nullableTestInt(seed.EndpointID), nullableTestInt(seed.VendorID), nullableTestInt(seed.FailureThreshold), nullableTestFloat64(seed.BackoffMultiplier), nullableTestInt(seed.MaxCooldownSeconds), nullableTestInt(seed.MaxCooldownStrikes), nullableTestString(seed.BanMode), nullableTestTime(seed.BannedUntilAt), seed.CreatedAt); err != nil {
 		t.Fatalf("insert loadbalance event %d: %v", seed.ID, err)
 	}
+}
+
+func s15InsertRuntimeLoadbalanceStrategy(t *testing.T, harness *contractHarness, profileID int, name string, legacyStrategyType string, autoRecovery string) int {
+	t.Helper()
+	now := fixedS15Now.UTC()
+	var strategyID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, 'legacy', $3, $4::jsonb, NULL, $5, $5) RETURNING id`, profileID, name, legacyStrategyType, autoRecovery, now).Scan(&strategyID); err != nil {
+		t.Fatalf("insert S15 runtime loadbalance strategy %q: %v", name, err)
+	}
+	return strategyID
+}
+
+func s15InsertRuntimeEndpoint(t *testing.T, harness *contractHarness, profileID int, name string, baseURL string, apiKey string, position int) int {
+	t.Helper()
+	now := fixedS15Now.UTC()
+	var endpointID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id`, profileID, name, baseURL, apiKey, position, now).Scan(&endpointID); err != nil {
+		t.Fatalf("insert S15 runtime endpoint %q: %v", name, err)
+	}
+	return endpointID
+}
+
+func s15InsertProxyTarget(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetModelConfigID int, position int) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`, sourceModelConfigID, targetModelConfigID, position); err != nil {
+		t.Fatalf("insert S15 proxy target %d -> %d: %v", sourceModelConfigID, targetModelConfigID, err)
+	}
+}
+
+func s15CurrentStateItemByConnectionID(t *testing.T, payload map[string]any, connectionID int) map[string]any {
+	t.Helper()
+	items, ok := payload["items"].([]any)
+	if !ok {
+		t.Fatalf("expected current-state items array, got %+v", payload)
+	}
+	for _, raw := range items {
+		item := asMap(t, raw)
+		if jsonInt(t, item["connection_id"]) == connectionID {
+			return item
+		}
+	}
+	t.Fatalf("expected current-state payload for connection %d, got %+v", connectionID, payload)
+	return nil
+}
+
+func s15LoadbalanceEventByConnectionID(t *testing.T, payload map[string]any, connectionID int) map[string]any {
+	t.Helper()
+	items, ok := payload["items"].([]any)
+	if !ok {
+		t.Fatalf("expected loadbalance event items array, got %+v", payload)
+	}
+	for _, raw := range items {
+		item := asMap(t, raw)
+		if jsonInt(t, item["connection_id"]) == connectionID {
+			return item
+		}
+	}
+	t.Fatalf("expected loadbalance event for connection %d, got %+v", connectionID, payload)
+	return nil
 }
 
 func insertContractProxyAPIKey(t *testing.T, harness *contractHarness, name string) int {
