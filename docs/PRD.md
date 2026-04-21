@@ -113,9 +113,9 @@ Single operator (developer/power user) running the application locally or on a l
 - Select either a legacy or adaptive routing strategy per native model
 - Manual health check for connections with visual status indicators
 - Dedicated model-detail routes (`/models/:id` and `/models/:id/proxy`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
-- Dedicated request-log browsing and investigation at `/request-logs`, separate from `/statistics`
+- Dedicated request-log browsing and investigation at `/request-logs`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
-- Dashboard (`/dashboard`) and Statistics (`/statistics`) are separate observability surfaces; Statistics is a routed deep-dive view rather than a primary sidebar entry
+- Dashboard analytics lives under `/dashboard?tab=analytics` and replaces the old standalone statistics route
 - Global profile selector in the app shell controls the selected profile (management scope).
 - Active profile indicator is shown globally; runtime activation is an explicit action.
 - The protected shell bootstraps profile state from one profile-bootstrap response, while sidebar navigation and breadcrumbs are derived from local route metadata.

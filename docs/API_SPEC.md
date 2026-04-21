@@ -1204,7 +1204,7 @@ Stats APIs are profile-scoped by explicit `X-Profile-Id` (required header).
 ```
 GET /api/stats/usage-snapshot
 ```
-This is the live statistics page contract. It returns the unified usage snapshot used by `/statistics` after the request-events surface was removed, leaving aggregate summary, endpoint, model, and proxy-key statistics only.
+This is the live dashboard analytics contract. It returns the unified usage snapshot used by `/dashboard?tab=analytics` after the request-events surface was removed, leaving aggregate summary, endpoint, model, and proxy-key statistics only.
 
 Query parameters:
 | Parameter | Type | Default | Description |
@@ -1213,7 +1213,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is still aggregated from persisted usage-event rows, and the `/statistics` page stays focused on aggregate views. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is still aggregated from persisted usage-event rows, and dashboard analytics stays focused on aggregate views. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 

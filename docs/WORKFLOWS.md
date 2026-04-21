@@ -5,7 +5,7 @@ This document maps Prism's current operator workflows from mounted frontend rout
 Validated again against current repo surfaces on 2026-04-19:
 - `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.2.35`, which is the current backend version returned by `/health`.
 - `docs/openapi.json` is the management and health OpenAPI artifact served by the Go backend at `/openapi.json`.
-- The protected frontend route shell in `frontend/src/App.tsx` still mounts `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/statistics`.
+- The protected frontend route shell in `frontend/src/App.tsx` still mounts `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, and `/proxy-api-keys`; analytics now lives under `/dashboard?tab=analytics`.
 
 ## Evidence Sources
 
@@ -27,7 +27,7 @@ Validated again against current repo surfaces on 2026-04-19:
 ## Shared Scope Rules
 
 - Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
-- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/statistics`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, and `/request-logs`.
+- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
 - `selectedProfile` controls management scope through `X-Profile-Id` on profile-scoped `/api/*` requests.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 - Global management routes include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, and `/api/realtime/ws`.
@@ -92,14 +92,14 @@ Validated again against current repo surfaces on 2026-04-19:
 **User entrypoints**
 
 - `/dashboard`
-- `/statistics`
+- `/dashboard?tab=analytics`
 
 **Frontend flow**
 
 1. Dashboard bootstrap loads KPI cards, spending summaries, throughput, recent activity, and routing data.
 2. The dashboard subscribes to realtime `dashboard.update` messages for live reconciliation.
-3. Quick actions send operators into `/statistics` or `/request-logs` for deeper analysis.
-4. The statistics route stays aggregate-focused and uses snapshot presets rather than request-level drill-down.
+3. Quick actions send operators into the analytics tab or `/request-logs` for deeper analysis.
+4. The analytics tab stays aggregate-focused and uses snapshot presets rather than request-level drill-down.
 
 **Backend touchpoints**
 

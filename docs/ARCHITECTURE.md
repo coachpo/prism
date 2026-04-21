@@ -86,7 +86,7 @@ frontend/
 │       ├── ModelsPage.tsx
 │       ├── ModelDetailPage.tsx     # Model detail shell + loadbalance events tab
 │       ├── EndpointsPage.tsx
-│       ├── dashboard/StatisticsPage.tsx
+│       ├── dashboard/DashboardPage.tsx # Dashboard shell with analytics tab and shared statistics content
 │       ├── ProxyModelDetailPage.tsx # Proxy-model detail shell and ordered target editing
 │       ├── RequestLogsPage.tsx     # Request-log investigation with lazy audit lookup
 │       ├── ProxyApiKeysPage.tsx

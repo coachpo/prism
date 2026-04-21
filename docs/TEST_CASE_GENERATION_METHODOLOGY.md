@@ -24,14 +24,14 @@ Do not generate cases for behavior that is not supported by those sources.
 The agent should always inventory Prism as these surfaces:
 
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/statistics`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
+- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
 - Management APIs on `/api/*`
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Realtime dashboard updates on `/api/realtime/ws`
 - The selected-profile versus active-profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the dashboard, models list, model detail, endpoints, loadbalance strategies, statistics, settings, proxy API keys, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
+High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 
