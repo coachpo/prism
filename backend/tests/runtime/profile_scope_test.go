@@ -766,7 +766,7 @@ func TestRuntimeBudgetUsesOneOverallDeadlineAcrossAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("perform runtime budget request: %v", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusBadGateway {
 		body := readResponseBody(t, response)
 		t.Fatalf("expected overall deadline exhaustion to surface as 502 after failover, got status %d body %s", response.StatusCode, body)
@@ -961,7 +961,7 @@ func TestRuntimeLeaseHalfOpenProbeExclusivity(t *testing.T) {
 			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("perform first lease probe request: %w", responseErr)}
 			return
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		responseBody, readErr := io.ReadAll(response.Body)
 		if readErr != nil {
 			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("read first lease probe response body: %w", readErr)}
@@ -1060,7 +1060,7 @@ func TestRuntimeLeaseNonStreamInFlightExclusivity(t *testing.T) {
 			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("perform first non-stream lease request: %w", responseErr)}
 			return
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		responseBody, readErr := io.ReadAll(response.Body)
 		if readErr != nil {
 			firstResultCh <- concurrentRuntimeRequestResult{Err: fmt.Errorf("read first non-stream lease response body: %w", readErr)}
@@ -1749,7 +1749,7 @@ func startSharedPostgresHarness() (testPostgresHarness, error) {
 func (h testPostgresHarness) openDatabase(t *testing.T, ctx context.Context, databaseName string) *pgx.Conn {
 	t.Helper()
 	adminConn := connectDatabase(t, ctx, h.connectionString("postgres"))
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
 		t.Fatalf("drop database %s: %v", databaseName, err)
 	}
@@ -1770,7 +1770,7 @@ func newRuntimeHarness(t *testing.T) *runtimeHarness {
 	databaseName := "runtime_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
 	t.Cleanup(func() {
-		conn.Close(context.Background())
+		_ = conn.Close(context.Background())
 	})
 	return newRuntimeHarnessForDatabase(t, databaseName, conn)
 }
@@ -1781,7 +1781,7 @@ func restartRuntimeHarness(t *testing.T, databaseName string) *runtimeHarness {
 	defer cancel()
 	conn := connectDatabase(t, testContext, sharedPostgresHarness.connectionString(databaseName))
 	t.Cleanup(func() {
-		conn.Close(context.Background())
+		_ = conn.Close(context.Background())
 	})
 	return newRuntimeHarnessForDatabase(t, databaseName, conn)
 }
@@ -2745,7 +2745,7 @@ func executeConcurrentRuntimeJSONRequests(t *testing.T, harness *runtimeHarness,
 				results[resultIndex] = concurrentRuntimeRequestResult{Err: fmt.Errorf("perform request %s %s: %w", method, path, responseErr)}
 				return
 			}
-			defer response.Body.Close()
+			defer func() { _ = response.Body.Close() }()
 			responseBody, readErr := io.ReadAll(response.Body)
 			if readErr != nil {
 				results[resultIndex] = concurrentRuntimeRequestResult{Err: fmt.Errorf("read response body: %w", readErr)}

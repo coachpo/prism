@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -102,7 +103,7 @@ func (s *Service) nowUTC() time.Time {
 
 func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 	}
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -113,7 +114,7 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 		rawBody = nil
 	}
 
-	plan, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (requestPlan, error) {
+	plan, err := pgxutil.InTxValue(r.Context(), s.pool, "runtime", func(tx pgx.Tx) (requestPlan, error) {
 		return s.buildRequestPlan(r.Context(), tx, r, rawBody)
 	})
 	if err != nil {
@@ -127,7 +128,7 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err)
 		return
 	}
-	defer execution.Response.Body.Close()
+	defer func() { _ = execution.Response.Body.Close() }()
 
 	copyResponseHeaders(w.Header(), execution.Response.Header)
 	w.WriteHeader(execution.Response.StatusCode)
@@ -382,25 +383,6 @@ func stringValue(value any) string {
 	default:
 		return ""
 	}
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin runtime transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit runtime transaction: %w", err)
-	}
-	return value, nil
 }
 
 func writeDomainError(w http.ResponseWriter, err error) {

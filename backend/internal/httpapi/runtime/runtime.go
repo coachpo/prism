@@ -17,6 +17,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -974,7 +975,7 @@ func (s *Service) releaseRuntimeLeaseDetached(ctx context.Context, token string)
 func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) error {
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.RecordRuntimeSuccess(feedbackCtx, tx, profileID, connectionID, strategy, responseTimeMS, completedAt)
 	})
 	if err != nil {
@@ -986,7 +987,7 @@ func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, conne
 func (s *Service) recordRuntimeAdmissionRejection(ctx context.Context, profileID int, connectionID int, observedAt time.Time) error {
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.RecordRuntimeAdmissionRejection(feedbackCtx, tx, profileID, connectionID, observedAt)
 	})
 	if err != nil {
@@ -998,7 +999,7 @@ func (s *Service) recordRuntimeAdmissionRejection(ctx context.Context, profileID
 func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.RecordRuntimeFailoverHTTPFailure(feedbackCtx, tx, profileID, connectionID, strategy, completedAt)
 	})
 	if err != nil {
@@ -1010,7 +1011,7 @@ func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileI
 func (s *Service) recordRuntimeTransportFailure(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := withTxValue(feedbackCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.RecordRuntimeTransportFailure(feedbackCtx, tx, profileID, connectionID, strategy, completedAt)
 	})
 	if err != nil {
@@ -1023,7 +1024,7 @@ func (s *Service) acquireRuntimeProbeLease(ctx context.Context, profileID int, c
 	if !loadbalance.RequiresHalfOpenProbeLease(state, observedAt) {
 		return runtimeLeaseResult{Acquired: true}, nil
 	}
-	result, err := withTxValue(ctx, s.pool, func(tx pgx.Tx) (runtimeLeaseResult, error) {
+	result, err := pgxutil.InTxValue(ctx, s.pool, "runtime", func(tx pgx.Tx) (runtimeLeaseResult, error) {
 		leaseToken, acquired, leaseErr := loadbalance.TryAcquireRuntimeHalfOpenProbeLease(ctx, tx, profileID, connectionID, observedAt)
 		if leaseErr != nil {
 			return runtimeLeaseResult{}, leaseErr
@@ -1043,7 +1044,7 @@ func (s *Service) acquireRuntimeNonStreamLease(ctx context.Context, profileID in
 	if !strategy.AdmissionPolicy().RespectInFlightLimits {
 		return runtimeLeaseResult{Acquired: true}, nil
 	}
-	result, err := withTxValue(ctx, s.pool, func(tx pgx.Tx) (runtimeLeaseResult, error) {
+	result, err := pgxutil.InTxValue(ctx, s.pool, "runtime", func(tx pgx.Tx) (runtimeLeaseResult, error) {
 		leaseToken, acquired, leaseErr := loadbalance.TryAcquireRuntimeNonStreamLease(ctx, tx, profileID, connection.ID, *connection.MaxInFlightNonStream, observedAt)
 		if leaseErr != nil {
 			return runtimeLeaseResult{}, leaseErr
@@ -1062,7 +1063,7 @@ func (s *Service) releaseRuntimeLease(ctx context.Context, leaseToken string) er
 	}
 	releaseCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := withTxValue(releaseCtx, s.pool, func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(releaseCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.ReleaseRuntimeLease(releaseCtx, tx, leaseToken)
 	})
 	if err != nil {

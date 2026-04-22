@@ -613,39 +613,6 @@ func loadLatestRuntimeUsageEventPricingRow(t *testing.T, conn *pgx.Conn, profile
 	return row
 }
 
-func assertLatestRuntimeWinningRequestLogFields(t *testing.T, conn *pgx.Conn, profileID int, wantAttemptNumber int, wantUsageValid bool, wantTimingValid bool, wantStream bool) {
-	t.Helper()
-	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
-
-	var attemptNumber int
-	var isStream bool
-	var inputTokens sql.NullInt64
-	var outputTokens sql.NullInt64
-	var totalTokens sql.NullInt64
-	var ttftMs sql.NullInt64
-	var completionDurationMs sql.NullInt64
-	if err := conn.QueryRow(
-		context.Background(),
-		`SELECT attempt_number, is_stream, input_tokens, output_tokens, total_tokens, ttft_ms, completion_duration_ms FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
-		profileID,
-		ingressRequestID,
-	).Scan(&attemptNumber, &isStream, &inputTokens, &outputTokens, &totalTokens, &ttftMs, &completionDurationMs); err != nil {
-		t.Fatalf("load runtime winning request-log row: %v", err)
-	}
-	if attemptNumber != wantAttemptNumber {
-		t.Fatalf("expected final request-log attempt_number=%d, got %d", wantAttemptNumber, attemptNumber)
-	}
-	if isStream != wantStream {
-		t.Fatalf("expected final request-log is_stream=%t, got %t", wantStream, isStream)
-	}
-	if inputTokens.Valid != wantUsageValid || outputTokens.Valid != wantUsageValid || totalTokens.Valid != wantUsageValid {
-		t.Fatalf("expected final request-log usage validity=%t, got input=%+v output=%+v total=%+v", wantUsageValid, inputTokens, outputTokens, totalTokens)
-	}
-	if ttftMs.Valid != wantTimingValid || completionDurationMs.Valid != wantTimingValid {
-		t.Fatalf("expected final request-log timing validity=%t, got ttft=%+v completion=%+v", wantTimingValid, ttftMs, completionDurationMs)
-	}
-}
-
 func assertLatestRuntimeWinningRequestLogTiming(t *testing.T, conn *pgx.Conn, profileID int, expectTTFT bool) {
 	t.Helper()
 	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
@@ -836,7 +803,7 @@ func newRequestLogContractHarness(t *testing.T) *requestLogContractHarness {
 	defer cancel()
 	databaseName := "s15_runtime_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s15-runtime-secret"})
 	if err != nil {
 		t.Fatalf("build startup service: %v", err)
@@ -1077,14 +1044,4 @@ func asMapRuntime(t *testing.T, raw any) map[string]any {
 		t.Fatalf("expected map payload, got %T %+v", raw, raw)
 	}
 	return item
-}
-
-func readRuntimeResponseBody(t *testing.T, response *http.Response) string {
-	t.Helper()
-	raw, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatalf("read response body: %v", err)
-	}
-	response.Body = io.NopCloser(bytes.NewReader(raw))
-	return string(raw)
 }

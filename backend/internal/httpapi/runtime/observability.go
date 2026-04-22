@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
 type responseUsage struct {
@@ -333,7 +334,7 @@ func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream 
 }
 
 func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLogs []requestLogInsert, usageEvent usageEventInsert) (int, error) {
-	return withTxValue(ctx, s.pool, func(tx pgx.Tx) (int, error) {
+	return pgxutil.InTxValue(ctx, s.pool, "runtime", func(tx pgx.Tx) (int, error) {
 		var requestLogID int
 		for _, requestLog := range requestLogs {
 			err := tx.QueryRow(
