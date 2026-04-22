@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,90 +24,132 @@ type responseUsage struct {
 }
 
 type requestLogInsert struct {
-	ProfileID                   int
-	ModelID                     string
-	ResolvedTargetModelID       *string
-	APIFamily                   string
-	VendorID                    *int
-	VendorKey                   *string
-	VendorName                  *string
-	EndpointID                  int
-	ConnectionID                int
-	ProxyAPIKeyID               *int
-	ProxyAPIKeyNameSnapshot     *string
-	IngressRequestID            string
-	AttemptNumber               int
-	ProviderCorrelationID       *string
-	EndpointBaseURL             string
-	EndpointDescription         *string
-	StatusCode                  int
-	ResponseTimeMS              int
-	IsStream                    bool
-	InputTokens                 *int
-	OutputTokens                *int
-	TotalTokens                 *int
-	SuccessFlag                 bool
-	BillableFlag                *bool
-	PricedFlag                  *bool
-	UnpricedReason              *string
-	CacheReadInputTokens        *int
-	CacheCreationInputTokens    *int
-	ReasoningTokens             *int
-	TotalCostOriginalMicros     *int64
-	TotalCostUserCurrencyMicros *int64
-	ReportCurrencyCode          *string
-	ReportCurrencySymbol        *string
-	RequestPath                 string
-	ErrorDetail                 *string
-	CreatedAt                   time.Time
-	CallerUserAgent             *string
-	UpstreamUserAgent           *string
-	CompletionDurationMS        *int
-	TTFTMS                      *int
-	AuditEnabledAtRequest       bool
+	ProfileID                         int
+	ModelID                           string
+	ResolvedTargetModelID             *string
+	APIFamily                         string
+	VendorID                          *int
+	VendorKey                         *string
+	VendorName                        *string
+	EndpointID                        int
+	ConnectionID                      int
+	ProxyAPIKeyID                     *int
+	ProxyAPIKeyNameSnapshot           *string
+	IngressRequestID                  string
+	AttemptNumber                     int
+	ProviderCorrelationID             *string
+	EndpointBaseURL                   string
+	EndpointDescription               *string
+	StatusCode                        int
+	ResponseTimeMS                    int
+	IsStream                          bool
+	InputTokens                       *int
+	OutputTokens                      *int
+	TotalTokens                       *int
+	SuccessFlag                       bool
+	BillableFlag                      *bool
+	PricedFlag                        *bool
+	UnpricedReason                    *string
+	CacheReadInputTokens              *int
+	CacheCreationInputTokens          *int
+	ReasoningTokens                   *int
+	InputCostMicros                   *int64
+	OutputCostMicros                  *int64
+	CacheReadInputCostMicros          *int64
+	CacheCreationInputCostMicros      *int64
+	ReasoningCostMicros               *int64
+	TotalCostOriginalMicros           *int64
+	TotalCostUserCurrencyMicros       *int64
+	CurrencyCodeOriginal              *string
+	ReportCurrencyCode                *string
+	ReportCurrencySymbol              *string
+	FXRateUsed                        *string
+	FXRateSource                      *string
+	PricingSnapshotUnit               *string
+	PricingSnapshotInput              *string
+	PricingSnapshotOutput             *string
+	PricingSnapshotCacheReadInput     *string
+	PricingSnapshotCacheCreationInput *string
+	PricingSnapshotReasoning          *string
+	PricingConfigVersionUsed          *int
+	RequestPath                       string
+	ErrorDetail                       *string
+	CreatedAt                         time.Time
+	CallerUserAgent                   *string
+	UpstreamUserAgent                 *string
+	CompletionDurationMS              *int
+	TTFTMS                            *int
+	AuditEnabledAtRequest             bool
 }
 
 type usageEventInsert struct {
-	ProfileID                   int
-	IngressRequestID            string
-	ModelID                     string
-	ResolvedTargetModelID       *string
-	APIFamily                   string
-	EndpointID                  int
-	ConnectionID                int
-	ProxyAPIKeyID               *int
-	ProxyAPIKeyNameSnapshot     *string
-	StatusCode                  int
-	SuccessFlag                 bool
-	BillableFlag                *bool
-	PricedFlag                  *bool
-	UnpricedReason              *string
-	InputTokens                 *int
-	OutputTokens                *int
-	TotalTokens                 *int
-	CacheReadInputTokens        *int
-	CacheCreationInputTokens    *int
-	ReasoningTokens             *int
-	TotalCostUserCurrencyMicros *int64
-	ReportCurrencyCode          *string
-	ReportCurrencySymbol        *string
-	AttemptCount                int
-	RequestPath                 string
-	CreatedAt                   time.Time
-	ResponseTimeMS              *int
-	CompletionDurationMS        *int
-	TTFTMS                      *int
+	ProfileID                         int
+	IngressRequestID                  string
+	ModelID                           string
+	ResolvedTargetModelID             *string
+	APIFamily                         string
+	EndpointID                        int
+	ConnectionID                      int
+	ProxyAPIKeyID                     *int
+	ProxyAPIKeyNameSnapshot           *string
+	StatusCode                        int
+	SuccessFlag                       bool
+	BillableFlag                      *bool
+	PricedFlag                        *bool
+	UnpricedReason                    *string
+	InputTokens                       *int
+	OutputTokens                      *int
+	TotalTokens                       *int
+	CacheReadInputTokens              *int
+	CacheCreationInputTokens          *int
+	ReasoningTokens                   *int
+	InputCostMicros                   *int64
+	OutputCostMicros                  *int64
+	CacheReadInputCostMicros          *int64
+	CacheCreationInputCostMicros      *int64
+	ReasoningCostMicros               *int64
+	TotalCostOriginalMicros           *int64
+	TotalCostUserCurrencyMicros       *int64
+	CurrencyCodeOriginal              *string
+	ReportCurrencyCode                *string
+	ReportCurrencySymbol              *string
+	FXRateUsed                        *string
+	FXRateSource                      *string
+	PricingSnapshotUnit               *string
+	PricingSnapshotInput              *string
+	PricingSnapshotOutput             *string
+	PricingSnapshotCacheReadInput     *string
+	PricingSnapshotCacheCreationInput *string
+	PricingSnapshotReasoning          *string
+	PricingConfigVersionUsed          *int
+	AttemptCount                      int
+	RequestPath                       string
+	CreatedAt                         time.Time
+	ResponseTimeMS                    *int
+	CompletionDurationMS              *int
+	TTFTMS                            *int
 }
 
-func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseBody []byte) {
+func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) {
 	requestCompletedAt := s.nowUTC()
 	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
-	usage := extractResponseUsage(responseBody)
+	usage := extractResponseUsage(responseCapture.Body)
+	ttftMS, completionDurationMS := runtimeResponseTiming(startedAt, requestCompletedAt, requestWantsStream(plan.RawRequestBody), responseCapture)
 	successFlag := result.Response.StatusCode >= 200 && result.Response.StatusCode <= 299
-	billableFlag, pricedFlag, unpricedReason := billingState(successFlag)
-	reportCurrencyCode, reportCurrencySymbol, err := s.loadReportCurrency(ctx, plan.ProfileID)
-	if err != nil {
-		return
+	reportCurrencyCode := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code)
+	reportCurrencySymbol := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol)
+	pricingResult := runtimePricingResult{
+		ReportCurrencyCode:   reportCurrencyCode,
+		ReportCurrencySymbol: reportCurrencySymbol,
+	}
+	billableFlag := boolPtr(false)
+	pricedFlag := boolPtr(false)
+	var unpricedReason *string
+	if successFlag {
+		pricingResult = buildRuntimePricingResult(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage)
+		billableFlag = boolPtr(pricingResult.Billable)
+		pricedFlag = boolPtr(pricingResult.Priced)
+		unpricedReason = pricingResult.UnpricedReason
 	}
 	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
 	if ingressRequestID == "" {
@@ -142,41 +183,39 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 			attemptResponseTimeMS = responseTimeMS
 		}
 		requestLog := requestLogInsert{
-			ProfileID:                   plan.ProfileID,
-			ModelID:                     plan.RequestedModelID,
-			ResolvedTargetModelID:       plan.ResolvedTargetModelID,
-			APIFamily:                   plan.APIFamily,
-			VendorID:                    plan.RequestedVendorID,
-			VendorKey:                   plan.RequestedVendorKey,
-			VendorName:                  plan.RequestedVendorName,
-			EndpointID:                  attempt.Connection.Endpoint.ID,
-			ConnectionID:                attempt.Connection.ID,
-			ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
-			ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-			IngressRequestID:            ingressRequestID,
-			AttemptNumber:               index + 1,
-			ProviderCorrelationID:       headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
-			EndpointBaseURL:             attempt.Connection.Endpoint.BaseURL,
-			EndpointDescription:         attempt.Connection.Endpoint.Name,
-			StatusCode:                  attempt.StatusCode,
-			ResponseTimeMS:              attemptResponseTimeMS,
-			IsStream:                    isStream,
-			SuccessFlag:                 attemptSuccess,
-			BillableFlag:                attemptBillableFlag,
-			PricedFlag:                  attemptPricedFlag,
-			UnpricedReason:              attemptUnpricedReason,
-			TotalCostOriginalMicros:     int64Ptr(0),
-			TotalCostUserCurrencyMicros: int64Ptr(0),
-			ReportCurrencyCode:          reportCurrencyCode,
-			ReportCurrencySymbol:        reportCurrencySymbol,
-			RequestPath:                 request.URL.Path,
-			ErrorDetail:                 nil,
-			CreatedAt:                   attemptCreatedAt,
-			CallerUserAgent:             callerUserAgent,
-			UpstreamUserAgent:           headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
-			CompletionDurationMS:        nil,
-			TTFTMS:                      nil,
-			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
+			ProfileID:               plan.ProfileID,
+			ModelID:                 plan.RequestedModelID,
+			ResolvedTargetModelID:   plan.ResolvedTargetModelID,
+			APIFamily:               plan.APIFamily,
+			VendorID:                plan.RequestedVendorID,
+			VendorKey:               plan.RequestedVendorKey,
+			VendorName:              plan.RequestedVendorName,
+			EndpointID:              attempt.Connection.Endpoint.ID,
+			ConnectionID:            attempt.Connection.ID,
+			ProxyAPIKeyID:           proxyKeyIDPointer(proxyKey),
+			ProxyAPIKeyNameSnapshot: proxyKeyNamePointer(proxyKey),
+			IngressRequestID:        ingressRequestID,
+			AttemptNumber:           index + 1,
+			ProviderCorrelationID:   headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
+			EndpointBaseURL:         attempt.Connection.Endpoint.BaseURL,
+			EndpointDescription:     attempt.Connection.Endpoint.Name,
+			StatusCode:              attempt.StatusCode,
+			ResponseTimeMS:          attemptResponseTimeMS,
+			IsStream:                isStream,
+			SuccessFlag:             attemptSuccess,
+			BillableFlag:            attemptBillableFlag,
+			PricedFlag:              attemptPricedFlag,
+			UnpricedReason:          attemptUnpricedReason,
+			ReportCurrencyCode:      reportCurrencyCode,
+			ReportCurrencySymbol:    reportCurrencySymbol,
+			RequestPath:             request.URL.Path,
+			ErrorDetail:             nil,
+			CreatedAt:               attemptCreatedAt,
+			CallerUserAgent:         callerUserAgent,
+			UpstreamUserAgent:       headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
+			CompletionDurationMS:    nil,
+			TTFTMS:                  nil,
+			AuditEnabledAtRequest:   plan.AuditEnabledAtRequest,
 		}
 		if index == len(attempts)-1 {
 			requestLog.InputTokens = usage.InputTokens
@@ -185,6 +224,32 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 			requestLog.CacheReadInputTokens = usage.CacheReadInputTokens
 			requestLog.CacheCreationInputTokens = usage.CacheCreationInputTokens
 			requestLog.ReasoningTokens = usage.ReasoningTokens
+			requestLog.CompletionDurationMS = completionDurationMS
+			requestLog.TTFTMS = ttftMS
+			if attemptSuccess {
+				requestLog.BillableFlag = boolPtr(pricingResult.Billable)
+				requestLog.PricedFlag = boolPtr(pricingResult.Priced)
+				requestLog.UnpricedReason = pricingResult.UnpricedReason
+				requestLog.InputCostMicros = pricingResult.InputCostMicros
+				requestLog.OutputCostMicros = pricingResult.OutputCostMicros
+				requestLog.CacheReadInputCostMicros = pricingResult.CacheReadInputCostMicros
+				requestLog.CacheCreationInputCostMicros = pricingResult.CacheCreationInputCostMicros
+				requestLog.ReasoningCostMicros = pricingResult.ReasoningCostMicros
+				requestLog.TotalCostOriginalMicros = pricingResult.TotalCostOriginalMicros
+				requestLog.TotalCostUserCurrencyMicros = pricingResult.TotalCostUserCurrencyMicros
+				requestLog.CurrencyCodeOriginal = pricingResult.CurrencyCodeOriginal
+				requestLog.ReportCurrencyCode = pricingResult.ReportCurrencyCode
+				requestLog.ReportCurrencySymbol = pricingResult.ReportCurrencySymbol
+				requestLog.FXRateUsed = pricingResult.FXRateUsed
+				requestLog.FXRateSource = pricingResult.FXRateSource
+				requestLog.PricingSnapshotUnit = pricingResult.PricingSnapshotUnit
+				requestLog.PricingSnapshotInput = pricingResult.PricingSnapshotInput
+				requestLog.PricingSnapshotOutput = pricingResult.PricingSnapshotOutput
+				requestLog.PricingSnapshotCacheReadInput = pricingResult.PricingSnapshotCacheReadInput
+				requestLog.PricingSnapshotCacheCreationInput = pricingResult.PricingSnapshotCacheCreationInput
+				requestLog.PricingSnapshotReasoning = pricingResult.PricingSnapshotReasoning
+				requestLog.PricingConfigVersionUsed = pricingResult.PricingConfigVersionUsed
+			}
 		}
 		requestLogs = append(requestLogs, requestLog)
 	}
@@ -194,35 +259,51 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 		attemptCount = 1
 	}
 	usageEvent := usageEventInsert{
-		ProfileID:                   plan.ProfileID,
-		IngressRequestID:            ingressRequestID,
-		ModelID:                     plan.RequestedModelID,
-		ResolvedTargetModelID:       plan.ResolvedTargetModelID,
-		APIFamily:                   plan.APIFamily,
-		EndpointID:                  result.Connection.Endpoint.ID,
-		ConnectionID:                result.Connection.ID,
-		ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-		StatusCode:                  result.Response.StatusCode,
-		SuccessFlag:                 successFlag,
-		BillableFlag:                billableFlag,
-		PricedFlag:                  pricedFlag,
-		UnpricedReason:              unpricedReason,
-		InputTokens:                 usage.InputTokens,
-		OutputTokens:                usage.OutputTokens,
-		TotalTokens:                 usage.TotalTokens,
-		CacheReadInputTokens:        usage.CacheReadInputTokens,
-		CacheCreationInputTokens:    usage.CacheCreationInputTokens,
-		ReasoningTokens:             usage.ReasoningTokens,
-		TotalCostUserCurrencyMicros: int64Ptr(0),
-		ReportCurrencyCode:          reportCurrencyCode,
-		ReportCurrencySymbol:        reportCurrencySymbol,
-		AttemptCount:                attemptCount,
-		RequestPath:                 request.URL.Path,
-		CreatedAt:                   requestCompletedAt,
-		ResponseTimeMS:              intPtr(responseTimeMS),
-		CompletionDurationMS:        nil,
-		TTFTMS:                      nil,
+		ProfileID:                         plan.ProfileID,
+		IngressRequestID:                  ingressRequestID,
+		ModelID:                           plan.RequestedModelID,
+		ResolvedTargetModelID:             plan.ResolvedTargetModelID,
+		APIFamily:                         plan.APIFamily,
+		EndpointID:                        result.Connection.Endpoint.ID,
+		ConnectionID:                      result.Connection.ID,
+		ProxyAPIKeyID:                     proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:           proxyKeyNamePointer(proxyKey),
+		StatusCode:                        result.Response.StatusCode,
+		SuccessFlag:                       successFlag,
+		BillableFlag:                      billableFlag,
+		PricedFlag:                        pricedFlag,
+		UnpricedReason:                    unpricedReason,
+		InputTokens:                       usage.InputTokens,
+		OutputTokens:                      usage.OutputTokens,
+		TotalTokens:                       usage.TotalTokens,
+		CacheReadInputTokens:              usage.CacheReadInputTokens,
+		CacheCreationInputTokens:          usage.CacheCreationInputTokens,
+		ReasoningTokens:                   usage.ReasoningTokens,
+		InputCostMicros:                   pricingResult.InputCostMicros,
+		OutputCostMicros:                  pricingResult.OutputCostMicros,
+		CacheReadInputCostMicros:          pricingResult.CacheReadInputCostMicros,
+		CacheCreationInputCostMicros:      pricingResult.CacheCreationInputCostMicros,
+		ReasoningCostMicros:               pricingResult.ReasoningCostMicros,
+		TotalCostOriginalMicros:           pricingResult.TotalCostOriginalMicros,
+		TotalCostUserCurrencyMicros:       pricingResult.TotalCostUserCurrencyMicros,
+		CurrencyCodeOriginal:              pricingResult.CurrencyCodeOriginal,
+		ReportCurrencyCode:                pricingResult.ReportCurrencyCode,
+		ReportCurrencySymbol:              pricingResult.ReportCurrencySymbol,
+		FXRateUsed:                        pricingResult.FXRateUsed,
+		FXRateSource:                      pricingResult.FXRateSource,
+		PricingSnapshotUnit:               pricingResult.PricingSnapshotUnit,
+		PricingSnapshotInput:              pricingResult.PricingSnapshotInput,
+		PricingSnapshotOutput:             pricingResult.PricingSnapshotOutput,
+		PricingSnapshotCacheReadInput:     pricingResult.PricingSnapshotCacheReadInput,
+		PricingSnapshotCacheCreationInput: pricingResult.PricingSnapshotCacheCreationInput,
+		PricingSnapshotReasoning:          pricingResult.PricingSnapshotReasoning,
+		PricingConfigVersionUsed:          pricingResult.PricingConfigVersionUsed,
+		AttemptCount:                      attemptCount,
+		RequestPath:                       request.URL.Path,
+		CreatedAt:                         requestCompletedAt,
+		ResponseTimeMS:                    intPtr(responseTimeMS),
+		CompletionDurationMS:              completionDurationMS,
+		TTFTMS:                            ttftMS,
 	}
 	requestLogID, err := s.insertRequestLogsAndUsageEvent(ctx, requestLogs, usageEvent)
 	if err != nil {
@@ -234,13 +315,30 @@ func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, r
 	_, _ = s.dashboardUpdates.PublishDashboardUpdate(ctx, requestLogID, plan.ProfileID)
 }
 
+func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream bool, capture runtimeResponseCapture) (*int, *int) {
+	var ttftMS *int
+	if capture.FirstMeaningfulPayloadAt != nil {
+		ttft := durationMilliseconds(capture.FirstMeaningfulPayloadAt.Sub(startedAt))
+		ttftMS = &ttft
+	}
+	if !isStream {
+		completionDuration := durationMilliseconds(completedAt.Sub(startedAt))
+		return ttftMS, &completionDuration
+	}
+	if capture.CompletedAt == nil {
+		return ttftMS, nil
+	}
+	completionDuration := durationMilliseconds(capture.CompletedAt.Sub(startedAt))
+	return ttftMS, &completionDuration
+}
+
 func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLogs []requestLogInsert, usageEvent usageEventInsert) (int, error) {
 	return withTxValue(ctx, s.pool, func(tx pgx.Tx) (int, error) {
 		var requestLogID int
 		for _, requestLog := range requestLogs {
 			err := tx.QueryRow(
 				ctx,
-				`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_original_micros, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41) RETURNING id`,
+				`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56) RETURNING id`,
 				requestLog.ProfileID,
 				requestLog.ModelID,
 				nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -269,10 +367,25 @@ func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLog
 				nullableIntArg(requestLog.CacheReadInputTokens),
 				nullableIntArg(requestLog.CacheCreationInputTokens),
 				nullableIntArg(requestLog.ReasoningTokens),
+				nullableInt64Arg(requestLog.InputCostMicros),
+				nullableInt64Arg(requestLog.OutputCostMicros),
+				nullableInt64Arg(requestLog.CacheReadInputCostMicros),
+				nullableInt64Arg(requestLog.CacheCreationInputCostMicros),
+				nullableInt64Arg(requestLog.ReasoningCostMicros),
 				nullableInt64Arg(requestLog.TotalCostOriginalMicros),
 				nullableInt64Arg(requestLog.TotalCostUserCurrencyMicros),
+				nullableStringArg(requestLog.CurrencyCodeOriginal),
 				nullableStringArg(requestLog.ReportCurrencyCode),
 				nullableStringArg(requestLog.ReportCurrencySymbol),
+				nullableStringArg(requestLog.FXRateUsed),
+				nullableStringArg(requestLog.FXRateSource),
+				nullableStringArg(requestLog.PricingSnapshotUnit),
+				nullableStringArg(requestLog.PricingSnapshotInput),
+				nullableStringArg(requestLog.PricingSnapshotOutput),
+				nullableStringArg(requestLog.PricingSnapshotCacheReadInput),
+				nullableStringArg(requestLog.PricingSnapshotCacheCreationInput),
+				nullableStringArg(requestLog.PricingSnapshotReasoning),
+				nullableIntArg(requestLog.PricingConfigVersionUsed),
 				requestLog.RequestPath,
 				nullableStringArg(requestLog.ErrorDetail),
 				nullableStringArg(requestLog.EndpointDescription),
@@ -289,7 +402,7 @@ func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLog
 		}
 		if _, err := tx.Exec(
 			ctx,
-			`INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason, report_currency_code, report_currency_symbol) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)`,
+			`INSERT INTO usage_request_events (profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45)`,
 			usageEvent.ProfileID,
 			usageEvent.IngressRequestID,
 			usageEvent.ModelID,
@@ -307,7 +420,25 @@ func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLog
 			nullableIntArg(usageEvent.CacheReadInputTokens),
 			nullableIntArg(usageEvent.CacheCreationInputTokens),
 			nullableIntArg(usageEvent.ReasoningTokens),
+			nullableInt64Arg(usageEvent.InputCostMicros),
+			nullableInt64Arg(usageEvent.OutputCostMicros),
+			nullableInt64Arg(usageEvent.CacheReadInputCostMicros),
+			nullableInt64Arg(usageEvent.CacheCreationInputCostMicros),
+			nullableInt64Arg(usageEvent.ReasoningCostMicros),
+			nullableInt64Arg(usageEvent.TotalCostOriginalMicros),
 			nullableInt64Arg(usageEvent.TotalCostUserCurrencyMicros),
+			nullableStringArg(usageEvent.CurrencyCodeOriginal),
+			nullableStringArg(usageEvent.ReportCurrencyCode),
+			nullableStringArg(usageEvent.ReportCurrencySymbol),
+			nullableStringArg(usageEvent.FXRateUsed),
+			nullableStringArg(usageEvent.FXRateSource),
+			nullableStringArg(usageEvent.PricingSnapshotUnit),
+			nullableStringArg(usageEvent.PricingSnapshotInput),
+			nullableStringArg(usageEvent.PricingSnapshotOutput),
+			nullableStringArg(usageEvent.PricingSnapshotCacheReadInput),
+			nullableStringArg(usageEvent.PricingSnapshotCacheCreationInput),
+			nullableStringArg(usageEvent.PricingSnapshotReasoning),
+			nullableIntArg(usageEvent.PricingConfigVersionUsed),
 			usageEvent.AttemptCount,
 			usageEvent.RequestPath,
 			usageEvent.CreatedAt,
@@ -317,26 +448,11 @@ func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLog
 			nullableBoolArg(usageEvent.BillableFlag),
 			nullableBoolArg(usageEvent.PricedFlag),
 			nullableStringArg(usageEvent.UnpricedReason),
-			nullableStringArg(usageEvent.ReportCurrencyCode),
-			nullableStringArg(usageEvent.ReportCurrencySymbol),
 		); err != nil {
 			return 0, fmt.Errorf("insert usage event: %w", err)
 		}
 		return requestLogID, nil
 	})
-}
-
-func (s *Service) loadReportCurrency(ctx context.Context, profileID int) (*string, *string, error) {
-	var code string
-	var symbol string
-	err := s.pool.QueryRow(ctx, `SELECT report_currency_code, report_currency_symbol FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`, profileID).Scan(&code, &symbol)
-	if err == nil {
-		return trimmedStringPointer(code), trimmedStringPointer(symbol), nil
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return stringPtr("USD"), stringPtr("$"), nil
-	}
-	return nil, nil, fmt.Errorf("load report currency for profile %d: %w", profileID, err)
 }
 
 func extractResponseUsage(body []byte) responseUsage {

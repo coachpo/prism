@@ -90,19 +90,45 @@ type runtimeEndpoint struct {
 	APIKey  string
 }
 
+type runtimePricingTemplateSnapshot struct {
+	ID                  int
+	PricingUnit         string
+	PricingCurrencyCode string
+	InputPrice          string
+	OutputPrice         string
+	CachedInputPrice    *string
+	CacheCreationPrice  *string
+	ReasoningPrice      *string
+	Version             int
+}
+
+type runtimeEndpointFXSnapshot struct {
+	ModelID    string
+	EndpointID int
+	FXRate     string
+}
+
+type runtimeReportCurrencySnapshot struct {
+	Code   string
+	Symbol string
+}
+
 type runtimeConnection struct {
-	ID                   int
-	ProfileID            int
-	ModelConfigID        int
-	EndpointID           int
-	Priority             int
-	QPSLimit             *int
-	MaxInFlightNonStream *int
-	MaxInFlightStream    *int
-	Name                 *string
-	AuthType             *string
-	CustomHeaders        map[string]any
-	Endpoint             runtimeEndpoint
+	ID                      int
+	ProfileID               int
+	ModelConfigID           int
+	EndpointID              int
+	Priority                int
+	QPSLimit                *int
+	MaxInFlightNonStream    *int
+	MaxInFlightStream       *int
+	Name                    *string
+	AuthType                *string
+	CustomHeaders           map[string]any
+	PricingTemplateID       *int
+	PricingTemplateSnapshot *runtimePricingTemplateSnapshot
+	EndpointFXSnapshot      *runtimeEndpointFXSnapshot
+	Endpoint                runtimeEndpoint
 }
 
 type headerBlocklistRule struct {
@@ -111,24 +137,26 @@ type headerBlocklistRule struct {
 }
 
 type requestPlan struct {
-	RequestedModelID      string
-	ResolvedTargetModelID *string
-	RequestedVendorID     *int
-	RequestedVendorKey    *string
-	RequestedVendorName   *string
-	ProfileID             int
-	APIFamily             string
-	AuditEnabledAtRequest bool
-	EffectiveRequestPath  string
-	RawRequestBody        []byte
-	UpstreamBody          []byte
-	IsStreamingRequest    bool
-	Connections           []runtimeConnection
-	RuntimeStates         map[int]loadbalance.RuntimeConnectionState
-	BlocklistRules        []headerBlocklistRule
-	ClientHeaders         map[string]string
-	FailoverStatusCodes   []int
-	Strategy              loadbalance.RuntimeStrategy
+	RequestedModelID       string
+	ResolvedTargetModelID  *string
+	ResolvedPricingModelID string
+	RequestedVendorID      *int
+	RequestedVendorKey     *string
+	RequestedVendorName    *string
+	ProfileID              int
+	APIFamily              string
+	AuditEnabledAtRequest  bool
+	ReportCurrencySnapshot runtimeReportCurrencySnapshot
+	EffectiveRequestPath   string
+	RawRequestBody         []byte
+	UpstreamBody           []byte
+	IsStreamingRequest     bool
+	Connections            []runtimeConnection
+	RuntimeStates          map[int]loadbalance.RuntimeConnectionState
+	BlocklistRules         []headerBlocklistRule
+	ClientHeaders          map[string]string
+	FailoverStatusCodes    []int
+	Strategy               loadbalance.RuntimeStrategy
 }
 
 type executionAttempt struct {
@@ -235,26 +263,32 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 	if err != nil {
 		return requestPlan{}, err
 	}
+	reportCurrencySnapshot, err := loadRuntimeReportCurrencySnapshot(ctx, tx, activeProfile.ID)
+	if err != nil {
+		return requestPlan{}, err
+	}
 
 	return requestPlan{
-		RequestedModelID:      requestedModelID,
-		ResolvedTargetModelID: stringPointerIfNotEmpty(targetModel.ModelID),
-		RequestedVendorID:     requestedModel.VendorID,
-		RequestedVendorKey:    requestedModel.VendorKey,
-		RequestedVendorName:   requestedModel.VendorName,
-		ProfileID:             activeProfile.ID,
-		APIFamily:             targetModel.APIFamily,
-		AuditEnabledAtRequest: targetModel.AuditEnabled,
-		EffectiveRequestPath:  effectiveRequestPath,
-		RawRequestBody:        rawBody,
-		UpstreamBody:          upstreamBody,
-		IsStreamingRequest:    requestWantsStream(rawBody),
-		Connections:           orderedConnections,
-		RuntimeStates:         runtimeStates,
-		BlocklistRules:        blocklistRules,
-		ClientHeaders:         flattenHeaders(request.Header),
-		FailoverStatusCodes:   strategy.FailoverStatusCodes(),
-		Strategy:              strategy,
+		RequestedModelID:       requestedModelID,
+		ResolvedTargetModelID:  stringPointerIfNotEmpty(targetModel.ModelID),
+		ResolvedPricingModelID: strings.TrimSpace(targetModel.ModelID),
+		RequestedVendorID:      requestedModel.VendorID,
+		RequestedVendorKey:     requestedModel.VendorKey,
+		RequestedVendorName:    requestedModel.VendorName,
+		ProfileID:              activeProfile.ID,
+		APIFamily:              targetModel.APIFamily,
+		AuditEnabledAtRequest:  targetModel.AuditEnabled,
+		ReportCurrencySnapshot: reportCurrencySnapshot,
+		EffectiveRequestPath:   effectiveRequestPath,
+		RawRequestBody:         rawBody,
+		UpstreamBody:           upstreamBody,
+		IsStreamingRequest:     requestWantsStream(rawBody),
+		Connections:            orderedConnections,
+		RuntimeStates:          runtimeStates,
+		BlocklistRules:         blocklistRules,
+		ClientHeaders:          flattenHeaders(request.Header),
+		FailoverStatusCodes:    strategy.FailoverStatusCodes(),
+		Strategy:               strategy,
 	}, nil
 }
 
@@ -301,7 +335,7 @@ func loadNativeExecutionTarget(ctx context.Context, tx pgx.Tx, profileID int, mo
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, fmt.Errorf("loadbalance strategy %d not found for model %q", *model.LoadbalanceStrategyID, model.ModelID)
 	}
 
-	connections, err := listActiveConnectionsForModel(ctx, tx, profileID, model.ID)
+	connections, err := listActiveConnectionsForModel(ctx, tx, profileID, model.ID, model.ModelID)
 	if err != nil {
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
 	}
@@ -398,19 +432,29 @@ func listProxyTargetModelIDs(ctx context.Context, tx pgx.Tx, sourceModelConfigID
 	return items, nil
 }
 
-func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int) ([]runtimeConnection, error) {
+func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int, modelConfigID int, pricingModelID string) ([]runtimeConnection, error) {
 	rows, err := tx.Query(
 		ctx,
 		`SELECT connections.id, connections.profile_id, connections.model_config_id, connections.endpoint_id,
 			connections.priority, connections.qps_limit, connections.max_in_flight_non_stream, connections.max_in_flight_stream,
-			connections.name, connections.auth_type, connections.custom_headers,
+			connections.name, connections.auth_type, connections.custom_headers, connections.pricing_template_id,
+			pricing_templates.id, pricing_templates.pricing_unit, pricing_templates.pricing_currency_code,
+			pricing_templates.input_price::text, pricing_templates.output_price::text,
+			pricing_templates.cached_input_price::text, pricing_templates.cache_creation_price::text,
+			pricing_templates.reasoning_price::text, pricing_templates.version,
+			endpoint_fx_rate_settings.fx_rate::text,
 			endpoints.id, endpoints.name, endpoints.base_url, endpoints.api_key
 		FROM connections
 		JOIN endpoints ON endpoints.id = connections.endpoint_id
+		LEFT JOIN pricing_templates ON pricing_templates.id = connections.pricing_template_id
+		LEFT JOIN endpoint_fx_rate_settings ON endpoint_fx_rate_settings.profile_id = connections.profile_id
+			AND endpoint_fx_rate_settings.model_id = $3
+			AND endpoint_fx_rate_settings.endpoint_id = connections.endpoint_id
 		WHERE connections.profile_id = $1 AND connections.model_config_id = $2 AND connections.is_active = TRUE
 		ORDER BY connections.priority ASC, connections.id ASC`,
 		profileID,
 		modelConfigID,
+		pricingModelID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query active connections for model %d: %w", modelConfigID, err)
@@ -425,6 +469,17 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 		var name sql.NullString
 		var authType sql.NullString
 		var customHeaders sql.NullString
+		var pricingTemplateID sql.NullInt32
+		var templateID sql.NullInt32
+		var templatePricingUnit sql.NullString
+		var templatePricingCurrencyCode sql.NullString
+		var templateInputPrice sql.NullString
+		var templateOutputPrice sql.NullString
+		var templateCachedInputPrice sql.NullString
+		var templateCacheCreationPrice sql.NullString
+		var templateReasoningPrice sql.NullString
+		var templateVersion sql.NullInt32
+		var endpointFXRate sql.NullString
 		var endpointName sql.NullString
 		item := runtimeConnection{}
 		if err := rows.Scan(
@@ -439,6 +494,17 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 			&name,
 			&authType,
 			&customHeaders,
+			&pricingTemplateID,
+			&templateID,
+			&templatePricingUnit,
+			&templatePricingCurrencyCode,
+			&templateInputPrice,
+			&templateOutputPrice,
+			&templateCachedInputPrice,
+			&templateCacheCreationPrice,
+			&templateReasoningPrice,
+			&templateVersion,
+			&endpointFXRate,
 			&item.Endpoint.ID,
 			&endpointName,
 			&item.Endpoint.BaseURL,
@@ -449,6 +515,7 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 		item.QPSLimit = nullableInt32(qpsLimit)
 		item.MaxInFlightNonStream = nullableInt32(maxInFlightNonStream)
 		item.MaxInFlightStream = nullableInt32(maxInFlightStream)
+		item.PricingTemplateID = nullableInt32(pricingTemplateID)
 		if name.Valid {
 			value := name.String
 			item.Name = &value
@@ -456,6 +523,26 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 		if authType.Valid {
 			value := authType.String
 			item.AuthType = &value
+		}
+		if templateID.Valid {
+			item.PricingTemplateSnapshot = &runtimePricingTemplateSnapshot{
+				ID:                  int(templateID.Int32),
+				PricingUnit:         strings.TrimSpace(templatePricingUnit.String),
+				PricingCurrencyCode: strings.TrimSpace(templatePricingCurrencyCode.String),
+				InputPrice:          strings.TrimSpace(templateInputPrice.String),
+				OutputPrice:         strings.TrimSpace(templateOutputPrice.String),
+				CachedInputPrice:    nullableString(templateCachedInputPrice),
+				CacheCreationPrice:  nullableString(templateCacheCreationPrice),
+				ReasoningPrice:      nullableString(templateReasoningPrice),
+				Version:             int(templateVersion.Int32),
+			}
+		}
+		if endpointFXRate.Valid {
+			item.EndpointFXSnapshot = &runtimeEndpointFXSnapshot{
+				ModelID:    pricingModelID,
+				EndpointID: item.EndpointID,
+				FXRate:     strings.TrimSpace(endpointFXRate.String),
+			}
 		}
 		item.Endpoint.Name = nullableString(endpointName)
 		item.CustomHeaders = parseCustomHeaders(customHeaders)
@@ -465,6 +552,19 @@ func listActiveConnectionsForModel(ctx context.Context, tx pgx.Tx, profileID int
 		return nil, fmt.Errorf("iterate active connections for model %d: %w", modelConfigID, err)
 	}
 	return items, nil
+}
+
+func loadRuntimeReportCurrencySnapshot(ctx context.Context, tx pgx.Tx, profileID int) (runtimeReportCurrencySnapshot, error) {
+	var code string
+	var symbol string
+	err := tx.QueryRow(ctx, `SELECT report_currency_code, report_currency_symbol FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`, profileID).Scan(&code, &symbol)
+	if err == nil {
+		return runtimeReportCurrencySnapshot{Code: strings.TrimSpace(code), Symbol: strings.TrimSpace(symbol)}, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, nil
+	}
+	return runtimeReportCurrencySnapshot{}, fmt.Errorf("load runtime report currency for profile %d: %w", profileID, err)
 }
 
 func listEnabledHeaderBlocklistRules(ctx context.Context, tx pgx.Tx, profileID int) ([]headerBlocklistRule, error) {

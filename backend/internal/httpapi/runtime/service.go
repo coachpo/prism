@@ -132,43 +132,49 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 	copyResponseHeaders(w.Header(), execution.Response.Header)
 	w.WriteHeader(execution.Response.StatusCode)
 
-	var responseBody []byte
+	responseCapture := runtimeResponseCapture{}
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	if strings.Contains(contentType, "text/event-stream") {
-		responseBody, _ = proxyEventStreamAndCaptureCompletedResponse(w, execution.Response.Body)
-		s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseBody)
+		responseCapture, _ = proxyEventStreamAndCaptureCompletedResponse(w, execution.Response.Body, s.nowUTC)
+		s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseCapture)
 		return
 	}
-	responseBody, err = io.ReadAll(execution.Response.Body)
+	responseCapture.Body, err = io.ReadAll(execution.Response.Body)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "Failed to read upstream response")
 		return
 	}
-	_, _ = io.Copy(w, bytes.NewReader(responseBody))
-	s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseBody)
+	_, _ = io.Copy(w, bytes.NewReader(responseCapture.Body))
+	s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseCapture)
 }
 
-func proxyEventStreamAndCaptureCompletedResponse(dst io.Writer, src io.Reader) ([]byte, error) {
+type runtimeResponseCapture struct {
+	Body                     []byte
+	FirstMeaningfulPayloadAt *time.Time
+	CompletedAt              *time.Time
+}
+
+func proxyEventStreamAndCaptureCompletedResponse(dst io.Writer, src io.Reader, now func() time.Time) (runtimeResponseCapture, error) {
 	reader := bufio.NewReader(src)
 	capture := sseCompletedResponseCapture{}
 
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			capture.consumeLine(line)
+			capture.consumeLine(line, now())
 			if _, writeErr := dst.Write(line); writeErr != nil {
-				capture.finishEvent()
-				return capture.completedResponse, writeErr
+				capture.finishEvent(now())
+				return capture.runtimeResponseCapture(), writeErr
 			}
 		}
 		if err == nil {
 			continue
 		}
-		capture.finishEvent()
+		capture.finishEvent(now())
 		if errors.Is(err, io.EOF) {
-			return capture.completedResponse, nil
+			return capture.runtimeResponseCapture(), nil
 		}
-		return capture.completedResponse, err
+		return capture.runtimeResponseCapture(), err
 	}
 }
 
@@ -177,12 +183,22 @@ type sseCompletedResponseCapture struct {
 	currentDataLines  []string
 	completedResponse []byte
 	usage             responseUsage
+	firstPayloadAt    *time.Time
+	completedAt       *time.Time
 }
 
-func (capture *sseCompletedResponseCapture) consumeLine(line []byte) {
+func (capture *sseCompletedResponseCapture) runtimeResponseCapture() runtimeResponseCapture {
+	return runtimeResponseCapture{
+		Body:                     capture.completedResponse,
+		FirstMeaningfulPayloadAt: capture.firstPayloadAt,
+		CompletedAt:              capture.completedAt,
+	}
+}
+
+func (capture *sseCompletedResponseCapture) consumeLine(line []byte, observedAt time.Time) {
 	trimmed := strings.TrimRight(string(line), "\r\n")
 	if trimmed == "" {
-		capture.finishEvent()
+		capture.finishEvent(observedAt)
 		return
 	}
 	if strings.HasPrefix(trimmed, "event:") {
@@ -194,18 +210,26 @@ func (capture *sseCompletedResponseCapture) consumeLine(line []byte) {
 	}
 }
 
-func (capture *sseCompletedResponseCapture) finishEvent() {
+func (capture *sseCompletedResponseCapture) finishEvent(observedAt time.Time) {
 	if len(capture.currentDataLines) > 0 {
-		capture.consumePayload([]byte(strings.Join(capture.currentDataLines, "\n")))
+		capture.consumePayload([]byte(strings.Join(capture.currentDataLines, "\n")), observedAt)
 	}
 	capture.currentEvent = ""
 	capture.currentDataLines = nil
 }
 
-func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte) {
+func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, observedAt time.Time) {
 	var payload map[string]any
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		return
+	}
+	if capture.firstPayloadAt == nil && payloadHasMeaningfulStreamContent(payload) {
+		firstPayloadAt := observedAt
+		capture.firstPayloadAt = &firstPayloadAt
+	}
+	if payloadSignalsTerminalCompletion(capture.currentEvent, payload) {
+		completedAt := observedAt
+		capture.completedAt = &completedAt
 	}
 	if usagePayload, ok := responseUsagePayload(payload); ok {
 		capture.mergeStandardUsagePayload(usagePayload)
@@ -303,6 +327,61 @@ func (capture *sseCompletedResponseCapture) buildUsageBody() []byte {
 
 func trimSSEFieldValue(value string) string {
 	return strings.TrimLeft(value, " ")
+}
+
+func payloadHasMeaningfulStreamContent(payload map[string]any) bool {
+	return payloadContainsMeaningfulValue(payload)
+}
+
+func payloadContainsMeaningfulValue(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, nested := range typed {
+			switch key {
+			case "usage", "usageMetadata", "type", "id", "model", "role", "index", "stop_reason", "stop_sequence", "finishReason":
+				continue
+			case "text", "delta", "output_text", "partial_json", "arguments", "reasoning", "thinking":
+				if strings.TrimSpace(stringValue(nested)) != "" {
+					return true
+				}
+			}
+			if payloadContainsMeaningfulValue(nested) {
+				return true
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if payloadContainsMeaningfulValue(nested) {
+				return true
+			}
+		}
+	case string:
+		return strings.TrimSpace(typed) != ""
+	}
+	return false
+}
+
+func payloadSignalsTerminalCompletion(event string, payload map[string]any) bool {
+	if event == "response.completed" || event == "message_stop" {
+		return true
+	}
+	if payloadType, _ := payload["type"].(string); payloadType == "response.completed" || payloadType == "message_stop" {
+		return true
+	}
+	if done, _ := payload["done"].(bool); done {
+		return true
+	}
+	_, hasGeminiUsage := payload["usageMetadata"].(map[string]any)
+	return hasGeminiUsage
+}
+
+func stringValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return ""
+	}
 }
 
 func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {

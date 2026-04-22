@@ -34,7 +34,7 @@ func TestUsageSnapshot(t *testing.T) {
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
 	proxyKeyID := insertContractProxyAPIKey(t, harness, "Snapshot Key")
 	insertUsageEvent(t, harness, usageEventSeed{ID: 1, ProfileID: profileID, IngressRequestID: "snap-1", ModelID: "snapshot-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, ProxyAPIKeyID: &proxyKeyID, ProxyAPIKeyNameSnapshot: stringPtr("Snapshot Key"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(30), CacheReadInputTokens: intPtr(5), CacheCreationInputTokens: intPtr(2), ReasoningTokens: intPtr(1), TotalCostUserCurrencyMicros: int64Ptr(2500), AttemptCount: 1, RequestPath: "/v1/chat/completions", ResponseTimeMS: intPtr(800), TTFTMS: intPtr(100), CompletionDurationMS: intPtr(1100), CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
-	insertUsageEvent(t, harness, usageEventSeed{ID: 2, ProfileID: profileID, IngressRequestID: "snap-2", ModelID: "snapshot-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 500, SuccessFlag: false, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("missing_pricing"), InputTokens: intPtr(15), OutputTokens: intPtr(25), TotalTokens: intPtr(40), AttemptCount: 1, RequestPath: "/v1/chat/completions", ResponseTimeMS: intPtr(900), CreatedAt: fixedS15Now.Add(-5 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 2, ProfileID: profileID, IngressRequestID: "snap-2", ModelID: "snapshot-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 500, SuccessFlag: false, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), InputTokens: intPtr(15), OutputTokens: intPtr(25), TotalTokens: intPtr(40), AttemptCount: 1, RequestPath: "/v1/chat/completions", ResponseTimeMS: intPtr(900), CreatedAt: fixedS15Now.Add(-5 * time.Minute)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
@@ -48,12 +48,20 @@ func TestUsageSnapshot(t *testing.T) {
 		t.Fatalf("expected usage snapshot currency/time range payload, got %+v", payload)
 	}
 	endpointStats := payload["endpoint_statistics"].([]any)
-	if len(endpointStats) != 1 || asMap(t, endpointStats[0])["endpoint_label"] != "Snapshot Endpoint" {
-		t.Fatalf("expected endpoint statistics for seeded endpoint, got %+v", payload)
+	if len(endpointStats) != 1 {
+		t.Fatalf("expected one endpoint statistic row, got %+v", payload)
+	}
+	endpointRow := asMap(t, endpointStats[0])
+	if endpointRow["endpoint_label"] != "Snapshot Endpoint" || jsonInt(t, endpointRow["p50_ttft_ms"]) != 100 || math.Abs(endpointRow["avg_output_rate_tps"].(float64)-20.0) > 0.001 {
+		t.Fatalf("expected snapshot endpoint statistics to preserve TTFT/output-rate aggregates, got %+v", endpointRow)
 	}
 	modelStats := payload["model_statistics"].([]any)
-	if len(modelStats) != 1 || asMap(t, modelStats[0])["model_label"] != "Snapshot Model" {
-		t.Fatalf("expected model statistics with display_name label, got %+v", payload)
+	if len(modelStats) != 1 {
+		t.Fatalf("expected one model statistic row, got %+v", payload)
+	}
+	modelRow := asMap(t, modelStats[0])
+	if modelRow["model_label"] != "Snapshot Model" || jsonInt(t, modelRow["priced_request_count"]) != 1 || jsonInt(t, modelRow["unpriced_request_count"]) != 0 || jsonInt(t, modelRow["p50_ttft_ms"]) != 100 || math.Abs(modelRow["avg_output_rate_tps"].(float64)-20.0) > 0.001 {
+		t.Fatalf("expected snapshot model statistics to preserve priced counts and TTFT/output-rate aggregates, got %+v", modelRow)
 	}
 	proxyStats := payload["proxy_api_key_statistics"].([]any)
 	foundSnapshotKey := false
@@ -81,7 +89,7 @@ func TestEndpointModelStatistics(t *testing.T) {
 	endpointID := modelInsertEndpoint(t, harness, profileID, "Endpoint Model Stats", 0)
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
 	insertUsageEvent(t, harness, usageEventSeed{ID: 10, ProfileID: profileID, IngressRequestID: "endpoint-1", ModelID: "endpoint-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), OutputTokens: intPtr(20), TotalTokens: intPtr(20), TTFTMS: intPtr(100), CompletionDurationMS: intPtr(1000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
-	insertUsageEvent(t, harness, usageEventSeed{ID: 11, ProfileID: profileID, IngressRequestID: "endpoint-2", ModelID: "endpoint-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), OutputTokens: intPtr(30), TotalTokens: intPtr(30), TTFTMS: intPtr(400), CompletionDurationMS: intPtr(1500), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 11, ProfileID: profileID, IngressRequestID: "endpoint-2", ModelID: "endpoint-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("PRICING_DISABLED"), OutputTokens: intPtr(30), TotalTokens: intPtr(30), TTFTMS: intPtr(400), CompletionDurationMS: intPtr(1500), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-20 * time.Minute)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 12, ProfileID: profileID, IngressRequestID: "endpoint-3", ModelID: "endpoint-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 500, SuccessFlag: false, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), TotalTokens: intPtr(0), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/stats/endpoints/%d/models?preset=all", endpointID), nil, modelHeader(profileID))
@@ -92,11 +100,11 @@ func TestEndpointModelStatistics(t *testing.T) {
 		t.Fatalf("expected one endpoint-model statistics row, got %+v", payload)
 	}
 	row := payload[0]
-	if row["model_id"] != "endpoint-model" || row["model_label"] != "Endpoint Model" || jsonInt(t, row["request_count"]) != 3 || jsonInt(t, row["success_count"]) != 2 || jsonInt(t, row["failed_count"]) != 1 {
+	if row["model_id"] != "endpoint-model" || row["model_label"] != "Endpoint Model" || jsonInt(t, row["request_count"]) != 3 || jsonInt(t, row["success_count"]) != 2 || jsonInt(t, row["failed_count"]) != 1 || jsonInt(t, row["priced_request_count"]) != 1 || jsonInt(t, row["unpriced_request_count"]) != 1 {
 		t.Fatalf("unexpected endpoint-model statistics payload: %+v", row)
 	}
-	if jsonInt(t, row["p50_ttft_ms"]) != 250 || jsonInt(t, row["p95_ttft_ms"]) != 385 {
-		t.Fatalf("expected TTFT percentiles from seeded rows, got %+v", row)
+	if jsonInt(t, row["p50_ttft_ms"]) != 250 || jsonInt(t, row["p95_ttft_ms"]) != 385 || math.Abs(row["avg_output_rate_tps"].(float64)-24.74) > 0.001 {
+		t.Fatalf("expected TTFT percentiles and average output rate from seeded rows, got %+v", row)
 	}
 }
 
@@ -184,25 +192,35 @@ func TestSpending(t *testing.T) {
 	endpointA := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint A", 0)
 	endpointB := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint B", 1)
 	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "spend-1", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointA, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(50), TotalCostUserCurrencyMicros: int64Ptr(5000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-4 * time.Hour)})
-	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "spend-2", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointB, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("missing_pricing"), TotalTokens: intPtr(25), TotalCostUserCurrencyMicros: int64Ptr(3000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-3 * time.Hour)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "spend-2", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointB, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("PRICING_DISABLED"), TotalTokens: intPtr(25), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-3 * time.Hour)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/spending?preset=all&group_by=model_endpoint&limit=50&offset=0", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	if jsonInt(t, asMap(t, payload["summary"])["successful_request_count"]) != 2 || jsonInt(t, payload["groups_total"]) != 2 {
+	summary := asMap(t, payload["summary"])
+	if jsonInt(t, summary["successful_request_count"]) != 2 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_cost_micros"]) != 5000 || jsonInt(t, payload["groups_total"]) != 2 {
 		t.Fatalf("unexpected spending summary payload: %+v", payload)
 	}
 	groups := payload["groups"].([]any)
 	if len(groups) != 2 || !strings.Contains(asMap(t, groups[0])["key"].(string), "spend-model#") {
 		t.Fatalf("expected grouped spending payload, got %+v", payload)
 	}
+	groupsByKey := make(map[string]map[string]any, len(groups))
+	for _, raw := range groups {
+		group := asMap(t, raw)
+		groupsByKey[group["key"].(string)] = group
+	}
+	unpricedGroup := groupsByKey[fmt.Sprintf("spend-model#%d", endpointB)]
+	if unpricedGroup == nil || jsonInt(t, unpricedGroup["total_cost_micros"]) != 0 || jsonInt(t, unpricedGroup["priced_requests"]) != 0 || jsonInt(t, unpricedGroup["unpriced_requests"]) != 1 {
+		t.Fatalf("expected unpriced spend group to stay zero-cost while preserving request counts, got %+v", groupsByKey)
+	}
 	topEndpoints := payload["top_spending_endpoints"].([]any)
 	if len(topEndpoints) == 0 || asMap(t, topEndpoints[0])["endpoint_label"] != "Spend Endpoint A" {
 		t.Fatalf("expected top spending endpoints to use current endpoint labels, got %+v", payload)
 	}
-	if jsonInt(t, asMap(t, payload["unpriced_breakdown"])["missing_pricing"]) != 1 {
-		t.Fatalf("expected unpriced breakdown to count unpriced reason, got %+v", payload)
+	if jsonInt(t, asMap(t, payload["unpriced_breakdown"])["PRICING_DISABLED"]) != 1 {
+		t.Fatalf("expected canonical unpriced breakdown to count PRICING_DISABLED, got %+v", payload)
 	}
 }
 
@@ -240,16 +258,11 @@ func TestAuditLogs(t *testing.T) {
 	insertAuditLog(t, harness, auditLogSeed{ID: 800, ProfileID: profileID, RequestLogID: intPtr(700), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("a", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_1"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?request_log_id=700&limit=20", nil, modelHeader(profileID))
-	assertStatus(t, listResponse, http.StatusOK)
+	assertStatus(t, listResponse, http.StatusConflict)
 	var listPayload map[string]any
 	decodeJSONResponse(t, listResponse, &listPayload)
-	items := listPayload["items"].([]any)
-	if jsonInt(t, listPayload["total"]) != 1 || len(items) != 1 {
-		t.Fatalf("expected audit list payload with one item, got %+v", listPayload)
-	}
-	preview := asMap(t, items[0])["request_body_preview"].(string)
-	if len(preview) != 200 {
-		t.Fatalf("expected trimmed audit request_body_preview, got length=%d payload=%q", len(preview), preview)
+	if listPayload["detail"] != "Audit capture unavailable for this request" {
+		t.Fatalf("expected disabled request snapshot to reject audit list, got %+v", listPayload)
 	}
 
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/800", nil, modelHeader(profileID))

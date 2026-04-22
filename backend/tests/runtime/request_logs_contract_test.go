@@ -270,6 +270,7 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 	if !inputTokens.Valid || inputTokens.Int64 != 7 || !outputTokens.Valid || outputTokens.Int64 != 13 || !totalTokens.Valid || totalTokens.Int64 != 20 {
 		t.Fatalf("expected streamed responses usage to persist 7/13/20, got input=%+v output=%+v total=%+v", inputTokens, outputTokens, totalTokens)
 	}
+	assertLatestRuntimeWinningRequestLogTiming(t, harness.conn, profileID, false)
 }
 
 func TestRuntimeRequestLogPersistsStreamedAnthropicUsage(t *testing.T) {
@@ -309,6 +310,7 @@ func TestRuntimeRequestLogPersistsStreamedAnthropicUsage(t *testing.T) {
 	)
 	assertStatus(t, response, http.StatusOK)
 	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+	assertLatestRuntimeWinningRequestLogTiming(t, harness.conn, profileID, false)
 }
 
 func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
@@ -386,6 +388,70 @@ func loadLatestRuntimeIngressRequestID(t *testing.T, conn *pgx.Conn, profileID i
 		t.Fatalf("load latest runtime ingress request id: %v", err)
 	}
 	return ingressRequestID
+}
+
+func assertLatestRuntimeWinningRequestLogFields(t *testing.T, conn *pgx.Conn, profileID int, wantAttemptNumber int, wantUsageValid bool, wantTimingValid bool, wantStream bool) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+
+	var attemptNumber int
+	var isStream bool
+	var inputTokens sql.NullInt64
+	var outputTokens sql.NullInt64
+	var totalTokens sql.NullInt64
+	var ttftMs sql.NullInt64
+	var completionDurationMs sql.NullInt64
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT attempt_number, is_stream, input_tokens, output_tokens, total_tokens, ttft_ms, completion_duration_ms FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&attemptNumber, &isStream, &inputTokens, &outputTokens, &totalTokens, &ttftMs, &completionDurationMs); err != nil {
+		t.Fatalf("load runtime winning request-log row: %v", err)
+	}
+	if attemptNumber != wantAttemptNumber {
+		t.Fatalf("expected final request-log attempt_number=%d, got %d", wantAttemptNumber, attemptNumber)
+	}
+	if isStream != wantStream {
+		t.Fatalf("expected final request-log is_stream=%t, got %t", wantStream, isStream)
+	}
+	if inputTokens.Valid != wantUsageValid || outputTokens.Valid != wantUsageValid || totalTokens.Valid != wantUsageValid {
+		t.Fatalf("expected final request-log usage validity=%t, got input=%+v output=%+v total=%+v", wantUsageValid, inputTokens, outputTokens, totalTokens)
+	}
+	if ttftMs.Valid != wantTimingValid || completionDurationMs.Valid != wantTimingValid {
+		t.Fatalf("expected final request-log timing validity=%t, got ttft=%+v completion=%+v", wantTimingValid, ttftMs, completionDurationMs)
+	}
+}
+
+func assertLatestRuntimeWinningRequestLogTiming(t *testing.T, conn *pgx.Conn, profileID int, expectTTFT bool) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+
+	var ttftMs sql.NullInt64
+	var completionDurationMs sql.NullInt64
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT ttft_ms, completion_duration_ms FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&ttftMs, &completionDurationMs); err != nil {
+		t.Fatalf("load runtime winning request-log timing: %v", err)
+	}
+	if expectTTFT {
+		if !ttftMs.Valid || ttftMs.Int64 < 1 {
+			t.Fatalf("expected streamed winning request log to persist positive ttft_ms, got %+v", ttftMs)
+		}
+		if !completionDurationMs.Valid || completionDurationMs.Int64 < ttftMs.Int64 {
+			t.Fatalf("expected streamed winning request log to persist completion_duration_ms >= ttft_ms, got ttft=%+v completion=%+v", ttftMs, completionDurationMs)
+		}
+		return
+	}
+	if ttftMs.Valid {
+		t.Fatalf("expected streamed winning request log without meaningful payload to keep ttft_ms NULL, got %+v", ttftMs)
+	}
+	if !completionDurationMs.Valid || completionDurationMs.Int64 < 1 {
+		t.Fatalf("expected streamed winning request log to persist positive completion_duration_ms, got %+v", completionDurationMs)
+	}
 }
 
 func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID int, wantRequestLogAttempt int, wantUsageEventAttempt int) {
