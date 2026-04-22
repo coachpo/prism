@@ -49,6 +49,14 @@ func TestRequestLogListContract(t *testing.T) {
 	if !jsonBytesEqual(t, payload, expected) {
 		t.Fatalf("expected request-log list payload to match fixture, got %+v", payload)
 	}
+	itemsByID := requestLogItemsByID(t, payload["items"].([]any))
+	primaryItem := itemsByID[101]
+	if pricedFlag, ok := primaryItem["priced_flag"].(bool); !ok || !pricedFlag {
+		t.Fatalf("expected primary request-log list row priced_flag=true, got %+v", primaryItem)
+	}
+	if unpricedReason, ok := primaryItem["unpriced_reason"]; !ok || unpricedReason != nil {
+		t.Fatalf("expected primary request-log list row unpriced_reason=null, got %+v", primaryItem)
+	}
 	filterOptions := asMapRuntime(t, payload["filter_options"])
 	models, ok := filterOptions["models"].([]any)
 	if !ok {
@@ -67,6 +75,12 @@ func TestRequestLogListContract(t *testing.T) {
 	staleItem := staleItems[0].(map[string]any)
 	if staleItem["endpoint_label"] != "Endpoint 999" {
 		t.Fatalf("expected stale request-log row to keep synthetic endpoint label, got %+v", staleItem)
+	}
+	if pricedFlag, ok := staleItem["priced_flag"].(bool); !ok || !pricedFlag {
+		t.Fatalf("expected stale request-log row priced_flag=true, got %+v", staleItem)
+	}
+	if unpricedReason, ok := staleItem["unpriced_reason"]; !ok || unpricedReason != nil {
+		t.Fatalf("expected stale request-log row unpriced_reason=null, got %+v", staleItem)
 	}
 	endpoints := payload["filter_options"].(map[string]any)["endpoints"].([]any)
 	firstEndpoint := endpoints[0].(map[string]any)
@@ -161,6 +175,93 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 		t.Fatalf("expected runtime request log to persist audit_enabled_at_request=true for audit-enabled executed vendor")
 	}
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+}
+
+func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	var reportCurrencyCode string
+	var reportCurrencySymbol string
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT report_currency_code, report_currency_symbol FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`,
+		profileID,
+	).Scan(&reportCurrencyCode, &reportCurrencySymbol); err != nil {
+		t.Fatalf("load runtime report currency snapshot: %v", err)
+	}
+
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-runtime-pricing-optional-usage-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":     10,
+			"completion_tokens": 6,
+			"total_tokens":      16,
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "priced-optional-usage-public-" + suffix,
+		TargetModelID:   "priced-optional-usage-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/optional-usage"),
+		EndpointAPIKey:  "runtime-priced-optional-usage-key",
+	})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-template-"+suffix, reportCurrencyCode, "2", "5", "11", "13", "17")
+	attachRuntimeConnectionPricingTemplate(t, harness.conn, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "price omitted optional counters"}},
+			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected optional-pricing runtime request to hit upstream exactly once, got %d", got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+
+	want := runtimePersistedPricingRow{
+		AttemptMetric:                     1,
+		BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+		PricedFlag:                        sql.NullBool{Bool: true, Valid: true},
+		InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
+		OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+		TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
+		InputCostMicros:                   sql.NullInt64{Int64: 20, Valid: true},
+		OutputCostMicros:                  sql.NullInt64{Int64: 30, Valid: true},
+		CacheReadInputCostMicros:          sql.NullInt64{Int64: 0, Valid: true},
+		CacheCreationInputCostMicros:      sql.NullInt64{Int64: 0, Valid: true},
+		ReasoningCostMicros:               sql.NullInt64{Int64: 0, Valid: true},
+		TotalCostOriginalMicros:           sql.NullInt64{Int64: 50, Valid: true},
+		TotalCostUserCurrencyMicros:       sql.NullInt64{Int64: 50, Valid: true},
+		CurrencyCodeOriginal:              sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencyCode:                sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencySymbol:              sql.NullString{String: reportCurrencySymbol, Valid: true},
+		FXRateUsed:                        sql.NullString{String: "1", Valid: true},
+		FXRateSource:                      sql.NullString{String: "DEFAULT_1_TO_1", Valid: true},
+		PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+		PricingSnapshotInput:              sql.NullString{String: "2", Valid: true},
+		PricingSnapshotOutput:             sql.NullString{String: "5", Valid: true},
+		PricingSnapshotCacheReadInput:     sql.NullString{String: "11", Valid: true},
+		PricingSnapshotCacheCreationInput: sql.NullString{String: "13", Valid: true},
+		PricingSnapshotReasoning:          sql.NullString{String: "17", Valid: true},
+		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
+	}
+	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
+	if requestLogRow != want {
+		t.Fatalf("expected winning request_logs pricing row %+v, got %+v", want, requestLogRow)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
+	if usageEventRow != want {
+		t.Fatalf("expected usage_request_events pricing row %+v, got %+v", want, usageEventRow)
+	}
 }
 
 func TestRuntimeRequestLogPersistsFailoverAttemptRowsAndSingleUsageEvent(t *testing.T) {
@@ -377,6 +478,38 @@ type runtimeRequestLogAttempt struct {
 	SuccessFlag   bool
 }
 
+type runtimePersistedPricingRow struct {
+	AttemptMetric                     int
+	BillableFlag                      sql.NullBool
+	PricedFlag                        sql.NullBool
+	UnpricedReason                    sql.NullString
+	InputTokens                       sql.NullInt64
+	OutputTokens                      sql.NullInt64
+	TotalTokens                       sql.NullInt64
+	CacheReadInputTokens              sql.NullInt64
+	CacheCreationInputTokens          sql.NullInt64
+	ReasoningTokens                   sql.NullInt64
+	InputCostMicros                   sql.NullInt64
+	OutputCostMicros                  sql.NullInt64
+	CacheReadInputCostMicros          sql.NullInt64
+	CacheCreationInputCostMicros      sql.NullInt64
+	ReasoningCostMicros               sql.NullInt64
+	TotalCostOriginalMicros           sql.NullInt64
+	TotalCostUserCurrencyMicros       sql.NullInt64
+	CurrencyCodeOriginal              sql.NullString
+	ReportCurrencyCode                sql.NullString
+	ReportCurrencySymbol              sql.NullString
+	FXRateUsed                        sql.NullString
+	FXRateSource                      sql.NullString
+	PricingSnapshotUnit               sql.NullString
+	PricingSnapshotInput              sql.NullString
+	PricingSnapshotOutput             sql.NullString
+	PricingSnapshotCacheReadInput     sql.NullString
+	PricingSnapshotCacheCreationInput sql.NullString
+	PricingSnapshotReasoning          sql.NullString
+	PricingConfigVersionUsed          sql.NullInt64
+}
+
 func loadLatestRuntimeIngressRequestID(t *testing.T, conn *pgx.Conn, profileID int) string {
 	t.Helper()
 	var ingressRequestID string
@@ -388,6 +521,96 @@ func loadLatestRuntimeIngressRequestID(t *testing.T, conn *pgx.Conn, profileID i
 		t.Fatalf("load latest runtime ingress request id: %v", err)
 	}
 	return ingressRequestID
+}
+
+func loadLatestRuntimeRequestLogPricingRow(t *testing.T, conn *pgx.Conn, profileID int) runtimePersistedPricingRow {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+	var row runtimePersistedPricingRow
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT attempt_number, billable_flag, priced_flag, unpriced_reason, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(
+		&row.AttemptMetric,
+		&row.BillableFlag,
+		&row.PricedFlag,
+		&row.UnpricedReason,
+		&row.InputTokens,
+		&row.OutputTokens,
+		&row.TotalTokens,
+		&row.CacheReadInputTokens,
+		&row.CacheCreationInputTokens,
+		&row.ReasoningTokens,
+		&row.InputCostMicros,
+		&row.OutputCostMicros,
+		&row.CacheReadInputCostMicros,
+		&row.CacheCreationInputCostMicros,
+		&row.ReasoningCostMicros,
+		&row.TotalCostOriginalMicros,
+		&row.TotalCostUserCurrencyMicros,
+		&row.CurrencyCodeOriginal,
+		&row.ReportCurrencyCode,
+		&row.ReportCurrencySymbol,
+		&row.FXRateUsed,
+		&row.FXRateSource,
+		&row.PricingSnapshotUnit,
+		&row.PricingSnapshotInput,
+		&row.PricingSnapshotOutput,
+		&row.PricingSnapshotCacheReadInput,
+		&row.PricingSnapshotCacheCreationInput,
+		&row.PricingSnapshotReasoning,
+		&row.PricingConfigVersionUsed,
+	); err != nil {
+		t.Fatalf("load latest runtime request-log pricing row: %v", err)
+	}
+	return row
+}
+
+func loadLatestRuntimeUsageEventPricingRow(t *testing.T, conn *pgx.Conn, profileID int) runtimePersistedPricingRow {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+	var row runtimePersistedPricingRow
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT attempt_count, billable_flag, priced_flag, unpriced_reason, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(
+		&row.AttemptMetric,
+		&row.BillableFlag,
+		&row.PricedFlag,
+		&row.UnpricedReason,
+		&row.InputTokens,
+		&row.OutputTokens,
+		&row.TotalTokens,
+		&row.CacheReadInputTokens,
+		&row.CacheCreationInputTokens,
+		&row.ReasoningTokens,
+		&row.InputCostMicros,
+		&row.OutputCostMicros,
+		&row.CacheReadInputCostMicros,
+		&row.CacheCreationInputCostMicros,
+		&row.ReasoningCostMicros,
+		&row.TotalCostOriginalMicros,
+		&row.TotalCostUserCurrencyMicros,
+		&row.CurrencyCodeOriginal,
+		&row.ReportCurrencyCode,
+		&row.ReportCurrencySymbol,
+		&row.FXRateUsed,
+		&row.FXRateSource,
+		&row.PricingSnapshotUnit,
+		&row.PricingSnapshotInput,
+		&row.PricingSnapshotOutput,
+		&row.PricingSnapshotCacheReadInput,
+		&row.PricingSnapshotCacheCreationInput,
+		&row.PricingSnapshotReasoning,
+		&row.PricingConfigVersionUsed,
+	); err != nil {
+		t.Fatalf("load latest runtime usage-event pricing row: %v", err)
+	}
+	return row
 }
 
 func assertLatestRuntimeWinningRequestLogFields(t *testing.T, conn *pgx.Conn, profileID int, wantAttemptNumber int, wantUsageValid bool, wantTimingValid bool, wantStream bool) {
@@ -764,6 +987,42 @@ func loadVendorIDByKey(t *testing.T, conn *pgx.Conn, key string) int {
 		t.Fatalf("load vendor %q for request-log contract test: %v", key, err)
 	}
 	return vendorID
+}
+
+func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, name string, pricingCurrencyCode string, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var templateID int
+	if err := conn.QueryRow(
+		context.Background(),
+		`INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, NULL, 'PER_1M', $3, $4, $5, $6, $7, $8, 1, $9, $9) RETURNING id`,
+		profileID,
+		name,
+		pricingCurrencyCode,
+		inputPrice,
+		outputPrice,
+		cachedInputPrice,
+		cacheCreationPrice,
+		reasoningPrice,
+		now,
+	).Scan(&templateID); err != nil {
+		t.Fatalf("insert runtime pricing template %q: %v", name, err)
+	}
+	return templateID
+}
+
+func attachRuntimeConnectionPricingTemplate(t *testing.T, conn *pgx.Conn, connectionID int, pricingTemplateID int) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := conn.Exec(
+		context.Background(),
+		`UPDATE connections SET pricing_template_id = $2, updated_at = $3 WHERE id = $1`,
+		connectionID,
+		pricingTemplateID,
+		now,
+	); err != nil {
+		t.Fatalf("attach pricing template %d to runtime connection %d: %v", pricingTemplateID, connectionID, err)
+	}
 }
 
 func requestLogItemsByID(t *testing.T, rawItems []any) map[int]map[string]any {

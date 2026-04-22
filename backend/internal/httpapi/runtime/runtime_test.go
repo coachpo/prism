@@ -67,3 +67,154 @@ func TestValidatePathCompatibilityAndHeaderHelpers(t *testing.T) {
 		t.Fatalf("expected hop-by-hop response headers to be filtered, got %v", filtered)
 	}
 }
+
+func TestBuildRuntimePricingResult(t *testing.T) {
+	cachedInputPrice := "1"
+	cacheCreationPrice := "2"
+	reasoningPrice := "3"
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
+		ID:                  42,
+		PricingUnit:         runtimePricingUnitPerMillion,
+		PricingCurrencyCode: "USD",
+		InputPrice:          "2",
+		OutputPrice:         "5",
+		CachedInputPrice:    &cachedInputPrice,
+		CacheCreationPrice:  &cacheCreationPrice,
+		ReasoningPrice:      &reasoningPrice,
+		Version:             7,
+	}
+	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
+	zero := 0
+	positiveCacheRead := 4
+	positiveCacheCreation := 5
+	positiveReasoning := 6
+	inputTokens := 10
+	outputTokens := 10
+	totalTokens := 20
+
+	tests := []struct {
+		name  string
+		usage responseUsage
+		want  runtimePricingResult
+	}{
+		{
+			name: "prices base usage when optional counters are omitted",
+			usage: responseUsage{
+				InputTokens:  &inputTokens,
+				OutputTokens: &outputTokens,
+				TotalTokens:  &totalTokens,
+			},
+			want: runtimePricingResult{
+				Billable:                          true,
+				Priced:                            true,
+				InputCostMicros:                   int64Ptr(20),
+				OutputCostMicros:                  int64Ptr(50),
+				CacheReadInputCostMicros:          int64Ptr(0),
+				CacheCreationInputCostMicros:      int64Ptr(0),
+				ReasoningCostMicros:               int64Ptr(0),
+				TotalCostOriginalMicros:           int64Ptr(70),
+				TotalCostUserCurrencyMicros:       int64Ptr(70),
+				CurrencyCodeOriginal:              stringPtr("USD"),
+				ReportCurrencyCode:                stringPtr("USD"),
+				ReportCurrencySymbol:              stringPtr("$"),
+				FXRateUsed:                        stringPtr("1"),
+				FXRateSource:                      stringPtr(runtimeFXSourceDefaultOneToOne),
+				PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
+				PricingSnapshotInput:              stringPtr("2"),
+				PricingSnapshotOutput:             stringPtr("5"),
+				PricingSnapshotCacheReadInput:     stringPtr("1"),
+				PricingSnapshotCacheCreationInput: stringPtr("2"),
+				PricingSnapshotReasoning:          stringPtr("3"),
+				PricingConfigVersionUsed:          intPtr(7),
+			},
+		},
+		{
+			name: "keeps missing token usage for missing required base usage",
+			usage: responseUsage{
+				OutputTokens: &outputTokens,
+				TotalTokens:  &outputTokens,
+			},
+			want: runtimePricingResult{
+				Billable:       true,
+				UnpricedReason: stringPtr(runtimeUnpricedReasonMissingUsage),
+			},
+		},
+		{
+			name: "prices optional counters explicitly set to zero",
+			usage: responseUsage{
+				InputTokens:              &inputTokens,
+				OutputTokens:             &outputTokens,
+				TotalTokens:              &totalTokens,
+				CacheReadInputTokens:     &zero,
+				CacheCreationInputTokens: &zero,
+				ReasoningTokens:          &zero,
+			},
+			want: runtimePricingResult{
+				Billable:                          true,
+				Priced:                            true,
+				InputCostMicros:                   int64Ptr(20),
+				OutputCostMicros:                  int64Ptr(50),
+				CacheReadInputCostMicros:          int64Ptr(0),
+				CacheCreationInputCostMicros:      int64Ptr(0),
+				ReasoningCostMicros:               int64Ptr(0),
+				TotalCostOriginalMicros:           int64Ptr(70),
+				TotalCostUserCurrencyMicros:       int64Ptr(70),
+				CurrencyCodeOriginal:              stringPtr("USD"),
+				ReportCurrencyCode:                stringPtr("USD"),
+				ReportCurrencySymbol:              stringPtr("$"),
+				FXRateUsed:                        stringPtr("1"),
+				FXRateSource:                      stringPtr(runtimeFXSourceDefaultOneToOne),
+				PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
+				PricingSnapshotInput:              stringPtr("2"),
+				PricingSnapshotOutput:             stringPtr("5"),
+				PricingSnapshotCacheReadInput:     stringPtr("1"),
+				PricingSnapshotCacheCreationInput: stringPtr("2"),
+				PricingSnapshotReasoning:          stringPtr("3"),
+				PricingConfigVersionUsed:          intPtr(7),
+			},
+		},
+		{
+			name: "prices positive optional counters independently",
+			usage: responseUsage{
+				InputTokens:              &inputTokens,
+				OutputTokens:             &outputTokens,
+				TotalTokens:              &totalTokens,
+				CacheReadInputTokens:     &positiveCacheRead,
+				CacheCreationInputTokens: &positiveCacheCreation,
+				ReasoningTokens:          &positiveReasoning,
+			},
+			want: runtimePricingResult{
+				Billable:                          true,
+				Priced:                            true,
+				InputCostMicros:                   int64Ptr(20),
+				OutputCostMicros:                  int64Ptr(50),
+				CacheReadInputCostMicros:          int64Ptr(4),
+				CacheCreationInputCostMicros:      int64Ptr(10),
+				ReasoningCostMicros:               int64Ptr(18),
+				TotalCostOriginalMicros:           int64Ptr(102),
+				TotalCostUserCurrencyMicros:       int64Ptr(102),
+				CurrencyCodeOriginal:              stringPtr("USD"),
+				ReportCurrencyCode:                stringPtr("USD"),
+				ReportCurrencySymbol:              stringPtr("$"),
+				FXRateUsed:                        stringPtr("1"),
+				FXRateSource:                      stringPtr(runtimeFXSourceDefaultOneToOne),
+				PricingSnapshotUnit:               stringPtr(runtimePricingUnitPerMillion),
+				PricingSnapshotInput:              stringPtr("2"),
+				PricingSnapshotOutput:             stringPtr("5"),
+				PricingSnapshotCacheReadInput:     stringPtr("1"),
+				PricingSnapshotCacheCreationInput: stringPtr("2"),
+				PricingSnapshotReasoning:          stringPtr("3"),
+				PricingConfigVersionUsed:          intPtr(7),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, test.usage)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("expected pricing result %+v, got %+v", test.want, got)
+			}
+		})
+	}
+}

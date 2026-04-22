@@ -55,12 +55,6 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
 		return result
 	}
-	if !runtimeHasRequiredOptionalUsage(pricingTemplateSnapshot.CachedInputPrice, usage.CacheReadInputTokens) ||
-		!runtimeHasRequiredOptionalUsage(pricingTemplateSnapshot.CacheCreationPrice, usage.CacheCreationInputTokens) ||
-		!runtimeHasRequiredOptionalUsage(pricingTemplateSnapshot.ReasoningPrice, usage.ReasoningTokens) {
-		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
-		return result
-	}
 
 	fxRate, fxSource, ok := resolveRuntimeFXRate(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot)
 	if !ok {
@@ -124,13 +118,6 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 	return result
 }
 
-func runtimeHasRequiredOptionalUsage(price *string, tokens *int) bool {
-	if price == nil {
-		return true
-	}
-	return tokens != nil
-}
-
 func resolveRuntimeFXRate(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot) (string, string, bool) {
 	reportCurrencyCode := strings.TrimSpace(reportCurrencySnapshot.Code)
 	pricingCurrencyCode := strings.TrimSpace(pricingTemplateSnapshot.PricingCurrencyCode)
@@ -163,11 +150,8 @@ func runtimePriceComponentMicros(tokens *int, price string) (int64, bool) {
 }
 
 func runtimePriceOptionalComponentMicros(tokens *int, price *string) (int64, bool) {
-	if price == nil {
+	if price == nil || tokens == nil {
 		return 0, true
-	}
-	if tokens == nil {
-		return 0, false
 	}
 	return runtimePriceComponentMicros(tokens, *price)
 }
