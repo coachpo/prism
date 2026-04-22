@@ -14,6 +14,7 @@ import {
   formatTtft,
   formatTokens,
 } from "../columns";
+import { formatUnpricedReasonLabel } from "@/lib/costing";
 import {
   ApiFamilyPill,
   DetailRow,
@@ -357,7 +358,9 @@ export function RequestLogOverviewTab({
               <DetailRow label={messages.requestLogs.priced}>{usage.priced_flag ? messages.requestLogs.yes : messages.requestLogs.no}</DetailRow>
               <DetailRow label={messages.requestLogs.billable}>{usage.billable_flag ? messages.requestLogs.yes : messages.requestLogs.no}</DetailRow>
               {usage.unpriced_reason ? (
-                <DetailRow label={messages.requestLogs.whyUnpriced}>{usage.unpriced_reason}</DetailRow>
+                <DetailRow label={messages.requestLogs.whyUnpriced}>
+                  {formatUnpricedReasonLabel(usage.unpriced_reason)}
+                </DetailRow>
               ) : null}
             </div>
           </div>
