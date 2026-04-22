@@ -99,64 +99,176 @@ function createThroughputStats() {
   };
 }
 
+function createRequestLogItem(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 101,
+    created_at: timestamp,
+    model_id: "gpt-4o-mini",
+    model_label: "GPT-4o mini",
+    resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    is_proxy_origin: false,
+    caller_client_display: "Payload symbol row",
+    upstream_client_display: "Payload symbol row",
+    user_agent_overridden: false,
+    api_family: "openai",
+    vendor_id: 1,
+    vendor_key: "openai",
+    vendor_name: "OpenAI",
+    endpoint_id: 1,
+    endpoint_label: "Primary endpoint",
+    connection_id: null,
+    status_code: 200,
+    ttft_ms: 95,
+    completion_duration_ms: 500,
+    response_time_ms: 125,
+    is_stream: false,
+    output_tokens: 80,
+    total_tokens: 150,
+    total_cost_user_currency_micros: 750000,
+    priced_flag: true,
+    unpriced_reason: null,
+    report_currency_symbol: "$",
+    ...overrides,
+  };
+}
+
+function createRequestLogDetail({
+  requestId,
+  clientDisplay,
+  totalCostMicros,
+  reportCurrencySymbol,
+  pricedFlag,
+  unpricedReason,
+}: {
+  requestId: number;
+  clientDisplay: string;
+  totalCostMicros: number | null;
+  reportCurrencySymbol: string | null;
+  pricedFlag: boolean;
+  unpricedReason: string | null;
+}) {
+  const hasComputedCost = totalCostMicros !== null;
+
+  return {
+    summary: {
+      id: requestId,
+      created_at: timestamp,
+      model_id: "gpt-4o-mini",
+      model_label: "GPT-4o mini",
+      resolved_target_model_id: null,
+      resolved_target_model_label: null,
+      is_proxy_origin: false,
+      api_family: "openai",
+      vendor_id: 1,
+      vendor_key: "openai",
+      vendor_name: "OpenAI",
+      status_code: 200,
+      response_time_ms: hasComputedCost ? 180 : 240,
+      ttft_ms: hasComputedCost ? 60 : null,
+      completion_duration_ms: hasComputedCost ? 180 : null,
+      is_stream: false,
+    },
+    request: {
+      request_path: "/v1/chat/completions",
+      ingress_request_id: `ingress-${requestId}`,
+      attempt_number: 1,
+      provider_correlation_id: `provider-corr-${requestId}`,
+      proxy_api_key_id: null,
+      proxy_api_key_name_snapshot: null,
+      caller_user_agent: clientDisplay,
+      upstream_user_agent: clientDisplay,
+      caller_client_display: clientDisplay,
+      upstream_client_display: clientDisplay,
+      user_agent_overridden: false,
+      error_detail: null,
+    },
+    routing: {
+      profile_id: 1,
+      endpoint_label: "Primary endpoint",
+      endpoint_id: 1,
+      connection_id: null,
+      endpoint_base_url: "https://api.example.test",
+      endpoint_description: "Primary endpoint",
+      audit_enabled_at_request: true,
+    },
+    usage: {
+      input_tokens: hasComputedCost ? 40 : 30,
+      output_tokens: hasComputedCost ? 20 : 10,
+      total_tokens: hasComputedCost ? 60 : 40,
+      success_flag: true,
+      billable_flag: true,
+      priced_flag: pricedFlag,
+      unpriced_reason: unpricedReason,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      reasoning_tokens: 0,
+    },
+    costing: {
+      input_cost_micros: hasComputedCost ? 0 : null,
+      output_cost_micros: hasComputedCost ? 0 : null,
+      cache_read_input_cost_micros: hasComputedCost ? 0 : null,
+      cache_creation_input_cost_micros: hasComputedCost ? 0 : null,
+      reasoning_cost_micros: hasComputedCost ? 0 : null,
+      total_cost_original_micros: totalCostMicros,
+      total_cost_user_currency_micros: totalCostMicros,
+      currency_code_original: hasComputedCost ? canonicalCurrency.code : null,
+      report_currency_code: canonicalCurrency.code,
+      report_currency_symbol: reportCurrencySymbol,
+      fx_rate_used: hasComputedCost ? "1" : null,
+      fx_rate_source: hasComputedCost ? "manual" : null,
+    },
+    pricing: {
+      pricing_snapshot_unit: hasComputedCost ? "1M tokens" : null,
+      pricing_snapshot_input: hasComputedCost ? "0.10" : null,
+      pricing_snapshot_output: hasComputedCost ? "0.20" : null,
+      pricing_snapshot_cache_read_input: null,
+      pricing_snapshot_cache_creation_input: null,
+      pricing_snapshot_reasoning: null,
+      pricing_config_version_used: hasComputedCost ? 1 : null,
+    },
+  };
+}
+
 function createRequestLogItems() {
   return [
-    {
-      id: 101,
-      created_at: timestamp,
-      model_id: "gpt-4o-mini",
-      model_label: "GPT-4o mini",
-      resolved_target_model_id: null,
-      resolved_target_model_label: null,
-      is_proxy_origin: false,
-      caller_client_display: "Prism QA Browser",
-      upstream_client_display: "Prism QA Browser",
-      user_agent_overridden: false,
-      api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
-      endpoint_id: 1,
-      endpoint_label: "Primary endpoint",
-      connection_id: null,
-      status_code: 200,
-      ttft_ms: 95,
-      completion_duration_ms: 500,
-      response_time_ms: 125,
-      is_stream: false,
-      output_tokens: 80,
-      total_tokens: 150,
-      total_cost_user_currency_micros: 750000,
-      report_currency_symbol: "$",
-    },
-    {
+    createRequestLogItem(),
+    createRequestLogItem({
       id: 102,
-      created_at: timestamp,
-      model_id: "gpt-4o-mini",
-      model_label: "GPT-4o mini",
-      resolved_target_model_id: null,
-      resolved_target_model_label: null,
-      is_proxy_origin: false,
-      caller_client_display: "Prism QA Browser",
-      upstream_client_display: "Prism QA Browser",
-      user_agent_overridden: false,
-      api_family: "openai",
-      vendor_id: 1,
-      vendor_key: "openai",
-      vendor_name: "OpenAI",
-      endpoint_id: 1,
-      endpoint_label: "Primary endpoint",
-      connection_id: null,
-      status_code: 200,
+      caller_client_display: "Canonical fallback row",
+      upstream_client_display: "Canonical fallback row",
       ttft_ms: null,
       completion_duration_ms: null,
       response_time_ms: 240,
-      is_stream: false,
       output_tokens: 50,
       total_tokens: 90,
       total_cost_user_currency_micros: 500000,
       report_currency_symbol: null,
-    },
+    }),
+    createRequestLogItem({
+      id: 103,
+      caller_client_display: "Zero spend row",
+      upstream_client_display: "Zero spend row",
+      response_time_ms: 180,
+      output_tokens: 0,
+      total_tokens: 40,
+      total_cost_user_currency_micros: 0,
+      report_currency_symbol: "$",
+    }),
+    createRequestLogItem({
+      id: 104,
+      caller_client_display: "Unpriced row",
+      upstream_client_display: "Unpriced row",
+      ttft_ms: null,
+      completion_duration_ms: null,
+      response_time_ms: 300,
+      output_tokens: 25,
+      total_tokens: 70,
+      total_cost_user_currency_micros: null,
+      priced_flag: false,
+      unpriced_reason: "MISSING_PRICE_DATA",
+      report_currency_symbol: "$",
+    }),
   ];
 }
 
@@ -196,6 +308,30 @@ async function mockCurrencyRoutes(page: Page) {
   const profile = createProfile();
   const model = createModelListItem();
   const requestLogItems = createRequestLogItems();
+  const requestLogDetails = new Map<number, unknown>([
+    [
+      103,
+      createRequestLogDetail({
+        requestId: 103,
+        clientDisplay: "Zero spend row",
+        totalCostMicros: 0,
+        reportCurrencySymbol: "$",
+        pricedFlag: true,
+        unpricedReason: null,
+      }),
+    ],
+    [
+      104,
+      createRequestLogDetail({
+        requestId: 104,
+        clientDisplay: "Unpriced row",
+        totalCostMicros: null,
+        reportCurrencySymbol: "$",
+        pricedFlag: false,
+        unpricedReason: "MISSING_PRICE_DATA",
+      }),
+    ],
+  ]);
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -279,6 +415,12 @@ async function mockCurrencyRoutes(page: Page) {
       return fulfillJson(createRequestLogsResponse(requestLogItems, searchParams));
     }
 
+    if (pathname.startsWith("/api/stats/requests/")) {
+      const requestId = Number.parseInt(pathname.split("/").pop() ?? "", 10);
+      const detail = requestLogDetails.get(requestId);
+      return detail ? fulfillJson(detail) : fulfillJson({}, 404);
+    }
+
     if (pathname === "/api/stats/summary") {
       return fulfillJson(createStatsSummary());
     }
@@ -322,15 +464,58 @@ test.describe("models and request logs reporting currency", () => {
     await expect(page.getByText("$1.25")).toHaveCount(0);
   });
 
-  test("keeps payload symbols explicit in request logs and falls back missing symbols to the canonical reporting currency", async ({ page }) => {
+  test("keeps browse-mode request-log spend distinct for payload symbols, canonical fallback, priced zero, and missing cost", async ({ page }) => {
     await mockCurrencyRoutes(page);
 
     await page.goto("/request-logs");
 
-    const table = page.getByTestId("request-logs-table");
-    await expect(table).toContainText("$0.75");
-    await expect(table).toContainText("€0.50 EUR");
-    await expect(table).not.toContainText("$0.50");
+    const payloadSymbolSpend = page
+      .getByRole("button")
+      .filter({ hasText: "Payload symbol row" })
+      .locator(":scope > div")
+      .nth(10)
+      .locator("span");
+    const canonicalFallbackSpend = page
+      .getByRole("button")
+      .filter({ hasText: "Canonical fallback row" })
+      .locator(":scope > div")
+      .nth(10)
+      .locator("span");
+    const zeroSpend = page
+      .getByRole("button")
+      .filter({ hasText: "Zero spend row" })
+      .locator(":scope > div")
+      .nth(10)
+      .locator("span");
+    const unpricedSpend = page
+      .getByRole("button")
+      .filter({ hasText: "Unpriced row" })
+      .locator(":scope > div")
+      .nth(10)
+      .locator("span");
+
+    await expect(payloadSymbolSpend).toHaveText("$0.75");
+    await expect(canonicalFallbackSpend).toHaveText("€0.50 EUR");
+    await expect(canonicalFallbackSpend).not.toHaveText("$0.50");
+    await expect(zeroSpend).toHaveText("$0.00");
+    await expect(zeroSpend).toHaveClass(/text-foreground/);
+    await expect(zeroSpend).toHaveClass(/font-medium/);
+    await expect(unpricedSpend).toHaveText("—");
+    await expect(unpricedSpend).toHaveClass(/text-muted-foreground/);
+  });
+
+  test("keeps detail-mode request-log spend distinct for priced zero and missing cost", async ({ page }) => {
+    await mockCurrencyRoutes(page);
+
+    await page.goto("/request-logs?request_id=103");
+
+    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
+    await expect(page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4)).toHaveText("$0.00");
+
+    await page.goto("/request-logs?request_id=104");
+
+    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
+    await expect(page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4)).toHaveText("—");
   });
 
   test("uses the canonical fallback in dashboard recent activity when request payload symbols are missing", async ({ page }) => {

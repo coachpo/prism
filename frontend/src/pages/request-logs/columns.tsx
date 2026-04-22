@@ -10,7 +10,7 @@ import { AlertCircle, Clock } from "lucide-react";
 export const ROW_HEIGHT = 45;
 
 function formatCost(micros: number | null, symbol: string | null): string {
-  if (micros === null || micros === 0) return "—";
+  if (micros === null) return "—";
   return formatMoneyMicros(micros, symbol ?? undefined, undefined, 2, 6, getCurrentLocale());
 }
 
@@ -241,7 +241,14 @@ export function getColumns(): ColumnDef[] {
       grow: 0,
       align: "right",
       render: (row) => (
-        <span className={cn("text-xs font-mono", row.total_cost_user_currency_micros && row.total_cost_user_currency_micros > 0 ? "text-foreground font-medium" : "text-muted-foreground")}>
+        <span
+          className={cn(
+            "text-xs font-mono",
+            row.total_cost_user_currency_micros !== null
+              ? "text-foreground font-medium"
+              : "text-muted-foreground",
+          )}
+        >
           {formatCost(row.total_cost_user_currency_micros, row.report_currency_symbol)}
         </span>
       ),
