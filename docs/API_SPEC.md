@@ -1284,6 +1284,8 @@ Response `200`:
       "is_stream": false,
       "total_tokens": 57,
       "total_cost_user_currency_micros": 1250,
+      "priced_flag": true,
+      "unpriced_reason": null,
       "report_currency_symbol": "$",
       "caller_client_display": "Codex",
       "upstream_client_display": "OpenAI SDK",
