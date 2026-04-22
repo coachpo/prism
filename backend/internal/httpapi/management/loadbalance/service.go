@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -91,23 +90,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Get("/events/{event_id}", s.handleGetEvent)
 		router.Delete("/events", s.handleDeleteEvents)
 	})
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin loadbalance transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit loadbalance transaction: %w", err)
-	}
-	return value, nil
 }
 
 func isUniqueViolation(err error, constraint string) bool {

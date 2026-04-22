@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -20,7 +21,7 @@ func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request)
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalancedomain.CurrentStateListResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.CurrentStateListResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalancedomain.CurrentStateListResponse{}, err
@@ -40,7 +41,7 @@ func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalancedomain.CurrentStateResetResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.CurrentStateResetResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalancedomain.CurrentStateResetResponse{}, err
@@ -70,7 +71,7 @@ func (s *Service) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalancedomain.EventListResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.EventListResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalancedomain.EventListResponse{}, err
@@ -90,7 +91,7 @@ func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (*loadbalancedomain.EventDetail, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (*loadbalancedomain.EventDetail, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -109,7 +110,7 @@ func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleDeleteEvents(w http.ResponseWriter, r *http.Request) {
-	_, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct{}, error) {
+	_, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (struct{}, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return struct{}{}, err

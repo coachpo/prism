@@ -13,11 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func (s *Service) handleListStrategies(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]loadbalanceStrategyResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) ([]loadbalanceStrategyResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -49,7 +50,7 @@ func (s *Service) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalanceStrategyResponse{}, err
@@ -81,7 +82,7 @@ func (s *Service) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalanceStrategyResponse{}, err
@@ -125,7 +126,7 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalanceStrategyResponse{}, err
@@ -179,7 +180,7 @@ func (s *Service) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return deletedResponse{}, err
@@ -207,7 +208,7 @@ func (s *Service) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (loadbalanceStrategyDefaultsResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyDefaultsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return loadbalanceStrategyDefaultsResponse{}, err
@@ -302,7 +303,7 @@ func strategyPolicyChanged(before loadbalanceStrategyResponse, after loadbalance
 }
 
 func decodeStrategyRequest(request *http.Request) (loadbalanceStrategyRequest, error) {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
 	var requestBody loadbalanceStrategyRequest
