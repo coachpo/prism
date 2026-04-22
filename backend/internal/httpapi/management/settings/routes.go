@@ -8,18 +8,18 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 var currencyCodeRE = regexp.MustCompile(`^[A-Z]{3}$`)
 
 func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (costingSettingsResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (costingSettingsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return costingSettingsResponse{}, err
@@ -51,7 +51,7 @@ func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Reques
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (costingSettingsResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (costingSettingsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return costingSettingsResponse{}, err
@@ -83,7 +83,7 @@ func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleGetTimezonePreference(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (timezonePreferenceResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (timezonePreferenceResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return timezonePreferenceResponse{}, err
@@ -111,7 +111,7 @@ func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Req
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (timezonePreferenceResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (timezonePreferenceResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return timezonePreferenceResponse{}, err
@@ -250,7 +250,7 @@ func cloneMappings(values []endpointFXMapping) []endpointFXMapping {
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
@@ -284,16 +284,4 @@ func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[strin
 		}
 	}
 	writeJSON(w, statusCode, map[string]any{"detail": detail})
-}
-
-func parseBooleanQuery(request *http.Request, name string, fallback bool) (bool, error) {
-	value := strings.TrimSpace(request.URL.Query().Get(name))
-	if value == "" {
-		return fallback, nil
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s must be a boolean", name)}
-	}
-	return parsed, nil
 }
