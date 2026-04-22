@@ -95,7 +95,7 @@ func (s Service) Run(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("connect startup database: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	return s.RunWithConn(ctx, conn)
 }
@@ -154,25 +154,4 @@ func (s Service) runStep(ctx context.Context, result *Result, step Step, run fun
 
 func (s Service) timestamp() time.Time {
 	return s.now().UTC()
-}
-
-func withTransaction(ctx context.Context, conn *pgx.Conn, run func(pgx.Tx) error) error {
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin startup transaction: %w", err)
-	}
-
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	if err := run(tx); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit startup transaction: %w", err)
-	}
-
-	return nil
 }

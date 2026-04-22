@@ -2,14 +2,14 @@ package startup
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
 
 func (s Service) seedUserSettings(ctx context.Context, conn *pgx.Conn) error {
-	return withTransaction(ctx, conn, func(tx pgx.Tx) error {
+	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		profileRows, err := tx.Query(
 			ctx,
 			`SELECT id FROM profiles WHERE deleted_at IS NULL ORDER BY id ASC`,
@@ -88,7 +88,7 @@ func (s Service) seedUserSettings(ctx context.Context, conn *pgx.Conn) error {
 }
 
 func (s Service) seedUserAgentClientRules(ctx context.Context, conn *pgx.Conn) error {
-	return withTransaction(ctx, conn, func(tx pgx.Tx) error {
+	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		existingRules, err := loadSystemUserAgentClientRules(ctx, tx)
 		if err != nil {
 			return err
@@ -189,7 +189,7 @@ func loadSystemUserAgentClientRules(ctx context.Context, exec queryExecutor) ([]
 }
 
 func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error {
-	return withTransaction(ctx, conn, func(tx pgx.Tx) error {
+	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		var existingID int
 		err := tx.QueryRow(
 			ctx,
@@ -248,7 +248,7 @@ func (s Service) seedAppAuthSettings(ctx context.Context, conn *pgx.Conn) error 
 }
 
 func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) error {
-	return withTransaction(ctx, conn, func(tx pgx.Tx) error {
+	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		rows, err := tx.Query(
 			ctx,
 			`SELECT id, api_key FROM endpoints ORDER BY id ASC`,
@@ -299,7 +299,7 @@ func (s Service) normalizeEndpointSecrets(ctx context.Context, conn *pgx.Conn) e
 }
 
 func (s Service) seedHeaderBlocklistRules(ctx context.Context, conn *pgx.Conn) error {
-	return withTransaction(ctx, conn, func(tx pgx.Tx) error {
+	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		existingRows, err := tx.Query(
 			ctx,
 			`SELECT match_type, pattern
@@ -357,13 +357,6 @@ func (s Service) seedHeaderBlocklistRules(ctx context.Context, conn *pgx.Conn) e
 
 		return nil
 	})
-}
-
-func nullString(value sql.NullString) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.String
 }
 
 func toInt32Slice(values []int) []int32 {

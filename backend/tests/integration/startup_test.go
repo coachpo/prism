@@ -21,7 +21,7 @@ func TestStartupSeeds(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	conn := harness.openDatabase(t, testContext, "startup_seeds")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	service := newStartupService(t, harness.connectionString("startup_seeds"), nil)
 	result, err := service.RunWithConn(testContext, conn)
@@ -104,7 +104,7 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	conn := harness.openDatabase(t, testContext, "startup_vendor_rule_seeds")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)
 	if _, err := runner.Run(testContext, conn); err != nil {
@@ -248,7 +248,7 @@ func TestStartupIdempotency(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	conn := harness.openDatabase(t, testContext, "startup_idempotency")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)
 	if _, err := runner.Run(testContext, conn); err != nil {
@@ -316,7 +316,7 @@ func TestStartupPreservesRuntimeStatePersistenceAcrossRestart(t *testing.T) {
 
 	harness := newPostgresHarness(t)
 	conn := harness.openDatabase(t, testContext, "startup_runtime_state_persistence")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	runner := newRunner(t)
 	if _, err := runner.Run(testContext, conn); err != nil {
@@ -1313,40 +1313,11 @@ func snapshotRuntimeStateRows(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	return string(raw)
 }
 
-func queryRows(t *testing.T, ctx context.Context, conn *pgx.Conn, query string) [][]any {
-	t.Helper()
-	rows, err := conn.Query(ctx, query)
-	if err != nil {
-		t.Fatalf("query rows %q: %v", query, err)
-	}
-	defer rows.Close()
-
-	values := [][]any{}
-	for rows.Next() {
-		rowValues, err := rows.Values()
-		if err != nil {
-			t.Fatalf("read row values for query %q: %v", query, err)
-		}
-		values = append(values, rowValues)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate rows for query %q: %v", query, err)
-	}
-	return values
-}
-
 func nullInt64(value sql.NullInt64) any {
 	if !value.Valid {
 		return nil
 	}
 	return value.Int64
-}
-
-func nullString(value sql.NullString) any {
-	if !value.Valid {
-		return nil
-	}
-	return value.String
 }
 
 func formatNullableTime(value sql.NullTime) *string {

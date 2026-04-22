@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -17,7 +18,7 @@ type vendorRow struct {
 }
 
 func (s Service) seedVendors(ctx context.Context, conn *pgx.Conn) error {
-	return withTransaction(ctx, conn, func(tx pgx.Tx) error {
+	return pgxutil.InTx(ctx, conn, "startup", func(tx pgx.Tx) error {
 		now := s.timestamp()
 		vendors, err := loadVendors(ctx, tx)
 		if err != nil {
