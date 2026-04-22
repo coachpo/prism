@@ -116,13 +116,6 @@ type snapshotEvent struct {
 	TotalTokens           int
 }
 
-func normalizeTimeValue(value time.Time) time.Time {
-	if value.IsZero() {
-		return value.UTC()
-	}
-	return value.UTC()
-}
-
 func normalizeTimePointer(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
@@ -343,14 +336,6 @@ func nullableString(value sql.NullString) *string {
 	return &resolved
 }
 
-func nullableTime(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.Time.UTC()
-	return &resolved
-}
-
 func nullableBool(value sql.NullBool) *bool {
 	if !value.Valid {
 		return nil
@@ -367,27 +352,11 @@ func nullableInt32(value sql.NullInt32) *int {
 	return &resolved
 }
 
-func nullableInt64ToInt(value sql.NullInt64) *int {
-	if !value.Valid {
-		return nil
-	}
-	resolved := int(value.Int64)
-	return &resolved
-}
-
 func nullableInt64(value sql.NullInt64) *int64 {
 	if !value.Valid {
 		return nil
 	}
 	resolved := value.Int64
-	return &resolved
-}
-
-func nullableFloat64(value sql.NullFloat64) *float64 {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.Float64
 	return &resolved
 }
 
