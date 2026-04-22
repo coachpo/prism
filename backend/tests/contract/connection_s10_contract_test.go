@@ -344,7 +344,7 @@ func newConnectionHealthContractHarness(t *testing.T, upstream *scriptedUpstream
 	t.Cleanup(cancel)
 	databaseName := "connection_health_contract_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
 	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "connection-health-contract-secret"})
 	if err != nil {

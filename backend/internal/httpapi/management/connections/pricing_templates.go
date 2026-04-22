@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -40,7 +41,7 @@ type pricingTemplateUpdateRequest struct {
 }
 
 func (s *Service) handleListPricingTemplates(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]pricingTemplateResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) ([]pricingTemplateResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -60,7 +61,7 @@ func (s *Service) handleGetPricingTemplate(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (pricingTemplateResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return pricingTemplateResponse{}, err
@@ -87,7 +88,7 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (pricingTemplateResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return pricingTemplateResponse{}, err
@@ -127,7 +128,7 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (pricingTemplateResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return pricingTemplateResponse{}, err
@@ -177,7 +178,7 @@ func (s *Service) handleDeletePricingTemplate(w http.ResponseWriter, r *http.Req
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return deletedResponse{}, err

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
 const healthCheckRequestTimeout = 30 * time.Second
@@ -58,7 +59,7 @@ func (s *Service) handleConnectionHealthCheck(w http.ResponseWriter, r *http.Req
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (healthCheckResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (healthCheckResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return healthCheckResponse{}, err
@@ -125,7 +126,7 @@ func (s *Service) handlePreviewConnectionHealthCheck(w http.ResponseWriter, r *h
 		writeError(w, r, s.allowedOrigins, http.StatusUnprocessableEntity, "priority is not allowed on create")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (connectionHealthCheckPreviewResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionHealthCheckPreviewResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return connectionHealthCheckPreviewResponse{}, err
@@ -342,7 +343,7 @@ func (s *Service) executeHealthCheckRequest(ctx context.Context, upstreamURL str
 	if err != nil {
 		return mapHealthCheckTransportError(err), nil
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	responseTimeMS := int(time.Since(startedAt).Milliseconds())
 	if responseTimeMS == 0 {
 		responseTimeMS = 1

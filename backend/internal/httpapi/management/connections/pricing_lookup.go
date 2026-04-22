@@ -3,6 +3,7 @@ package connections
 import (
 	"net/http"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -12,7 +13,7 @@ func (s *Service) handleListPricingTemplateConnections(w http.ResponseWriter, r 
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (pricingTemplateConnectionsResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateConnectionsResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return pricingTemplateConnectionsResponse{}, err

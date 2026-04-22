@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -31,7 +32,7 @@ func (s *Service) handleListConnectionsBatch(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "model_config_ids must contain at least one model config id")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (modelConnectionsBatchResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (modelConnectionsBatchResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return modelConnectionsBatchResponse{}, err
@@ -66,7 +67,7 @@ func (s *Service) handleListConnections(w http.ResponseWriter, r *http.Request) 
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) ([]connectionResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -101,7 +102,7 @@ func (s *Service) handleCreateConnection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return connectionResponse{}, err
@@ -197,7 +198,7 @@ func (s *Service) handleUpdateConnection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return connectionResponse{}, err
@@ -351,7 +352,7 @@ func (s *Service) handleMoveConnectionPriority(w http.ResponseWriter, r *http.Re
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) ([]connectionResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -423,7 +424,7 @@ func (s *Service) handleSetConnectionPricingTemplate(w http.ResponseWriter, r *h
 		writeError(w, r, s.allowedOrigins, http.StatusUnprocessableEntity, "pricing_template_id is required")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (connectionResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return connectionResponse{}, err
@@ -466,7 +467,7 @@ func (s *Service) handleDeleteConnection(w http.ResponseWriter, r *http.Request)
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return deletedResponse{}, err
@@ -514,7 +515,7 @@ func (s *Service) handleGetConnectionOwner(w http.ResponseWriter, r *http.Reques
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (connectionOwnerResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionOwnerResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return connectionOwnerResponse{}, err
@@ -683,7 +684,7 @@ func dedupeIntValues(values []int) []int {
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
