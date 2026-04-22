@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -23,7 +24,7 @@ func (s *Service) handleListHeaderBlocklistRules(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]headerBlocklistRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) ([]headerBlocklistRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -51,7 +52,7 @@ func (s *Service) handleGetHeaderBlocklistRule(w http.ResponseWriter, r *http.Re
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return headerBlocklistRuleResponse{}, err
@@ -82,7 +83,7 @@ func (s *Service) handleCreateHeaderBlocklistRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return headerBlocklistRuleResponse{}, err
@@ -122,7 +123,7 @@ func (s *Service) handleUpdateHeaderBlocklistRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return headerBlocklistRuleResponse{}, err
@@ -192,7 +193,7 @@ func (s *Service) handleDeleteHeaderBlocklistRule(w http.ResponseWriter, r *http
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return deletedResponse{}, err
@@ -225,7 +226,7 @@ func (s *Service) handleListUserAgentClientRules(w http.ResponseWriter, r *http.
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]userAgentClientRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) ([]userAgentClientRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -253,7 +254,7 @@ func (s *Service) handleGetUserAgentClientRule(w http.ResponseWriter, r *http.Re
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return userAgentClientRuleResponse{}, err
@@ -284,7 +285,7 @@ func (s *Service) handleCreateUserAgentClientRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return userAgentClientRuleResponse{}, err
@@ -317,7 +318,7 @@ func (s *Service) handleUpdateUserAgentClientRule(w http.ResponseWriter, r *http
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return userAgentClientRuleResponse{}, err
@@ -371,7 +372,7 @@ func (s *Service) handleDeleteUserAgentClientRule(w http.ResponseWriter, r *http
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return deletedResponse{}, err
@@ -478,7 +479,7 @@ func normalizeAndValidateUserAgentUpdate(requestBody *userAgentClientRuleUpdateR
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 

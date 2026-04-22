@@ -2,14 +2,11 @@ package configrules
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -91,29 +88,4 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Patch("/user-agent-client-rules/{rule_id}", s.handleUpdateUserAgentClientRule)
 		router.Delete("/user-agent-client-rules/{rule_id}", s.handleDeleteUserAgentClientRule)
 	})
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin config rules transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit config rules transaction: %w", err)
-	}
-	return value, nil
-}
-
-func isUniqueViolation(err error, constraint string) bool {
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) {
-		return false
-	}
-	return pgErr.Code == "23505" && strings.TrimSpace(pgErr.ConstraintName) == constraint
 }
