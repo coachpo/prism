@@ -234,10 +234,6 @@ func DeleteEvents(ctx context.Context, exec queryExecutor, params DeleteParams) 
 	return nil
 }
 
-type scannedEvent struct {
-	EventDetail
-}
-
 func scanCurrentStateItem(scanner interface{ Scan(...any) error }) (CurrentStateItem, error) {
 	var circuitState sql.NullString
 	var probeAvailableAt sql.NullTime
