@@ -11,11 +11,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/vendordomain"
 )
 
 func (s *Service) handleListVendors(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]vendorResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) ([]vendorResponse, error) {
 		items, err := listVendors(r.Context(), tx)
 		if err != nil {
 			return nil, err
@@ -45,7 +46,7 @@ func (s *Service) handleCreateVendor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (vendorResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) (vendorResponse, error) {
 		if err := ensureVendorUniqueness(r.Context(), tx, stringPtr(requestBody.Key), stringPtr(requestBody.Name), nil); err != nil {
 			return vendorResponse{}, err
 		}
@@ -68,7 +69,7 @@ func (s *Service) handleGetVendor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (vendorResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) (vendorResponse, error) {
 		record, found, err := loadVendor(r.Context(), tx, vendorID, false)
 		if err != nil {
 			return vendorResponse{}, err
@@ -91,7 +92,7 @@ func (s *Service) handleListVendorModels(w http.ResponseWriter, r *http.Request)
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]vendorModelUsageItem, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) ([]vendorModelUsageItem, error) {
 		if _, found, err := loadVendor(r.Context(), tx, vendorID, false); err != nil {
 			return nil, err
 		} else if !found {
@@ -119,7 +120,7 @@ func (s *Service) handleUpdateVendor(w http.ResponseWriter, r *http.Request) {
 	}
 	normalizeUpdateRequest(&requestBody)
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (vendorResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) (vendorResponse, error) {
 		record, found, err := loadVendor(r.Context(), tx, vendorID, true)
 		if err != nil {
 			return vendorResponse{}, err
@@ -182,7 +183,7 @@ func (s *Service) handleDeleteVendor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	if _, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct{}, error) {
+	if _, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) (struct{}, error) {
 		record, found, err := loadVendor(r.Context(), tx, vendorID, true)
 		if err != nil {
 			return struct{}{}, err
@@ -260,7 +261,7 @@ func writeReadonlyVendorError(w http.ResponseWriter, r *http.Request, allowedOri
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
