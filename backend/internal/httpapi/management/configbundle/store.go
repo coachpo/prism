@@ -345,12 +345,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 
 	exportedHeaderRules := make([]headerBlocklistRuleExport, 0, len(headerRules))
 	for _, rule := range headerRules {
-		exportedHeaderRules = append(exportedHeaderRules, headerBlocklistRuleExport{
-			Name:      rule.Name,
-			MatchType: rule.MatchType,
-			Pattern:   rule.Pattern,
-			Enabled:   rule.Enabled,
-		})
+		exportedHeaderRules = append(exportedHeaderRules, headerBlocklistRuleExport(rule))
 	}
 
 	return profileBundleResponse{

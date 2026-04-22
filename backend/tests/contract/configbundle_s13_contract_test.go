@@ -30,7 +30,7 @@ func newConfigBundleImportHarness(t *testing.T, options configBundleImportHarnes
 	t.Cleanup(cancel)
 	databaseName := "configbundle_import_contract_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
 	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: configBundleSecretKey})
 	if err != nil {

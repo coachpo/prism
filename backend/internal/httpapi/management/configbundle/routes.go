@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -21,7 +22,7 @@ func (s *Service) handleExportProfileBundle(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	bundle, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileBundleResponse, error) {
+	bundle, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (profileBundleResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return profileBundleResponse{}, err
@@ -44,7 +45,7 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileImportPreviewResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (profileImportPreviewResponse, error) {
 		preview, previewErr := s.previewProfileImport(r.Context(), tx, requestBody)
 		if previewErr != nil {
 			return buildProfilePreviewErrorResponse(requestBody, previewErrorDetail(previewErr)), nil
@@ -67,7 +68,7 @@ func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileImportResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (profileImportResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return profileImportResponse{}, err
@@ -84,7 +85,7 @@ func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Reque
 
 func (s *Service) handleExportVendorCatalog(w http.ResponseWriter, r *http.Request) {
 	exportTime := s.nowUTC()
-	bundle, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (vendorCatalogResponse, error) {
+	bundle, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogResponse, error) {
 		return buildVendorCatalog(r.Context(), tx, exportTime)
 	})
 	if err != nil {
@@ -102,7 +103,7 @@ func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *htt
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (vendorCatalogImportPreviewResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogImportPreviewResponse, error) {
 		return s.previewVendorCatalogImport(r.Context(), tx, requestBody)
 	})
 	if err != nil {
@@ -120,7 +121,7 @@ func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (vendorCatalogImportResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogImportResponse, error) {
 		return s.importVendorCatalog(r.Context(), tx, requestBody)
 	})
 	if err != nil {
@@ -171,7 +172,9 @@ func previewErrorDetail(err error) string {
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() {
+		_ = request.Body.Close()
+	}()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 

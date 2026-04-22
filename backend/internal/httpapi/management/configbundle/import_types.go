@@ -1,7 +1,6 @@
 package configbundle
 
 import (
-	"encoding/json"
 	"time"
 )
 
@@ -79,14 +78,5 @@ type importedStrategyPayload struct {
 	RoutingPolicyJSON  []byte
 }
 
-type profileImportConnectionSpec struct {
-	CustomHeaders              any
-	OpenAIProbeEndpointVariant *string
-}
-
 type secretPayloadEntryMap map[string]string
 
-type rawStrategyDocument struct {
-	AutoRecovery  json.RawMessage
-	RoutingPolicy json.RawMessage
-}

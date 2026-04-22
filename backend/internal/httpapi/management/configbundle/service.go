@@ -133,20 +133,3 @@ func (s *Service) resolvedBundleSecretKeyID() (string, error) {
 	}
 	return s.bundleSecretKeyID, nil
 }
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin config bundle transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit config bundle transaction: %w", err)
-	}
-	return value, nil
-}
