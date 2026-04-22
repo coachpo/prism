@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
@@ -89,7 +90,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (statsdomain.RequestLogListResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.RequestLogListResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.RequestLogListResponse{}, err
@@ -113,7 +114,7 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (*statsdomain.RequestLogDetailResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (*statsdomain.RequestLogDetailResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -132,7 +133,7 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (statsdomain.StatsSummaryResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.StatsSummaryResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.StatsSummaryResponse{}, err
@@ -156,7 +157,7 @@ func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (statsdomain.ModelMetricsBatchResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.ModelMetricsBatchResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.ModelMetricsBatchResponse{}, err
@@ -177,7 +178,7 @@ func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]statsdomain.ConnectionSuccessRate, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) ([]statsdomain.ConnectionSuccessRate, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -200,7 +201,7 @@ func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (statsdomain.ThroughputStatsResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.ThroughputStatsResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.ThroughputStatsResponse{}, err
@@ -233,7 +234,7 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (statsdomain.SpendingReportResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.SpendingReportResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.SpendingReportResponse{}, err
@@ -276,7 +277,7 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (statsdomain.UsageSnapshotResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.UsageSnapshotResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return statsdomain.UsageSnapshotResponse{}, err
@@ -297,7 +298,7 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]statsdomain.EndpointModelStatistic, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) ([]statsdomain.EndpointModelStatistic, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -321,7 +322,7 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request) {
-	_, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct{}, error) {
+	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (struct{}, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return struct{}{}, err
@@ -344,7 +345,7 @@ func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request) {
-	_, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct{}, error) {
+	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (struct{}, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return struct{}{}, err
@@ -413,7 +414,7 @@ func parseStatsSummaryParams(r *http.Request, profileID int) (statsdomain.StatsS
 }
 
 func decodeModelMetricsRequest(r *http.Request) (modelMetricsBatchRequest, error) {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var requestBody modelMetricsBatchRequest
@@ -514,23 +515,6 @@ func routeInt(r *http.Request, name string) (int, error) {
 		return 0, fmt.Errorf("invalid %s", name)
 	}
 	return parsed, nil
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin stats transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit stats transaction: %w", err)
-	}
-	return value, nil
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
