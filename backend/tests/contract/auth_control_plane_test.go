@@ -574,7 +574,7 @@ func startSharedPostgresHarness() (testPostgresHarness, error) {
 func (h testPostgresHarness) openDatabase(t *testing.T, ctx context.Context, databaseName string) *pgx.Conn {
 	t.Helper()
 	adminConn := connectDatabase(t, ctx, h.connectionString("postgres"))
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
 		t.Fatalf("drop database %s: %v", databaseName, err)
 	}
@@ -595,7 +595,7 @@ func newContractHarness(t *testing.T) *contractHarness {
 	databaseName := "contract_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
 	t.Cleanup(func() {
-		conn.Close(context.Background())
+		_ = conn.Close(context.Background())
 	})
 
 	startupService, err := startup.New(startup.Options{

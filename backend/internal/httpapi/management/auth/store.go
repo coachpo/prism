@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const proxyKeyLimit = 100
@@ -96,42 +95,6 @@ type sessionBundle struct {
 	RefreshToken     string
 	RefreshExpiresAt time.Time
 	SessionDuration  sessionDuration
-}
-
-func (s *Service) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin auth transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-	if err := fn(tx); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit auth transaction: %w", err)
-	}
-	return nil
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin auth transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit auth transaction: %w", err)
-	}
-	return value, nil
 }
 
 func (s *Service) loadOrCreateAppAuthSettings(ctx context.Context, exec queryExecutor) (appAuthSettingsRow, error) {
@@ -241,7 +204,7 @@ func (s *Service) authenticateUser(ctx context.Context, tx pgx.Tx, username stri
 
 func (s *Service) createSessionForSettingsRow(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, duration sessionDuration, userAgent string, ipAddress string, refreshExpiry *time.Time) (sessionBundle, error) {
 	now := s.nowUTC()
-	expiresAt := time.Time{}
+	var expiresAt time.Time
 	if refreshExpiry != nil {
 		expiresAt = refreshExpiry.UTC()
 	} else {

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
@@ -182,7 +183,7 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid session duration")
 		return
 	}
-	bundle, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (sessionBundle, error) {
+	bundle, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (sessionBundle, error) {
 		return s.authenticateUser(
 			r.Context(),
 			tx,
@@ -202,7 +203,7 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := s.withTx(r.Context(), func(tx pgx.Tx) error {
+	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		cookie, cookieErr := r.Cookie(s.refreshCookieName)
 		if cookieErr == nil && strings.TrimSpace(cookie.Value) != "" {
 			return s.revokeRefreshToken(r.Context(), tx, cookie.Value)
@@ -242,7 +243,7 @@ func (s *Service) withRefreshCookie(ctx context.Context, request *http.Request) 
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return sessionBundle{}, &domainError{StatusCode: http.StatusUnauthorized, Detail: "Invalid refresh token"}
 	}
-	return withTxValue(ctx, s.pool, func(tx pgx.Tx) (sessionBundle, error) {
+	return pgxutil.InTxValue(ctx, s.pool, "auth", func(tx pgx.Tx) (sessionBundle, error) {
 		return s.rotateRefreshToken(ctx, tx, cookie.Value, request.UserAgent(), requestIP(request))
 	})
 }
@@ -272,7 +273,7 @@ func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	identifier := strings.TrimSpace(requestBody.UsernameOrEmail)
-	result, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct {
+	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (struct {
 		SettingsRow appAuthSettingsRow
 		OTPCode     string
 		ShouldSend  bool
@@ -336,7 +337,7 @@ func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if err := s.withTx(r.Context(), func(tx pgx.Tx) error {
+	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		return s.consumePasswordResetChallenge(r.Context(), tx, strings.TrimSpace(requestBody.OTPCode), requestBody.NewPassword)
 	}); err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
@@ -361,7 +362,7 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	updatedRow, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (appAuthSettingsRow, error) {
+	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
 		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
 		if loadErr != nil {
 			return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", loadErr)
@@ -387,7 +388,7 @@ func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.
 		return
 	}
 	var updatedRow appAuthSettingsRow
-	err = s.withTx(r.Context(), func(tx pgx.Tx) error {
+	err = pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
 		if loadErr != nil {
 			return fmt.Errorf("load auth settings: %w", loadErr)
@@ -415,7 +416,7 @@ func (s *Service) handleEmailVerificationConfirm(w http.ResponseWriter, r *http.
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	updatedRow, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (appAuthSettingsRow, error) {
+	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
 		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
 		if loadErr != nil {
 			return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", loadErr)
@@ -454,7 +455,7 @@ func (s *Service) handleCreateProxyKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notes := normalizeNotes(requestBody.Notes)
-	result, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
+	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
 		rawKey, row, createErr := s.createProxyAPIKey(r.Context(), tx, name, notes, authSubjectIDFromRequest(r))
 		if createErr != nil {
 			return proxyAPIKeyMutationResponse{}, createErr
@@ -485,7 +486,7 @@ func (s *Service) handleUpdateProxyKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notes := normalizeNotes(requestBody.Notes)
-	updatedRow, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (proxyAPIKeyRow, error) {
+	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyRow, error) {
 		return s.updateProxyAPIKey(r.Context(), tx, keyID, name, notes, requestBody.IsActive)
 	})
 	if err != nil {
@@ -501,7 +502,7 @@ func (s *Service) handleRotateProxyKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
+	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
 		rawKey, row, rotateErr := s.rotateProxyAPIKey(r.Context(), tx, keyID)
 		if rotateErr != nil {
 			return proxyAPIKeyMutationResponse{}, rotateErr
@@ -521,7 +522,7 @@ func (s *Service) handleDeleteProxyKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.withTx(r.Context(), func(tx pgx.Tx) error {
+	if err := pgxutil.InTx(r.Context(), s.pool, "auth", func(tx pgx.Tx) error {
 		return s.deleteProxyAPIKey(r.Context(), tx, keyID)
 	}); err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
@@ -540,7 +541,7 @@ func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	decoder := json.NewDecoder(request.Body)
 	return decoder.Decode(target)
 }
