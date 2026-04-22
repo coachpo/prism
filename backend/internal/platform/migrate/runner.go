@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -84,7 +85,7 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 		)
 	}
 
-	if err := runInTransaction(ctx, conn, func(tx pgx.Tx) error {
+	if err := pgxutil.InTx(ctx, conn, "migration", func(tx pgx.Tx) error {
 		if err := ensureHistoryTable(ctx, tx); err != nil {
 			return err
 		}
@@ -163,27 +164,6 @@ func migrationVersions(migrations []fileMigration) []string {
 		versions = append(versions, migration.Version)
 	}
 	return versions
-}
-
-func runInTransaction(ctx context.Context, conn *pgx.Conn, run func(pgx.Tx) error) error {
-	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin migration transaction: %w", err)
-	}
-
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	if err := run(tx); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit migration transaction: %w", err)
-	}
-
-	return nil
 }
 
 func ensureHistoryTable(ctx context.Context, execer statementExecutor) error {

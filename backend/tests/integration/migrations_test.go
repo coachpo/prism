@@ -23,7 +23,7 @@ func TestBaselineFreshApply(t *testing.T) {
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
 	conn := harness.openDatabase(t, testContext, "fresh_apply")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
 	conn := harness.openDatabase(t, testContext, "existing_without_history")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	if _, err := conn.Exec(testContext, `CREATE TABLE unmanaged_table (id BIGSERIAL PRIMARY KEY)`); err != nil {
 		t.Fatalf("seed unmanaged table: %v", err)
@@ -72,7 +72,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
 	conn := harness.openDatabase(t, testContext, "baseline_second_run_noop")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	firstResult, err := runner.Run(testContext, conn)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
 	conn := harness.openDatabase(t, testContext, "request_logs_audit_enabled_backfill")
-	defer conn.Close(testContext)
+	defer func() { _ = conn.Close(testContext) }()
 
 	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
 		t.Fatalf("create prism migration history table: %v", err)
@@ -161,7 +161,7 @@ func (h postgresHarness) openDatabase(t *testing.T, ctx context.Context, databas
 	t.Helper()
 
 	adminConn := connect(t, ctx, h.connectionString("postgres"))
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
 		t.Fatalf("drop database %s: %v", databaseName, err)
