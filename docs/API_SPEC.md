@@ -1375,13 +1375,13 @@ Response `200`:
     "currency_code_original": "USD",
     "report_currency_code": "USD",
     "report_currency_symbol": "$",
-    "fx_rate_used": null,
-    "fx_rate_source": null
+    "fx_rate_used": "1",
+    "fx_rate_source": "DEFAULT_1_TO_1"
   },
   "pricing": {
-    "pricing_snapshot_unit": null,
-    "pricing_snapshot_input": null,
-    "pricing_snapshot_output": null,
+    "pricing_snapshot_unit": "PER_1M",
+    "pricing_snapshot_input": "33.333333",
+    "pricing_snapshot_output": "17.857143",
     "pricing_snapshot_cache_read_input": null,
     "pricing_snapshot_cache_creation_input": null,
     "pricing_snapshot_reasoning": null,
