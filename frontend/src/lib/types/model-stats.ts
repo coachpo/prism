@@ -159,6 +159,8 @@ export interface RequestLogListItem {
   output_tokens: number | null;
   total_tokens: number | null;
   total_cost_user_currency_micros: number | null;
+  priced_flag: boolean | null;
+  unpriced_reason: string | null;
   report_currency_symbol: string | null;
 }
 

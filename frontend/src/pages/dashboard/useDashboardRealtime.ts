@@ -39,6 +39,8 @@ function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
     output_tokens: entry.output_tokens,
     total_tokens: entry.total_tokens,
     total_cost_user_currency_micros: entry.total_cost_user_currency_micros,
+    priced_flag: entry.priced_flag,
+    unpriced_reason: entry.unpriced_reason,
     report_currency_symbol: entry.report_currency_symbol,
   };
 }
