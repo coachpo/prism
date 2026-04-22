@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
@@ -75,7 +76,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 }
 
 func (s *Service) handleListLogs(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (auditdomain.AuditLogListResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "audit", func(tx pgx.Tx) (auditdomain.AuditLogListResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return auditdomain.AuditLogListResponse{}, err
@@ -108,7 +109,7 @@ func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (*auditdomain.AuditLogDetail, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "audit", func(tx pgx.Tx) (*auditdomain.AuditLogDetail, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return nil, err
@@ -127,7 +128,7 @@ func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleDeleteLogs(w http.ResponseWriter, r *http.Request) {
-	_, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (struct{}, error) {
+	_, err := pgxutil.InTxValue(r.Context(), s.pool, "audit", func(tx pgx.Tx) (struct{}, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return struct{}{}, err
@@ -288,23 +289,6 @@ func loadRequestLogAuditCaptureState(ctx context.Context, tx pgx.Tx, profileID i
 		return false, false, fmt.Errorf("load request-log %d audit snapshot for profile %d: %w", requestLogID, profileID, err)
 	}
 	return auditEnabledAtRequest, true, nil
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin audit transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit audit transaction: %w", err)
-	}
-	return value, nil
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
