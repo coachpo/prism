@@ -110,35 +110,6 @@ func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, mod
 	return record, true, nil
 }
 
-func loadModelRecordsByIDs(ctx context.Context, exec queryExecutor, profileID int, modelIDs []int) ([]modelRecord, error) {
-	if len(modelIDs) == 0 {
-		return []modelRecord{}, nil
-	}
-	args := []any{profileID}
-	for _, modelID := range modelIDs {
-		args = append(args, modelID)
-	}
-	query := fmt.Sprintf(`SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND id IN (%s) ORDER BY id ASC`, placeholders(2, len(modelIDs)))
-	rows, err := exec.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("query models by id for profile %d: %w", profileID, err)
-	}
-	defer rows.Close()
-
-	items := make([]modelRecord, 0, len(modelIDs))
-	for rows.Next() {
-		record, scanErr := scanModelRecord(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		items = append(items, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate models by id for profile %d: %w", profileID, err)
-	}
-	return items, nil
-}
-
 func listConnectionCountsByModel(ctx context.Context, exec queryExecutor, profileID int) (map[int]modelConnectionCounts, error) {
 	rows, err := exec.Query(ctx, `SELECT model_config_id, COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0) AS active_count FROM connections WHERE profile_id = $1 GROUP BY model_config_id`, profileID)
 	if err != nil {

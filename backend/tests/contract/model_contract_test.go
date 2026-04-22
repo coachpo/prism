@@ -308,7 +308,7 @@ func newModelContractHarness(t *testing.T) *contractHarness {
 	t.Cleanup(cancel)
 	databaseName := "model_contract_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
 	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "model-contract-secret"})
 	if err != nil {

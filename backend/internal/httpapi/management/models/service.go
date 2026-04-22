@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -82,23 +81,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Delete("/models/{model_config_id}", s.handleDeleteModel)
 	api.Get("/models/by-endpoint/{endpoint_id}", s.handleModelsByEndpoint)
 	api.Get("/models", s.handleListModels)
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin model transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit model transaction: %w", err)
-	}
-	return value, nil
 }
 
 func isUniqueViolation(err error, constraint string) bool {

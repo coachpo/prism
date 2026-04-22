@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -21,7 +22,7 @@ type endpointModelsBatchRequest struct {
 }
 
 func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]modelConfigListResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelConfigListResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -57,7 +58,7 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (modelConfigResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -97,7 +98,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (modelConfigResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -160,7 +161,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (modelConfigResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -290,7 +291,7 @@ func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return deletedResponse{}, err
@@ -329,7 +330,7 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]modelConfigListResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelConfigListResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -365,7 +366,7 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (endpointModelsBatchResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (endpointModelsBatchResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return endpointModelsBatchResponse{}, err
@@ -671,7 +672,7 @@ func joinModelIDs(records []modelRecord) string {
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
