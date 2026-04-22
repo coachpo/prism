@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
 type dashboardMetadataRow struct {
@@ -59,7 +59,7 @@ func (s *Service) PublishPendingDashboardUpdate(ctx context.Context, profileID i
 }
 
 func (s *Service) BuildDashboardUpdate(ctx context.Context, requestLogID int, profileID int) (DashboardUpdateMessage, error) {
-	return withRealtimeTxValue(ctx, s.pool, func(tx pgx.Tx) (DashboardUpdateMessage, error) {
+	return pgxutil.InTxValue(ctx, s.pool, "realtime", func(tx pgx.Tx) (DashboardUpdateMessage, error) {
 		entry, err := loadRequestLogEntry(ctx, tx, requestLogID, profileID)
 		if err != nil {
 			return DashboardUpdateMessage{}, err
@@ -267,25 +267,6 @@ func (s *Service) latestRequestLogID(profileID int) (int, bool) {
 	defer s.latestMu.Unlock()
 	requestLogID, ok := s.latestRequestLogIDs[profileID]
 	return requestLogID, ok
-}
-
-func withRealtimeTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin realtime transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit realtime transaction: %w", err)
-	}
-	return value, nil
 }
 
 func enrichRequestLogEntry(ctx context.Context, tx pgx.Tx, entry RequestLogEntry) (RequestLogEntry, error) {

@@ -266,7 +266,7 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 	defer cancel()
 	databaseName := "s16_runtime_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	startupService, err := startup.New(startup.Options{DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s16-runtime-secret"})
 	if err != nil {
 		t.Fatalf("build S16 startup service: %v", err)
