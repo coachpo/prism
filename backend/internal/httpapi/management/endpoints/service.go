@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -90,21 +89,4 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Patch("/endpoints/{endpoint_id}/position", s.handleMoveEndpointPosition)
 	api.Post("/endpoints/{endpoint_id}/duplicate", s.handleDuplicateEndpoint)
 	api.Delete("/endpoints/{endpoint_id}", s.handleDeleteEndpoint)
-}
-
-func withTxValue[T any](ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) (T, error)) (T, error) {
-	var zero T
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return zero, fmt.Errorf("begin endpoint transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	value, err := fn(tx)
-	if err != nil {
-		return zero, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return zero, fmt.Errorf("commit endpoint transaction: %w", err)
-	}
-	return value, nil
 }

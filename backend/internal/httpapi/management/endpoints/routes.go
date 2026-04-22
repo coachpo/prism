@@ -14,11 +14,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func (s *Service) handleListEndpoints(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]endpointResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) ([]endpointResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -41,7 +42,7 @@ func (s *Service) handleListEndpoints(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleListEndpointConnections(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (connectionDropdownResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (connectionDropdownResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return connectionDropdownResponse{}, err
@@ -76,7 +77,7 @@ func (s *Service) handleCreateEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (endpointResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (endpointResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return endpointResponse{}, err
@@ -120,7 +121,7 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (endpointResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (endpointResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return endpointResponse{}, err
@@ -205,7 +206,7 @@ func (s *Service) handleMoveEndpointPosition(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]endpointResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) ([]endpointResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return nil, err
@@ -264,7 +265,7 @@ func (s *Service) handleDuplicateEndpoint(w http.ResponseWriter, r *http.Request
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (endpointResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (endpointResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return endpointResponse{}, err
@@ -306,7 +307,7 @@ func (s *Service) handleDeleteEndpoint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "endpoint", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, err := resolveEffectiveProfile(r.Context(), tx, r)
 		if err != nil {
 			return deletedResponse{}, err
@@ -372,7 +373,7 @@ func normalizeEndpointPositions(records []endpointRecord, currentTime time.Time)
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	return json.NewDecoder(request.Body).Decode(target)
 }
 
