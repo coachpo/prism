@@ -300,7 +300,7 @@ func newProfileContractHarness(t *testing.T) *contractHarness {
 	databaseName := "profile_contract_" + randomSuffix()
 	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
 	t.Cleanup(func() {
-		conn.Close(context.Background())
+		_ = conn.Close(context.Background())
 	})
 
 	startupService, err := startup.New(startup.Options{

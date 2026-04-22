@@ -14,11 +14,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 func (s *Service) handleListProfiles(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) ([]profileResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) ([]profileResponse, error) {
 		if _, err := profiledomain.ResolveActiveProfile(r.Context(), tx, s.nowUTC); err != nil {
 			return nil, err
 		}
@@ -40,7 +41,7 @@ func (s *Service) handleListProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleGetActiveProfile(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (profileResponse, error) {
 		profile, err := profiledomain.ResolveActiveProfile(r.Context(), tx, s.nowUTC)
 		if err != nil {
 			return profileResponse{}, err
@@ -55,7 +56,7 @@ func (s *Service) handleGetActiveProfile(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) handleGetBootstrap(w http.ResponseWriter, r *http.Request) {
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileBootstrapResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (profileBootstrapResponse, error) {
 		activeProfile, err := profiledomain.ResolveActiveProfile(r.Context(), tx, s.nowUTC)
 		if err != nil {
 			return profileBootstrapResponse{}, err
@@ -89,7 +90,7 @@ func (s *Service) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (profileResponse, error) {
 		count, err := profiledomain.CountNonDeletedProfiles(r.Context(), tx)
 		if err != nil {
 			return profileResponse{}, err
@@ -139,7 +140,7 @@ func (s *Service) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (profileResponse, error) {
 		profile, found, err := profiledomain.LoadNonDeletedProfileForUpdate(r.Context(), tx, profileID)
 		if err != nil {
 			return profileResponse{}, err
@@ -197,7 +198,7 @@ func (s *Service) handleActivateProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (profileResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (profileResponse, error) {
 		if _, err := profiledomain.ResolveActiveProfile(r.Context(), tx, s.nowUTC); err != nil {
 			return profileResponse{}, err
 		}
@@ -262,7 +263,7 @@ func (s *Service) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (deletedResponse, error) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (deletedResponse, error) {
 		profile, found, err := profiledomain.LoadNonDeletedProfileForUpdate(r.Context(), tx, profileID)
 		if err != nil {
 			return deletedResponse{}, err
@@ -294,7 +295,7 @@ func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
 		return
 	}
-	resolution, err := withTxValue(r.Context(), s.pool, func(tx pgx.Tx) (bool, error) {
+	resolution, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (bool, error) {
 		activeProfile, err := profiledomain.ResolveActiveProfile(r.Context(), tx, s.nowUTC)
 		if err != nil {
 			return false, err
@@ -457,25 +458,25 @@ func runtimeModelID(request *http.Request) (string, error) {
 			trimmed = trimmed[:index]
 		}
 		if strings.TrimSpace(trimmed) == "" {
-			return "", errors.New("Model is required")
+			return "", errors.New("model is required")
 		}
 		return trimmed, nil
 	}
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	var payload struct {
 		Model string `json:"model"`
 	}
 	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		return "", errors.New("Invalid request body")
+		return "", errors.New("invalid request body")
 	}
 	if strings.TrimSpace(payload.Model) == "" {
-		return "", errors.New("Model is required")
+		return "", errors.New("model is required")
 	}
 	return strings.TrimSpace(payload.Model), nil
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
-	defer request.Body.Close()
+	defer func() { _ = request.Body.Close() }()
 	decoder := json.NewDecoder(request.Body)
 	return decoder.Decode(target)
 }
@@ -497,7 +498,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map
 		writeError(w, r, allowedOrigins, httpErr.StatusCode, httpErr.Detail)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "internal server error")
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
