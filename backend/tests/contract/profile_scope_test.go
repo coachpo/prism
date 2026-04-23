@@ -17,7 +17,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
+	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -293,6 +295,63 @@ func TestSelectedEffectiveProfileScope(t *testing.T) {
 	}
 }
 
+func TestManagementRouteSeamKeepsEffectiveProfileScopeAfterRouterAuthSplit(t *testing.T) {
+	harness := newProfileContractHarness(t)
+
+	activeResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles/active", nil, nil)
+	assertStatus(t, activeResponse, http.StatusOK)
+	var activePayload map[string]any
+	decodeJSONResponse(t, activeResponse, &activePayload)
+	activeID := jsonInt(t, activePayload["id"])
+
+	selectedProfileResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/profiles",
+		map[string]any{"name": "Management Route Seam Profile", "description": "management-route-seam"},
+		nil,
+	)
+	assertStatus(t, selectedProfileResponse, http.StatusCreated)
+	var selectedPayload map[string]any
+	decodeJSONResponse(t, selectedProfileResponse, &selectedPayload)
+	selectedID := jsonInt(t, selectedPayload["id"])
+	if selectedID == activeID {
+		t.Fatalf("expected seam-selected profile id %d to differ from active profile id %d", selectedID, activeID)
+	}
+
+	insertRequestLogSummaryRow(t, harness, 6100, activeID, "management-seam-active", "openai", 12, 41, http.StatusOK, 120, 10, 20, 30, fixedS15Now.Add(-2*time.Minute))
+	insertRequestLogSummaryRow(t, harness, 6101, selectedID, "management-seam-selected", "anthropic", 13, 42, http.StatusServiceUnavailable, 260, 5, 8, 13, fixedS15Now.Add(-1*time.Minute))
+	loginWithVerifiedAuth(t, harness, "profile-seam-admin", "profile-seam-password-123", "profile-seam@example.com")
+
+	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, nil)
+	assertErrorResponse(t, missingHeader, http.StatusBadRequest, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+
+	activeSummary := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, modelHeader(activeID))
+	assertStatus(t, activeSummary, http.StatusOK)
+	var activeSummaryPayload map[string]any
+	decodeJSONResponse(t, activeSummary, &activeSummaryPayload)
+	if jsonInt(t, activeSummaryPayload["total_requests"]) != 1 || jsonInt(t, activeSummaryPayload["success_count"]) != 1 || jsonInt(t, activeSummaryPayload["error_count"]) != 0 {
+		t.Fatalf("expected active-profile management summary to stay scoped to the active profile row, got %+v", activeSummaryPayload)
+	}
+	activeGroups := activeSummaryPayload["groups"].([]any)
+	if len(activeGroups) != 1 || asMap(t, activeGroups[0])["key"] != "openai" {
+		t.Fatalf("expected active-profile management summary to keep the openai group, got %+v", activeSummaryPayload)
+	}
+
+	selectedSummary := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, modelHeader(selectedID))
+	assertStatus(t, selectedSummary, http.StatusOK)
+	var selectedSummaryPayload map[string]any
+	decodeJSONResponse(t, selectedSummary, &selectedSummaryPayload)
+	if jsonInt(t, selectedSummaryPayload["total_requests"]) != 1 || jsonInt(t, selectedSummaryPayload["success_count"]) != 0 || jsonInt(t, selectedSummaryPayload["error_count"]) != 1 {
+		t.Fatalf("expected selected-profile management summary to keep effective-profile scoping after the split, got %+v", selectedSummaryPayload)
+	}
+	selectedGroups := selectedSummaryPayload["groups"].([]any)
+	if len(selectedGroups) != 1 || asMap(t, selectedGroups[0])["key"] != "anthropic" {
+		t.Fatalf("expected selected-profile management summary to keep the anthropic group, got %+v", selectedSummaryPayload)
+	}
+}
+
 func newProfileContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -334,14 +393,26 @@ func newProfileContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("create pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool})
+	if err != nil {
+		t.Fatalf("build auth service: %v", err)
+	}
+	t.Cleanup(authService.Close)
 	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
 	if err != nil {
 		t.Fatalf("build profiles service: %v", err)
 	}
 	t.Cleanup(profilesService.Close)
+	statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool})
+	if err != nil {
+		t.Fatalf("build stats service: %v", err)
+	}
+	t.Cleanup(statsService.Close)
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
 		Version:         "profile-contract-test",
+		AuthService:     authService,
 		ProfilesService: profilesService,
+		StatsService:    statsService,
 	})
 	if err != nil {
 		t.Fatalf("build handler: %v", err)
@@ -354,7 +425,7 @@ func newProfileContractHarness(t *testing.T) *contractHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: nil, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: authService, url: server.URL}
 }
 
 func scopeProbeRequest(t *testing.T, rawURL string, headerValue *string) *http.Response {

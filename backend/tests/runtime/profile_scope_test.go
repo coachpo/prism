@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -213,6 +215,82 @@ func TestRuntimeIgnoresXProfileId(t *testing.T) {
 	}
 	if requestModelID(t, secondRequest.Body) != inactiveRoute.TargetModelID {
 		t.Fatalf("expected second upstream body model %q, got %q", inactiveRoute.TargetModelID, requestModelID(t, secondRequest.Body))
+	}
+}
+
+func TestRuntimeBranchAuthSplitStillIgnoresXProfileId(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	inactiveProfileID := harness.createProfile(t, "Runtime Branch Seam Override")
+	suffix := randomSuffix()
+	publicModelID := "runtime-branch-seam-" + suffix
+	activeRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       activeProfileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   "runtime-branch-active-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/branch-active"),
+		EndpointAPIKey:  "branch-active-upstream-key",
+	})
+	inactiveRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       inactiveProfileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   "runtime-branch-inactive-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/branch-inactive"),
+		EndpointAPIKey:  "branch-inactive-upstream-key",
+	})
+	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(t)
+
+	runtimePayload := map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "runtime branch seam"}},
+		"model":    publicModelID,
+	}
+	harness.upstream.clear()
+	firstResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		runtimePayload,
+		map[string]string{
+			"Authorization": "Bearer " + proxyAPIKey,
+			"X-Profile-Id":  fmt.Sprintf("%d", inactiveProfileID),
+		},
+	)
+	assertStatus(t, firstResponse, http.StatusOK)
+	firstRequest := harness.upstream.lastRequest(t)
+	if firstRequest.Path != "/branch-active/v1/chat/completions" {
+		t.Fatalf("expected /v1 runtime branch to stay on the active profile after the auth split, got %s", firstRequest.Path)
+	}
+	if firstRequest.Headers.Get("Authorization") != "Bearer "+activeRoute.EndpointAPIKey {
+		t.Fatalf("expected runtime branch upstream authorization header, got %q", firstRequest.Headers.Get("Authorization"))
+	}
+	if requestModelID(t, firstRequest.Body) != activeRoute.TargetModelID {
+		t.Fatalf("expected runtime branch to keep active-profile model %q, got %q", activeRoute.TargetModelID, requestModelID(t, firstRequest.Body))
+	}
+
+	harness.forceActiveProfile(t, inactiveProfileID)
+	harness.upstream.clear()
+	secondResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		runtimePayload,
+		map[string]string{
+			"Authorization": "Bearer " + proxyAPIKey,
+			"X-Profile-Id":  fmt.Sprintf("%d", activeProfileID),
+		},
+	)
+	assertStatus(t, secondResponse, http.StatusOK)
+	secondRequest := harness.upstream.lastRequest(t)
+	if secondRequest.Path != "/branch-inactive/v1/chat/completions" {
+		t.Fatalf("expected /v1 runtime branch to follow the newly active profile instead of X-Profile-Id after the auth split, got %s", secondRequest.Path)
+	}
+	if secondRequest.Headers.Get("Authorization") != "Bearer "+inactiveRoute.EndpointAPIKey {
+		t.Fatalf("expected second runtime branch upstream authorization header, got %q", secondRequest.Headers.Get("Authorization"))
+	}
+	if requestModelID(t, secondRequest.Body) != inactiveRoute.TargetModelID {
+		t.Fatalf("expected runtime branch to switch to active-profile model %q, got %q", inactiveRoute.TargetModelID, requestModelID(t, secondRequest.Body))
 	}
 }
 
@@ -1828,6 +1906,11 @@ func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.C
 		t.Fatalf("build auth service: %v", err)
 	}
 	t.Cleanup(authService.Close)
+	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{Pool: pool})
+	if err != nil {
+		t.Fatalf("build config rules service: %v", err)
+	}
+	t.Cleanup(configRulesService.Close)
 	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
 	if err != nil {
 		t.Fatalf("build profiles service: %v", err)
@@ -1839,10 +1922,11 @@ func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.C
 	}
 	t.Cleanup(runtimeService.Close)
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
-		Version:         "runtime-test",
-		AuthService:     authService,
-		ProfilesService: profilesService,
-		RuntimeService:  runtimeService,
+		Version:            "runtime-test",
+		AuthService:        authService,
+		ConfigRulesService: configRulesService,
+		ProfilesService:    profilesService,
+		RuntimeService:     runtimeService,
 	})
 	if err != nil {
 		t.Fatalf("build runtime handler: %v", err)
@@ -2079,6 +2163,44 @@ func (h *runtimeHarness) activateProfile(t *testing.T, targetProfileID int, expe
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
+}
+
+func (h *runtimeHarness) enableRuntimeProxyAPIKeyAuth(t *testing.T) string {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`UPDATE app_auth_settings SET auth_enabled = TRUE, updated_at = $1 WHERE singleton_key = 'app'`,
+		now,
+	); err != nil {
+		t.Fatalf("enable runtime proxy auth: %v", err)
+	}
+	lookup := randomSuffix()
+	rawKey := "pm-" + lookup + randomSuffix()
+	keyHash := sha256.Sum256([]byte(rawKey))
+	if _, err := h.conn.Exec(
+		context.Background(),
+		`INSERT INTO proxy_api_keys (name, key_prefix, key_hash, last_four, is_active, created_at, updated_at) VALUES ($1, $2, $3, $4, TRUE, $5, $5)`,
+		"runtime-branch-key-"+randomSuffix(),
+		"pm-"+lookup,
+		hex.EncodeToString(keyHash[:]),
+		rawKey[len(rawKey)-4:],
+		now,
+	); err != nil {
+		t.Fatalf("insert runtime proxy api key: %v", err)
+	}
+	return rawKey
+}
+
+func (h *runtimeHarness) forceActiveProfile(t *testing.T, targetProfileID int) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := h.conn.Exec(context.Background(), `UPDATE profiles SET is_active = FALSE, updated_at = $1 WHERE deleted_at IS NULL`, now); err != nil {
+		t.Fatalf("clear runtime active profile: %v", err)
+	}
+	if _, err := h.conn.Exec(context.Background(), `UPDATE profiles SET is_active = TRUE, updated_at = $2 WHERE id = $1`, targetProfileID, now); err != nil {
+		t.Fatalf("set runtime active profile %d: %v", targetProfileID, err)
+	}
 }
 
 func (h *runtimeHarness) seedProxyRoute(t *testing.T, seed runtimeRouteSeed) seededRuntimeRoute {
