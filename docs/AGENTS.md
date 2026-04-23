@@ -1,7 +1,7 @@
 # DOCS REFERENCE MAP
 
 ## OVERVIEW
-`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references and archive material. Active working plans live outside `docs/` under `../.sisyphus/plans/`.
+`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references, the checked-in OpenAPI artifact, and archive material. Active working plans live outside `docs/` under `../.sisyphus/plans/`.
 
 ## STRUCTURE
 ```text
@@ -10,6 +10,7 @@ docs/
 ├── ARCHITECTURE.md
 ├── API_SPEC.md
 ├── DATA_MODEL.md
+├── openapi.json
 ├── PRD.md
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
@@ -21,14 +22,16 @@ docs/
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
+- `openapi.json` is the checked-in management and health contract artifact served by the backend; keep it aligned with backend ownership docs instead of treating it as the narrative source of truth.
 - `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references.
 - `archive/` holds finished notes and retained evidence only.
 - Archived run notes use `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
 
 ## WHERE TO LOOK
-- Launcher and release facts: `../README.md`, `../start.sh`, `../release.sh`, `../.env.example`
+- Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../.env.example`
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
+- Checked-in OpenAPI artifact: `openapi.json`, `../backend/AGENTS.md`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Frontend request-log context: `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
@@ -39,9 +42,9 @@ docs/
 ## CONVENTIONS
 - Keep docs Prism-specific.
 - Point to child AGENTS files instead of repeating leaf detail.
-- Keep launcher facts aligned with `../start.sh`, especially `.env` loading, `headless|full`, ports, PostgreSQL checks, `VITE_API_BASE`, and local CORS/WebAuthn wiring.
+- Keep launcher facts aligned with `../start.sh`, especially `.env` loading, `headless|full`, ports, PostgreSQL checks, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and local CORS/WebAuthn wiring.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
-- State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on `v*` tags and selected PR path changes, and `.github/workflows/cleanup.yml` handles cleanup only.
+- State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
 - Keep archive wording tight: finished notes first, optional evidence only when needed, never treat archive notes as canonical docs.
 - Keep archived test run notes on the `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md` pattern.
