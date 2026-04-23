@@ -28,6 +28,7 @@ type Options struct {
 	HTTPClient       *http.Client
 	Now              func() time.Time
 	DashboardUpdates DashboardUpdatePublisher
+	Cache            *SharedCache
 }
 
 type Service struct {
@@ -37,6 +38,7 @@ type Service struct {
 	now                 func() time.Time
 	secretEncryptionKey string
 	dashboardUpdates    DashboardUpdatePublisher
+	cache               *SharedCache
 }
 
 type domainError struct {
@@ -84,6 +86,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now:                 now,
 		secretEncryptionKey: settings.SecretEncryptionKey,
 		dashboardUpdates:    options.DashboardUpdates,
+		cache:               options.Cache,
 	}, nil
 }
 

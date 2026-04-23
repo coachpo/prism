@@ -18,7 +18,6 @@ import (
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
-	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 var (
@@ -220,20 +219,22 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		}
 	}
 
-	activeProfile, err := profiledomain.ResolveActiveProfile(ctx, tx, s.nowUTC)
+	activeProfile, err := s.loadActiveProfileWithCache(ctx, tx)
+	if err != nil {
+		return requestPlan{}, err
+	}
+	snapshot, err := s.loadPlanningSnapshotWithCache(ctx, tx, activeProfile.ID)
 	if err != nil {
 		return requestPlan{}, err
 	}
 
-	requestedModel, found, err := loadEnabledModelByModelID(ctx, tx, activeProfile.ID, requestedModelID)
-	if err != nil {
-		return requestPlan{}, err
-	}
+	requestedModel, found := snapshot.ModelsByID[requestedModelID]
 	if !found {
 		return requestPlan{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", requestedModelID)}
 	}
+	requestedModel = cloneRuntimeModelRecord(requestedModel)
 
-	targetModel, connections, runtimeStates, strategy, err := resolveExecutionTarget(ctx, tx, activeProfile.ID, requestedModel, s.nowUTC())
+	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(ctx, tx, activeProfile.ID, snapshot, requestedModel, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
@@ -260,14 +261,8 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		upstreamBody = rewriteModelInBody(rawBody, targetModel.ModelID)
 	}
 
-	blocklistRules, err := listEnabledHeaderBlocklistRules(ctx, tx, activeProfile.ID)
-	if err != nil {
-		return requestPlan{}, err
-	}
-	reportCurrencySnapshot, err := loadRuntimeReportCurrencySnapshot(ctx, tx, activeProfile.ID)
-	if err != nil {
-		return requestPlan{}, err
-	}
+	blocklistRules := cloneHeaderBlocklistRules(snapshot.BlocklistRules)
+	reportCurrencySnapshot := cloneReportCurrencySnapshot(snapshot.ReportCurrency)
 
 	return requestPlan{
 		RequestedModelID:       requestedModelID,
