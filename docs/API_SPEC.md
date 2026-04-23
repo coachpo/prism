@@ -1835,7 +1835,8 @@ Validation rules:
 - Upstream request timing is controlled by the shared backend timeout settings rather than per-strategy fields.
 - `hedge.delay_ms` must be within `0..300000`, and `hedge.max_additional_attempts` within `1..10`.
 - `circuit_breaker.failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
-- `circuit_breaker.base_open_seconds`, `failure_threshold`, `max_open_seconds`, `backoff_multiplier`, and `jitter_ratio` use the same bounds as the backend defaults.
+- `circuit_breaker.base_open_seconds`, `failure_threshold`, `max_open_seconds`, and `backoff_multiplier` use the same bounds as the backend defaults.
+- Breaking change: old clients and imported bundles that still contain `jitter_ratio` are rejected in this release.
 - `circuit_breaker.ban_mode` is `off`, `temporary`, or `manual`.
 - `circuit_breaker.ban_mode = "off"` requires zero strike and duration values.
 - `circuit_breaker.ban_mode = "temporary"` requires both `max_open_strikes_before_ban >= 1` and `ban_duration_seconds >= 1`.
