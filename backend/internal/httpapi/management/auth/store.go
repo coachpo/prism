@@ -967,23 +967,46 @@ func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyA
 	if err != nil {
 		return nil, nil
 	}
-	row, err := s.loadProxyAPIKeyByPrefix(ctx, s.pool, keyPrefix)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+
+	loadDecision := func() (RuntimeProxyKeyDecision, error) {
+		row, err := s.loadProxyAPIKeyByPrefix(ctx, s.pool, keyPrefix)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return RuntimeProxyKeyDecision{}, nil
+			}
+			return RuntimeProxyKeyDecision{}, fmt.Errorf("load proxy api key by prefix: %w", err)
 		}
-		return nil, fmt.Errorf("load proxy api key by prefix: %w", err)
+		if !row.IsActive {
+			return RuntimeProxyKeyDecision{}, nil
+		}
+		now := s.nowUTC()
+		if row.ExpiresAt.Valid && row.ExpiresAt.Time.Before(now) {
+			return RuntimeProxyKeyDecision{}, nil
+		}
+		if !verifyOpaqueToken(normalizedKey, row.KeyHash) {
+			return RuntimeProxyKeyDecision{}, nil
+		}
+		decision := RuntimeProxyKeyDecision{Allowed: true, KeyID: row.ID, KeyName: row.Name}
+		if row.ExpiresAt.Valid {
+			expiresAt := row.ExpiresAt.Time.UTC()
+			decision.ExpiresAt = &expiresAt
+		}
+		return decision, nil
 	}
-	if !row.IsActive {
+
+	var decision RuntimeProxyKeyDecision
+	if s.runtimeCache != nil {
+		decision, err = s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), ProxyKeyDecisionCacheKey(normalizedKey), loadDecision)
+	} else {
+		decision, err = loadDecision()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !decision.Allowed {
 		return nil, nil
 	}
-	if row.ExpiresAt.Valid && row.ExpiresAt.Time.Before(s.nowUTC()) {
-		return nil, nil
-	}
-	if !verifyOpaqueToken(normalizedKey, row.KeyHash) {
-		return nil, nil
-	}
-	return &row, nil
+	return &proxyAPIKeyRow{ID: decision.KeyID, Name: decision.KeyName}, nil
 }
 
 func (s *Service) loadProxyAPIKeyByPrefix(ctx context.Context, exec queryExecutor, keyPrefix string) (proxyAPIKeyRow, error) {

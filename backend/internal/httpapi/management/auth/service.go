@@ -19,9 +19,10 @@ type Mailer interface {
 }
 
 type Options struct {
-	Mailer Mailer
-	Now    func() time.Time
-	Pool   *pgxpool.Pool
+	Mailer       Mailer
+	Now          func() time.Time
+	Pool         *pgxpool.Pool
+	RuntimeCache *RuntimeCache
 }
 
 type Service struct {
@@ -38,6 +39,7 @@ type Service struct {
 	cookieSecure        bool
 	allowedOrigins      map[string]struct{}
 	proxyKeyPreviewSize int
+	runtimeCache        *RuntimeCache
 }
 
 type authSubject struct {
@@ -109,6 +111,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		cookieSecure:        settings.AuthCookieSecure,
 		allowedOrigins:      allowedOrigins,
 		proxyKeyPreviewSize: 4,
+		runtimeCache:        options.RuntimeCache,
 	}, nil
 }
 
@@ -120,6 +123,30 @@ func (s *Service) Close() {
 
 func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
+}
+
+func (s *Service) loadRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSettingsSnapshot, error) {
+	if s.runtimeCache == nil {
+		row, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
+		if err != nil {
+			return RuntimeAuthSettingsSnapshot{}, err
+		}
+		return RuntimeAuthSettingsSnapshot{AuthEnabled: row.AuthEnabled}, nil
+	}
+	return s.runtimeCache.LoadRuntimeAuthSettings(s.nowUTC(), func() (RuntimeAuthSettingsSnapshot, error) {
+		row, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
+		if err != nil {
+			return RuntimeAuthSettingsSnapshot{}, err
+		}
+		return RuntimeAuthSettingsSnapshot{AuthEnabled: row.AuthEnabled}, nil
+	})
+}
+
+func (s *Service) InvalidateRuntimeCache() {
+	if s == nil || s.runtimeCache == nil {
+		return
+	}
+	s.runtimeCache.Invalidate()
 }
 
 func authSubjectFromRequest(request *http.Request) (*authSubject, bool) {
@@ -146,6 +173,14 @@ func runtimeProxyKeyFromRequest(request *http.Request) (*runtimeProxyKey, bool) 
 		return nil, false
 	}
 	return &proxyKey, true
+}
+
+func (s *Service) ManagementMiddleware(next http.Handler) http.Handler {
+	return s.managementMiddleware(next)
+}
+
+func (s *Service) RuntimeMiddleware(next http.Handler) http.Handler {
+	return s.runtimeMiddleware(next)
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {

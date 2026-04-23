@@ -28,8 +28,24 @@ var publicManagementPaths = map[string]struct{}{
 }
 
 func (s *Service) Middleware(next http.Handler) http.Handler {
+	managementHandler := s.ManagementMiddleware(next)
+	runtimeHandler := s.RuntimeMiddleware(next)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodOptions || !requiresAuthHandling(r.URL.Path) {
+		switch {
+		case requiresManagementAuthHandling(r.URL.Path):
+			managementHandler.ServeHTTP(w, r)
+		case requiresRuntimeAuthHandling(r.URL.Path):
+			runtimeHandler.ServeHTTP(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
+func (s *Service) managementMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || !requiresManagementAuthHandling(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -39,27 +55,37 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
+		if !settingsRow.AuthEnabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, ok := publicManagementPaths[r.URL.Path]; ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authSubject, ok := s.authSubjectFromAccessCookie(r, settingsRow)
+		if !ok {
+			writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Authentication required")
+			return
+		}
+		contextWithSubject := context.WithValue(r.Context(), authSubjectContextKey{}, authSubject)
+		next.ServeHTTP(w, r.WithContext(contextWithSubject))
+	})
+}
 
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			if !settingsRow.AuthEnabled {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if _, ok := publicManagementPaths[r.URL.Path]; ok {
-				next.ServeHTTP(w, r)
-				return
-			}
-			authSubject, ok := s.authSubjectFromAccessCookie(r, settingsRow)
-			if !ok {
-				writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Authentication required")
-				return
-			}
-			contextWithSubject := context.WithValue(r.Context(), authSubjectContextKey{}, authSubject)
-			next.ServeHTTP(w, r.WithContext(contextWithSubject))
+func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || !requiresRuntimeAuthHandling(r.URL.Path) {
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		if !settingsRow.AuthEnabled {
+		authSettings, err := s.loadRuntimeAuthSettings(r.Context())
+		if err != nil {
+			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
+			return
+		}
+		if !authSettings.AuthEnabled {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -85,8 +111,12 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-func requiresAuthHandling(path string) bool {
-	return strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/")
+func requiresManagementAuthHandling(path string) bool {
+	return strings.HasPrefix(path, "/api/")
+}
+
+func requiresRuntimeAuthHandling(path string) bool {
+	return strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v1beta/")
 }
 
 func extractProxyAPIKey(header http.Header) (string, string) {
