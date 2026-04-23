@@ -18,8 +18,13 @@ import (
 )
 
 const (
-	dashboardChannel           = "dashboard"
-	dashboardUpdateMessageType = "dashboard.update"
+	dashboardChannel                  = "dashboard"
+	dashboardUpdateMessageType        = "dashboard.update"
+	defaultAsyncDashboardQueueSize    = 64
+	defaultAsyncDashboardWorkerCount  = 1
+	defaultAsyncDashboardTimeout      = 2 * time.Second
+	defaultAsyncDashboardDrainTimeout = 3 * time.Second
+	defaultRealtimeWriteTimeout       = 2 * time.Second
 )
 
 var supportedRealtimeChannels = map[string]struct{}{
@@ -32,17 +37,22 @@ type Options struct {
 	Now         func() time.Time
 }
 
+type pendingDashboardUpdatePublisher interface {
+	PublishPendingDashboardUpdate(context.Context, int) (bool, error)
+}
+
 type Service struct {
-	pool                *pgxpool.Pool
-	ownsPool            bool
-	authService         *managementauth.Service
-	accessCookieName    string
-	allowedOrigins      map[string]struct{}
-	manager             *ConnectionManager
-	latestMu            sync.Mutex
-	latestRequestLogIDs map[int]int
-	now                 func() time.Time
-	upgrader            websocket.Upgrader
+	pool                    *pgxpool.Pool
+	ownsPool                bool
+	authService             *managementauth.Service
+	accessCookieName        string
+	allowedOrigins          map[string]struct{}
+	manager                 *ConnectionManager
+	latestMu                sync.Mutex
+	latestRequestLogIDs     map[int]int
+	pendingDashboardUpdates pendingDashboardUpdatePublisher
+	now                     func() time.Time
+	upgrader                websocket.Upgrader
 }
 
 type inboundMessage struct {
@@ -85,7 +95,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		authService:         options.AuthService,
 		accessCookieName:    settings.AuthCookieName,
 		allowedOrigins:      allowedOrigins,
-		manager:             NewConnectionManager(),
+		manager:             NewConnectionManager(defaultRealtimeWriteTimeout),
 		latestRequestLogIDs: map[int]int{},
 		now:                 now,
 	}
@@ -97,6 +107,13 @@ func (s *Service) Close() {
 	if s != nil && s.ownsPool && s.pool != nil {
 		s.pool.Close()
 	}
+}
+
+func (s *Service) SetAsyncDashboardPublisher(publisher *AsyncDashboardPublisher) {
+	if s == nil {
+		return
+	}
+	s.pendingDashboardUpdates = publisher
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
@@ -211,7 +228,7 @@ func (s *Service) handleInboundMessage(connectionID string, connection *Realtime
 		if !connection.SendJSON(map[string]any{"type": "subscribed", "profile_id": message.ProfileID, "channel": channel}) {
 			return false
 		}
-		_, _ = s.PublishPendingDashboardUpdate(context.Background(), message.ProfileID)
+		_, _ = s.publishPendingDashboardUpdate(context.Background(), message.ProfileID)
 		return true
 	case "unsubscribe":
 		s.manager.Unsubscribe(connectionID)
@@ -232,6 +249,13 @@ func (s *Service) handleInboundMessage(connectionID string, connection *Realtime
 	default:
 		return connection.SendJSON(map[string]any{"type": "error", "message": fmt.Sprintf("Unknown message type: %s", message.Type)})
 	}
+}
+
+func (s *Service) publishPendingDashboardUpdate(ctx context.Context, profileID int) (bool, error) {
+	if s.pendingDashboardUpdates != nil {
+		return s.pendingDashboardUpdates.PublishPendingDashboardUpdate(ctx, profileID)
+	}
+	return s.PublishPendingDashboardUpdate(ctx, profileID)
 }
 
 func (s *Service) accessTokenFromRequest(r *http.Request) string {

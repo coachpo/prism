@@ -18,6 +18,7 @@ type RealtimeConnection struct {
 	id            string
 	socket        *websocket.Conn
 	writeMu       sync.Mutex
+	writeTimeout  time.Duration
 	profileID     *int
 	channels      map[string]struct{}
 	authenticated bool
@@ -26,6 +27,14 @@ type RealtimeConnection struct {
 func (c *RealtimeConnection) SendJSON(payload any) bool {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
+	if c.writeTimeout > 0 {
+		if err := c.socket.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err != nil {
+			return false
+		}
+		defer func() {
+			_ = c.socket.SetWriteDeadline(time.Time{})
+		}()
+	}
 	return c.socket.WriteJSON(payload) == nil
 }
 
@@ -38,25 +47,28 @@ func (c *RealtimeConnection) closeWithCode(code int) {
 }
 
 type ConnectionManager struct {
-	nextID      atomic.Uint64
-	mu          sync.RWMutex
-	connections map[string]*RealtimeConnection
-	rooms       map[roomKey]map[string]struct{}
+	nextID       atomic.Uint64
+	mu           sync.RWMutex
+	connections  map[string]*RealtimeConnection
+	rooms        map[roomKey]map[string]struct{}
+	writeTimeout time.Duration
 }
 
-func NewConnectionManager() *ConnectionManager {
+func NewConnectionManager(writeTimeout time.Duration) *ConnectionManager {
 	return &ConnectionManager{
-		connections: map[string]*RealtimeConnection{},
-		rooms:       map[roomKey]map[string]struct{}{},
+		connections:  map[string]*RealtimeConnection{},
+		rooms:        map[roomKey]map[string]struct{}{},
+		writeTimeout: writeTimeout,
 	}
 }
 
 func (m *ConnectionManager) Connect(socket *websocket.Conn) string {
 	connectionID := fmt.Sprintf("rt-%d", m.nextID.Add(1))
 	connection := &RealtimeConnection{
-		id:       connectionID,
-		socket:   socket,
-		channels: map[string]struct{}{},
+		id:           connectionID,
+		socket:       socket,
+		writeTimeout: m.writeTimeout,
+		channels:     map[string]struct{}{},
 	}
 
 	m.mu.Lock()

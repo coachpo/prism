@@ -31,8 +31,8 @@ type requestLogModelMetadata struct {
 }
 
 func (s *Service) PublishDashboardUpdate(ctx context.Context, requestLogID int, profileID int) (bool, error) {
-	s.setLatestRequestLogID(profileID, requestLogID)
-	if !s.manager.HasSubscribers(profileID, dashboardChannel) {
+	s.RecordLatestDashboardRequestLog(profileID, requestLogID)
+	if !s.HasDashboardSubscribers(profileID) {
 		return false, nil
 	}
 
@@ -44,18 +44,31 @@ func (s *Service) PublishDashboardUpdate(ctx context.Context, requestLogID int, 
 }
 
 func (s *Service) PublishPendingDashboardUpdate(ctx context.Context, profileID int) (bool, error) {
+	_, delivered, err := s.PublishLatestDashboardUpdate(ctx, profileID)
+	return delivered, err
+}
+
+func (s *Service) PublishLatestDashboardUpdate(ctx context.Context, profileID int) (int, bool, error) {
 	requestLogID, ok := s.latestRequestLogID(profileID)
 	if !ok {
-		return false, nil
+		return 0, false, nil
 	}
-	if !s.manager.HasSubscribers(profileID, dashboardChannel) {
-		return false, nil
+	if !s.HasDashboardSubscribers(profileID) {
+		return requestLogID, false, nil
 	}
 	message, err := s.BuildDashboardUpdate(ctx, requestLogID, profileID)
 	if err != nil {
-		return false, err
+		return requestLogID, false, err
 	}
-	return s.manager.BroadcastToProfile(profileID, dashboardChannel, message) > 0, nil
+	return requestLogID, s.manager.BroadcastToProfile(profileID, dashboardChannel, message) > 0, nil
+}
+
+func (s *Service) RecordLatestDashboardRequestLog(profileID int, requestLogID int) {
+	s.setLatestRequestLogID(profileID, requestLogID)
+}
+
+func (s *Service) HasDashboardSubscribers(profileID int) bool {
+	return s.manager.HasSubscribers(profileID, dashboardChannel)
 }
 
 func (s *Service) BuildDashboardUpdate(ctx context.Context, requestLogID int, profileID int) (DashboardUpdateMessage, error) {
