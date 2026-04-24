@@ -17,7 +17,6 @@ const (
 	defaultFailureThreshold      = 2
 	defaultBackoffMultiplier     = 2.0
 	defaultMaxOpenSeconds        = 900
-	defaultJitterRatio           = 0.2
 )
 
 func canonicalDefaultStrategySpecs() []canonicalDefaultStrategySpec {
@@ -48,7 +47,6 @@ func buildDefaultAutoRecoveryDocument() autoRecoveryDocument {
 			FailureThreshold:   defaultFailureThreshold,
 			BackoffMultiplier:  defaultBackoffMultiplier,
 			MaxCooldownSeconds: defaultMaxOpenSeconds,
-			JitterRatio:        defaultJitterRatio,
 		},
 		Ban: &autoRecoveryBanDocument{Mode: "off", MaxCooldownStrikesBeforeBan: 0, BanDurationSeconds: 0},
 	}
@@ -69,7 +67,6 @@ func buildDefaultRoutingPolicyDocument() routingPolicyDocument {
 			FailureThreshold:        defaultFailureThreshold,
 			BackoffMultiplier:       defaultBackoffMultiplier,
 			MaxOpenSeconds:          defaultMaxOpenSeconds,
-			JitterRatio:             defaultJitterRatio,
 			BanMode:                 "off",
 			MaxOpenStrikesBeforeBan: 0,
 			BanDurationSeconds:      0,
@@ -166,7 +163,6 @@ func canonicalizeAutoRecovery(input *autoRecoveryInput) (autoRecoveryDocument, e
 		FailureThreshold:   resolvedInt(input.Cooldown, func(value *autoRecoveryCooldownInput) *int { return value.FailureThreshold }, defaultFailureThreshold),
 		BackoffMultiplier:  resolvedFloat(input.Cooldown, func(value *autoRecoveryCooldownInput) *float64 { return value.BackoffMultiplier }, defaultBackoffMultiplier),
 		MaxCooldownSeconds: resolvedInt(input.Cooldown, func(value *autoRecoveryCooldownInput) *int { return value.MaxCooldownSeconds }, defaultMaxOpenSeconds),
-		JitterRatio:        resolvedFloat(input.Cooldown, func(value *autoRecoveryCooldownInput) *float64 { return value.JitterRatio }, defaultJitterRatio),
 	}
 	if err := validateCooldown(cooldown); err != nil {
 		return autoRecoveryDocument{}, err
@@ -222,7 +218,6 @@ func canonicalizeRoutingPolicy(input *routingPolicyInput) (routingPolicyDocument
 		FailureThreshold:        resolvedInt(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *int { return value.FailureThreshold }, defaultFailureThreshold),
 		BackoffMultiplier:       resolvedFloat(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *float64 { return value.BackoffMultiplier }, defaultBackoffMultiplier),
 		MaxOpenSeconds:          resolvedInt(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *int { return value.MaxOpenSeconds }, defaultMaxOpenSeconds),
-		JitterRatio:             resolvedFloat(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *float64 { return value.JitterRatio }, defaultJitterRatio),
 		BanMode:                 resolvedString(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *string { return value.BanMode }, "off"),
 		MaxOpenStrikesBeforeBan: resolvedInt(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *int { return value.MaxOpenStrikesBeforeBan }, 0),
 		BanDurationSeconds:      resolvedInt(input.CircuitBreaker, func(value *routingPolicyCircuitBreakerInput) *int { return value.BanDurationSeconds }, 0),
@@ -270,9 +265,6 @@ func validateCooldown(cooldown autoRecoveryCooldownDocument) error {
 	}
 	if cooldown.MaxCooldownSeconds < 1 || cooldown.MaxCooldownSeconds > 86400 {
 		return &domainError{StatusCode: 400, Detail: "max_cooldown_seconds must be between 1 and 86400"}
-	}
-	if cooldown.JitterRatio < 0.0 || cooldown.JitterRatio > 1.0 {
-		return &domainError{StatusCode: 400, Detail: "jitter_ratio must be between 0.0 and 1.0"}
 	}
 	return nil
 }
@@ -334,9 +326,6 @@ func validateCircuitBreaker(circuitBreaker routingPolicyCircuitBreakerDocument) 
 	}
 	if circuitBreaker.MaxOpenSeconds < 1 || circuitBreaker.MaxOpenSeconds > 86400 {
 		return &domainError{StatusCode: 400, Detail: "max_open_seconds must be between 1 and 86400"}
-	}
-	if circuitBreaker.JitterRatio < 0.0 || circuitBreaker.JitterRatio > 1.0 {
-		return &domainError{StatusCode: 400, Detail: "jitter_ratio must be between 0.0 and 1.0"}
 	}
 	if circuitBreaker.MaxOpenStrikesBeforeBan < 0 || circuitBreaker.MaxOpenStrikesBeforeBan > 100 {
 		return &domainError{StatusCode: 400, Detail: "max_open_strikes_before_ban must be between 0 and 100"}

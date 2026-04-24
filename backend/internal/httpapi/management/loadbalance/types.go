@@ -46,7 +46,6 @@ type autoRecoveryCooldownInput struct {
 	FailureThreshold   *int     `json:"failure_threshold"`
 	BackoffMultiplier  *float64 `json:"backoff_multiplier"`
 	MaxCooldownSeconds *int     `json:"max_cooldown_seconds"`
-	JitterRatio        *float64 `json:"jitter_ratio"`
 }
 
 type autoRecoveryBanInput struct {
@@ -75,7 +74,6 @@ type routingPolicyCircuitBreakerInput struct {
 	FailureThreshold        *int     `json:"failure_threshold"`
 	BackoffMultiplier       *float64 `json:"backoff_multiplier"`
 	MaxOpenSeconds          *int     `json:"max_open_seconds"`
-	JitterRatio             *float64 `json:"jitter_ratio"`
 	BanMode                 *string  `json:"ban_mode"`
 	MaxOpenStrikesBeforeBan *int     `json:"max_open_strikes_before_ban"`
 	BanDurationSeconds      *int     `json:"ban_duration_seconds"`
@@ -98,7 +96,6 @@ type autoRecoveryCooldownDocument struct {
 	FailureThreshold   int     `json:"failure_threshold"`
 	BackoffMultiplier  float64 `json:"backoff_multiplier"`
 	MaxCooldownSeconds int     `json:"max_cooldown_seconds"`
-	JitterRatio        float64 `json:"jitter_ratio"`
 }
 
 type autoRecoveryBanDocument struct {
@@ -127,7 +124,6 @@ type routingPolicyCircuitBreakerDocument struct {
 	FailureThreshold        int     `json:"failure_threshold"`
 	BackoffMultiplier       float64 `json:"backoff_multiplier"`
 	MaxOpenSeconds          int     `json:"max_open_seconds"`
-	JitterRatio             float64 `json:"jitter_ratio"`
 	BanMode                 string  `json:"ban_mode"`
 	MaxOpenStrikesBeforeBan int     `json:"max_open_strikes_before_ban"`
 	BanDurationSeconds      int     `json:"ban_duration_seconds"`
