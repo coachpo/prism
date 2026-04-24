@@ -226,14 +226,14 @@ func seedConfigBundleFixtureGraph(t *testing.T, harness *contractHarness, profil
 	legacyAutoRecovery := mustModelJSON(t, map[string]any{
 		"mode":         "enabled",
 		"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
-		"cooldown":     map[string]any{"base_seconds": 45, "failure_threshold": 4, "backoff_multiplier": 3.5, "max_cooldown_seconds": 720, "jitter_ratio": 0.35},
+		"cooldown":     map[string]any{"base_seconds": 45, "failure_threshold": 4, "backoff_multiplier": 3.5, "max_cooldown_seconds": 720},
 		"ban":          map[string]any{"mode": "temporary", "max_cooldown_strikes_before_ban": 3, "ban_duration_seconds": 1800},
 	})
 	adaptiveRoutingPolicy := mustModelJSON(t, map[string]any{
 		"kind":              "adaptive",
 		"routing_objective": "minimize_latency",
 		"hedge":             map[string]any{"enabled": true, "delay_ms": 1500, "max_additional_attempts": 1},
-		"circuit_breaker":   map[string]any{"failure_status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529}, "base_open_seconds": 45, "failure_threshold": 4, "backoff_multiplier": 3.5, "max_open_seconds": 720, "jitter_ratio": 0.35, "ban_mode": "temporary", "max_open_strikes_before_ban": 3, "ban_duration_seconds": 1800},
+		"circuit_breaker":   map[string]any{"failure_status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529}, "base_open_seconds": 45, "failure_threshold": 4, "backoff_multiplier": 3.5, "max_open_seconds": 720, "ban_mode": "temporary", "max_open_strikes_before_ban": 3, "ban_duration_seconds": 1800},
 		"admission":         map[string]any{"respect_qps_limit": true, "respect_in_flight_limits": true},
 	})
 

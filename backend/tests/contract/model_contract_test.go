@@ -374,7 +374,7 @@ func modelInsertLoadbalanceStrategy(t *testing.T, harness *contractHarness, prof
 	autoRecovery := mustModelJSON(t, map[string]any{
 		"mode":         "enabled",
 		"status_codes": []int{408, 409, 425, 429, 500, 502, 503, 504},
-		"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900, "jitter_ratio": 0.2},
+		"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
 		"ban":          map[string]any{"mode": "off"},
 	})
 	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8) RETURNING id`, profileID, name, "legacy", "single", autoRecovery, nil, now, now).Scan(&strategyID); err != nil {

@@ -169,7 +169,6 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 					"failure_threshold":           2,
 					"backoff_multiplier":          2,
 					"max_open_seconds":            900,
-					"jitter_ratio":                0.2,
 					"ban_mode":                    "off",
 					"max_open_strikes_before_ban": 0,
 					"ban_duration_seconds":        0,
@@ -250,7 +249,6 @@ func TestLoadbalanceStrategies(t *testing.T) {
 					"failure_threshold":    4,
 					"backoff_multiplier":   3.5,
 					"max_cooldown_seconds": 720,
-					"jitter_ratio":         0.35,
 				},
 				"ban": map[string]any{
 					"mode":                            "temporary",
@@ -310,7 +308,6 @@ func TestLoadbalanceStrategies(t *testing.T) {
 					"failure_threshold":           3,
 					"backoff_multiplier":          2.5,
 					"max_open_seconds":            1200,
-					"jitter_ratio":                0.25,
 					"ban_mode":                    "manual",
 					"max_open_strikes_before_ban": 2,
 					"ban_duration_seconds":        0,
@@ -394,7 +391,7 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 		s11InsertStrategy(t, harness, defaultProfileID, "Default legacy routing", "legacy", stringPtr("round-robin"), map[string]any{
 			"mode":         "enabled",
 			"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
-			"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900, "jitter_ratio": 0.2},
+			"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
 			"ban":          map[string]any{"mode": "off", "max_cooldown_strikes_before_ban": 0, "ban_duration_seconds": 0},
 		}, nil)
 
@@ -785,3 +782,4 @@ func TestProfileHeaderHelperSanity(_ *testing.T) {
 	_ = sort.Ints
 	_ = json.Valid
 }
+
