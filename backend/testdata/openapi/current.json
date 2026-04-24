@@ -6960,13 +6960,6 @@
             "minimum": 1.0,
             "title": "Max Cooldown Seconds",
             "default": 900
-          },
-          "jitter_ratio": {
-            "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Jitter Ratio",
-            "default": 0.2
           }
         },
         "additionalProperties": false,
@@ -13417,13 +13410,6 @@
             "minimum": 1.0,
             "title": "Max Open Seconds",
             "default": 900
-          },
-          "jitter_ratio": {
-            "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Jitter Ratio",
-            "default": 0.2
           },
           "ban_mode": {
             "type": "string",

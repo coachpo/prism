@@ -1814,8 +1814,7 @@ Request:
       "base_seconds": 45,
       "failure_threshold": 4,
       "backoff_multiplier": 3.5,
-      "max_cooldown_seconds": 720,
-      "jitter_ratio": 0.35
+      "max_cooldown_seconds": 720
     },
     "ban": {
       "mode": "temporary",
@@ -1873,7 +1872,6 @@ Strategy responses include the persisted/effective family-specific strategy docu
       "failure_threshold": 4,
       "backoff_multiplier": 3.5,
       "max_open_seconds": 720,
-      "jitter_ratio": 0.35,
       "ban_mode": "temporary",
       "max_open_strikes_before_ban": 3,
       "ban_duration_seconds": 1800
