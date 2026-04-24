@@ -508,11 +508,7 @@ func cloneHeaderBlocklistRules(source []headerBlocklistRule) []headerBlocklistRu
 	if len(source) == 0 {
 		return nil
 	}
-	target := make([]headerBlocklistRule, 0, len(source))
-	for _, rule := range source {
-		target = append(target, rule)
-	}
-	return target
+	return append([]headerBlocklistRule(nil), source...)
 }
 
 func cloneReportCurrencySnapshot(snapshot runtimeReportCurrencySnapshot) runtimeReportCurrencySnapshot {
