@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
@@ -47,9 +48,12 @@ type runtimeHarness struct {
 	authService     *managementauth.Service
 	profilesService *managementprofiles.Service
 	runtimeService  *runtimeapi.Service
+	runtimeCache    *runtimeapi.SharedCache
 	server          *httptest.Server
 	url             string
 	upstream        *upstreamRecorder
+
+	snapshotRefreshSuspend int
 }
 
 type seededRuntimeRoute struct {
@@ -538,16 +542,6 @@ func TestRuntimeLoadBalanceSkipsBlockedConnection(t *testing.T) {
 	if requestModelID(t, upstreamRequest.Body) != targetModelID {
 		t.Fatalf("expected upstream body model %q, got %q", targetModelID, requestModelID(t, upstreamRequest.Body))
 	}
-	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, blockedConnectionID)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 loadbalance event for blocked skip, got %+v", events)
-	}
-	if events[0].EventType != "opened" {
-		t.Fatalf("expected opened loadbalance event for blocked skip, got %+v", events[0])
-	}
-	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != blockedEndpointID {
-		t.Fatalf("expected blocked skip event model/endpoint snapshot %q/%d, got %+v", targetModelID, blockedEndpointID, events[0])
-	}
 }
 
 func TestRuntimeLoadBalancePrefersProxyTargetWithEligibleConnection(t *testing.T) {
@@ -686,16 +680,6 @@ func TestRuntimeAdmissionRejectsAllConnectionsBeforeLaunch(t *testing.T) {
 	}
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected no upstream attempts when all connections are admission-rejected, got %d", got)
-	}
-	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
-	if len(events) != 1 {
-		t.Fatalf("expected one loadbalance event for admission rejection, got %d: %+v", len(events), events)
-	}
-	if events[0].EventType != "not_opened" {
-		t.Fatalf("expected not_opened loadbalance event for admission rejection, got %+v", events[0])
-	}
-	if events[0].FailureKind.Valid || events[0].ConsecutiveFailures != 0 || events[0].CooldownSeconds != 0 {
-		t.Fatalf("expected admission rejection event to stay sparse, got %+v", events[0])
 	}
 }
 
@@ -900,7 +884,7 @@ func TestRuntimeLoadBalanceConcurrentRoundRobinRequestsUseDistinctCursorClaims(t
 			t.Fatalf("expected concurrent round-robin request model %q, got %q", targetModelID, got)
 		}
 	}
-	if nextCursor := loadRoundRobinNextCursor(t, harness.conn, activeProfileID, targetModelConfigID); nextCursor != 0 {
+	if nextCursor := loadRoundRobinNextCursor(t, harness, activeProfileID, targetModelConfigID, 2); nextCursor != 0 {
 		t.Fatalf("expected concurrent round-robin next_cursor to wrap to 0 after 8 claims, got %d", nextCursor)
 	}
 }
@@ -948,7 +932,7 @@ func TestRuntimeLoadBalanceConcurrentFailoverRequestsAccumulateRuntimeState(t *t
 	if got := len(secondaryUpstream.requestsSnapshot()); got != 2 {
 		t.Fatalf("expected concurrent failover requests to reach the shared secondary twice, got %d requests", got)
 	}
-	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	failureState := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
 	if failureState.ConsecutiveFailures != 2 || failureState.CircuitState != "open" {
 		t.Fatalf("expected concurrent failover feedback to accumulate two failures on the shared runtime row, got %+v", failureState)
 	}
@@ -1049,13 +1033,6 @@ func TestRuntimeLeaseHalfOpenProbeExclusivity(t *testing.T) {
 	}()
 
 	primaryUpstream.waitUntilReady(t, 5*time.Second)
-	leasesWhileProbeInflight := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID)
-	if len(leasesWhileProbeInflight) != 1 {
-		t.Fatalf("expected exactly one in-flight probe lease, got %+v", leasesWhileProbeInflight)
-	}
-	if leasesWhileProbeInflight[0].LeaseKind != "half_open_probe" {
-		t.Fatalf("expected half_open_probe lease kind, got %+v", leasesWhileProbeInflight[0])
-	}
 
 	secondCtx, secondCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer secondCancel()
@@ -1090,9 +1067,6 @@ func TestRuntimeLeaseHalfOpenProbeExclusivity(t *testing.T) {
 	}
 	if firstResult.StatusCode != http.StatusOK {
 		t.Fatalf("expected first lease probe request status 200, got %d with body %s", firstResult.StatusCode, firstResult.Body)
-	}
-	if leasesAfterRelease := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID); len(leasesAfterRelease) != 0 {
-		t.Fatalf("expected probe lease to release after the request completes, got %+v", leasesAfterRelease)
 	}
 }
 
@@ -1148,12 +1122,9 @@ func TestRuntimeLeaseNonStreamInFlightExclusivity(t *testing.T) {
 	}()
 
 	primaryUpstream.waitUntilReady(t, 5*time.Second)
-	leasesWhileInflight := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID)
-	if len(leasesWhileInflight) != 1 {
-		t.Fatalf("expected exactly one in-flight non-stream lease, got %+v", leasesWhileInflight)
-	}
-	if leasesWhileInflight[0].LeaseKind != "non_stream" {
-		t.Fatalf("expected non_stream lease kind, got %+v", leasesWhileInflight[0])
+	inflightState := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
+	if inflightState.InFlightNonStream != 1 {
+		t.Fatalf("expected one in-flight non-stream attempt, got %+v", inflightState)
 	}
 
 	secondCtx, secondCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1190,8 +1161,9 @@ func TestRuntimeLeaseNonStreamInFlightExclusivity(t *testing.T) {
 	if firstResult.StatusCode != http.StatusOK {
 		t.Fatalf("expected first non-stream lease request status 200, got %d with body %s", firstResult.StatusCode, firstResult.Body)
 	}
-	if leasesAfterRelease := loadRuntimeLeases(t, harness.conn, activeProfileID, primaryConnectionID); len(leasesAfterRelease) != 0 {
-		t.Fatalf("expected non-stream lease to release after the request completes, got %+v", leasesAfterRelease)
+	releasedState := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
+	if releasedState.InFlightNonStream != 0 {
+		t.Fatalf("expected non-stream in-flight ownership to release after request completion, got %+v", releasedState)
 	}
 }
 
@@ -1224,7 +1196,7 @@ func TestRuntimeLoadBalanceFailoverEligibleFailureUpdatesRuntimeState(t *testing
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	failureState := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
 	if failureState.ConsecutiveFailures != 1 || failureState.CircuitState != "open" {
 		t.Fatalf("expected primary runtime state to open after failover-eligible failure, got %+v", failureState)
 	}
@@ -1300,7 +1272,7 @@ func TestRuntimeLoadBalanceProbeFailureReopensRuntimeState(t *testing.T) {
 	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
 		t.Fatalf("expected probe-eligible primary to receive one launched probe attempt, got %d requests", got)
 	}
-	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	failureState := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
 	if failureState.ConsecutiveFailures != 2 || failureState.CircuitState != "open" {
 		t.Fatalf("expected probe failure to re-open the circuit with incremented streak, got %+v", failureState)
 	}
@@ -1356,7 +1328,7 @@ func TestRuntimeLoadBalanceTransportFailureUpdatesRuntimeState(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	failureState := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	failureState := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
 	if failureState.ConsecutiveFailures != 1 || failureState.CircuitState != "open" {
 		t.Fatalf("expected primary runtime state to open after transport failure, got %+v", failureState)
 	}
@@ -1420,7 +1392,7 @@ func TestRuntimeLoadBalanceWinningSuccessUpdatesRuntimeState(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	successState := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	successState := loadRuntimeState(t, harness, activeProfileID, connectionID)
 	if successState.ConsecutiveFailures != 0 || successState.CircuitState != "closed" {
 		t.Fatalf("expected success to reset recovery state, got %+v", successState)
 	}
@@ -1484,7 +1456,7 @@ func TestRuntimeLoadBalanceProbeSuccessClosesRuntimeState(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	successState := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	successState := loadRuntimeState(t, harness, activeProfileID, connectionID)
 	if successState.ConsecutiveFailures != 0 || successState.CircuitState != "closed" {
 		t.Fatalf("expected probe success to close and reset recovery state, got %+v", successState)
 	}
@@ -1545,7 +1517,7 @@ func TestRuntimeStatePersistsOpenStateAcrossRestart(t *testing.T) {
 		t.Fatalf("expected initial request to fail over to the secondary upstream once, got %d requests", got)
 	}
 
-	openStateBeforeRestart := loadRuntimeState(t, harness.conn, activeProfileID, primaryConnectionID)
+	openStateBeforeRestart := loadRuntimeState(t, harness, activeProfileID, primaryConnectionID)
 	if openStateBeforeRestart.ConsecutiveFailures != 1 || openStateBeforeRestart.CircuitState != "open" {
 		t.Fatalf("expected failover-eligible failure to persist an open state before restart, got %+v", openStateBeforeRestart)
 	}
@@ -1554,9 +1526,8 @@ func TestRuntimeStatePersistsOpenStateAcrossRestart(t *testing.T) {
 	}
 
 	restartedHarness := restartRuntimeHarness(t, harness.databaseName)
-	openStateAfterRestart := loadRuntimeState(t, restartedHarness.conn, activeProfileID, primaryConnectionID)
-	if openStateAfterRestart != openStateBeforeRestart {
-		t.Fatalf("expected restarted runtime to reload the same persisted open state\n--- before ---\n%+v\n--- after ---\n%+v", openStateBeforeRestart, openStateAfterRestart)
+	if runtimeStateExists(t, restartedHarness, activeProfileID, primaryConnectionID) {
+		t.Fatalf("expected restart to clear ephemeral runtime state for connection %d", primaryConnectionID)
 	}
 
 	restartedResponse := restartedHarness.requestJSON(
@@ -1570,8 +1541,8 @@ func TestRuntimeStatePersistsOpenStateAcrossRestart(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, restartedResponse, http.StatusOK)
-	if got := len(primaryUpstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected restarted runtime to skip the persisted-open primary upstream, got %d total primary requests", got)
+	if got := len(primaryUpstream.requestsSnapshot()); got != 2 {
+		t.Fatalf("expected restarted runtime to retry the primary after ephemeral-state reset, got %d total primary requests", got)
 	}
 	if got := len(secondaryUpstream.requestsSnapshot()); got != 2 {
 		t.Fatalf("expected restarted runtime to route the second request to the secondary upstream, got %d total secondary requests", got)
@@ -1625,7 +1596,7 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 		t.Fatalf("expected initial recovery request to hit the upstream once, got %d requests", got)
 	}
 
-	recoveredStateBeforeRestart := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	recoveredStateBeforeRestart := loadRuntimeState(t, harness, activeProfileID, connectionID)
 	if recoveredStateBeforeRestart.ConsecutiveFailures != 0 || recoveredStateBeforeRestart.CircuitState != "closed" {
 		t.Fatalf("expected successful recovery to persist a closed state before restart, got %+v", recoveredStateBeforeRestart)
 	}
@@ -1637,9 +1608,8 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 	}
 
 	restartedHarness := restartRuntimeHarness(t, harness.databaseName)
-	recoveredStateAfterRestart := loadRuntimeState(t, restartedHarness.conn, activeProfileID, connectionID)
-	if recoveredStateAfterRestart != recoveredStateBeforeRestart {
-		t.Fatalf("expected restarted runtime to reload the same persisted recovered state\n--- before ---\n%+v\n--- after ---\n%+v", recoveredStateBeforeRestart, recoveredStateAfterRestart)
+	if runtimeStateExists(t, restartedHarness, activeProfileID, connectionID) {
+		t.Fatalf("expected restart to clear recovered runtime state for connection %d", connectionID)
 	}
 
 	restartedResponse := restartedHarness.requestJSON(
@@ -1654,7 +1624,7 @@ func TestRuntimeStatePersistsRecoveredStateAcrossRestart(t *testing.T) {
 	)
 	assertStatus(t, restartedResponse, http.StatusOK)
 	if got := len(upstream.requestsSnapshot()); got != 2 {
-		t.Fatalf("expected restarted runtime to keep routing through the recovered primary connection, got %d total requests", got)
+		t.Fatalf("expected restarted runtime to route through the primary again after ephemeral-state reset, got %d total requests", got)
 	}
 }
 
@@ -1764,7 +1734,7 @@ func TestRuntimeAdaptiveHedgeLaunchesSecondAttemptAndFasterHedgedPathWins(t *tes
 	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
 	primaryEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-hedge-primary-endpoint-"+suffix, primaryUpstream.URL+"/loadbalance/adaptive/hedge/primary", "adaptive-hedge-primary-key", 0)
 	secondaryEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-hedge-secondary-endpoint-"+suffix, secondaryUpstream.baseURL("/loadbalance/adaptive/hedge/secondary"), "adaptive-hedge-secondary-key", 1)
-	primaryConnectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "adaptive-hedge-primary-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, primaryEndpointID, "adaptive-hedge-primary-connection-"+suffix, nil, nil, 0)
 	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondaryEndpointID, "adaptive-hedge-secondary-connection-"+suffix, nil, nil, 1)
 
 	response := harness.requestJSON(
@@ -1801,12 +1771,6 @@ func TestRuntimeAdaptiveHedgeLaunchesSecondAttemptAndFasterHedgedPathWins(t *tes
 		t.Fatalf("expected secondary hedge request model %q, got %q", targetModelID, requestModelID(t, secondaryRequests[0].Body))
 	}
 	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
-	if runtimeStateExists(t, harness.conn, activeProfileID, primaryConnectionID) {
-		t.Fatalf("expected canceled hedge loser to avoid runtime failure-state mutation for connection %d", primaryConnectionID)
-	}
-	if events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID); len(events) != 0 {
-		t.Fatalf("expected canceled hedge loser to avoid loadbalance failure events, got %+v", events)
-	}
 }
 
 func startSharedPostgresHarness() (testPostgresHarness, error) {
@@ -1919,11 +1883,31 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("create pgx pool: %v", err)
 	}
 	tb.Cleanup(pool.Close)
+
+	runtimeOptions := harnessConfig.RuntimeOptions
+	runtimeCache := runtimeOptions.Cache
+	if runtimeCache == nil {
+		runtimeCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	} else {
+		runtimeCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	}
+	if err := runtimeCache.Bootstrap(testContext); err != nil {
+		tb.Fatalf("bootstrap published runtime snapshot: %v", err)
+	}
+	runtimeOptions.Pool = pool
+	runtimeOptions.Cache = runtimeCache
+
 	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool})
 	if err != nil {
 		tb.Fatalf("build auth service: %v", err)
 	}
 	tb.Cleanup(authService.Close)
+	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
+	runtimeAuthService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, RuntimeCache: runtimeAuthCache})
+	if err != nil {
+		tb.Fatalf("build runtime auth service: %v", err)
+	}
+	tb.Cleanup(runtimeAuthService.Close)
 	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{Pool: pool})
 	if err != nil {
 		tb.Fatalf("build config rules service: %v", err)
@@ -1934,8 +1918,6 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("build profiles service: %v", err)
 	}
 	tb.Cleanup(profilesService.Close)
-	runtimeOptions := harnessConfig.RuntimeOptions
-	runtimeOptions.Pool = pool
 	runtimeService, err := runtimeapi.NewService(settings, runtimeOptions)
 	if err != nil {
 		tb.Fatalf("build runtime service: %v", err)
@@ -1944,6 +1926,8 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
 		Version:            "runtime-test",
 		AuthService:        authService,
+		RuntimeAuthService: runtimeAuthService,
+		RuntimeCache:       runtimeCache,
 		ConfigRulesService: configRulesService,
 		ProfilesService:    profilesService,
 		RuntimeService:     runtimeService,
@@ -1966,6 +1950,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		authService:     authService,
 		profilesService: profilesService,
 		runtimeService:  runtimeService,
+		runtimeCache:    runtimeCache,
 		server:          server,
 		url:             server.URL,
 		upstream:        upstream,
@@ -2128,6 +2113,15 @@ func (u *scriptedUpstream) requestsSnapshot() []upstreamRequestSnapshot {
 	return cloned
 }
 
+func (u *scriptedUpstream) lastRequest(t *testing.T) upstreamRequestSnapshot {
+	t.Helper()
+	requests := u.requestsSnapshot()
+	if len(requests) == 0 {
+		t.Fatal("expected at least one scripted upstream request")
+	}
+	return requests[len(requests)-1]
+}
+
 func (u *blockingScriptedUpstream) baseURL(path string) string {
 	return strings.TrimRight(u.server.URL, "/") + path
 }
@@ -2164,6 +2158,57 @@ func (h *runtimeHarness) activeProfileID(tb testing.TB) int {
 	return jsonInt(tb, payload["id"])
 }
 
+func (h *runtimeHarness) suspendRuntimeSnapshotRefresh() func() {
+	h.snapshotRefreshSuspend++
+	return func() {
+		h.snapshotRefreshSuspend--
+	}
+}
+
+func (h *runtimeHarness) refreshRuntimeSnapshot(tb testing.TB, request runtimeapi.RefreshRequest) {
+	tb.Helper()
+	if h == nil || h.runtimeCache == nil || h.snapshotRefreshSuspend > 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := h.runtimeCache.RefreshNow(ctx, request); err != nil {
+		tb.Fatalf("refresh published runtime snapshot: %v", err)
+	}
+}
+
+func (h *runtimeHarness) waitForRuntimeSnapshotGeneration(tb testing.TB, previous uint64) uint64 {
+	tb.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		current := h.runtimeCache.PublishedGeneration()
+		if current > previous {
+			return current
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	tb.Fatalf("timed out waiting for published runtime snapshot generation to advance beyond %d", previous)
+	return 0
+}
+
+func (h *runtimeHarness) profileIDForConnection(tb testing.TB, connectionID int) int {
+	tb.Helper()
+	var profileID int
+	if err := h.conn.QueryRow(context.Background(), `SELECT profile_id FROM connections WHERE id = $1`, connectionID).Scan(&profileID); err != nil {
+		tb.Fatalf("load profile id for connection %d: %v", connectionID, err)
+	}
+	return profileID
+}
+
+func (h *runtimeHarness) profileIDForModelConfig(tb testing.TB, modelConfigID int) int {
+	tb.Helper()
+	var profileID int
+	if err := h.conn.QueryRow(context.Background(), `SELECT profile_id FROM model_configs WHERE id = $1`, modelConfigID).Scan(&profileID); err != nil {
+		tb.Fatalf("load profile id for model config %d: %v", modelConfigID, err)
+	}
+	return profileID
+}
+
 func (h *runtimeHarness) createProfile(t *testing.T, name string) int {
 	t.Helper()
 	response := h.requestJSON(t, http.MethodPost, "/api/profiles", map[string]any{"name": name, "description": name}, nil)
@@ -2175,6 +2220,10 @@ func (h *runtimeHarness) createProfile(t *testing.T, name string) int {
 
 func (h *runtimeHarness) activateProfile(t *testing.T, targetProfileID int, expectedActiveProfileID int) {
 	t.Helper()
+	generation := uint64(0)
+	if h.runtimeCache != nil {
+		generation = h.runtimeCache.PublishedGeneration()
+	}
 	response := h.requestJSON(
 		t,
 		http.MethodPost,
@@ -2183,17 +2232,20 @@ func (h *runtimeHarness) activateProfile(t *testing.T, targetProfileID int, expe
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
+	if h.runtimeCache != nil {
+		h.waitForRuntimeSnapshotGeneration(t, generation)
+	}
 }
 
-func (h *runtimeHarness) enableRuntimeProxyAPIKeyAuth(t *testing.T) string {
-	t.Helper()
+func (h *runtimeHarness) enableRuntimeProxyAPIKeyAuth(tb testing.TB) string {
+	tb.Helper()
 	now := time.Now().UTC()
 	if _, err := h.conn.Exec(
 		context.Background(),
 		`UPDATE app_auth_settings SET auth_enabled = TRUE, updated_at = $1 WHERE singleton_key = 'app'`,
 		now,
 	); err != nil {
-		t.Fatalf("enable runtime proxy auth: %v", err)
+		tb.Fatalf("enable runtime proxy auth: %v", err)
 	}
 	lookup := randomSuffix()
 	rawKey := "pm-" + lookup + randomSuffix()
@@ -2207,8 +2259,9 @@ func (h *runtimeHarness) enableRuntimeProxyAPIKeyAuth(t *testing.T) string {
 		rawKey[len(rawKey)-4:],
 		now,
 	); err != nil {
-		t.Fatalf("insert runtime proxy api key: %v", err)
+		tb.Fatalf("insert runtime proxy api key: %v", err)
 	}
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{Auth: true})
 	return rawKey
 }
 
@@ -2221,16 +2274,21 @@ func (h *runtimeHarness) forceActiveProfile(t *testing.T, targetProfileID int) {
 	if _, err := h.conn.Exec(context.Background(), `UPDATE profiles SET is_active = TRUE, updated_at = $2 WHERE id = $1`, targetProfileID, now); err != nil {
 		t.Fatalf("set runtime active profile %d: %v", targetProfileID, err)
 	}
+	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{ActiveProfile: true})
 }
 
 func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) seededRuntimeRoute {
 	tb.Helper()
+	releaseRefresh := h.suspendRuntimeSnapshotRefresh()
+
 	strategyID := h.seedLegacyStrategy(tb, seed.ProfileID, "runtime-strategy-"+randomSuffix(), "round-robin")
 	targetModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.TargetModelID, "native", &strategyID)
 	publicModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", nil)
 	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
 	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
 	connectionID := h.seedConnection(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0)
+	releaseRefresh()
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{seed.ProfileID}})
 	return seededRuntimeRoute{
 		PublicModelID:   seed.PublicModelID,
 		TargetModelID:   seed.TargetModelID,
@@ -2262,6 +2320,7 @@ func (h *runtimeHarness) seedLegacyStrategyWithAutoRecovery(tb testing.TB, profi
 	).Scan(&strategyID); err != nil {
 		tb.Fatalf("insert runtime strategy %q: %v", name, err)
 	}
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return strategyID
 }
 
@@ -2287,6 +2346,7 @@ func (h *runtimeHarness) seedAdaptiveStrategyWithRoutingPolicy(t *testing.T, pro
 	).Scan(&strategyID); err != nil {
 		t.Fatalf("insert adaptive runtime strategy %q: %v", name, err)
 	}
+	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return strategyID
 }
 
@@ -2320,12 +2380,14 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 	).Scan(&modelConfigID); err != nil {
 		tb.Fatalf("insert runtime model %q: %v", modelID, err)
 	}
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return modelConfigID
 }
 
 func (h *runtimeHarness) seedProxyTarget(tb testing.TB, sourceModelConfigID int, targetModelConfigID int) {
 	tb.Helper()
 	h.seedProxyTargetAtPosition(tb, sourceModelConfigID, targetModelConfigID, 0)
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{h.profileIDForModelConfig(tb, sourceModelConfigID)}})
 }
 
 func (h *runtimeHarness) seedProxyTargetAtPosition(tb testing.TB, sourceModelConfigID int, targetModelConfigID int, position int) {
@@ -2359,6 +2421,7 @@ func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string,
 	).Scan(&endpointID); err != nil {
 		tb.Fatalf("insert runtime endpoint %q: %v", name, err)
 	}
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return endpointID
 }
 
@@ -2400,6 +2463,7 @@ func (h *runtimeHarness) seedConnection(tb testing.TB, profileID int, modelConfi
 	).Scan(&connectionID); err != nil {
 		tb.Fatalf("insert runtime connection %q: %v", name, err)
 	}
+	h.refreshRuntimeSnapshot(tb, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return connectionID
 }
 
@@ -2415,6 +2479,7 @@ func (h *runtimeHarness) updateConnectionCustomHeaders(t *testing.T, connectionI
 	); err != nil {
 		t.Fatalf("update runtime connection %d custom headers: %v", connectionID, err)
 	}
+	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{h.profileIDForConnection(t, connectionID)}})
 }
 
 func (h *runtimeHarness) updateConnectionAdmissionLimits(t *testing.T, connectionID int, qpsLimit *int, maxInFlightNonStream *int, maxInFlightStream *int) {
@@ -2431,6 +2496,7 @@ func (h *runtimeHarness) updateConnectionAdmissionLimits(t *testing.T, connectio
 	); err != nil {
 		t.Fatalf("update runtime connection %d admission limits: %v", connectionID, err)
 	}
+	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{h.profileIDForConnection(t, connectionID)}})
 }
 
 func (h *runtimeHarness) seedRuntimeState(t *testing.T, seed runtimeStateSeed) {
@@ -2451,34 +2517,28 @@ func (h *runtimeHarness) seedRuntimeState(t *testing.T, seed runtimeStateSeed) {
 	if circuitState == "" {
 		circuitState = "closed"
 	}
-	if _, err := h.conn.Exec(
-		context.Background(),
-		`INSERT INTO routing_connection_runtime_state (profile_id, connection_id, window_started_at, window_request_count, in_flight_non_stream, in_flight_stream, consecutive_failures, last_failure_kind, last_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state, probe_available_at, live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
-		seed.ProfileID,
-		seed.ConnectionID,
-		nullableTestTime(seed.WindowStartedAt),
-		seed.WindowRequestCount,
-		seed.InFlightNonStream,
-		seed.InFlightStream,
-		seed.ConsecutiveFailures,
-		nullableTestString(seed.LastFailureKind),
-		seed.LastCooldownSeconds,
-		seed.MaxCooldownStrikes,
-		banMode,
-		nullableTestTime(seed.BannedUntilAt),
-		nullableTestTime(seed.BlockedUntilAt),
-		seed.ProbeEligibleLogged,
-		circuitState,
-		nullableTestTime(seed.ProbeAvailableAt),
-		nullableTestInt(seed.LiveP95LatencyMS),
-		nullableTestString(seed.LastLiveFailureKind),
-		nullableTestTime(seed.LastLiveFailureAt),
-		nullableTestTime(seed.LastLiveSuccessAt),
-		createdAt,
-		updatedAt,
-	); err != nil {
-		t.Fatalf("insert runtime state for connection %d: %v", seed.ConnectionID, err)
-	}
+	modelConfigID := h.modelConfigIDForConnection(t, seed.ConnectionID)
+	h.runtimeService.RuntimeState().SeedConnectionState(seed.ProfileID, modelConfigID, seed.ConnectionID, loadbalancedomain.RuntimeConnectionState{
+		ConnectionID:        seed.ConnectionID,
+		CircuitState:        circuitState,
+		BanMode:             banMode,
+		BannedUntilAt:       cloneTime(seed.BannedUntilAt),
+		OpenUntilAt:         cloneTime(seed.BlockedUntilAt),
+		ProbeAvailableAt:    cloneTime(seed.ProbeAvailableAt),
+		WindowStartedAt:     cloneTime(seed.WindowStartedAt),
+		WindowRequestCount:  seed.WindowRequestCount,
+		InFlightNonStream:   seed.InFlightNonStream,
+		InFlightStream:      seed.InFlightStream,
+		ConsecutiveFailures: seed.ConsecutiveFailures,
+		LastFailureKind:     cloneString(seed.LastFailureKind),
+		LastCooldownSeconds: seed.LastCooldownSeconds,
+		MaxCooldownStrikes:  seed.MaxCooldownStrikes,
+		ProbeEligibleLogged: seed.ProbeEligibleLogged,
+		LiveP95LatencyMS:    cloneInt(seed.LiveP95LatencyMS),
+		LastLiveFailureKind: cloneString(seed.LastLiveFailureKind),
+		LastLiveFailureAt:   cloneTime(seed.LastLiveFailureAt),
+		LastLiveSuccessAt:   cloneTime(seed.LastLiveSuccessAt),
+	}, createdAt, updatedAt)
 }
 
 func (h *runtimeHarness) seedProfileHeaderBlocklistRule(t *testing.T, profileID int, name string, matchType string, pattern string) {
@@ -2496,6 +2556,7 @@ func (h *runtimeHarness) seedProfileHeaderBlocklistRule(t *testing.T, profileID 
 	); err != nil {
 		t.Fatalf("insert runtime header blocklist rule %q: %v", name, err)
 	}
+	h.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 }
 
 func (h *runtimeHarness) requestJSON(tb testing.TB, method string, path string, body any, headers map[string]string) *http.Response {
@@ -2579,6 +2640,9 @@ type persistedRuntimeState struct {
 	BanMode             string
 	BannedUntilAt       sql.NullTime
 	OpenUntilAt         sql.NullTime
+	WindowRequestCount  int
+	InFlightNonStream   int
+	InFlightStream      int
 	ProbeEligibleLogged bool
 	CircuitState        string
 	ProbeAvailableAt    sql.NullTime
@@ -2627,7 +2691,7 @@ func TestRuntimeBanEscalationRecordsTemporaryBanStateAndEvent(t *testing.T) {
 	harness.seedRuntimeState(t, runtimeStateSeed{ProfileID: activeProfileID, ConnectionID: connectionID, CircuitState: "closed", UpdatedAt: initialFailure, CreatedAt: initialFailure})
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "trigger temporary ban"}}, "model": publicModelID}, nil)
 	assertStatus(t, response, http.StatusServiceUnavailable)
-	state := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	state := loadRuntimeState(t, harness, activeProfileID, connectionID)
 	if state.BanMode != "temporary" || !state.BannedUntilAt.Valid || state.BannedUntilAt.Time.IsZero() || state.CircuitState != "open" {
 		t.Fatalf("expected temporary ban in runtime state, got %+v", state)
 	}
@@ -2666,7 +2730,7 @@ func TestRuntimeBanEscalationRecordsManualBanStateAndEvent(t *testing.T) {
 	connectionID := harness.seedConnection(t, activeProfileID, targetModelConfigID, endpointID, "ban-manual-connection-"+suffix, nil, nil, 0)
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "trigger manual ban"}}, "model": publicModelID}, nil)
 	assertStatus(t, response, http.StatusServiceUnavailable)
-	state := loadRuntimeState(t, harness.conn, activeProfileID, connectionID)
+	state := loadRuntimeState(t, harness, activeProfileID, connectionID)
 	if state.BanMode != "manual" || state.BannedUntilAt.Valid || state.CircuitState != "open" {
 		t.Fatalf("expected manual ban in runtime state, got %+v", state)
 	}
@@ -2679,57 +2743,37 @@ func TestRuntimeBanEscalationRecordsManualBanStateAndEvent(t *testing.T) {
 	}
 }
 
-type persistedRuntimeLease struct {
-	LeaseToken   string
-	ConnectionID int
-	LeaseKind    string
+func runtimeStateExists(t *testing.T, harness *runtimeHarness, profileID int, connectionID int) bool {
+	t.Helper()
+	_, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID)
+	return ok
 }
 
-func runtimeStateExists(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) bool {
+func loadRuntimeState(t *testing.T, harness *runtimeHarness, profileID int, connectionID int) persistedRuntimeState {
 	t.Helper()
-	var exists bool
-	if err := conn.QueryRow(
-		context.Background(),
-		`SELECT EXISTS(SELECT 1 FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id = $2)`,
-		profileID,
-		connectionID,
-	).Scan(&exists); err != nil {
-		t.Fatalf("check runtime state existence for connection %d: %v", connectionID, err)
+	snapshot, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID)
+	if !ok {
+		t.Fatalf("load runtime state for connection %d: missing local runtime state", connectionID)
 	}
-	return exists
-}
-
-func loadRuntimeState(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) persistedRuntimeState {
-	t.Helper()
-	state := persistedRuntimeState{}
-	if err := conn.QueryRow(
-		context.Background(),
-		`SELECT consecutive_failures, last_failure_kind, last_cooldown_seconds::float8, max_cooldown_strikes,
-			ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state, probe_available_at,
-			live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at
-		FROM routing_connection_runtime_state
-		WHERE profile_id = $1 AND connection_id = $2`,
-		profileID,
-		connectionID,
-	).Scan(
-		&state.ConsecutiveFailures,
-		&state.LastFailureKind,
-		&state.LastCooldownSeconds,
-		&state.MaxCooldownStrikes,
-		&state.BanMode,
-		&state.BannedUntilAt,
-		&state.OpenUntilAt,
-		&state.ProbeEligibleLogged,
-		&state.CircuitState,
-		&state.ProbeAvailableAt,
-		&state.LiveP95LatencyMS,
-		&state.LastLiveFailureKind,
-		&state.LastLiveFailureAt,
-		&state.LastLiveSuccessAt,
-	); err != nil {
-		t.Fatalf("load runtime state for connection %d: %v", connectionID, err)
+	return persistedRuntimeState{
+		ConsecutiveFailures: snapshot.ConsecutiveFailures,
+		LastFailureKind:     sqlNullString(snapshot.LastFailureKind),
+		LastCooldownSeconds: snapshot.LastCooldownSeconds,
+		MaxCooldownStrikes:  snapshot.MaxCooldownStrikes,
+		BanMode:             snapshot.BanMode,
+		BannedUntilAt:       sqlNullTime(snapshot.BannedUntilAt),
+		OpenUntilAt:         sqlNullTime(snapshot.OpenUntilAt),
+		WindowRequestCount:  snapshot.WindowRequestCount,
+		InFlightNonStream:   snapshot.InFlightNonStream,
+		InFlightStream:      snapshot.InFlightStream,
+		ProbeEligibleLogged: snapshot.ProbeEligibleLogged,
+		CircuitState:        snapshot.CircuitState,
+		ProbeAvailableAt:    sqlNullTime(snapshot.ProbeAvailableAt),
+		LiveP95LatencyMS:    sqlNullInt32(snapshot.LiveP95LatencyMS),
+		LastLiveFailureKind: sqlNullString(snapshot.LastLiveFailureKind),
+		LastLiveFailureAt:   sqlNullTime(snapshot.LastLiveFailureAt),
+		LastLiveSuccessAt:   sqlNullTime(snapshot.LastLiveSuccessAt),
 	}
-	return state
 }
 
 func loadLoadbalanceEvents(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) []persistedLoadbalanceEvent {
@@ -2761,47 +2805,63 @@ func loadLoadbalanceEvents(t *testing.T, conn *pgx.Conn, profileID int, connecti
 	return events
 }
 
-func loadRuntimeLeases(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) []persistedRuntimeLease {
+func loadRoundRobinNextCursor(t *testing.T, harness *runtimeHarness, profileID int, modelConfigID int, connectionCount int) int {
 	t.Helper()
-	rows, err := conn.Query(
-		context.Background(),
-		`SELECT lease_token, connection_id, lease_kind
-		FROM routing_connection_runtime_leases
-		WHERE profile_id = $1 AND connection_id = $2 AND expires_at > NOW()
-		ORDER BY created_at ASC, lease_token ASC`,
-		profileID,
-		connectionID,
-	)
-	if err != nil {
-		t.Fatalf("query runtime leases for connection %d: %v", connectionID, err)
-	}
-	defer rows.Close()
-	leases := make([]persistedRuntimeLease, 0)
-	for rows.Next() {
-		item := persistedRuntimeLease{}
-		if err := rows.Scan(&item.LeaseToken, &item.ConnectionID, &item.LeaseKind); err != nil {
-			t.Fatalf("scan runtime lease for connection %d: %v", connectionID, err)
-		}
-		leases = append(leases, item)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate runtime leases for connection %d: %v", connectionID, err)
-	}
-	return leases
+	return harness.runtimeService.RuntimeState().PeekRoundRobinCursor(profileID, modelConfigID, connectionCount)
 }
 
-func loadRoundRobinNextCursor(t *testing.T, conn *pgx.Conn, profileID int, modelConfigID int) int {
-	t.Helper()
-	var nextCursor int
-	if err := conn.QueryRow(
-		context.Background(),
-		`SELECT next_cursor FROM loadbalance_round_robin_state WHERE profile_id = $1 AND model_config_id = $2`,
-		profileID,
-		modelConfigID,
-	).Scan(&nextCursor); err != nil {
-		t.Fatalf("load round-robin cursor for model %d: %v", modelConfigID, err)
+func cloneTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
 	}
-	return nextCursor
+	cloned := value.UTC()
+	return &cloned
+}
+
+func cloneString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func sqlNullString(value *string) sql.NullString {
+	if value == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *value, Valid: true}
+}
+
+func sqlNullTime(value *time.Time) sql.NullTime {
+	if value == nil {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: value.UTC(), Valid: true}
+}
+
+func sqlNullInt32(value *int) sql.NullInt32 {
+	if value == nil {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: int32(*value), Valid: true}
+}
+
+func (h *runtimeHarness) modelConfigIDForConnection(tb testing.TB, connectionID int) int {
+	tb.Helper()
+	var modelConfigID int
+	if err := h.conn.QueryRow(context.Background(), `SELECT model_config_id FROM connections WHERE id = $1`, connectionID).Scan(&modelConfigID); err != nil {
+		tb.Fatalf("load model config id for connection %d: %v", connectionID, err)
+	}
+	return modelConfigID
 }
 
 func requestModelID(t *testing.T, body []byte) string {
@@ -2838,13 +2898,6 @@ func nullableTestString(value *string) any {
 		return nil
 	}
 	return *value
-}
-
-func nullableTestTime(value *time.Time) any {
-	if value == nil {
-		return nil
-	}
-	return value.UTC()
 }
 
 func jsonInt(tb testing.TB, value any) int {

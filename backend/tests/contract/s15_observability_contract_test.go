@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
@@ -322,8 +323,8 @@ func TestLoadbalanceReset(t *testing.T) {
 	endpointID := modelInsertEndpoint(t, harness, profileID, "LB Reset Endpoint", 0)
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
 	insertRuntimeState(t, harness, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, ConsecutiveFailures: 3, LastFailureKind: stringPtr("timeout"), LastCooldownSeconds: 90.0, MaxCooldownStrikes: 2, BanMode: "manual", ProbeEligibleLogged: false, CircuitState: "open", CreatedAt: fixedS15Now.Add(-1 * time.Hour), UpdatedAt: fixedS15Now})
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_round_robin_state (profile_id, model_config_id, next_cursor, created_at, updated_at) VALUES ($1, $2, 3, $3, $3)`, profileID, modelConfigID, fixedS15Now); err != nil {
-		t.Fatalf("insert round-robin state: %v", err)
+	for idx := 0; idx < 3; idx++ {
+		harness.runtimeService.RuntimeState().ClaimRoundRobinCursor(profileID, modelConfigID, 4)
 	}
 
 	response := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/loadbalance/current-state/%d/reset", connectionID), nil, modelHeader(profileID))
@@ -333,8 +334,11 @@ func TestLoadbalanceReset(t *testing.T) {
 	if jsonInt(t, payload["connection_id"]) != connectionID || payload["cleared"] != true {
 		t.Fatalf("unexpected loadbalance reset payload: %+v", payload)
 	}
-	if s15CountRows(t, harness, `SELECT COUNT(*) FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id = $2`, profileID, connectionID) != 0 || s15CountRows(t, harness, `SELECT COUNT(*) FROM loadbalance_round_robin_state WHERE profile_id = $1 AND model_config_id = $2`, profileID, modelConfigID) != 0 {
-		t.Fatalf("expected loadbalance reset to clear runtime and round-robin state")
+	if _, ok := harness.runtimeService.RuntimeState().SnapshotConnectionState(profileID, connectionID); ok {
+		t.Fatalf("expected loadbalance reset to clear local runtime state")
+	}
+	if cursor := harness.runtimeService.RuntimeState().PeekRoundRobinCursor(profileID, modelConfigID, 4); cursor != 0 {
+		t.Fatalf("expected loadbalance reset to clear local round-robin cursor, got %d", cursor)
 	}
 }
 
@@ -413,6 +417,7 @@ func TestLoadbalanceCurrentStateReflectsRuntimeOpenedTransition(t *testing.T) {
 	secondaryEndpointID := s15InsertRuntimeEndpoint(t, harness, profileID, "S15 Runtime Current State Secondary "+suffix, secondaryUpstream.URL, "s15-secondary-key", 1)
 	primaryConnectionID := modelInsertConnection(t, harness, profileID, targetModelConfigID, primaryEndpointID, 0, true, nil)
 	secondaryConnectionID := modelInsertConnection(t, harness, profileID, targetModelConfigID, secondaryEndpointID, 1, true, nil)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	runtimeResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "opened transition"}},
@@ -508,6 +513,7 @@ func TestLoadbalanceEventsReflectRuntimeRecoveredTransition(t *testing.T) {
 		CreatedAt:           fixedS15Now.Add(-10 * time.Minute),
 		UpdatedAt:           fixedS15Now.Add(-2 * time.Minute),
 	})
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	runtimeResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "recovered transition"}},
@@ -552,12 +558,17 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("create pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	if err := runtimeCache.Bootstrap(testContext); err != nil {
+		t.Fatalf("bootstrap published runtime snapshot: %v", err)
+	}
+	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
 	auditService, err := managementaudit.NewService(settings, managementaudit.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
 	if err != nil {
 		t.Fatalf("build audit service: %v", err)
 	}
 	t.Cleanup(auditService.Close)
-	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build loadbalance service: %v", err)
 	}
@@ -567,12 +578,12 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("build stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build runtime service: %v", err)
 	}
 	t.Cleanup(runtimeService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, RuntimeService: runtimeService, StatsService: statsService})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, RuntimeService: runtimeService, RuntimeCache: runtimeCache, RuntimeState: runtimeState, StatsService: statsService})
 	if err != nil {
 		t.Fatalf("build S15 handler: %v", err)
 	}
@@ -584,7 +595,7 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: nil, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: nil, server: server, service: nil, runtimeService: runtimeService, runtimeCache: runtimeCache, url: server.URL}
 }
 
 type usageEventSeed struct {
@@ -694,9 +705,38 @@ func insertAuditLog(t *testing.T, harness *contractHarness, seed auditLogSeed) {
 
 func insertRuntimeState(t *testing.T, harness *contractHarness, seed runtimeStateSeed) {
 	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO routing_connection_runtime_state (profile_id, connection_id, window_started_at, window_request_count, in_flight_non_stream, in_flight_stream, consecutive_failures, last_failure_kind, last_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, open_until_at, probe_eligible_logged, circuit_state, probe_available_at, live_p95_latency_ms, last_live_failure_kind, last_live_failure_at, last_live_success_at, created_at, updated_at) VALUES ($1, $2, NULL, 4, 1, 0, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, $12, NULL, $13, $14, $15, $16)`, seed.ProfileID, seed.ConnectionID, seed.ConsecutiveFailures, nullableTestString(seed.LastFailureKind), seed.LastCooldownSeconds, seed.MaxCooldownStrikes, seed.BanMode, nullableTestTime(seed.BannedUntilAt), nullableTestTime(seed.BlockedUntilAt), seed.ProbeEligibleLogged, seed.CircuitState, nullableTestInt(seed.LiveP95LatencyMS), nullableTestTime(seed.LastLiveFailureAt), nullableTestTime(seed.LastLiveSuccessAt), seed.CreatedAt, seed.UpdatedAt); err != nil {
-		t.Fatalf("insert runtime state for connection %d: %v", seed.ConnectionID, err)
+	if harness.runtimeService == nil {
+		t.Fatal("runtime service is required for local runtime state seeding")
 	}
+	var modelConfigID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT model_config_id FROM connections WHERE id = $1`, seed.ConnectionID).Scan(&modelConfigID); err != nil {
+		t.Fatalf("load model config for connection %d: %v", seed.ConnectionID, err)
+	}
+	banMode := seed.BanMode
+	if strings.TrimSpace(banMode) == "" {
+		banMode = "off"
+	}
+	circuitState := seed.CircuitState
+	if strings.TrimSpace(circuitState) == "" {
+		circuitState = "closed"
+	}
+	harness.runtimeService.RuntimeState().SeedConnectionState(seed.ProfileID, modelConfigID, seed.ConnectionID, loadbalancedomain.RuntimeConnectionState{
+		ConnectionID:        seed.ConnectionID,
+		CircuitState:        circuitState,
+		BanMode:             banMode,
+		BannedUntilAt:       seed.BannedUntilAt,
+		OpenUntilAt:         seed.BlockedUntilAt,
+		WindowRequestCount:  4,
+		InFlightNonStream:   1,
+		ConsecutiveFailures: seed.ConsecutiveFailures,
+		LastFailureKind:     seed.LastFailureKind,
+		LastCooldownSeconds: seed.LastCooldownSeconds,
+		MaxCooldownStrikes:  seed.MaxCooldownStrikes,
+		ProbeEligibleLogged: seed.ProbeEligibleLogged,
+		LiveP95LatencyMS:    seed.LiveP95LatencyMS,
+		LastLiveFailureAt:   seed.LastLiveFailureAt,
+		LastLiveSuccessAt:   seed.LastLiveSuccessAt,
+	}, seed.CreatedAt, seed.UpdatedAt)
 }
 
 func insertLoadbalanceEvent(t *testing.T, harness *contractHarness, seed loadbalanceEventSeed) {
@@ -713,6 +753,7 @@ func s15InsertRuntimeLoadbalanceStrategy(t *testing.T, harness *contractHarness,
 	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO loadbalance_strategies (profile_id, name, strategy_type, legacy_strategy_type, auto_recovery, routing_policy, created_at, updated_at) VALUES ($1, $2, 'legacy', $3, $4::jsonb, NULL, $5, $5) RETURNING id`, profileID, name, legacyStrategyType, autoRecovery, now).Scan(&strategyID); err != nil {
 		t.Fatalf("insert S15 runtime loadbalance strategy %q: %v", name, err)
 	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return strategyID
 }
 

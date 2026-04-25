@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -390,6 +391,7 @@ func modelInsertModel(t *testing.T, harness *contractHarness, profileID int, ven
 	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`, profileID, nullableTestInt(vendorID), apiFamily, modelID, displayName, modelType, nullableTestInt(strategyID), isEnabled, now, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert model %q: %v", modelID, err)
 	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return modelConfigID
 }
 
@@ -400,6 +402,7 @@ func modelInsertEndpoint(t *testing.T, harness *contractHarness, profileID int, 
 	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO endpoints (profile_id, name, base_url, api_key, position, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`, profileID, name, fmt.Sprintf("https://%s.invalid", strings.ToLower(strings.ReplaceAll(name, " ", "-"))), "plain-api-key", position, now, now).Scan(&endpointID); err != nil {
 		t.Fatalf("insert endpoint %q: %v", name, err)
 	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	return endpointID
 }
 

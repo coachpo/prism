@@ -21,6 +21,7 @@ import (
 
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -144,6 +145,7 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE WHERE id = $1`, vendorID); err != nil {
 		t.Fatalf("enable audit for runtime vendor: %v", err)
 	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 	publicModelID := "audit-public-" + randomSuffix()
 	targetModelID := "audit-target-" + randomSuffix()
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
@@ -157,6 +159,7 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
 		t.Fatalf("attach runtime models to audit-enabled vendor: %v", err)
 	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
 	response := harness.requestJSON(
 		t,
@@ -166,6 +169,7 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
 	var auditEnabledAtRequest bool
 	if err := harness.conn.QueryRow(context.Background(), `SELECT audit_enabled_at_request FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&auditEnabledAtRequest); err != nil {
@@ -209,7 +213,7 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 		EndpointAPIKey:  "runtime-priced-optional-usage-key",
 	})
 	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-template-"+suffix, reportCurrencyCode, "2", "5", "11", "13", "17")
-	attachRuntimeConnectionPricingTemplate(t, harness.conn, route.ConnectionID, pricingTemplateID)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
 		t,
@@ -353,6 +357,7 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
 	var isStream bool
 	var inputTokens sql.NullInt64
@@ -451,6 +456,7 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 
 func assertLatestRequestLogUsage(t *testing.T, conn *pgx.Conn, profileID int, expectStream bool, wantInput int64, wantOutput int64, wantTotal int64) {
 	t.Helper()
+	waitForRuntimeTelemetryCounts(t, conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	var isStream bool
 	var inputTokens sql.NullInt64
 	var outputTokens sql.NullInt64
@@ -512,6 +518,19 @@ type runtimePersistedPricingRow struct {
 
 func loadLatestRuntimeIngressRequestID(t *testing.T, conn *pgx.Conn, profileID int) string {
 	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var ingressRequestID string
+		err := conn.QueryRow(
+			context.Background(),
+			`SELECT ingress_request_id FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+			profileID,
+		).Scan(&ingressRequestID)
+		if err == nil {
+			return ingressRequestID
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 	var ingressRequestID string
 	if err := conn.QueryRow(
 		context.Background(),
@@ -978,10 +997,10 @@ func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, n
 	return templateID
 }
 
-func attachRuntimeConnectionPricingTemplate(t *testing.T, conn *pgx.Conn, connectionID int, pricingTemplateID int) {
+func attachRuntimeConnectionPricingTemplate(t *testing.T, harness *runtimeHarness, connectionID int, pricingTemplateID int) {
 	t.Helper()
 	now := time.Now().UTC()
-	if _, err := conn.Exec(
+	if _, err := harness.conn.Exec(
 		context.Background(),
 		`UPDATE connections SET pricing_template_id = $2, updated_at = $3 WHERE id = $1`,
 		connectionID,
@@ -990,6 +1009,7 @@ func attachRuntimeConnectionPricingTemplate(t *testing.T, conn *pgx.Conn, connec
 	); err != nil {
 		t.Fatalf("attach pricing template %d to runtime connection %d: %v", pricingTemplateID, connectionID, err)
 	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{harness.profileIDForConnection(t, connectionID)}})
 }
 
 func requestLogItemsByID(t *testing.T, rawItems []any) map[int]map[string]any {

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
@@ -283,7 +284,13 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("create S16 pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool})
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	if err := runtimeCache.Bootstrap(testContext); err != nil {
+		t.Fatalf("bootstrap S16 published runtime snapshot: %v", err)
+	}
+	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
+	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
+	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		t.Fatalf("build S16 auth service: %v", err)
 	}
@@ -303,7 +310,7 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("build S16 realtime service: %v", err)
 	}
 	t.Cleanup(realtimeService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build S16 runtime service: %v", err)
 	}
@@ -320,7 +327,7 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	baseHarness := &runtimeHarness{client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, server: server, url: server.URL, upstream: upstream}
+	baseHarness := &runtimeHarness{client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
 	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, fixedNow: fixedNow}
 }
 
