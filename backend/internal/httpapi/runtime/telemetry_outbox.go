@@ -29,9 +29,18 @@ type TelemetryOutboxOptions struct {
 	Hooks           *TelemetryOutboxHooks
 }
 
+type TelemetryOutboxCloseResult struct {
+	Drained     bool
+	TimedOut    bool
+	PendingRows int
+	Inflight    int
+	Elapsed     time.Duration
+}
+
 type TelemetryOutboxHooks struct {
 	EnqueueError      func() error
 	BeforeMaterialize func(context.Context) error
+	AfterClose        func(TelemetryOutboxCloseResult)
 }
 
 type runtimeTelemetryOutbox struct {
@@ -50,6 +59,7 @@ type runtimeTelemetryOutbox struct {
 	mu               sync.Mutex
 	closed           bool
 	inflight         int
+	closeResult      TelemetryOutboxCloseResult
 }
 
 type runtimeTelemetryOutboxRow struct {
@@ -61,6 +71,15 @@ type runtimeTelemetryMaterializationResult struct {
 	Processed    bool
 	RequestLogID int
 	ProfileID    int
+}
+
+type runtimeTelemetryDrainState struct {
+	PendingRows int
+	Inflight    int
+}
+
+func (state runtimeTelemetryDrainState) drained() bool {
+	return state.PendingRows == 0 && state.Inflight == 0
 }
 
 func newRuntimeTelemetryOutbox(pool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
@@ -121,19 +140,24 @@ func (o *runtimeTelemetryOutbox) Enqueue(ctx context.Context, envelope runtimeTe
 	return nil
 }
 
-func (o *runtimeTelemetryOutbox) Close() {
+func (o *runtimeTelemetryOutbox) Close() TelemetryOutboxCloseResult {
 	if o == nil {
-		return
+		return TelemetryOutboxCloseResult{Drained: true}
 	}
 	o.closeOnce.Do(func() {
+		startedAt := time.Now()
 		o.mu.Lock()
 		o.closed = true
 		o.mu.Unlock()
-		deadline := time.Now().Add(o.shutdownTimeout)
+		deadline := startedAt.Add(o.shutdownTimeout)
 		o.signal()
+		result := TelemetryOutboxCloseResult{}
 		for time.Now().Before(deadline) {
-			drained, err := o.isDrained()
-			if err == nil && drained {
+			state, err := o.drainState()
+			if err == nil && state.drained() {
+				result.Drained = true
+				result.PendingRows = state.PendingRows
+				result.Inflight = state.Inflight
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -147,7 +171,23 @@ func (o *runtimeTelemetryOutbox) Close() {
 		case <-o.done:
 		case <-time.After(remaining):
 		}
+		if state, err := o.drainState(); err == nil {
+			result.Drained = state.drained()
+			result.PendingRows = state.PendingRows
+			result.Inflight = state.Inflight
+		}
+		result.TimedOut = !result.Drained
+		result.Elapsed = time.Since(startedAt)
+		o.mu.Lock()
+		o.closeResult = result
+		o.mu.Unlock()
+		if o.hooks.AfterClose != nil {
+			o.hooks.AfterClose(result)
+		}
 	})
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.closeResult
 }
 
 func (o *runtimeTelemetryOutbox) worker() {
@@ -199,7 +239,7 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 				return runtimeTelemetryMaterializationResult{}, err
 			}
 		}
-		requestLogID, err := insertRequestLogsAndUsageEventTx(ctx, tx, envelope.RequestLogs, envelope.UsageEvent)
+		requestLogID, err := materializeRuntimeTelemetryEnvelopeTx(ctx, tx, envelope)
 		if err != nil {
 			return runtimeTelemetryMaterializationResult{}, err
 		}
@@ -224,17 +264,17 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 	return true, nil
 }
 
-func (o *runtimeTelemetryOutbox) isDrained() (bool, error) {
+func (o *runtimeTelemetryOutbox) drainState() (runtimeTelemetryDrainState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	var hasPending bool
-	if err := o.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM runtime_telemetry_outbox LIMIT 1)`).Scan(&hasPending); err != nil {
-		return false, err
+	var pendingRows int
+	if err := o.pool.QueryRow(ctx, `SELECT COUNT(*) FROM runtime_telemetry_outbox`).Scan(&pendingRows); err != nil {
+		return runtimeTelemetryDrainState{}, err
 	}
 	o.mu.Lock()
 	inflight := o.inflight
 	o.mu.Unlock()
-	return !hasPending && inflight == 0, nil
+	return runtimeTelemetryDrainState{PendingRows: pendingRows, Inflight: inflight}, nil
 }
 
 func (o *runtimeTelemetryOutbox) enqueueError() error {

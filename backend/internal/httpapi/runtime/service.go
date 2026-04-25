@@ -8,14 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/coachpo/prism/backend/internal/pgxutil"
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -29,6 +29,7 @@ type Options struct {
 	Now              func() time.Time
 	DashboardUpdates DashboardUpdatePublisher
 	Cache            *SharedCache
+	RuntimeState     *loadbalancedomain.LocalRuntimeStateStore
 	TelemetryOutbox  TelemetryOutboxOptions
 }
 
@@ -38,11 +39,11 @@ type Service struct {
 	httpClient          *http.Client
 	ownsHTTPClient      bool
 	now                 func() time.Time
-	telemetryMode       config.RuntimeTelemetryMode
 	bufferingMode       config.RuntimeBufferingMode
 	secretEncryptionKey string
 	dashboardUpdates    DashboardUpdatePublisher
 	cache               *SharedCache
+	runtimeState        *loadbalancedomain.LocalRuntimeStateStore
 	telemetryOutbox     *runtimeTelemetryOutbox
 }
 
@@ -80,6 +81,10 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
+	runtimeState := options.RuntimeState
+	if runtimeState == nil {
+		runtimeState = loadbalancedomain.NewLocalRuntimeStateStore()
+	}
 
 	service := &Service{
 		pool:                pool,
@@ -87,15 +92,13 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		httpClient:          client,
 		ownsHTTPClient:      ownsHTTPClient,
 		now:                 now,
-		telemetryMode:       settings.ResolvedRuntimeTelemetryMode(),
 		bufferingMode:       settings.ResolvedRuntimeBufferingMode(),
 		secretEncryptionKey: settings.SecretEncryptionKey,
 		dashboardUpdates:    options.DashboardUpdates,
 		cache:               options.Cache,
+		runtimeState:        runtimeState,
 	}
-	if service.telemetryMode == config.RuntimeTelemetryModeDurableOutbox {
-		service.telemetryOutbox = newRuntimeTelemetryOutbox(pool, service.nowUTC, service.dashboardUpdates, options.TelemetryOutbox)
-	}
+	service.telemetryOutbox = newRuntimeTelemetryOutbox(pool, service.nowUTC, service.dashboardUpdates, options.TelemetryOutbox)
 	return service, nil
 }
 
@@ -121,7 +124,10 @@ func (s *Service) Close() {
 		return
 	}
 	if s.telemetryOutbox != nil {
-		s.telemetryOutbox.Close()
+		result := s.telemetryOutbox.Close()
+		if result.TimedOut {
+			slog.Warn("runtime telemetry outbox close timed out", "elapsed", result.Elapsed, "pending_rows", result.PendingRows, "inflight", result.Inflight)
+		}
 	}
 	if s.ownsHTTPClient && s.httpClient != nil {
 		if closer, ok := s.httpClient.Transport.(interface{ CloseIdleConnections() }); ok {
@@ -139,6 +145,13 @@ func (s *Service) Handler() http.Handler {
 
 func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
+}
+
+func (s *Service) RuntimeState() *loadbalancedomain.LocalRuntimeStateStore {
+	if s == nil {
+		return nil
+	}
+	return s.runtimeState
 }
 
 func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
@@ -208,9 +221,7 @@ func readBufferedRequestBody(body io.Reader) ([]byte, error) {
 }
 
 func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte) (requestPlan, error) {
-	return pgxutil.InTxValue(r.Context(), s.pool, "runtime", func(tx pgx.Tx) (requestPlan, error) {
-		return s.buildRequestPlan(r.Context(), tx, r, rawBody)
-	})
+	return s.buildRequestPlan(r.Context(), r, rawBody)
 }
 
 func canBuildStreamingRequestPlan(r *http.Request) bool {
@@ -252,7 +263,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	if strings.Contains(contentType, "text/event-stream") {
 		responseCapture, _ = proxyEventStreamAndCaptureCompletedResponse(w, execution.Response.Body, s.nowUTC)
-		s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseCapture)
+		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 		return
 	}
 	var err error
@@ -270,7 +281,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		responseCapture.Usage = extractResponseUsage(responseCapture.Body)
 		_, _ = io.Copy(w, bytes.NewReader(responseCapture.Body))
 	}
-	s.recordRuntimeActivity(r.Context(), plan, execution, r, startedAt, responseCapture)
+	s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 }
 
 type runtimeResponseCapture struct {

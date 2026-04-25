@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,9 +12,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5"
 
-	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
-	"github.com/coachpo/prism/backend/internal/pgxutil"
-	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/httpapi/proxykeyusage"
+	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 )
 
 type responseUsage struct {
@@ -219,39 +219,28 @@ type usageEventInsert struct {
 	TTFTMS                            *int
 }
 
+type runtimeProxyKeyUsageSignal struct {
+	KeyID      int       `json:"key_id"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	LastUsedIP string    `json:"last_used_ip,omitempty"`
+}
+
 type runtimeTelemetryEnvelope struct {
-	RequestLogs []requestLogInsert `json:"request_logs"`
-	UsageEvent  usageEventInsert   `json:"usage_event"`
+	RequestLogs   []requestLogInsert          `json:"request_logs"`
+	UsageEvent    usageEventInsert            `json:"usage_event"`
+	ProxyKeyUsage *runtimeProxyKeyUsageSignal `json:"proxy_key_usage,omitempty"`
 }
 
-func (s *Service) recordRuntimeActivity(ctx context.Context, plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) {
+func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) {
+	if s == nil || s.telemetryOutbox == nil {
+		return
+	}
 	envelope := s.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, responseCapture)
-	switch s.telemetryMode {
-	case config.RuntimeTelemetryModeDurableOutbox:
-		if s.telemetryOutbox != nil {
-			if err := s.telemetryOutbox.Enqueue(ctx, envelope); err == nil {
-				return
-			}
-		}
-		s.materializeRuntimeTelemetry(ctx, envelope)
-	default:
-		s.materializeRuntimeTelemetry(ctx, envelope)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.telemetryOutbox.Enqueue(ctx, envelope); err != nil {
+		slog.Error("failed to durably enqueue runtime telemetry", "error", err, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
-}
-
-func (s *Service) materializeRuntimeTelemetry(ctx context.Context, envelope runtimeTelemetryEnvelope) {
-	requestLogID, err := s.insertRequestLogsAndUsageEvent(ctx, envelope.RequestLogs, envelope.UsageEvent)
-	if err != nil {
-		return
-	}
-	s.publishRuntimeDashboardUpdate(ctx, requestLogID, envelope.UsageEvent.ProfileID)
-}
-
-func (s *Service) publishRuntimeDashboardUpdate(ctx context.Context, requestLogID int, profileID int) {
-	if s.dashboardUpdates == nil || requestLogID <= 0 || profileID <= 0 {
-		return
-	}
-	_, _ = s.dashboardUpdates.PublishDashboardUpdate(ctx, requestLogID, profileID)
 }
 
 func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelope {
@@ -279,7 +268,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	if ingressRequestID == "" {
 		ingressRequestID = fmt.Sprintf("runtime-%d", requestCompletedAt.UnixNano())
 	}
-	proxyKey, _ := managementauth.RuntimeProxyKeyFromContext(request.Context())
+	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
 	callerUserAgent := trimmedStringPointer(request.UserAgent())
 	isStream := plan.IsStreamingRequest
 	attempts := result.Attempts
@@ -430,8 +419,9 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 		TTFTMS:                            ttftMS,
 	}
 	return runtimeTelemetryEnvelope{
-		RequestLogs: requestLogs,
-		UsageEvent:  usageEvent,
+		RequestLogs:   requestLogs,
+		UsageEvent:    usageEvent,
+		ProxyKeyUsage: runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
 	}
 }
 
@@ -452,10 +442,15 @@ func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream 
 	return ttftMS, &completionDuration
 }
 
-func (s *Service) insertRequestLogsAndUsageEvent(ctx context.Context, requestLogs []requestLogInsert, usageEvent usageEventInsert) (int, error) {
-	return pgxutil.InTxValue(ctx, s.pool, "runtime", func(tx pgx.Tx) (int, error) {
-		return insertRequestLogsAndUsageEventTx(ctx, tx, requestLogs, usageEvent)
-	})
+func materializeRuntimeTelemetryEnvelopeTx(ctx context.Context, tx pgx.Tx, envelope runtimeTelemetryEnvelope) (int, error) {
+	requestLogID, err := insertRequestLogsAndUsageEventTx(ctx, tx, envelope.RequestLogs, envelope.UsageEvent)
+	if err != nil {
+		return 0, err
+	}
+	if err := recordRuntimeProxyKeyUsageTx(ctx, tx, envelope.ProxyKeyUsage); err != nil {
+		return 0, err
+	}
+	return requestLogID, nil
 }
 
 func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLogs []requestLogInsert, usageEvent usageEventInsert) (int, error) {
@@ -645,6 +640,27 @@ func durationMilliseconds(duration time.Duration) int {
 	return milliseconds
 }
 
+func runtimeProxyKeyUsageSignalFromSnapshot(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *runtimeProxyKeyUsageSignal {
+	if proxyKey == nil || proxyKey.ID <= 0 || proxyKey.LastUsedAt.IsZero() {
+		return nil
+	}
+	return &runtimeProxyKeyUsageSignal{
+		KeyID:      proxyKey.ID,
+		LastUsedAt: proxyKey.LastUsedAt.UTC(),
+		LastUsedIP: strings.TrimSpace(proxyKey.LastUsedIP),
+	}
+}
+
+func recordRuntimeProxyKeyUsageTx(ctx context.Context, tx pgx.Tx, signal *runtimeProxyKeyUsageSignal) error {
+	if signal == nil {
+		return nil
+	}
+	if err := proxykeyusage.RecordTx(ctx, tx, signal.KeyID, signal.LastUsedAt, signal.LastUsedIP); err != nil {
+		return fmt.Errorf("record runtime proxy api key usage: %w", err)
+	}
+	return nil
+}
+
 func headerValuePointer(header http.Header, keys ...string) *string {
 	for _, key := range keys {
 		value := strings.TrimSpace(header.Get(key))
@@ -664,14 +680,14 @@ func headerMapValuePointer(header map[string]string, key string) *string {
 	return nil
 }
 
-func proxyKeyIDPointer(proxyKey *managementauth.RuntimeProxyKeySnapshot) *int {
+func proxyKeyIDPointer(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *int {
 	if proxyKey == nil {
 		return nil
 	}
 	return &proxyKey.ID
 }
 
-func proxyKeyNamePointer(proxyKey *managementauth.RuntimeProxyKeySnapshot) *string {
+func proxyKeyNamePointer(proxyKey *requestcontext.RuntimeProxyKeySnapshot) *string {
 	if proxyKey == nil {
 		return nil
 	}

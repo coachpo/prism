@@ -95,7 +95,7 @@ func Load() Settings {
 		Port:                             intEnvOrDefault("PORT", 8000),
 		AppEnv:                           parseEnvironment(os.Getenv("APP_ENV")),
 		DatabaseURL:                      strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RuntimeTelemetryMode:             loadRuntimeTelemetryModeFromEnv(RuntimeTelemetryModeSynchronous),
+		RuntimeTelemetryMode:             loadRuntimeTelemetryModeFromEnv(RuntimeTelemetryModeDurableOutbox),
 		RuntimeBufferingMode:             loadRuntimeBufferingModeFromEnv(RuntimeBufferingModeBuffered),
 		RuntimeTransportConfig:           loadRuntimeTransportConfigFromEnv(defaultRuntimeTransportConfig()),
 		RuntimeDatabasePoolBudget:        loadDatabasePoolBudgetFromEnv("RUNTIME_DB", DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns}),
@@ -335,12 +335,10 @@ func normalizeManagementAdmissionBudget(candidate ManagementAdmissionBudget, def
 
 func normalizeRuntimeTelemetryMode(candidate RuntimeTelemetryMode) RuntimeTelemetryMode {
 	switch RuntimeTelemetryMode(strings.ToLower(strings.TrimSpace(string(candidate)))) {
-	case RuntimeTelemetryModeDurableOutbox:
+	case RuntimeTelemetryModeDurableOutbox, RuntimeTelemetryModeSynchronous:
 		return RuntimeTelemetryModeDurableOutbox
-	case RuntimeTelemetryModeSynchronous:
-		fallthrough
 	default:
-		return RuntimeTelemetryModeSynchronous
+		return RuntimeTelemetryModeDurableOutbox
 	}
 }
 

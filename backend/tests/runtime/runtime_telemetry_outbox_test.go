@@ -1,9 +1,11 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -16,15 +18,13 @@ import (
 
 const runtimeTelemetryOutboxBackpressureRequests = 8
 
-func TestRuntimeTelemetryOutboxDurability(t *testing.T) {
-	shutdownTimeout := 150 * time.Millisecond
+func TestRuntimeDurableTelemetryIsDefault(t *testing.T) {
 	gate := newRuntimeTelemetryMaterializeGate()
 	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
-		SettingsMutator: useDurableRuntimeTelemetryMode,
 		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
 			WorkerCount:     1,
 			PollInterval:    25 * time.Millisecond,
-			ShutdownTimeout: shutdownTimeout,
+			ShutdownTimeout: time.Second,
 			WakeupBuffer:    1,
 			Hooks: &runtimeapi.TelemetryOutboxHooks{
 				BeforeMaterialize: gate.Wait,
@@ -35,39 +35,29 @@ func TestRuntimeTelemetryOutboxDurability(t *testing.T) {
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "openai",
-		PublicModelID:   "telemetry-durable-public-" + randomSuffix(),
-		TargetModelID:   "telemetry-durable-target-" + randomSuffix(),
-		EndpointBaseURL: harness.upstream.baseURL("/telemetry/durable"),
-		EndpointAPIKey:  "telemetry-durable-key",
+		PublicModelID:   "telemetry-default-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-default-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/telemetry/default"),
+		EndpointAPIKey:  "telemetry-default-key",
 	})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "persist telemetry before worker drain"}},
+		"messages": []map[string]any{{"role": "user", "content": "durable telemetry should be the default runtime path"}},
 		"model":    route.PublicModelID,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 1}, 5*time.Second)
 
-	startedAt := time.Now()
-	harness.runtimeService.Close()
-	if elapsed := time.Since(startedAt); elapsed < shutdownTimeout || elapsed > time.Second {
-		t.Fatalf("expected durable runtime close to respect the configured timeout around %s, got %s", shutdownTimeout, elapsed)
-	}
-	countsAfterClose := loadRuntimeTelemetryCounts(t, harness.conn, profileID)
-	if countsAfterClose.RequestLogs != 0 || countsAfterClose.UsageEvents != 0 || countsAfterClose.OutboxRows != 1 {
-		t.Fatalf("expected shutdown-timeout close to leave one durable outbox row for restart replay, got %+v", countsAfterClose)
-	}
-
-	restartedHarness := restartRuntimeHarnessWithConfig(t, harness.databaseName, runtimeHarnessConfig{SettingsMutator: useDurableRuntimeTelemetryMode})
-	waitForRuntimeTelemetryCounts(t, restartedHarness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeAttemptCounts(t, restartedHarness.conn, profileID, 1, 1)
+	gate.Release()
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
-func TestRuntimeTelemetryOutboxDrainOnShutdown(t *testing.T) {
-	shutdownTimeout := time.Second
+func TestRuntimeProxyKeyUsageDurablyEnqueues(t *testing.T) {
+	shutdownTimeout := 150 * time.Millisecond
+	closeResults := make(chan runtimeapi.TelemetryOutboxCloseResult, 1)
 	gate := newRuntimeTelemetryMaterializeGate()
 	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
-		SettingsMutator: useDurableRuntimeTelemetryMode,
 		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
 			WorkerCount:     1,
 			PollInterval:    25 * time.Millisecond,
@@ -75,10 +65,73 @@ func TestRuntimeTelemetryOutboxDrainOnShutdown(t *testing.T) {
 			WakeupBuffer:    1,
 			Hooks: &runtimeapi.TelemetryOutboxHooks{
 				BeforeMaterialize: gate.Wait,
+				AfterClose: func(result runtimeapi.TelemetryOutboxCloseResult) {
+					closeResults <- result
+				},
 			},
 		}},
 	})
 	profileID := harness.activeProfileID(t)
+	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "telemetry-proxy-key-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-proxy-key-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/telemetry/proxy-key"),
+		EndpointAPIKey:  "telemetry-proxy-key-upstream",
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "proxy key usage should survive durable enqueue"}},
+		"model":    route.PublicModelID,
+	}, map[string]string{"Authorization": "Bearer " + proxyAPIKey})
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 1}, 5*time.Second)
+	if got := loadProxyAPIKeyUsageMaterializationCount(t, harness.conn); got != 0 {
+		t.Fatalf("expected proxy key usage to remain pending before replay, got %d materialized rows", got)
+	}
+
+	startedAt := time.Now()
+	harness.runtimeService.Close()
+	if elapsed := time.Since(startedAt); elapsed < shutdownTimeout || elapsed > time.Second {
+		t.Fatalf("expected durable runtime close to respect the configured timeout around %s, got %s", shutdownTimeout, elapsed)
+	}
+	closeResult := <-closeResults
+	if closeResult.Drained || !closeResult.TimedOut || closeResult.PendingRows != 1 {
+		t.Fatalf("expected bounded shutdown timeout to leave one pending durable signal for replay, got %+v", closeResult)
+	}
+	countsAfterClose := loadRuntimeTelemetryCounts(t, harness.conn, profileID)
+	if countsAfterClose.RequestLogs != 0 || countsAfterClose.UsageEvents != 0 || countsAfterClose.OutboxRows != 1 {
+		t.Fatalf("expected shutdown-timeout close to leave one durable outbox row for restart replay, got %+v", countsAfterClose)
+	}
+
+	restartedHarness := restartRuntimeHarnessWithConfig(t, harness.databaseName, runtimeHarnessConfig{})
+	waitForRuntimeTelemetryCounts(t, restartedHarness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	waitForProxyAPIKeyUsageMaterialization(t, restartedHarness.conn, 5*time.Second)
+	assertLatestRuntimeAttemptCounts(t, restartedHarness.conn, profileID, 1, 1)
+}
+
+func TestRuntimeShutdownDrainsDurableRuntimeSignals(t *testing.T) {
+	shutdownTimeout := time.Second
+	closeResults := make(chan runtimeapi.TelemetryOutboxCloseResult, 1)
+	gate := newRuntimeTelemetryMaterializeGate()
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
+		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+			WorkerCount:     1,
+			PollInterval:    25 * time.Millisecond,
+			ShutdownTimeout: shutdownTimeout,
+			WakeupBuffer:    1,
+			Hooks: &runtimeapi.TelemetryOutboxHooks{
+				BeforeMaterialize: gate.Wait,
+				AfterClose: func(result runtimeapi.TelemetryOutboxCloseResult) {
+					closeResults <- result
+				},
+			},
+		}},
+	})
+	profileID := harness.activeProfileID(t)
+	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(t)
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "openai",
@@ -89,30 +142,35 @@ func TestRuntimeTelemetryOutboxDrainOnShutdown(t *testing.T) {
 	})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "drain runtime telemetry on shutdown"}},
+		"messages": []map[string]any{{"role": "user", "content": "drain durable runtime telemetry and auth usage on shutdown"}},
 		"model":    route.PublicModelID,
-	}, nil)
+	}, map[string]string{"Authorization": "Bearer " + proxyAPIKey})
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 1}, 5*time.Second)
 
-	closeResult := make(chan time.Duration, 1)
+	closeElapsed := make(chan time.Duration, 1)
 	go func() {
 		startedAt := time.Now()
 		harness.runtimeService.Close()
-		closeResult <- time.Since(startedAt)
+		closeElapsed <- time.Since(startedAt)
 	}()
-	assertRuntimeClosePending(t, closeResult, 150*time.Millisecond)
+	assertRuntimeClosePending(t, closeElapsed, 150*time.Millisecond)
 	gate.Release()
 
 	select {
-	case elapsed := <-closeResult:
+	case elapsed := <-closeElapsed:
 		if elapsed > shutdownTimeout {
 			t.Fatalf("expected runtime close to finish within configured shutdown timeout %s, got %s", shutdownTimeout, elapsed)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for durable runtime close to drain pending telemetry")
 	}
+	closeResult := <-closeResults
+	if !closeResult.Drained || closeResult.TimedOut || closeResult.PendingRows != 0 || closeResult.Inflight != 0 {
+		t.Fatalf("expected shutdown drain to fully flush durable runtime signals, got %+v", closeResult)
+	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	waitForProxyAPIKeyUsageMaterialization(t, harness.conn, 5*time.Second)
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
@@ -165,9 +223,8 @@ func TestRuntimeTelemetryOutboxBackpressure(t *testing.T) {
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: runtimeTelemetryOutboxBackpressureRequests, UsageEvents: runtimeTelemetryOutboxBackpressureRequests, OutboxRows: 0}, 5*time.Second)
 }
 
-func TestRuntimeTelemetryOutboxFallback(t *testing.T) {
+func TestRuntimeAcceptedResponseDoesNotMaterializeSyncTelemetry(t *testing.T) {
 	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
-		SettingsMutator: useDurableRuntimeTelemetryMode,
 		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
 			Hooks: &runtimeapi.TelemetryOutboxHooks{
 				EnqueueError: func() error {
@@ -180,24 +237,34 @@ func TestRuntimeTelemetryOutboxFallback(t *testing.T) {
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "openai",
-		PublicModelID:   "telemetry-fallback-public-" + randomSuffix(),
-		TargetModelID:   "telemetry-fallback-target-" + randomSuffix(),
-		EndpointBaseURL: harness.upstream.baseURL("/telemetry/fallback"),
-		EndpointAPIKey:  "telemetry-fallback-key",
+		PublicModelID:   "telemetry-no-sync-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-no-sync-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/telemetry/no-sync"),
+		EndpointAPIKey:  "telemetry-no-sync-key",
 	})
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": "fallback to synchronous telemetry materialization"}},
+		"messages": []map[string]any{{"role": "user", "content": "accepted responses must not fall back to inline sync telemetry materialization"}},
 		"model":    route.PublicModelID,
 	}, nil)
 	assertStatus(t, response, http.StatusOK)
-	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
-	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	time.Sleep(100 * time.Millisecond)
+	counts := loadRuntimeTelemetryCounts(t, harness.conn, profileID)
+	if counts != (runtimeTelemetryCounts{}) {
+		t.Fatalf("expected accepted response to avoid inline sync telemetry materialization after enqueue failure, got %+v", counts)
+	}
+}
+
+func BenchmarkRuntimeDurableTelemetryHotPath(b *testing.B) {
+	benchmarkRuntimeDurableTelemetryHotPath(b)
 }
 
 func BenchmarkRuntimeTelemetryHotPath(b *testing.B) {
+	benchmarkRuntimeDurableTelemetryHotPath(b)
+}
+
+func benchmarkRuntimeDurableTelemetryHotPath(b *testing.B) {
 	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{
-		SettingsMutator: useDurableRuntimeTelemetryMode,
 		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
 			ShutdownTimeout: 100 * time.Millisecond,
 		}},
@@ -212,7 +279,7 @@ func BenchmarkRuntimeTelemetryHotPath(b *testing.B) {
 		EndpointBaseURL: upstream.baseURL("/benchmark/telemetry-hot-path"),
 		EndpointAPIKey:  "benchmark-telemetry-hot-path-key",
 	})
-	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-1 telemetry hot path benchmark")
+	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-4 durable telemetry hot path benchmark")
 
 	statusCode, _, err := performRuntimeBenchmarkRequest(harness.client, harness.url+"/v1/chat/completions", rawBody)
 	if err != nil {
@@ -231,6 +298,47 @@ func BenchmarkRuntimeTelemetryHotPath(b *testing.B) {
 		}
 		if statusCode != http.StatusOK {
 			b.Fatalf("expected runtime telemetry hot-path status 200, got %d", statusCode)
+		}
+	}
+}
+
+func BenchmarkRuntimeAuthUsageAsyncHotPath(b *testing.B) {
+	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{
+		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+			ShutdownTimeout: 100 * time.Millisecond,
+		}},
+	})
+	profileID := harness.activeProfileID(b)
+	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(b)
+	upstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, runtimeBenchmarkHotPathResponse())
+	route := harness.seedProxyRoute(b, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "benchmark-auth-usage-public-" + randomSuffix(),
+		TargetModelID:   "benchmark-auth-usage-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/benchmark/auth-usage"),
+		EndpointAPIKey:  "benchmark-auth-usage-key",
+	})
+	rawBody := runtimeBenchmarkRequestBody(b, route.PublicModelID, "phase-4 auth usage async hot path benchmark")
+	headers := map[string]string{"Authorization": "Bearer " + proxyAPIKey}
+
+	statusCode, _, err := performRuntimeBenchmarkRequestWithHeaders(harness.client, harness.url+"/v1/chat/completions", rawBody, headers)
+	if err != nil {
+		b.Fatalf("warm runtime auth usage async benchmark request: %v", err)
+	}
+	if statusCode != http.StatusOK {
+		b.Fatalf("expected warm runtime auth usage async benchmark status 200, got %d", statusCode)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		statusCode, _, err = performRuntimeBenchmarkRequestWithHeaders(harness.client, harness.url+"/v1/chat/completions", rawBody, headers)
+		if err != nil {
+			b.Fatalf("run runtime auth usage async benchmark request: %v", err)
+		}
+		if statusCode != http.StatusOK {
+			b.Fatalf("expected runtime auth usage async benchmark status 200, got %d", statusCode)
 		}
 	}
 }
@@ -270,6 +378,27 @@ func useDurableRuntimeTelemetryMode(settings *config.Settings) {
 	settings.RuntimeTelemetryMode = config.RuntimeTelemetryModeDurableOutbox
 }
 
+func performRuntimeBenchmarkRequestWithHeaders(client *http.Client, url string, rawBody []byte, headers map[string]string) (int, int, error) {
+	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(rawBody))
+	if err != nil {
+		return 0, 0, fmt.Errorf("build benchmark request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, 0, fmt.Errorf("perform benchmark request: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return response.StatusCode, 0, fmt.Errorf("read benchmark response body: %w", err)
+	}
+	return response.StatusCode, len(responseBody), nil
+}
+
 func assertRuntimeClosePending(t *testing.T, closeResult <-chan time.Duration, timeout time.Duration) {
 	t.Helper()
 	select {
@@ -277,6 +406,20 @@ func assertRuntimeClosePending(t *testing.T, closeResult <-chan time.Duration, t
 		t.Fatalf("expected runtime close to still be draining pending telemetry, completed in %s", elapsed)
 	case <-time.After(timeout):
 	}
+}
+
+func loadProxyAPIKeyUsageMaterializationCount(t *testing.T, conn *pgx.Conn) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var usedCount int
+	if err := conn.QueryRow(
+		ctx,
+		`SELECT COUNT(*) FROM proxy_api_keys WHERE last_used_at IS NOT NULL AND COALESCE(last_used_ip, '') <> ''`,
+	).Scan(&usedCount); err != nil {
+		t.Fatalf("load proxy api key usage materialization count: %v", err)
+	}
+	return usedCount
 }
 
 func waitForRuntimeTelemetryCounts(t *testing.T, conn *pgx.Conn, profileID int, want runtimeTelemetryCounts, timeout time.Duration) {
