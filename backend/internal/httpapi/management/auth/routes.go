@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -82,6 +83,10 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 
 		authSettings, err := s.loadRuntimeAuthSettings(r.Context())
 		if err != nil {
+			if isPublishedSnapshotUnavailable(err) {
+				writeError(w, r, s.allowedOrigins, http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
+				return
+			}
 			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
@@ -96,6 +101,10 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 		}
 		proxyKey, err := s.verifyProxyAPIKey(r.Context(), rawKey)
 		if err != nil {
+			if isPublishedSnapshotUnavailable(err) {
+				writeError(w, r, s.allowedOrigins, http.StatusServiceUnavailable, "Runtime authentication snapshot is unavailable. Retry later.")
+				return
+			}
 			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to verify proxy API key")
 			return
 		}
@@ -103,9 +112,17 @@ func (s *Service) runtimeMiddleware(next http.Handler) http.Handler {
 			writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Invalid proxy API key")
 			return
 		}
-		contextWithProxyKey := context.WithValue(r.Context(), runtimeProxyKeyContextKey{}, runtimeProxyKey{ID: proxyKey.ID, Name: proxyKey.Name})
-		if err := s.recordProxyAPIKeyUsage(contextWithProxyKey, proxyKey.ID, s.nowUTC(), requestIP(r)); err != nil {
-			slog.Error("failed to record proxy API key usage", "error", err, "key_id", proxyKey.ID)
+		proxyKeySnapshot := requestcontext.RuntimeProxyKeySnapshot{
+			ID:         proxyKey.ID,
+			Name:       proxyKey.Name,
+			LastUsedAt: s.nowUTC(),
+			LastUsedIP: requestIP(r),
+		}
+		contextWithProxyKey := requestcontext.WithRuntimeProxyKey(r.Context(), proxyKeySnapshot)
+		if s.runtimeCache == nil {
+			if err := s.enqueueProxyAPIKeyUsage(proxyKey.ID, proxyKeySnapshot.LastUsedAt, proxyKeySnapshot.LastUsedIP); err != nil {
+				slog.Error("failed to enqueue proxy API key usage", "error", err, "key_id", proxyKey.ID)
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(contextWithProxyKey))
 	})

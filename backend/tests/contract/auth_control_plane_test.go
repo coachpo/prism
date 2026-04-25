@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
@@ -37,13 +38,15 @@ type testPostgresHarness struct {
 }
 
 type contractHarness struct {
-	client  *http.Client
-	conn    *pgx.Conn
-	dsn     string
-	mailer  *captureMailer
-	server  *httptest.Server
-	service *managementauth.Service
-	url     string
+	client         *http.Client
+	conn           *pgx.Conn
+	dsn            string
+	mailer         *captureMailer
+	server         *httptest.Server
+	service        *managementauth.Service
+	runtimeService *runtimeapi.Service
+	runtimeCache   *runtimeapi.SharedCache
+	url            string
 }
 
 type captureMailer struct {
@@ -494,6 +497,7 @@ func TestProxyKeyRotate(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, createResponse, http.StatusCreated)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true})
 	var createdPayload map[string]any
 	decodeJSONResponse(t, createResponse, &createdPayload)
 	item := createdPayload["item"].(map[string]any)
@@ -503,6 +507,7 @@ func TestProxyKeyRotate(t *testing.T) {
 
 	rotateResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/settings/auth/proxy-keys/%d/rotate", keyID), nil, nil)
 	assertStatus(t, rotateResponse, http.StatusOK)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true})
 	var rotatedPayload map[string]any
 	decodeJSONResponse(t, rotateResponse, &rotatedPayload)
 	rotatedItem := rotatedPayload["item"].(map[string]any)
@@ -534,6 +539,7 @@ func TestProxyKeyRuntimeSeparation(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, createResponse, http.StatusCreated)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true})
 	var createdPayload map[string]any
 	decodeJSONResponse(t, createResponse, &createdPayload)
 	rawKey := createdPayload["key"].(string)
@@ -551,8 +557,8 @@ func TestProxyKeyRuntimeSeparation(t *testing.T) {
 	assertErrorResponse(t, proxyKeyRuntimeBeta, http.StatusNotImplemented, "Runtime proxy not implemented in S5")
 
 	proxyKey := loadProxyKeyByPrefix(t, harness, createdPayload["item"].(map[string]any)["key_prefix"].(string))
-	if proxyKey.LastUsedAt == nil {
-		t.Fatal("expected runtime proxy key use to record last_used_at")
+	if proxyKey.LastUsedAt != nil {
+		t.Fatal("expected runtime probe path to avoid last_used_at materialization without a real runtime request")
 	}
 }
 
@@ -629,15 +635,22 @@ func newContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("create pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	if err := runtimeCache.Bootstrap(testContext); err != nil {
+		t.Fatalf("bootstrap published runtime snapshot: %v", err)
+	}
 	mailer := &captureMailer{}
-	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, Mailer: mailer})
+	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
+	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, Mailer: mailer, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		t.Fatalf("build auth service: %v", err)
 	}
 	t.Cleanup(authService.Close)
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
-		Version:     "contract-test",
-		AuthService: authService,
+		Version:            "contract-test",
+		AuthService:        authService,
+		RuntimeAuthService: authService,
+		RuntimeCache:       runtimeCache,
 	})
 	if err != nil {
 		t.Fatalf("build handler: %v", err)
@@ -650,7 +663,19 @@ func newContractHarness(t *testing.T) *contractHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: mailer, server: server, service: authService, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: mailer, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, url: server.URL}
+}
+
+func (h *contractHarness) refreshRuntimeSnapshot(t *testing.T, request runtimeapi.RefreshRequest) {
+	t.Helper()
+	if h == nil || h.runtimeCache == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := h.runtimeCache.RefreshNow(ctx, request); err != nil {
+		t.Fatalf("refresh published runtime snapshot: %v", err)
+	}
 }
 
 func (h *contractHarness) newClient(t *testing.T) *http.Client {
@@ -743,6 +768,7 @@ func enableVerifiedAuth(t *testing.T, harness *contractHarness, username string,
 func loginWithVerifiedAuth(t *testing.T, harness *contractHarness, username string, password string, email string) {
 	t.Helper()
 	seedVerifiedAuthSettings(t, harness, username, password, email)
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true})
 	loginResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/auth/login", map[string]any{"username": username, "password": password, "session_duration": "7_days"}, nil)
 	assertStatus(t, loginResponse, http.StatusOK)
 }

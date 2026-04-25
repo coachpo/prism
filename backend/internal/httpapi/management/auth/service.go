@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -19,27 +20,31 @@ type Mailer interface {
 }
 
 type Options struct {
-	Mailer       Mailer
-	Now          func() time.Time
-	Pool         *pgxpool.Pool
-	RuntimeCache *RuntimeCache
+	Mailer            Mailer
+	Now               func() time.Time
+	Pool              *pgxpool.Pool
+	ProxyKeyUsagePool *pgxpool.Pool
+	RuntimeCache      *RuntimeCache
 }
 
 type Service struct {
-	pool                *pgxpool.Pool
-	ownsPool            bool
-	mailer              Mailer
-	now                 func() time.Time
-	authJWTSecret       string
-	accessTokenTTL      time.Duration
-	refreshTokenTTL     time.Duration
-	resetCodeTTL        time.Duration
-	accessCookieName    string
-	refreshCookieName   string
-	cookieSecure        bool
-	allowedOrigins      map[string]struct{}
-	proxyKeyPreviewSize int
-	runtimeCache        *RuntimeCache
+	pool                  *pgxpool.Pool
+	ownsPool              bool
+	mailer                Mailer
+	now                   func() time.Time
+	authJWTSecret         string
+	accessTokenTTL        time.Duration
+	refreshTokenTTL       time.Duration
+	resetCodeTTL          time.Duration
+	accessCookieName      string
+	refreshCookieName     string
+	cookieSecure          bool
+	allowedOrigins        map[string]struct{}
+	proxyKeyPreviewSize   int
+	runtimeCache          *RuntimeCache
+	proxyKeyUsagePool     *pgxpool.Pool
+	ownsProxyKeyUsagePool bool
+	proxyKeyUsageWriter   *proxyAPIKeyUsageWriter
 }
 
 type authSubject struct {
@@ -48,13 +53,7 @@ type authSubject struct {
 	Username     string
 }
 
-type runtimeProxyKey struct {
-	ID   int
-	Name string
-}
-
 type authSubjectContextKey struct{}
-type runtimeProxyKeyContextKey struct{}
 
 type noopMailer struct{}
 
@@ -97,26 +96,55 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		allowedOrigins[origin] = struct{}{}
 	}
 
-	return &Service{
-		pool:                pool,
-		ownsPool:            ownsPool,
-		mailer:              mailer,
-		now:                 now,
-		authJWTSecret:       settings.AuthJWTSecret,
-		accessTokenTTL:      time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
-		refreshTokenTTL:     time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
-		resetCodeTTL:        time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
-		accessCookieName:    settings.AuthCookieName,
-		refreshCookieName:   settings.AuthRefreshCookieName,
-		cookieSecure:        settings.AuthCookieSecure,
-		allowedOrigins:      allowedOrigins,
-		proxyKeyPreviewSize: 4,
-		runtimeCache:        options.RuntimeCache,
-	}, nil
+	proxyKeyUsagePool := options.ProxyKeyUsagePool
+	ownsProxyKeyUsagePool := false
+	if options.RuntimeCache == nil && proxyKeyUsagePool == nil && strings.TrimSpace(settings.DatabaseURL) != "" {
+		createdProxyKeyUsagePool, err := newProxyKeyUsagePool(settings.DatabaseURL)
+		if err != nil {
+			if ownsPool && pool != nil {
+				pool.Close()
+			}
+			return nil, fmt.Errorf("create proxy api key usage pool: %w", err)
+		}
+		proxyKeyUsagePool = createdProxyKeyUsagePool
+		ownsProxyKeyUsagePool = true
+	}
+
+	service := &Service{
+		pool:                  pool,
+		ownsPool:              ownsPool,
+		mailer:                mailer,
+		now:                   now,
+		authJWTSecret:         settings.AuthJWTSecret,
+		accessTokenTTL:        time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
+		refreshTokenTTL:       time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
+		resetCodeTTL:          time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
+		accessCookieName:      settings.AuthCookieName,
+		refreshCookieName:     settings.AuthRefreshCookieName,
+		cookieSecure:          settings.AuthCookieSecure,
+		allowedOrigins:        allowedOrigins,
+		proxyKeyPreviewSize:   4,
+		runtimeCache:          options.RuntimeCache,
+		proxyKeyUsagePool:     proxyKeyUsagePool,
+		ownsProxyKeyUsagePool: ownsProxyKeyUsagePool,
+	}
+	if proxyKeyUsagePool != nil {
+		service.proxyKeyUsageWriter = newProxyAPIKeyUsageWriter(service.recordProxyAPIKeyUsage)
+	}
+	return service, nil
 }
 
 func (s *Service) Close() {
-	if s != nil && s.ownsPool && s.pool != nil {
+	if s == nil {
+		return
+	}
+	if s.proxyKeyUsageWriter != nil {
+		s.proxyKeyUsageWriter.Close()
+	}
+	if s.ownsProxyKeyUsagePool && s.proxyKeyUsagePool != nil {
+		s.proxyKeyUsagePool.Close()
+	}
+	if s.ownsPool && s.pool != nil {
 		s.pool.Close()
 	}
 }
@@ -125,26 +153,11 @@ func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
 }
 
-func (s *Service) loadRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSettingsSnapshot, error) {
+func (s *Service) loadRuntimeAuthSettings(_ context.Context) (RuntimeAuthSettingsSnapshot, error) {
 	if s.runtimeCache == nil {
-		row, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
-		if err != nil {
-			return RuntimeAuthSettingsSnapshot{}, err
-		}
-		return RuntimeAuthSettingsSnapshot{AuthEnabled: row.AuthEnabled}, nil
+		return RuntimeAuthSettingsSnapshot{}, runtimeSnapshotUnavailableError()
 	}
-	loader := func() (RuntimeAuthSettingsSnapshot, error) {
-		row, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
-		if err != nil {
-			return RuntimeAuthSettingsSnapshot{}, err
-		}
-		return RuntimeAuthSettingsSnapshot{AuthEnabled: row.AuthEnabled}, nil
-	}
-	settings, err := s.runtimeCache.LoadRuntimeAuthSettings(s.nowUTC(), loader)
-	if isRuntimeCacheLoadInvalidated(err) {
-		return s.runtimeCache.LoadRuntimeAuthSettings(s.nowUTC(), loader)
-	}
-	return settings, err
+	return s.runtimeCache.LoadRuntimeAuthSettings()
 }
 
 func (s *Service) InvalidateRuntimeCache() {
@@ -152,6 +165,13 @@ func (s *Service) InvalidateRuntimeCache() {
 		return
 	}
 	s.runtimeCache.Invalidate()
+}
+
+func (s *Service) enqueueProxyAPIKeyUsage(keyID int, lastUsedAt time.Time, lastUsedIP string) error {
+	if s == nil || s.proxyKeyUsageWriter == nil {
+		return fmt.Errorf("proxy api key usage writer unavailable")
+	}
+	return s.proxyKeyUsageWriter.Enqueue(keyID, lastUsedAt, lastUsedIP)
 }
 
 func authSubjectFromRequest(request *http.Request) (*authSubject, bool) {
@@ -171,13 +191,8 @@ func authSubjectIDFromRequest(request *http.Request) *int {
 	return &authSubject.ID
 }
 
-func runtimeProxyKeyFromRequest(request *http.Request) (*runtimeProxyKey, bool) {
-	proxyKeyValue := request.Context().Value(runtimeProxyKeyContextKey{})
-	proxyKey, ok := proxyKeyValue.(runtimeProxyKey)
-	if !ok {
-		return nil, false
-	}
-	return &proxyKey, true
+func runtimeProxyKeyFromRequest(request *http.Request) (*requestcontext.RuntimeProxyKeySnapshot, bool) {
+	return requestcontext.RuntimeProxyKeyFromContext(request.Context())
 }
 
 func (s *Service) ManagementMiddleware(next http.Handler) http.Handler {

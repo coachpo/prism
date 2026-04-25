@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/coachpo/prism/backend/internal/httpapi/proxykeyusage"
 )
 
 const proxyKeyLimit = 100
@@ -962,47 +964,11 @@ func (s *Service) deleteProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) e
 	return nil
 }
 
-func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyAPIKeyRow, error) {
-	normalizedKey, keyPrefix, err := parseProxyAPIKey(rawKey)
-	if err != nil {
-		return nil, nil
+func (s *Service) verifyProxyAPIKey(_ context.Context, rawKey string) (*proxyAPIKeyRow, error) {
+	if s.runtimeCache == nil {
+		return nil, runtimeSnapshotUnavailableError()
 	}
-
-	loadDecision := func() (RuntimeProxyKeyDecision, error) {
-		row, err := s.loadProxyAPIKeyByPrefix(ctx, s.pool, keyPrefix)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return RuntimeProxyKeyDecision{}, nil
-			}
-			return RuntimeProxyKeyDecision{}, fmt.Errorf("load proxy api key by prefix: %w", err)
-		}
-		if !row.IsActive {
-			return RuntimeProxyKeyDecision{}, nil
-		}
-		now := s.nowUTC()
-		if row.ExpiresAt.Valid && row.ExpiresAt.Time.Before(now) {
-			return RuntimeProxyKeyDecision{}, nil
-		}
-		if !verifyOpaqueToken(normalizedKey, row.KeyHash) {
-			return RuntimeProxyKeyDecision{}, nil
-		}
-		decision := RuntimeProxyKeyDecision{Allowed: true, KeyID: row.ID, KeyName: row.Name}
-		if row.ExpiresAt.Valid {
-			expiresAt := row.ExpiresAt.Time.UTC()
-			decision.ExpiresAt = &expiresAt
-		}
-		return decision, nil
-	}
-
-	var decision RuntimeProxyKeyDecision
-	if s.runtimeCache != nil {
-		decision, err = s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), ProxyKeyDecisionCacheKey(normalizedKey), loadDecision)
-		if isRuntimeCacheLoadInvalidated(err) {
-			decision, err = s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), ProxyKeyDecisionCacheKey(normalizedKey), loadDecision)
-		}
-	} else {
-		decision, err = loadDecision()
-	}
+	decision, err := s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), rawKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,26 +978,19 @@ func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyA
 	return &proxyAPIKeyRow{ID: decision.KeyID, Name: decision.KeyName}, nil
 }
 
-func (s *Service) loadProxyAPIKeyByPrefix(ctx context.Context, exec queryExecutor, keyPrefix string) (proxyAPIKeyRow, error) {
-	scanner := exec.QueryRow(
-		ctx,
-		`SELECT id, name, key_prefix, key_hash, last_four, is_active, expires_at, last_used_at,
-			last_used_ip, created_by_auth_subject_id, notes, rotated_from_id, created_at, updated_at
-		FROM proxy_api_keys WHERE key_prefix = $1 ORDER BY id ASC LIMIT 1`,
-		keyPrefix,
-	)
-	return scanProxyAPIKey(scanner)
+func RecordProxyAPIKeyUsageTx(ctx context.Context, tx pgx.Tx, keyID int, lastUsedAt time.Time, lastUsedIP string) error {
+	return proxykeyusage.RecordTx(ctx, tx, keyID, lastUsedAt, lastUsedIP)
 }
 
 func (s *Service) recordProxyAPIKeyUsage(ctx context.Context, keyID int, lastUsedAt time.Time, lastUsedIP string) error {
-	_, err := s.pool.Exec(
-		ctx,
-		`UPDATE proxy_api_keys SET last_used_at = $2, last_used_ip = $3, updated_at = GREATEST(updated_at, $2) WHERE id = $1`,
-		keyID,
-		lastUsedAt,
-		nullableTrimmedString(lastUsedIP),
-	)
-	if err != nil {
+	execPool := s.proxyKeyUsagePool
+	if execPool == nil {
+		execPool = s.pool
+	}
+	if execPool == nil {
+		return fmt.Errorf("record proxy api key usage: database pool unavailable")
+	}
+	if err := proxykeyusage.RecordWithExecutor(ctx, execPool, keyID, lastUsedAt, lastUsedIP); err != nil {
 		return fmt.Errorf("record proxy api key usage: %w", err)
 	}
 	return nil

@@ -12,11 +12,6 @@ type RealtimeAuthState struct {
 	Authenticated bool
 }
 
-type RuntimeProxyKeySnapshot struct {
-	ID   int
-	Name string
-}
-
 func (s *Service) ResolveRealtimeAuthState(ctx context.Context, rawToken string) (RealtimeAuthState, error) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
 	if err != nil {
@@ -54,13 +49,4 @@ func (s *Service) ResolveRealtimeAuthState(ctx context.Context, rawToken string)
 		state.Username = claims.Username
 	}
 	return state, nil
-}
-
-func RuntimeProxyKeyFromContext(ctx context.Context) (*RuntimeProxyKeySnapshot, bool) {
-	proxyKeyValue := ctx.Value(runtimeProxyKeyContextKey{})
-	proxyKey, ok := proxyKeyValue.(runtimeProxyKey)
-	if !ok {
-		return nil, false
-	}
-	return &RuntimeProxyKeySnapshot{ID: proxyKey.ID, Name: proxyKey.Name}, true
 }
