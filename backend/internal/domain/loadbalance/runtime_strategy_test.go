@@ -1,16 +1,10 @@
 package loadbalance
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func mustLoadbalanceJSON(t *testing.T, value any) []byte {
@@ -21,80 +15,6 @@ func mustLoadbalanceJSON(t *testing.T, value any) []byte {
 		t.Fatalf("marshal loadbalance fixture: %v", err)
 	}
 	return raw
-}
-
-type panicQueryExecutor struct{}
-
-func (panicQueryExecutor) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	panic("unexpected Exec call")
-}
-
-func (panicQueryExecutor) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	panic("unexpected Query call")
-}
-
-func (panicQueryExecutor) QueryRow(context.Context, string, ...any) pgx.Row {
-	panic("unexpected QueryRow call")
-}
-
-type fakeScanRow struct {
-	scan func(...any) error
-}
-
-func (row fakeScanRow) Scan(dest ...any) error {
-	return row.scan(dest...)
-}
-
-type fakeRoundRobinExecutor struct {
-	rowID         int
-	stateExists   bool
-	insertCalls   int
-	updateCalls   int
-	loadedCursor  int
-	updatedCursor int
-}
-
-func (exec *fakeRoundRobinExecutor) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	switch {
-	case strings.Contains(query, "INSERT INTO loadbalance_round_robin_state"):
-		exec.insertCalls++
-		exec.stateExists = true
-		if exec.rowID == 0 {
-			exec.rowID = 1
-		}
-		return pgconn.NewCommandTag("INSERT 0 1"), nil
-	case strings.Contains(query, "UPDATE loadbalance_round_robin_state"):
-		exec.updateCalls++
-		cursor, ok := args[1].(int)
-		if !ok {
-			return pgconn.CommandTag{}, fmt.Errorf("unexpected cursor type %T", args[1])
-		}
-		exec.updatedCursor = cursor
-		exec.loadedCursor = cursor
-		return pgconn.NewCommandTag("UPDATE 1"), nil
-	default:
-		return pgconn.CommandTag{}, fmt.Errorf("unexpected exec query: %s", query)
-	}
-}
-
-func (*fakeRoundRobinExecutor) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	panic("unexpected Query call")
-}
-
-func (exec *fakeRoundRobinExecutor) QueryRow(_ context.Context, query string, _ ...any) pgx.Row {
-	if !strings.Contains(query, "FROM loadbalance_round_robin_state") {
-		return fakeScanRow{scan: func(...any) error {
-			return fmt.Errorf("unexpected QueryRow query: %s", query)
-		}}
-	}
-	if !exec.stateExists {
-		return fakeScanRow{scan: func(...any) error { return pgx.ErrNoRows }}
-	}
-	return fakeScanRow{scan: func(dest ...any) error {
-		*dest[0].(*int) = exec.rowID
-		*dest[1].(*int) = exec.loadedCursor
-		return nil
-	}}
 }
 
 func TestRuntimeStrategyFailoverStatusCodes(t *testing.T) {
@@ -124,7 +44,7 @@ func TestOrderConnectionIDsSingleReturnsOnlyFirstEligibleConnection(t *testing.T
 	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("single")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
 
-	got, err := OrderConnectionIDs(context.Background(), panicQueryExecutor{}, 7, 11, strategy, connections, nil, time.Now().UTC())
+	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("order connection ids: %v", err)
 	}
@@ -138,7 +58,7 @@ func TestOrderConnectionIDsFillFirstPreservesStableFailoverOrder(t *testing.T) {
 	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("fill-first")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
 
-	got, err := OrderConnectionIDs(context.Background(), panicQueryExecutor{}, 7, 11, strategy, connections, nil, time.Now().UTC())
+	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("order connection ids: %v", err)
 	}
@@ -161,7 +81,7 @@ func TestOrderConnectionIDsAdaptiveRanksHealthierCandidateFirst(t *testing.T) {
 		20: {ConnectionID: 20, CircuitState: "closed", LiveP95LatencyMS: &lowLatency, LastLiveSuccessAt: &healthySuccessAt},
 	}
 
-	got, err := OrderConnectionIDs(context.Background(), panicQueryExecutor{}, 7, 11, strategy, connections, states, nowAt)
+	got, err := OrderConnectionIDs(7, 11, strategy, connections, states, nil, nowAt)
 	if err != nil {
 		t.Fatalf("order connection ids: %v", err)
 	}
@@ -172,11 +92,12 @@ func TestOrderConnectionIDsAdaptiveRanksHealthierCandidateFirst(t *testing.T) {
 }
 
 func TestOrderConnectionIDsRoundRobinRotatesPrimary(t *testing.T) {
-	exec := &fakeRoundRobinExecutor{rowID: 17, loadedCursor: 1}
+	store := NewLocalRuntimeStateStore()
+	store.ClaimRoundRobinCursor(7, 11, 3)
 	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("round-robin")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
 
-	got, err := OrderConnectionIDs(context.Background(), exec, 7, 11, strategy, connections, nil, time.Date(2026, time.April, 20, 18, 0, 0, 0, time.UTC))
+	got, err := OrderConnectionIDs(7, 11, strategy, connections, nil, store, time.Date(2026, time.April, 20, 18, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("order connection ids: %v", err)
 	}
@@ -184,14 +105,7 @@ func TestOrderConnectionIDsRoundRobinRotatesPrimary(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected round-robin ordering %v, got %v", want, got)
 	}
-	if exec.insertCalls != 1 || exec.updateCalls != 1 {
-		t.Fatalf("expected one insert and one update, got inserts=%d updates=%d", exec.insertCalls, exec.updateCalls)
+	if cursor := store.PeekRoundRobinCursor(7, 11, 3); cursor != 2 {
+		t.Fatalf("expected next cursor 2, got %d", cursor)
 	}
-	if exec.updatedCursor != 2 {
-		t.Fatalf("expected next cursor 2, got %d", exec.updatedCursor)
-	}
-}
-
-func stringPointer(value string) *string {
-	return &value
 }

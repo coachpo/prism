@@ -107,7 +107,13 @@ type DeleteParams struct {
 	ReferenceNow  time.Time
 }
 
-func ListCurrentState(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, referenceNow time.Time) (CurrentStateListResponse, error) {
+type RuntimeCurrentStateProvider interface {
+	SnapshotCurrentState(profileID int, modelConfigID int, orderedConnectionIDs []int, referenceNow time.Time) []CurrentStateItem
+	ResetConnection(profileID int, connectionID int) bool
+	ResetRoundRobinCursor(profileID int, modelConfigID int) bool
+}
+
+func ListCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeCurrentStateProvider, profileID int, modelConfigID int, referenceNow time.Time) (CurrentStateListResponse, error) {
 	var existingModelID int
 	err := exec.QueryRow(ctx, `SELECT id FROM model_configs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, modelConfigID).Scan(&existingModelID)
 	if err == pgx.ErrNoRows {
@@ -116,47 +122,50 @@ func ListCurrentState(ctx context.Context, exec queryExecutor, profileID int, mo
 	if err != nil {
 		return CurrentStateListResponse{}, fmt.Errorf("load model %d for profile %d: %w", modelConfigID, profileID, err)
 	}
-	rows, err := exec.Query(ctx, `SELECT routing_connection_runtime_state.connection_id, routing_connection_runtime_state.circuit_state, routing_connection_runtime_state.probe_available_at, routing_connection_runtime_state.window_started_at, routing_connection_runtime_state.window_request_count, routing_connection_runtime_state.in_flight_non_stream, routing_connection_runtime_state.in_flight_stream, routing_connection_runtime_state.consecutive_failures, routing_connection_runtime_state.last_failure_kind, routing_connection_runtime_state.last_cooldown_seconds::float8, routing_connection_runtime_state.max_cooldown_strikes, routing_connection_runtime_state.ban_mode, routing_connection_runtime_state.banned_until_at, routing_connection_runtime_state.open_until_at, routing_connection_runtime_state.probe_eligible_logged, routing_connection_runtime_state.live_p95_latency_ms, routing_connection_runtime_state.last_live_failure_at, routing_connection_runtime_state.last_live_success_at, routing_connection_runtime_state.created_at, routing_connection_runtime_state.updated_at
-		 FROM routing_connection_runtime_state
-		 JOIN connections ON connections.id = routing_connection_runtime_state.connection_id
-		 WHERE routing_connection_runtime_state.profile_id = $1 AND connections.profile_id = $1 AND connections.model_config_id = $2
-		 ORDER BY connections.priority ASC, connections.id ASC`, profileID, modelConfigID)
+	orderedConnectionIDs, err := listCurrentStateConnectionIDs(ctx, exec, profileID, modelConfigID)
 	if err != nil {
-		return CurrentStateListResponse{}, fmt.Errorf("query loadbalance current state for model %d: %w", modelConfigID, err)
+		return CurrentStateListResponse{}, err
 	}
-	defer rows.Close()
-	items := make([]CurrentStateItem, 0)
-	nowAt := referenceNow.UTC()
-	for rows.Next() {
-		item, scanErr := scanCurrentStateItem(rows)
-		if scanErr != nil {
-			return CurrentStateListResponse{}, scanErr
-		}
-		item.State = deriveCurrentState(item.BanMode, item.BannedUntilAt, item.BlockedUntilAt, nowAt)
-		items = append(items, item)
+	if provider == nil {
+		return CurrentStateListResponse{Items: []CurrentStateItem{}}, nil
 	}
-	if err := rows.Err(); err != nil {
-		return CurrentStateListResponse{}, fmt.Errorf("iterate loadbalance current state rows for profile %d: %w", profileID, err)
-	}
-	return CurrentStateListResponse{Items: items}, nil
+	return CurrentStateListResponse{Items: provider.SnapshotCurrentState(profileID, modelConfigID, orderedConnectionIDs, referenceNow)}, nil
 }
 
-func ResetCurrentState(ctx context.Context, exec queryExecutor, profileID int, connectionID int) (CurrentStateResetResponse, error) {
+func ResetCurrentState(ctx context.Context, exec queryExecutor, provider RuntimeCurrentStateProvider, profileID int, connectionID int) (CurrentStateResetResponse, error) {
 	var modelConfigID sql.NullInt32
 	err := exec.QueryRow(ctx, `SELECT model_config_id FROM connections WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, connectionID).Scan(&modelConfigID)
 	if err != nil && err != pgx.ErrNoRows {
 		return CurrentStateResetResponse{}, fmt.Errorf("load connection %d for profile %d: %w", connectionID, profileID, err)
 	}
-	result, err := exec.Exec(ctx, `DELETE FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id = $2`, profileID, connectionID)
-	if err != nil {
-		return CurrentStateResetResponse{}, fmt.Errorf("clear current state for connection %d in profile %d: %w", connectionID, profileID, err)
-	}
-	if modelConfigID.Valid {
-		if _, err := exec.Exec(ctx, `DELETE FROM loadbalance_round_robin_state WHERE profile_id = $1 AND model_config_id = $2`, profileID, int(modelConfigID.Int32)); err != nil {
-			return CurrentStateResetResponse{}, fmt.Errorf("clear round robin state for model %d in profile %d: %w", int(modelConfigID.Int32), profileID, err)
+	cleared := false
+	if provider != nil {
+		cleared = provider.ResetConnection(profileID, connectionID) || cleared
+		if modelConfigID.Valid {
+			cleared = provider.ResetRoundRobinCursor(profileID, int(modelConfigID.Int32)) || cleared
 		}
 	}
-	return CurrentStateResetResponse{ConnectionID: connectionID, Cleared: result.RowsAffected() > 0}, nil
+	return CurrentStateResetResponse{ConnectionID: connectionID, Cleared: cleared}, nil
+}
+
+func listCurrentStateConnectionIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) ([]int, error) {
+	rows, err := exec.Query(ctx, `SELECT id FROM connections WHERE profile_id = $1 AND model_config_id = $2 ORDER BY priority ASC, id ASC`, profileID, modelConfigID)
+	if err != nil {
+		return nil, fmt.Errorf("query current-state connection ids for model %d: %w", modelConfigID, err)
+	}
+	defer rows.Close()
+	ids := make([]int, 0)
+	for rows.Next() {
+		var connectionID int
+		if err := rows.Scan(&connectionID); err != nil {
+			return nil, fmt.Errorf("scan current-state connection id for model %d: %w", modelConfigID, err)
+		}
+		ids = append(ids, connectionID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate current-state connection ids for model %d: %w", modelConfigID, err)
+	}
+	return ids, nil
 }
 
 func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID string, limit int, offset int) (EventListResponse, error) {
@@ -232,34 +241,6 @@ func DeleteEvents(ctx context.Context, exec queryExecutor, params DeleteParams) 
 		return fmt.Errorf("delete loadbalance events before %s for profile %d: %w", params.Before.UTC().Format(time.RFC3339), params.ProfileID, err)
 	}
 	return nil
-}
-
-func scanCurrentStateItem(scanner interface{ Scan(...any) error }) (CurrentStateItem, error) {
-	var circuitState sql.NullString
-	var probeAvailableAt sql.NullTime
-	var windowStartedAt sql.NullTime
-	var lastFailureKind sql.NullString
-	var bannedUntilAt sql.NullTime
-	var blockedUntilAt sql.NullTime
-	var liveP95LatencyMS sql.NullInt32
-	var lastLiveFailureAt sql.NullTime
-	var lastLiveSuccessAt sql.NullTime
-	item := CurrentStateItem{}
-	if err := scanner.Scan(&item.ConnectionID, &circuitState, &probeAvailableAt, &windowStartedAt, &item.WindowRequestCount, &item.InFlightNonStream, &item.InFlightStream, &item.ConsecutiveFailures, &lastFailureKind, &item.LastCooldownSeconds, &item.MaxCooldownStrikes, &item.BanMode, &bannedUntilAt, &blockedUntilAt, &item.ProbeEligibleLogged, &liveP95LatencyMS, &lastLiveFailureAt, &lastLiveSuccessAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
-		return CurrentStateItem{}, fmt.Errorf("scan loadbalance current state row: %w", err)
-	}
-	item.CircuitState = nullableString(circuitState)
-	item.ProbeAvailableAt = nullableTime(probeAvailableAt)
-	item.WindowStartedAt = nullableTime(windowStartedAt)
-	item.LastFailureKind = nullableString(lastFailureKind)
-	item.BannedUntilAt = nullableTime(bannedUntilAt)
-	item.BlockedUntilAt = nullableTime(blockedUntilAt)
-	item.LiveP95LatencyMS = nullableInt32(liveP95LatencyMS)
-	item.LastLiveFailureAt = nullableTime(lastLiveFailureAt)
-	item.LastLiveSuccessAt = nullableTime(lastLiveSuccessAt)
-	item.CreatedAt = item.CreatedAt.UTC()
-	item.UpdatedAt = item.UpdatedAt.UTC()
-	return item, nil
 }
 
 func scanEvent(scanner interface{ Scan(...any) error }) (EventDetail, error) {

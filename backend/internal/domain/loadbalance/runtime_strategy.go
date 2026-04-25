@@ -125,7 +125,7 @@ func LoadRuntimeStrategy(ctx context.Context, exec queryExecutor, profileID int,
 	return record, true, nil
 }
 
-func OrderConnectionIDs(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, strategy RuntimeStrategy, connections []ConnectionOrderCandidate, states map[int]RuntimeConnectionState, nowAt time.Time) ([]int, error) {
+func OrderConnectionIDs(profileID int, modelConfigID int, strategy RuntimeStrategy, connections []ConnectionOrderCandidate, states map[int]RuntimeConnectionState, roundRobin RuntimeRoundRobinCursorSource, nowAt time.Time) ([]int, error) {
 	ordered := append([]ConnectionOrderCandidate(nil), connections...)
 	sort.Slice(ordered, func(left int, right int) bool {
 		return compareStableCandidates(ordered[left], ordered[right]) < 0
@@ -136,11 +136,8 @@ func OrderConnectionIDs(ctx context.Context, exec queryExecutor, profileID int, 
 		})
 		return extractConnectionIDs(ordered), nil
 	}
-	if isRoundRobinStrategy(strategy) && len(ordered) >= 2 {
-		cursor, err := claimRoundRobinCursorPosition(ctx, exec, profileID, modelConfigID, len(ordered), nowAt)
-		if err != nil {
-			return nil, err
-		}
+	if isRoundRobinStrategy(strategy) && len(ordered) >= 2 && roundRobin != nil {
+		cursor := roundRobin.ClaimRoundRobinCursor(profileID, modelConfigID, len(ordered))
 		if cursor != 0 {
 			ordered = append(ordered[cursor:], ordered[:cursor]...)
 		}
@@ -376,47 +373,6 @@ func normalizeBanMode(value string) string {
 	default:
 		return "off"
 	}
-}
-
-func claimRoundRobinCursorPosition(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, connectionCount int, nowAt time.Time) (int, error) {
-	if connectionCount <= 0 {
-		return 0, nil
-	}
-	if _, err := exec.Exec(
-		ctx,
-		`INSERT INTO loadbalance_round_robin_state (profile_id, model_config_id, next_cursor, created_at, updated_at)
-		VALUES ($1, $2, 0, $3, $3)
-		ON CONFLICT (profile_id, model_config_id) DO NOTHING`,
-		profileID,
-		modelConfigID,
-		nowAt,
-	); err != nil {
-		return 0, fmt.Errorf("insert round-robin state for model %d: %w", modelConfigID, err)
-	}
-	var rowID int
-	var nextCursor int
-	if err := exec.QueryRow(
-		ctx,
-		`SELECT id, next_cursor
-		FROM loadbalance_round_robin_state
-		WHERE profile_id = $1 AND model_config_id = $2
-		FOR UPDATE`,
-		profileID,
-		modelConfigID,
-	).Scan(&rowID, &nextCursor); err != nil {
-		return 0, fmt.Errorf("load round-robin state for model %d: %w", modelConfigID, err)
-	}
-	cursor := nextCursor % connectionCount
-	if _, err := exec.Exec(
-		ctx,
-		`UPDATE loadbalance_round_robin_state SET next_cursor = $2, updated_at = $3 WHERE id = $1`,
-		rowID,
-		(cursor+1)%connectionCount,
-		nowAt,
-	); err != nil {
-		return 0, fmt.Errorf("update round-robin state for model %d: %w", modelConfigID, err)
-	}
-	return cursor, nil
 }
 
 func isAdaptiveStrategy(strategy RuntimeStrategy) bool {

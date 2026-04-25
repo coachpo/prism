@@ -101,6 +101,36 @@ func RecordRuntimeAdmissionRejection(ctx context.Context, exec queryExecutor, pr
 	return nil
 }
 
+func InsertRuntimeRecoveryEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, observedAt time.Time) error {
+	if !transition.RecoveryEventEligible {
+		return nil
+	}
+	payload := buildRuntimeRecoveryEventPayload(transition.PreviousState, strategy)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+		return fmt.Errorf("record runtime recovery event for connection %d in profile %d: %w", connectionID, profileID, err)
+	}
+	return nil
+}
+
+func InsertRuntimeFailureEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, failureKind string, observedAt time.Time) error {
+	payload := buildRuntimeFailureEventPayload(
+		transition.PreviousState,
+		strategy,
+		failureKind,
+		transition.CurrentState.ConsecutiveFailures,
+		transition.CurrentState.LastCooldownSeconds,
+		transition.CurrentState.MaxCooldownStrikes,
+		transition.CurrentState.BanMode,
+		transition.CurrentState.BannedUntilAt,
+		transition.CurrentState.OpenUntilAt,
+		observedAt.UTC(),
+	)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+		return fmt.Errorf("record runtime failure event for connection %d in profile %d: %w", connectionID, profileID, err)
+	}
+	return nil
+}
+
 func buildRuntimePlanningSkipEventPayload(state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) runtimeEventPayload {
 	policy := strategy.FeedbackPolicy()
 	nowAt := observedAt.UTC()
