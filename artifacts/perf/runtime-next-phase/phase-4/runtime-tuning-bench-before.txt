@@ -1,0 +1,21 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/coachpo/prism/backend/tests/runtime
+cpu: Apple M3
+BenchmarkRuntimeHotPath-8          	     177	   6339630 ns/op	   75790 B/op	    1029 allocs/op
+BenchmarkRuntimeHotPath-8          	     190	   7886589 ns/op	   77645 B/op	    1029 allocs/op
+BenchmarkRuntimeHotPath-8          	     187	   6798439 ns/op	   72612 B/op	    1028 allocs/op
+BenchmarkRuntimeHotPath-8          	     174	   6633592 ns/op	   74157 B/op	    1028 allocs/op
+BenchmarkRuntimeHotPath-8          	     174	   8399900 ns/op	   77222 B/op	    1030 allocs/op
+BenchmarkRuntimeLargeResponse-8    	     112	  12146230 ns/op	 1784328 B/op	    1139 allocs/op
+BenchmarkRuntimeLargeResponse-8    	     100	  14814259 ns/op	 1769224 B/op	    1133 allocs/op
+BenchmarkRuntimeLargeResponse-8    	      84	  12714855 ns/op	 1762342 B/op	    1129 allocs/op
+BenchmarkRuntimeLargeResponse-8    	     112	  12158901 ns/op	 1760223 B/op	    1132 allocs/op
+BenchmarkRuntimeLargeResponse-8    	     110	  11383389 ns/op	 1760397 B/op	    1128 allocs/op
+BenchmarkRuntimeCacheMissStorm-8   	      50	  22716635 ns/op	  882025 B/op	    6732 allocs/op
+BenchmarkRuntimeCacheMissStorm-8   	      48	  28531672 ns/op	  725603 B/op	    6688 allocs/op
+BenchmarkRuntimeCacheMissStorm-8   	      38	  28132617 ns/op	  790002 B/op	    6727 allocs/op
+BenchmarkRuntimeCacheMissStorm-8   	      45	  22721955 ns/op	  762980 B/op	    6707 allocs/op
+BenchmarkRuntimeCacheMissStorm-8   	      50	  32245495 ns/op	  795118 B/op	    6709 allocs/op
+PASS
+ok  	github.com/coachpo/prism/backend/tests/runtime	52.515s

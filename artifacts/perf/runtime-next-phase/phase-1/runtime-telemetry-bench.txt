@@ -1,0 +1,11 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/coachpo/prism/backend/tests/runtime
+cpu: Apple M3
+BenchmarkRuntimeTelemetryHotPath-8   	      45	  26264701 ns/op	  103569 B/op	    1129 allocs/op
+BenchmarkRuntimeTelemetryHotPath-8   	      42	  27656586 ns/op	  104569 B/op	    1128 allocs/op
+BenchmarkRuntimeTelemetryHotPath-8   	      51	  26166505 ns/op	  103803 B/op	    1129 allocs/op
+BenchmarkRuntimeTelemetryHotPath-8   	      48	  28497198 ns/op	  104726 B/op	    1129 allocs/op
+BenchmarkRuntimeTelemetryHotPath-8   	      49	  28889689 ns/op	   96518 B/op	    1128 allocs/op
+PASS
+ok  	github.com/coachpo/prism/backend/tests/runtime	33.284s

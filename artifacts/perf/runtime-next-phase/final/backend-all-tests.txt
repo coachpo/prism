@@ -1,0 +1,31 @@
+?   	github.com/coachpo/prism/backend/cmd/prism-backend	[no test files]
+?   	github.com/coachpo/prism/backend/internal/domain/audit	[no test files]
+ok  	github.com/coachpo/prism/backend/internal/domain/loadbalance	0.360s
+?   	github.com/coachpo/prism/backend/internal/domain/stats	[no test files]
+?   	github.com/coachpo/prism/backend/internal/endpointdomain	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/audit	[no test files]
+ok  	github.com/coachpo/prism/backend/internal/httpapi/management/auth	0.964s
+ok  	github.com/coachpo/prism/backend/internal/httpapi/management/configbundle	0.621s
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/configrules	[no test files]
+ok  	github.com/coachpo/prism/backend/internal/httpapi/management/connections	1.168s
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/endpoints	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/models	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/profiles	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/settings	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/stats	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/management/vendors	[no test files]
+?   	github.com/coachpo/prism/backend/internal/httpapi/openapi	[no test files]
+ok  	github.com/coachpo/prism/backend/internal/httpapi/realtime	1.438s
+ok  	github.com/coachpo/prism/backend/internal/httpapi/runtime	1.411s
+?   	github.com/coachpo/prism/backend/internal/pgxutil	[no test files]
+?   	github.com/coachpo/prism/backend/internal/platform/config	[no test files]
+ok  	github.com/coachpo/prism/backend/internal/platform/http	1.768s
+ok  	github.com/coachpo/prism/backend/internal/platform/migrate	1.856s
+?   	github.com/coachpo/prism/backend/internal/platform/startup	[no test files]
+?   	github.com/coachpo/prism/backend/internal/platform/version	[no test files]
+?   	github.com/coachpo/prism/backend/internal/profiledomain	[no test files]
+?   	github.com/coachpo/prism/backend/internal/vendordomain	[no test files]
+ok  	github.com/coachpo/prism/backend/tests/contract	44.858s
+ok  	github.com/coachpo/prism/backend/tests/integration	21.464s
+ok  	github.com/coachpo/prism/backend/tests/runtime	49.462s

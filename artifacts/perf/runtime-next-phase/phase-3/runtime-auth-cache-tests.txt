@@ -1,0 +1,1 @@
+ok  	github.com/coachpo/prism/backend/internal/httpapi/management/auth	1.398s
