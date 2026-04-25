@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -157,6 +159,47 @@ type requestPlan struct {
 	ClientHeaders          map[string]string
 	FailoverStatusCodes    []int
 	Strategy               loadbalance.RuntimeStrategy
+}
+
+type runtimeRequestBodySource struct {
+	bufferedBody         []byte
+	streamingBody        io.ReadCloser
+	streamingContentSize int64
+	useStreamingBody     bool
+
+	mu       sync.Mutex
+	consumed bool
+}
+
+func newBufferedRuntimeRequestBodySource(body []byte) *runtimeRequestBodySource {
+	return &runtimeRequestBodySource{bufferedBody: body}
+}
+
+func newStreamingRuntimeRequestBodySource(body io.ReadCloser, contentLength int64) *runtimeRequestBodySource {
+	return &runtimeRequestBodySource{
+		streamingBody:        body,
+		streamingContentSize: contentLength,
+		useStreamingBody:     true,
+	}
+}
+
+func (source *runtimeRequestBodySource) Open() (io.ReadCloser, int64, error) {
+	if source == nil {
+		return http.NoBody, 0, nil
+	}
+	if !source.useStreamingBody {
+		return io.NopCloser(bytes.NewReader(source.bufferedBody)), int64(len(source.bufferedBody)), nil
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.consumed {
+		return nil, 0, fmt.Errorf("runtime request body already consumed")
+	}
+	source.consumed = true
+	if source.streamingBody == nil {
+		return http.NoBody, 0, nil
+	}
+	return source.streamingBody, source.streamingContentSize, nil
 }
 
 type executionAttempt struct {
@@ -371,7 +414,7 @@ func orderConnectionsByID(connections []runtimeConnection, orderedIDs []int) []r
 	return ordered
 }
 
-func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string) (executionResult, error) {
+func (s *Service) executeRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, bodySource *runtimeRequestBodySource) (executionResult, error) {
 	launchedAttempts := 0
 	attempts := make([]executionAttempt, 0, len(plan.Connections))
 	lastError := ""
@@ -382,7 +425,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 
 	for index := 0; index < len(plan.Connections); index++ {
 		if !hedgeUsed && hedgePolicy.Enabled && hedgePolicy.MaxAdditionalAttempts > 0 && len(plan.Connections)-index >= 2 {
-			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, hedgePolicy)
+			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, hedgePolicy, bodySource)
 			if err != nil {
 				return executionResult{}, err
 			}
@@ -410,7 +453,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			continue
 		}
 
-		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, plan.Connections[index])
+		outcome := s.executeSingleAttempt(ctx, method, plan, requestQuery, plan.Connections[index], bodySource)
 		if outcome.FatalError != nil {
 			return executionResult{}, outcome.FatalError
 		}
@@ -471,14 +514,14 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 	return executionResult{}, &domainError{StatusCode: http.StatusBadGateway, Detail: fmt.Sprintf("All connections failed for model '%s'. Last error: %s", plan.RequestedModelID, lastError)}
 }
 
-func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy) (hedgedExecutionResult, error) {
+func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy, bodySource *runtimeRequestBodySource) (hedgedExecutionResult, error) {
 	primary := plan.Connections[startIndex]
 	secondary := plan.Connections[startIndex+1]
 	firstCtx, firstCancel := context.WithCancelCause(ctx)
 	defer firstCancel(nil)
 	results := make(chan hedgedAttemptResult, 2)
 	go func() {
-		results <- hedgedAttemptResult{Order: 0, Outcome: s.executeSingleAttempt(firstCtx, method, plan, requestQuery, primary)}
+		results <- hedgedAttemptResult{Order: 0, Outcome: s.executeSingleAttempt(firstCtx, method, plan, requestQuery, primary, bodySource)}
 	}()
 	inFlight := 1
 	secondStarted := false
@@ -503,7 +546,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 		secondCancel = cancel
 		inFlight++
 		go func() {
-			results <- hedgedAttemptResult{Order: 1, Outcome: s.executeSingleAttempt(secondCtx, method, plan, requestQuery, secondary)}
+			results <- hedgedAttemptResult{Order: 1, Outcome: s.executeSingleAttempt(secondCtx, method, plan, requestQuery, secondary, bodySource)}
 		}()
 	}
 
@@ -593,7 +636,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 	return result, nil
 }
 
-func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, connection runtimeConnection) executionOutcome {
+func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, connection runtimeConnection, bodySource *runtimeRequestBodySource) executionOutcome {
 	state := plan.RuntimeStates[connection.ID]
 	admissionReason := loadbalance.AdmissionRejectionReason(
 		state,
@@ -648,7 +691,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		return executionOutcome{Connection: connection, AdmissionReason: "max_in_flight_non_stream"}
 	}
 	attemptStartedAt := s.nowUTC()
-	response, launched, requestErr := s.doUpstreamRequest(ctx, method, upstreamURL, headers, plan.UpstreamBody)
+	response, launched, requestErr := s.doUpstreamRequest(ctx, method, upstreamURL, headers, bodySource)
 	if nonStreamLease.Token != "" {
 		if releaseErr := s.releaseRuntimeLeaseDetached(ctx, nonStreamLease.Token); releaseErr != nil {
 			if response != nil {
@@ -809,17 +852,19 @@ func runtimeFeedbackContext(ctx context.Context) (context.Context, context.Cance
 	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 }
 
-func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstreamURL string, headers map[string]string, rawBody []byte) (*http.Response, bool, error) {
-	var bodyReader *bytes.Reader
-	if rawBody == nil {
-		bodyReader = bytes.NewReader(nil)
-	} else {
-		bodyReader = bytes.NewReader(rawBody)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, upstreamURL, bodyReader)
+func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource) (*http.Response, bool, error) {
+	requestBody, contentLength, err := bodySource.Open()
 	if err != nil {
+		return nil, false, fmt.Errorf("open upstream request body: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, upstreamURL, requestBody)
+	if err != nil {
+		if requestBody != nil {
+			_ = requestBody.Close()
+		}
 		return nil, false, fmt.Errorf("build upstream request: %w", err)
 	}
+	request.ContentLength = contentLength
 	for key, value := range headers {
 		request.Header.Set(key, value)
 	}

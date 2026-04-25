@@ -1,0 +1,471 @@
+package runtime_test
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/coachpo/prism/backend/internal/platform/config"
+)
+
+const runtimeStreamingAssertionDeadline = 500 * time.Millisecond
+
+func TestRuntimeResponseStreamingPreservesUsage(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	profileID := harness.activeProfileID(t)
+	largeContent := strings.Repeat("phase-2-stream-usage-", 32768)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":     "chatcmpl-phase-2-streaming-usage",
+			"object": "chat.completion",
+			"choices": []map[string]any{{
+				"index":   0,
+				"message": map[string]any{"role": "assistant", "content": largeContent},
+			}},
+			"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 20},
+		})
+	}))
+	defer upstream.Close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "phase-2-stream-usage-public-" + randomSuffix(),
+		TargetModelID:   "phase-2-stream-usage-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "phase-2-stream-usage-key",
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "preserve usage during response streaming"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-phase-2-streaming-usage")
+	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
+	assertLatestUsageEventUsage(t, harness.conn, profileID, 7, 13, 20)
+}
+
+func TestRuntimeResponseStreamingIgnoresNestedSpoofedUsage(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"chatcmpl-phase-2-streaming-usage-security","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"output_text","text":"hello"},{"type":"output_json","value":{"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}}]}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`)
+	}))
+	defer upstream.Close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "phase-2-stream-usage-security-public-" + randomSuffix(),
+		TargetModelID:   "phase-2-stream-usage-security-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "phase-2-stream-usage-security-key",
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "ignore nested spoofed usage during response streaming"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertResponseField(t, response, "id", "chatcmpl-phase-2-streaming-usage-security")
+	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
+	assertLatestUsageEventUsage(t, harness.conn, profileID, 7, 13, 20)
+}
+
+func TestRuntimeLargeNonStreamResponseDoesNotFullyBuffer(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	profileID := harness.activeProfileID(t)
+	upstream := newChunkedLargeResponseUpstream(t)
+	defer upstream.close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "phase-2-large-response-public-" + randomSuffix(),
+		TargetModelID:   "phase-2-large-response-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/phase-2/large-response"),
+		EndpointAPIKey:  "phase-2-large-response-key",
+	})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "stream the large non-sse response"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	upstream.waitUntilFirstChunk(t, 5*time.Second)
+
+	readCh := make(chan readChunkResult, 1)
+	go func() {
+		buffer := make([]byte, 64)
+		n, err := response.Body.Read(buffer)
+		readCh <- readChunkResult{BytesRead: n, Err: err}
+	}()
+
+	select {
+	case result := <-readCh:
+		if result.Err != nil && result.Err != io.EOF {
+			t.Fatalf("expected streamed response bytes before upstream completion, got read error: %v", result.Err)
+		}
+		if result.BytesRead < 1 {
+			t.Fatalf("expected at least one streamed response byte before upstream completion, got %d", result.BytesRead)
+		}
+	case <-time.After(runtimeStreamingAssertionDeadline):
+		t.Fatal("expected response body to become readable before upstream finished; non-SSE response is still fully buffered")
+	}
+
+	upstream.releaseResponse()
+	_, _ = io.Copy(io.Discard, response.Body)
+	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
+}
+
+func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	profileID := harness.activeProfileID(t)
+	upstream := newCancellationAwareUpstream(t)
+	defer upstream.close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "gemini",
+		PublicModelID:   "phase-2-cancel-public-" + randomSuffix(),
+		TargetModelID:   "phase-2-cancel-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/phase-2/cancel"),
+		EndpointAPIKey:  "phase-2-cancel-key",
+	})
+
+	pipeReader, pipeWriter := io.Pipe()
+	requestContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, fmt.Sprintf("%s/v1beta/models/%s:generateContent", harness.url, route.PublicModelID), pipeReader)
+	if err != nil {
+		t.Fatalf("build cancellable runtime request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	resultCh := make(chan concurrentRuntimeRequestResult, 1)
+	go func() {
+		response, requestErr := harness.client.Do(request)
+		if requestErr != nil {
+			resultCh <- concurrentRuntimeRequestResult{Err: requestErr}
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		_, _ = io.Copy(io.Discard, response.Body)
+		resultCh <- concurrentRuntimeRequestResult{StatusCode: response.StatusCode}
+	}()
+
+	_, err = io.WriteString(pipeWriter, `{"contents":[{"role":"user","parts":[{"text":"`+strings.Repeat("phase-2-cancel-", 4096))
+	if err != nil {
+		t.Fatalf("write partial cancellable request body: %v", err)
+	}
+	upstream.waitUntilReadStarts(t, 5*time.Second)
+
+	cancel()
+	_ = pipeWriter.CloseWithError(context.Canceled)
+	upstream.waitUntilCanceled(t, 5*time.Second)
+	upstream.waitUntilDone(t, 5*time.Second)
+
+	result := awaitAsyncRequest(t, resultCh, 5*time.Second)
+	if result.Err == nil {
+		t.Fatalf("expected client-side cancellation to abort the runtime request, got status %d", result.StatusCode)
+	}
+}
+
+func TestRuntimeBufferedFallbackForRewritePath(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	profileID := harness.activeProfileID(t)
+	upstream := newArrivalRecordingUpstream(t)
+	defer upstream.close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "phase-2-buffered-fallback-public-" + randomSuffix(),
+		TargetModelID:   "phase-2-buffered-fallback-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/phase-2/buffered-fallback"),
+		EndpointAPIKey:  "phase-2-buffered-fallback-key",
+	})
+
+	rawBody := mustMarshalBenchmarkJSON(t, map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": strings.Repeat("phase-2-buffered-fallback-", 4096)}},
+		"model":    route.PublicModelID,
+	})
+	splitAt := len(rawBody) / 2
+	pipeReader, pipeWriter := io.Pipe()
+	request, err := http.NewRequest(http.MethodPost, harness.url+"/v1/chat/completions", pipeReader)
+	if err != nil {
+		t.Fatalf("build buffered-fallback runtime request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	resultCh := make(chan concurrentRuntimeRequestResult, 1)
+	go func() {
+		response, requestErr := harness.client.Do(request)
+		if requestErr != nil {
+			resultCh <- concurrentRuntimeRequestResult{Err: requestErr}
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, readErr := io.ReadAll(response.Body)
+		if readErr != nil {
+			resultCh <- concurrentRuntimeRequestResult{Err: readErr}
+			return
+		}
+		resultCh <- concurrentRuntimeRequestResult{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(body))}
+	}()
+
+	if _, err := pipeWriter.Write(rawBody[:splitAt]); err != nil {
+		t.Fatalf("write first buffered-fallback body chunk: %v", err)
+	}
+	upstream.assertNotStartedWithin(t, runtimeStreamingAssertionDeadline)
+	if _, err := pipeWriter.Write(rawBody[splitAt:]); err != nil {
+		t.Fatalf("write second buffered-fallback body chunk: %v", err)
+	}
+	if err := pipeWriter.Close(); err != nil {
+		t.Fatalf("close buffered-fallback body writer: %v", err)
+	}
+
+	body := upstream.waitForRequestBody(t, 5*time.Second)
+	result := awaitAsyncRequest(t, resultCh, 5*time.Second)
+	if result.Err != nil {
+		t.Fatalf("expected buffered-fallback request to succeed, got error: %v", result.Err)
+	}
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected buffered-fallback request status 200, got %d with body %s", result.StatusCode, result.Body)
+	}
+	if got := requestModelID(t, body); got != route.TargetModelID {
+		t.Fatalf("expected buffered fallback to preserve model rewrite to %q, got %q", route.TargetModelID, got)
+	}
+}
+
+func useStreamingRuntimeBufferingMode(settings *config.Settings) {
+	settings.RuntimeBufferingMode = config.RuntimeBufferingModeStreaming
+}
+
+func assertLatestUsageEventUsage(t *testing.T, conn *pgx.Conn, profileID int, wantInput int64, wantOutput int64, wantTotal int64) {
+	t.Helper()
+	var inputTokens sql.NullInt64
+	var outputTokens sql.NullInt64
+	var totalTokens sql.NullInt64
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT input_tokens, output_tokens, total_tokens FROM usage_request_events WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+		profileID,
+	).Scan(&inputTokens, &outputTokens, &totalTokens); err != nil {
+		t.Fatalf("load latest runtime usage event usage: %v", err)
+	}
+	if !inputTokens.Valid || inputTokens.Int64 != wantInput || !outputTokens.Valid || outputTokens.Int64 != wantOutput || !totalTokens.Valid || totalTokens.Int64 != wantTotal {
+		t.Fatalf("expected usage_request_events usage %d/%d/%d, got input=%+v output=%+v total=%+v", wantInput, wantOutput, wantTotal, inputTokens, outputTokens, totalTokens)
+	}
+}
+
+type readChunkResult struct {
+	BytesRead int
+	Err       error
+}
+
+type chunkedLargeResponseUpstream struct {
+	server      *httptest.Server
+	firstChunk  chan struct{}
+	release     chan struct{}
+	firstOnce   sync.Once
+	releaseOnce sync.Once
+}
+
+func newChunkedLargeResponseUpstream(t *testing.T) *chunkedLargeResponseUpstream {
+	t.Helper()
+	upstream := &chunkedLargeResponseUpstream{
+		firstChunk: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("chunked large-response upstream writer does not support flushing")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl-phase-2-large-response","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"`+strings.Repeat("phase-2-large-response-", 16384))
+		flusher.Flush()
+		upstream.firstOnce.Do(func() { close(upstream.firstChunk) })
+		<-upstream.release
+		_, _ = io.WriteString(w, `"}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`)
+	}))
+	return upstream
+}
+
+func (u *chunkedLargeResponseUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *chunkedLargeResponseUpstream) waitUntilFirstChunk(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.firstChunk:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for the first large response chunk")
+	}
+}
+
+func (u *chunkedLargeResponseUpstream) releaseResponse() {
+	u.releaseOnce.Do(func() {
+		close(u.release)
+	})
+}
+
+func (u *chunkedLargeResponseUpstream) close() {
+	u.releaseResponse()
+	u.server.Close()
+}
+
+type cancellationAwareUpstream struct {
+	server      *httptest.Server
+	readStarted chan struct{}
+	canceled    chan struct{}
+	done        chan struct{}
+	startOnce   sync.Once
+	cancelOnce  sync.Once
+	doneOnce    sync.Once
+}
+
+func newCancellationAwareUpstream(t *testing.T) *cancellationAwareUpstream {
+	t.Helper()
+	upstream := &cancellationAwareUpstream{
+		readStarted: make(chan struct{}),
+		canceled:    make(chan struct{}),
+		done:        make(chan struct{}),
+	}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		go func() {
+			<-r.Context().Done()
+			upstream.cancelOnce.Do(func() { close(upstream.canceled) })
+		}()
+		defer upstream.doneOnce.Do(func() { close(upstream.done) })
+		buffer := make([]byte, 32*1024)
+		for {
+			n, err := r.Body.Read(buffer)
+			if n > 0 {
+				upstream.startOnce.Do(func() { close(upstream.readStarted) })
+			}
+			if err != nil {
+				return
+			}
+		}
+	}))
+	return upstream
+}
+
+func (u *cancellationAwareUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *cancellationAwareUpstream) waitUntilReadStarts(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.readStarted:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for upstream request streaming to start")
+	}
+}
+
+func (u *cancellationAwareUpstream) waitUntilCanceled(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.canceled:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for upstream cancellation")
+	}
+}
+
+func (u *cancellationAwareUpstream) waitUntilDone(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.done:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for canceled upstream handler to exit")
+	}
+}
+
+func (u *cancellationAwareUpstream) close() {
+	u.server.Close()
+}
+
+type arrivalRecordingUpstream struct {
+	server      *httptest.Server
+	started     chan struct{}
+	requestBody chan []byte
+	startOnce   sync.Once
+}
+
+func newArrivalRecordingUpstream(t *testing.T) *arrivalRecordingUpstream {
+	t.Helper()
+	upstream := &arrivalRecordingUpstream{
+		started:     make(chan struct{}),
+		requestBody: make(chan []byte, 1),
+	}
+	upstream.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstream.startOnce.Do(func() { close(upstream.started) })
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read arrival-recording upstream body: %v", err)
+		}
+		_ = r.Body.Close()
+		upstream.requestBody <- append([]byte(nil), body...)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-phase-2-buffered-fallback"})
+	}))
+	return upstream
+}
+
+func (u *arrivalRecordingUpstream) baseURL(path string) string {
+	return strings.TrimRight(u.server.URL, "/") + path
+}
+
+func (u *arrivalRecordingUpstream) assertNotStartedWithin(t *testing.T, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-u.started:
+		t.Fatal("expected unsafe rewrite path to keep buffering before contacting upstream")
+	case <-time.After(timeout):
+	}
+}
+
+func (u *arrivalRecordingUpstream) waitForRequestBody(t *testing.T, timeout time.Duration) []byte {
+	t.Helper()
+	select {
+	case body := <-u.requestBody:
+		return body
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for buffered-fallback upstream request")
+		return nil
+	}
+}
+
+func (u *arrivalRecordingUpstream) close() {
+	u.server.Close()
+}

@@ -5,9 +5,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Environment string
+
+type RuntimeTelemetryMode string
+
+type RuntimeBufferingMode string
 
 const (
 	EnvironmentDevelopment Environment = "development"
@@ -16,12 +21,29 @@ const (
 )
 
 const (
-	defaultRuntimeDatabaseMaxConns        int32 = 4
-	defaultRuntimeDatabaseMinIdleConns    int32 = 1
-	defaultManagementDatabaseMaxConns     int32 = 12
-	defaultManagementDatabaseMinIdleConns int32 = 0
-	defaultManagementM2MaxConcurrent      int64 = 6
-	defaultManagementM3MaxConcurrent      int64 = 2
+	RuntimeTelemetryModeSynchronous   RuntimeTelemetryMode = "synchronous"
+	RuntimeTelemetryModeDurableOutbox RuntimeTelemetryMode = "durable_outbox"
+)
+
+const (
+	RuntimeBufferingModeBuffered  RuntimeBufferingMode = "buffered"
+	RuntimeBufferingModeStreaming RuntimeBufferingMode = "streaming"
+)
+
+const (
+	defaultRuntimeDatabaseMaxConns               int32 = 4
+	defaultRuntimeDatabaseMinIdleConns           int32 = 1
+	defaultManagementDatabaseMaxConns            int32 = 12
+	defaultManagementDatabaseMinIdleConns        int32 = 0
+	defaultManagementM2MaxConcurrent             int64 = 6
+	defaultManagementM3MaxConcurrent             int64 = 2
+	defaultRuntimeTransportMaxIdleConns                = 100
+	defaultRuntimeTransportMaxIdleConnsPerHost         = 8
+	defaultRuntimeTransportMaxConnsPerHost             = 0
+	defaultRuntimeTransportIdleConnTimeout             = 90 * time.Second
+	defaultRuntimeTransportResponseHeaderTimeout       = 0
+	defaultRuntimeTransportTLSHandshakeTimeout         = 10 * time.Second
+	defaultRuntimeTransportExpectContinueTimeout       = 1 * time.Second
 )
 
 type DatabasePoolBudget struct {
@@ -34,11 +56,24 @@ type ManagementAdmissionBudget struct {
 	M3MaxConcurrent int64
 }
 
+type RuntimeTransportConfig struct {
+	MaxIdleConns          int
+	MaxIdleConnsPerHost   int
+	MaxConnsPerHost       int
+	IdleConnTimeout       time.Duration
+	ResponseHeaderTimeout time.Duration
+	TLSHandshakeTimeout   time.Duration
+	ExpectContinueTimeout time.Duration
+}
+
 type Settings struct {
 	Host                             string
 	Port                             int
 	AppEnv                           Environment
 	DatabaseURL                      string
+	RuntimeTelemetryMode             RuntimeTelemetryMode
+	RuntimeBufferingMode             RuntimeBufferingMode
+	RuntimeTransportConfig           RuntimeTransportConfig
 	RuntimeDatabasePoolBudget        DatabasePoolBudget
 	ManagementDatabasePoolBudget     DatabasePoolBudget
 	ManagementAdmissionControlBudget ManagementAdmissionBudget
@@ -60,6 +95,9 @@ func Load() Settings {
 		Port:                             intEnvOrDefault("PORT", 8000),
 		AppEnv:                           parseEnvironment(os.Getenv("APP_ENV")),
 		DatabaseURL:                      strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		RuntimeTelemetryMode:             loadRuntimeTelemetryModeFromEnv(RuntimeTelemetryModeSynchronous),
+		RuntimeBufferingMode:             loadRuntimeBufferingModeFromEnv(RuntimeBufferingModeBuffered),
+		RuntimeTransportConfig:           loadRuntimeTransportConfigFromEnv(defaultRuntimeTransportConfig()),
 		RuntimeDatabasePoolBudget:        loadDatabasePoolBudgetFromEnv("RUNTIME_DB", DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns}),
 		ManagementDatabasePoolBudget:     loadDatabasePoolBudgetFromEnv("MANAGEMENT_DB", DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns}),
 		ManagementAdmissionControlBudget: loadManagementAdmissionBudgetFromEnv(ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent}),
@@ -74,6 +112,18 @@ func Load() Settings {
 		AuthRefreshCookieName:            envOrDefault("AUTH_REFRESH_COOKIE_NAME", "prism_refresh_token"),
 		AuthCookieSecure:                 boolEnvOrDefault("AUTH_COOKIE_SECURE", false),
 	}
+}
+
+func (s Settings) ResolvedRuntimeTelemetryMode() RuntimeTelemetryMode {
+	return normalizeRuntimeTelemetryMode(s.RuntimeTelemetryMode)
+}
+
+func (s Settings) ResolvedRuntimeBufferingMode() RuntimeBufferingMode {
+	return normalizeRuntimeBufferingMode(s.RuntimeBufferingMode)
+}
+
+func (s Settings) RuntimeTransport() RuntimeTransportConfig {
+	return normalizeRuntimeTransportConfig(s.RuntimeTransportConfig, defaultRuntimeTransportConfig())
 }
 
 func (s Settings) Address() string {
@@ -152,6 +202,30 @@ func boolEnvOrDefault(name string, fallback bool) bool {
 	return parsed
 }
 
+func durationEnvOrDefault(name string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func defaultRuntimeTransportConfig() RuntimeTransportConfig {
+	return RuntimeTransportConfig{
+		MaxIdleConns:          defaultRuntimeTransportMaxIdleConns,
+		MaxIdleConnsPerHost:   defaultRuntimeTransportMaxIdleConnsPerHost,
+		MaxConnsPerHost:       defaultRuntimeTransportMaxConnsPerHost,
+		IdleConnTimeout:       defaultRuntimeTransportIdleConnTimeout,
+		ResponseHeaderTimeout: defaultRuntimeTransportResponseHeaderTimeout,
+		TLSHandshakeTimeout:   defaultRuntimeTransportTLSHandshakeTimeout,
+		ExpectContinueTimeout: defaultRuntimeTransportExpectContinueTimeout,
+	}
+}
+
 func loadDatabasePoolBudgetFromEnv(prefix string, defaults DatabasePoolBudget) DatabasePoolBudget {
 	return normalizeDatabasePoolBudget(
 		DatabasePoolBudget{
@@ -173,6 +247,29 @@ func loadManagementAdmissionBudgetFromEnv(defaults ManagementAdmissionBudget) Ma
 	)
 }
 
+func loadRuntimeTransportConfigFromEnv(defaults RuntimeTransportConfig) RuntimeTransportConfig {
+	return normalizeRuntimeTransportConfig(
+		RuntimeTransportConfig{
+			MaxIdleConns:          intEnvOrDefault("RUNTIME_TRANSPORT_MAX_IDLE_CONNS", defaults.MaxIdleConns),
+			MaxIdleConnsPerHost:   intEnvOrDefault("RUNTIME_TRANSPORT_MAX_IDLE_CONNS_PER_HOST", defaults.MaxIdleConnsPerHost),
+			MaxConnsPerHost:       intEnvOrDefault("RUNTIME_TRANSPORT_MAX_CONNS_PER_HOST", defaults.MaxConnsPerHost),
+			IdleConnTimeout:       durationEnvOrDefault("RUNTIME_TRANSPORT_IDLE_CONN_TIMEOUT", defaults.IdleConnTimeout),
+			ResponseHeaderTimeout: durationEnvOrDefault("RUNTIME_TRANSPORT_RESPONSE_HEADER_TIMEOUT", defaults.ResponseHeaderTimeout),
+			TLSHandshakeTimeout:   durationEnvOrDefault("RUNTIME_TRANSPORT_TLS_HANDSHAKE_TIMEOUT", defaults.TLSHandshakeTimeout),
+			ExpectContinueTimeout: durationEnvOrDefault("RUNTIME_TRANSPORT_EXPECT_CONTINUE_TIMEOUT", defaults.ExpectContinueTimeout),
+		},
+		defaults,
+	)
+}
+
+func loadRuntimeTelemetryModeFromEnv(fallback RuntimeTelemetryMode) RuntimeTelemetryMode {
+	return normalizeRuntimeTelemetryMode(RuntimeTelemetryMode(envOrDefault("RUNTIME_TELEMETRY_MODE", string(fallback))))
+}
+
+func loadRuntimeBufferingModeFromEnv(fallback RuntimeBufferingMode) RuntimeBufferingMode {
+	return normalizeRuntimeBufferingMode(RuntimeBufferingMode(envOrDefault("RUNTIME_BUFFERING_MODE", string(fallback))))
+}
+
 func normalizeDatabasePoolBudget(candidate DatabasePoolBudget, defaults DatabasePoolBudget) DatabasePoolBudget {
 	normalized := candidate
 	if normalized.MaxConns <= 0 {
@@ -183,6 +280,38 @@ func normalizeDatabasePoolBudget(candidate DatabasePoolBudget, defaults Database
 	}
 	if normalized.MinIdleConns > normalized.MaxConns {
 		normalized.MinIdleConns = normalized.MaxConns
+	}
+	return normalized
+}
+
+func normalizeRuntimeTransportConfig(candidate RuntimeTransportConfig, defaults RuntimeTransportConfig) RuntimeTransportConfig {
+	normalized := candidate
+	if normalized.MaxIdleConns <= 0 {
+		normalized.MaxIdleConns = defaults.MaxIdleConns
+	}
+	if normalized.MaxIdleConnsPerHost <= 0 {
+		normalized.MaxIdleConnsPerHost = defaults.MaxIdleConnsPerHost
+	}
+	if normalized.MaxConnsPerHost < 0 {
+		normalized.MaxConnsPerHost = defaults.MaxConnsPerHost
+	}
+	if normalized.MaxConnsPerHost > 0 && normalized.MaxIdleConnsPerHost > normalized.MaxConnsPerHost {
+		normalized.MaxIdleConnsPerHost = normalized.MaxConnsPerHost
+	}
+	if normalized.MaxIdleConns < normalized.MaxIdleConnsPerHost {
+		normalized.MaxIdleConns = normalized.MaxIdleConnsPerHost
+	}
+	if normalized.IdleConnTimeout <= 0 {
+		normalized.IdleConnTimeout = defaults.IdleConnTimeout
+	}
+	if normalized.ResponseHeaderTimeout < 0 {
+		normalized.ResponseHeaderTimeout = defaults.ResponseHeaderTimeout
+	}
+	if normalized.TLSHandshakeTimeout <= 0 {
+		normalized.TLSHandshakeTimeout = defaults.TLSHandshakeTimeout
+	}
+	if normalized.ExpectContinueTimeout <= 0 {
+		normalized.ExpectContinueTimeout = defaults.ExpectContinueTimeout
 	}
 	return normalized
 }
@@ -202,6 +331,28 @@ func normalizeManagementAdmissionBudget(candidate ManagementAdmissionBudget, def
 		normalized.M3MaxConcurrent = normalized.M2MaxConcurrent
 	}
 	return normalized
+}
+
+func normalizeRuntimeTelemetryMode(candidate RuntimeTelemetryMode) RuntimeTelemetryMode {
+	switch RuntimeTelemetryMode(strings.ToLower(strings.TrimSpace(string(candidate)))) {
+	case RuntimeTelemetryModeDurableOutbox:
+		return RuntimeTelemetryModeDurableOutbox
+	case RuntimeTelemetryModeSynchronous:
+		fallthrough
+	default:
+		return RuntimeTelemetryModeSynchronous
+	}
+}
+
+func normalizeRuntimeBufferingMode(candidate RuntimeBufferingMode) RuntimeBufferingMode {
+	switch RuntimeBufferingMode(strings.ToLower(strings.TrimSpace(string(candidate)))) {
+	case RuntimeBufferingModeStreaming:
+		return RuntimeBufferingModeStreaming
+	case RuntimeBufferingModeBuffered:
+		fallthrough
+	default:
+		return RuntimeBufferingModeBuffered
+	}
 }
 
 func parseEnvironment(value string) Environment {

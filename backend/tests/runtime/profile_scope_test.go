@@ -1824,36 +1824,51 @@ func startSharedPostgresHarness() (testPostgresHarness, error) {
 	return testPostgresHarness{containerName: containerName, hostPort: hostPort}, nil
 }
 
-func (h testPostgresHarness) openDatabase(t *testing.T, ctx context.Context, databaseName string) *pgx.Conn {
-	t.Helper()
-	adminConn := connectDatabase(t, ctx, h.connectionString("postgres"))
+func (h testPostgresHarness) openDatabase(tb testing.TB, ctx context.Context, databaseName string) *pgx.Conn {
+	tb.Helper()
+	adminConn := connectDatabase(tb, ctx, h.connectionString("postgres"))
 	defer func() { _ = adminConn.Close(ctx) }()
 	if _, err := adminConn.Exec(ctx, `DROP DATABASE IF EXISTS `+quoteIdentifier(databaseName)+` WITH (FORCE)`); err != nil {
-		t.Fatalf("drop database %s: %v", databaseName, err)
+		tb.Fatalf("drop database %s: %v", databaseName, err)
 	}
 	if _, err := adminConn.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)); err != nil {
-		t.Fatalf("create database %s: %v", databaseName, err)
+		tb.Fatalf("create database %s: %v", databaseName, err)
 	}
-	return connectDatabase(t, ctx, h.connectionString(databaseName))
+	return connectDatabase(tb, ctx, h.connectionString(databaseName))
 }
 
 func (h testPostgresHarness) connectionString(databaseName string) string {
 	return fmt.Sprintf("postgres://prism:prism@127.0.0.1:%s/%s?sslmode=disable", h.hostPort, databaseName)
 }
 
-func newRuntimeHarness(t *testing.T) *runtimeHarness {
-	t.Helper()
+func newRuntimeHarness(tb testing.TB) *runtimeHarness {
+	tb.Helper()
+	return newRuntimeHarnessWithConfig(tb, runtimeHarnessConfig{})
+}
+
+type runtimeHarnessConfig struct {
+	RuntimeOptions  runtimeapi.Options
+	SettingsMutator func(*config.Settings)
+}
+
+func newRuntimeHarnessWithConfig(tb testing.TB, config runtimeHarnessConfig) *runtimeHarness {
+	tb.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	databaseName := "runtime_" + randomSuffix()
-	conn := sharedPostgresHarness.openDatabase(t, testContext, databaseName)
-	t.Cleanup(func() {
+	conn := sharedPostgresHarness.openDatabase(tb, testContext, databaseName)
+	tb.Cleanup(func() {
 		_ = conn.Close(context.Background())
 	})
-	return newRuntimeHarnessForDatabase(t, databaseName, conn)
+	return newRuntimeHarnessForDatabaseWithConfig(tb, databaseName, conn, config)
 }
 
 func restartRuntimeHarness(t *testing.T, databaseName string) *runtimeHarness {
+	t.Helper()
+	return restartRuntimeHarnessWithConfig(t, databaseName, runtimeHarnessConfig{})
+}
+
+func restartRuntimeHarnessWithConfig(t *testing.T, databaseName string, config runtimeHarnessConfig) *runtimeHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -1861,11 +1876,11 @@ func restartRuntimeHarness(t *testing.T, databaseName string) *runtimeHarness {
 	t.Cleanup(func() {
 		_ = conn.Close(context.Background())
 	})
-	return newRuntimeHarnessForDatabase(t, databaseName, conn)
+	return newRuntimeHarnessForDatabaseWithConfig(t, databaseName, conn, config)
 }
 
-func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.Conn) *runtimeHarness {
-	t.Helper()
+func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, conn *pgx.Conn, harnessConfig runtimeHarnessConfig) *runtimeHarness {
+	tb.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -1874,13 +1889,13 @@ func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.C
 		SecretEncryptionKey: "runtime-secret",
 	})
 	if err != nil {
-		t.Fatalf("build startup service: %v", err)
+		tb.Fatalf("build startup service: %v", err)
 	}
 	if _, err := startupService.RunWithConn(testContext, conn); err != nil {
-		t.Fatalf("run startup service: %v", err)
+		tb.Fatalf("run startup service: %v", err)
 	}
 
-	upstream := newUpstreamRecorder(t)
+	upstream := newUpstreamRecorder(tb)
 	settings := config.Settings{
 		Host:                       "127.0.0.1",
 		Port:                       8000,
@@ -1896,31 +1911,36 @@ func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.C
 		AuthRefreshCookieName:      "prism_refresh_token",
 		AuthCookieSecure:           false,
 	}
+	if harnessConfig.SettingsMutator != nil {
+		harnessConfig.SettingsMutator(&settings)
+	}
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
-		t.Fatalf("create pgx pool: %v", err)
+		tb.Fatalf("create pgx pool: %v", err)
 	}
-	t.Cleanup(pool.Close)
+	tb.Cleanup(pool.Close)
 	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool})
 	if err != nil {
-		t.Fatalf("build auth service: %v", err)
+		tb.Fatalf("build auth service: %v", err)
 	}
-	t.Cleanup(authService.Close)
+	tb.Cleanup(authService.Close)
 	configRulesService, err := managementconfigrules.NewService(settings, managementconfigrules.Options{Pool: pool})
 	if err != nil {
-		t.Fatalf("build config rules service: %v", err)
+		tb.Fatalf("build config rules service: %v", err)
 	}
-	t.Cleanup(configRulesService.Close)
+	tb.Cleanup(configRulesService.Close)
 	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
 	if err != nil {
-		t.Fatalf("build profiles service: %v", err)
+		tb.Fatalf("build profiles service: %v", err)
 	}
-	t.Cleanup(profilesService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool})
+	tb.Cleanup(profilesService.Close)
+	runtimeOptions := harnessConfig.RuntimeOptions
+	runtimeOptions.Pool = pool
+	runtimeService, err := runtimeapi.NewService(settings, runtimeOptions)
 	if err != nil {
-		t.Fatalf("build runtime service: %v", err)
+		tb.Fatalf("build runtime service: %v", err)
 	}
-	t.Cleanup(runtimeService.Close)
+	tb.Cleanup(runtimeService.Close)
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
 		Version:            "runtime-test",
 		AuthService:        authService,
@@ -1929,13 +1949,13 @@ func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.C
 		RuntimeService:     runtimeService,
 	})
 	if err != nil {
-		t.Fatalf("build runtime handler: %v", err)
+		tb.Fatalf("build runtime handler: %v", err)
 	}
 	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
+	tb.Cleanup(server.Close)
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		t.Fatalf("create cookie jar: %v", err)
+		tb.Fatalf("create cookie jar: %v", err)
 	}
 	client := server.Client()
 	client.Jar = jar
@@ -1952,13 +1972,13 @@ func newRuntimeHarnessForDatabase(t *testing.T, databaseName string, conn *pgx.C
 	}
 }
 
-func newUpstreamRecorder(t *testing.T) *upstreamRecorder {
-	t.Helper()
+func newUpstreamRecorder(tb testing.TB) *upstreamRecorder {
+	tb.Helper()
 	recorder := &upstreamRecorder{}
 	recorder.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			t.Fatalf("read upstream request body: %v", err)
+			tb.Fatalf("read upstream request body: %v", err)
 		}
 		_ = r.Body.Close()
 		recorder.mu.Lock()
@@ -1983,7 +2003,7 @@ func newUpstreamRecorder(t *testing.T) *upstreamRecorder {
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		}
 	}))
-	t.Cleanup(recorder.server.Close)
+	tb.Cleanup(recorder.server.Close)
 	return recorder
 }
 
@@ -2135,13 +2155,13 @@ func (u *blockingScriptedUpstream) requestsSnapshot() []upstreamRequestSnapshot 
 	return cloned
 }
 
-func (h *runtimeHarness) activeProfileID(t *testing.T) int {
-	t.Helper()
-	response := h.requestJSON(t, http.MethodGet, "/api/profiles/active", nil, nil)
-	assertStatus(t, response, http.StatusOK)
+func (h *runtimeHarness) activeProfileID(tb testing.TB) int {
+	tb.Helper()
+	response := h.requestJSON(tb, http.MethodGet, "/api/profiles/active", nil, nil)
+	assertStatus(tb, response, http.StatusOK)
 	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	return jsonInt(t, payload["id"])
+	decodeJSONResponse(tb, response, &payload)
+	return jsonInt(tb, payload["id"])
 }
 
 func (h *runtimeHarness) createProfile(t *testing.T, name string) int {
@@ -2203,14 +2223,14 @@ func (h *runtimeHarness) forceActiveProfile(t *testing.T, targetProfileID int) {
 	}
 }
 
-func (h *runtimeHarness) seedProxyRoute(t *testing.T, seed runtimeRouteSeed) seededRuntimeRoute {
-	t.Helper()
-	strategyID := h.seedLegacyStrategy(t, seed.ProfileID, "runtime-strategy-"+randomSuffix(), "round-robin")
-	targetModelConfigID := h.seedModel(t, seed.ProfileID, seed.APIFamily, seed.TargetModelID, "native", &strategyID)
-	publicModelConfigID := h.seedModel(t, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", nil)
-	h.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
-	endpointID := h.seedEndpoint(t, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
-	connectionID := h.seedConnection(t, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0)
+func (h *runtimeHarness) seedProxyRoute(tb testing.TB, seed runtimeRouteSeed) seededRuntimeRoute {
+	tb.Helper()
+	strategyID := h.seedLegacyStrategy(tb, seed.ProfileID, "runtime-strategy-"+randomSuffix(), "round-robin")
+	targetModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.TargetModelID, "native", &strategyID)
+	publicModelConfigID := h.seedModel(tb, seed.ProfileID, seed.APIFamily, seed.PublicModelID, "proxy", nil)
+	h.seedProxyTarget(tb, publicModelConfigID, targetModelConfigID)
+	endpointID := h.seedEndpoint(tb, seed.ProfileID, "endpoint-"+randomSuffix(), seed.EndpointBaseURL, seed.EndpointAPIKey, 0)
+	connectionID := h.seedConnection(tb, seed.ProfileID, targetModelConfigID, endpointID, "connection-"+randomSuffix(), nil, seed.CustomHeaders, 0)
 	return seededRuntimeRoute{
 		PublicModelID:   seed.PublicModelID,
 		TargetModelID:   seed.TargetModelID,
@@ -2220,13 +2240,13 @@ func (h *runtimeHarness) seedProxyRoute(t *testing.T, seed runtimeRouteSeed) see
 	}
 }
 
-func (h *runtimeHarness) seedLegacyStrategy(t *testing.T, profileID int, name string, legacyStrategyType string) int {
-	t.Helper()
-	return h.seedLegacyStrategyWithAutoRecovery(t, profileID, name, legacyStrategyType, `{"mode":"disabled"}`)
+func (h *runtimeHarness) seedLegacyStrategy(tb testing.TB, profileID int, name string, legacyStrategyType string) int {
+	tb.Helper()
+	return h.seedLegacyStrategyWithAutoRecovery(tb, profileID, name, legacyStrategyType, `{"mode":"disabled"}`)
 }
 
-func (h *runtimeHarness) seedLegacyStrategyWithAutoRecovery(t *testing.T, profileID int, name string, legacyStrategyType string, autoRecovery string) int {
-	t.Helper()
+func (h *runtimeHarness) seedLegacyStrategyWithAutoRecovery(tb testing.TB, profileID int, name string, legacyStrategyType string, autoRecovery string) int {
+	tb.Helper()
 	now := time.Now().UTC()
 	var strategyID int
 	if err := h.conn.QueryRow(
@@ -2240,7 +2260,7 @@ func (h *runtimeHarness) seedLegacyStrategyWithAutoRecovery(t *testing.T, profil
 		autoRecovery,
 		now,
 	).Scan(&strategyID); err != nil {
-		t.Fatalf("insert runtime strategy %q: %v", name, err)
+		tb.Fatalf("insert runtime strategy %q: %v", name, err)
 	}
 	return strategyID
 }
@@ -2270,8 +2290,8 @@ func (h *runtimeHarness) seedAdaptiveStrategyWithRoutingPolicy(t *testing.T, pro
 	return strategyID
 }
 
-func (h *runtimeHarness) seedModel(t *testing.T, profileID int, apiFamily string, modelID string, modelType string, strategyID *int) int {
-	t.Helper()
+func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily string, modelID string, modelType string, strategyID *int) int {
+	tb.Helper()
 	now := time.Now().UTC()
 	var modelConfigID int
 	if err := h.conn.QueryRow(
@@ -2298,18 +2318,18 @@ func (h *runtimeHarness) seedModel(t *testing.T, profileID int, apiFamily string
 		nullableTestInt(strategyID),
 		now,
 	).Scan(&modelConfigID); err != nil {
-		t.Fatalf("insert runtime model %q: %v", modelID, err)
+		tb.Fatalf("insert runtime model %q: %v", modelID, err)
 	}
 	return modelConfigID
 }
 
-func (h *runtimeHarness) seedProxyTarget(t *testing.T, sourceModelConfigID int, targetModelConfigID int) {
-	t.Helper()
-	h.seedProxyTargetAtPosition(t, sourceModelConfigID, targetModelConfigID, 0)
+func (h *runtimeHarness) seedProxyTarget(tb testing.TB, sourceModelConfigID int, targetModelConfigID int) {
+	tb.Helper()
+	h.seedProxyTargetAtPosition(tb, sourceModelConfigID, targetModelConfigID, 0)
 }
 
-func (h *runtimeHarness) seedProxyTargetAtPosition(t *testing.T, sourceModelConfigID int, targetModelConfigID int, position int) {
-	t.Helper()
+func (h *runtimeHarness) seedProxyTargetAtPosition(tb testing.TB, sourceModelConfigID int, targetModelConfigID int, position int) {
+	tb.Helper()
 	if _, err := h.conn.Exec(
 		context.Background(),
 		`INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`,
@@ -2317,12 +2337,12 @@ func (h *runtimeHarness) seedProxyTargetAtPosition(t *testing.T, sourceModelConf
 		targetModelConfigID,
 		position,
 	); err != nil {
-		t.Fatalf("insert runtime proxy target: %v", err)
+		tb.Fatalf("insert runtime proxy target: %v", err)
 	}
 }
 
-func (h *runtimeHarness) seedEndpoint(t *testing.T, profileID int, name string, baseURL string, apiKey string, position int) int {
-	t.Helper()
+func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string, baseURL string, apiKey string, position int) int {
+	tb.Helper()
 	now := time.Now().UTC()
 	var endpointID int
 	if err := h.conn.QueryRow(
@@ -2337,13 +2357,13 @@ func (h *runtimeHarness) seedEndpoint(t *testing.T, profileID int, name string, 
 		position,
 		now,
 	).Scan(&endpointID); err != nil {
-		t.Fatalf("insert runtime endpoint %q: %v", name, err)
+		tb.Fatalf("insert runtime endpoint %q: %v", name, err)
 	}
 	return endpointID
 }
 
-func (h *runtimeHarness) seedConnection(t *testing.T, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int) int {
-	t.Helper()
+func (h *runtimeHarness) seedConnection(tb testing.TB, profileID int, modelConfigID int, endpointID int, name string, authType *string, customHeaders map[string]any, priority int) int {
+	tb.Helper()
 	now := time.Now().UTC()
 	var connectionID int
 	if err := h.conn.QueryRow(
@@ -2375,10 +2395,10 @@ func (h *runtimeHarness) seedConnection(t *testing.T, profileID int, modelConfig
 		priority,
 		name,
 		nullableTestString(authType),
-		marshalNullableJSON(t, customHeaders),
+		marshalNullableJSON(tb, customHeaders),
 		now,
 	).Scan(&connectionID); err != nil {
-		t.Fatalf("insert runtime connection %q: %v", name, err)
+		tb.Fatalf("insert runtime connection %q: %v", name, err)
 	}
 	return connectionID
 }
@@ -2478,21 +2498,21 @@ func (h *runtimeHarness) seedProfileHeaderBlocklistRule(t *testing.T, profileID 
 	}
 }
 
-func (h *runtimeHarness) requestJSON(t *testing.T, method string, path string, body any, headers map[string]string) *http.Response {
-	t.Helper()
+func (h *runtimeHarness) requestJSON(tb testing.TB, method string, path string, body any, headers map[string]string) *http.Response {
+	tb.Helper()
 	var requestBody *bytes.Reader
 	if body == nil {
 		requestBody = bytes.NewReader(nil)
 	} else {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			t.Fatalf("marshal request body: %v", err)
+			tb.Fatalf("marshal request body: %v", err)
 		}
 		requestBody = bytes.NewReader(raw)
 	}
 	request, err := http.NewRequest(method, h.url+path, requestBody)
 	if err != nil {
-		t.Fatalf("build request %s %s: %v", method, path, err)
+		tb.Fatalf("build request %s %s: %v", method, path, err)
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -2502,19 +2522,19 @@ func (h *runtimeHarness) requestJSON(t *testing.T, method string, path string, b
 	}
 	response, err := h.client.Do(request)
 	if err != nil {
-		t.Fatalf("perform request %s %s: %v", method, path, err)
+		tb.Fatalf("perform request %s %s: %v", method, path, err)
 	}
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		_ = response.Body.Close()
 	})
 	return response
 }
 
-func assertStatus(t *testing.T, response *http.Response, want int) {
-	t.Helper()
+func assertStatus(tb testing.TB, response *http.Response, want int) {
+	tb.Helper()
 	if response.StatusCode != want {
-		body := readResponseBody(t, response)
-		t.Fatalf("expected status %d, got %d with body %s", want, response.StatusCode, body)
+		body := readResponseBody(tb, response)
+		tb.Fatalf("expected status %d, got %d with body %s", want, response.StatusCode, body)
 	}
 }
 
@@ -2527,19 +2547,19 @@ func assertResponseField(t *testing.T, response *http.Response, field string, wa
 	}
 }
 
-func decodeJSONResponse(t *testing.T, response *http.Response, target any) {
-	t.Helper()
-	body := readResponseBody(t, response)
+func decodeJSONResponse(tb testing.TB, response *http.Response, target any) {
+	tb.Helper()
+	body := readResponseBody(tb, response)
 	if err := json.Unmarshal([]byte(body), target); err != nil {
-		t.Fatalf("decode response JSON %q: %v", body, err)
+		tb.Fatalf("decode response JSON %q: %v", body, err)
 	}
 }
 
-func readResponseBody(t *testing.T, response *http.Response) string {
-	t.Helper()
+func readResponseBody(tb testing.TB, response *http.Response) string {
+	tb.Helper()
 	raw, err := io.ReadAll(response.Body)
 	if err != nil {
-		t.Fatalf("read response body: %v", err)
+		tb.Fatalf("read response body: %v", err)
 	}
 	response.Body = io.NopCloser(bytes.NewReader(raw))
 	return strings.TrimSpace(string(raw))
@@ -2794,14 +2814,14 @@ func requestModelID(t *testing.T, body []byte) string {
 	return modelID
 }
 
-func marshalNullableJSON(t *testing.T, value any) any {
-	t.Helper()
+func marshalNullableJSON(tb testing.TB, value any) any {
+	tb.Helper()
 	if value == nil {
 		return nil
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		t.Fatalf("marshal JSON value: %v", err)
+		tb.Fatalf("marshal JSON value: %v", err)
 	}
 	return string(raw)
 }
@@ -2827,11 +2847,11 @@ func nullableTestTime(value *time.Time) any {
 	return value.UTC()
 }
 
-func jsonInt(t *testing.T, value any) int {
-	t.Helper()
+func jsonInt(tb testing.TB, value any) int {
+	tb.Helper()
 	floatValue, ok := value.(float64)
 	if !ok {
-		t.Fatalf("expected JSON number, got %T", value)
+		tb.Fatalf("expected JSON number, got %T", value)
 	}
 	return int(floatValue)
 }
@@ -2884,11 +2904,11 @@ func executeConcurrentRuntimeJSONRequests(t *testing.T, harness *runtimeHarness,
 	return results
 }
 
-func connectDatabase(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
-	t.Helper()
+func connectDatabase(tb testing.TB, ctx context.Context, dsn string) *pgx.Conn {
+	tb.Helper()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
-		t.Fatalf("connect database %s: %v", dsn, err)
+		tb.Fatalf("connect database %s: %v", dsn, err)
 	}
 	return conn
 }

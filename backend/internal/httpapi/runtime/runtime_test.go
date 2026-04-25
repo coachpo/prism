@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestModelResolutionAndRewriteHelpers(t *testing.T) {
@@ -214,6 +216,58 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, test.usage)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("expected pricing result %+v, got %+v", test.want, got)
+			}
+		})
+	}
+}
+
+func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+		want    responseUsage
+	}{
+		{
+			name:    "keeps top-level usage and ignores nested spoofed usage object",
+			payload: `{"id":"chatcmpl-secure-stream","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"output_text","text":"hello"},{"type":"output_json","value":{"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}}]}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`,
+			want: responseUsage{
+				InputTokens:  intPtr(7),
+				OutputTokens: intPtr(13),
+				TotalTokens:  intPtr(20),
+			},
+		},
+		{
+			name:    "keeps response usage and ignores nested spoofed usage object",
+			payload: `{"response":{"id":"resp-secure-stream","output":[{"type":"message","content":[{"type":"output_text","text":"hello","usage":{"input_tokens":999,"output_tokens":999,"total_tokens":1998}}]}],"usage":{"input_tokens":5,"output_tokens":8,"total_tokens":13}}}`,
+			want: responseUsage{
+				InputTokens:  intPtr(5),
+				OutputTokens: intPtr(8),
+				TotalTokens:  intPtr(13),
+			},
+		},
+		{
+			name:    "keeps top-level usage metadata and ignores nested spoofed usage metadata object",
+			payload: `{"candidates":[{"content":{"parts":[{"text":"hello"},{"metadata":{"usageMetadata":{"promptTokenCount":999,"candidatesTokenCount":999,"totalTokenCount":1998}}}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":13,"totalTokenCount":20}}`,
+			want: responseUsage{
+				InputTokens:  intPtr(7),
+				OutputTokens: intPtr(13),
+				TotalTokens:  intPtr(20),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var forwarded bytes.Buffer
+			capture, err := proxyNonEventResponseAndCaptureUsage(&forwarded, strings.NewReader(test.payload), "application/json", time.Now)
+			if err != nil {
+				t.Fatalf("capture streamed non-sse usage: %v", err)
+			}
+			if forwarded.String() != test.payload {
+				t.Fatalf("expected streamed response body to pass through unchanged, got %q", forwarded.String())
+			}
+			if got := capture.extractedUsage(); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("expected extracted usage %+v, got %+v", test.want, got)
 			}
 		})
 	}
