@@ -46,7 +46,11 @@ type runtimeStatsTablesLock struct {
 
 const managementM3FastFailDeadline = 500 * time.Millisecond
 
-func TestRuntimePriorityIsolation_NonStream(t *testing.T) {
+func TestRuntimePriorityIsolation(t *testing.T) {
+	t.Run("NonStream", runtimePriorityIsolationNonStream)
+}
+
+func runtimePriorityIsolationNonStream(t *testing.T) {
 	harness := newRuntimeStatsHarnessWithOptions(t, runtimeStatsHarnessOptions{
 		runtimeDatabasePoolBudget:        config.DatabasePoolBudget{MaxConns: 1, MinIdleConns: 0},
 		managementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 1, MinIdleConns: 0},

@@ -49,7 +49,12 @@ type blockingAsyncDashboardTarget struct {
 
 // Phase 0 baseline: despite the future-facing name, current code does not shed
 // dashboard work first. It commits durable rows, then blocks inline on publish.
-func TestRuntimeDashboardBackpressure_ShedM3First(t *testing.T) {
+func TestRuntimeDashboardBackpressure(t *testing.T) {
+	t.Run("ShedM3First", runtimeDashboardBackpressureShedM3First)
+	t.Run("AsyncQueueSaturationDrainsWithoutDurableLoss", runtimeDashboardBackpressureAsyncQueueSaturationDrainsWithoutDurableLoss)
+}
+
+func runtimeDashboardBackpressureShedM3First(t *testing.T) {
 	publisher := newBlockingDashboardUpdatePublisher()
 	t.Cleanup(publisher.releasePublish)
 
@@ -91,7 +96,7 @@ func TestRuntimeDashboardBackpressure_ShedM3First(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
-func TestRuntimeDashboardBackpressure_AsyncQueueSaturationDrainsWithoutDurableLoss(t *testing.T) {
+func runtimeDashboardBackpressureAsyncQueueSaturationDrainsWithoutDurableLoss(t *testing.T) {
 	target := newBlockingAsyncDashboardTarget(true)
 	asyncPublisher := realtimeapi.NewAsyncDashboardPublisher(target, realtimeapi.AsyncDashboardPublisherOptions{
 		QueueCapacity:   1,

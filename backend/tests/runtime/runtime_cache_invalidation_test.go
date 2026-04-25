@@ -12,7 +12,13 @@ import (
 
 const runtimeCacheInvalidationVisibilityDeadline = 2 * time.Second
 
-func TestRuntimeAuthCacheInvalidation_AfterProxyKeyRotation(t *testing.T) {
+func TestRuntimeCacheInvalidation(t *testing.T) {
+	t.Run("AuthCacheInvalidationAfterProxyKeyRotation", runtimeAuthCacheInvalidationAfterProxyKeyRotation)
+	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
+	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
+}
+
+func runtimeAuthCacheInvalidationAfterProxyKeyRotation(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	seedRuntimeVerifiedAuthSettings(t, harness, "cache-admin", "cache-password-123", "cache@example.com")
@@ -106,7 +112,7 @@ func TestRuntimeAuthCacheInvalidation_AfterProxyKeyRotation(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
-func TestRuntimeCacheInvalidation_AfterActiveProfileActivation(t *testing.T) {
+func runtimeCacheInvalidationAfterActiveProfileActivation(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	activeProfileID := harness.activeProfileID(t)
 	standbyProfileID := harness.createProfile(t, "Cache Activation Standby")
@@ -181,7 +187,7 @@ func TestRuntimeCacheInvalidation_AfterActiveProfileActivation(t *testing.T) {
 	}
 }
 
-func TestRuntimePlanningCacheInvalidation_AfterHeaderBlocklistWrite(t *testing.T) {
+func runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()

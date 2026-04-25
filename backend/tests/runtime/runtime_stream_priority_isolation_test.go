@@ -20,7 +20,11 @@ type priorityStreamingUpstream struct {
 	releaseOnce sync.Once
 }
 
-func TestRuntimePriorityIsolation_StreamTTFT(t *testing.T) {
+func TestRuntimeStreamPriorityIsolation(t *testing.T) {
+	t.Run("StreamTTFT", runtimePriorityIsolationStreamTTFT)
+}
+
+func runtimePriorityIsolationStreamTTFT(t *testing.T) {
 	harness := newRuntimeStatsHarness(t)
 	profileID := harness.activeProfileID(t)
 	harness.seedStatsPressureHistory(t, profileID, "priority-stream")
