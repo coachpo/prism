@@ -26,7 +26,7 @@ func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return loadbalancedomain.CurrentStateListResponse{}, err
 		}
-		return loadbalancedomain.ListCurrentState(r.Context(), tx, profile.ID, modelConfigID, s.nowUTC())
+		return loadbalancedomain.ListCurrentState(r.Context(), tx, s.runtimeState, profile.ID, modelConfigID, s.nowUTC())
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
@@ -46,7 +46,7 @@ func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return loadbalancedomain.CurrentStateResetResponse{}, err
 		}
-		return loadbalancedomain.ResetCurrentState(r.Context(), tx, profile.ID, connectionID)
+		return loadbalancedomain.ResetCurrentState(r.Context(), tx, s.runtimeState, profile.ID, connectionID)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)

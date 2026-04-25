@@ -253,7 +253,7 @@ var errHedgeLoserCanceled = errors.New("hedge loser canceled")
 
 const hedgeCanceledAttemptStatusCode = 499
 
-func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http.Request, rawBody []byte) (requestPlan, error) {
+func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte) (requestPlan, error) {
 	requestedModelID, err := resolveModelID(rawBody, request.URL.Path)
 	if err != nil {
 		return requestPlan{}, &domainError{
@@ -262,13 +262,13 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		}
 	}
 
-	activeProfile, err := s.loadActiveProfileWithCache(ctx, tx)
+	activeProfile, err := s.loadActiveProfileWithCache(ctx)
 	if err != nil {
-		return requestPlan{}, err
+		return requestPlan{}, runtimeSnapshotDomainError(err)
 	}
-	snapshot, err := s.loadPlanningSnapshotWithCache(ctx, tx, activeProfile.ID)
+	snapshot, err := s.loadPlanningSnapshotWithCache(ctx, activeProfile.ID)
 	if err != nil {
-		return requestPlan{}, err
+		return requestPlan{}, runtimeSnapshotDomainError(err)
 	}
 
 	requestedModel, found := snapshot.ModelsByID[requestedModelID]
@@ -277,7 +277,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 	}
 	requestedModel = cloneRuntimeModelRecord(requestedModel)
 
-	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(ctx, tx, activeProfile.ID, snapshot, requestedModel, s.nowUTC())
+	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(activeProfile.ID, snapshot, requestedModel, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
@@ -285,7 +285,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		return requestPlan{}, err
 	}
 
-	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(ctx, tx, activeProfile.ID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.nowUTC())
+	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(activeProfile.ID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.runtimeState, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
@@ -329,6 +329,13 @@ func (s *Service) buildRequestPlan(ctx context.Context, tx pgx.Tx, request *http
 		FailoverStatusCodes:    strategy.FailoverStatusCodes(),
 		Strategy:               strategy,
 	}, nil
+}
+
+func runtimeSnapshotDomainError(err error) error {
+	if errors.Is(err, ErrPublishedRuntimeSnapshotUnavailable) {
+		return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: "Runtime snapshot is unavailable. Retry later."}
+	}
+	return err
 }
 
 func loadRuntimeReportCurrencySnapshot(ctx context.Context, tx pgx.Tx, profileID int) (runtimeReportCurrencySnapshot, error) {
@@ -382,17 +389,12 @@ func toConnectionOrderCandidates(connections []runtimeConnection) []loadbalance.
 	return candidates
 }
 
-func runtimeConnectionIDs(connections []runtimeConnection) []int {
-	ids := make([]int, 0, len(connections))
+func runtimeConnectionRefs(connections []runtimeConnection) []loadbalance.RuntimeConnectionRef {
+	refs := make([]loadbalance.RuntimeConnectionRef, 0, len(connections))
 	for _, connection := range connections {
-		ids = append(ids, connection.ID)
+		refs = append(refs, loadbalance.RuntimeConnectionRef{ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID})
 	}
-	return ids
-}
-
-type runtimeLeaseResult struct {
-	Token    string
-	Acquired bool
+	return refs
 }
 
 func orderConnectionsByID(connections []runtimeConnection, orderedIDs []int) []runtimeConnection {
@@ -442,7 +444,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			if hedged.Winner != nil {
 				winner := hedged.Winner
 				if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
-					if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, winner.Connection.ID, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt); feedbackErr != nil {
+					if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, winner.Connection, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt); feedbackErr != nil {
 						_ = winner.Response.Body.Close()
 						return executionResult{}, feedbackErr
 					}
@@ -472,14 +474,14 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 		if outcome.Err != nil {
 			lastError = outcome.Err.Error()
 			if outcome.Launched && !outcome.SuppressTransportFeedback {
-				if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+				if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
 					return executionResult{}, feedbackErr
 				}
 			}
 			continue
 		}
 		if outcome.FailoverEligible && outcome.Launched {
-			if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+			if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
 				_ = outcome.Response.Body.Close()
 				return executionResult{}, feedbackErr
 			}
@@ -490,7 +492,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			continue
 		}
 		if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
-			if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt); feedbackErr != nil {
+			if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt); feedbackErr != nil {
 				_ = outcome.Response.Body.Close()
 				return executionResult{}, feedbackErr
 			}
@@ -599,7 +601,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 				}
 				if !outcome.SuppressTransportFeedback {
 					result.LastError = outcome.Err.Error()
-					if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+					if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
 						return hedgedExecutionResult{}, feedbackErr
 					}
 				}
@@ -610,7 +612,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 					nonWinningAttempts = append(nonWinningAttempts, outcome.Attempt)
 				}
 				result.LastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
-				if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection.ID, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
+				if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
 					_ = outcome.Response.Body.Close()
 					return hedgedExecutionResult{}, feedbackErr
 				}
@@ -637,24 +639,6 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 }
 
 func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan requestPlan, requestQuery string, connection runtimeConnection, bodySource *runtimeRequestBodySource) executionOutcome {
-	state := plan.RuntimeStates[connection.ID]
-	admissionReason := loadbalance.AdmissionRejectionReason(
-		state,
-		loadbalance.RuntimeConnectionAdmission{
-			QPSLimit:             connection.QPSLimit,
-			MaxInFlightNonStream: connection.MaxInFlightNonStream,
-			MaxInFlightStream:    connection.MaxInFlightStream,
-		},
-		plan.Strategy.AdmissionPolicy(),
-		plan.IsStreamingRequest,
-		s.nowUTC(),
-	)
-	if admissionReason != "" {
-		if recordErr := s.recordRuntimeAdmissionRejection(ctx, plan.ProfileID, connection.ID, s.nowUTC()); recordErr != nil {
-			return executionOutcome{FatalError: recordErr}
-		}
-		return executionOutcome{Connection: connection, AdmissionReason: admissionReason}
-	}
 	headers, err := s.buildUpstreamHeaders(connection, plan.APIFamily, plan.ClientHeaders, plan.BlocklistRules)
 	if err != nil {
 		return executionOutcome{FatalError: err}
@@ -663,54 +647,32 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 	if err != nil {
 		return executionOutcome{FatalError: err}
 	}
-	probeLease, err := s.acquireRuntimeProbeLease(ctx, plan.ProfileID, connection.ID, state, s.nowUTC())
-	if err != nil {
-		return executionOutcome{FatalError: err}
-	}
-	if !probeLease.Acquired {
+
+	decision := s.runtimeState.TryBeginConnectionAttempt(loadbalance.RuntimeConnectionAttemptInput{
+		ProfileID:     plan.ProfileID,
+		ModelConfigID: connection.ModelConfigID,
+		ConnectionID:  connection.ID,
+		Admission: loadbalance.RuntimeConnectionAdmission{
+			QPSLimit:             connection.QPSLimit,
+			MaxInFlightNonStream: connection.MaxInFlightNonStream,
+			MaxInFlightStream:    connection.MaxInFlightStream,
+		},
+		Policy:      plan.Strategy.AdmissionPolicy(),
+		IsStreaming: plan.IsStreamingRequest,
+		ObservedAt:  s.nowUTC(),
+	})
+	if decision.Skipped {
 		return executionOutcome{Connection: connection, Skipped: true}
 	}
-	nonStreamLease, err := s.acquireRuntimeNonStreamLease(ctx, plan.ProfileID, connection, plan.Strategy, plan.IsStreamingRequest, s.nowUTC())
-	if err != nil {
-		if probeLease.Token != "" {
-			if releaseErr := s.releaseRuntimeLeaseDetached(ctx, probeLease.Token); releaseErr != nil {
-				return executionOutcome{FatalError: releaseErr}
-			}
-		}
-		return executionOutcome{FatalError: err}
+	if decision.AdmissionReason != "" {
+		return executionOutcome{Connection: connection, AdmissionReason: decision.AdmissionReason}
 	}
-	if !nonStreamLease.Acquired {
-		if probeLease.Token != "" {
-			if releaseErr := s.releaseRuntimeLeaseDetached(ctx, probeLease.Token); releaseErr != nil {
-				return executionOutcome{FatalError: releaseErr}
-			}
-		}
-		if recordErr := s.recordRuntimeAdmissionRejection(ctx, plan.ProfileID, connection.ID, s.nowUTC()); recordErr != nil {
-			return executionOutcome{FatalError: recordErr}
-		}
-		return executionOutcome{Connection: connection, AdmissionReason: "max_in_flight_non_stream"}
-	}
+	defer func() {
+		s.runtimeState.FinishConnectionAttempt(decision.Handle, s.nowUTC())
+	}()
+
 	attemptStartedAt := s.nowUTC()
 	response, launched, requestErr := s.doUpstreamRequest(ctx, method, upstreamURL, headers, bodySource)
-	if nonStreamLease.Token != "" {
-		if releaseErr := s.releaseRuntimeLeaseDetached(ctx, nonStreamLease.Token); releaseErr != nil {
-			if response != nil {
-				_ = response.Body.Close()
-			}
-			if probeLease.Token != "" {
-				_ = s.releaseRuntimeLeaseDetached(ctx, probeLease.Token)
-			}
-			return executionOutcome{FatalError: releaseErr}
-		}
-	}
-	if probeLease.Token != "" {
-		if releaseErr := s.releaseRuntimeLeaseDetached(ctx, probeLease.Token); releaseErr != nil {
-			if response != nil {
-				_ = response.Body.Close()
-			}
-			return executionOutcome{FatalError: releaseErr}
-		}
-	}
 	outcome := executionOutcome{Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
@@ -742,17 +704,15 @@ func (s *Service) isHedgeLoserCancellation(ctx context.Context, err error) bool 
 	return err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), errHedgeLoserCanceled)
 }
 
-func (s *Service) releaseRuntimeLeaseDetached(ctx context.Context, token string) error {
-	releaseCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	return s.releaseRuntimeLease(releaseCtx, token)
-}
-
-func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) error {
+func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) error {
+	transition := s.runtimeState.RecordRuntimeSuccess(profileID, connection.ModelConfigID, connection.ID, strategy, responseTimeMS, completedAt)
+	if !transition.RecoveryEventEligible {
+		return nil
+	}
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
 	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.RecordRuntimeSuccess(feedbackCtx, tx, profileID, connectionID, strategy, responseTimeMS, completedAt)
+		return true, loadbalance.InsertRuntimeRecoveryEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, completedAt)
 	})
 	if err != nil {
 		return fmt.Errorf("persist runtime success feedback: %w", err)
@@ -760,23 +720,12 @@ func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, conne
 	return nil
 }
 
-func (s *Service) recordRuntimeAdmissionRejection(ctx context.Context, profileID int, connectionID int, observedAt time.Time) error {
+func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+	transition := s.runtimeState.RecordRuntimeFailoverHTTPFailure(profileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
 	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.RecordRuntimeAdmissionRejection(feedbackCtx, tx, profileID, connectionID, observedAt)
-	})
-	if err != nil {
-		return fmt.Errorf("persist runtime admission rejection feedback: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
-	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.RecordRuntimeFailoverHTTPFailure(feedbackCtx, tx, profileID, connectionID, strategy, completedAt)
+		return true, loadbalance.InsertRuntimeFailureEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, "transient_http", completedAt)
 	})
 	if err != nil {
 		return fmt.Errorf("persist runtime failure feedback: %w", err)
@@ -784,66 +733,15 @@ func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileI
 	return nil
 }
 
-func (s *Service) recordRuntimeTransportFailure(ctx context.Context, profileID int, connectionID int, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+func (s *Service) recordRuntimeTransportFailure(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+	transition := s.runtimeState.RecordRuntimeTransportFailure(profileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
 	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.RecordRuntimeTransportFailure(feedbackCtx, tx, profileID, connectionID, strategy, completedAt)
+		return true, loadbalance.InsertRuntimeFailureEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, "connect_error", completedAt)
 	})
 	if err != nil {
 		return fmt.Errorf("persist runtime transport failure feedback: %w", err)
-	}
-	return nil
-}
-
-func (s *Service) acquireRuntimeProbeLease(ctx context.Context, profileID int, connectionID int, state loadbalance.RuntimeConnectionState, observedAt time.Time) (runtimeLeaseResult, error) {
-	if !loadbalance.RequiresHalfOpenProbeLease(state, observedAt) {
-		return runtimeLeaseResult{Acquired: true}, nil
-	}
-	result, err := pgxutil.InTxValue(ctx, s.pool, "runtime", func(tx pgx.Tx) (runtimeLeaseResult, error) {
-		leaseToken, acquired, leaseErr := loadbalance.TryAcquireRuntimeHalfOpenProbeLease(ctx, tx, profileID, connectionID, observedAt)
-		if leaseErr != nil {
-			return runtimeLeaseResult{}, leaseErr
-		}
-		return runtimeLeaseResult{Token: leaseToken, Acquired: acquired}, nil
-	})
-	if err != nil {
-		return runtimeLeaseResult{}, fmt.Errorf("acquire runtime probe lease: %w", err)
-	}
-	return result, nil
-}
-
-func (s *Service) acquireRuntimeNonStreamLease(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, isStreamingRequest bool, observedAt time.Time) (runtimeLeaseResult, error) {
-	if isStreamingRequest || connection.MaxInFlightNonStream == nil || *connection.MaxInFlightNonStream <= 0 {
-		return runtimeLeaseResult{Acquired: true}, nil
-	}
-	if !strategy.AdmissionPolicy().RespectInFlightLimits {
-		return runtimeLeaseResult{Acquired: true}, nil
-	}
-	result, err := pgxutil.InTxValue(ctx, s.pool, "runtime", func(tx pgx.Tx) (runtimeLeaseResult, error) {
-		leaseToken, acquired, leaseErr := loadbalance.TryAcquireRuntimeNonStreamLease(ctx, tx, profileID, connection.ID, *connection.MaxInFlightNonStream, observedAt)
-		if leaseErr != nil {
-			return runtimeLeaseResult{}, leaseErr
-		}
-		return runtimeLeaseResult{Token: leaseToken, Acquired: acquired}, nil
-	})
-	if err != nil {
-		return runtimeLeaseResult{}, fmt.Errorf("acquire runtime non-stream lease: %w", err)
-	}
-	return result, nil
-}
-
-func (s *Service) releaseRuntimeLease(ctx context.Context, leaseToken string) error {
-	if strings.TrimSpace(leaseToken) == "" {
-		return nil
-	}
-	releaseCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	_, err := pgxutil.InTxValue(releaseCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.ReleaseRuntimeLease(releaseCtx, tx, leaseToken)
-	})
-	if err != nil {
-		return fmt.Errorf("release runtime lease: %w", err)
 	}
 	return nil
 }

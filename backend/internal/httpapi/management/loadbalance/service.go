@@ -11,18 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 type Options struct {
-	Pool *pgxpool.Pool
-	Now  func() time.Time
+	Pool         *pgxpool.Pool
+	Now          func() time.Time
+	RuntimeState *loadbalancedomain.LocalRuntimeStateStore
 }
 
 type Service struct {
 	pool           *pgxpool.Pool
 	ownsPool       bool
 	now            func() time.Time
+	runtimeState   *loadbalancedomain.LocalRuntimeStateStore
 	allowedOrigins map[string]struct{}
 }
 
@@ -63,7 +66,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		allowedOrigins[origin] = struct{}{}
 	}
 
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins}, nil
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, runtimeState: options.RuntimeState, allowedOrigins: allowedOrigins}, nil
 }
 
 func (s *Service) Close() {
