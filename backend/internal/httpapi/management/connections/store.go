@@ -363,20 +363,6 @@ func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID i
 	return nil
 }
 
-func clearConnectionRuntimeState(ctx context.Context, exec queryExecutor, profileID int, connectionID int) error {
-	if _, err := exec.Exec(ctx, `DELETE FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id = $2`, profileID, connectionID); err != nil {
-		return fmt.Errorf("clear runtime state for connection %d: %w", connectionID, err)
-	}
-	return nil
-}
-
-func clearRoundRobinStateForModel(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) error {
-	if _, err := exec.Exec(ctx, `DELETE FROM loadbalance_round_robin_state WHERE profile_id = $1 AND model_config_id = $2`, profileID, modelConfigID); err != nil {
-		return fmt.Errorf("clear round robin state for model %d: %w", modelConfigID, err)
-	}
-	return nil
-}
-
 func loadConnectionOwner(ctx context.Context, exec queryExecutor, profileID int, connectionID int) (connectionOwnerRecord, bool, error) {
 	record, err := scanConnectionOwnerRecord(exec.QueryRow(ctx, `SELECT connections.id, connections.model_config_id, model_configs.model_id, connections.name, endpoints.id, endpoints.name, endpoints.base_url FROM connections LEFT JOIN model_configs ON model_configs.id = connections.model_config_id LEFT JOIN endpoints ON endpoints.id = connections.endpoint_id WHERE connections.profile_id = $1 AND connections.id = $2 LIMIT 1`, profileID, connectionID))
 	if err == pgx.ErrNoRows {

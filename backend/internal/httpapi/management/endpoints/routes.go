@@ -168,15 +168,7 @@ func (s *Service) handleUpdateEndpoint(w http.ResponseWriter, r *http.Request) {
 			record.APIKey = encryptedAPIKey
 		}
 		if clearDependentRecoveryState {
-			usageRows, err := listEndpointUsageRows(r.Context(), tx, profile.ID, record.ID)
-			if err != nil {
-				return endpointResponse{}, err
-			}
-			connectionIDs := make([]int, 0, len(usageRows))
-			for _, row := range usageRows {
-				connectionIDs = append(connectionIDs, row.ConnectionID)
-			}
-			if err := clearConnectionRuntimeStates(r.Context(), tx, profile.ID, connectionIDs); err != nil {
+			if _, err := listEndpointUsageRows(r.Context(), tx, profile.ID, record.ID); err != nil {
 				return endpointResponse{}, err
 			}
 		}

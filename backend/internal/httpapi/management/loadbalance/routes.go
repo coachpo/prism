@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -131,7 +130,7 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return loadbalanceStrategyResponse{}, err
 		}
-		current, found, err := loadStrategyRow(r.Context(), tx, profile.ID, strategyID, true)
+		_, found, err := loadStrategyRow(r.Context(), tx, profile.ID, strategyID, true)
 		if err != nil {
 			return loadbalanceStrategyResponse{}, err
 		}
@@ -145,10 +144,6 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		if exists {
 			return loadbalanceStrategyResponse{}, &domainError{StatusCode: http.StatusConflict, Detail: "Loadbalance strategy name already exists"}
 		}
-		before, err := strategyResponseFromRow(current)
-		if err != nil {
-			return loadbalanceStrategyResponse{}, err
-		}
 		updated, err := updateStrategy(r.Context(), tx, strategyID, persisted, s.nowUTC())
 		if err != nil {
 			if isUniqueViolation(err, "uq_loadbalance_strategies_profile_name") {
@@ -159,11 +154,6 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		after, err := strategyResponseFromRow(updated)
 		if err != nil {
 			return loadbalanceStrategyResponse{}, err
-		}
-		if strategyPolicyChanged(before, after) {
-			if err := clearStrategyState(r.Context(), tx, profile.ID, strategyID); err != nil {
-				return loadbalanceStrategyResponse{}, err
-			}
 		}
 		return after, nil
 	})
@@ -284,22 +274,6 @@ func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
-}
-
-func strategyPolicyChanged(before loadbalanceStrategyResponse, after loadbalanceStrategyResponse) bool {
-	if before.StrategyType != after.StrategyType {
-		return true
-	}
-	if !reflect.DeepEqual(before.LegacyStrategyType, after.LegacyStrategyType) {
-		return true
-	}
-	if !reflect.DeepEqual(before.AutoRecovery, after.AutoRecovery) {
-		return true
-	}
-	if !reflect.DeepEqual(before.RoutingPolicy, after.RoutingPolicy) {
-		return true
-	}
-	return false
 }
 
 func decodeStrategyRequest(request *http.Request) (loadbalanceStrategyRequest, error) {

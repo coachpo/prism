@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -163,9 +162,6 @@ func (s *Service) handleCreateConnection(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return connectionResponse{}, err
 		}
-		if err := clearRoundRobinStateForModel(r.Context(), tx, profile.ID, modelConfigID); err != nil {
-			return connectionResponse{}, err
-		}
 		created, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, connectionID, false)
 		if err != nil {
 			return connectionResponse{}, err
@@ -221,16 +217,11 @@ func (s *Service) handleUpdateConnection(w http.ResponseWriter, r *http.Request)
 			return connectionResponse{}, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: "endpoint_id and endpoint_create are mutually exclusive"}
 		}
 		next := current
-		clearConnectionState := false
-		clearRoundRobinState := false
 
 		if requestBody.EndpointCreate.Set && requestBody.EndpointCreate.Value != nil {
 			endpoint, err := s.createInlineEndpoint(r.Context(), tx, profile.ID, *requestBody.EndpointCreate.Value)
 			if err != nil {
 				return connectionResponse{}, err
-			}
-			if endpoint.ID != next.EndpointID {
-				clearConnectionState = true
 			}
 			next.EndpointID = endpoint.ID
 		}
@@ -242,16 +233,9 @@ func (s *Service) handleUpdateConnection(w http.ResponseWriter, r *http.Request)
 			if !found {
 				return connectionResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Endpoint not found"}
 			}
-			if endpoint.ID != next.EndpointID {
-				clearConnectionState = true
-			}
 			next.EndpointID = endpoint.ID
 		}
 		if requestBody.IsActive.Set {
-			if requestBody.IsActive.Value != current.IsActive {
-				clearConnectionState = true
-				clearRoundRobinState = true
-			}
 			next.IsActive = requestBody.IsActive.Value
 		}
 		if requestBody.Name.Set {
@@ -262,16 +246,10 @@ func (s *Service) handleUpdateConnection(w http.ResponseWriter, r *http.Request)
 			if err != nil {
 				return connectionResponse{}, err
 			}
-			if !reflect.DeepEqual(authType, current.AuthType) {
-				clearConnectionState = true
-			}
 			next.AuthType = authType
 		}
 		if requestBody.CustomHeaders.Set {
 			headers := normalizeHeaders(requestBody.CustomHeaders.Value)
-			if !reflect.DeepEqual(headers, current.CustomHeaders) {
-				clearConnectionState = true
-			}
 			next.CustomHeaders = headers
 		}
 		if requestBody.OpenAIProbeEndpointVariant.Set {
@@ -309,16 +287,6 @@ func (s *Service) handleUpdateConnection(w http.ResponseWriter, r *http.Request)
 		next.UpdatedAt = s.nowUTC()
 		if err := updateConnectionRow(r.Context(), tx, next); err != nil {
 			return connectionResponse{}, err
-		}
-		if clearConnectionState {
-			if err := clearConnectionRuntimeState(r.Context(), tx, profile.ID, current.ID); err != nil {
-				return connectionResponse{}, err
-			}
-		}
-		if clearRoundRobinState {
-			if err := clearRoundRobinStateForModel(r.Context(), tx, profile.ID, current.ModelConfigID); err != nil {
-				return connectionResponse{}, err
-			}
 		}
 		updated, found, err := loadConnectionRecord(r.Context(), tx, profile.ID, current.ID, false)
 		if err != nil {
@@ -395,9 +363,6 @@ func (s *Service) handleMoveConnectionPriority(w http.ResponseWriter, r *http.Re
 		connections = append(connections[:requestBody.ToIndex], append([]connectionResponse{moved}, connections[requestBody.ToIndex:]...)...)
 		normalizeConnectionPriorities(connections, s.nowUTC())
 		if err := persistConnectionPriorities(r.Context(), tx, connections); err != nil {
-			return nil, err
-		}
-		if err := clearRoundRobinStateForModel(r.Context(), tx, profile.ID, modelConfigID); err != nil {
 			return nil, err
 		}
 		return connections, nil
@@ -482,9 +447,6 @@ func (s *Service) handleDeleteConnection(w http.ResponseWriter, r *http.Request)
 		if !found {
 			return deletedResponse{}, &domainError{StatusCode: http.StatusNotFound, Detail: "Connection not found"}
 		}
-		if err := clearConnectionRuntimeState(r.Context(), tx, profile.ID, current.ID); err != nil {
-			return deletedResponse{}, err
-		}
 		if err := deleteConnectionRow(r.Context(), tx, current.ID); err != nil {
 			return deletedResponse{}, err
 		}
@@ -496,9 +458,6 @@ func (s *Service) handleDeleteConnection(w http.ResponseWriter, r *http.Request)
 			if err := persistConnectionPriorities(r.Context(), tx, remaining); err != nil {
 				return deletedResponse{}, err
 			}
-		}
-		if err := clearRoundRobinStateForModel(r.Context(), tx, profile.ID, current.ModelConfigID); err != nil {
-			return deletedResponse{}, err
 		}
 		return deletedResponse{Deleted: true}, nil
 	})

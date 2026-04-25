@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -206,21 +205,6 @@ func persistEndpointPositions(ctx context.Context, exec queryExecutor, records [
 	return nil
 }
 
-func clearConnectionRuntimeStates(ctx context.Context, exec queryExecutor, profileID int, connectionIDs []int) error {
-	if len(connectionIDs) == 0 {
-		return nil
-	}
-	args := []any{profileID}
-	for _, connectionID := range connectionIDs {
-		args = append(args, connectionID)
-	}
-	query := fmt.Sprintf(`DELETE FROM routing_connection_runtime_state WHERE profile_id = $1 AND connection_id IN (%s)`, placeholders(2, len(connectionIDs)))
-	if _, err := exec.Exec(ctx, query, args...); err != nil {
-		return fmt.Errorf("clear runtime state for endpoint-dependent connections: %w", err)
-	}
-	return nil
-}
-
 func responseFromRecord(record endpointRecord) endpointResponse {
 	return endpointResponse{
 		ID:           record.ID,
@@ -256,10 +240,3 @@ func intPtr(value int) *int {
 	return &resolved
 }
 
-func placeholders(start int, count int) string {
-	parts := make([]string, count)
-	for index := 0; index < count; index++ {
-		parts[index] = fmt.Sprintf("$%d", start+index)
-	}
-	return strings.Join(parts, ", ")
-}

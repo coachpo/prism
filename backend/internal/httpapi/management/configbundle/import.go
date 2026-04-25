@@ -618,7 +618,7 @@ func lockProfileRow(ctx context.Context, exec queryExecutor, profileID int) erro
 }
 
 func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
-	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_proxy_targets, pricing_templates, vendors, user_settings, header_blocklist_rules, routing_connection_runtime_leases, routing_connection_runtime_state, loadbalance_round_robin_state IN SHARE ROW EXCLUSIVE MODE`)
+	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_proxy_targets, pricing_templates, vendors, user_settings, header_blocklist_rules IN SHARE ROW EXCLUSIVE MODE`)
 	if err != nil {
 		return fmt.Errorf("lock config bundle import tables: %w", err)
 	}
@@ -627,9 +627,6 @@ func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
 
 func clearProfileImportState(ctx context.Context, exec queryExecutor, profileID int) error {
 	queries := []string{
-		`DELETE FROM routing_connection_runtime_leases WHERE profile_id = $1`,
-		`DELETE FROM routing_connection_runtime_state WHERE profile_id = $1`,
-		`DELETE FROM loadbalance_round_robin_state WHERE profile_id = $1`,
 		`DELETE FROM model_proxy_targets WHERE source_model_config_id IN (SELECT id FROM model_configs WHERE profile_id = $1) OR target_model_config_id IN (SELECT id FROM model_configs WHERE profile_id = $1)`,
 		`DELETE FROM endpoint_fx_rate_settings WHERE profile_id = $1`,
 		`DELETE FROM connections WHERE profile_id = $1`,

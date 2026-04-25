@@ -165,39 +165,6 @@ func deleteStrategy(ctx context.Context, exec queryExecutor, strategyID int) err
 	return nil
 }
 
-func clearStrategyState(ctx context.Context, exec queryExecutor, profileID int, strategyID int) error {
-	if _, err := exec.Exec(
-		ctx,
-		`DELETE FROM routing_connection_runtime_state
-		 WHERE profile_id = $1
-		   AND connection_id IN (
-		     SELECT connections.id
-		     FROM connections
-		     JOIN model_configs ON model_configs.id = connections.model_config_id
-		     WHERE connections.profile_id = $1
-		       AND model_configs.profile_id = $1
-		       AND model_configs.loadbalance_strategy_id = $2
-		   )`,
-		profileID,
-		strategyID,
-	); err != nil {
-		return fmt.Errorf("clear runtime state for strategy %d: %w", strategyID, err)
-	}
-	if _, err := exec.Exec(
-		ctx,
-		`DELETE FROM loadbalance_round_robin_state
-		 WHERE profile_id = $1
-		   AND model_config_id IN (
-		     SELECT id FROM model_configs WHERE profile_id = $1 AND loadbalance_strategy_id = $2
-		   )`,
-		profileID,
-		strategyID,
-	); err != nil {
-		return fmt.Errorf("clear round robin state for strategy %d: %w", strategyID, err)
-	}
-	return nil
-}
-
 func scanStrategyRow(scanner interface{ Scan(...any) error }) (strategyRow, error) {
 	var legacyStrategyType sql.NullString
 	var autoRecoveryRaw []byte
