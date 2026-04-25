@@ -997,6 +997,9 @@ func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyA
 	var decision RuntimeProxyKeyDecision
 	if s.runtimeCache != nil {
 		decision, err = s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), ProxyKeyDecisionCacheKey(normalizedKey), loadDecision)
+		if isRuntimeCacheLoadInvalidated(err) {
+			decision, err = s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), ProxyKeyDecisionCacheKey(normalizedKey), loadDecision)
+		}
 	} else {
 		decision, err = loadDecision()
 	}

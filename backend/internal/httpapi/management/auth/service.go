@@ -133,13 +133,18 @@ func (s *Service) loadRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSetti
 		}
 		return RuntimeAuthSettingsSnapshot{AuthEnabled: row.AuthEnabled}, nil
 	}
-	return s.runtimeCache.LoadRuntimeAuthSettings(s.nowUTC(), func() (RuntimeAuthSettingsSnapshot, error) {
+	loader := func() (RuntimeAuthSettingsSnapshot, error) {
 		row, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
 		if err != nil {
 			return RuntimeAuthSettingsSnapshot{}, err
 		}
 		return RuntimeAuthSettingsSnapshot{AuthEnabled: row.AuthEnabled}, nil
-	})
+	}
+	settings, err := s.runtimeCache.LoadRuntimeAuthSettings(s.nowUTC(), loader)
+	if isRuntimeCacheLoadInvalidated(err) {
+		return s.runtimeCache.LoadRuntimeAuthSettings(s.nowUTC(), loader)
+	}
+	return settings, err
 }
 
 func (s *Service) InvalidateRuntimeCache() {
