@@ -29,22 +29,18 @@ type nativePlanningSnapshot struct {
 	Connections []runtimeConnection
 }
 
-func (s *Service) loadActiveProfileWithCache(ctx context.Context, tx pgx.Tx) (profiledomain.Profile, error) {
+func (s *Service) loadActiveProfileWithCache(_ context.Context) (profiledomain.Profile, error) {
 	if s.cache == nil {
-		return profiledomain.ResolveActiveProfile(ctx, tx, s.nowUTC)
+		return profiledomain.Profile{}, ErrPublishedRuntimeSnapshotUnavailable
 	}
-	return s.cache.loadActiveProfile(s.nowUTC(), func() (profiledomain.Profile, error) {
-		return profiledomain.ResolveActiveProfile(ctx, tx, s.nowUTC)
-	})
+	return s.cache.LoadPublishedActiveProfile()
 }
 
-func (s *Service) loadPlanningSnapshotWithCache(ctx context.Context, tx pgx.Tx, profileID int) (*planningSnapshot, error) {
+func (s *Service) loadPlanningSnapshotWithCache(_ context.Context, profileID int) (*planningSnapshot, error) {
 	if s.cache == nil {
-		return buildPlanningSnapshot(ctx, tx, profileID)
+		return nil, ErrPublishedRuntimeSnapshotUnavailable
 	}
-	return s.cache.loadPlanningSnapshot(s.nowUTC(), profileID, func() (*planningSnapshot, error) {
-		return buildPlanningSnapshot(ctx, tx, profileID)
-	})
+	return s.cache.LoadPublishedPlanningSnapshot(profileID)
 }
 
 func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int) (*planningSnapshot, error) {
@@ -101,14 +97,38 @@ func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int) (*plan
 	}, nil
 }
 
-func (s *Service) resolveExecutionTargetFromSnapshot(ctx context.Context, tx pgx.Tx, profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
+func listPublishedPlanningProfileIDs(ctx context.Context, tx pgx.Tx) ([]int, error) {
+	rows, err := tx.Query(
+		ctx,
+		`SELECT id FROM profiles WHERE deleted_at IS NULL ORDER BY id ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query published planning profile ids: %w", err)
+	}
+	defer rows.Close()
+
+	profileIDs := make([]int, 0)
+	for rows.Next() {
+		var profileID int
+		if err := rows.Scan(&profileID); err != nil {
+			return nil, fmt.Errorf("scan published planning profile id: %w", err)
+		}
+		profileIDs = append(profileIDs, profileID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate published planning profile ids: %w", err)
+	}
+	return profileIDs, nil
+}
+
+func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
 	if requestedModel.ModelType != "proxy" {
-		return s.loadNativeExecutionTargetFromSnapshot(ctx, tx, profileID, snapshot, requestedModel.ModelID, requestedModel.ModelID, referenceNow)
+		return s.loadNativeExecutionTargetFromSnapshot(profileID, snapshot, requestedModel.ModelID, requestedModel.ModelID, referenceNow)
 	}
 
 	targetModelIDs := snapshot.ProxyTargetsBySourceID[requestedModel.ID]
 	for _, targetModelID := range targetModelIDs {
-		model, connections, runtimeStates, strategy, err := s.loadNativeExecutionTargetFromSnapshot(ctx, tx, profileID, snapshot, targetModelID, requestedModel.ModelID, referenceNow)
+		model, connections, runtimeStates, strategy, err := s.loadNativeExecutionTargetFromSnapshot(profileID, snapshot, targetModelID, requestedModel.ModelID, referenceNow)
 		if err == nil {
 			return model, connections, runtimeStates, strategy, nil
 		}
@@ -121,7 +141,7 @@ func (s *Service) resolveExecutionTargetFromSnapshot(ctx context.Context, tx pgx
 	return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Proxy model '%s' has no routable targets.", requestedModel.ModelID)}
 }
 
-func (s *Service) loadNativeExecutionTargetFromSnapshot(ctx context.Context, tx pgx.Tx, profileID int, snapshot *planningSnapshot, modelID string, requestedModelID string, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
+func (s *Service) loadNativeExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, modelID string, requestedModelID string, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
 	nativeTarget, ok := snapshot.NativeTargetsByModelID[modelID]
 	if !ok {
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
@@ -138,19 +158,7 @@ func (s *Service) loadNativeExecutionTargetFromSnapshot(ctx context.Context, tx 
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
 	}
 	strategy := cloneRuntimeStrategy(*nativeTarget.Strategy)
-	runtimeStates, err := loadbalance.LoadRuntimeConnectionStates(ctx, tx, profileID, runtimeConnectionIDs(connections))
-	if err != nil {
-		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
-	}
-	for _, connection := range connections {
-		state, ok := runtimeStates[connection.ID]
-		if !ok || state.IsEligible(referenceNow) {
-			continue
-		}
-		if err := loadbalance.RecordRuntimePlanningSkip(ctx, tx, profileID, connection.ID, state, strategy, referenceNow); err != nil {
-			return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
-		}
-	}
+	runtimeStates := s.runtimeState.SnapshotConnectionStates(profileID, runtimeConnectionRefs(connections))
 	eligibleConnectionIDs := loadbalance.FilterEligibleConnectionIDs(toConnectionOrderCandidates(connections), runtimeStates, referenceNow)
 	eligibleConnections := orderConnectionsByID(connections, eligibleConnectionIDs)
 	if len(eligibleConnections) == 0 {

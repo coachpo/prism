@@ -1,0 +1,8 @@
+goos: linux
+goarch: amd64
+pkg: github.com/coachpo/prism/backend/tests/runtime
+cpu: 12th Gen Intel(R) Core(TM) i7-12800HX
+BenchmarkRuntimePublishedSnapshotHit-24             	     511	   3481409 ns/op	   57335 B/op	     652 allocs/op
+BenchmarkRuntimePublishedSnapshotRefreshStorm-24    	      40	  25631475 ns/op	 1164409 B/op	    6237 allocs/op
+PASS
+ok  	github.com/coachpo/prism/backend/tests/runtime	7.784s

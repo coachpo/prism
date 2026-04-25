@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
@@ -13,6 +14,7 @@ import (
 type runtimeCacheInvalidationMiddleware struct {
 	planningCache *runtimeapi.SharedCache
 	authService   *managementauth.Service
+	runtimeState  *loadbalancedomain.LocalRuntimeStateStore
 }
 
 type runtimeCacheInvalidationAction struct {
@@ -27,15 +29,15 @@ type statusCapturingResponseWriter struct {
 	statusCode int
 }
 
-func newRuntimeCacheInvalidationMiddleware(planningCache *runtimeapi.SharedCache, authService *managementauth.Service) *runtimeCacheInvalidationMiddleware {
-	if planningCache == nil && authService == nil {
+func newRuntimeCacheInvalidationMiddleware(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) *runtimeCacheInvalidationMiddleware {
+	if planningCache == nil && authService == nil && runtimeState == nil {
 		return nil
 	}
-	return &runtimeCacheInvalidationMiddleware{planningCache: planningCache, authService: authService}
+	return &runtimeCacheInvalidationMiddleware{planningCache: planningCache, authService: authService, runtimeState: runtimeState}
 }
 
 func (m *runtimeCacheInvalidationMiddleware) Middleware(next http.Handler) http.Handler {
-	if m == nil || (m.planningCache == nil && m.authService == nil) {
+	if m == nil || (m.planningCache == nil && m.authService == nil && m.runtimeState == nil) {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +52,7 @@ func (m *runtimeCacheInvalidationMiddleware) Middleware(next http.Handler) http.
 			return
 		}
 		action := classifyRuntimeCacheInvalidation(normalizedMethod, r.URL.Path, r.Header)
-		action.apply(m.planningCache, m.authService)
+		action.apply(m.planningCache, m.authService, m.runtimeState)
 	})
 }
 
@@ -120,22 +122,31 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 	return action
 }
 
-func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, authService *managementauth.Service) {
+func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) {
 	if a.auth && authService != nil {
 		authService.InvalidateRuntimeCache()
 	}
-	if planningCache == nil {
+	if planningCache != nil {
+		if a.activeProfile {
+			planningCache.InvalidateActiveProfile()
+		}
+		if a.planningAll {
+			planningCache.InvalidateAllPlanning()
+		} else {
+			for _, profileID := range a.planningIDs {
+				planningCache.InvalidatePlanningProfile(profileID)
+			}
+		}
+	}
+	if runtimeState == nil {
 		return
 	}
-	if a.activeProfile {
-		planningCache.InvalidateActiveProfile()
-	}
 	if a.planningAll {
-		planningCache.InvalidateAllPlanning()
+		runtimeState.ResetAll()
 		return
 	}
 	for _, profileID := range a.planningIDs {
-		planningCache.InvalidatePlanningProfile(profileID)
+		runtimeState.ResetProfile(profileID)
 	}
 }
 

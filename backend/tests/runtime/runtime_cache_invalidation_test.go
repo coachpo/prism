@@ -266,8 +266,10 @@ func assertRuntimeCacheInvalidationVisibleWithin(t *testing.T, startedAt time.Ti
 
 func createRuntimeProxyKey(t *testing.T, harness *runtimeHarness, name string) (int, string) {
 	t.Helper()
+	generation := harness.runtimeCache.PublishedGeneration()
 	response := harness.requestJSON(t, http.MethodPost, "/api/settings/auth/proxy-keys", map[string]any{"name": name}, nil)
 	assertStatus(t, response, http.StatusCreated)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	item := payload["item"].(map[string]any)
@@ -276,8 +278,10 @@ func createRuntimeProxyKey(t *testing.T, harness *runtimeHarness, name string) (
 
 func rotateRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int) string {
 	t.Helper()
+	generation := harness.runtimeCache.PublishedGeneration()
 	response := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/settings/auth/proxy-keys/%d/rotate", keyID), nil, nil)
 	assertStatus(t, response, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	return itemlessString(t, payload["key"])
@@ -285,6 +289,7 @@ func rotateRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int) str
 
 func createRuntimeHeaderBlocklistRule(t *testing.T, harness *runtimeHarness, profileID int, name string, matchType string, pattern string) {
 	t.Helper()
+	generation := harness.runtimeCache.PublishedGeneration()
 	response := harness.requestJSON(
 		t,
 		http.MethodPost,
@@ -293,6 +298,7 @@ func createRuntimeHeaderBlocklistRule(t *testing.T, harness *runtimeHarness, pro
 		runtimeModelHeader(profileID),
 	)
 	assertStatus(t, response, http.StatusCreated)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
 }
 
 func itemlessString(t *testing.T, value any) string {

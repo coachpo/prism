@@ -1,223 +1,533 @@
 package runtime
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
-const defaultSharedCacheTTL = 2 * time.Second
+var ErrPublishedRuntimeSnapshotUnavailable = errors.New("published runtime snapshot unavailable")
+
+const defaultSharedCacheRefreshTimeout = 30 * time.Second
+
+type RefreshRequest struct {
+	Auth               bool
+	ActiveProfile      bool
+	PlanningAll        bool
+	PlanningProfileIDs []int
+}
+
+type SharedCacheOptions struct {
+	RefreshPool   *pgxpool.Pool
+	Now           func() time.Time
+	BeforePublish func(RefreshRequest) error
+}
 
 type SharedCache struct {
-	ttl time.Duration
+	refreshPool   *pgxpool.Pool
+	now           func() time.Time
+	beforePublish func(RefreshRequest) error
 
-	mu sync.RWMutex
+	published atomic.Pointer[publishedRuntimeSnapshot]
 
-	activeProfile     *cachedActiveProfile
-	activeProfileLoad *activeProfileLoadCall
-	planning          map[int]cachedPlanningSnapshot
-	planningLoads     map[int]*planningSnapshotLoadCall
+	schedulerMu   sync.Mutex
+	pending       RefreshRequest
+	workerRunning bool
+
+	refreshMu sync.Mutex
 }
 
-type cachedActiveProfile struct {
-	value     profiledomain.Profile
-	expiresAt time.Time
+type RuntimeAuthSettingsSnapshot struct {
+	AuthEnabled bool
 }
 
-type cachedPlanningSnapshot struct {
-	value     planningSnapshot
-	expiresAt time.Time
+type RuntimeProxyKeyRecord struct {
+	KeyID     int
+	KeyName   string
+	KeyHash   string
+	ExpiresAt *time.Time
 }
 
-type activeProfileLoadCall struct {
-	done  chan struct{}
-	value profiledomain.Profile
-	err   error
+type publishedRuntimeSnapshot struct {
+	Generation          uint64
+	PublishedAt         time.Time
+	ActiveProfile       profiledomain.Profile
+	PlanningByProfileID map[int]planningSnapshot
+	Auth                publishedRuntimeAuthSnapshot
 }
 
-type planningSnapshotLoadCall struct {
-	done  chan struct{}
-	value *planningSnapshot
-	err   error
+type publishedRuntimeAuthSnapshot struct {
+	Settings          RuntimeAuthSettingsSnapshot
+	ProxyKeysByPrefix map[string]RuntimeProxyKeyRecord
 }
 
 func NewSharedCache(ttl time.Duration) *SharedCache {
-	if ttl <= 0 {
-		ttl = defaultSharedCacheTTL
+	_ = ttl
+	return NewSharedCacheWithOptions(SharedCacheOptions{})
+}
+
+func NewSharedCacheWithOptions(options SharedCacheOptions) *SharedCache {
+	cache := &SharedCache{}
+	cache.Configure(options)
+	return cache
+}
+
+func (c *SharedCache) Configure(options SharedCacheOptions) {
+	if c == nil {
+		return
 	}
-	return &SharedCache{
-		ttl:           ttl,
-		planning:      map[int]cachedPlanningSnapshot{},
-		planningLoads: map[int]*planningSnapshotLoadCall{},
+	if options.RefreshPool != nil {
+		c.refreshPool = options.RefreshPool
 	}
+	if options.Now != nil {
+		c.now = options.Now
+	}
+	if options.BeforePublish != nil {
+		c.beforePublish = options.BeforePublish
+	}
+	if c.now == nil {
+		c.now = time.Now
+	}
+}
+
+func (c *SharedCache) Bootstrap(ctx context.Context) error {
+	return c.RefreshNow(ctx, RefreshRequest{Auth: true, ActiveProfile: true, PlanningAll: true})
+}
+
+func (c *SharedCache) RefreshNow(ctx context.Context, request RefreshRequest) error {
+	if c == nil {
+		return ErrPublishedRuntimeSnapshotUnavailable
+	}
+	if c.now == nil {
+		c.now = time.Now
+	}
+	request = request.normalized()
+	if c.published.Load() == nil {
+		request = mergeRefreshRequests(request, RefreshRequest{Auth: true, ActiveProfile: true, PlanningAll: true})
+	}
+	if request.isEmpty() {
+		return nil
+	}
+
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	next, err := c.buildPublishedSnapshot(ctx, request)
+	if err != nil {
+		return err
+	}
+	if c.beforePublish != nil {
+		if err := c.beforePublish(request); err != nil {
+			return err
+		}
+	}
+	c.published.Store(next)
+	return nil
+}
+
+func (c *SharedCache) ScheduleRefresh(request RefreshRequest) {
+	if c == nil {
+		return
+	}
+	request = request.normalized()
+	if request.isEmpty() {
+		return
+	}
+	c.schedulerMu.Lock()
+	c.pending = mergeRefreshRequests(c.pending, request)
+	if c.workerRunning {
+		c.schedulerMu.Unlock()
+		return
+	}
+	c.workerRunning = true
+	c.schedulerMu.Unlock()
+
+	go c.runRefreshWorker()
 }
 
 func (c *SharedCache) InvalidateActiveProfile() {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.activeProfile = nil
-	c.activeProfileLoad = nil
+	c.ScheduleRefresh(RefreshRequest{ActiveProfile: true})
 }
 
 func (c *SharedCache) InvalidatePlanningProfile(profileID int) {
-	if c == nil || profileID <= 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.planning, profileID)
-	delete(c.planningLoads, profileID)
+	c.ScheduleRefresh(RefreshRequest{PlanningProfileIDs: []int{profileID}})
 }
 
 func (c *SharedCache) InvalidateAllPlanning() {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.planning = map[int]cachedPlanningSnapshot{}
-	c.planningLoads = map[int]*planningSnapshotLoadCall{}
+	c.ScheduleRefresh(RefreshRequest{PlanningAll: true})
 }
 
-func (c *SharedCache) loadActiveProfile(now time.Time, loader func() (profiledomain.Profile, error)) (profiledomain.Profile, error) {
-	var zero profiledomain.Profile
+func (c *SharedCache) PublishedGeneration() uint64 {
 	if c == nil {
-		return loader()
+		return 0
 	}
-	resolvedNow := now.UTC()
-	c.mu.RLock()
-	entry := c.activeProfile
-	if entry != nil && resolvedNow.Before(entry.expiresAt) {
-		value := cloneProfile(entry.value)
-		c.mu.RUnlock()
-		return value, nil
+	snapshot := c.published.Load()
+	if snapshot == nil {
+		return 0
 	}
-	if call := c.activeProfileLoad; call != nil {
-		c.mu.RUnlock()
-		return waitActiveProfileLoad(call)
-	}
-	c.mu.RUnlock()
+	return snapshot.Generation
+}
 
-	c.mu.Lock()
-	entry = c.activeProfile
-	if entry != nil && resolvedNow.Before(entry.expiresAt) {
-		value := cloneProfile(entry.value)
-		c.mu.Unlock()
-		return value, nil
-	}
-	if call := c.activeProfileLoad; call != nil {
-		c.mu.Unlock()
-		return waitActiveProfileLoad(call)
-	}
-	call := &activeProfileLoadCall{done: make(chan struct{})}
-	c.activeProfileLoad = call
-	c.mu.Unlock()
+func (c *SharedCache) PublishedReady() bool {
+	return c != nil && c.published.Load() != nil
+}
 
-	value, err := loader()
-	var cachedValue profiledomain.Profile
-	if err == nil {
-		cachedValue = cloneProfile(value)
-	}
-
-	c.mu.Lock()
-	call.value = cachedValue
-	call.err = err
-	if c.activeProfileLoad == call {
-		c.activeProfileLoad = nil
-		if err == nil {
-			c.activeProfile = &cachedActiveProfile{value: cachedValue, expiresAt: c.expirationAt(resolvedNow)}
-		}
-	}
-	c.mu.Unlock()
-	close(call.done)
+func (c *SharedCache) LoadPublishedActiveProfile() (profiledomain.Profile, error) {
+	var zero profiledomain.Profile
+	snapshot, err := c.requirePublishedSnapshot()
 	if err != nil {
 		return zero, err
 	}
-	return cloneProfile(cachedValue), nil
+	return cloneProfile(snapshot.ActiveProfile), nil
 }
 
-func (c *SharedCache) loadPlanningSnapshot(now time.Time, profileID int, loader func() (*planningSnapshot, error)) (*planningSnapshot, error) {
-	if c == nil {
-		return loader()
+func (c *SharedCache) LoadPublishedPlanningSnapshot(profileID int) (*planningSnapshot, error) {
+	snapshot, err := c.requirePublishedSnapshot()
+	if err != nil {
+		return nil, err
 	}
-	resolvedNow := now.UTC()
-	c.mu.RLock()
-	entry, ok := c.planning[profileID]
-	if ok && resolvedNow.Before(entry.expiresAt) {
-		value := clonePlanningSnapshot(entry.value)
-		c.mu.RUnlock()
-		return &value, nil
+	planning, ok := snapshot.PlanningByProfileID[profileID]
+	if !ok {
+		return nil, fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, profileID)
 	}
-	if call, ok := c.planningLoads[profileID]; ok {
-		c.mu.RUnlock()
-		return waitPlanningSnapshotLoad(call)
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	entry, ok = c.planning[profileID]
-	if ok && resolvedNow.Before(entry.expiresAt) {
-		value := clonePlanningSnapshot(entry.value)
-		c.mu.Unlock()
-		return &value, nil
-	}
-	if call, ok := c.planningLoads[profileID]; ok {
-		c.mu.Unlock()
-		return waitPlanningSnapshotLoad(call)
-	}
-	call := &planningSnapshotLoadCall{done: make(chan struct{})}
-	c.planningLoads[profileID] = call
-	c.mu.Unlock()
-
-	value, err := loader()
-	var cachedValue *planningSnapshot
-	if err == nil && value != nil {
-		cloned := clonePlanningSnapshot(*value)
-		cachedValue = &cloned
-	}
-
-	c.mu.Lock()
-	call.value = cachedValue
-	call.err = err
-	if current, ok := c.planningLoads[profileID]; ok && current == call {
-		delete(c.planningLoads, profileID)
-		if cachedValue != nil {
-			c.planning[profileID] = cachedPlanningSnapshot{value: *cachedValue, expiresAt: c.expirationAt(resolvedNow)}
-		}
-	}
-	c.mu.Unlock()
-	close(call.done)
-	if err != nil || cachedValue == nil {
-		return cachedValue, err
-	}
-	copyValue := clonePlanningSnapshot(*cachedValue)
-	return &copyValue, nil
-}
-
-func waitActiveProfileLoad(call *activeProfileLoadCall) (profiledomain.Profile, error) {
-	var zero profiledomain.Profile
-	<-call.done
-	if call.err != nil {
-		return zero, call.err
-	}
-	return cloneProfile(call.value), nil
-}
-
-func waitPlanningSnapshotLoad(call *planningSnapshotLoadCall) (*planningSnapshot, error) {
-	<-call.done
-	if call.err != nil || call.value == nil {
-		return call.value, call.err
-	}
-	cloned := clonePlanningSnapshot(*call.value)
+	cloned := clonePlanningSnapshot(planning)
 	return &cloned, nil
 }
 
-func (c *SharedCache) expirationAt(now time.Time) time.Time {
-	return now.UTC().Add(c.ttl)
+func (c *SharedCache) LoadRuntimeAuthSettings() (RuntimeAuthSettingsSnapshot, error) {
+	snapshot, err := c.requirePublishedSnapshot()
+	if err != nil {
+		return RuntimeAuthSettingsSnapshot{}, err
+	}
+	return snapshot.Auth.Settings, nil
+}
+
+func (c *SharedCache) LoadRuntimeProxyKeyRecord(keyPrefix string) (RuntimeProxyKeyRecord, bool, error) {
+	snapshot, err := c.requirePublishedSnapshot()
+	if err != nil {
+		return RuntimeProxyKeyRecord{}, false, err
+	}
+	record, ok := snapshot.Auth.ProxyKeysByPrefix[keyPrefix]
+	if !ok {
+		return RuntimeProxyKeyRecord{}, false, nil
+	}
+	return cloneRuntimeProxyKeyRecord(record), true, nil
+}
+
+func (c *SharedCache) requirePublishedSnapshot() (*publishedRuntimeSnapshot, error) {
+	if c == nil {
+		return nil, ErrPublishedRuntimeSnapshotUnavailable
+	}
+	snapshot := c.published.Load()
+	if snapshot == nil {
+		return nil, ErrPublishedRuntimeSnapshotUnavailable
+	}
+	return snapshot, nil
+}
+
+func (c *SharedCache) runRefreshWorker() {
+	for {
+		c.schedulerMu.Lock()
+		request := c.pending.normalized()
+		c.pending = RefreshRequest{}
+		c.schedulerMu.Unlock()
+
+		if request.isEmpty() {
+			c.schedulerMu.Lock()
+			if c.pending.isEmpty() {
+				c.workerRunning = false
+				c.schedulerMu.Unlock()
+				return
+			}
+			c.schedulerMu.Unlock()
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), defaultSharedCacheRefreshTimeout)
+		err := c.RefreshNow(ctx, request)
+		cancel()
+		if err != nil {
+			slog.Error(
+				"failed to refresh published runtime snapshot",
+				"error", err,
+				"auth", request.Auth,
+				"active_profile", request.ActiveProfile,
+				"planning_all", request.PlanningAll,
+				"planning_profile_ids", request.PlanningProfileIDs,
+			)
+		}
+
+		c.schedulerMu.Lock()
+		if c.pending.isEmpty() {
+			c.workerRunning = false
+			c.schedulerMu.Unlock()
+			return
+		}
+		c.schedulerMu.Unlock()
+	}
+}
+
+func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request RefreshRequest) (*publishedRuntimeSnapshot, error) {
+	if c.refreshPool == nil {
+		return nil, fmt.Errorf("published runtime snapshot refresh pool is not configured")
+	}
+	return pgxutil.InTxValue(ctx, c.refreshPool, "runtime_snapshot", func(tx pgx.Tx) (*publishedRuntimeSnapshot, error) {
+		current := c.published.Load()
+		request = request.normalized()
+		if current == nil {
+			request = mergeRefreshRequests(request, RefreshRequest{Auth: true, ActiveProfile: true, PlanningAll: true})
+		}
+
+		next := &publishedRuntimeSnapshot{PublishedAt: c.nowUTC()}
+		if current != nil {
+			next.Generation = current.Generation + 1
+		} else {
+			next.Generation = 1
+		}
+
+		activeProfile := profiledomain.Profile{}
+		if current != nil && !request.ActiveProfile {
+			activeProfile = cloneProfile(current.ActiveProfile)
+		} else {
+			resolvedActiveProfile, err := profiledomain.ResolveActiveProfile(ctx, tx, c.nowUTC)
+			if err != nil {
+				return nil, err
+			}
+			activeProfile = cloneProfile(resolvedActiveProfile)
+		}
+		next.ActiveProfile = activeProfile
+
+		planningByProfileID := clonePublishedPlanningSnapshots(current)
+		if current == nil || request.PlanningAll {
+			profileIDs, err := listPublishedPlanningProfileIDs(ctx, tx)
+			if err != nil {
+				return nil, err
+			}
+			planningByProfileID = make(map[int]planningSnapshot, len(profileIDs))
+			for _, profileID := range profileIDs {
+				snapshot, err := buildPlanningSnapshot(ctx, tx, profileID)
+				if err != nil {
+					return nil, err
+				}
+				planningByProfileID[profileID] = clonePlanningSnapshot(*snapshot)
+			}
+		} else {
+			for _, profileID := range request.PlanningProfileIDs {
+				snapshot, err := buildPlanningSnapshot(ctx, tx, profileID)
+				if err != nil {
+					return nil, err
+				}
+				if planningByProfileID == nil {
+					planningByProfileID = map[int]planningSnapshot{}
+				}
+				planningByProfileID[profileID] = clonePlanningSnapshot(*snapshot)
+			}
+		}
+		if _, ok := planningByProfileID[activeProfile.ID]; !ok {
+			snapshot, err := buildPlanningSnapshot(ctx, tx, activeProfile.ID)
+			if err != nil {
+				return nil, err
+			}
+			if planningByProfileID == nil {
+				planningByProfileID = map[int]planningSnapshot{}
+			}
+			planningByProfileID[activeProfile.ID] = clonePlanningSnapshot(*snapshot)
+		}
+		next.PlanningByProfileID = planningByProfileID
+
+		authSnapshot := clonePublishedRuntimeAuthSnapshot(current)
+		if current == nil || request.Auth {
+			builtAuthSnapshot, err := buildPublishedRuntimeAuthSnapshot(ctx, tx, c.nowUTC())
+			if err != nil {
+				return nil, err
+			}
+			authSnapshot = builtAuthSnapshot
+		}
+		next.Auth = authSnapshot
+
+		return next, nil
+	})
+}
+
+func (c *SharedCache) nowUTC() time.Time {
+	if c.now == nil {
+		c.now = time.Now
+	}
+	return c.now().UTC()
+}
+
+func (r RefreshRequest) normalized() RefreshRequest {
+	normalized := RefreshRequest{
+		Auth:          r.Auth,
+		ActiveProfile: r.ActiveProfile,
+		PlanningAll:   r.PlanningAll,
+	}
+	if normalized.PlanningAll {
+		return normalized
+	}
+	seen := map[int]struct{}{}
+	for _, profileID := range r.PlanningProfileIDs {
+		if profileID <= 0 {
+			continue
+		}
+		if _, ok := seen[profileID]; ok {
+			continue
+		}
+		seen[profileID] = struct{}{}
+		normalized.PlanningProfileIDs = append(normalized.PlanningProfileIDs, profileID)
+	}
+	sort.Ints(normalized.PlanningProfileIDs)
+	return normalized
+}
+
+func (r RefreshRequest) isEmpty() bool {
+	return !r.Auth && !r.ActiveProfile && !r.PlanningAll && len(r.PlanningProfileIDs) == 0
+}
+
+func mergeRefreshRequests(current RefreshRequest, next RefreshRequest) RefreshRequest {
+	current = current.normalized()
+	next = next.normalized()
+	merged := RefreshRequest{
+		Auth:          current.Auth || next.Auth,
+		ActiveProfile: current.ActiveProfile || next.ActiveProfile,
+		PlanningAll:   current.PlanningAll || next.PlanningAll,
+	}
+	if merged.PlanningAll {
+		return merged
+	}
+	merged.PlanningProfileIDs = append(merged.PlanningProfileIDs, current.PlanningProfileIDs...)
+	merged.PlanningProfileIDs = append(merged.PlanningProfileIDs, next.PlanningProfileIDs...)
+	return merged.normalized()
+}
+
+func buildPublishedRuntimeAuthSnapshot(ctx context.Context, tx pgx.Tx, referenceNow time.Time) (publishedRuntimeAuthSnapshot, error) {
+	settings, err := loadPublishedRuntimeAuthSettings(ctx, tx)
+	if err != nil {
+		return publishedRuntimeAuthSnapshot{}, err
+	}
+	proxyKeysByPrefix, err := listPublishedRuntimeProxyKeys(ctx, tx, referenceNow)
+	if err != nil {
+		return publishedRuntimeAuthSnapshot{}, err
+	}
+	return publishedRuntimeAuthSnapshot{
+		Settings:          settings,
+		ProxyKeysByPrefix: proxyKeysByPrefix,
+	}, nil
+}
+
+func loadPublishedRuntimeAuthSettings(ctx context.Context, tx pgx.Tx) (RuntimeAuthSettingsSnapshot, error) {
+	var authEnabled bool
+	err := tx.QueryRow(
+		ctx,
+		`SELECT auth_enabled FROM app_auth_settings WHERE singleton_key = $1 ORDER BY id ASC LIMIT 1`,
+		"app",
+	).Scan(&authEnabled)
+	if err == nil {
+		return RuntimeAuthSettingsSnapshot{AuthEnabled: authEnabled}, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RuntimeAuthSettingsSnapshot{}, nil
+	}
+	return RuntimeAuthSettingsSnapshot{}, fmt.Errorf("load published runtime auth settings: %w", err)
+}
+
+func listPublishedRuntimeProxyKeys(ctx context.Context, tx pgx.Tx, referenceNow time.Time) (map[string]RuntimeProxyKeyRecord, error) {
+	rows, err := tx.Query(
+		ctx,
+		`SELECT id, name, key_prefix, key_hash, is_active, expires_at
+        FROM proxy_api_keys
+        ORDER BY id ASC`,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("query published runtime proxy keys: %w", err)
+	}
+	defer rows.Close()
+
+	items := map[string]RuntimeProxyKeyRecord{}
+	for rows.Next() {
+		var (
+			id        int
+			name      string
+			keyPrefix string
+			keyHash   string
+			isActive  bool
+			expiresAt sql.NullTime
+		)
+		if err := rows.Scan(&id, &name, &keyPrefix, &keyHash, &isActive, &expiresAt); err != nil {
+			return nil, fmt.Errorf("scan published runtime proxy key: %w", err)
+		}
+		if !isActive {
+			continue
+		}
+		if expiresAt.Valid && !expiresAt.Time.UTC().After(referenceNow.UTC()) {
+			continue
+		}
+		record := RuntimeProxyKeyRecord{
+			KeyID:   id,
+			KeyName: name,
+			KeyHash: keyHash,
+		}
+		if expiresAt.Valid {
+			resolvedExpiresAt := expiresAt.Time.UTC()
+			record.ExpiresAt = &resolvedExpiresAt
+		}
+		items[keyPrefix] = record
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate published runtime proxy keys: %w", err)
+	}
+	return items, nil
+}
+
+func clonePublishedPlanningSnapshots(snapshot *publishedRuntimeSnapshot) map[int]planningSnapshot {
+	if snapshot == nil || len(snapshot.PlanningByProfileID) == 0 {
+		return nil
+	}
+	cloned := make(map[int]planningSnapshot, len(snapshot.PlanningByProfileID))
+	for profileID, planning := range snapshot.PlanningByProfileID {
+		cloned[profileID] = clonePlanningSnapshot(planning)
+	}
+	return cloned
+}
+
+func clonePublishedRuntimeAuthSnapshot(snapshot *publishedRuntimeSnapshot) publishedRuntimeAuthSnapshot {
+	if snapshot == nil {
+		return publishedRuntimeAuthSnapshot{}
+	}
+	cloned := publishedRuntimeAuthSnapshot{
+		Settings:          snapshot.Auth.Settings,
+		ProxyKeysByPrefix: make(map[string]RuntimeProxyKeyRecord, len(snapshot.Auth.ProxyKeysByPrefix)),
+	}
+	for keyPrefix, record := range snapshot.Auth.ProxyKeysByPrefix {
+		cloned.ProxyKeysByPrefix[keyPrefix] = cloneRuntimeProxyKeyRecord(record)
+	}
+	return cloned
+}
+
+func cloneRuntimeProxyKeyRecord(record RuntimeProxyKeyRecord) RuntimeProxyKeyRecord {
+	cloned := RuntimeProxyKeyRecord{
+		KeyID:   record.KeyID,
+		KeyName: record.KeyName,
+		KeyHash: record.KeyHash,
+	}
+	if record.ExpiresAt != nil {
+		expiresAt := record.ExpiresAt.UTC()
+		cloned.ExpiresAt = &expiresAt
+	}
+	return cloned
 }
 
 func cloneProfile(profile profiledomain.Profile) profiledomain.Profile {

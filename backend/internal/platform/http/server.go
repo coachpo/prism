@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/semaphore"
 
+	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
@@ -49,6 +50,7 @@ type Dependencies struct {
 	RealtimeService     *realtimeapi.Service
 	RuntimeService      *runtimeapi.Service
 	RuntimeCache        *runtimeapi.SharedCache
+	RuntimeState        *loadbalancedomain.LocalRuntimeStateStore
 	SettingsService     *managementsettings.Service
 	StatsService        *managementstats.Service
 	VendorsService      *managementvendors.Service
@@ -279,8 +281,13 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		}
 		registerShutdown(runtimePool.Close)
 
-		runtimePlanningCache := runtimeapi.NewSharedCache(0)
-		runtimeAuthCache := managementauth.NewRuntimeCache(0)
+		runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool})
+		runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
+		runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimePlanningCache)
+		if err := runtimePlanningCache.Bootstrap(context.Background()); err != nil {
+			closeAll()
+			return nil, err
+		}
 
 		managementAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: managementPool})
 		if authErr != nil {
@@ -338,7 +345,7 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		}
 		registerShutdown(settingsService.Close)
 
-		loadbalanceService, loadbalanceErr := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: managementPool})
+		loadbalanceService, loadbalanceErr := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: managementPool, RuntimeState: runtimeState})
 		if loadbalanceErr != nil {
 			closeAll()
 			return nil, loadbalanceErr
@@ -387,7 +394,7 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
 		registerShutdown(asyncDashboardPublisher.Close)
 
-		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{Pool: runtimePool, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache})
+		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{Pool: runtimePool, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState})
 		if runtimeErr != nil {
 			closeAll()
 			return nil, runtimeErr
@@ -407,6 +414,7 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		deps.RealtimeService = realtimeService
 		deps.RuntimeService = runtimeService
 		deps.RuntimeCache = runtimePlanningCache
+		deps.RuntimeState = runtimeState
 		deps.SettingsService = settingsService
 		deps.StatsService = statsService
 		deps.VendorsService = vendorService
@@ -467,6 +475,9 @@ func NewHandlerWithDependencies(settings config.Settings, deps Dependencies) (ht
 	if settings.DocsEnabled() && deps.OpenAPI == nil {
 		return nil, fmt.Errorf("openapi document is required when docs are enabled")
 	}
+	if deps.RuntimeState == nil && deps.RuntimeService != nil {
+		deps.RuntimeState = deps.RuntimeService.RuntimeState()
+	}
 
 	router := chi.NewRouter()
 	allowedOrigins := map[string]struct{}{}
@@ -497,7 +508,7 @@ func mountManagementBranch(router chi.Router, settings config.Settings, deps Dep
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
 	managementHandler = newManagementAdmissionController(settings).Middleware(managementHandler)
-	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService).Middleware(managementHandler)
+	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState).Middleware(managementHandler)
 	router.Mount("/api", managementHandler)
 
 	if settings.DocsEnabled() {
