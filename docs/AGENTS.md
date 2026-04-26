@@ -29,7 +29,7 @@ docs/
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
 
 ## WHERE TO LOOK
-- Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../backend/.env.example`, `../frontend/.env.example`
+- Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Checked-in OpenAPI artifact: `openapi.json`, `../backend/AGENTS.md`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
