@@ -50,8 +50,8 @@ prism/
 - `docs/archive/AGENTS.md`: archive boundary for finished notes and retained evidence.
 
 ## SHARED FACTS
-- `start.sh` loads the root `.env` without overwriting exported keys, supports `headless` and `full`, and uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
-- `start.sh` sets local `CORS_ALLOWED_ORIGINS` and `WEBAUTHN_ORIGIN`, and `start.sh full` keeps browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000`.
+- `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, and uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
+- `start.sh` keeps a fixed local launcher contract by seeding local `CORS_ALLOWED_ORIGINS`, requiring the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000`.
 - `.github/workflows/docker-images.yml` checks out the monorepo, builds backend and frontend GHCR images for `linux/arm64`, runs on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and can build one service or both.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
 - `.github/workflows/cleanup.yml` handles cleanup only, retaining three workflow runs and pruning untagged backend/frontend container versions.
@@ -68,7 +68,7 @@ prism/
 ## CONVENTIONS
 - Keep this file focused on repo-wide facts and cross-directory boundaries.
 - Point downward instead of repeating leaf-level implementation detail here.
-- Keep launcher docs aligned with `start.sh`, especially `.env` loading, `headless|full`, ports, same-origin proxying, `PRISM_VITE_PROXY_ENABLED`, `PRISM_VITE_PROXY_TARGET`, and local CORS/WebAuthn wiring.
+- Keep launcher docs aligned with `start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, same-origin proxying, `PRISM_VITE_PROXY_ENABLED`, `PRISM_VITE_PROXY_TARGET`, and local CORS wiring.
 - Keep repo-level version docs aligned with `release.sh` and the four version surfaces it updates.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
 - Keep active implementation plans out of `docs/`; store working plans under `.sisyphus/plans/`, and use `docs/archive/` only for finished notes or retained evidence.

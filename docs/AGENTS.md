@@ -42,7 +42,7 @@ docs/
 ## CONVENTIONS
 - Keep docs Prism-specific.
 - Point to child AGENTS files instead of repeating leaf detail.
-- Keep launcher facts aligned with `../start.sh`, especially `.env` loading, `headless|full`, ports, PostgreSQL checks, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and local CORS/WebAuthn wiring.
+- Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, PostgreSQL checks, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and local CORS wiring.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
