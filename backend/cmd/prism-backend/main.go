@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,7 +14,18 @@ import (
 )
 
 func main() {
-	settings := config.Load()
+	settings, err := loadSettingsFromBootstrapManager()
+	if err != nil {
+		slog.Error("failed to load bootstrap config", "error", err)
+		os.Exit(1)
+	}
+	if shouldPrintEffectiveStartupSettings() {
+		if err := printEffectiveStartupSettings(settings); err != nil {
+			slog.Error("failed to print effective startup settings", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	startupService, err := startup.New(startup.Options{
 		DatabaseURL:         settings.DatabaseURL,
@@ -42,8 +54,6 @@ func main() {
 		server.Addr,
 		"docs_enabled",
 		settings.DocsEnabled(),
-		"startup_skipped",
-		startupResult.Skipped,
 		"migration_outcome",
 		startupResult.Migration.Outcome,
 	)
@@ -52,4 +62,26 @@ func main() {
 		slog.Error("server exited", "error", err)
 		os.Exit(1)
 	}
+}
+
+func loadSettingsFromBootstrapManager() (config.Settings, error) {
+	return config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{}).LoadOrSeedFromEnv()
+}
+
+func shouldPrintEffectiveStartupSettings() bool {
+	return os.Getenv("PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS") == "1"
+}
+
+func printEffectiveStartupSettings(settings config.Settings) error {
+	if _, err := fmt.Fprintf(os.Stdout, "DATABASE_URL=%s\n", settings.DatabaseURL); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(os.Stdout, "HOST=%s\n", settings.Host); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(os.Stdout, "PORT=%d\n", settings.Port); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(os.Stdout, "ADDR=%s\n", settings.Address())
+	return err
 }
