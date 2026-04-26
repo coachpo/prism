@@ -4,8 +4,100 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 )
+
+type DashboardAggregateSnapshot struct {
+	ProfileID            int
+	GeneratedAt          time.Time
+	StatsSummary24H      StatsSummaryResponse
+	APIFamilySummary24H  StatsSummaryResponse
+	SpendingSummary30D   SpendingReportResponse
+	Throughput24H        ThroughputStatsResponse
+	UsageSnapshotPreset1 UsageSnapshotResponse
+}
+
+type DashboardAggregateStore struct {
+	mu        sync.RWMutex
+	snapshots map[int]DashboardAggregateSnapshot
+}
+
+func NewDashboardAggregateStore() *DashboardAggregateStore {
+	return &DashboardAggregateStore{snapshots: map[int]DashboardAggregateSnapshot{}}
+}
+
+func (s *DashboardAggregateStore) LoadProfile(profileID int) (DashboardAggregateSnapshot, bool) {
+	if s == nil || profileID <= 0 {
+		return DashboardAggregateSnapshot{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	snapshot, ok := s.snapshots[profileID]
+	return snapshot, ok
+}
+
+func (s *DashboardAggregateStore) StoreProfile(snapshot DashboardAggregateSnapshot) {
+	if s == nil || snapshot.ProfileID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snapshots[snapshot.ProfileID] = snapshot
+}
+
+func (s *DashboardAggregateStore) InvalidateProfile(profileID int) {
+	if s == nil || profileID <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.snapshots, profileID)
+}
+
+func (s *DashboardAggregateStore) InvalidateAll() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.snapshots = map[int]DashboardAggregateSnapshot{}
+}
+
+func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, profileID int, referenceNow time.Time) (DashboardAggregateSnapshot, error) {
+	generatedAt := referenceNow.UTC()
+	windowStart24H := generatedAt.Add(-24 * time.Hour)
+	apiFamilyGroupBy := "api_family"
+	statsSummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	apiFamilySummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt, GroupBy: &apiFamilyGroupBy})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	spendingSummary, err := GetSpending(ctx, exec, SpendingParams{ProfileID: profileID, Preset: "last_30_days", ToTime: &generatedAt, GroupBy: "none", Limit: 50, Offset: 0, TopN: 5, ReferenceNow: generatedAt})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	throughput, err := GetThroughput(ctx, exec, ThroughputParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	usageSnapshot, err := GetUsageSnapshot(ctx, exec, profileID, "1h", generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	return DashboardAggregateSnapshot{
+		ProfileID:            profileID,
+		GeneratedAt:          generatedAt,
+		StatsSummary24H:      statsSummary,
+		APIFamilySummary24H:  apiFamilySummary,
+		SpendingSummary30D:   spendingSummary,
+		Throughput24H:        throughput,
+		UsageSnapshotPreset1: usageSnapshot,
+	}, nil
+}
 
 type requestTrendPointStats struct {
 	requestCount int

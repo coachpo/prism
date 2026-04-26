@@ -21,15 +21,17 @@ import (
 )
 
 type Options struct {
-	Pool *pgxpool.Pool
-	Now  func() time.Time
+	Pool               *pgxpool.Pool
+	Now                func() time.Time
+	DashboardSnapshots *statsdomain.DashboardAggregateStore
 }
 
 type Service struct {
-	pool           *pgxpool.Pool
-	ownsPool       bool
-	now            func() time.Time
-	allowedOrigins map[string]struct{}
+	pool               *pgxpool.Pool
+	ownsPool           bool
+	now                func() time.Time
+	allowedOrigins     map[string]struct{}
+	dashboardSnapshots *statsdomain.DashboardAggregateStore
 }
 
 type modelMetricsBatchRequest struct {
@@ -60,7 +62,11 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	for _, origin := range settings.CORSAllowedOriginsList() {
 		allowedOrigins[origin] = struct{}{}
 	}
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins}, nil
+	dashboardSnapshots := options.DashboardSnapshots
+	if dashboardSnapshots == nil {
+		dashboardSnapshots = statsdomain.NewDashboardAggregateStore()
+	}
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins, dashboardSnapshots: dashboardSnapshots}, nil
 }
 
 func (s *Service) Close() {
@@ -69,8 +75,82 @@ func (s *Service) Close() {
 	}
 }
 
+const dashboardSnapshotWindowTolerance = 2 * time.Minute
+
 func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
+}
+
+func (s *Service) resolveEffectiveProfile(ctx context.Context, request *http.Request) (profiledomain.Profile, error) {
+	return profiledomain.ResolveEffectiveProfile(ctx, s.pool, request.Header.Get(profiledomain.ProfileIDHeader))
+}
+
+func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
+	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok {
+		return snapshot, nil
+	}
+	snapshot, err := statsdomain.BuildDashboardAggregateSnapshot(ctx, s.pool, profileID, referenceNow)
+	if err != nil {
+		return statsdomain.DashboardAggregateSnapshot{}, err
+	}
+	s.dashboardSnapshots.StoreProfile(snapshot)
+	return snapshot, nil
+}
+
+func (s *Service) invalidateDashboardAggregateSnapshot(profileID int) {
+	if s == nil || s.dashboardSnapshots == nil {
+		return
+	}
+	s.dashboardSnapshots.InvalidateProfile(profileID)
+}
+
+func matchesDashboardSummarySnapshotRequest(params statsdomain.StatsSummaryParams, referenceNow time.Time) bool {
+	if params.ModelID != nil || params.APIFamily != nil || params.EndpointID != nil || params.ConnectionID != nil {
+		return false
+	}
+	if !matchesDashboardSummaryWindow(params.FromTime, params.ToTime, referenceNow) {
+		return false
+	}
+	if params.GroupBy == nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(*params.GroupBy), "api_family")
+}
+
+func matchesDashboardSummaryWindow(fromTime *time.Time, toTime *time.Time, referenceNow time.Time) bool {
+	if fromTime == nil || toTime != nil {
+		return false
+	}
+	window := referenceNow.UTC().Sub(fromTime.UTC())
+	return withinDashboardTolerance(window, 24*time.Hour)
+}
+
+func matchesDashboardThroughputSnapshotRequest(params statsdomain.ThroughputParams, referenceNow time.Time) bool {
+	if params.ModelID != nil || params.APIFamily != nil || params.EndpointID != nil || params.ConnectionID != nil {
+		return false
+	}
+	if params.FromTime == nil || params.ToTime == nil {
+		return false
+	}
+	if !withinDashboardTolerance(params.ToTime.UTC().Sub(params.FromTime.UTC()), 24*time.Hour) {
+		return false
+	}
+	return absDuration(referenceNow.UTC().Sub(params.ToTime.UTC())) <= dashboardSnapshotWindowTolerance
+}
+
+func matchesDashboardUsageSnapshotRequest(preset string) bool {
+	return strings.EqualFold(strings.TrimSpace(preset), "1h")
+}
+
+func withinDashboardTolerance(actual time.Duration, expected time.Duration) bool {
+	return absDuration(actual-expected) <= dashboardSnapshotWindowTolerance
+}
+
+func absDuration(value time.Duration) time.Duration {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
@@ -133,17 +213,31 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.StatsSummaryResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return statsdomain.StatsSummaryResponse{}, err
+	profile, err := s.resolveEffectiveProfile(r.Context(), r)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	referenceNow := s.nowUTC()
+	params, err := parseStatsSummaryParams(r, profile.ID)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	if matchesDashboardSummarySnapshotRequest(params, referenceNow) {
+		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
+		if snapshotErr != nil {
+			writeDomainError(w, r, s.allowedOrigins, snapshotErr)
+			return
 		}
-		params, err := parseStatsSummaryParams(r, profile.ID)
-		if err != nil {
-			return statsdomain.StatsSummaryResponse{}, err
+		response := snapshot.StatsSummary24H
+		if params.GroupBy != nil && strings.EqualFold(strings.TrimSpace(*params.GroupBy), "api_family") {
+			response = snapshot.APIFamilySummary24H
 		}
-		return statsdomain.GetStatsSummary(r.Context(), tx, params)
-	})
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	response, err := statsdomain.GetStatsSummary(r.Context(), s.pool, params)
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
@@ -201,31 +295,51 @@ func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.ThroughputStatsResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return statsdomain.ThroughputStatsResponse{}, err
+	profile, err := s.resolveEffectiveProfile(r.Context(), r)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	referenceNow := s.nowUTC()
+	fromTime, err := parseOptionalTime(r, "from_time")
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	toTime, err := parseOptionalTime(r, "to_time")
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	endpointID, err := parseOptionalInt(r, "endpoint_id")
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	connectionID, err := parseOptionalInt(r, "connection_id")
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	params := statsdomain.ThroughputParams{
+		ProfileID:    profile.ID,
+		FromTime:     fromTime,
+		ToTime:       toTime,
+		ModelID:      normalizedQueryString(r, "model_id"),
+		APIFamily:    normalizedQueryString(r, "api_family"),
+		EndpointID:   endpointID,
+		ConnectionID: connectionID,
+	}
+	if matchesDashboardThroughputSnapshotRequest(params, referenceNow) {
+		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
+		if snapshotErr != nil {
+			writeDomainError(w, r, s.allowedOrigins, snapshotErr)
+			return
 		}
-		fromTime, err := parseOptionalTime(r, "from_time")
-		if err != nil {
-			return statsdomain.ThroughputStatsResponse{}, err
-		}
-		toTime, err := parseOptionalTime(r, "to_time")
-		if err != nil {
-			return statsdomain.ThroughputStatsResponse{}, err
-		}
-		modelID := normalizedQueryString(r, "model_id")
-		apiFamily := normalizedQueryString(r, "api_family")
-		endpointID, err := parseOptionalInt(r, "endpoint_id")
-		if err != nil {
-			return statsdomain.ThroughputStatsResponse{}, err
-		}
-		connectionID, err := parseOptionalInt(r, "connection_id")
-		if err != nil {
-			return statsdomain.ThroughputStatsResponse{}, err
-		}
-		return statsdomain.GetThroughput(r.Context(), tx, statsdomain.ThroughputParams{ProfileID: profile.ID, FromTime: fromTime, ToTime: toTime, ModelID: modelID, APIFamily: apiFamily, EndpointID: endpointID, ConnectionID: connectionID})
-	})
+		writeJSON(w, http.StatusOK, snapshot.Throughput24H)
+		return
+	}
+	response, err := statsdomain.GetThroughput(r.Context(), s.pool, params)
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
@@ -277,14 +391,23 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
-	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.UsageSnapshotResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return statsdomain.UsageSnapshotResponse{}, err
+	profile, err := s.resolveEffectiveProfile(r.Context(), r)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	preset := queryStringOrDefault(r, "preset", "1h")
+	referenceNow := s.nowUTC()
+	if matchesDashboardUsageSnapshotRequest(preset) {
+		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
+		if snapshotErr != nil {
+			writeDomainError(w, r, s.allowedOrigins, snapshotErr)
+			return
 		}
-		preset := queryStringOrDefault(r, "preset", "1h")
-		return statsdomain.GetUsageSnapshot(r.Context(), tx, profile.ID, preset, s.nowUTC())
-	})
+		writeJSON(w, http.StatusOK, snapshot.UsageSnapshotPreset1)
+		return
+	}
+	response, err := statsdomain.GetUsageSnapshot(r.Context(), s.pool, profile.ID, preset, referenceNow)
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
@@ -322,48 +445,56 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request) {
-	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (struct{}, error) {
+	profileID, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
-			return struct{}{}, err
+			return 0, err
 		}
 		olderThanDays, err := parseOptionalInt(r, "older_than_days")
 		if err != nil {
-			return struct{}{}, err
+			return 0, err
 		}
 		deleteAll, err := parseOptionalBool(r, "delete_all")
 		if err != nil {
-			return struct{}{}, err
+			return 0, err
 		}
-		return struct{}{}, statsdomain.DeleteRequestLogs(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC())
+		if err := statsdomain.DeleteRequestLogs(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
+			return 0, err
+		}
+		return profile.ID, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
+	s.invalidateDashboardAggregateSnapshot(profileID)
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 }
 
 func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request) {
-	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (struct{}, error) {
+	profileID, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
-			return struct{}{}, err
+			return 0, err
 		}
 		olderThanDays, err := parseOptionalInt(r, "older_than_days")
 		if err != nil {
-			return struct{}{}, err
+			return 0, err
 		}
 		deleteAll, err := parseOptionalBool(r, "delete_all")
 		if err != nil {
-			return struct{}{}, err
+			return 0, err
 		}
-		return struct{}{}, statsdomain.DeleteStatistics(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC())
+		if err := statsdomain.DeleteStatistics(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
+			return 0, err
+		}
+		return profile.ID, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
+	s.invalidateDashboardAggregateSnapshot(profileID)
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 }
 

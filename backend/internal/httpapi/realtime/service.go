@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
@@ -32,9 +33,10 @@ var supportedRealtimeChannels = map[string]struct{}{
 }
 
 type Options struct {
-	Pool        *pgxpool.Pool
-	AuthService *managementauth.Service
-	Now         func() time.Time
+	Pool               *pgxpool.Pool
+	AuthService        *managementauth.Service
+	Now                func() time.Time
+	DashboardSnapshots *statsdomain.DashboardAggregateStore
 }
 
 type pendingDashboardUpdatePublisher interface {
@@ -52,6 +54,7 @@ type Service struct {
 	latestRequestLogIDs     map[int]int
 	pendingDashboardUpdates pendingDashboardUpdatePublisher
 	now                     func() time.Time
+	dashboardSnapshots      *statsdomain.DashboardAggregateStore
 	upgrader                websocket.Upgrader
 }
 
@@ -89,6 +92,10 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	for _, origin := range settings.CORSAllowedOriginsList() {
 		allowedOrigins[origin] = struct{}{}
 	}
+	dashboardSnapshots := options.DashboardSnapshots
+	if dashboardSnapshots == nil {
+		dashboardSnapshots = statsdomain.NewDashboardAggregateStore()
+	}
 	service := &Service{
 		pool:                pool,
 		ownsPool:            ownsPool,
@@ -98,6 +105,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		manager:             NewConnectionManager(defaultRealtimeWriteTimeout),
 		latestRequestLogIDs: map[int]int{},
 		now:                 now,
+		dashboardSnapshots:  dashboardSnapshots,
 	}
 	service.upgrader = websocket.Upgrader{CheckOrigin: service.checkOrigin}
 	return service, nil
@@ -273,4 +281,10 @@ func (s *Service) profileExists(ctx context.Context, profileID int) (bool, error
 		return false, fmt.Errorf("load profile %d: %w", profileID, err)
 	}
 	return found, nil
+}
+
+func (s *Service) clearLatestDashboardRequestLog(profileID int) {
+	s.latestMu.Lock()
+	defer s.latestMu.Unlock()
+	delete(s.latestRequestLogIDs, profileID)
 }

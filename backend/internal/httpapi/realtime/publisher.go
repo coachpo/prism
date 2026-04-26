@@ -30,14 +30,27 @@ type requestLogModelMetadata struct {
 	ModelType   string
 }
 
+var errDashboardRequestLogNotFound = errors.New("dashboard request log not found")
+
 func (s *Service) PublishDashboardUpdate(ctx context.Context, requestLogID int, profileID int) (bool, error) {
 	s.RecordLatestDashboardRequestLog(profileID, requestLogID)
+	if err := s.refreshDashboardAggregateForRequestLog(ctx, requestLogID, profileID); err != nil {
+		if errors.Is(err, errDashboardRequestLogNotFound) {
+			s.clearLatestDashboardRequestLog(profileID)
+			return false, nil
+		}
+		return false, err
+	}
 	if !s.HasDashboardSubscribers(profileID) {
 		return false, nil
 	}
 
 	message, err := s.BuildDashboardUpdate(ctx, requestLogID, profileID)
 	if err != nil {
+		if errors.Is(err, errDashboardRequestLogNotFound) {
+			s.clearLatestDashboardRequestLog(profileID)
+			return false, nil
+		}
 		return false, err
 	}
 	return s.manager.BroadcastToProfile(profileID, dashboardChannel, message) > 0, nil
@@ -58,6 +71,10 @@ func (s *Service) PublishLatestDashboardUpdate(ctx context.Context, profileID in
 	}
 	message, err := s.BuildDashboardUpdate(ctx, requestLogID, profileID)
 	if err != nil {
+		if errors.Is(err, errDashboardRequestLogNotFound) {
+			s.clearLatestDashboardRequestLog(profileID)
+			return 0, false, nil
+		}
 		return requestLogID, false, err
 	}
 	return requestLogID, s.manager.BroadcastToProfile(profileID, dashboardChannel, message) > 0, nil
@@ -77,25 +94,12 @@ func (s *Service) BuildDashboardUpdate(ctx context.Context, requestLogID int, pr
 		if err != nil {
 			return DashboardUpdateMessage{}, err
 		}
-		windowEnd := entry.CreatedAt.UTC()
+		aggregate, err := s.loadOrBuildDashboardAggregateSnapshot(ctx, tx, entry.ProfileID, entry.CreatedAt)
+		if err != nil {
+			return DashboardUpdateMessage{}, err
+		}
+		windowEnd := aggregate.GeneratedAt.UTC()
 		windowStart24H := windowEnd.Add(-24 * time.Hour)
-		statsSummary, err := statsdomain.GetStatsSummary(ctx, tx, statsdomain.StatsSummaryParams{ProfileID: entry.ProfileID, FromTime: &windowStart24H, ToTime: &windowEnd})
-		if err != nil {
-			return DashboardUpdateMessage{}, err
-		}
-		groupBy := "api_family"
-		apiFamilySummary, err := statsdomain.GetStatsSummary(ctx, tx, statsdomain.StatsSummaryParams{ProfileID: entry.ProfileID, FromTime: &windowStart24H, ToTime: &windowEnd, GroupBy: &groupBy})
-		if err != nil {
-			return DashboardUpdateMessage{}, err
-		}
-		spendingSummary, err := statsdomain.GetSpending(ctx, tx, statsdomain.SpendingParams{ProfileID: entry.ProfileID, Preset: "last_30_days", ToTime: &windowEnd, GroupBy: "none", Limit: 50, Offset: 0, TopN: 5, ReferenceNow: windowEnd})
-		if err != nil {
-			return DashboardUpdateMessage{}, err
-		}
-		throughput, err := statsdomain.GetThroughput(ctx, tx, statsdomain.ThroughputParams{ProfileID: entry.ProfileID, FromTime: &windowStart24H, ToTime: &windowEnd})
-		if err != nil {
-			return DashboardUpdateMessage{}, err
-		}
 		routeSnapshot, err := buildDashboardRouteSnapshot(ctx, tx, entry, windowStart24H, windowEnd)
 		if err != nil {
 			return DashboardUpdateMessage{}, err
@@ -103,20 +107,60 @@ func (s *Service) BuildDashboardUpdate(ctx context.Context, requestLogID int, pr
 		return DashboardUpdateMessage{
 			Type:                dashboardUpdateMessageType,
 			RequestLog:          entry,
-			StatsSummary24H:     statsSummary,
-			APIFamilySummary24H: apiFamilySummary,
-			SpendingSummary30D:  spendingSummary,
-			Throughput24H:       throughput,
+			StatsSummary24H:     aggregate.StatsSummary24H,
+			APIFamilySummary24H: aggregate.APIFamilySummary24H,
+			SpendingSummary30D:  aggregate.SpendingSummary30D,
+			Throughput24H:       aggregate.Throughput24H,
 			RoutingRoute24H:     routeSnapshot,
 		}, nil
 	})
+}
+
+func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, tx pgx.Tx, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
+	referenceNow = referenceNow.UTC()
+	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok && !snapshot.GeneratedAt.Before(referenceNow) {
+		return snapshot, nil
+	}
+	snapshot, err := statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, referenceNow)
+	if err != nil {
+		return statsdomain.DashboardAggregateSnapshot{}, err
+	}
+	s.dashboardSnapshots.StoreProfile(snapshot)
+	return snapshot, nil
+}
+
+func (s *Service) refreshDashboardAggregateForRequestLog(ctx context.Context, requestLogID int, profileID int) error {
+	snapshot, err := pgxutil.InTxValue(ctx, s.pool, "realtime", func(tx pgx.Tx) (statsdomain.DashboardAggregateSnapshot, error) {
+		createdAt, timestampErr := loadRequestLogCreatedAt(ctx, tx, requestLogID, profileID)
+		if timestampErr != nil {
+			return statsdomain.DashboardAggregateSnapshot{}, timestampErr
+		}
+		return statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, createdAt)
+	})
+	if err != nil {
+		return err
+	}
+	s.dashboardSnapshots.StoreProfile(snapshot)
+	return nil
+}
+
+func loadRequestLogCreatedAt(ctx context.Context, tx pgx.Tx, requestLogID int, profileID int) (time.Time, error) {
+	var createdAt time.Time
+	err := tx.QueryRow(ctx, `SELECT created_at FROM request_logs WHERE id = $1 AND profile_id = $2 LIMIT 1`, requestLogID, profileID).Scan(&createdAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load request log %d timestamp for profile %d: %w", requestLogID, profileID, err)
+	}
+	return createdAt.UTC(), nil
 }
 
 func loadRequestLogEntry(ctx context.Context, tx pgx.Tx, requestLogID int, profileID int) (RequestLogEntry, error) {
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT row_to_json(request_logs) FROM request_logs WHERE id = $1 AND profile_id = $2 LIMIT 1`, requestLogID, profileID).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return RequestLogEntry{}, fmt.Errorf("request log %d not found for profile %d", requestLogID, profileID)
+		return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
 	}
 	if err != nil {
 		return RequestLogEntry{}, fmt.Errorf("load request log %d for profile %d: %w", requestLogID, profileID, err)
