@@ -223,6 +223,50 @@ func TestRuntimeTelemetryOutboxBackpressure(t *testing.T) {
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: runtimeTelemetryOutboxBackpressureRequests, UsageEvents: runtimeTelemetryOutboxBackpressureRequests, OutboxRows: 0}, 5*time.Second)
 }
 
+func TestRuntimeTelemetryBacklogDoesNotConsumeExecutionPool(t *testing.T) {
+	gate := newRuntimeTelemetryMaterializeGate()
+	harness := newRuntimePhase0HarnessWithOptions(t, runtimePhase0HarnessOptions{
+		SettingsMutator: useDurableRuntimeTelemetryMode,
+		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{
+			WorkerCount:     1,
+			PollInterval:    25 * time.Millisecond,
+			ShutdownTimeout: time.Second,
+			WakeupBuffer:    1,
+			Hooks: &runtimeapi.TelemetryOutboxHooks{
+				BeforeMaterialize: gate.Wait,
+			},
+		}},
+	})
+	profileID := harness.activeProfileID(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "telemetry-isolation-public-" + randomSuffix(),
+		TargetModelID:   "telemetry-isolation-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/telemetry/isolation"),
+		EndpointAPIKey:  "telemetry-isolation-key",
+	})
+
+	warmResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "seed one durable telemetry backlog row"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, warmResponse, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 1}, 5*time.Second)
+
+	response, snapshot := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "execution lane must stay free while telemetry replay backlogs"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertPhase3HotPathExcludesForbiddenSQL(t, snapshot)
+	assertExecutionLaneExcludesTelemetryOutboxSQL(t, snapshot)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 0, UsageEvents: 0, OutboxRows: 2}, 5*time.Second)
+
+	gate.Release()
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 2, UsageEvents: 2, OutboxRows: 0}, 5*time.Second)
+}
+
 func TestRuntimeAcceptedResponseDoesNotMaterializeSyncTelemetry(t *testing.T) {
 	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{
 		RuntimeOptions: runtimeapi.Options{TelemetryOutbox: runtimeapi.TelemetryOutboxOptions{

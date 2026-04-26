@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,15 @@ func assertPhase3HotPathExcludesForbiddenSQL(tb testing.TB, snapshot runtimeSQLS
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryRuntimeStateTables)
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryRoundRobinState)
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryProxyKeyUsageWrite)
+}
+
+func assertExecutionLaneExcludesTelemetryOutboxSQL(tb testing.TB, snapshot runtimeSQLSnapshot) {
+	tb.Helper()
+	for _, statement := range snapshot.statements {
+		if strings.Contains(statement.Normalized, "runtime_telemetry_outbox") {
+			tb.Fatalf("expected execution-lane SQL to exclude runtime telemetry outbox statements, got:\n%s", snapshot.dump())
+		}
+	}
 }
 
 func waitForProxyAPIKeyUsageMaterialization(t *testing.T, conn *pgx.Conn, timeout time.Duration) {
