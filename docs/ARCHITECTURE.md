@@ -21,7 +21,7 @@
                     └──────────────────────────────────────────┘
 ```
 
-*Local `./start.sh` defaults. The backend service itself still defaults to `PORT=8000`, the frontend container exposes `3000`, and `backend/docker-compose.yml` binds PostgreSQL on `15432`.
+*Local `./start.sh` defaults are backend `18000`, frontend `15173`, and PostgreSQL `15432`. Standalone frontend containers commonly expose `3000`.
 
 ## 2. Component Architecture
 
@@ -103,8 +103,9 @@ frontend/
 ### 2.3 Local Tooling and Build Workflow
 
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
-- Root local orchestration lives in `start.sh`: it loads `.env`, starts PostgreSQL from `backend/docker-compose.yml`, and launches the Go backend service on `18000`.
-- `./start.sh full` also launches the frontend on `15173` with `VITE_API_BASE=http://localhost:18000`; local dev does not rely on a Vite proxy.
+- Root local orchestration lives in `start.sh`: it loads `.env`, starts PostgreSQL from `backend/docker-compose.yml`, resolves effective backend settings through the bootstrap startup contract, and launches the Go backend service on `18000`.
+- `./start.sh full` launches the frontend on `15173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000` so browser traffic stays same-origin.
+- Canonical startup config lives in backend-owned `bootstrap-config.json`; profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
@@ -182,6 +183,7 @@ The current split-bundle config workflow also mirrors that ownership split:
 - profile bundles never export plaintext endpoint API keys; endpoint secrets move through an encrypted `secret_payload`
 - endpoints without upstream credentials export `api_key_secret_ref = null` and do not create a bundle secret entry
 - profile import resolves vendors by `vendor_key` when present, keeps vendorless models vendorless when `vendor_key` is null, reuses existing global vendors, and never mutates existing global vendor metadata from profile-bundle hint drift
+- these bundle and backup flows remain PostgreSQL-backed state transport and do not seed or replace the startup bootstrap JSON
 
 ### 3.6 Custom Header Injection
 

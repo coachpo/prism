@@ -34,7 +34,7 @@ When launched through `../start.sh`, the backend listens on `http://localhost:18
 - ReDoc: `http://localhost:18000/redoc`
 - OpenAPI JSON: `http://localhost:18000/openapi.json`
 
-Direct Go runs from `backend/` use the configured `HOST` and `PORT` values from the environment.
+Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` plus `PRISM_CONFIG_MASTER_KEY`; legacy `HOST`, `PORT`, and related app env vars are seed inputs only when that bootstrap file does not exist yet.
 
 ## Verification
 
@@ -47,9 +47,13 @@ go build ./cmd/prism-backend
 ```
 
 ## Configuration
-- `DATABASE_URL` should be a PostgreSQL DSN accepted by the Go runtime, for example `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
-- `../start.sh` loads `.env`, provisions local PostgreSQL, and launches the Go backend without rewriting legacy DSN formats or resetting existing databases.
-- Other common settings come from `../.env.example`, including `HOST`, `PORT`, `CORS_ALLOWED_ORIGINS`, auth settings, WebAuthn settings, and SMTP settings.
+- Supported steady-state backend startup uses `PRISM_CONFIG_PATH` plus `PRISM_CONFIG_MASTER_KEY`.
+- When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is no longer the supported source of truth.
+- When the bootstrap file is missing, Prism can seed it once from legacy startup env inputs such as `DATABASE_URL`, `HOST`, `PORT`, `CORS_ALLOWED_ORIGINS`, auth settings, and the optional `CONFIG_BUNDLE_ENCRYPTION_KEY`; when that optional bundle key is omitted, Prism falls back to `PRISM_CONFIG_MASTER_KEY`.
+- Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport; `bootstrap-config.json` owns startup inputs only.
+- `../start.sh` loads `.env`, requires `PRISM_CONFIG_MASTER_KEY` explicitly, provisions local PostgreSQL, and when `PRISM_CONFIG_PATH` is unset creates a launcher-local bootstrap file so local runs keep backend `18000` and the expected frontend CORS origins.
+- Before booting, `../start.sh` resolves the effective backend bind settings through the bootstrap-managed startup path; if an existing bootstrap file resolves to a different backend port or a non-local bind host, the launcher fails early instead of starting against mismatched assumptions.
+- Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 
 ## Database and docs artifacts
 - Schema migrations are Go-managed and applied from `migrations/` at startup.
