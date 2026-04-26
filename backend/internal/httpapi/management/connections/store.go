@@ -349,11 +349,12 @@ func updateConnectionRow(ctx context.Context, exec queryExecutor, item connectio
 	return nil
 }
 
-func updateConnectionHealthCheck(ctx context.Context, exec queryExecutor, connectionID int, healthStatus string, healthDetail *string, lastHealthCheck time.Time) error {
-	if _, err := exec.Exec(ctx, `UPDATE connections SET health_status = $2, health_detail = $3, last_health_check = $4 WHERE id = $1`, connectionID, healthStatus, nullableString(healthDetail), lastHealthCheck); err != nil {
-		return fmt.Errorf("update connection %d health check: %w", connectionID, err)
+func updateConnectionHealthCheckIfUnchanged(ctx context.Context, exec queryExecutor, connectionID int, expectedUpdatedAt time.Time, healthStatus string, healthDetail *string, lastHealthCheck time.Time) (bool, error) {
+	commandTag, err := exec.Exec(ctx, `UPDATE connections SET health_status = $3, health_detail = $4, last_health_check = $5 WHERE id = $1 AND updated_at = $2`, connectionID, expectedUpdatedAt, healthStatus, nullableString(healthDetail), lastHealthCheck)
+	if err != nil {
+		return false, fmt.Errorf("update connection %d health check with optimistic token: %w", connectionID, err)
 	}
-	return nil
+	return commandTag.RowsAffected() > 0, nil
 }
 
 func deleteConnectionRow(ctx context.Context, exec queryExecutor, connectionID int) error {

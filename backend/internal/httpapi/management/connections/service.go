@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
@@ -20,12 +21,13 @@ type Options struct {
 }
 
 type Service struct {
-	pool                *pgxpool.Pool
-	ownsPool            bool
-	now                 func() time.Time
-	httpClient          *http.Client
-	allowedOrigins      map[string]struct{}
-	secretEncryptionKey string
+	pool                  *pgxpool.Pool
+	ownsPool              bool
+	now                   func() time.Time
+	httpClient            *http.Client
+	allowedOrigins        map[string]struct{}
+	secretEncryptionKey   string
+	persistedHealthChecks singleflight.Group
 }
 
 type domainError struct {
