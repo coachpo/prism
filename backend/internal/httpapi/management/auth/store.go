@@ -49,6 +49,22 @@ type appAuthSettingsRow struct {
 	UpdatedAt                     time.Time
 }
 
+type AppAuthSettingsSnapshot struct {
+	ID           int
+	AuthEnabled  bool
+	Username     string
+	TokenVersion int
+}
+
+func appAuthSettingsSnapshotFromRow(row appAuthSettingsRow) AppAuthSettingsSnapshot {
+	return AppAuthSettingsSnapshot{
+		ID:           row.ID,
+		AuthEnabled:  row.AuthEnabled,
+		Username:     stringValue(row.Username),
+		TokenVersion: row.TokenVersion,
+	}
+}
+
 type refreshTokenRow struct {
 	ID              int
 	AuthSubjectID   int

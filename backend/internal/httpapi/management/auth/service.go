@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -28,23 +29,25 @@ type Options struct {
 }
 
 type Service struct {
-	pool                  *pgxpool.Pool
-	ownsPool              bool
-	mailer                Mailer
-	now                   func() time.Time
-	authJWTSecret         string
-	accessTokenTTL        time.Duration
-	refreshTokenTTL       time.Duration
-	resetCodeTTL          time.Duration
-	accessCookieName      string
-	refreshCookieName     string
-	cookieSecure          bool
-	allowedOrigins        map[string]struct{}
-	proxyKeyPreviewSize   int
-	runtimeCache          *RuntimeCache
-	proxyKeyUsagePool     *pgxpool.Pool
-	ownsProxyKeyUsagePool bool
-	proxyKeyUsageWriter   *proxyAPIKeyUsageWriter
+	pool                   *pgxpool.Pool
+	ownsPool               bool
+	mailer                 Mailer
+	now                    func() time.Time
+	authJWTSecret          string
+	accessTokenTTL         time.Duration
+	refreshTokenTTL        time.Duration
+	resetCodeTTL           time.Duration
+	accessCookieName       string
+	refreshCookieName      string
+	cookieSecure           bool
+	allowedOrigins         map[string]struct{}
+	proxyKeyPreviewSize    int
+	runtimeCache           *RuntimeCache
+	proxyKeyUsagePool      *pgxpool.Pool
+	ownsProxyKeyUsagePool  bool
+	proxyKeyUsageWriter    *proxyAPIKeyUsageWriter
+	authSettingsSnapshotMu sync.RWMutex
+	authSettingsSnapshot   *AppAuthSettingsSnapshot
 }
 
 type authSubject struct {
@@ -153,6 +156,36 @@ func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
 }
 
+func (s *Service) loadAppAuthSettingsSnapshot(ctx context.Context) (AppAuthSettingsSnapshot, error) {
+	if s == nil {
+		return AppAuthSettingsSnapshot{}, fmt.Errorf("auth service unavailable")
+	}
+	s.authSettingsSnapshotMu.RLock()
+	cached := s.authSettingsSnapshot
+	s.authSettingsSnapshotMu.RUnlock()
+	if cached != nil {
+		return *cached, nil
+	}
+	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
+	if err != nil {
+		return AppAuthSettingsSnapshot{}, err
+	}
+	snapshot := appAuthSettingsSnapshotFromRow(settingsRow)
+	s.authSettingsSnapshotMu.Lock()
+	s.authSettingsSnapshot = &snapshot
+	s.authSettingsSnapshotMu.Unlock()
+	return snapshot, nil
+}
+
+func (s *Service) invalidateAppAuthSettingsSnapshot() {
+	if s == nil {
+		return
+	}
+	s.authSettingsSnapshotMu.Lock()
+	defer s.authSettingsSnapshotMu.Unlock()
+	s.authSettingsSnapshot = nil
+}
+
 func (s *Service) loadRuntimeAuthSettings(_ context.Context) (RuntimeAuthSettingsSnapshot, error) {
 	if s.runtimeCache == nil {
 		return RuntimeAuthSettingsSnapshot{}, runtimeSnapshotUnavailableError()
@@ -165,6 +198,10 @@ func (s *Service) InvalidateRuntimeCache() {
 		return
 	}
 	s.runtimeCache.Invalidate()
+}
+
+func (s *Service) InvalidateAppAuthSettingsSnapshot() {
+	s.invalidateAppAuthSettingsSnapshot()
 }
 
 func (s *Service) enqueueProxyAPIKeyUsage(keyID int, lastUsedAt time.Time, lastUsedIP string) error {

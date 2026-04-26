@@ -51,12 +51,12 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		settingsRow, err := s.loadOrCreateAppAuthSettings(r.Context(), s.pool)
+		snapshot, err := s.loadAppAuthSettingsSnapshot(r.Context())
 		if err != nil {
 			writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Failed to load authentication settings")
 			return
 		}
-		if !settingsRow.AuthEnabled {
+		if !snapshot.AuthEnabled {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -64,7 +64,7 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		authSubject, ok := s.authSubjectFromAccessCookie(r, settingsRow)
+		authSubject, ok := s.authSubjectFromAccessSnapshot(r, snapshot)
 		if !ok {
 			writeError(w, r, s.allowedOrigins, http.StatusUnauthorized, "Authentication required")
 			return
@@ -162,6 +162,10 @@ func requestIP(request *http.Request) string {
 }
 
 func (s *Service) authSubjectFromAccessCookie(request *http.Request, settingsRow appAuthSettingsRow) (authSubject, bool) {
+	return s.authSubjectFromAccessSnapshot(request, appAuthSettingsSnapshotFromRow(settingsRow))
+}
+
+func (s *Service) authSubjectFromAccessSnapshot(request *http.Request, snapshot AppAuthSettingsSnapshot) (authSubject, bool) {
 	cookie, err := request.Cookie(s.accessCookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return authSubject{}, false
@@ -174,10 +178,10 @@ func (s *Service) authSubjectFromAccessCookie(request *http.Request, settingsRow
 	if err != nil {
 		return authSubject{}, false
 	}
-	if subjectID != settingsRow.ID || claims.TokenVersion != settingsRow.TokenVersion {
+	if subjectID != snapshot.ID || claims.TokenVersion != snapshot.TokenVersion {
 		return authSubject{}, false
 	}
-	return authSubject{ID: settingsRow.ID, TokenVersion: settingsRow.TokenVersion, Username: claims.Username}, true
+	return authSubject{ID: snapshot.ID, TokenVersion: snapshot.TokenVersion, Username: claims.Username}, true
 }
 
 func (s *Service) handleGetAuthStatus(w http.ResponseWriter, r *http.Request) {
@@ -390,6 +394,7 @@ func (s *Service) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
+	s.invalidateAppAuthSettingsSnapshot()
 	s.clearAuthCookies(w)
 	writeJSON(w, http.StatusOK, successResponse{Success: true})
 }
@@ -420,6 +425,7 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
+	s.invalidateAppAuthSettingsSnapshot()
 	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(updatedRow))
 }
 

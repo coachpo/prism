@@ -13,17 +13,17 @@ type RealtimeAuthState struct {
 }
 
 func (s *Service) ResolveRealtimeAuthState(ctx context.Context, rawToken string) (RealtimeAuthState, error) {
-	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, s.pool)
+	snapshot, err := s.loadAppAuthSettingsSnapshot(ctx)
 	if err != nil {
 		return RealtimeAuthState{}, err
 	}
 
 	state := RealtimeAuthState{
-		AuthEnabled:   settingsRow.AuthEnabled,
-		Username:      stringValue(settingsRow.Username),
-		Authenticated: !settingsRow.AuthEnabled,
+		AuthEnabled:   snapshot.AuthEnabled,
+		Username:      snapshot.Username,
+		Authenticated: !snapshot.AuthEnabled,
 	}
-	if !settingsRow.AuthEnabled {
+	if !snapshot.AuthEnabled {
 		return state, nil
 	}
 
@@ -40,7 +40,7 @@ func (s *Service) ResolveRealtimeAuthState(ctx context.Context, rawToken string)
 	if err != nil {
 		return state, nil
 	}
-	if subjectID != settingsRow.ID || claims.TokenVersion != settingsRow.TokenVersion {
+	if subjectID != snapshot.ID || claims.TokenVersion != snapshot.TokenVersion {
 		return state, nil
 	}
 
