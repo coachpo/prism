@@ -73,8 +73,8 @@ docker pull ghcr.io/coachpo/prism-frontend:latest
 docker run -d \
   --name prism-backend \
   -p 8000:8000 \
-  -v "/absolute/secure/path/prism-bootstrap-config.json:/etc/prism/bootstrap-config.json:ro" \
-  -e PRISM_CONFIG_PATH="/etc/prism/bootstrap-config.json" \
+  -v "/absolute/secure/path/config.json:/etc/prism/config.json:ro" \
+  -e PRISM_CONFIG_PATH="/etc/prism/config.json" \
   ghcr.io/coachpo/prism-backend:latest
 
 docker run -d \
@@ -83,7 +83,7 @@ docker run -d \
   ghcr.io/coachpo/prism-frontend:latest
 ```
 
-The checked-in `bootstrap-config.json` is the plaintext bootstrap template, not a live secrets file. Copy it to a secure path outside the repo, replace every `replace-with-...` placeholder, then mount that copied file and point `PRISM_CONFIG_PATH` at it for steady-state startup. If an old encrypted bootstrap file is still on disk, replace it before booting.
+A plaintext bootstrap file such as `config.json` is the steady-state startup contract. Point `PRISM_CONFIG_PATH` at that file. If an old encrypted bootstrap file is still on disk, replace it before booting.
 
 The frontend image defaults to same-origin API calls. In production, put frontend and backend behind a reverse proxy and route `/` to frontend, and `/api`, `/v1`, and `/v1beta` to backend.
 
@@ -149,11 +149,11 @@ pnpm run lint
 
 ### Environment variables
 
-Use [`backend/.env.example`](backend/.env.example) as the backend sample and [`frontend/.env.example`](frontend/.env.example) as the frontend sample.
+Use [`frontend/.env.example`](frontend/.env.example) as the frontend sample.
 
 Plaintext bootstrap startup uses one steady-state external input:
 
-- `PRISM_CONFIG_PATH` points at a secure plaintext bootstrap file copied from the checked-in `bootstrap-config.json` template
+- `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
 
 That copied bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
 
@@ -168,7 +168,7 @@ Other configuration notes:
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 - `CONFIG_BUNDLE_ENCRYPTION_KEY` is an optional seed input for profile/vendor state-bundle encryption
 
-If you compose a root `.env` for `./start.sh`, copy the backend values you need from `backend/.env.example`; `./start.sh` reads that root `.env` first and only falls back to `backend/.env` and `frontend/.env` for still-unset keys. Set `PRISM_CONFIG_PATH` to a secure copied bootstrap file based on the checked-in template, or leave `PRISM_CONFIG_PATH` unset so the launcher can create a temporary local file. Legacy app env values are used only when that bootstrap file must be seeded. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `bootstrap-config.json`. `DATABASE_URL` should either stay aligned with the launcher's local PostgreSQL port or be left unset so the launcher can supply its default.
+If you compose a root `.env` for `./start.sh`, set `PRISM_CONFIG_PATH` to a plaintext bootstrap file such as `config.json`, or leave `PRISM_CONFIG_PATH` unset so the launcher can create a temporary local file. `./start.sh` reads that root `.env` first and only falls back to `backend/.env` and `frontend/.env` for still-unset keys. When it must seed a missing bootstrap file, launcher-local defaults cover `DATABASE_URL` and `PORT`, and the backend writes a built-in plaintext default `runtime.secretEncryptionKey` into the seeded file. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` keeps browser traffic same-origin through the launcher origin and Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

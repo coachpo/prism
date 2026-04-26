@@ -105,7 +105,7 @@ frontend/
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
 - Root local orchestration lives in `start.sh`: it loads `.env`, starts PostgreSQL from `backend/docker-compose.yml`, resolves effective backend settings through the bootstrap startup contract, and launches the Go backend service on `18000`.
 - `./start.sh full` launches the frontend on `15173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000` so browser traffic stays same-origin.
-- Canonical startup config lives in backend-owned `bootstrap-config.json`; profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
+- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; old encrypted bootstrap files must be replaced before boot.
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
