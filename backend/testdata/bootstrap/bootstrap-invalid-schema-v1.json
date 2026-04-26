@@ -11,7 +11,7 @@
     "docsEnabled": true
   },
   "database": {
-    "urlSecretRef": "database:primary:url",
+    "url": "postgres://prism:bootstrap-password@db.internal:5432/prism?sslmode=disable",
     "runtimePool": {
       "maxConns": 4,
       "minIdleConns": 1
@@ -27,6 +27,7 @@
   },
   "runtime": {
     "bufferingMode": "streaming",
+    "secretEncryptionKey": "bootstrap-runtime-secret-encryption-key",
     "transport": {
       "maxIdleConns": 120,
       "maxIdleConnsPerHost": 12,
@@ -44,7 +45,7 @@
     ]
   },
   "auth": {
-    "jwtSigningKeySecretRef": "auth:jwt:signing-key",
+    "jwtSigningKey": "bootstrap-jwt-signing-secret",
     "accessTokenTtlSeconds": 900,
     "refreshTokenTtlSeconds": 604800,
     "resetCodeTtlSeconds": 600,
@@ -52,25 +53,6 @@
     "refreshCookieName": "prism_refresh_token"
   },
   "stateTransfer": {
-    "bundleEncryptionKeySecretRef": "state-transfer:bundle-encryption-key"
-  },
-  "secretPayload": {
-    "kind": "encrypted",
-    "cipher": "prism-bootstrap-v1",
-    "keyId": "sha256:f895a4c688293a957738892d0b4a62a8a7eab9122b1697ccacecd6957a3ac22c",
-    "entries": [
-      {
-        "ref": "database:primary:url",
-        "ciphertext": "enc:gAAAAABp7hxW4EOHM8v6DmWO9v9xABWeXRQ27szK4fz3fnNQIkZTVHBxF9FxcBkELZ0N4GQacjR8lOQEUngNG5ALXxwdZJhF16OIsiqHNNLyRCg_39jBkPPhHfLCr9OY46cKrnwO42tPbhiEd9DyTty5zVNPlFWBe-R8tO1NuanLvvAETKmWitE="
-      },
-      {
-        "ref": "auth:jwt:signing-key",
-        "ciphertext": "enc:gAAAAABp7hxWo0XSf66G7O6NZtz3llX1Avy0puJu0a_xOhjoKbfHos0CbocGjEQm0jHAjikLC1qhmvKHrXo3NgNBNqW4j4c4j85AfmnlmpZN4-lcjgUlxkI="
-      },
-      {
-        "ref": "state-transfer:bundle-encryption-key",
-        "ciphertext": "enc:gAAAAABp7hxWOSNHxDJaq-iEc73wv-tyu29eAazfs39MLAmxgubWLoy1Xldl_fkaWgYE7bgnyijt4phooGFxQBTK-DJ5kP9Gjw4FpBAhbu99Cc__mUIcst8="
-      }
-    ]
+    "bundleEncryptionKey": "bootstrap-bundle-encryption-key"
   }
 }

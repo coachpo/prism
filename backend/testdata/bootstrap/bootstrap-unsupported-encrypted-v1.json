@@ -53,7 +53,7 @@
     "cookieSecure": false
   },
   "stateTransfer": {
-    "bundleEncryptionKeySecretRef": "state-transfer:missing-bundle-encryption-key"
+    "bundleEncryptionKeySecretRef": "state-transfer:bundle-encryption-key"
   },
   "secretPayload": {
     "kind": "encrypted",

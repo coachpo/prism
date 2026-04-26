@@ -2,8 +2,6 @@ package config
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,28 +10,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/coachpo/prism/backend/internal/endpointdomain"
 )
 
 const (
-	BootstrapConfigPathEnv      = "PRISM_CONFIG_PATH"
-	BootstrapConfigMasterKeyEnv = "PRISM_CONFIG_MASTER_KEY"
+	BootstrapConfigPathEnv = "PRISM_CONFIG_PATH"
 
-	bootstrapConfigSchemaVersion          = 1
-	bootstrapSecretPayloadKind            = "encrypted"
-	bootstrapSecretPayloadCipher          = "prism-bootstrap-v1"
-	bootstrapDirectoryPermissions         = 0o755
-	bootstrapDatabaseURLSecretRef         = "database:primary:url"
-	bootstrapJWTSigningKeySecretRef       = "auth:jwt:signing-key"
-	bootstrapBundleEncryptionKeySecretRef = "state-transfer:bundle-encryption-key"
+	bootstrapConfigSchemaVersion  = 1
+	bootstrapDirectoryPermissions = 0o755
 )
-
-var bootstrapSecretRefPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9:._/-]*$`)
 
 type BootstrapConfigManagerOptions struct {
 	ReadFile func(string) ([]byte, error)
@@ -53,7 +40,6 @@ type bootstrapConfigDocument struct {
 	HTTP          *bootstrapHTTP          `json:"http"`
 	Auth          *bootstrapAuth          `json:"auth"`
 	StateTransfer *bootstrapStateTransfer `json:"stateTransfer"`
-	SecretPayload *bootstrapSecretPayload `json:"secretPayload"`
 }
 
 type bootstrapMeta struct {
@@ -70,7 +56,7 @@ type bootstrapServer struct {
 }
 
 type bootstrapDatabase struct {
-	URLSecretRef        *string                       `json:"urlSecretRef"`
+	URL                 *string                       `json:"url"`
 	RuntimePool         *bootstrapDatabasePool        `json:"runtimePool"`
 	ManagementPool      *bootstrapDatabasePool        `json:"managementPool"`
 	ManagementAdmission *bootstrapManagementAdmission `json:"managementAdmission"`
@@ -87,8 +73,9 @@ type bootstrapManagementAdmission struct {
 }
 
 type bootstrapRuntime struct {
-	BufferingMode *string                    `json:"bufferingMode"`
-	Transport     *bootstrapRuntimeTransport `json:"transport"`
+	BufferingMode       *string                    `json:"bufferingMode"`
+	SecretEncryptionKey *string                    `json:"secretEncryptionKey"`
+	Transport           *bootstrapRuntimeTransport `json:"transport"`
 }
 
 type bootstrapRuntimeTransport struct {
@@ -106,7 +93,7 @@ type bootstrapHTTP struct {
 }
 
 type bootstrapAuth struct {
-	JWTSigningKeySecretRef *string `json:"jwtSigningKeySecretRef"`
+	JWTSigningKey          *string `json:"jwtSigningKey"`
 	AccessTokenTTLSeconds  *int    `json:"accessTokenTtlSeconds"`
 	RefreshTokenTTLSeconds *int    `json:"refreshTokenTtlSeconds"`
 	ResetCodeTTLSeconds    *int    `json:"resetCodeTtlSeconds"`
@@ -116,61 +103,14 @@ type bootstrapAuth struct {
 }
 
 type bootstrapStateTransfer struct {
-	BundleEncryptionKeySecretRef nullableStringField `json:"bundleEncryptionKeySecretRef"`
-}
-
-type bootstrapSecretPayload struct {
-	Kind    *string                        `json:"kind"`
-	Cipher  *string                        `json:"cipher"`
-	KeyID   *string                        `json:"keyId"`
-	Entries *[]bootstrapSecretPayloadEntry `json:"entries"`
-}
-
-type bootstrapSecretPayloadEntry struct {
-	Ref        *string `json:"ref"`
-	Ciphertext *string `json:"ciphertext"`
-}
-
-type nullableStringField struct {
-	isSet bool
-	value *string
-}
-
-func (f *nullableStringField) UnmarshalJSON(data []byte) error {
-	f.isSet = true
-	trimmed := bytes.TrimSpace(data)
-	if bytes.Equal(trimmed, []byte("null")) {
-		f.value = nil
-		return nil
-	}
-	var value string
-	if err := json.Unmarshal(trimmed, &value); err != nil {
-		return err
-	}
-	f.value = &value
-	return nil
-}
-
-func (f nullableStringField) MarshalJSON() ([]byte, error) {
-	if !f.isSet || f.value == nil {
-		return []byte("null"), nil
-	}
-	return json.Marshal(*f.value)
-}
-
-func (f nullableStringField) IsSet() bool {
-	return f.isSet
-}
-
-func (f nullableStringField) Value() *string {
-	return f.value
+	BundleEncryptionKey *string `json:"bundleEncryptionKey"`
 }
 
 func NewBootstrapConfigManager(options BootstrapConfigManagerOptions) BootstrapConfigManager {
 	return BootstrapConfigManager{readFile: options.ReadFile, timeNow: options.TimeNow}
 }
 
-func (m BootstrapConfigManager) Load(path string, masterKey string) (Settings, error) {
+func (m BootstrapConfigManager) Load(path string) (Settings, error) {
 	normalizedPath := strings.TrimSpace(path)
 	if normalizedPath == "" {
 		return Settings{}, fmt.Errorf("bootstrap config path is required")
@@ -179,33 +119,29 @@ func (m BootstrapConfigManager) Load(path string, masterKey string) (Settings, e
 	if err != nil {
 		return Settings{}, fmt.Errorf("read bootstrap config %q: %w", normalizedPath, err)
 	}
-	return m.Parse(raw, masterKey)
+	return m.Parse(raw)
 }
 
 func (m BootstrapConfigManager) LoadFromEnv() (Settings, error) {
-	configPath, masterKey, err := resolveBootstrapExternalInputsFromEnv()
+	configPath, err := resolveBootstrapExternalInputsFromEnv()
 	if err != nil {
 		return Settings{}, err
 	}
-	return m.Load(configPath, masterKey)
+	return m.Load(configPath)
 }
 
-func (m BootstrapConfigManager) LoadOrSeed(path string, masterKey string) (Settings, error) {
+func (m BootstrapConfigManager) LoadOrSeed(path string) (Settings, error) {
 	normalizedPath := strings.TrimSpace(path)
 	if normalizedPath == "" {
 		return Settings{}, fmt.Errorf("bootstrap config path is required")
 	}
-	trimmedMasterKey := strings.TrimSpace(masterKey)
-	if trimmedMasterKey == "" {
-		return Settings{}, fmt.Errorf("%s is required", BootstrapConfigMasterKeyEnv)
-	}
 	if _, err := os.Stat(normalizedPath); err == nil {
-		return m.Load(normalizedPath, trimmedMasterKey)
+		return m.Load(normalizedPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Settings{}, fmt.Errorf("stat bootstrap config %q: %w", normalizedPath, err)
 	}
 
-	payload, settings, err := m.seedPayloadFromLegacyEnv(trimmedMasterKey)
+	payload, settings, err := m.seedPayloadFromEnv()
 	if err != nil {
 		return Settings{}, fmt.Errorf("seed bootstrap config %q from legacy env: %w", normalizedPath, err)
 	}
@@ -214,25 +150,25 @@ func (m BootstrapConfigManager) LoadOrSeed(path string, masterKey string) (Setti
 		return Settings{}, fmt.Errorf("seed bootstrap config %q from legacy env: %w", normalizedPath, err)
 	}
 	if !written {
-		return m.Load(normalizedPath, trimmedMasterKey)
+		return m.Load(normalizedPath)
 	}
 	return settings, nil
 }
 
 func (m BootstrapConfigManager) LoadOrSeedFromEnv() (Settings, error) {
-	configPath, masterKey, err := resolveBootstrapExternalInputsFromEnv()
+	configPath, err := resolveBootstrapExternalInputsFromEnv()
 	if err != nil {
 		return Settings{}, err
 	}
-	return m.LoadOrSeed(configPath, masterKey)
+	return m.LoadOrSeed(configPath)
 }
 
-func (m BootstrapConfigManager) Parse(raw []byte, masterKey string) (Settings, error) {
+func (m BootstrapConfigManager) Parse(raw []byte) (Settings, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return Settings{}, fmt.Errorf("bootstrap config is empty")
 	}
-	if strings.TrimSpace(masterKey) == "" {
-		return Settings{}, fmt.Errorf("%s is required", BootstrapConfigMasterKeyEnv)
+	if err := detectUnsupportedBootstrapFormat(raw); err != nil {
+		return Settings{}, err
 	}
 
 	document, err := decodeBootstrapConfig(raw)
@@ -242,14 +178,10 @@ func (m BootstrapConfigManager) Parse(raw []byte, masterKey string) (Settings, e
 	if err := document.validateSchema(); err != nil {
 		return Settings{}, err
 	}
-	resolvedSecrets, err := resolveBootstrapSecrets(document.SecretPayload, masterKey)
-	if err != nil {
+	if err := document.validateSemantics(); err != nil {
 		return Settings{}, err
 	}
-	if err := document.validateSemantics(resolvedSecrets); err != nil {
-		return Settings{}, err
-	}
-	return document.toSettings(masterKey, resolvedSecrets)
+	return document.toSettings()
 }
 
 func (m BootstrapConfigManager) WriteAtomically(path string, payload []byte) error {
@@ -309,20 +241,16 @@ func (m BootstrapConfigManager) resolvedTimeNow() func() time.Time {
 	return time.Now
 }
 
-func resolveBootstrapExternalInputsFromEnv() (string, string, error) {
+func resolveBootstrapExternalInputsFromEnv() (string, error) {
 	configPath := strings.TrimSpace(os.Getenv(BootstrapConfigPathEnv))
 	if configPath == "" {
-		return "", "", fmt.Errorf("%s is required", BootstrapConfigPathEnv)
+		return "", fmt.Errorf("%s is required", BootstrapConfigPathEnv)
 	}
-	masterKey := strings.TrimSpace(os.Getenv(BootstrapConfigMasterKeyEnv))
-	if masterKey == "" {
-		return "", "", fmt.Errorf("%s is required", BootstrapConfigMasterKeyEnv)
-	}
-	return configPath, masterKey, nil
+	return configPath, nil
 }
 
-func (m BootstrapConfigManager) seedPayloadFromLegacyEnv(masterKey string) ([]byte, Settings, error) {
-	document, err := buildSeededBootstrapDocument(loadLegacySettingsFromEnv(), strings.TrimSpace(masterKey), m.resolvedTimeNow()().UTC())
+func (m BootstrapConfigManager) seedPayloadFromEnv() ([]byte, Settings, error) {
+	document, err := buildSeededBootstrapDocument(loadSeedSettingsFromEnv(), m.resolvedTimeNow()().UTC())
 	if err != nil {
 		return nil, Settings{}, err
 	}
@@ -330,7 +258,7 @@ func (m BootstrapConfigManager) seedPayloadFromLegacyEnv(masterKey string) ([]by
 	if err != nil {
 		return nil, Settings{}, fmt.Errorf("marshal seeded bootstrap config JSON: %w", err)
 	}
-	settings, err := m.Parse(raw, masterKey)
+	settings, err := m.Parse(raw)
 	if err != nil {
 		return nil, Settings{}, fmt.Errorf("validate seeded bootstrap config: %w", err)
 	}
@@ -418,9 +346,6 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if d.StateTransfer == nil {
 		return missingBootstrapFieldError("stateTransfer")
 	}
-	if d.SecretPayload == nil {
-		return missingBootstrapFieldError("secretPayload")
-	}
 	if err := d.Meta.validate(); err != nil {
 		return err
 	}
@@ -439,10 +364,7 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if err := d.Auth.validate(); err != nil {
 		return err
 	}
-	if err := d.StateTransfer.validate(); err != nil {
-		return err
-	}
-	return d.SecretPayload.validate()
+	return d.StateTransfer.validate()
 }
 
 func (m bootstrapMeta) validate() error {
@@ -473,7 +395,7 @@ func (s bootstrapServer) validate() error {
 }
 
 func (d bootstrapDatabase) validate() error {
-	if _, err := requiredSecretRef("database.urlSecretRef", d.URLSecretRef); err != nil {
+	if _, err := requiredTrimmedString("database.url", d.URL, 1, 0); err != nil {
 		return err
 	}
 	if d.RuntimePool == nil {
@@ -518,6 +440,9 @@ func (r bootstrapRuntime) validate() error {
 	if _, err := requiredEnumString("runtime.bufferingMode", r.BufferingMode, []string{string(RuntimeBufferingModeBuffered), string(RuntimeBufferingModeStreaming)}); err != nil {
 		return err
 	}
+	if _, err := requiredTrimmedString("runtime.secretEncryptionKey", r.SecretEncryptionKey, 1, 0); err != nil {
+		return err
+	}
 	if r.Transport == nil {
 		return missingBootstrapFieldError("runtime.transport")
 	}
@@ -555,7 +480,7 @@ func (h bootstrapHTTP) validate() error {
 }
 
 func (a bootstrapAuth) validate() error {
-	if _, err := requiredSecretRef("auth.jwtSigningKeySecretRef", a.JWTSigningKeySecretRef); err != nil {
+	if _, err := requiredTrimmedString("auth.jwtSigningKey", a.JWTSigningKey, 1, 0); err != nil {
 		return err
 	}
 	if _, err := requiredIntMin("auth.accessTokenTtlSeconds", a.AccessTokenTTLSeconds, 1); err != nil {
@@ -578,92 +503,11 @@ func (a bootstrapAuth) validate() error {
 }
 
 func (s bootstrapStateTransfer) validate() error {
-	_, err := nullableSecretRef("stateTransfer.bundleEncryptionKeySecretRef", s.BundleEncryptionKeySecretRef)
+	_, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", s.BundleEncryptionKey, 1, 0)
 	return err
 }
 
-func (p bootstrapSecretPayload) validate() error {
-	if _, err := requiredConstString("secretPayload.kind", p.Kind, bootstrapSecretPayloadKind); err != nil {
-		return err
-	}
-	if _, err := requiredConstString("secretPayload.cipher", p.Cipher, bootstrapSecretPayloadCipher); err != nil {
-		return err
-	}
-	if _, err := requiredTrimmedString("secretPayload.keyId", p.KeyID, 1, 0); err != nil {
-		return err
-	}
-	entries, err := requiredSecretPayloadEntries("secretPayload.entries", p.Entries)
-	if err != nil {
-		return err
-	}
-	for index, entry := range entries {
-		if _, err := requiredSecretRef(fmt.Sprintf("secretPayload.entries[%d].ref", index), entry.Ref); err != nil {
-			return err
-		}
-		if _, err := requiredTrimmedString(fmt.Sprintf("secretPayload.entries[%d].ciphertext", index), entry.Ciphertext, 1, 0); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func resolveBootstrapSecrets(secretPayload *bootstrapSecretPayload, masterKey string) (map[string]string, error) {
-	entries, err := requiredSecretPayloadEntries("secretPayload.entries", secretPayload.Entries)
-	if err != nil {
-		return nil, err
-	}
-	resolved := make(map[string]string, len(entries))
-	for index, entry := range entries {
-		ref, _ := requiredSecretRef(fmt.Sprintf("secretPayload.entries[%d].ref", index), entry.Ref)
-		ciphertext, _ := requiredTrimmedString(fmt.Sprintf("secretPayload.entries[%d].ciphertext", index), entry.Ciphertext, 1, 0)
-		if _, exists := resolved[ref]; exists {
-			return nil, fmt.Errorf("bootstrap config secretPayload.entries contains duplicate ref %q", ref)
-		}
-		if !strings.HasPrefix(ciphertext, "enc:") {
-			return nil, fmt.Errorf("bootstrap config secret ref %q must be encrypted", ref)
-		}
-		plaintext, decryptErr := endpointdomain.DecryptSecret(ciphertext, masterKey)
-		if decryptErr != nil {
-			return nil, fmt.Errorf("bootstrap config could not decrypt secret ref %q", ref)
-		}
-		if strings.TrimSpace(plaintext) == "" {
-			return nil, fmt.Errorf("bootstrap config secret ref %q resolved to an empty value", ref)
-		}
-		resolved[ref] = plaintext
-	}
-	return resolved, nil
-}
-
-func (d bootstrapConfigDocument) validateSemantics(resolvedSecrets map[string]string) error {
-	databaseURLRef, _ := requiredSecretRef("database.urlSecretRef", d.Database.URLSecretRef)
-	if err := requireResolvedSecretRef("database.urlSecretRef", d.Database.URLSecretRef, resolvedSecrets); err != nil {
-		return err
-	}
-	authJWTRef, _ := requiredSecretRef("auth.jwtSigningKeySecretRef", d.Auth.JWTSigningKeySecretRef)
-	if err := requireResolvedSecretRef("auth.jwtSigningKeySecretRef", d.Auth.JWTSigningKeySecretRef, resolvedSecrets); err != nil {
-		return err
-	}
-
-	referencedSecretRefs := map[string]struct{}{
-		databaseURLRef: {},
-		authJWTRef:     {},
-	}
-
-	bundleRef, err := nullableSecretRef("stateTransfer.bundleEncryptionKeySecretRef", d.StateTransfer.BundleEncryptionKeySecretRef)
-	if err != nil {
-		return err
-	}
-	if bundleRef != nil {
-		if _, ok := resolvedSecrets[*bundleRef]; !ok {
-			return fmt.Errorf("bootstrap config field stateTransfer.bundleEncryptionKeySecretRef references missing secret ref %q", *bundleRef)
-		}
-		referencedSecretRefs[*bundleRef] = struct{}{}
-	}
-
-	if extras := unreferencedBootstrapSecretRefs(resolvedSecrets, referencedSecretRefs); len(extras) > 0 {
-		return fmt.Errorf("bootstrap config secretPayload.entries contains unreferenced secret ref %q", extras[0])
-	}
-
+func (d bootstrapConfigDocument) validateSemantics() error {
 	for _, field := range []struct {
 		path  string
 		value *string
@@ -695,19 +539,7 @@ func (d bootstrapConfigDocument) validateSemantics(resolvedSecrets map[string]st
 	return nil
 }
 
-func unreferencedBootstrapSecretRefs(resolvedSecrets map[string]string, referencedSecretRefs map[string]struct{}) []string {
-	extras := make([]string, 0)
-	for ref := range resolvedSecrets {
-		if _, ok := referencedSecretRefs[ref]; ok {
-			continue
-		}
-		extras = append(extras, ref)
-	}
-	slices.Sort(extras)
-	return extras
-}
-
-func (d bootstrapConfigDocument) toSettings(masterKey string, resolvedSecrets map[string]string) (Settings, error) {
+func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	host, err := requiredTrimmedString("server.host", d.Server.Host, 1, 255)
 	if err != nil {
 		return Settings{}, err
@@ -720,19 +552,15 @@ func (d bootstrapConfigDocument) toSettings(masterKey string, resolvedSecrets ma
 	if err != nil {
 		return Settings{}, err
 	}
-	databaseURLRef, err := requiredSecretRef("database.urlSecretRef", d.Database.URLSecretRef)
-	if err != nil {
-		return Settings{}, err
-	}
-	jwtSigningKeyRef, err := requiredSecretRef("auth.jwtSigningKeySecretRef", d.Auth.JWTSigningKeySecretRef)
-	if err != nil {
-		return Settings{}, err
-	}
-	bundleEncryptionKeyRef, err := nullableSecretRef("stateTransfer.bundleEncryptionKeySecretRef", d.StateTransfer.BundleEncryptionKeySecretRef)
+	databaseURL, err := requiredTrimmedString("database.url", d.Database.URL, 1, 0)
 	if err != nil {
 		return Settings{}, err
 	}
 	runtimeBufferingMode, err := requiredEnumString("runtime.bufferingMode", d.Runtime.BufferingMode, []string{string(RuntimeBufferingModeBuffered), string(RuntimeBufferingModeStreaming)})
+	if err != nil {
+		return Settings{}, err
+	}
+	runtimeSecretEncryptionKey, err := requiredTrimmedString("runtime.secretEncryptionKey", d.Runtime.SecretEncryptionKey, 1, 0)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -750,6 +578,14 @@ func (d bootstrapConfigDocument) toSettings(masterKey string, resolvedSecrets ma
 	if err != nil {
 		return Settings{}, err
 	}
+	jwtSigningKey, err := requiredTrimmedString("auth.jwtSigningKey", d.Auth.JWTSigningKey, 1, 0)
+	if err != nil {
+		return Settings{}, err
+	}
+	bundleEncryptionKey, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", d.StateTransfer.BundleEncryptionKey, 1, 0)
+	if err != nil {
+		return Settings{}, err
+	}
 	accessTokenTTLSeconds, _ := requiredIntMin("auth.accessTokenTtlSeconds", d.Auth.AccessTokenTTLSeconds, 1)
 	refreshTokenTTLSeconds, _ := requiredIntMin("auth.refreshTokenTtlSeconds", d.Auth.RefreshTokenTTLSeconds, 1)
 	resetCodeTTLSeconds, _ := requiredIntMin("auth.resetCodeTtlSeconds", d.Auth.ResetCodeTTLSeconds, 1)
@@ -761,26 +597,22 @@ func (d bootstrapConfigDocument) toSettings(masterKey string, resolvedSecrets ma
 	if docsEnabled {
 		appEnv = EnvironmentDevelopment
 	}
-	configBundleEncryptionKey := masterKey
-	if bundleEncryptionKeyRef != nil {
-		configBundleEncryptionKey = resolvedSecrets[*bundleEncryptionKeyRef]
-	}
 
 	return Settings{
 		Host:                             host,
 		Port:                             port,
 		AppEnv:                           appEnv,
-		DatabaseURL:                      strings.TrimSpace(resolvedSecrets[databaseURLRef]),
+		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		RuntimeBufferingMode:             RuntimeBufferingMode(runtimeBufferingMode),
 		RuntimeTransportConfig:           runtimeTransport,
 		RuntimeDatabasePoolBudget:        DatabasePoolBudget{MaxConns: int32(runtimeMaxConns), MinIdleConns: int32(runtimeMinIdleConns)},
 		ManagementDatabasePoolBudget:     DatabasePoolBudget{MaxConns: int32(managementMaxConns), MinIdleConns: int32(managementMinIdleConns)},
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: int64(m2MaxConcurrent), M3MaxConcurrent: int64(m3MaxConcurrent)},
-		SecretEncryptionKey:              masterKey,
-		ConfigBundleEncryptionKey:        configBundleEncryptionKey,
+		SecretEncryptionKey:              runtimeSecretEncryptionKey,
+		ConfigBundleEncryptionKey:        bundleEncryptionKey,
 		CORSAllowedOrigins:               strings.Join(corsAllowedOrigins, ","),
-		AuthJWTSecret:                    strings.TrimSpace(resolvedSecrets[jwtSigningKeyRef]),
+		AuthJWTSecret:                    jwtSigningKey,
 		AuthAccessTokenTTLSeconds:        accessTokenTTLSeconds,
 		AuthRefreshTokenTTLSeconds:       refreshTokenTTLSeconds,
 		AuthResetCodeTTLSeconds:          resetCodeTTLSeconds,
@@ -830,20 +662,27 @@ func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportC
 	}, nil
 }
 
-func buildSeededBootstrapDocument(settings Settings, masterKey string, now time.Time) (bootstrapConfigDocument, error) {
-	trimmedMasterKey := strings.TrimSpace(masterKey)
-	if trimmedMasterKey == "" {
-		return bootstrapConfigDocument{}, fmt.Errorf("%s is required", BootstrapConfigMasterKeyEnv)
-	}
-
+func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapConfigDocument, error) {
 	runtimeDatabaseBudget := settings.RuntimeDatabaseBudget()
 	managementDatabaseBudget := settings.ManagementDatabaseBudget()
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
 	runtimeTransport := settings.RuntimeTransport()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
-	secretEntries, bundleEncryptionKeyRef, err := buildSeededSecretPayloadEntries(settings, trimmedMasterKey, now)
+	databaseURL, err := requiredSeedValue("DATABASE_URL", settings.DatabaseURL)
 	if err != nil {
 		return bootstrapConfigDocument{}, err
+	}
+	runtimeSecretEncryptionKey, err := requiredSeedValue("SECRET_ENCRYPTION_KEY", settings.SecretEncryptionKey)
+	if err != nil {
+		return bootstrapConfigDocument{}, err
+	}
+	authJWTSecret, err := requiredSeedValue("AUTH_JWT_SECRET", settings.AuthJWTSecret)
+	if err != nil {
+		return bootstrapConfigDocument{}, err
+	}
+	bundleEncryptionKey := strings.TrimSpace(settings.ConfigBundleEncryptionKey)
+	if bundleEncryptionKey == "" {
+		bundleEncryptionKey = runtimeSecretEncryptionKey
 	}
 	timestamp := now.UTC().Format(time.RFC3339)
 	bufferingMode := string(settings.ResolvedRuntimeBufferingMode())
@@ -861,7 +700,7 @@ func buildSeededBootstrapDocument(settings Settings, masterKey string, now time.
 			DocsEnabled: boolPointer(settings.DocsEnabled()),
 		},
 		Database: &bootstrapDatabase{
-			URLSecretRef: stringPointer(bootstrapDatabaseURLSecretRef),
+			URL: stringPointer(databaseURL),
 			RuntimePool: &bootstrapDatabasePool{
 				MaxConns:     intPointer(int(runtimeDatabaseBudget.MaxConns)),
 				MinIdleConns: intPointer(int(runtimeDatabaseBudget.MinIdleConns)),
@@ -876,7 +715,8 @@ func buildSeededBootstrapDocument(settings Settings, masterKey string, now time.
 			},
 		},
 		Runtime: &bootstrapRuntime{
-			BufferingMode: stringPointer(bufferingMode),
+			BufferingMode:       stringPointer(bufferingMode),
+			SecretEncryptionKey: stringPointer(runtimeSecretEncryptionKey),
 			Transport: &bootstrapRuntimeTransport{
 				MaxIdleConns:          intPointer(runtimeTransport.MaxIdleConns),
 				MaxIdleConnsPerHost:   intPointer(runtimeTransport.MaxIdleConnsPerHost),
@@ -891,7 +731,7 @@ func buildSeededBootstrapDocument(settings Settings, masterKey string, now time.
 			CORSAllowedOrigins: &corsAllowedOrigins,
 		},
 		Auth: &bootstrapAuth{
-			JWTSigningKeySecretRef: stringPointer(bootstrapJWTSigningKeySecretRef),
+			JWTSigningKey:          stringPointer(authJWTSecret),
 			AccessTokenTTLSeconds:  intPointer(settings.AuthAccessTokenTTLSeconds),
 			RefreshTokenTTLSeconds: intPointer(settings.AuthRefreshTokenTTLSeconds),
 			ResetCodeTTLSeconds:    intPointer(settings.AuthResetCodeTTLSeconds),
@@ -900,56 +740,9 @@ func buildSeededBootstrapDocument(settings Settings, masterKey string, now time.
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
 		},
 		StateTransfer: &bootstrapStateTransfer{
-			BundleEncryptionKeySecretRef: nullableStringValue(bundleEncryptionKeyRef),
-		},
-		SecretPayload: &bootstrapSecretPayload{
-			Kind:    stringPointer(bootstrapSecretPayloadKind),
-			Cipher:  stringPointer(bootstrapSecretPayloadCipher),
-			KeyID:   stringPointer(bootstrapSecretPayloadKeyID(trimmedMasterKey)),
-			Entries: &secretEntries,
+			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
 	}, nil
-}
-
-func buildSeededSecretPayloadEntries(settings Settings, masterKey string, now time.Time) ([]bootstrapSecretPayloadEntry, *string, error) {
-	databaseEntry, err := encryptBootstrapSecretEntry("DATABASE_URL", bootstrapDatabaseURLSecretRef, settings.DatabaseURL, masterKey, now)
-	if err != nil {
-		return nil, nil, err
-	}
-	jwtEntry, err := encryptBootstrapSecretEntry("AUTH_JWT_SECRET", bootstrapJWTSigningKeySecretRef, settings.AuthJWTSecret, masterKey, now)
-	if err != nil {
-		return nil, nil, err
-	}
-	entries := []bootstrapSecretPayloadEntry{databaseEntry, jwtEntry}
-
-	var bundleEncryptionKeyRef *string
-	if strings.TrimSpace(settings.ConfigBundleEncryptionKey) != "" {
-		bundleEntry, err := encryptBootstrapSecretEntry("CONFIG_BUNDLE_ENCRYPTION_KEY", bootstrapBundleEncryptionKeySecretRef, settings.ConfigBundleEncryptionKey, masterKey, now)
-		if err != nil {
-			return nil, nil, err
-		}
-		bundleEncryptionKeyRef = stringPointer(bootstrapBundleEncryptionKeySecretRef)
-		entries = append(entries, bundleEntry)
-	}
-
-	return entries, bundleEncryptionKeyRef, nil
-}
-
-func encryptBootstrapSecretEntry(envName string, secretRef string, value string, masterKey string, now time.Time) (bootstrapSecretPayloadEntry, error) {
-	trimmedValue := strings.TrimSpace(value)
-	if trimmedValue == "" {
-		return bootstrapSecretPayloadEntry{}, fmt.Errorf("legacy startup %s is required to seed bootstrap config", envName)
-	}
-	ciphertext, err := endpointdomain.EncryptSecret(trimmedValue, masterKey, func() time.Time { return now })
-	if err != nil {
-		return bootstrapSecretPayloadEntry{}, fmt.Errorf("encrypt legacy startup %s: %w", envName, err)
-	}
-	return bootstrapSecretPayloadEntry{Ref: stringPointer(secretRef), Ciphertext: stringPointer(ciphertext)}, nil
-}
-
-func bootstrapSecretPayloadKeyID(masterKey string) string {
-	sum := sha256.Sum256([]byte(masterKey))
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func intPointer(value int) *int {
@@ -962,10 +755,6 @@ func stringPointer(value string) *string {
 
 func boolPointer(value bool) *bool {
 	return &value
-}
-
-func nullableStringValue(value *string) nullableStringField {
-	return nullableStringField{isSet: true, value: value}
 }
 
 func missingBootstrapFieldError(path string) error {
@@ -984,17 +773,6 @@ func requiredTrimmedString(path string, value *string, minLength int, maxLength 
 		return "", fmt.Errorf("bootstrap config field %s must be at most %d characters", path, maxLength)
 	}
 	return trimmed, nil
-}
-
-func requiredConstString(path string, value *string, expected string) (string, error) {
-	resolved, err := requiredTrimmedString(path, value, 1, 0)
-	if err != nil {
-		return "", err
-	}
-	if resolved != expected {
-		return "", fmt.Errorf("bootstrap config field %s must equal %q", path, expected)
-	}
-	return resolved, nil
 }
 
 func requiredEnumString(path string, value *string, allowed []string) (string, error) {
@@ -1055,31 +833,6 @@ func requiredBool(path string, value *bool) (bool, error) {
 	return *value, nil
 }
 
-func requiredSecretRef(path string, value *string) (string, error) {
-	resolved, err := requiredTrimmedString(path, value, 1, 255)
-	if err != nil {
-		return "", err
-	}
-	if !bootstrapSecretRefPattern.MatchString(resolved) {
-		return "", fmt.Errorf("bootstrap config field %s must match %q", path, bootstrapSecretRefPattern.String())
-	}
-	return resolved, nil
-}
-
-func nullableSecretRef(path string, value nullableStringField) (*string, error) {
-	if !value.IsSet() {
-		return nil, missingBootstrapFieldError(path)
-	}
-	if value.Value() == nil {
-		return nil, nil
-	}
-	resolved, err := requiredSecretRef(path, value.Value())
-	if err != nil {
-		return nil, err
-	}
-	return &resolved, nil
-}
-
 func requiredAbsoluteURIs(path string, value *[]string) ([]string, error) {
 	if value == nil {
 		return nil, missingBootstrapFieldError(path)
@@ -1104,13 +857,6 @@ func requiredAbsoluteURIs(path string, value *[]string) ([]string, error) {
 	return resolved, nil
 }
 
-func requiredSecretPayloadEntries(path string, value *[]bootstrapSecretPayloadEntry) ([]bootstrapSecretPayloadEntry, error) {
-	if value == nil {
-		return nil, missingBootstrapFieldError(path)
-	}
-	return *value, nil
-}
-
 func parseDurationField(path string, value *string) (time.Duration, error) {
 	resolved, err := requiredTrimmedString(path, value, 1, 0)
 	if err != nil {
@@ -1123,13 +869,56 @@ func parseDurationField(path string, value *string) (time.Duration, error) {
 	return parsed, nil
 }
 
-func requireResolvedSecretRef(path string, value *string, resolvedSecrets map[string]string) error {
-	ref, err := requiredSecretRef(path, value)
-	if err != nil {
-		return err
+func requiredSeedValue(envName string, value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("legacy startup %s is required to seed bootstrap config", envName)
 	}
-	if _, ok := resolvedSecrets[ref]; !ok {
-		return fmt.Errorf("bootstrap config field %s references missing secret ref %q", path, ref)
+	return trimmed, nil
+}
+
+func hasBootstrapField(value json.RawMessage) bool {
+	return len(bytes.TrimSpace(value)) > 0
+}
+
+type bootstrapUnsupportedFieldProbe struct {
+	SecretPayload json.RawMessage            `json:"secretPayload"`
+	Database      map[string]json.RawMessage `json:"database"`
+	Auth          map[string]json.RawMessage `json:"auth"`
+	StateTransfer map[string]json.RawMessage `json:"stateTransfer"`
+}
+
+func detectUnsupportedBootstrapFormat(raw []byte) error {
+	var probe bootstrapUnsupportedFieldProbe
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil
 	}
-	return nil
+	unsupportedFields := make([]string, 0, 4)
+	if hasBootstrapField(probe.SecretPayload) {
+		unsupportedFields = append(unsupportedFields, "secretPayload")
+	}
+	if hasBootstrapMapField(probe.Database, "urlSecretRef") {
+		unsupportedFields = append(unsupportedFields, "database.urlSecretRef")
+	}
+	if hasBootstrapMapField(probe.Auth, "jwtSigningKeySecretRef") {
+		unsupportedFields = append(unsupportedFields, "auth.jwtSigningKeySecretRef")
+	}
+	if hasBootstrapMapField(probe.StateTransfer, "bundleEncryptionKeySecretRef") {
+		unsupportedFields = append(unsupportedFields, "stateTransfer.bundleEncryptionKeySecretRef")
+	}
+	if len(unsupportedFields) == 0 {
+		return nil
+	}
+	return fmt.Errorf("bootstrap config uses unsupported legacy encrypted format fields: %s", strings.Join(unsupportedFields, ", "))
+}
+
+func hasBootstrapMapField(fields map[string]json.RawMessage, name string) bool {
+	if fields == nil {
+		return false
+	}
+	value, ok := fields[name]
+	if !ok {
+		return false
+	}
+	return hasBootstrapField(value)
 }
