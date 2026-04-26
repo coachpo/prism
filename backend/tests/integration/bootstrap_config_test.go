@@ -19,7 +19,7 @@ const (
 	bootstrapFixtureSecretKey   = "bootstrap-runtime-secret-encryption-key"
 	bootstrapFixtureJWTSecret   = "bootstrap-jwt-signing-secret"
 	bootstrapFixtureBundleKey   = "bootstrap-bundle-encryption-key"
-	bootstrapSeedDefaultSecret  = "prism-dev-runtime-secret-change-me-2026"
+	bootstrapSeedDefaultSecret  = "prism-dev-runtime-secret-change-me"
 )
 
 type bootstrapSeededFile struct {

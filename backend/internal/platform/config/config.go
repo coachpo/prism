@@ -30,7 +30,7 @@ const (
 	RuntimeBufferingModeStreaming RuntimeBufferingMode = "streaming"
 )
 
-const defaultSeedSecretEncryptionKey = "prism-dev-runtime-secret-change-me-2026"
+const defaultSeedSecretEncryptionKey = "prism-dev-runtime-secret-change-me"
 
 const (
 	defaultRuntimeDatabaseMaxConns               int32 = 4
