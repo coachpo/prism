@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_DIR="$ROOT_DIR/backend"
+FRONTEND_DIR="$ROOT_DIR/frontend"
 
 load_dotenv_file() {
     local env_file="$1"
@@ -63,10 +65,9 @@ load_dotenv_file() {
     done < "$env_file"
 }
 
-load_dotenv_file "$ROOT_DIR/.env"
+load_dotenv_file "$BACKEND_DIR/.env"
+load_dotenv_file "$FRONTEND_DIR/.env"
 
-BACKEND_DIR="$ROOT_DIR/backend"
-FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_GO_BIN="${BACKEND_GO_BIN:-go}"
 FRONTEND_PNPM_BIN="${FRONTEND_PNPM_BIN:-pnpm}"
 DATABASE_PORT=15432
