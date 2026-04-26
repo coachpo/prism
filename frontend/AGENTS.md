@@ -43,6 +43,8 @@ frontend/
 - `src/components/layout/app-layout/AGENTS.md` owns the shell-navigation and profile-switcher seam, including the handoff from shell state into route-scoped navigation.
 - `src/components/ui/AGENTS.md` owns the shadcn/ui primitives and local wrappers checked into `src/components/ui/`.
 - `src/context/AGENTS.md` owns auth bootstrap, selected-profile management scope, and reporting-currency provider state.
+- `src/hooks/AGENTS.md` owns the shared realtime, polling, and timezone-formatting hooks.
+- `src/i18n/AGENTS.md` owns locale catalogs, static label helpers, and shared formatting.
 - `src/lib/AGENTS.md` owns the typed API boundary, websocket singleton, shared reference-data caches, and reporting-currency normalization.
 - `src/lib/websocket/AGENTS.md` owns the helper split beneath the singleton realtime client.
 - `tests/AGENTS.md` owns the test split between Playwright flows and contract seams.

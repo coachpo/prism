@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-23 | branch: main | commit: 76d71c90 -->
+<!-- Generated: 2026-04-26 | branch: main | commit: 1cf2dcd -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -17,6 +17,8 @@ prism/
 │       ├── pages/AGENTS.md
 │       ├── components/AGENTS.md
 │       ├── context/AGENTS.md
+│       ├── hooks/AGENTS.md
+│       ├── i18n/AGENTS.md
 │       └── lib/AGENTS.md
 ├── docs/
 │   ├── AGENTS.md
@@ -40,6 +42,8 @@ prism/
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
 - `frontend/src/components/AGENTS.md`: shared shell and widget handoff for app-layout, loadbalance, statistics, and `ui/`.
 - `frontend/src/context/AGENTS.md`: provider-layer handoff for auth, profile, and reporting-currency state.
+- `frontend/src/hooks/AGENTS.md`: shared hook handoff for realtime subscriptions, polling, and timezone formatting.
+- `frontend/src/i18n/AGENTS.md`: locale and formatting handoff for catalogs, static labels, and shared Intl helpers.
 - `frontend/src/lib/AGENTS.md`: typed backend/browser integration handoff for `api/`, websocket helpers, reference data, and reporting currency.
 - `frontend/tests/AGENTS.md`: frontend contract and Playwright test boundary.
 - `docs/AGENTS.md`: docs ownership, source-of-truth routing, archive boundaries, and active-plan handoff out of `docs/`.
@@ -58,7 +62,7 @@ prism/
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
-- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
+- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
 - Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.sisyphus/plans/`
 
 ## CONVENTIONS

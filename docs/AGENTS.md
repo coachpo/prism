@@ -24,7 +24,7 @@ docs/
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
 - `openapi.json` is the checked-in management and health contract artifact served by the backend; keep it aligned with backend ownership docs instead of treating it as the narrative source of truth.
 - `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references.
-- `archive/` holds finished notes and retained evidence only.
+- `archive/` currently contains only the boundary file and holds finished notes and retained evidence only.
 - Archived run notes use `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
 
@@ -33,11 +33,11 @@ docs/
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Checked-in OpenAPI artifact: `openapi.json`, `../backend/AGENTS.md`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
-- Frontend request-log context: `REQUESTS_PAGE.md`
+- Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans outside docs: `../.sisyphus/plans/`
-- Archive boundary rules: `archive/AGENTS.md`, `archive/`
+- Archive boundary rules: `archive/AGENTS.md`, `archive/` (currently boundary-only)
 
 ## CONVENTIONS
 - Keep docs Prism-specific.

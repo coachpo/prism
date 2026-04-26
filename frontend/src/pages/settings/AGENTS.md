@@ -1,14 +1,16 @@
 # FRONTEND SETTINGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile and Global tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, and costing state in `costing/AGENTS.md`.
+`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile and Global tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, and costing state in `costing/AGENTS.md`.
 
 ## STRUCTURE
 ```
 settings/
 ├── sections/                      # Rendered settings sections and nested local clusters
 ├── costing/                       # Costing bootstrap, derived state, FX mapping CRUD, save flows
-├── dialogs/                       # Delete confirmation and audit-rule dialogs
+├── dialogs/
+│   ├── AGENTS.md                  # Delete confirmation, vendor CRUD, and audit-rule dialogs
+│   └── ...
 ├── SettingsSectionsNav.tsx         # Sticky section navigation for profile-tab sections
 ├── SettingsProfileTab.tsx          # Profile-tab body and section layout
 ├── SettingsGlobalTab.tsx           # Global-tab body for auth + shared vendor management
@@ -44,12 +46,13 @@ settings/
 - Section implementation boundary: `sections/AGENTS.md`
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
 - Global vendor CRUD, usage prefetch, shared-cache patching, and delete-conflict parsing: `useVendorManagementData.ts`, `vendorManagementFormState.ts`
-- Local dialogs for destructive actions and audit rule editing: `dialogs/`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `dialogs/VendorDialog.tsx`, `dialogs/DeleteVendorDialog.tsx`
+- Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `useVendorManagementData.ts`
 
 ## CHILD DOCS
 
 - `sections/AGENTS.md`: authentication-adjacent section UI, audit and privacy, billing and currency, backup, retention, timezone, and the nested `authentication/` and `billing-currency/` clusters.
 - `sections/authentication/AGENTS.md`: operator account, recovery email verification, passkey ceremony, and passkey presentation metadata.
+- `dialogs/AGENTS.md`: delete confirmations, vendor CRUD modals, and audit-rule editors mounted by `../SettingsPage.tsx`.
 - `costing/AGENTS.md`: costing bootstrap, dirty-state derivation, FX mapping CRUD, save flows, and the split between costing hooks and billing-currency section UI.
 
 ## CONVENTIONS
@@ -62,7 +65,7 @@ settings/
 - Keep vendor icon metadata on the shared vendor catalog and preserve it through global CRUD flows.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.
 - Billing, reporting currency, timezone preference, and FX mappings cross the `sections/` and `costing/` boundary. Let this parent doc describe the split, then send readers down instead of repeating local details.
-- Keep dialogs local to `pages/settings/dialogs/` when they support audit-rule edits or destructive confirmation flows.
+- Keep dialogs local to `pages/settings/dialogs/` when they support audit-rule edits, vendor CRUD, or destructive confirmation flows, and let `dialogs/AGENTS.md` own the per-file split.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS

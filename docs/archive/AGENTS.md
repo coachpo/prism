@@ -1,7 +1,7 @@
 # DOCS ARCHIVE BOUNDARY
 
 ## OVERVIEW
-`docs/archive/` holds finished notes and retained evidence only. It is not a source-of-truth area, and it is not where active plans live.
+`docs/archive/` currently only contains this boundary file and is reserved for finished notes and retained evidence. It is not a source-of-truth area, and it is not where active plans live.
 
 ## WHAT BELONGS HERE
 - Finalized run notes.
@@ -16,4 +16,5 @@
 ## CONVENTIONS
 - Keep archive notes concise and dated.
 - Use the run-note naming rule exactly: `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
+- Until finished notes land, keep `AGENTS.md` as the only file in this folder.
 - Prefer the parent docs or the owning backend or frontend AGENTS tree for live guidance.

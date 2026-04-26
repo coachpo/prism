@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS SECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/sections/` owns the rendered settings sections used by `../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, shared vendor management, audit and privacy, billing and currency, backup, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` UI clusters. Keep it focused on section rendering, not the shell or costing orchestration.
+`pages/settings/sections/` owns the rendered settings sections used by `../../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, shared vendor management, audit and privacy, header-blocklist rules, user-agent or client rules, billing and currency, backup, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` UI clusters. Keep it focused on section rendering, not the shell or costing orchestration.
 
 ## STRUCTURE
 ```
@@ -11,6 +11,7 @@ sections/
 ├── AuditConfigurationSection.tsx
 ├── AuditConfigurationDefaultsCard.tsx
 ├── AuditConfigurationHeaderBlocklistCard.tsx
+├── AuditConfigurationUserAgentClientRulesCard.tsx
 ├── AuditConfigurationRuleActions.tsx
 ├── AuditConfigurationRuleSection.tsx
 ├── AuditConfigurationRulesPanel.tsx
@@ -28,7 +29,7 @@ sections/
 
 - Auth setup, verified-email prerequisites, and passkey UX: `AuthenticationSection.tsx`, `authentication/`
 - Shared vendor-catalog table and Global-tab entrypoints for create/edit/delete flows: `VendorManagementSection.tsx`
-- Audit and privacy defaults, header blocklist, vendor toggles, and rules-panel rendering stay vendor-based today, even though request logs and statistics now filter by `api_family`: `AuditConfigurationSection.tsx`, `AuditConfigurationDefaultsCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationVendorToggles.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
+- Audit and privacy defaults, header blocklist, user-agent or client rule management, vendor toggles, and rules-panel rendering stay vendor-based today, even though request logs and statistics now filter by `api_family`: `AuditConfigurationSection.tsx`, `AuditConfigurationDefaultsCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationVendorToggles.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/`
 - Backup and config import or export section: `BackupSection.tsx`
 - Retention and deletion section: `RetentionDeletionSection.tsx`

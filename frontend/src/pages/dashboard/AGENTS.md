@@ -1,42 +1,60 @@
 # FRONTEND DASHBOARD DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/dashboard/` owns the main landing page data flow under `../DashboardPage.tsx`: initial bootstrap, realtime reconciliation, KPI cards, recent activity, top-spend summaries, dual-strategy summary wording, and the parent-covered routing visualization cluster.
+`pages/dashboard/` owns the `/dashboard` route shell under `../DashboardPage.tsx`: the overview-versus-analytics tab split, query-param page state, overview bootstrap and realtime reconciliation, analytics handoff into the statistics surface, and the handoff into the nested routing visualization leaf.
 
 ## STRUCTURE
 ```
 dashboard/
-├── useDashboardPageData.ts         # High-level page composition
+├── queryParams.ts                  # Overview or analytics tab query-param contract
+├── useDashboardPageState.ts        # Query-param parsing and canonicalization
+├── DashboardOverviewTab.tsx        # Overview-tab composition over metrics, highlights, routing, and recent activity
+├── DashboardAnalyticsContent.tsx   # Analytics-tab handoff into the statistics surface
+├── useDashboardPageData.ts         # Overview bootstrap composition and derived dashboard data
 ├── useDashboardBootstrapData.ts    # Parallel bootstrap fetches and routing payload load
 ├── useDashboardRealtime.ts         # Realtime subscription and coalesced reconciliation
 ├── DashboardMetricsGrid.tsx        # KPI grid and highlighted metrics
 ├── DashboardHighlightsGrid.tsx     # Summary and api-family highlights
 ├── RecentActivityCard.tsx          # Recent requests list with insert highlighting
 ├── TopSpendingModelsCard.tsx       # Top-spend summary card
-├── RoutingDiagramCard.tsx          # Routing diagram shell and drill-down entry points
+├── RoutingDiagramCard.tsx          # Routing diagram card and drill-down entry points
+├── RoutingDiagramShell.tsx         # Diagram card empty, loading, and error shell
+├── dashboardDataUtils.ts           # Dashboard-local formatting and shaping helpers
+├── DashboardPageSkeleton.tsx       # Overview loading shell
 ├── routingDiagram.ts               # Barrel over routing-diagram internals
-└── routing-diagram/                # Diagram layout, legend, tooltip, nodes, links, and render helpers
+└── routing-diagram/
+    ├── AGENTS.md                   # Diagram-local layout, realtime patching, aggregation, and chart helpers
+    └── ...
 ```
 
 ## WHERE TO LOOK
 
-- Thin route shell: `../DashboardPage.tsx`
-- High-level dashboard composition: `useDashboardPageData.ts`
+- Thin route shell, overview-versus-analytics tab split, and route-level navigation actions: `../DashboardPage.tsx`
+- Query-param state and canonical tab contract: `queryParams.ts`, `useDashboardPageState.ts`
+- Overview-tab composition boundary: `DashboardOverviewTab.tsx`
+- Analytics-tab handoff into the statistics domain: `DashboardAnalyticsContent.tsx`, `../statistics/AGENTS.md`
+- High-level overview data composition: `useDashboardPageData.ts`
 - Initial bootstrap fan-out and routing payload shaping: `useDashboardBootstrapData.ts`
 - Realtime payload flow: `useDashboardRealtime.ts`, which reconciles the backend `dashboard.update` payload
-- Routing visualization barrel and parent-covered local cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/`
-- KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`
+- Routing visualization barrel and leaf cluster: `routingDiagram.ts`, `RoutingDiagramCard.tsx`, `routing-diagram/AGENTS.md`
+- KPI, highlight, recent-activity, and spend presentation: `DashboardMetricsGrid.tsx`, `DashboardHighlightsGrid.tsx`, `RecentActivityCard.tsx`, `TopSpendingModelsCard.tsx`, `DashboardPageSkeleton.tsx`
+
+## CHILD DOCS
+
+- `routing-diagram/AGENTS.md`: routing-diagram aggregation, realtime patching, layout math, chart helpers, and render shapes.
 
 ## CONVENTIONS
 
 - Keep dashboard live state on `useDashboardRealtime.ts` and the shared `useRealtimeData()` hook.
+- Keep the overview-versus-analytics tab split on `queryParams.ts` and `useDashboardPageState.ts` instead of local component state.
 - Reconnect and manual refresh should reconcile through REST bootstrap data. The backend push contract is still `dashboard.update` only.
-- Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization. Keep the deeper `routing-diagram/` internals local to this parent doc instead of adding another AGENTS file.
-- Keep presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
+- Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization and let `routing-diagram/AGENTS.md` own the layout, aggregation, realtime, and chart-helper split beneath it.
+- Keep overview presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 
 - Do not bypass `useDashboardRealtime.ts` for dashboard-specific live state.
+- Do not move overview-or-analytics tab state out of `queryParams.ts` and `useDashboardPageState.ts` into ad hoc local state.
 - Do not hard-code routing-diagram data assembly in card components when `routingDiagram.ts` already fronts that local cluster.
-- Do not split `routing-diagram/` into its own AGENTS file. This parent doc owns that cluster.
+- Do not duplicate routing-diagram layout, aggregation, or realtime merge logic in page-level hooks or cards when the local leaf cluster already owns it.
