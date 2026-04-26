@@ -73,9 +73,8 @@ docker pull ghcr.io/coachpo/prism-frontend:latest
 docker run -d \
   --name prism-backend \
   -p 8000:8000 \
-  -v "$(pwd)/bootstrap-config.json:/etc/prism/bootstrap-config.json:ro" \
+  -v "/absolute/secure/path/prism-bootstrap-config.json:/etc/prism/bootstrap-config.json:ro" \
   -e PRISM_CONFIG_PATH="/etc/prism/bootstrap-config.json" \
-  -e PRISM_CONFIG_MASTER_KEY="replace-with-a-long-random-bootstrap-master-key" \
   ghcr.io/coachpo/prism-backend:latest
 
 docker run -d \
@@ -84,7 +83,7 @@ docker run -d \
   ghcr.io/coachpo/prism-frontend:latest
 ```
 
-Supported steady-state backend startup mounts a canonical bootstrap JSON and supplies only `PRISM_CONFIG_PATH` plus `PRISM_CONFIG_MASTER_KEY`. On first boot or during migration, Prism can seed that file once from the legacy startup env inputs in [`backend/.env.example`](backend/.env.example) if the target path is writable and the file does not exist yet.
+The checked-in `bootstrap-config.json` is the plaintext bootstrap template, not a live secrets file. Copy it to a secure path outside the repo, replace every `replace-with-...` placeholder, then mount that copied file and point `PRISM_CONFIG_PATH` at it for steady-state startup. If an old encrypted bootstrap file is still on disk, replace it before booting.
 
 The frontend image defaults to same-origin API calls. In production, put frontend and backend behind a reverse proxy and route `/` to frontend, and `/api`, `/v1`, and `/v1beta` to backend.
 
@@ -152,25 +151,24 @@ pnpm run lint
 
 Use [`backend/.env.example`](backend/.env.example) as the backend sample and [`frontend/.env.example`](frontend/.env.example) as the frontend sample.
 
-Supported backend startup now uses a canonical bootstrap JSON plus two external inputs:
+Plaintext bootstrap startup uses one steady-state external input:
 
-- `PRISM_CONFIG_PATH` points at the canonical `bootstrap-config.json`
-- `PRISM_CONFIG_MASTER_KEY` decrypts the file's `secretPayload` entries
+- `PRISM_CONFIG_PATH` points at a secure plaintext bootstrap file copied from the checked-in `bootstrap-config.json` template
 
-When the file at `PRISM_CONFIG_PATH` already exists, Prism loads startup settings from it and legacy app env vars are no longer the supported steady-state config source. When the file is missing, Prism can seed it once from the legacy startup env inputs in [`backend/.env.example`](backend/.env.example) and continue booting.
+That copied bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
 
 Other configuration notes:
 
-- `./start.sh` loads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `15432`, creates a launcher-local bootstrap config automatically when `PRISM_CONFIG_PATH` is unset, and requires `PRISM_CONFIG_MASTER_KEY` to be set explicitly
+- `./start.sh` loads the root `.env` first, then `backend/.env` and `frontend/.env` for still-unset keys without overwriting exported values; it provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `15432`, and seeds a launcher-local plaintext bootstrap file when `PRISM_CONFIG_PATH` is unset
 - Launcher-local startup resolves the effective backend bind settings through the bootstrap-managed backend path before boot; if an existing bootstrap file resolves to a different backend port or a non-local bind host, `./start.sh` fails early instead of starting ambiguously
 - If you set `PRISM_CONFIG_PATH` in `.env`, `./start.sh` resolves relative paths from the repo root before launching the backend
 - Direct backend runs should prefer an absolute `PRISM_CONFIG_PATH`
 - Frontend build/runtime metadata uses `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying `/api`, `/v1`, and `/v1beta` to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
-- `CONFIG_BUNDLE_ENCRYPTION_KEY` is an optional seed input for profile/vendor state-bundle encryption; when omitted, Prism falls back to `PRISM_CONFIG_MASTER_KEY`
+- `CONFIG_BUNDLE_ENCRYPTION_KEY` is an optional seed input for profile/vendor state-bundle encryption
 
-If you compose a root `.env` for `./start.sh`, copy the backend values you need from `backend/.env.example`, set `PRISM_CONFIG_MASTER_KEY` explicitly, and either set `PRISM_CONFIG_PATH` for a persistent local bootstrap file or leave `PRISM_CONFIG_PATH` unset so the launcher can create a temporary local file. Legacy app env values in the root `.env` are used only when that bootstrap file must be seeded. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `bootstrap-config.json`. `DATABASE_URL` should either stay aligned with the launcher's local PostgreSQL port or be left unset so the launcher can supply its default.
+If you compose a root `.env` for `./start.sh`, copy the backend values you need from `backend/.env.example`; `./start.sh` reads that root `.env` first and only falls back to `backend/.env` and `frontend/.env` for still-unset keys. Set `PRISM_CONFIG_PATH` to a secure copied bootstrap file based on the checked-in template, or leave `PRISM_CONFIG_PATH` unset so the launcher can create a temporary local file. Legacy app env values are used only when that bootstrap file must be seeded. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `bootstrap-config.json`. `DATABASE_URL` should either stay aligned with the launcher's local PostgreSQL port or be left unset so the launcher can supply its default.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` keeps browser traffic same-origin through the launcher origin and Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 
