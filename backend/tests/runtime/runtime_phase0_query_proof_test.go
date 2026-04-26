@@ -126,6 +126,8 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 
 	runtimePool := newRuntimePhase0Pool(tb, settings.DatabaseURL, settings.RuntimeDatabaseBudget(), runtimeProbe)
 	tb.Cleanup(runtimePool.Close)
+	runtimeTelemetryPool := newRuntimePhase0Pool(tb, settings.DatabaseURL, settings.RuntimeDatabaseBudget(), nil)
+	tb.Cleanup(runtimeTelemetryPool.Close)
 
 	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{Pool: managementPool})
 	if err != nil {
@@ -135,9 +137,9 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 
 	runtimePlanningCache := options.RuntimeOptions.Cache
 	if runtimePlanningCache == nil {
-		runtimePlanningCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool})
+		runtimePlanningCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	} else {
-		runtimePlanningCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: managementPool})
+		runtimePlanningCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	}
 	if err := runtimePlanningCache.Bootstrap(testContext); err != nil {
 		tb.Fatalf("bootstrap phase-0 published runtime snapshot: %v", err)
@@ -170,7 +172,8 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 	}
 
 	runtimeOptions := options.RuntimeOptions
-	runtimeOptions.Pool = runtimePool
+	runtimeOptions.ExecutionPool = runtimePool
+	runtimeOptions.TelemetryPool = runtimeTelemetryPool
 	runtimeOptions.Cache = runtimePlanningCache
 
 	runtimeService, err := runtimeapi.NewService(settings, runtimeOptions)
@@ -472,6 +475,7 @@ func TestRuntimeHotPathStillTouchesRuntimeStateTables(t *testing.T) {
 }
 
 func TestRuntimeHotPathStillTouchesRoundRobinState(t *testing.T) {
+	t.Skip("retired phase-0 round-robin state baseline; approved Phase 2+ architecture moved round-robin cursor ownership into local runtime state, and final hot-path coverage now lives in later-phase proof surfaces")
 	harness := newRuntimePhase0Harness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -507,6 +511,7 @@ func TestRuntimeHotPathStillTouchesRoundRobinState(t *testing.T) {
 }
 
 func TestRuntimeHotPathStillTouchesProxyKeyUsageWrite(t *testing.T) {
+	t.Skip("retired phase-0 proxy-key usage write baseline; approved Phase 1 architecture moved proxy-key usage persistence off the request path, and final hot-path coverage now lives in later-phase proof surfaces")
 	cases := []struct {
 		name      string
 		apiFamily string
