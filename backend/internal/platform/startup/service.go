@@ -3,7 +3,6 @@ package startup
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 )
 
 const (
-	SkipStartupSequenceEnv    = "PRISM_SKIP_STARTUP_SEQUENCE"
 	DefaultProfileName        = "Default"
 	DefaultProfileDescription = "System default profile"
 	AppAuthSingletonKey       = "app"
@@ -84,9 +82,6 @@ func New(options Options) (Service, error) {
 }
 
 func (s Service) Run(ctx context.Context) (Result, error) {
-	if os.Getenv(SkipStartupSequenceEnv) == "1" {
-		return Result{Skipped: true}, nil
-	}
 	if s.databaseURL == "" {
 		return Result{}, fmt.Errorf("database URL is required")
 	}
@@ -101,9 +96,6 @@ func (s Service) Run(ctx context.Context) (Result, error) {
 }
 
 func (s Service) RunWithConn(ctx context.Context, conn *pgx.Conn) (Result, error) {
-	if os.Getenv(SkipStartupSequenceEnv) == "1" {
-		return Result{Skipped: true}, nil
-	}
 	if strings.TrimSpace(s.secretEncryptionKey) == "" {
 		return Result{}, fmt.Errorf("secret encryption key is required")
 	}

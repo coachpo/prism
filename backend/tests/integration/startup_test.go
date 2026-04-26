@@ -98,6 +98,35 @@ func TestStartupSeeds(t *testing.T) {
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM loadbalance_strategies`, 0)
 }
 
+func TestStartupIgnoresLegacySkipEnv(t *testing.T) {
+	t.Setenv("PRISM_SKIP_STARTUP_SEQUENCE", "1")
+
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	conn := harness.openDatabase(t, testContext, "startup_ignores_legacy_skip_env")
+	defer func() { _ = conn.Close(testContext) }()
+
+	service := newStartupService(t, harness.connectionString("startup_ignores_legacy_skip_env"), nil)
+	result, err := service.Run(testContext)
+	if err != nil {
+		t.Fatalf("run startup sequence with legacy skip env set: %v", err)
+	}
+	if result.Skipped {
+		t.Fatal("expected legacy PRISM_SKIP_STARTUP_SEQUENCE env to be ignored")
+	}
+	assertStartupStepOrder(t, result)
+	if result.Migration.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected startup to apply baseline with legacy skip env set, got %q", result.Migration.Outcome)
+	}
+
+	profile := loadSingleProfile(t, testContext, conn, "name = 'Default'")
+	if profile.Description != DefaultProfileDescription {
+		t.Fatalf("expected default profile description %q after startup run, got %q", DefaultProfileDescription, profile.Description)
+	}
+}
+
 func TestStartupVendorAndRuleSeeds(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
