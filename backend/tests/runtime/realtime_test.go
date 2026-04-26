@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	goruntime "runtime"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
@@ -261,6 +263,122 @@ func TestDashboardUpdateDelivery(t *testing.T) {
 	_ = conn.Close()
 }
 
+func TestManagementAuthSettingsSnapshotInvalidation(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	seedRealtimeVerifiedAuthSettings(t, harness, "snapshot-admin", "snapshot-password-123", "snapshot@example.com")
+
+	loginResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "snapshot-admin", "password": "snapshot-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, loginResponse, http.StatusOK)
+
+	baselineSession := harness.requestJSON(t, http.MethodGet, "/api/auth/session", nil, nil)
+	assertStatus(t, baselineSession, http.StatusOK)
+
+	baselineConn := harness.dialWebSocket(t, true)
+	assertRealtimeMessage(t, baselineConn, map[string]any{"type": "authenticated", "username": "snapshot-admin"})
+	assertRealtimeMessage(t, baselineConn, map[string]any{"type": "heartbeat"})
+	_ = baselineConn.Close()
+
+	updatedPassword := "snapshot-password-456"
+	updateResponse := harness.requestJSON(
+		t,
+		http.MethodPut,
+		"/api/settings/auth",
+		map[string]any{"auth_enabled": true, "username": "snapshot-admin", "password": updatedPassword},
+		nil,
+	)
+	assertStatus(t, updateResponse, http.StatusOK)
+
+	staleSession := harness.requestJSON(t, http.MethodGet, "/api/auth/session", nil, nil)
+	assertStatus(t, staleSession, http.StatusUnauthorized)
+
+	staleConn := harness.dialWebSocket(t, true)
+	assertWebSocketClosedWithCode(t, staleConn, websocket.ClosePolicyViolation)
+
+	reloginResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "snapshot-admin", "password": updatedPassword, "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, reloginResponse, http.StatusOK)
+
+	freshSession := harness.requestJSON(t, http.MethodGet, "/api/auth/session", nil, nil)
+	assertStatus(t, freshSession, http.StatusOK)
+
+	freshConn := harness.dialWebSocket(t, true)
+	assertRealtimeMessage(t, freshConn, map[string]any{"type": "authenticated", "username": "snapshot-admin"})
+	assertRealtimeMessage(t, freshConn, map[string]any{"type": "heartbeat"})
+	_ = freshConn.Close()
+}
+
+func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "consistency")
+	requestLogID := harness.insertDashboardActivity(t, route, profileID, 8301, 9301, harness.fixedNow)
+	from24h := url.QueryEscape(harness.fixedNow.Add(-24 * time.Hour).Format(time.RFC3339))
+	to24h := url.QueryEscape(harness.fixedNow.Format(time.RFC3339))
+
+	summaryResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/summary?from_time="+from24h, nil, runtimeModelHeader(profileID))
+	assertStatus(t, summaryResponse, http.StatusOK)
+	var summary statsdomain.StatsSummaryResponse
+	decodeJSONResponse(t, summaryResponse, &summary)
+
+	apiFamilyResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/summary?from_time="+from24h+"&group_by=api_family", nil, runtimeModelHeader(profileID))
+	assertStatus(t, apiFamilyResponse, http.StatusOK)
+	var apiFamily statsdomain.StatsSummaryResponse
+	decodeJSONResponse(t, apiFamilyResponse, &apiFamily)
+
+	throughputResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/throughput?from_time="+from24h+"&to_time="+to24h, nil, runtimeModelHeader(profileID))
+	assertStatus(t, throughputResponse, http.StatusOK)
+	var throughput statsdomain.ThroughputStatsResponse
+	decodeJSONResponse(t, throughputResponse, &throughput)
+
+	usageResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, runtimeModelHeader(profileID))
+	assertStatus(t, usageResponse, http.StatusOK)
+	var usage statsdomain.UsageSnapshotResponse
+	decodeJSONResponse(t, usageResponse, &usage)
+
+	message, err := harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
+	if err != nil {
+		t.Fatalf("build dashboard update after rest snapshot warmup: %v", err)
+	}
+	if !reflect.DeepEqual(summary, message.StatsSummary24H) {
+		t.Fatalf("expected /api/stats/summary to match realtime stats_summary_24h, got rest=%+v realtime=%+v", summary, message.StatsSummary24H)
+	}
+	if !reflect.DeepEqual(apiFamily, message.APIFamilySummary24H) {
+		t.Fatalf("expected /api/stats/summary?group_by=api_family to match realtime api_family_summary_24h, got rest=%+v realtime=%+v", apiFamily, message.APIFamilySummary24H)
+	}
+	if !reflect.DeepEqual(throughput, message.Throughput24H) {
+		t.Fatalf("expected /api/stats/throughput to match realtime throughput_24h, got rest=%+v realtime=%+v", throughput, message.Throughput24H)
+	}
+	if usage.Overview.TotalRequests != message.StatsSummary24H.TotalRequests || usage.Overview.TotalTokens != message.StatsSummary24H.TotalTokens {
+		t.Fatalf("expected /api/stats/usage-snapshot?preset=1h to stay coherent with the shared dashboard aggregate totals, got usage=%+v realtime=%+v", usage.Overview, message.StatsSummary24H)
+	}
+
+	conn := harness.dialWebSocket(t, false)
+	assertRealtimeMessageType(t, conn, "authenticated")
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "dashboard"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "dashboard"})
+	delivered, err := harness.realtimeService.PublishDashboardUpdate(context.Background(), requestLogID, profileID)
+	if err != nil {
+		t.Fatalf("publish dashboard update after rest snapshot warmup: %v", err)
+	}
+	if !delivered {
+		t.Fatal("expected warmed dashboard aggregate publish to deliver while subscribed")
+	}
+	assertNestedRequestLogProfileID(t, readWebSocketJSON(t, conn), profileID)
+	_ = conn.Close()
+}
+
 func newRealtimeHarness(t *testing.T) *realtimeHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -284,11 +402,17 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("create S16 pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	telemetryPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		t.Fatalf("create S16 runtime telemetry pgx pool: %v", err)
+	}
+	t.Cleanup(telemetryPool.Close)
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap S16 published runtime snapshot: %v", err)
 	}
 	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
+	dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
 	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, RuntimeCache: runtimeAuthCache})
 	if err != nil {
@@ -300,17 +424,17 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("build S16 profiles service: %v", err)
 	}
 	t.Cleanup(profilesService.Close)
-	statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedNow }})
+	statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedNow }, DashboardSnapshots: dashboardSnapshots})
 	if err != nil {
 		t.Fatalf("build S16 stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	realtimeService, err := realtimeapi.NewService(settings, realtimeapi.Options{Pool: pool, AuthService: authService, Now: func() time.Time { return fixedNow }})
+	realtimeService, err := realtimeapi.NewService(settings, realtimeapi.Options{Pool: pool, AuthService: authService, Now: func() time.Time { return fixedNow }, DashboardSnapshots: dashboardSnapshots})
 	if err != nil {
 		t.Fatalf("build S16 realtime service: %v", err)
 	}
 	t.Cleanup(realtimeService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: pool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService, Cache: runtimeCache, RuntimeState: runtimeState})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build S16 runtime service: %v", err)
 	}
@@ -437,6 +561,7 @@ func seedRealtimeVerifiedAuthSettings(t *testing.T, harness *realtimeHarness, us
 	); err != nil {
 		t.Fatalf("seed realtime auth settings: %v", err)
 	}
+	harness.authService.InvalidateAppAuthSettingsSnapshot()
 }
 
 type seededDashboardRoute struct {

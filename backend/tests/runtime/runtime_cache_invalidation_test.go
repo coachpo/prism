@@ -349,4 +349,5 @@ func seedRuntimeVerifiedAuthSettings(t *testing.T, harness *runtimeHarness, user
 	); err != nil {
 		t.Fatalf("seed runtime auth settings: %v", err)
 	}
+	harness.authService.InvalidateAppAuthSettingsSnapshot()
 }
