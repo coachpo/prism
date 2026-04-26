@@ -1,1 +1,0 @@
-ok  	github.com/coachpo/prism/backend/tests/runtime	9.880s

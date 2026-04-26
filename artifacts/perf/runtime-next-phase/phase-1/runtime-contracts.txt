@@ -1,2 +1,0 @@
-ok  	github.com/coachpo/prism/backend/tests/contract	112.725s
-ok  	github.com/coachpo/prism/backend/tests/runtime	134.521s

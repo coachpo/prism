@@ -8,6 +8,7 @@ build/
 
 # Local environment
 .env
+artifacts/
 
 # Virtual environments
 backend/.venv/
