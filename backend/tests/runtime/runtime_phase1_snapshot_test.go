@@ -220,3 +220,74 @@ func TestRuntimeRefreshFailureKeepsLastGoodSnapshot(t *testing.T) {
 		t.Fatalf("expected allowed header %s to survive failed refresh, got %q", allowedHeaderName, request.Headers.Get(allowedHeaderName))
 	}
 }
+
+func TestRuntimeCompiledSnapshotPublishesAuthAndRoutingTogether(t *testing.T) {
+	harness := newRuntimePhase0Harness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	blockedHeaderName := "X-Phase1-Compiled-Blocked"
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "phase1-compiled-public-" + suffix,
+		TargetModelID:   "phase1-compiled-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/phase1/compiled"),
+		EndpointAPIKey:  "phase1-compiled-key",
+	})
+
+	baselineResponse, baselineObserved := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "phase-1 compiled snapshot baseline"}},
+		"model":    route.PublicModelID,
+	}, map[string]string{blockedHeaderName: "before-compiled-publish"})
+	if baselineResponse.StatusCode != http.StatusOK {
+		t.Fatalf("expected compiled-snapshot baseline status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
+	}
+	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
+	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	if got := harness.upstream.lastRequest(t).Headers.Get(blockedHeaderName); got != "before-compiled-publish" {
+		t.Fatalf("expected blocked header to pass before compiled publish, got %q", got)
+	}
+
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(t)
+	harness.seedProfileHeaderBlocklistRule(t, profileID, "Phase 1 compiled snapshot "+suffix, "exact", "x-phase1-compiled-blocked")
+	releaseRefresh()
+
+	generation := harness.runtimeCache.PublishedGeneration()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true, PlanningProfileIDs: []int{profileID}})
+	if got := harness.runtimeCache.PublishedGeneration(); got != generation+1 {
+		t.Fatalf("expected combined compiled snapshot publish to advance generation from %d to %d, got %d", generation, generation+1, got)
+	}
+
+	unauthorized := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "phase-1 compiled snapshot unauthorized"}},
+		"model":    route.PublicModelID,
+	}, nil)
+	assertStatus(t, unauthorized, http.StatusUnauthorized)
+
+	harness.upstream.clear()
+	response, observed := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+		"messages": []map[string]any{{"role": "user", "content": "phase-1 compiled snapshot authorized"}},
+		"model":    route.PublicModelID,
+	}, map[string]string{
+		"Authorization":   "Bearer " + proxyAPIKey,
+		blockedHeaderName: "removed-after-compiled-publish",
+	})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected compiled-snapshot runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
+	}
+	observed.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryProxyKeyUsageWrite)
+
+	request := harness.upstream.lastRequest(t)
+	if request.Headers.Get(blockedHeaderName) != "" {
+		t.Fatalf("expected blocked header %s to be removed after compiled publish, got %q", blockedHeaderName, request.Headers.Get(blockedHeaderName))
+	}
+	if got := request.Headers.Get("Authorization"); got != "Bearer "+route.EndpointAPIKey {
+		t.Fatalf("expected compiled upstream authorization header %q, got %q", "Bearer "+route.EndpointAPIKey, got)
+	}
+	if got := requestModelID(t, request.Body); got != route.TargetModelID {
+		t.Fatalf("expected compiled upstream model %q, got %q", route.TargetModelID, got)
+	}
+}

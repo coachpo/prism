@@ -8,7 +8,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
-func TestSharedCachePublishedSnapshotsReturnImmutableClones(t *testing.T) {
+func TestSharedCachePublishedSnapshotsCloneProfilesAndProxyKeysButSharePlanningSnapshots(t *testing.T) {
 	t.Parallel()
 
 	expiresAt := time.Unix(100, 0).UTC()
@@ -17,8 +17,8 @@ func TestSharedCachePublishedSnapshotsReturnImmutableClones(t *testing.T) {
 		Generation:    1,
 		PublishedAt:   time.Unix(90, 0).UTC(),
 		ActiveProfile: newSharedCacheProfile(11, "published-active"),
-		PlanningByProfileID: map[int]planningSnapshot{
-			42: *newSharedCachePlanningSnapshot("published-planning"),
+		PlanningByProfileID: map[int]*planningSnapshot{
+			42: newSharedCachePlanningSnapshot("published-planning"),
 		},
 		Auth: publishedRuntimeAuthSnapshot{
 			Settings: RuntimeAuthSettingsSnapshot{AuthEnabled: true},
@@ -46,9 +46,15 @@ func TestSharedCachePublishedSnapshotsReturnImmutableClones(t *testing.T) {
 
 	mutatedDescription := "mutated-description"
 	firstProfile.Description = &mutatedDescription
+	if firstProfile.Description == nil || *firstProfile.Description != mutatedDescription {
+		t.Fatalf("expected first active profile read to be locally mutable, got %+v", firstProfile)
+	}
 	firstPlanning.ReportCurrency.Code = "mutated-code"
 	firstPlanning.ModelsByID["published-planning"] = runtimeModelRecord{ModelID: "mutated-model"}
 	firstKey.KeyName = "mutated-key"
+	if firstKey.KeyName != "mutated-key" {
+		t.Fatalf("expected first proxy key clone to be locally mutable, got %+v", firstKey)
+	}
 	if firstKey.ExpiresAt != nil {
 		mutatedExpiry := firstKey.ExpiresAt.Add(10 * time.Minute)
 		firstKey.ExpiresAt = &mutatedExpiry
@@ -66,11 +72,14 @@ func TestSharedCachePublishedSnapshotsReturnImmutableClones(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload published planning snapshot: %v", err)
 	}
-	if secondPlanning.ReportCurrency.Code != "published-planning" {
-		t.Fatalf("expected planning snapshot clone to remain immutable, got %+v", secondPlanning.ReportCurrency)
+	if secondPlanning != firstPlanning {
+		t.Fatalf("expected published planning snapshot reads to share the compiled pointer, got first=%p second=%p", firstPlanning, secondPlanning)
 	}
-	if secondPlanning.ModelsByID["published-planning"].ModelID != "published-planning" {
-		t.Fatalf("expected runtime model clone to remain immutable, got %+v", secondPlanning.ModelsByID)
+	if secondPlanning.ReportCurrency.Code != "mutated-code" {
+		t.Fatalf("expected published planning snapshot reads to expose shared state, got %+v", secondPlanning.ReportCurrency)
+	}
+	if secondPlanning.ModelsByID["published-planning"].ModelID != "mutated-model" {
+		t.Fatalf("expected shared planning snapshot model mutation to remain visible, got %+v", secondPlanning.ModelsByID)
 	}
 
 	secondKey, ok, err := cache.LoadRuntimeProxyKeyRecord("pm-12345678")
