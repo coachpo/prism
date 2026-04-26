@@ -635,7 +635,7 @@ func newContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("create pgx pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap published runtime snapshot: %v", err)
 	}
