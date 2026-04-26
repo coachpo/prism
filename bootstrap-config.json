@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "revision": 1,
+    "createdAt": "2026-04-26T17:34:45Z",
+    "updatedAt": "2026-04-26T17:34:45Z"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 18000,
+    "docsEnabled": true
+  },
+  "database": {
+    "url": "postgres://replace-with-db-user:replace-with-db-password@replace-with-db-host:5432/replace-with-db-name?sslmode=disable",
+    "runtimePool": {
+      "maxConns": 4,
+      "minIdleConns": 1
+    },
+    "managementPool": {
+      "maxConns": 12,
+      "minIdleConns": 0
+    },
+    "managementAdmission": {
+      "m2MaxConcurrent": 6,
+      "m3MaxConcurrent": 2
+    }
+  },
+  "runtime": {
+    "bufferingMode": "buffered",
+    "secretEncryptionKey": "replace-with-runtime-secret-key",
+    "transport": {
+      "maxIdleConns": 100,
+      "maxIdleConnsPerHost": 8,
+      "maxConnsPerHost": 0,
+      "idleConnTimeout": "1m30s",
+      "responseHeaderTimeout": "0s",
+      "tlsHandshakeTimeout": "10s",
+      "expectContinueTimeout": "1s"
+    }
+  },
+  "http": {
+    "corsAllowedOrigins": [
+      "http://localhost:15173",
+      "http://127.0.0.1:15173"
+    ]
+  },
+  "auth": {
+    "jwtSigningKey": "replace-with-jwt-signing-key",
+    "accessTokenTtlSeconds": 900,
+    "refreshTokenTtlSeconds": 604800,
+    "resetCodeTtlSeconds": 600,
+    "accessCookieName": "prism_access_token",
+    "refreshCookieName": "prism_refresh_token",
+    "cookieSecure": false
+  },
+  "stateTransfer": {
+    "bundleEncryptionKey": "replace-with-state-transfer-key"
+  }
+}
