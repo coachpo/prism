@@ -135,8 +135,8 @@ func mutateReplacementProfileBundle(t *testing.T) map[string]any {
 	fxMappings := profileSettings["endpoint_fx_mappings"].([]any)
 	fxMappings[0].(map[string]any)["endpoint_name"] = "Imported OpenAI"
 
-	secretPayload := payload["secret_payload"].(map[string]any)
-	entries := secretPayload["entries"].([]any)
+	secretData := payload["secret_payload"].(map[string]any)
+	entries := secretData["entries"].([]any)
 	entries[0].(map[string]any)["ref"] = "endpoint:Imported OpenAI:api_key"
 	return payload
 }
