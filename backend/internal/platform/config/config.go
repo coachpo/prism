@@ -30,6 +30,8 @@ const (
 	RuntimeBufferingModeStreaming RuntimeBufferingMode = "streaming"
 )
 
+const defaultSeedSecretEncryptionKey = "prism-dev-runtime-secret-change-me-2026"
+
 const (
 	defaultRuntimeDatabaseMaxConns               int32 = 4
 	defaultRuntimeDatabaseMinIdleConns           int32 = 1
@@ -105,7 +107,7 @@ func loadSeedSettingsFromEnv() Settings {
 		RuntimeDatabasePoolBudget:        loadDatabasePoolBudgetFromEnv("RUNTIME_DB", DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns}),
 		ManagementDatabasePoolBudget:     loadDatabasePoolBudgetFromEnv("MANAGEMENT_DB", DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns}),
 		ManagementAdmissionControlBudget: loadManagementAdmissionBudgetFromEnv(ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent}),
-		SecretEncryptionKey:              os.Getenv("SECRET_ENCRYPTION_KEY"),
+		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
 		ConfigBundleEncryptionKey:        os.Getenv("CONFIG_BUNDLE_ENCRYPTION_KEY"),
 		CORSAllowedOrigins:               envOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"),
 		AuthJWTSecret:                    envOrDefault("AUTH_JWT_SECRET", "prism-dev-jwt-secret-change-me-2026"),

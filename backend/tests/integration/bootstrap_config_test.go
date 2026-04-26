@@ -19,6 +19,7 @@ const (
 	bootstrapFixtureSecretKey   = "bootstrap-runtime-secret-encryption-key"
 	bootstrapFixtureJWTSecret   = "bootstrap-jwt-signing-secret"
 	bootstrapFixtureBundleKey   = "bootstrap-bundle-encryption-key"
+	bootstrapSeedDefaultSecret  = "prism-dev-runtime-secret-change-me-2026"
 )
 
 type bootstrapSeededFile struct {
@@ -83,7 +84,6 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 	legacyDatabaseURL := "postgres://prism:legacy-password@db.seed.internal:5432/prism?sslmode=disable"
 	legacyJWTSecret := "legacy-seeded-jwt-secret"
 	legacyBundleKey := "legacy-seeded-bundle-key"
-	legacySecretEncryptionKey := "legacy-seeded-secret-encryption-key"
 	seededAt := time.Date(2026, 4, 26, 16, 15, 0, 0, time.UTC)
 
 	setBootstrapSeedEnv(t, map[string]string{
@@ -107,7 +107,6 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 		"MANAGEMENT_DB_MIN_IDLE_CONNS":              "3",
 		"MANAGEMENT_ADMISSION_M2_MAX_CONCURRENT":    "8",
 		"MANAGEMENT_ADMISSION_M3_MAX_CONCURRENT":    "4",
-		"SECRET_ENCRYPTION_KEY":                     legacySecretEncryptionKey,
 		"CONFIG_BUNDLE_ENCRYPTION_KEY":              legacyBundleKey,
 		"CORS_ALLOWED_ORIGINS":                      "http://localhost:15173,http://127.0.0.1:15173",
 		"AUTH_JWT_SECRET":                           legacyJWTSecret,
@@ -136,8 +135,8 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 	if settings.DatabaseURL != legacyDatabaseURL {
 		t.Fatalf("expected seeded database URL %q, got %q", legacyDatabaseURL, settings.DatabaseURL)
 	}
-	if settings.SecretEncryptionKey != legacySecretEncryptionKey {
-		t.Fatalf("expected seeded secret encryption key %q, got %q", legacySecretEncryptionKey, settings.SecretEncryptionKey)
+	if settings.SecretEncryptionKey != bootstrapSeedDefaultSecret {
+		t.Fatalf("expected seeded secret encryption key %q, got %q", bootstrapSeedDefaultSecret, settings.SecretEncryptionKey)
 	}
 	if settings.ConfigBundleEncryptionKey != legacyBundleKey || settings.AuthJWTSecret != legacyJWTSecret {
 		t.Fatalf("unexpected seeded plaintext settings: bundle=%q jwt=%q", settings.ConfigBundleEncryptionKey, settings.AuthJWTSecret)
@@ -175,7 +174,7 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read seeded bootstrap config file: %v", err)
 	}
-	for _, secret := range []string{legacyDatabaseURL, legacyJWTSecret, legacyBundleKey, legacySecretEncryptionKey} {
+	for _, secret := range []string{legacyDatabaseURL, legacyJWTSecret, legacyBundleKey, bootstrapSeedDefaultSecret} {
 		if !bytes.Contains(raw, []byte(secret)) {
 			t.Fatalf("expected seeded bootstrap config to keep plaintext value %q", secret)
 		}
@@ -209,7 +208,7 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 8 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 4 {
 		t.Fatalf("unexpected seeded admission payload: %+v", seeded.Database.ManagementAdmission)
 	}
-	if seeded.Runtime.BufferingMode != "streaming" || seeded.Runtime.SecretEncryptionKey != legacySecretEncryptionKey {
+	if seeded.Runtime.BufferingMode != "streaming" || seeded.Runtime.SecretEncryptionKey != bootstrapSeedDefaultSecret {
 		t.Fatalf("unexpected seeded runtime payload: %+v", seeded.Runtime)
 	}
 	if seeded.Runtime.Transport.MaxIdleConns != 77 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 11 || seeded.Runtime.Transport.MaxConnsPerHost != 17 {
@@ -253,7 +252,6 @@ func TestBootstrapConfigFileWinsWhenPresent(t *testing.T) {
 		"DATABASE_URL":                 "",
 		"CORS_ALLOWED_ORIGINS":         "not-a-uri",
 		"AUTH_JWT_SECRET":              "",
-		"SECRET_ENCRYPTION_KEY":        "ignored-legacy-secret-key",
 		"CONFIG_BUNDLE_ENCRYPTION_KEY": "ignored-legacy-bundle-key",
 	})
 
@@ -291,7 +289,6 @@ func TestEncryptedBootstrapConfigFileFailsFast(t *testing.T) {
 	setBootstrapSeedEnv(t, map[string]string{
 		config.BootstrapConfigPathEnv: integrationBootstrapFixturePath(t, "bootstrap-unsupported-encrypted-v1.json"),
 		"DATABASE_URL":                "postgres://ignored:ignored@localhost:5432/ignored?sslmode=disable",
-		"SECRET_ENCRYPTION_KEY":       "ignored-secret-key",
 		"AUTH_JWT_SECRET":             "ignored-jwt-secret",
 	})
 

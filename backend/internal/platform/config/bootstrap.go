@@ -672,9 +672,9 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 	if err != nil {
 		return bootstrapConfigDocument{}, err
 	}
-	runtimeSecretEncryptionKey, err := requiredSeedValue("SECRET_ENCRYPTION_KEY", settings.SecretEncryptionKey)
-	if err != nil {
-		return bootstrapConfigDocument{}, err
+	runtimeSecretEncryptionKey := strings.TrimSpace(settings.SecretEncryptionKey)
+	if runtimeSecretEncryptionKey == "" {
+		return bootstrapConfigDocument{}, fmt.Errorf("seeded runtime secret encryption key is empty")
 	}
 	authJWTSecret, err := requiredSeedValue("AUTH_JWT_SECRET", settings.AuthJWTSecret)
 	if err != nil {
