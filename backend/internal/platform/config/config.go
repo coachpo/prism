@@ -90,6 +90,10 @@ type Settings struct {
 }
 
 func Load() Settings {
+	return loadLegacySettingsFromEnv()
+}
+
+func loadLegacySettingsFromEnv() Settings {
 	return Settings{
 		Host:                             envOrDefault("HOST", "0.0.0.0"),
 		Port:                             intEnvOrDefault("PORT", 8000),
