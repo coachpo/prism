@@ -65,6 +65,7 @@ load_dotenv_file() {
     done < "$env_file"
 }
 
+load_dotenv_file "$ROOT_DIR/.env"
 load_dotenv_file "$BACKEND_DIR/.env"
 load_dotenv_file "$FRONTEND_DIR/.env"
 
@@ -153,14 +154,6 @@ resolve_launcher_bootstrap_config_path() {
 configure_bootstrap_startup_contract() {
     PRISM_CONFIG_PATH="$(resolve_launcher_bootstrap_config_path)"
     export PRISM_CONFIG_PATH
-
-    if [[ -z "${PRISM_CONFIG_MASTER_KEY:-}" ]]; then
-        echo "Error: PRISM_CONFIG_MASTER_KEY is required."
-        echo "Set PRISM_CONFIG_MASTER_KEY explicitly before running ./start.sh."
-        exit 1
-    fi
-
-    export PRISM_CONFIG_MASTER_KEY
 }
 
 configure_launcher_bootstrap_seed_inputs() {
@@ -180,7 +173,7 @@ resolve_effective_backend_startup_settings() {
 
     if ! startup_settings_output="$(cd "$BACKEND_DIR" && PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1 "$BACKEND_BINARY_PATH")"; then
         echo "Error: failed to resolve effective backend startup settings from the bootstrap startup contract."
-        echo "Check PRISM_CONFIG_PATH, PRISM_CONFIG_MASTER_KEY, and any one-time seed inputs required to create the bootstrap file."
+        echo "Check PRISM_CONFIG_PATH and any one-time seed inputs required to read or create the plaintext bootstrap file."
         exit 1
     fi
 
