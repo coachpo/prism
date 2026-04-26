@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
-	"github.com/coachpo/prism/backend/internal/profiledomain"
+	"github.com/coachpo/prism/backend/internal/endpointdomain"
 )
 
 type planningSnapshot struct {
@@ -29,21 +29,7 @@ type nativePlanningSnapshot struct {
 	Connections []runtimeConnection
 }
 
-func (s *Service) loadActiveProfileWithCache(_ context.Context) (profiledomain.Profile, error) {
-	if s.cache == nil {
-		return profiledomain.Profile{}, ErrPublishedRuntimeSnapshotUnavailable
-	}
-	return s.cache.LoadPublishedActiveProfile()
-}
-
-func (s *Service) loadPlanningSnapshotWithCache(_ context.Context, profileID int) (*planningSnapshot, error) {
-	if s.cache == nil {
-		return nil, ErrPublishedRuntimeSnapshotUnavailable
-	}
-	return s.cache.LoadPublishedPlanningSnapshot(profileID)
-}
-
-func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int) (*planningSnapshot, error) {
+func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int, secretEncryptionKey string) (*planningSnapshot, error) {
 	modelsByID, err := listEnabledModelsForProfile(ctx, tx, profileID)
 	if err != nil {
 		return nil, err
@@ -77,24 +63,72 @@ func buildPlanningSnapshot(ctx context.Context, tx pgx.Tx, profileID int) (*plan
 		var strategy *loadbalance.RuntimeStrategy
 		if model.LoadbalanceStrategyID != nil {
 			if resolved, ok := strategiesByID[*model.LoadbalanceStrategyID]; ok {
-				clonedStrategy := cloneRuntimeStrategy(resolved)
-				strategy = &clonedStrategy
+				resolvedStrategy := resolved
+				strategy = &resolvedStrategy
 			}
 		}
+		compiledConnections, err := compileRuntimeConnections(connectionsByModelConfigID[model.ID], model.APIFamily, secretEncryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("compile runtime connections for profile %d model %q: %w", profileID, model.ModelID, err)
+		}
 		nativeTargetsByModelID[modelID] = nativePlanningSnapshot{
-			Model:       cloneRuntimeModelRecord(model),
+			Model:       model,
 			Strategy:    strategy,
-			Connections: cloneRuntimeConnections(connectionsByModelConfigID[model.ID]),
+			Connections: compiledConnections,
 		}
 	}
 
 	return &planningSnapshot{
-		ModelsByID:             cloneRuntimeModelMap(modelsByID),
-		ProxyTargetsBySourceID: cloneProxyTargets(proxyTargetsBySourceID),
-		NativeTargetsByModelID: cloneNativePlanningSnapshotMap(nativeTargetsByModelID),
-		BlocklistRules:         cloneHeaderBlocklistRules(blocklistRules),
-		ReportCurrency:         cloneReportCurrencySnapshot(reportCurrency),
+		ModelsByID:             modelsByID,
+		ProxyTargetsBySourceID: proxyTargetsBySourceID,
+		NativeTargetsByModelID: nativeTargetsByModelID,
+		BlocklistRules:         blocklistRules,
+		ReportCurrency:         reportCurrency,
 	}, nil
+}
+
+func compileRuntimeConnections(source []runtimeConnection, apiFamily string, secretEncryptionKey string) ([]runtimeConnection, error) {
+	if len(source) == 0 {
+		return nil, nil
+	}
+	target := make([]runtimeConnection, 0, len(source))
+	for _, connection := range source {
+		compiled, err := compileRuntimeConnection(connection, apiFamily, secretEncryptionKey)
+		if err != nil {
+			return nil, err
+		}
+		target = append(target, compiled)
+	}
+	return target, nil
+}
+
+func compileRuntimeConnection(connection runtimeConnection, apiFamily string, secretEncryptionKey string) (runtimeConnection, error) {
+	compiled := connection
+	config, err := resolveAuthConfig(connection.AuthType, apiFamily)
+	if err != nil {
+		return runtimeConnection{}, err
+	}
+	if strings.TrimSpace(secretEncryptionKey) == "" {
+		return compiled, nil
+	}
+	apiKey, err := endpointdomain.DecryptSecret(connection.EncryptedEndpointAPIKey, secretEncryptionKey)
+	if err != nil {
+		return runtimeConnection{}, fmt.Errorf("resolve endpoint api key for connection %d: %w", connection.ID, err)
+	}
+	controlledHeaderNames := map[string]struct{}{strings.ToLower(config.AuthHeader): {}}
+	extraHeaders := make(map[string]string, len(config.ExtraHeaders))
+	for key, value := range config.ExtraHeaders {
+		extraHeaders[key] = value
+		controlledHeaderNames[strings.ToLower(key)] = struct{}{}
+	}
+	compiled.UpstreamAuth = &runtimeConnectionUpstreamAuthSnapshot{
+		AuthHeader:            config.AuthHeader,
+		AuthValue:             config.AuthPrefix + apiKey,
+		ExtraHeaders:          extraHeaders,
+		ControlledHeaderNames: controlledHeaderNames,
+	}
+	compiled.EncryptedEndpointAPIKey = ""
+	return compiled, nil
 }
 
 func listPublishedPlanningProfileIDs(ctx context.Context, tx pgx.Tx) ([]int, error) {
@@ -153,11 +187,11 @@ func (s *Service) loadNativeExecutionTargetFromSnapshot(profileID int, snapshot 
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, fmt.Errorf("loadbalance strategy %d not found for model %q", *nativeTarget.Model.LoadbalanceStrategyID, nativeTarget.Model.ModelID)
 	}
 
-	connections := cloneRuntimeConnections(nativeTarget.Connections)
+	connections := nativeTarget.Connections
 	if len(connections) == 0 {
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("No active connections available for model '%s'.", requestedModelID)}
 	}
-	strategy := cloneRuntimeStrategy(*nativeTarget.Strategy)
+	strategy := *nativeTarget.Strategy
 	runtimeStates := s.runtimeState.SnapshotConnectionStates(profileID, runtimeConnectionRefs(connections))
 	eligibleConnectionIDs := loadbalance.FilterEligibleConnectionIDs(toConnectionOrderCandidates(connections), runtimeStates, referenceNow)
 	eligibleConnections := orderConnectionsByID(connections, eligibleConnectionIDs)
@@ -170,7 +204,7 @@ func (s *Service) loadNativeExecutionTargetFromSnapshot(profileID int, snapshot 
 			eligibleRuntimeStates[connectionID] = state
 		}
 	}
-	return cloneRuntimeModelRecord(nativeTarget.Model), eligibleConnections, eligibleRuntimeStates, strategy, nil
+	return nativeTarget.Model, eligibleConnections, eligibleRuntimeStates, strategy, nil
 }
 
 func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[string]runtimeModelRecord, error) {
@@ -358,7 +392,7 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 			&item.Endpoint.ID,
 			&endpointName,
 			&item.Endpoint.BaseURL,
-			&item.Endpoint.APIKey,
+			&item.EncryptedEndpointAPIKey,
 		); err != nil {
 			return nil, fmt.Errorf("scan runtime connection for profile %d: %w", profileID, err)
 		}
@@ -404,174 +438,3 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	return items, nil
 }
 
-func clonePlanningSnapshot(snapshot planningSnapshot) planningSnapshot {
-	cloned := planningSnapshot{
-		ModelsByID:             cloneRuntimeModelMap(snapshot.ModelsByID),
-		ProxyTargetsBySourceID: cloneProxyTargets(snapshot.ProxyTargetsBySourceID),
-		NativeTargetsByModelID: cloneNativePlanningSnapshotMap(snapshot.NativeTargetsByModelID),
-		BlocklistRules:         cloneHeaderBlocklistRules(snapshot.BlocklistRules),
-		ReportCurrency:         cloneReportCurrencySnapshot(snapshot.ReportCurrency),
-	}
-	return cloned
-}
-
-func cloneRuntimeModelMap(source map[string]runtimeModelRecord) map[string]runtimeModelRecord {
-	if len(source) == 0 {
-		return nil
-	}
-	target := make(map[string]runtimeModelRecord, len(source))
-	for key, value := range source {
-		target[key] = cloneRuntimeModelRecord(value)
-	}
-	return target
-}
-
-func cloneRuntimeModelRecord(model runtimeModelRecord) runtimeModelRecord {
-	cloned := model
-	cloned.VendorID = cloneOptionalInt(model.VendorID)
-	cloned.VendorKey = cloneOptionalString(model.VendorKey)
-	cloned.VendorName = cloneOptionalString(model.VendorName)
-	cloned.LoadbalanceStrategyID = cloneOptionalInt(model.LoadbalanceStrategyID)
-	return cloned
-}
-
-func cloneNativePlanningSnapshotMap(source map[string]nativePlanningSnapshot) map[string]nativePlanningSnapshot {
-	if len(source) == 0 {
-		return nil
-	}
-	target := make(map[string]nativePlanningSnapshot, len(source))
-	for key, value := range source {
-		cloned := nativePlanningSnapshot{
-			Model:       cloneRuntimeModelRecord(value.Model),
-			Connections: cloneRuntimeConnections(value.Connections),
-		}
-		if value.Strategy != nil {
-			strategy := cloneRuntimeStrategy(*value.Strategy)
-			cloned.Strategy = &strategy
-		}
-		target[key] = cloned
-	}
-	return target
-}
-
-func cloneRuntimeStrategy(strategy loadbalance.RuntimeStrategy) loadbalance.RuntimeStrategy {
-	cloned := strategy
-	cloned.LegacyStrategyType = cloneOptionalString(strategy.LegacyStrategyType)
-	cloned.AutoRecoveryRaw = append([]byte(nil), strategy.AutoRecoveryRaw...)
-	cloned.RoutingPolicyRaw = append([]byte(nil), strategy.RoutingPolicyRaw...)
-	return cloned
-}
-
-func cloneRuntimeConnections(source []runtimeConnection) []runtimeConnection {
-	if len(source) == 0 {
-		return nil
-	}
-	target := make([]runtimeConnection, 0, len(source))
-	for _, connection := range source {
-		target = append(target, cloneRuntimeConnection(connection))
-	}
-	return target
-}
-
-func cloneRuntimeConnection(connection runtimeConnection) runtimeConnection {
-	cloned := connection
-	cloned.QPSLimit = cloneOptionalInt(connection.QPSLimit)
-	cloned.MaxInFlightNonStream = cloneOptionalInt(connection.MaxInFlightNonStream)
-	cloned.MaxInFlightStream = cloneOptionalInt(connection.MaxInFlightStream)
-	cloned.Name = cloneOptionalString(connection.Name)
-	cloned.AuthType = cloneOptionalString(connection.AuthType)
-	cloned.CustomHeaders = cloneJSONMap(connection.CustomHeaders)
-	cloned.PricingTemplateID = cloneOptionalInt(connection.PricingTemplateID)
-	if connection.PricingTemplateSnapshot != nil {
-		snapshot := clonePricingTemplateSnapshot(*connection.PricingTemplateSnapshot)
-		cloned.PricingTemplateSnapshot = &snapshot
-	}
-	if connection.EndpointFXSnapshot != nil {
-		snapshot := cloneEndpointFXSnapshot(*connection.EndpointFXSnapshot)
-		cloned.EndpointFXSnapshot = &snapshot
-	}
-	cloned.Endpoint = cloneRuntimeEndpoint(connection.Endpoint)
-	return cloned
-}
-
-func cloneRuntimeEndpoint(endpoint runtimeEndpoint) runtimeEndpoint {
-	cloned := endpoint
-	cloned.Name = cloneOptionalString(endpoint.Name)
-	return cloned
-}
-
-func clonePricingTemplateSnapshot(snapshot runtimePricingTemplateSnapshot) runtimePricingTemplateSnapshot {
-	cloned := snapshot
-	cloned.CachedInputPrice = cloneOptionalString(snapshot.CachedInputPrice)
-	cloned.CacheCreationPrice = cloneOptionalString(snapshot.CacheCreationPrice)
-	cloned.ReasoningPrice = cloneOptionalString(snapshot.ReasoningPrice)
-	return cloned
-}
-
-func cloneEndpointFXSnapshot(snapshot runtimeEndpointFXSnapshot) runtimeEndpointFXSnapshot {
-	return snapshot
-}
-
-func cloneHeaderBlocklistRules(source []headerBlocklistRule) []headerBlocklistRule {
-	if len(source) == 0 {
-		return nil
-	}
-	return append([]headerBlocklistRule(nil), source...)
-}
-
-func cloneReportCurrencySnapshot(snapshot runtimeReportCurrencySnapshot) runtimeReportCurrencySnapshot {
-	return snapshot
-}
-
-func cloneProxyTargets(source map[int][]string) map[int][]string {
-	if len(source) == 0 {
-		return nil
-	}
-	target := make(map[int][]string, len(source))
-	for key, values := range source {
-		target[key] = append([]string(nil), values...)
-	}
-	return target
-}
-
-func cloneOptionalString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneOptionalInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	return &cloned
-}
-
-func cloneJSONMap(source map[string]any) map[string]any {
-	if len(source) == 0 {
-		return nil
-	}
-	target := make(map[string]any, len(source))
-	for key, value := range source {
-		target[key] = cloneJSONValue(value)
-	}
-	return target
-}
-
-func cloneJSONValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return cloneJSONMap(typed)
-	case []any:
-		cloned := make([]any, 0, len(typed))
-		for _, item := range typed {
-			cloned = append(cloned, cloneJSONValue(item))
-		}
-		return cloned
-	default:
-		return typed
-	}
-}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,15 +31,17 @@ type RefreshRequest struct {
 }
 
 type SharedCacheOptions struct {
-	RefreshPool   *pgxpool.Pool
-	Now           func() time.Time
-	BeforePublish func(RefreshRequest) error
+	RefreshPool         *pgxpool.Pool
+	SecretEncryptionKey string
+	Now                 func() time.Time
+	BeforePublish       func(RefreshRequest) error
 }
 
 type SharedCache struct {
-	refreshPool   *pgxpool.Pool
-	now           func() time.Time
-	beforePublish func(RefreshRequest) error
+	refreshPool         *pgxpool.Pool
+	secretEncryptionKey string
+	now                 func() time.Time
+	beforePublish       func(RefreshRequest) error
 
 	published atomic.Pointer[publishedRuntimeSnapshot]
 
@@ -64,7 +67,7 @@ type publishedRuntimeSnapshot struct {
 	Generation          uint64
 	PublishedAt         time.Time
 	ActiveProfile       profiledomain.Profile
-	PlanningByProfileID map[int]planningSnapshot
+	PlanningByProfileID map[int]*planningSnapshot
 	Auth                publishedRuntimeAuthSnapshot
 }
 
@@ -90,6 +93,9 @@ func (c *SharedCache) Configure(options SharedCacheOptions) {
 	}
 	if options.RefreshPool != nil {
 		c.refreshPool = options.RefreshPool
+	}
+	if trimmedSecretKey := strings.TrimSpace(options.SecretEncryptionKey); trimmedSecretKey != "" {
+		c.secretEncryptionKey = trimmedSecretKey
 	}
 	if options.Now != nil {
 		c.now = options.Now
@@ -202,8 +208,7 @@ func (c *SharedCache) LoadPublishedPlanningSnapshot(profileID int) (*planningSna
 	if !ok {
 		return nil, fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, profileID)
 	}
-	cloned := clonePlanningSnapshot(planning)
-	return &cloned, nil
+	return planning, nil
 }
 
 func (c *SharedCache) LoadRuntimeAuthSettings() (RuntimeAuthSettingsSnapshot, error) {
@@ -299,7 +304,7 @@ func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request Refres
 
 		activeProfile := profiledomain.Profile{}
 		if current != nil && !request.ActiveProfile {
-			activeProfile = cloneProfile(current.ActiveProfile)
+			activeProfile = current.ActiveProfile
 		} else {
 			resolvedActiveProfile, err := profiledomain.ResolveActiveProfile(ctx, tx, c.nowUTC)
 			if err != nil {
@@ -309,45 +314,48 @@ func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request Refres
 		}
 		next.ActiveProfile = activeProfile
 
-		planningByProfileID := clonePublishedPlanningSnapshots(current)
+		planningByProfileID := copyPublishedPlanningSnapshots(current)
 		if current == nil || request.PlanningAll {
 			profileIDs, err := listPublishedPlanningProfileIDs(ctx, tx)
 			if err != nil {
 				return nil, err
 			}
-			planningByProfileID = make(map[int]planningSnapshot, len(profileIDs))
+			planningByProfileID = make(map[int]*planningSnapshot, len(profileIDs))
 			for _, profileID := range profileIDs {
-				snapshot, err := buildPlanningSnapshot(ctx, tx, profileID)
+				snapshot, err := buildPlanningSnapshot(ctx, tx, profileID, c.secretEncryptionKey)
 				if err != nil {
 					return nil, err
 				}
-				planningByProfileID[profileID] = clonePlanningSnapshot(*snapshot)
+				planningByProfileID[profileID] = snapshot
 			}
 		} else {
 			for _, profileID := range request.PlanningProfileIDs {
-				snapshot, err := buildPlanningSnapshot(ctx, tx, profileID)
+				snapshot, err := buildPlanningSnapshot(ctx, tx, profileID, c.secretEncryptionKey)
 				if err != nil {
 					return nil, err
 				}
 				if planningByProfileID == nil {
-					planningByProfileID = map[int]planningSnapshot{}
+					planningByProfileID = map[int]*planningSnapshot{}
 				}
-				planningByProfileID[profileID] = clonePlanningSnapshot(*snapshot)
+				planningByProfileID[profileID] = snapshot
 			}
 		}
 		if _, ok := planningByProfileID[activeProfile.ID]; !ok {
-			snapshot, err := buildPlanningSnapshot(ctx, tx, activeProfile.ID)
+			snapshot, err := buildPlanningSnapshot(ctx, tx, activeProfile.ID, c.secretEncryptionKey)
 			if err != nil {
 				return nil, err
 			}
 			if planningByProfileID == nil {
-				planningByProfileID = map[int]planningSnapshot{}
+				planningByProfileID = map[int]*planningSnapshot{}
 			}
-			planningByProfileID[activeProfile.ID] = clonePlanningSnapshot(*snapshot)
+			planningByProfileID[activeProfile.ID] = snapshot
 		}
 		next.PlanningByProfileID = planningByProfileID
 
-		authSnapshot := clonePublishedRuntimeAuthSnapshot(current)
+		authSnapshot := publishedRuntimeAuthSnapshot{}
+		if current != nil {
+			authSnapshot = current.Auth
+		}
 		if current == nil || request.Auth {
 			builtAuthSnapshot, err := buildPublishedRuntimeAuthSnapshot(ctx, tx, c.nowUTC())
 			if err != nil {
@@ -492,27 +500,13 @@ func listPublishedRuntimeProxyKeys(ctx context.Context, tx pgx.Tx, referenceNow 
 	return items, nil
 }
 
-func clonePublishedPlanningSnapshots(snapshot *publishedRuntimeSnapshot) map[int]planningSnapshot {
+func copyPublishedPlanningSnapshots(snapshot *publishedRuntimeSnapshot) map[int]*planningSnapshot {
 	if snapshot == nil || len(snapshot.PlanningByProfileID) == 0 {
 		return nil
 	}
-	cloned := make(map[int]planningSnapshot, len(snapshot.PlanningByProfileID))
+	cloned := make(map[int]*planningSnapshot, len(snapshot.PlanningByProfileID))
 	for profileID, planning := range snapshot.PlanningByProfileID {
-		cloned[profileID] = clonePlanningSnapshot(planning)
-	}
-	return cloned
-}
-
-func clonePublishedRuntimeAuthSnapshot(snapshot *publishedRuntimeSnapshot) publishedRuntimeAuthSnapshot {
-	if snapshot == nil {
-		return publishedRuntimeAuthSnapshot{}
-	}
-	cloned := publishedRuntimeAuthSnapshot{
-		Settings:          snapshot.Auth.Settings,
-		ProxyKeysByPrefix: make(map[string]RuntimeProxyKeyRecord, len(snapshot.Auth.ProxyKeysByPrefix)),
-	}
-	for keyPrefix, record := range snapshot.Auth.ProxyKeysByPrefix {
-		cloned.ProxyKeysByPrefix[keyPrefix] = cloneRuntimeProxyKeyRecord(record)
+		cloned[profileID] = planning
 	}
 	return cloned
 }
