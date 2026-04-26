@@ -242,7 +242,9 @@ func newRuntimeStatsHarnessWithOptions(t *testing.T, options runtimeStatsHarness
 	t.Cleanup(managementPool.Close)
 	runtimePool := newRuntimePriorityPool(t, settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime")
 	t.Cleanup(runtimePool.Close)
-	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool})
+	runtimeTelemetryPool := newRuntimePriorityPool(t, settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime telemetry")
+	t.Cleanup(runtimeTelemetryPool.Close)
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap runtime priority published runtime snapshot: %v", err)
 	}
@@ -269,7 +271,7 @@ func newRuntimeStatsHarnessWithOptions(t *testing.T, options runtimeStatsHarness
 		t.Fatalf("build runtime priority stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{Pool: runtimePool, Cache: runtimeCache, RuntimeState: runtimeState})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimePool, TelemetryPool: runtimeTelemetryPool, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build runtime priority runtime service: %v", err)
 	}

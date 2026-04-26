@@ -1883,18 +1883,24 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("create pgx pool: %v", err)
 	}
 	tb.Cleanup(pool.Close)
+	telemetryPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		tb.Fatalf("create runtime telemetry pgx pool: %v", err)
+	}
+	tb.Cleanup(telemetryPool.Close)
 
 	runtimeOptions := harnessConfig.RuntimeOptions
 	runtimeCache := runtimeOptions.Cache
 	if runtimeCache == nil {
-		runtimeCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+		runtimeCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	} else {
-		runtimeCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: pool})
+		runtimeCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	}
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		tb.Fatalf("bootstrap published runtime snapshot: %v", err)
 	}
-	runtimeOptions.Pool = pool
+	runtimeOptions.ExecutionPool = pool
+	runtimeOptions.TelemetryPool = telemetryPool
 	runtimeOptions.Cache = runtimeCache
 
 	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool})
