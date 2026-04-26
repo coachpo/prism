@@ -8,6 +8,7 @@ build/
 
 # Local environment
 .env
+config.json
 artifacts/
 
 # Virtual environments

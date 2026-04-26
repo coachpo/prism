@@ -160,6 +160,62 @@ configure_launcher_bootstrap_seed_inputs() {
     export PORT="$BACKEND_PORT"
 }
 
+BOOTSTRAP_SEED_ENV_VARS=(
+    DATABASE_URL
+    HOST
+    PORT
+    APP_ENV
+    RUNTIME_TELEMETRY_MODE
+    RUNTIME_BUFFERING_MODE
+    RUNTIME_TRANSPORT_MAX_IDLE_CONNS
+    RUNTIME_TRANSPORT_MAX_IDLE_CONNS_PER_HOST
+    RUNTIME_TRANSPORT_MAX_CONNS_PER_HOST
+    RUNTIME_TRANSPORT_IDLE_CONN_TIMEOUT
+    RUNTIME_TRANSPORT_RESPONSE_HEADER_TIMEOUT
+    RUNTIME_TRANSPORT_TLS_HANDSHAKE_TIMEOUT
+    RUNTIME_TRANSPORT_EXPECT_CONTINUE_TIMEOUT
+    RUNTIME_DB_MAX_CONNS
+    RUNTIME_DB_MIN_IDLE_CONNS
+    MANAGEMENT_DB_MAX_CONNS
+    MANAGEMENT_DB_MIN_IDLE_CONNS
+    MANAGEMENT_ADMISSION_M2_MAX_CONCURRENT
+    MANAGEMENT_ADMISSION_M3_MAX_CONCURRENT
+    SECRET_ENCRYPTION_KEY
+    CONFIG_BUNDLE_ENCRYPTION_KEY
+    CORS_ALLOWED_ORIGINS
+    AUTH_JWT_SECRET
+    AUTH_ACCESS_TOKEN_TTL_SECONDS
+    AUTH_REFRESH_TOKEN_TTL_SECONDS
+    AUTH_RESET_CODE_TTL_SECONDS
+    AUTH_COOKIE_NAME
+    AUTH_REFRESH_COOKIE_NAME
+    AUTH_COOKIE_SECURE
+)
+
+run_backend_with_bootstrap_config() {
+    local -a env_args=(env)
+    local env_name
+
+    for env_name in "${BOOTSTRAP_SEED_ENV_VARS[@]}"; do
+        env_args+=(-u "$env_name")
+    done
+
+    (cd "$BACKEND_DIR" && "${env_args[@]}" "$@")
+}
+
+ensure_bootstrap_config_exists() {
+    if [[ -f "$PRISM_CONFIG_PATH" ]]; then
+        return
+    fi
+
+    echo "Seeding plaintext bootstrap config: $PRISM_CONFIG_PATH"
+    if ! (cd "$BACKEND_DIR" && PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1 "$BACKEND_BINARY_PATH" >/dev/null); then
+        echo "Error: failed to seed bootstrap config at $PRISM_CONFIG_PATH."
+        echo "Check PRISM_CONFIG_PATH and any one-time seed inputs required to create the plaintext bootstrap file."
+        exit 1
+    fi
+}
+
 resolve_effective_backend_startup_settings() {
     local startup_settings_output
     local line
@@ -171,9 +227,9 @@ resolve_effective_backend_startup_settings() {
     EFFECTIVE_BACKEND_PORT=""
     EFFECTIVE_BACKEND_ADDR=""
 
-    if ! startup_settings_output="$(cd "$BACKEND_DIR" && PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1 "$BACKEND_BINARY_PATH")"; then
+    if ! startup_settings_output="$(run_backend_with_bootstrap_config PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1 "$BACKEND_BINARY_PATH")"; then
         echo "Error: failed to resolve effective backend startup settings from the bootstrap startup contract."
-        echo "Check PRISM_CONFIG_PATH and any one-time seed inputs required to read or create the plaintext bootstrap file."
+        echo "Check PRISM_CONFIG_PATH and the plaintext bootstrap file content."
         exit 1
     fi
 
@@ -490,6 +546,7 @@ fi
 
 echo "Building backend with Go..."
 build_backend_binary
+ensure_bootstrap_config_exists
 resolve_effective_backend_startup_settings
 ensure_launcher_backend_binding_matches_expectations
 kill_existing_instances
@@ -507,7 +564,7 @@ fi
 
 # --- Start backend ---
 echo "Starting backend on port $EFFECTIVE_BACKEND_PORT..."
-(cd "$BACKEND_DIR" && "$BACKEND_BINARY_PATH") &
+run_backend_with_bootstrap_config "$BACKEND_BINARY_PATH" &
 BACKEND_PID=$!
 
 if [ "$START_FRONTEND" = true ]; then
