@@ -13,6 +13,8 @@ pnpm run lint
 
 Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `package.json`.
 
+Use `frontend/.env.example` as the standalone frontend env sample when you want to point the frontend at a non-launcher backend.
+
 When started through the checked-in root launcher, Prism serves the frontend at `http://localhost:15173`. For full-stack local setup, launcher behavior, and shared repository context, start at `../README.md` and `./AGENTS.md`.
 
 ## Runtime notes

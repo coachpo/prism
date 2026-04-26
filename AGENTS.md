@@ -29,7 +29,8 @@ prism/
 │   └── plans/
 ├── .github/workflows/docker-images.yml
 ├── .github/workflows/cleanup.yml
-├── .env.example
+├── backend/.env.example
+├── frontend/.env.example
 ├── deploy.sh
 ├── release.sh
 └── start.sh
@@ -58,7 +59,7 @@ prism/
 - `deploy.sh` is a thin root forwarding helper that SSHes to `capy`, changes into `orange_work/curse`, and delegates to the remote `./deploy.sh`.
 
 ## WHERE TO LOOK
-- Operator-facing launcher, release, and deploy helpers: `README.md`, `start.sh`, `release.sh`, `deploy.sh`
+- Operator-facing launcher, release, and deploy helpers: `README.md`, `start.sh`, `release.sh`, `deploy.sh`, `backend/.env.example`, `frontend/.env.example`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
