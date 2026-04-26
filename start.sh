@@ -84,6 +84,14 @@ DATABASE_URL="${DATABASE_URL:-$DEFAULT_DATABASE_URL}"
 export DATABASE_URL
 LAUNCHER_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/prism-start.XXXXXX")"
 BACKEND_BINARY_PATH="$LAUNCHER_TMP_DIR/prism-backend"
+BOOTSTRAP_CONFIG_PATH_FROM_ENV=true
+if [[ -z "${PRISM_CONFIG_PATH:-}" ]]; then
+    BOOTSTRAP_CONFIG_PATH_FROM_ENV=false
+fi
+EFFECTIVE_BACKEND_HOST=""
+EFFECTIVE_BACKEND_PORT=""
+EFFECTIVE_BACKEND_ADDR=""
+EFFECTIVE_DATABASE_URL=""
 CLEANED_UP=false
 
 append_csv_value_if_missing() {
@@ -120,6 +128,113 @@ configure_local_frontend_backend_integration() {
     export WEBAUTHN_ORIGIN="${WEBAUTHN_ORIGIN:-$FRONTEND_ORIGIN}"
 }
 
+resolve_launcher_bootstrap_config_path() {
+    local configured_path="${PRISM_CONFIG_PATH:-}"
+
+    if [[ -z "$configured_path" ]]; then
+        printf '%s' "$LAUNCHER_TMP_DIR/bootstrap-config.json"
+        return
+    fi
+
+    case "$configured_path" in
+        /*)
+            printf '%s' "$configured_path"
+            ;;
+        ~/*)
+            printf '%s/%s' "$HOME" "${configured_path#~/}"
+            ;;
+        *)
+            printf '%s/%s' "$ROOT_DIR" "$configured_path"
+            ;;
+    esac
+}
+
+configure_bootstrap_startup_contract() {
+    PRISM_CONFIG_PATH="$(resolve_launcher_bootstrap_config_path)"
+    export PRISM_CONFIG_PATH
+
+    if [[ -z "${PRISM_CONFIG_MASTER_KEY:-}" ]]; then
+        echo "Error: PRISM_CONFIG_MASTER_KEY is required."
+        echo "Set PRISM_CONFIG_MASTER_KEY explicitly before running ./start.sh."
+        exit 1
+    fi
+
+    export PRISM_CONFIG_MASTER_KEY
+}
+
+configure_launcher_bootstrap_seed_inputs() {
+    export PORT="$BACKEND_PORT"
+}
+
+resolve_effective_backend_startup_settings() {
+    local startup_settings_output
+    local line
+    local key
+    local value
+
+    EFFECTIVE_DATABASE_URL=""
+    EFFECTIVE_BACKEND_HOST=""
+    EFFECTIVE_BACKEND_PORT=""
+    EFFECTIVE_BACKEND_ADDR=""
+
+    if ! startup_settings_output="$(cd "$BACKEND_DIR" && PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1 "$BACKEND_BINARY_PATH")"; then
+        echo "Error: failed to resolve effective backend startup settings from the bootstrap startup contract."
+        echo "Check PRISM_CONFIG_PATH, PRISM_CONFIG_MASTER_KEY, and any one-time seed inputs required to create the bootstrap file."
+        exit 1
+    fi
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" || "$line" != *=* ]] && continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            DATABASE_URL)
+                EFFECTIVE_DATABASE_URL="$value"
+                ;;
+            HOST)
+                EFFECTIVE_BACKEND_HOST="$value"
+                ;;
+            PORT)
+                EFFECTIVE_BACKEND_PORT="$value"
+                ;;
+            ADDR)
+                EFFECTIVE_BACKEND_ADDR="$value"
+                ;;
+        esac
+    done <<< "$startup_settings_output"
+
+    if [[ -z "$EFFECTIVE_DATABASE_URL" || -z "$EFFECTIVE_BACKEND_HOST" || -z "$EFFECTIVE_BACKEND_PORT" || -z "$EFFECTIVE_BACKEND_ADDR" ]]; then
+        echo "Error: backend startup settings helper returned incomplete output."
+        exit 1
+    fi
+}
+
+is_launcher_compatible_backend_host() {
+    local host="$1"
+    case "$host" in
+        0.0.0.0|127.0.0.1|localhost|::|[::])
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+ensure_launcher_backend_binding_matches_expectations() {
+    if [[ "$EFFECTIVE_BACKEND_PORT" != "$BACKEND_PORT" ]]; then
+        echo "Error: launcher mode expects backend port $BACKEND_PORT but bootstrap config resolves port $EFFECTIVE_BACKEND_PORT."
+        echo "Update the existing bootstrap config or unset PRISM_CONFIG_PATH so ./start.sh can seed a launcher-local bootstrap file."
+        exit 1
+    fi
+
+    if ! is_launcher_compatible_backend_host "$EFFECTIVE_BACKEND_HOST"; then
+        echo "Error: launcher mode expects a local backend bind host, but bootstrap config resolves host '$EFFECTIVE_BACKEND_HOST'."
+        echo "Update the existing bootstrap config or unset PRISM_CONFIG_PATH so ./start.sh can seed a launcher-local bootstrap file."
+        exit 1
+    fi
+}
+
 usage() {
     echo "Usage: $0 [headless|full]"
     echo ""
@@ -151,10 +266,6 @@ case "$MODE" in
         exit 1
         ;;
 esac
-
-read_backend_database_url() {
-    echo "$DATABASE_URL"
-}
 
 build_backend_binary() {
     (cd "$BACKEND_DIR" && "$BACKEND_GO_BIN" build -o "$BACKEND_BINARY_PATH" ./cmd/prism-backend)
@@ -243,9 +354,9 @@ ensure_backend_database_ready() {
     local db_port
     local attempts=30
 
-    database_url="$(read_backend_database_url)"
-    if [ "$DATABASE_URL_FROM_ENV" = false ]; then
-        echo "DATABASE_URL is not set; using default: $database_url"
+    database_url="$EFFECTIVE_DATABASE_URL"
+    if [ "$DATABASE_URL_FROM_ENV" = false ] && [ ! -f "$PRISM_CONFIG_PATH" ]; then
+        echo "DATABASE_URL is not set; using default seed input: $DATABASE_URL"
     fi
     echo "Backend database URL: $database_url"
 
@@ -293,7 +404,7 @@ ensure_backend_database_ready() {
     done
 
     echo "PostgreSQL is not reachable at $db_host:$db_port."
-    echo "Start your database first, then retry (example: cd backend && docker compose up -d postgres)."
+    echo "Start the database Prism is configured to use, then retry."
     exit 1
 }
 
@@ -336,7 +447,7 @@ kill_running_on_port() {
 kill_existing_instances() {
     stop_database_container
     kill_running_on_port "$DATABASE_PORT" "database"
-    kill_running_on_port "$BACKEND_PORT" "backend"
+    kill_running_on_port "$EFFECTIVE_BACKEND_PORT" "backend"
     kill_running_on_port "$FRONTEND_PORT" "frontend"
 }
 
@@ -354,7 +465,9 @@ cleanup() {
     [[ -n "${FRONTEND_PID:-}" ]] && kill "$FRONTEND_PID" 2>/dev/null
     wait 2>/dev/null || true
     stop_database_container
-    kill_running_on_port "$BACKEND_PORT" "backend"
+    if [[ -n "$EFFECTIVE_BACKEND_PORT" ]]; then
+        kill_running_on_port "$EFFECTIVE_BACKEND_PORT" "backend"
+    fi
     kill_running_on_port "$FRONTEND_PORT" "frontend"
     kill_running_on_port "$DATABASE_PORT" "database"
     [[ -n "${LAUNCHER_TMP_DIR:-}" ]] && rm -rf "$LAUNCHER_TMP_DIR"
@@ -363,8 +476,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 configure_local_frontend_backend_integration
+configure_launcher_bootstrap_seed_inputs
+configure_bootstrap_startup_contract
 
-kill_existing_instances
+if [ "$BOOTSTRAP_CONFIG_PATH_FROM_ENV" = false ]; then
+    echo "PRISM_CONFIG_PATH is not set; using launcher-local bootstrap config: $PRISM_CONFIG_PATH"
+fi
 
 # --- Backend setup ---
 if ! command -v "$BACKEND_GO_BIN" >/dev/null 2>&1; then
@@ -377,10 +494,12 @@ if [ "$START_FRONTEND" = true ] && ! command -v "$FRONTEND_PNPM_BIN" >/dev/null 
     exit 1
 fi
 
-start_database_container
-
 echo "Building backend with Go..."
 build_backend_binary
+resolve_effective_backend_startup_settings
+ensure_launcher_backend_binding_matches_expectations
+kill_existing_instances
+start_database_container
 wait_for_database_container
 ensure_backend_database_ready
 
@@ -393,8 +512,8 @@ if [ "$START_FRONTEND" = true ]; then
 fi
 
 # --- Start backend ---
-echo "Starting backend on port $BACKEND_PORT..."
-(cd "$BACKEND_DIR" && PORT="$BACKEND_PORT" "$BACKEND_BINARY_PATH") &
+echo "Starting backend on port $EFFECTIVE_BACKEND_PORT..."
+(cd "$BACKEND_DIR" && "$BACKEND_BINARY_PATH") &
 BACKEND_PID=$!
 
 if [ "$START_FRONTEND" = true ]; then
@@ -402,7 +521,7 @@ if [ "$START_FRONTEND" = true ]; then
     # Frontend keeps browser traffic same-origin and proxies backend routes locally.
     echo "Starting frontend on port $FRONTEND_PORT..."
     (cd "$FRONTEND_DIR" && env -u VITE_API_BASE PRISM_VITE_PROXY_ENABLED=1 \
-        PRISM_VITE_PROXY_TARGET="http://localhost:$BACKEND_PORT" \
+        PRISM_VITE_PROXY_TARGET="http://localhost:$EFFECTIVE_BACKEND_PORT" \
         "$FRONTEND_PNPM_BIN" exec vite --port "$FRONTEND_PORT" --host) &
     FRONTEND_PID=$!
 fi
@@ -411,13 +530,14 @@ echo ""
 echo "========================================="
 echo "  LLM Proxy Gateway"
 echo "  Mode:     $MODE"
-echo "  Backend:  http://localhost:$BACKEND_PORT"
+echo "  Backend:  http://localhost:$EFFECTIVE_BACKEND_PORT"
+echo "  Config:   $PRISM_CONFIG_PATH"
 if [ "$START_FRONTEND" = true ]; then
     echo "  Frontend: http://localhost:$FRONTEND_PORT"
 else
     echo "  Frontend: disabled (headless mode)"
 fi
-echo "  API Docs: http://localhost:$BACKEND_PORT/docs"
+echo "  API Docs: http://localhost:$EFFECTIVE_BACKEND_PORT/docs"
 echo "========================================="
 echo ""
 
