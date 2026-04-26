@@ -29,7 +29,9 @@ Recommended local entrypoints:
 ../start.sh full
 ```
 
-When launched through `../start.sh`, the backend listens on `http://localhost:18000` and serves:
+When launched through `../start.sh`, the backend listens on `http://localhost:18000`.
+
+If the selected bootstrap config keeps docs enabled, it also serves:
 - Swagger UI: `http://localhost:18000/docs`
 - ReDoc: `http://localhost:18000/redoc`
 - OpenAPI JSON: `http://localhost:18000/openapi.json`
@@ -51,8 +53,8 @@ go build ./cmd/prism-backend
 - When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is no longer the supported source of truth.
 - When the bootstrap file is missing, Prism can seed it once from legacy startup env inputs such as `DATABASE_URL`, `HOST`, `PORT`, `CORS_ALLOWED_ORIGINS`, auth settings, and `CONFIG_BUNDLE_ENCRYPTION_KEY`.
 - Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport; the bootstrap JSON owns startup inputs only.
-- `../start.sh` loads the root `../.env` first, then falls back to `backend/.env` and `frontend/.env` for still-unset keys without overwriting exported values; it provisions local PostgreSQL and when `PRISM_CONFIG_PATH` is unset creates a launcher-local plaintext bootstrap file so local runs keep backend `18000` and the expected frontend CORS origins.
-- Before booting, `../start.sh` resolves the effective backend bind settings through the bootstrap-managed startup path; if an existing bootstrap file resolves to a different backend port or a non-local bind host, the launcher fails early instead of starting against mismatched assumptions.
+- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000`, the local PostgreSQL DSN, and the expected frontend CORS origins.
+- Before booting, `../start.sh` verifies that the selected bootstrap file still resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 
 ## Database and docs artifacts
