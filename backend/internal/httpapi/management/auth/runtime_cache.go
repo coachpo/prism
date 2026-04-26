@@ -56,10 +56,14 @@ func (c *RuntimeCache) PublishedGeneration() uint64 {
 }
 
 func (c *RuntimeCache) Invalidate() {
+	c.ScheduleRefresh(runtimeapi.RefreshRequest{Auth: true})
+}
+
+func (c *RuntimeCache) ScheduleRefresh(request runtimeapi.RefreshRequest) {
 	if c == nil || c.shared == nil {
 		return
 	}
-	c.shared.ScheduleRefresh(runtimeapi.RefreshRequest{Auth: true})
+	c.shared.ScheduleRefresh(request)
 }
 
 func (c *RuntimeCache) LoadRuntimeAuthSettings() (RuntimeAuthSettingsSnapshot, error) {

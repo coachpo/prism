@@ -18,7 +18,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
-	"github.com/coachpo/prism/backend/internal/endpointdomain"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
@@ -89,7 +88,6 @@ type runtimeEndpoint struct {
 	ID      int
 	Name    *string
 	BaseURL string
-	APIKey  string
 }
 
 type runtimePricingTemplateSnapshot struct {
@@ -115,6 +113,13 @@ type runtimeReportCurrencySnapshot struct {
 	Symbol string
 }
 
+type runtimeConnectionUpstreamAuthSnapshot struct {
+	AuthHeader            string
+	AuthValue             string
+	ExtraHeaders          map[string]string
+	ControlledHeaderNames map[string]struct{}
+}
+
 type runtimeConnection struct {
 	ID                      int
 	ProfileID               int
@@ -126,10 +131,12 @@ type runtimeConnection struct {
 	MaxInFlightStream       *int
 	Name                    *string
 	AuthType                *string
+	EncryptedEndpointAPIKey string
 	CustomHeaders           map[string]any
 	PricingTemplateID       *int
 	PricingTemplateSnapshot *runtimePricingTemplateSnapshot
 	EndpointFXSnapshot      *runtimeEndpointFXSnapshot
+	UpstreamAuth            *runtimeConnectionUpstreamAuthSnapshot
 	Endpoint                runtimeEndpoint
 }
 
@@ -159,6 +166,10 @@ type requestPlan struct {
 	ClientHeaders          map[string]string
 	FailoverStatusCodes    []int
 	Strategy               loadbalance.RuntimeStrategy
+}
+
+func (plan requestPlan) requiresReplayableRequestBody() bool {
+	return len(plan.Connections) > 1
 }
 
 type runtimeRequestBodySource struct {
@@ -262,20 +273,23 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		}
 	}
 
-	activeProfile, err := s.loadActiveProfileWithCache(ctx)
+	if s.cache == nil {
+		return requestPlan{}, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable)
+	}
+	publishedSnapshot, err := s.cache.requirePublishedSnapshot()
 	if err != nil {
 		return requestPlan{}, runtimeSnapshotDomainError(err)
 	}
-	snapshot, err := s.loadPlanningSnapshotWithCache(ctx, activeProfile.ID)
-	if err != nil {
-		return requestPlan{}, runtimeSnapshotDomainError(err)
+	activeProfile := publishedSnapshot.ActiveProfile
+	snapshot, ok := publishedSnapshot.PlanningByProfileID[activeProfile.ID]
+	if !ok || snapshot == nil {
+		return requestPlan{}, runtimeSnapshotDomainError(fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID))
 	}
 
 	requestedModel, found := snapshot.ModelsByID[requestedModelID]
 	if !found {
 		return requestPlan{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", requestedModelID)}
 	}
-	requestedModel = cloneRuntimeModelRecord(requestedModel)
 
 	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(activeProfile.ID, snapshot, requestedModel, s.nowUTC())
 	if err != nil {
@@ -304,9 +318,6 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		upstreamBody = rewriteModelInBody(rawBody, targetModel.ModelID)
 	}
 
-	blocklistRules := cloneHeaderBlocklistRules(snapshot.BlocklistRules)
-	reportCurrencySnapshot := cloneReportCurrencySnapshot(snapshot.ReportCurrency)
-
 	return requestPlan{
 		RequestedModelID:       requestedModelID,
 		ResolvedTargetModelID:  stringPointerIfNotEmpty(targetModel.ModelID),
@@ -317,14 +328,14 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		ProfileID:              activeProfile.ID,
 		APIFamily:              targetModel.APIFamily,
 		AuditEnabledAtRequest:  targetModel.AuditEnabled,
-		ReportCurrencySnapshot: reportCurrencySnapshot,
+		ReportCurrencySnapshot: snapshot.ReportCurrency,
 		EffectiveRequestPath:   effectiveRequestPath,
 		RawRequestBody:         rawBody,
 		UpstreamBody:           upstreamBody,
 		IsStreamingRequest:     requestWantsStream(rawBody),
 		Connections:            orderedConnections,
 		RuntimeStates:          runtimeStates,
-		BlocklistRules:         blocklistRules,
+		BlocklistRules:         snapshot.BlocklistRules,
 		ClientHeaders:          flattenHeaders(request.Header),
 		FailoverStatusCodes:    strategy.FailoverStatusCodes(),
 		Strategy:               strategy,
@@ -711,7 +722,7 @@ func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, conne
 	}
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.InsertRuntimeRecoveryEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, completedAt)
 	})
 	if err != nil {
@@ -724,7 +735,7 @@ func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileI
 	transition := s.runtimeState.RecordRuntimeFailoverHTTPFailure(profileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.InsertRuntimeFailureEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, "transient_http", completedAt)
 	})
 	if err != nil {
@@ -737,7 +748,7 @@ func (s *Service) recordRuntimeTransportFailure(ctx context.Context, profileID i
 	transition := s.runtimeState.RecordRuntimeTransportFailure(profileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
 	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
 	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.pool, "runtime", func(tx pgx.Tx) (bool, error) {
+	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
 		return true, loadbalance.InsertRuntimeFailureEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, "connect_error", completedAt)
 	})
 	if err != nil {
@@ -776,18 +787,12 @@ func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstream
 }
 
 func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily string, clientHeaders map[string]string, rules []headerBlocklistRule) (map[string]string, error) {
-	config, err := resolveAuthConfig(connection.AuthType, apiFamily)
-	if err != nil {
-		return nil, err
+	_ = apiFamily
+	compiledAuth := connection.UpstreamAuth
+	if compiledAuth == nil {
+		return nil, fmt.Errorf("runtime upstream auth snapshot unavailable for connection %d", connection.ID)
 	}
-	apiKey, err := endpointdomain.DecryptSecret(connection.Endpoint.APIKey, s.secretEncryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("resolve endpoint api key: %w", err)
-	}
-	proxyControlledHeaders := map[string]struct{}{strings.ToLower(config.AuthHeader): {}}
-	for key := range config.ExtraHeaders {
-		proxyControlledHeaders[strings.ToLower(key)] = struct{}{}
-	}
+	proxyControlledHeaders := compiledAuth.ControlledHeaderNames
 
 	headers := map[string]string{}
 	for key, value := range clientHeaders {
@@ -811,8 +816,8 @@ func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily s
 		headers[key] = normalizedValue
 	}
 	headers = sanitizeHeaders(headers, rules)
-	headers[config.AuthHeader] = config.AuthPrefix + apiKey
-	for key, value := range config.ExtraHeaders {
+	headers[compiledAuth.AuthHeader] = compiledAuth.AuthValue
+	for key, value := range compiledAuth.ExtraHeaders {
 		headers[key] = value
 	}
 	for key, rawValue := range connection.CustomHeaders {

@@ -44,7 +44,7 @@ type TelemetryOutboxHooks struct {
 }
 
 type runtimeTelemetryOutbox struct {
-	pool             *pgxpool.Pool
+	telemetryPool    *pgxpool.Pool
 	now              func() time.Time
 	dashboardUpdates DashboardUpdatePublisher
 	pollInterval     time.Duration
@@ -82,11 +82,11 @@ func (state runtimeTelemetryDrainState) drained() bool {
 	return state.PendingRows == 0 && state.Inflight == 0
 }
 
-func newRuntimeTelemetryOutbox(pool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
+func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
 	normalized := normalizeTelemetryOutboxOptions(options)
 	ctx, cancel := context.WithCancel(context.Background())
 	outbox := &runtimeTelemetryOutbox{
-		pool:             pool,
+		telemetryPool:    telemetryPool,
 		now:              now,
 		dashboardUpdates: dashboardUpdates,
 		pollInterval:     normalized.PollInterval,
@@ -110,7 +110,7 @@ func newRuntimeTelemetryOutbox(pool *pgxpool.Pool, now func() time.Time, dashboa
 }
 
 func (o *runtimeTelemetryOutbox) Enqueue(ctx context.Context, envelope runtimeTelemetryEnvelope) error {
-	if o == nil || o.pool == nil {
+	if o == nil || o.telemetryPool == nil {
 		return fmt.Errorf("runtime telemetry outbox unavailable")
 	}
 	if err := o.enqueueError(); err != nil {
@@ -126,7 +126,7 @@ func (o *runtimeTelemetryOutbox) Enqueue(ctx context.Context, envelope runtimeTe
 	if closed {
 		return fmt.Errorf("runtime telemetry outbox closed")
 	}
-	if _, err := o.pool.Exec(
+	if _, err := o.telemetryPool.Exec(
 		ctx,
 		`INSERT INTO runtime_telemetry_outbox (profile_id, ingress_request_id, payload, created_at) VALUES ($1, $2, $3, $4)`,
 		envelope.UsageEvent.ProfileID,
@@ -222,7 +222,7 @@ func (o *runtimeTelemetryOutbox) worker() {
 
 func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) {
 	o.beginInflight()
-	result, err := pgxutil.InTxValue(ctx, o.pool, "runtime", func(tx pgx.Tx) (runtimeTelemetryMaterializationResult, error) {
+	result, err := pgxutil.InTxValue(ctx, o.telemetryPool, "runtime_telemetry", func(tx pgx.Tx) (runtimeTelemetryMaterializationResult, error) {
 		row, found, err := loadNextRuntimeTelemetryOutboxRow(ctx, tx)
 		if err != nil {
 			return runtimeTelemetryMaterializationResult{}, err
@@ -268,7 +268,7 @@ func (o *runtimeTelemetryOutbox) drainState() (runtimeTelemetryDrainState, error
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 	var pendingRows int
-	if err := o.pool.QueryRow(ctx, `SELECT COUNT(*) FROM runtime_telemetry_outbox`).Scan(&pendingRows); err != nil {
+	if err := o.telemetryPool.QueryRow(ctx, `SELECT COUNT(*) FROM runtime_telemetry_outbox`).Scan(&pendingRows); err != nil {
 		return runtimeTelemetryDrainState{}, err
 	}
 	o.mu.Lock()

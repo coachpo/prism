@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
@@ -274,14 +275,21 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		}
 		registerShutdown(managementPool.Close)
 
-		runtimePool, poolErr := newDatabasePool(settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime")
+		runtimeExecutionPool, poolErr := newDatabasePool(settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime execution")
 		if poolErr != nil {
 			closeAll()
 			return nil, poolErr
 		}
-		registerShutdown(runtimePool.Close)
+		registerShutdown(runtimeExecutionPool.Close)
 
-		runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool})
+		runtimeTelemetryPool, poolErr := newDatabasePool(settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime telemetry")
+		if poolErr != nil {
+			closeAll()
+			return nil, poolErr
+		}
+		registerShutdown(runtimeTelemetryPool.Close)
+
+		runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 		runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
 		runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimePlanningCache)
 		if err := runtimePlanningCache.Bootstrap(context.Background()); err != nil {
@@ -296,12 +304,14 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		}
 		registerShutdown(managementAuthService.Close)
 
-		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: runtimePool, RuntimeCache: runtimeAuthCache})
+		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: runtimeExecutionPool, RuntimeCache: runtimeAuthCache})
 		if authErr != nil {
 			closeAll()
 			return nil, authErr
 		}
 		registerShutdown(runtimeAuthService.Close)
+
+		dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
 
 		profileService, profileErr := managementprofiles.NewService(settings, managementprofiles.Options{Pool: managementPool})
 		if profileErr != nil {
@@ -359,7 +369,7 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		}
 		registerShutdown(auditService.Close)
 
-		statsService, statsErr := managementstats.NewService(settings, managementstats.Options{Pool: managementPool})
+		statsService, statsErr := managementstats.NewService(settings, managementstats.Options{Pool: managementPool, DashboardSnapshots: dashboardSnapshots})
 		if statsErr != nil {
 			closeAll()
 			return nil, statsErr
@@ -383,7 +393,7 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		// Realtime stays on the management pool in Phase 2.2 because it is mounted under
 		// /api and currently serves dashboard management traffic rather than the protected
 		// runtime hot path.
-		realtimeService, realtimeErr := realtimeapi.NewService(settings, realtimeapi.Options{Pool: managementPool, AuthService: managementAuthService})
+		realtimeService, realtimeErr := realtimeapi.NewService(settings, realtimeapi.Options{Pool: managementPool, AuthService: managementAuthService, DashboardSnapshots: dashboardSnapshots})
 		if realtimeErr != nil {
 			closeAll()
 			return nil, realtimeErr
@@ -394,7 +404,7 @@ func NewServer(settings config.Settings) (*http.Server, error) {
 		realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
 		registerShutdown(asyncDashboardPublisher.Close)
 
-		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{Pool: runtimePool, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState})
+		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState})
 		if runtimeErr != nil {
 			closeAll()
 			return nil, runtimeErr

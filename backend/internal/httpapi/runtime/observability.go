@@ -245,6 +245,9 @@ func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult
 
 func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelope {
 	requestCompletedAt := s.nowUTC()
+	if responseCapture.CompletedAt != nil && !responseCapture.CompletedAt.IsZero() {
+		requestCompletedAt = responseCapture.CompletedAt.UTC()
+	}
 	responseTimeMS := durationMilliseconds(requestCompletedAt.Sub(startedAt))
 	usage := responseCapture.extractedUsage()
 	ttftMS, completionDurationMS := runtimeResponseTiming(startedAt, requestCompletedAt, plan.IsStreamingRequest, responseCapture)
@@ -431,14 +434,18 @@ func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream 
 		ttft := durationMilliseconds(capture.FirstMeaningfulPayloadAt.Sub(startedAt))
 		ttftMS = &ttft
 	}
+	finishedAt := completedAt
+	if capture.CompletedAt != nil && !capture.CompletedAt.IsZero() {
+		finishedAt = capture.CompletedAt.UTC()
+	}
 	if !isStream {
-		completionDuration := durationMilliseconds(completedAt.Sub(startedAt))
+		completionDuration := durationMilliseconds(finishedAt.Sub(startedAt))
 		return ttftMS, &completionDuration
 	}
 	if capture.CompletedAt == nil {
 		return ttftMS, nil
 	}
-	completionDuration := durationMilliseconds(capture.CompletedAt.Sub(startedAt))
+	completionDuration := durationMilliseconds(finishedAt.Sub(startedAt))
 	return ttftMS, &completionDuration
 }
 

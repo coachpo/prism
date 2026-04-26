@@ -24,7 +24,8 @@ type DashboardUpdatePublisher interface {
 }
 
 type Options struct {
-	Pool             *pgxpool.Pool
+	ExecutionPool    *pgxpool.Pool
+	TelemetryPool    *pgxpool.Pool
 	HTTPClient       *http.Client
 	Now              func() time.Time
 	DashboardUpdates DashboardUpdatePublisher
@@ -34,8 +35,10 @@ type Options struct {
 }
 
 type Service struct {
-	pool                *pgxpool.Pool
-	ownsPool            bool
+	executionPool       *pgxpool.Pool
+	ownsExecutionPool   bool
+	telemetryPool       *pgxpool.Pool
+	ownsTelemetryPool   bool
 	httpClient          *http.Client
 	ownsHTTPClient      bool
 	now                 func() time.Time
@@ -57,18 +60,9 @@ func (err *domainError) Error() string {
 }
 
 func NewService(settings config.Settings, options Options) (*Service, error) {
-	pool := options.Pool
-	ownsPool := false
-	if pool == nil {
-		if strings.TrimSpace(settings.DatabaseURL) == "" {
-			return nil, fmt.Errorf("database URL is required")
-		}
-		createdPool, err := pgxpool.New(context.Background(), settings.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("create runtime database pool: %w", err)
-		}
-		pool = createdPool
-		ownsPool = true
+	executionPool, ownsExecutionPool, telemetryPool, ownsTelemetryPool, err := resolveRuntimeServicePools(settings, options)
+	if err != nil {
+		return nil, err
 	}
 	client := options.HTTPClient
 	ownsHTTPClient := false
@@ -87,8 +81,10 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	}
 
 	service := &Service{
-		pool:                pool,
-		ownsPool:            ownsPool,
+		executionPool:       executionPool,
+		ownsExecutionPool:   ownsExecutionPool,
+		telemetryPool:       telemetryPool,
+		ownsTelemetryPool:   ownsTelemetryPool,
 		httpClient:          client,
 		ownsHTTPClient:      ownsHTTPClient,
 		now:                 now,
@@ -98,7 +94,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		cache:               options.Cache,
 		runtimeState:        runtimeState,
 	}
-	service.telemetryOutbox = newRuntimeTelemetryOutbox(pool, service.nowUTC, service.dashboardUpdates, options.TelemetryOutbox)
+	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, options.TelemetryOutbox)
 	return service, nil
 }
 
@@ -134,8 +130,11 @@ func (s *Service) Close() {
 			closer.CloseIdleConnections()
 		}
 	}
-	if s.ownsPool && s.pool != nil {
-		s.pool.Close()
+	if s.ownsTelemetryPool && s.telemetryPool != nil {
+		s.telemetryPool.Close()
+	}
+	if s.ownsExecutionPool && s.executionPool != nil {
+		s.executionPool.Close()
 	}
 }
 
@@ -154,31 +153,56 @@ func (s *Service) RuntimeState() *loadbalancedomain.LocalRuntimeStateStore {
 	return s.runtimeState
 }
 
-func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
-	switch s.bufferingMode {
-	case config.RuntimeBufferingModeStreaming:
-		s.handleStreamingProxy(w, r)
-	default:
-		s.handleBufferedProxy(w, r)
+func resolveRuntimeServicePools(settings config.Settings, options Options) (*pgxpool.Pool, bool, *pgxpool.Pool, bool, error) {
+	executionPool := options.ExecutionPool
+	telemetryPool := options.TelemetryPool
+	if executionPool != nil && telemetryPool != nil && executionPool == telemetryPool {
+		return nil, false, nil, false, fmt.Errorf("runtime execution and telemetry pools must be distinct")
 	}
+	if strings.TrimSpace(settings.DatabaseURL) == "" && (executionPool == nil || telemetryPool == nil) {
+		return nil, false, nil, false, fmt.Errorf("database URL is required")
+	}
+	budget := settings.RuntimeDatabaseBudget()
+	ownsExecutionPool := false
+	if executionPool == nil {
+		createdExecutionPool, err := newRuntimeServicePool(settings.DatabaseURL, budget, "execution")
+		if err != nil {
+			return nil, false, nil, false, err
+		}
+		executionPool = createdExecutionPool
+		ownsExecutionPool = true
+	}
+	ownsTelemetryPool := false
+	if telemetryPool == nil {
+		createdTelemetryPool, err := newRuntimeServicePool(settings.DatabaseURL, budget, "telemetry")
+		if err != nil {
+			if ownsExecutionPool && executionPool != nil {
+				executionPool.Close()
+			}
+			return nil, false, nil, false, err
+		}
+		telemetryPool = createdTelemetryPool
+		ownsTelemetryPool = true
+	}
+	return executionPool, ownsExecutionPool, telemetryPool, ownsTelemetryPool, nil
 }
 
-func (s *Service) handleBufferedProxy(w http.ResponseWriter, r *http.Request) {
-	if r.Body != nil {
-		defer func() { _ = r.Body.Close() }()
-	}
-	rawBody, err := readBufferedRequestBody(r.Body)
+func newRuntimeServicePool(databaseURL string, budget config.DatabasePoolBudget, lane string) (*pgxpool.Pool, error) {
+	parsedConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
-		return
+		return nil, fmt.Errorf("parse runtime %s database pool config: %w", lane, err)
 	}
-	plan, err := s.buildProxyRequestPlan(r, rawBody)
+	parsedConfig.MaxConns = budget.MaxConns
+	parsedConfig.MinIdleConns = budget.MinIdleConns
+	pool, err := pgxpool.NewWithConfig(context.Background(), parsedConfig)
 	if err != nil {
-		writeDomainError(w, err)
-		return
+		return nil, fmt.Errorf("create runtime %s database pool: %w", lane, err)
 	}
+	return pool, nil
+}
 
-	s.handlePlannedProxy(w, r, plan, newBufferedRuntimeRequestBodySource(plan.UpstreamBody))
+func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
+	s.handleStreamingProxy(w, r)
 }
 
 func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
@@ -241,9 +265,13 @@ func canStreamIncomingRequestBody(plan requestPlan, r *http.Request) bool {
 	if !strings.EqualFold(plan.APIFamily, "gemini") {
 		return false
 	}
-	return len(plan.Connections) == 1
+	return !plan.requiresReplayableRequestBody()
 }
 
+// Streaming-first keeps downstream response passthrough as the default while
+// buffering request bodies only for the cases that still need replayable or
+// rewritable bytes: body-based model extraction, model rewrite safety, or any
+// multi-connection plan that may fail over or hedge.
 func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, plan requestPlan, bodySource *runtimeRequestBodySource) {
 	startedAt := s.nowUTC()
 	execution, err := s.executeRequest(r.Context(), r.Method, plan, r.URL.RawQuery, bodySource)
@@ -256,32 +284,84 @@ func (s *Service) handlePlannedProxy(w http.ResponseWriter, r *http.Request, pla
 }
 
 func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, plan requestPlan, execution executionResult, startedAt time.Time) {
-	copyResponseHeaders(w.Header(), execution.Response.Header)
-	w.WriteHeader(execution.Response.StatusCode)
+	proxyWriter := newRuntimeDeferredCommitWriter(w)
+	copyResponseHeaders(proxyWriter.Header(), execution.Response.Header)
+	proxyWriter.WriteHeader(execution.Response.StatusCode)
 
-	responseCapture := runtimeResponseCapture{}
+	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	if strings.Contains(contentType, "text/event-stream") {
-		responseCapture, _ = proxyEventStreamAndCaptureCompletedResponse(w, execution.Response.Body, s.nowUTC)
+		responseCapture, _ = proxyEventStreamAndCaptureCompletedResponse(proxyWriter, execution.Response.Body, s.nowUTC)
+		proxyWriter.Commit()
 		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 		return
 	}
-	var err error
-	if s.bufferingMode == config.RuntimeBufferingModeStreaming {
-		responseCapture, err = proxyNonEventResponseAndCaptureUsage(w, execution.Response.Body, contentType, s.nowUTC)
-		if err != nil {
-			return
-		}
-	} else {
-		responseCapture.Body, err = io.ReadAll(execution.Response.Body)
-		if err != nil {
+	responseCapture, err := proxyNonEventResponseAndCaptureUsage(proxyWriter, execution.Response.Body, contentType, s.nowUTC)
+	if err != nil {
+		if !proxyWriter.Committed() {
 			writeError(w, http.StatusBadGateway, "Failed to read upstream response")
-			return
 		}
-		responseCapture.Usage = extractResponseUsage(responseCapture.Body)
-		_, _ = io.Copy(w, bytes.NewReader(responseCapture.Body))
+		return
 	}
+	proxyWriter.Commit()
 	s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+}
+
+// Downstream bytes become committed on the first header/body write. Once that
+// happens, the current attempt is definitive and the runtime must not pivot to
+// a retry or hedge winner because the client-visible response has already begun.
+type runtimeDeferredCommitWriter struct {
+	dst        http.ResponseWriter
+	header     http.Header
+	statusCode int
+	committed  bool
+}
+
+func newRuntimeDeferredCommitWriter(dst http.ResponseWriter) *runtimeDeferredCommitWriter {
+	return &runtimeDeferredCommitWriter{
+		dst:        dst,
+		header:     make(http.Header),
+		statusCode: http.StatusOK,
+	}
+}
+
+func (writer *runtimeDeferredCommitWriter) Header() http.Header {
+	if writer.committed {
+		return writer.dst.Header()
+	}
+	return writer.header
+}
+
+func (writer *runtimeDeferredCommitWriter) WriteHeader(statusCode int) {
+	if writer.committed {
+		return
+	}
+	writer.statusCode = statusCode
+}
+
+func (writer *runtimeDeferredCommitWriter) Write(payload []byte) (int, error) {
+	writer.Commit()
+	return writer.dst.Write(payload)
+}
+
+func (writer *runtimeDeferredCommitWriter) Flush() {
+	writer.Commit()
+	if flusher, ok := writer.dst.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (writer *runtimeDeferredCommitWriter) Commit() {
+	if writer.committed {
+		return
+	}
+	copyResponseHeaders(writer.dst.Header(), writer.header)
+	writer.dst.WriteHeader(writer.statusCode)
+	writer.committed = true
+}
+
+func (writer *runtimeDeferredCommitWriter) Committed() bool {
+	return writer.committed
 }
 
 type runtimeResponseCapture struct {

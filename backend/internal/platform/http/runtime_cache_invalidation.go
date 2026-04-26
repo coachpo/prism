@@ -123,20 +123,18 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 }
 
 func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) {
-	if a.auth && authService != nil {
-		authService.InvalidateRuntimeCache()
+	request := runtimeapi.RefreshRequest{
+		Auth:               a.auth,
+		ActiveProfile:      a.activeProfile,
+		PlanningAll:        a.planningAll,
+		PlanningProfileIDs: append([]int(nil), a.planningIDs...),
 	}
 	if planningCache != nil {
-		if a.activeProfile {
-			planningCache.InvalidateActiveProfile()
+		if request.Auth || request.ActiveProfile || request.PlanningAll || len(request.PlanningProfileIDs) > 0 {
+			planningCache.ScheduleRefresh(request)
 		}
-		if a.planningAll {
-			planningCache.InvalidateAllPlanning()
-		} else {
-			for _, profileID := range a.planningIDs {
-				planningCache.InvalidatePlanningProfile(profileID)
-			}
-		}
+	} else if a.auth && authService != nil {
+		authService.InvalidateRuntimeCache()
 	}
 	if runtimeState == nil {
 		return
