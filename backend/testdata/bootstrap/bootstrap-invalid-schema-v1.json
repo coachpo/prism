@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "revision": 1,
+    "createdAt": "2026-04-26T14:00:00Z",
+    "updatedAt": "2026-04-26T14:00:00Z"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 18000,
+    "docsEnabled": true
+  },
+  "database": {
+    "urlSecretRef": "database:primary:url",
+    "runtimePool": {
+      "maxConns": 4,
+      "minIdleConns": 1
+    },
+    "managementPool": {
+      "maxConns": 12,
+      "minIdleConns": 2
+    },
+    "managementAdmission": {
+      "m2MaxConcurrent": 6,
+      "m3MaxConcurrent": 2
+    }
+  },
+  "runtime": {
+    "bufferingMode": "streaming",
+    "transport": {
+      "maxIdleConns": 120,
+      "maxIdleConnsPerHost": 12,
+      "maxConnsPerHost": 24,
+      "idleConnTimeout": "45s",
+      "responseHeaderTimeout": "15s",
+      "tlsHandshakeTimeout": "10s",
+      "expectContinueTimeout": "1s"
+    }
+  },
+  "http": {
+    "corsAllowedOrigins": [
+      "http://localhost:15173",
+      "http://127.0.0.1:15173"
+    ]
+  },
+  "auth": {
+    "jwtSigningKeySecretRef": "auth:jwt:signing-key",
+    "accessTokenTtlSeconds": 900,
+    "refreshTokenTtlSeconds": 604800,
+    "resetCodeTtlSeconds": 600,
+    "accessCookieName": "prism_access_token",
+    "refreshCookieName": "prism_refresh_token"
+  },
+  "stateTransfer": {
+    "bundleEncryptionKeySecretRef": "state-transfer:bundle-encryption-key"
+  },
+  "secretPayload": {
+    "kind": "encrypted",
+    "cipher": "prism-bootstrap-v1",
+    "keyId": "sha256:f895a4c688293a957738892d0b4a62a8a7eab9122b1697ccacecd6957a3ac22c",
+    "entries": [
+      {
+        "ref": "database:primary:url",
+        "ciphertext": "enc:gAAAAABp7hxW4EOHM8v6DmWO9v9xABWeXRQ27szK4fz3fnNQIkZTVHBxF9FxcBkELZ0N4GQacjR8lOQEUngNG5ALXxwdZJhF16OIsiqHNNLyRCg_39jBkPPhHfLCr9OY46cKrnwO42tPbhiEd9DyTty5zVNPlFWBe-R8tO1NuanLvvAETKmWitE="
+      },
+      {
+        "ref": "auth:jwt:signing-key",
+        "ciphertext": "enc:gAAAAABp7hxWo0XSf66G7O6NZtz3llX1Avy0puJu0a_xOhjoKbfHos0CbocGjEQm0jHAjikLC1qhmvKHrXo3NgNBNqW4j4c4j85AfmnlmpZN4-lcjgUlxkI="
+      },
+      {
+        "ref": "state-transfer:bundle-encryption-key",
+        "ciphertext": "enc:gAAAAABp7hxWOSNHxDJaq-iEc73wv-tyu29eAazfs39MLAmxgubWLoy1Xldl_fkaWgYE7bgnyijt4phooGFxQBTK-DJ5kP9Gjw4FpBAhbu99Cc__mUIcst8="
+      }
+    ]
+  }
+}
