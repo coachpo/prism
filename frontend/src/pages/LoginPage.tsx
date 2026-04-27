@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useTheme } from "next-themes";
-import { Fingerprint } from "lucide-react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -15,7 +14,6 @@ import { TopographyBackground } from "@/components/ui/topography";
 import { useAuth } from "@/context/useAuth";
 import { useLocale } from "@/i18n/useLocale";
 import type { LoginSessionDuration } from "@/lib/types";
-import { authenticateWithPasskey, isWebAuthnSupported } from "@/lib/webauthn";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -27,7 +25,6 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [sessionDuration, setSessionDuration] = useState<LoginSessionDuration>("session");
   const [submitting, setSubmitting] = useState(false);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
   if (!loading && !authEnabled) {
     return <Navigate to="/dashboard" replace />;
@@ -60,36 +57,6 @@ export function LoginPage() {
       toast.error(error instanceof Error ? error.message : messages.auth.loginFailed);
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handlePasskeyLogin = async () => {
-    if (!isWebAuthnSupported()) {
-      toast.error(messages.auth.browserNoPasskeys);
-      return;
-    }
-
-    setPasskeyLoading(true);
-    try {
-      const fromLocation = (location.state as {
-        from?: { pathname?: string; search?: string; hash?: string };
-      } | null)?.from;
-      const nextPath = fromLocation
-        ? `${fromLocation.pathname ?? ""}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
-        : null;
-      const result = await authenticateWithPasskey(username.trim() || undefined);
-
-      if (result.success && result.authenticated) {
-        window.location.assign(nextPath || "/dashboard");
-      } else {
-        toast.error(messages.auth.passkeyAuthenticationFailed);
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : messages.auth.passkeyAuthenticationFailed
-      );
-    } finally {
-      setPasskeyLoading(false);
     }
   };
 
@@ -196,34 +163,12 @@ export function LoginPage() {
                     <Button
                       type="submit"
                       className="min-w-28"
-                      disabled={submitting || loading || passkeyLoading}
+                      disabled={submitting || loading}
                     >
                       {submitting ? messages.auth.signingIn : messages.auth.signIn}
                     </Button>
                   </div>
                 </form>
-
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t border-border/70" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase tracking-[0.24em]">
-                    <span className="bg-card/90 px-3 text-muted-foreground backdrop-blur-sm">
-                      {messages.auth.orContinueWith}
-                    </span>
-                  </div>
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11 w-full justify-center gap-2 border-border/70 bg-background/70 hover:bg-background/90"
-                  onClick={handlePasskeyLogin}
-                  disabled={submitting || loading || passkeyLoading}
-                >
-                  <Fingerprint className="h-4 w-4" />
-                  {passkeyLoading ? messages.auth.authenticating : messages.auth.signInWithPasskey}
-                </Button>
               </CardContent>
             </Card>
           </div>
