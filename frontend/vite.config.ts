@@ -6,7 +6,13 @@ import react from "@vitejs/plugin-react"
 import { defineConfig, loadEnv, type ProxyOptions } from "vite"
 
 const APP_VERSION = resolveAppVersion()
-const HEALTH_RESPONSE = JSON.stringify({ status: "ok", version: APP_VERSION })
+const HEALTH_RESPONSE = JSON.stringify({
+  status: "ok",
+  version: APP_VERSION,
+  liveness: "ok",
+  readiness: "ready",
+  startup: "complete",
+})
 const GIT_REVISION = resolveGitRevision()
 const GIT_RUN_NUMBER = resolveGitRunNumber()
 
@@ -48,7 +54,7 @@ function resolveGitRunNumber() {
   return runNumberFromEnv || "local"
 }
 
-function createHealthMiddleware() {
+function createHealthMiddleware(enabled = true) {
   return (req: { method?: string; url?: string }, res: {
     statusCode: number
     setHeader: (name: string, value: string) => void
@@ -56,7 +62,7 @@ function createHealthMiddleware() {
   }, next: () => void) => {
     const pathname = req.url?.split("?", 1)[0]
 
-    if (req.method === "GET" && pathname === "/health") {
+    if (enabled && req.method === "GET" && pathname === "/health") {
       res.statusCode = 200
       res.setHeader("Content-Type", "application/json; charset=utf-8")
       res.end(HEALTH_RESPONSE)
@@ -79,6 +85,10 @@ function createLauncherProxyConfig(target: string): Record<string, string | Prox
       ws: true,
     },
     "/api": {
+      target,
+      changeOrigin: true,
+    },
+    "/health": {
       target,
       changeOrigin: true,
     },
@@ -112,7 +122,7 @@ export default defineConfig(({ mode }) => {
       {
         name: "health-endpoint",
         configureServer(server) {
-          server.middlewares.use(createHealthMiddleware())
+          server.middlewares.use(createHealthMiddleware(!launcherProxyEnabled))
         },
         configurePreviewServer(server) {
           server.middlewares.use(createHealthMiddleware())

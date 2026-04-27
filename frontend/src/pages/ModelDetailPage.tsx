@@ -1,5 +1,7 @@
 import { Navigate, useParams, useNavigate } from "react-router-dom";
+import { BackendHealthSummary } from "@/components/BackendHealthSummary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { useModelDetailData } from "./model-detail/useModelDetailData";
 import { useModelDetailPageShell } from "./model-detail/useModelDetailPageShell";
 import { ModelDetailHeader } from "./model-detail/ModelDetailHeader";
@@ -12,6 +14,7 @@ import { getModelDetailPath } from "./model-detail/modelDetailMetricsAndPaths";
 export function ModelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const backendHealth = useBackendHealth();
   const { activeTab, navigateBackToModels, navigateToRequestLogs, setActiveTab } =
     useModelDetailPageShell(navigate);
 
@@ -93,6 +96,12 @@ export function ModelDetailPage() {
         model={model}
         onBack={navigateBackToModels}
         onEditModel={() => setIsEditModelDialogOpen(true)}
+      />
+
+      <BackendHealthSummary
+        error={backendHealth.error}
+        health={backendHealth.health}
+        loading={backendHealth.loading}
       />
 
       <OverviewCards

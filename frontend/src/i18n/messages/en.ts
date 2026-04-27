@@ -130,6 +130,15 @@ export interface Messages {
     topSpendingModelsDescription: string;
     viewFullReport: string;
   };
+  healthSummary: {
+    description: string;
+    liveness: string;
+    readiness: string;
+    startup: string;
+    status: string;
+    title: string;
+    version: string;
+  };
   locale: {
     changeLanguage: string;
     label: string;
@@ -516,10 +525,13 @@ export interface Messages {
   settingsAuditUserAgentRules: {
     addRule: string;
     customRules: string;
+    customRulesExplanation: string;
     description: string;
     loadingRules: string;
     noCustomRules: string;
     noSystemRules: string;
+    precedenceExplanation: string;
+    systemRulesExplanation: string;
     systemRulesLocked: string;
   };
   settingsRetentionDeletion: {
@@ -1748,6 +1760,15 @@ export const enMessages: Messages = {
     topSpendingModelsDescription: "Highest request-based spend in the last 30 days",
     viewFullReport: "View Full Report",
   },
+  healthSummary: {
+    description: "Instance-level backend readiness from /health. This summary is not profile-scoped.",
+    liveness: "Liveness",
+    readiness: "Readiness",
+    startup: "Startup",
+    status: "Status",
+    title: "Backend health",
+    version: "Version",
+  },
   locale: {
     changeLanguage: "Change language",
     label: "Language",
@@ -2161,11 +2182,17 @@ export const enMessages: Messages = {
   settingsAuditUserAgentRules: {
     addRule: "Add Rule",
     customRules: "Custom rules",
+    customRulesExplanation:
+      "Editable rules for the selected profile. Add, edit, delete, or disable them to refine client labels in request logs.",
     description:
       "Use regex rules to classify request-log clients from caller and upstream User-Agent values.",
     loadingRules: "Loading rules...",
     noCustomRules: "No custom rules. Add one to classify request-log clients from User-Agent values.",
     noSystemRules: "No system rules found.",
+    precedenceExplanation:
+      "Custom rules for this profile are checked before locked system rules, so the first match can add to or override the baseline classification.",
+    systemRulesExplanation:
+      "Locked baseline rules seeded by Prism. You can review them here, and only their enabled state can be changed.",
     systemRulesLocked: "System rules",
   },
   settingsRetentionDeletion: {

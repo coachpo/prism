@@ -44,6 +44,15 @@ function createCostingSettings() {
   };
 }
 
+function createRetentionSettings() {
+  return {
+    profile_id: 1,
+    request_logs_retention_days: 30,
+    statistics_retention_days: 30,
+    audit_logs_retention_days: 30,
+  };
+}
+
 function createModelListItem() {
   return {
     id: 1,
@@ -98,6 +107,9 @@ async function mockSettingsRoutes(page: Page) {
     if (pathname === "/api/settings/auth") {
       return fulfillJson(createAuthSettings());
     }
+    if (pathname === "/api/settings/retention") {
+      return fulfillJson(createRetentionSettings());
+    }
     if (pathname === "/api/models") {
       return fulfillJson([createModelListItem()]);
     }
@@ -129,8 +141,13 @@ async function mockSettingsRoutes(page: Page) {
     const RealDate = Date;
 
     class MockDate extends RealDate {
-      constructor(...args: ConstructorParameters<typeof Date>) {
-        super(...(args.length === 0 ? [fixedTime] : args));
+      constructor(value?: string | number | Date) {
+        if (value === undefined) {
+          super(fixedTime);
+          return;
+        }
+
+        super(value);
       }
 
       static now() {

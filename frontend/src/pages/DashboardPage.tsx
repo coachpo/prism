@@ -1,10 +1,12 @@
 import { RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { WebSocketStatusIndicator } from "@/components/WebSocketStatusIndicator";
+import { BackendHealthSummary } from "@/components/BackendHealthSummary";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProfileContext } from "@/context/ProfileContext";
+import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
 import { DashboardAnalyticsContent } from "@/pages/dashboard/DashboardAnalyticsContent";
@@ -20,19 +22,26 @@ function isDashboardTab(value: string): value is DashboardTab {
 export function DashboardPage() {
   const pageState = useDashboardPageState();
   const activeTab = pageState.state.tab;
+  const backendHealth = useBackendHealth();
 
   return (
     <div className="flex flex-col gap-6">
       {activeTab === "overview" ? (
-        <DashboardOverviewSection pageState={pageState} />
+        <DashboardOverviewSection backendHealth={backendHealth} pageState={pageState} />
       ) : (
-        <DashboardAnalyticsSection pageState={pageState} />
+        <DashboardAnalyticsSection backendHealth={backendHealth} pageState={pageState} />
       )}
     </div>
   );
 }
 
-function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof useDashboardPageState> }) {
+function DashboardOverviewSection({
+  backendHealth,
+  pageState,
+}: {
+  backendHealth: ReturnType<typeof useBackendHealth>;
+  pageState: ReturnType<typeof useDashboardPageState>;
+}) {
   const navigate = useNavigate();
   const { revision, selectedProfile } = useProfileContext();
   const { format: formatTime } = useTimezone();
@@ -50,7 +59,9 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
           variant="outline"
           size="icon"
           className="h-9 w-9"
-          onClick={() => void data.refreshDashboard()}
+          onClick={() => {
+            void Promise.allSettled([data.refreshDashboard(), backendHealth.refresh()]);
+          }}
           disabled={data.isRefreshing}
           aria-label={messages.dashboard.refreshDashboard}
           title={messages.dashboard.refreshDashboard}
@@ -59,6 +70,12 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
         </Button>
         <WebSocketStatusIndicator connectionState={data.connectionState} isSyncing={data.isSyncing} />
       </PageHeader>
+
+      <BackendHealthSummary
+        error={backendHealth.error}
+        health={backendHealth.health}
+        loading={backendHealth.loading}
+      />
 
       <DashboardTabs pageState={pageState} />
 
@@ -81,6 +98,10 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
         onInspectSpending={openAnalyticsTab}
         onReviewRequests={() => navigate("/request-logs")}
         onSelectModel={(modelConfigId) => navigate(`/models/${modelConfigId}`)}
+        onSelectRecentRequest={(requestId) => {
+          const searchParams = new URLSearchParams({ request_id: String(requestId) });
+          navigate(`/request-logs?${searchParams.toString()}`);
+        }}
         onDrillDownRequests={(params) => {
           const searchParams = new URLSearchParams();
 
@@ -99,12 +120,23 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
   );
 }
 
-function DashboardAnalyticsSection({ pageState }: { pageState: ReturnType<typeof useDashboardPageState> }) {
+function DashboardAnalyticsSection({
+  backendHealth,
+  pageState,
+}: {
+  backendHealth: ReturnType<typeof useBackendHealth>;
+  pageState: ReturnType<typeof useDashboardPageState>;
+}) {
   const { messages } = useLocale();
 
   return (
     <>
       <PageHeader title={messages.dashboard.dashboardTitle} description={messages.dashboard.dashboardDescription} />
+      <BackendHealthSummary
+        error={backendHealth.error}
+        health={backendHealth.health}
+        loading={backendHealth.loading}
+      />
       <DashboardTabs pageState={pageState} />
       <DashboardAnalyticsContent />
     </>

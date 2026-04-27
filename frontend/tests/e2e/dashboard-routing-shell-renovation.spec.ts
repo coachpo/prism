@@ -80,10 +80,124 @@ function createModelDetail() {
   };
 }
 
+function createRecentRequestLogItem() {
+  return {
+    id: 301,
+    created_at: timestamp,
+    model_id: "model-a",
+    model_label: "Model A",
+    resolved_target_model_id: null,
+    resolved_target_model_label: null,
+    is_proxy_origin: false,
+    caller_client_display: "Dashboard Fixture Row",
+    upstream_client_display: "Dashboard Fixture Row",
+    user_agent_overridden: false,
+    api_family: "openai",
+    vendor_id: null,
+    vendor_key: null,
+    vendor_name: null,
+    endpoint_id: 201,
+    endpoint_label: "Endpoint A",
+    connection_id: 501,
+    ttft_ms: 80,
+    completion_duration_ms: 240,
+    status_code: 200,
+    response_time_ms: 640,
+    is_stream: false,
+    output_tokens: 48,
+    total_tokens: 120,
+    total_cost_user_currency_micros: 250000,
+    report_currency_symbol: "$",
+  };
+}
+
+function createRequestLogDetail() {
+  return {
+    summary: {
+      id: 301,
+      created_at: timestamp,
+      model_id: "model-a",
+      model_label: "Model A",
+      resolved_target_model_id: null,
+      resolved_target_model_label: null,
+      api_family: "openai",
+      vendor_id: null,
+      vendor_key: null,
+      vendor_name: null,
+      status_code: 200,
+      response_time_ms: 640,
+      is_stream: false,
+      is_proxy_origin: false,
+      ttft_ms: 80,
+      completion_duration_ms: 240,
+    },
+    request: {
+      request_path: "/v1/responses",
+      ingress_request_id: "dashboard-ingress-301",
+      attempt_number: 1,
+      provider_correlation_id: "provider-corr-301",
+      proxy_api_key_id: null,
+      proxy_api_key_name_snapshot: null,
+      caller_user_agent: "Dashboard Fixture Row",
+      upstream_user_agent: "Dashboard Fixture Row",
+      caller_client_display: "Dashboard Fixture Row",
+      upstream_client_display: "Dashboard Fixture Row",
+      user_agent_overridden: false,
+      error_detail: null,
+    },
+    routing: {
+      profile_id: 1,
+      model_id: "model-a",
+      resolved_target_model_id: null,
+      endpoint_id: 201,
+      endpoint_label: "Endpoint A",
+      endpoint_base_url: "https://endpoint-a.example",
+      endpoint_description: "Primary endpoint",
+      connection_id: 501,
+      audit_enabled_at_request: true,
+    },
+    usage: {
+      input_tokens: 72,
+      output_tokens: 48,
+      total_tokens: 120,
+      success_flag: true,
+      billable_flag: true,
+      priced_flag: true,
+      unpriced_reason: null,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      reasoning_tokens: 0,
+    },
+    costing: {
+      input_cost_micros: 100000,
+      output_cost_micros: 150000,
+      cache_read_input_cost_micros: 0,
+      cache_creation_input_cost_micros: 0,
+      reasoning_cost_micros: 0,
+      total_cost_original_micros: 250000,
+      total_cost_user_currency_micros: 250000,
+      currency_code_original: "USD",
+      report_currency_code: "USD",
+      report_currency_symbol: "$",
+      fx_rate_used: "1",
+      fx_rate_source: "manual",
+    },
+    pricing: {
+      pricing_snapshot_unit: "1M tokens",
+      pricing_snapshot_input: "0.10",
+      pricing_snapshot_output: "0.20",
+      pricing_snapshot_cache_read_input: null,
+      pricing_snapshot_cache_creation_input: null,
+      pricing_snapshot_reasoning: null,
+      pricing_config_version_used: 1,
+    },
+  };
+}
+
 function createRequestLogsResponse() {
   return {
-    items: [],
-    total: 0,
+    items: [createRecentRequestLogItem()],
+    total: 1,
     limit: 12,
     offset: 0,
     filter_options: {
@@ -97,6 +211,7 @@ async function mockDashboardRoutes(page: Page) {
   const modelListItem = createModelListItem();
   const modelDetail = createModelDetail();
   const connection = createConnection();
+  const requestLogDetail = createRequestLogDetail();
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -141,6 +256,19 @@ async function mockDashboardRoutes(page: Page) {
         reasoning_tokens: 48,
         groups: [],
       });
+    }
+
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+    }
+
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson({ timezone_preference: "UTC" });
     }
 
     if (pathname === "/api/stats/spending") {
@@ -215,6 +343,10 @@ async function mockDashboardRoutes(page: Page) {
 
     if (pathname === "/api/stats/requests") {
       return fulfillJson(createRequestLogsResponse());
+    }
+
+    if (pathname === "/api/stats/requests/301") {
+      return fulfillJson(requestLogDetail);
     }
 
     if (pathname === "/api/stats/api-family") {
@@ -302,4 +434,18 @@ test.describe("dashboard routing shell renovation", () => {
     await expect(page).toHaveURL(/\/models\/101$/);
   });
 
+  test("opens exact request investigation from recent activity", async ({ page }) => {
+    await mockDashboardRoutes(page);
+
+    await page.goto("/dashboard?tab=overview");
+
+    const recentActivityCard = page.locator('[data-slot="card"]').filter({ hasText: "Recent Activity" }).first();
+
+    await expect(recentActivityCard.getByRole("button", { name: /Model A/ })).toBeVisible();
+    await recentActivityCard.getByRole("button", { name: /Model A/ }).click();
+
+    await expect(page).toHaveURL(/\/request-logs\?request_id=301$/);
+    await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request #301" })).toBeVisible();
+  });
 });

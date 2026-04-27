@@ -132,6 +132,15 @@ export const zhCNMessages: Messages = {
     topSpendingModelsDescription: "最近 30 天请求支出最高的模型",
     viewFullReport: "查看完整报告",
   },
+  healthSummary: {
+    description: "来自 /health 的实例级后端就绪状态摘要，不受所选配置档案影响。",
+    liveness: "存活状态",
+    readiness: "就绪状态",
+    startup: "启动状态",
+    status: "状态",
+    title: "后端健康状态",
+    version: "版本",
+  },
   locale: {
     changeLanguage: "切换语言",
     label: "语言",
@@ -523,10 +532,13 @@ export const zhCNMessages: Messages = {
   settingsAuditUserAgentRules: {
     addRule: "新增规则",
     customRules: "自定义规则",
+    customRulesExplanation: "面向当前配置档案的可编辑规则。可新增、编辑、删除或禁用它们，以细化请求日志中的客户端标签。",
     description: "使用正则规则从调用方与上游 User-Agent 值中分类请求日志客户端。",
     loadingRules: "正在加载规则...",
     noCustomRules: "当前没有自定义规则。新增一条规则即可按 User-Agent 分类请求日志客户端。",
     noSystemRules: "未找到系统规则。",
+    precedenceExplanation: "当前配置档案中的自定义规则会先于锁定的系统规则进行匹配，因此首个命中的规则可以补充或覆盖基线分类。",
+    systemRulesExplanation: "这是 Prism 预置的锁定基线规则。你可以在这里查看它们，并且只能更改其启用状态。",
     systemRulesLocked: "系统规则",
   },
   settingsRetentionDeletion: {

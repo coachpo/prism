@@ -1,0 +1,108 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const timestamp = "2026-04-27T00:00:00Z";
+
+function createProfile() {
+  return {
+    id: 1,
+    name: "Default",
+    description: null,
+    is_active: true,
+    is_default: true,
+    is_editable: true,
+    version: 1,
+    created_at: timestamp,
+    deleted_at: null,
+    updated_at: timestamp,
+  };
+}
+
+function createUserAgentClientRule(id: number, name: string, pattern: string, isSystem: boolean) {
+  return {
+    id,
+    name,
+    pattern,
+    enabled: true,
+    is_system: isSystem,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+}
+
+async function mockSettingsRoutes(page: Page) {
+  const profile = createProfile();
+  const userAgentClientRules = [
+    createUserAgentClientRule(1, "Claude Code", "Claude\\sCode", true),
+    createUserAgentClientRule(2, "Acme SDK", "acme-sdk", false),
+  ];
+
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+
+    if (!pathname.startsWith("/api/")) {
+      return route.continue();
+    }
+
+    const fulfillJson = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+    if (pathname === "/api/auth/status") {
+      return fulfillJson({ auth_enabled: false });
+    }
+    if (pathname === "/api/profiles/bootstrap") {
+      return fulfillJson({ profiles: [profile], active_profile: profile, profile_limits: { max_profiles: 5 } });
+    }
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson({ report_currency_code: "USD", report_currency_symbol: "$", endpoint_fx_mappings: [], timezone_preference: null });
+    }
+    if (pathname === "/api/settings/auth") {
+      return fulfillJson({ auth_enabled: false, username: null, has_password: false, email: null, pending_email: null, email_bound_at: null, email_verification_required: false });
+    }
+    if (pathname === "/api/settings/retention") {
+      return fulfillJson({ profile_id: 1, request_logs_retention_days: 30, statistics_retention_days: 30, audit_logs_retention_days: 30 });
+    }
+    if (pathname === "/api/models") {
+      return fulfillJson([]);
+    }
+    if (pathname === "/api/vendors") {
+      return fulfillJson([]);
+    }
+    if (pathname === "/api/config/header-blocklist-rules") {
+      return fulfillJson([]);
+    }
+    if (pathname === "/api/config/user-agent-client-rules") {
+      return fulfillJson(userAgentClientRules);
+    }
+
+    throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
+  });
+
+  await page.addInitScript(() => {
+    localStorage.setItem("prism.locale", "en");
+  });
+}
+
+test("settings shows user-agent client rule scope and precedence before rule actions", async ({ page }) => {
+  await mockSettingsRoutes(page);
+
+  await page.goto("/settings#audit-configuration");
+  const auditSection = page.locator("section#audit-configuration");
+  const card = page.getByTestId("audit-user-agent-client-rules-card");
+
+  await expect(auditSection).toBeVisible();
+  await expect(card).toBeVisible();
+  await expect(
+    card.getByText("Use regex rules to classify request-log clients from caller and upstream User-Agent values."),
+  ).toBeVisible();
+  await expect(
+    card.getByText("System rules: Locked baseline rules seeded by Prism. You can review them here, and only their enabled state can be changed."),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Custom rules: Editable rules for the selected profile. Add, edit, delete, or disable them to refine client labels in request logs."),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Custom rules for this profile are checked before locked system rules, so the first match can add to or override the baseline classification."),
+  ).toBeVisible();
+  await expect(card.getByRole("button", { name: "Add Rule" })).toBeVisible();
+});

@@ -51,16 +51,32 @@ function createModelListItem() {
   };
 }
 
+type CostingSettings = {
+  report_currency_code: string;
+  report_currency_symbol: string;
+  endpoint_fx_mappings: unknown[];
+  timezone_preference: string | null;
+};
+
 function createCostingSettings(overrides?: {
   report_currency_code?: string;
   report_currency_symbol?: string;
   timezone_preference?: string | null;
-}) {
+}): CostingSettings {
   return {
     report_currency_code: overrides?.report_currency_code ?? "EUR",
     report_currency_symbol: overrides?.report_currency_symbol ?? "€",
     endpoint_fx_mappings: [],
     timezone_preference: overrides?.timezone_preference ?? null,
+  };
+}
+
+function createRetentionSettings() {
+  return {
+    profile_id: 1,
+    request_logs_retention_days: 30,
+    statistics_retention_days: 30,
+    audit_logs_retention_days: 30,
   };
 }
 
@@ -126,6 +142,10 @@ async function mockSettingsRoutes(
 
     if (pathname === "/api/settings/auth") {
       return fulfillJson(createAuthSettings());
+    }
+
+    if (pathname === "/api/settings/retention") {
+      return fulfillJson(createRetentionSettings());
     }
 
     if (pathname === "/api/models") {

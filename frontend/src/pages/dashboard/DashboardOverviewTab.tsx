@@ -30,6 +30,7 @@ interface DashboardOverviewTabProps {
   onInspectSpending: () => void;
   onReviewRequests: () => void;
   onSelectModel: (modelConfigId: number) => void;
+  onSelectRecentRequest: (requestId: number) => void;
   onDrillDownRequests: (params: { endpoint_id?: number; model_id?: string }) => void;
 }
 
@@ -52,6 +53,7 @@ export function DashboardOverviewTab({
   onInspectSpending,
   onReviewRequests,
   onSelectModel,
+  onSelectRecentRequest,
   onDrillDownRequests,
 }: DashboardOverviewTabProps) {
   if (loading) {
@@ -87,6 +89,7 @@ export function DashboardOverviewTab({
           clearRecentRequestHighlight={clearRecentRequestHighlight}
           modelDisplayNames={modelDisplayNames}
           formatTime={formatTime}
+          onSelectRequest={onSelectRecentRequest}
         />
 
         <TopSpendingModelsCard

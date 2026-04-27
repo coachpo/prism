@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-13T00:00:00Z";
 
@@ -229,10 +229,14 @@ async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boo
   };
 }
 
-async function openRequestLogDetail(page: Page, auditEnabledAtRequest: boolean) {
+async function openRequestLogDetail(
+  page: Page,
+  auditEnabledAtRequest: boolean,
+  initialPath = "/request-logs?request_id=101",
+) {
   const counters = await mockRequestLogDetailRoutes(page, auditEnabledAtRequest);
 
-  await page.goto("/request-logs?request_id=101");
+  await page.goto(initialPath);
 
   const drawer = page.getByTestId("request-log-detail-sheet");
   await expect(drawer).toBeVisible({ timeout: 15000 });
@@ -240,27 +244,55 @@ async function openRequestLogDetail(page: Page, auditEnabledAtRequest: boolean) 
   return { drawer, counters };
 }
 
-test.describe("request log audit disabled state", () => {
-  test("disabled snapshots make zero audit API requests", async ({ page }) => {
-    const { drawer, counters } = await openRequestLogDetail(page, false);
+async function expectExactAuditUrlContract(page: Page, drawer: Locator) {
+  const overviewTab = drawer.getByRole("tab", { name: "Overview" });
+  const auditTab = drawer.getByRole("tab", { name: "Audit" });
 
-    await drawer.getByRole("tab", { name: "Audit" }).click();
+  await expect(page).toHaveURL(/\/request-logs\?request_id=101&detail_tab=audit$/);
+  await expect(auditTab).toHaveAttribute("data-state", "active");
+
+  await Promise.all([
+    page.waitForURL(/\/request-logs\?request_id=101$/),
+    overviewTab.click(),
+  ]);
+  await expect(overviewTab).toHaveAttribute("data-state", "active");
+
+  await Promise.all([
+    page.waitForURL(/\/request-logs\?request_id=101&detail_tab=audit$/),
+    auditTab.click(),
+  ]);
+  await expect(auditTab).toHaveAttribute("data-state", "active");
+}
+
+test.describe("request log audit disabled state", () => {
+  test("audit deeplink keeps exact-mode URL state while disabled snapshots make zero audit API requests", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(
+      page,
+      false,
+      "/request-logs?request_id=101&detail_tab=audit",
+    );
 
     await expect(drawer.getByText("Audit capture unavailable")).toBeVisible();
     await expect(drawer.getByText("Audit logging may be disabled for this vendor.")).toBeVisible();
     expect(counters.getAuditListRequests()).toBe(0);
     expect(counters.getAuditDetailRequests()).toBe(0);
+
+    await expectExactAuditUrlContract(page, drawer);
   });
 
-  test("enabled snapshots request audit logs", async ({ page }) => {
-    const { drawer, counters } = await openRequestLogDetail(page, true);
-
-    await drawer.getByRole("tab", { name: "Audit" }).click();
+  test("audit deeplink keeps exact-mode URL state while enabled snapshots lazy-load audit logs", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(
+      page,
+      true,
+      "/request-logs?request_id=101&detail_tab=audit",
+    );
 
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
     await expect(drawer.getByText("Audit capture unavailable")).not.toBeVisible();
     await expect(drawer.getByText('{"input":"hello"}')).toBeVisible();
     await expect(drawer.getByText('{"id":"resp_101","status":"ok"}')).toBeVisible();
+
+    await expectExactAuditUrlContract(page, drawer);
   });
 });
