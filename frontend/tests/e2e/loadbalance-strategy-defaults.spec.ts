@@ -1,8 +1,17 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
 
-function fulfillJson(route: Parameters<Parameters<typeof test>[0]["page"]["route"]>[1], body: unknown, status = 200) {
+function createCostingSettings() {
+  return {
+    report_currency_code: "USD",
+    report_currency_symbol: "$",
+    endpoint_fx_mappings: [],
+    timezone_preference: null,
+  };
+}
+
+function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
     contentType: "application/json",
@@ -28,7 +37,6 @@ function canonicalLegacyRow() {
         failure_threshold: 2,
         backoff_multiplier: 2,
         max_cooldown_seconds: 900,
-        jitter_ratio: 0.2,
       },
       ban: { mode: "off" },
     },
@@ -58,7 +66,6 @@ function canonicalAdaptiveRow() {
         failure_threshold: 2,
         backoff_multiplier: 2,
         max_open_seconds: 900,
-        jitter_ratio: 0.2,
         ban_mode: "off",
         max_open_strikes_before_ban: 0,
         ban_duration_seconds: 0,
@@ -89,14 +96,18 @@ function occupiedLegacyRow() {
         failure_threshold: 2,
         backoff_multiplier: 2,
         max_cooldown_seconds: 900,
-        jitter_ratio: 0.2,
       },
       ban: { mode: "manual", max_cooldown_strikes_before_ban: 1 },
     },
   };
 }
 
-async function mockLoadbalanceRoutes(page: Parameters<typeof test>[0]["page"], strategies: unknown[], postResponse: unknown, postStatus = 200) {
+async function mockLoadbalanceRoutes(
+  page: Page,
+  strategies: unknown[],
+  postResponse: unknown,
+  postStatus = 200,
+) {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -143,6 +154,22 @@ async function mockLoadbalanceRoutes(page: Parameters<typeof test>[0]["page"], s
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(route, strategies);
+    }
+
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson(route, createCostingSettings());
+    }
+
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson(route, { timezone_preference: "UTC" });
+    }
+
+    if (pathname === "/api/models") {
+      return fulfillJson(route, []);
+    }
+
+    if (pathname === "/api/vendors") {
+      return fulfillJson(route, []);
     }
 
     if (pathname === "/api/loadbalance/strategies/defaults" && request.method() === "POST") {

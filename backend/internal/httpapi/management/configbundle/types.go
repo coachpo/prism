@@ -47,9 +47,9 @@ type pricingTemplateExport struct {
 	PricingCurrencyCode string  `json:"pricing_currency_code"`
 	InputPrice          string  `json:"input_price"`
 	OutputPrice         string  `json:"output_price"`
-	CachedInputPrice    string  `json:"cached_input_price"`
-	CacheCreationPrice  string  `json:"cache_creation_price"`
-	ReasoningPrice      string  `json:"reasoning_price"`
+	CachedInputPrice    *string `json:"cached_input_price"`
+	CacheCreationPrice  *string `json:"cache_creation_price"`
+	ReasoningPrice      *string `json:"reasoning_price"`
 	Version             int     `json:"version"`
 }
 

@@ -2,6 +2,15 @@ import { expect, test, type Locator } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
 
+function createCostingSettings() {
+  return {
+    report_currency_code: "USD",
+    report_currency_symbol: "$",
+    endpoint_fx_mappings: [],
+    timezone_preference: null,
+  };
+}
+
 function createStrategyRow({
   id,
   name,
@@ -10,38 +19,44 @@ function createStrategyRow({
 }: {
   id: number;
   name: string;
-  strategyType: "adaptive" | "legacy";
-  recovery:
+} &
+  (
     | {
-        routing_policy: {
-          routing_objective: "maximize_availability" | "minimize_latency";
-          ban_mode: "off" | "manual" | "temporary";
-          max_open_strikes_before_ban: number;
-          ban_duration_seconds: number;
-          failure_status_codes: number[];
-          base_open_seconds: number;
-          max_open_seconds: number;
+        strategyType: "adaptive";
+        recovery: {
+          routing_policy: {
+            routing_objective: "maximize_availability" | "minimize_latency";
+            ban_mode: "off" | "manual" | "temporary";
+            max_open_strikes_before_ban: number;
+            ban_duration_seconds: number;
+            failure_status_codes: number[];
+            base_open_seconds: number;
+            max_open_seconds: number;
+          };
         };
       }
     | {
-        auto_recovery: {
-          mode: "enabled";
-          status_codes: number[];
-          cooldown: {
-            base_seconds: number;
-            max_cooldown_seconds: number;
+        strategyType: "legacy";
+        recovery: {
+          auto_recovery: {
+            mode: "enabled";
+            status_codes: number[];
+            cooldown: {
+              base_seconds: number;
+              max_cooldown_seconds: number;
+            };
+            ban:
+              | { mode: "off" }
+              | { mode: "manual"; max_cooldown_strikes_before_ban: number }
+              | {
+                  mode: "temporary";
+                  max_cooldown_strikes_before_ban: number;
+                  ban_duration_seconds: number;
+                };
           };
-          ban:
-            | { mode: "off" }
-            | { mode: "manual"; max_cooldown_strikes_before_ban: number }
-            | {
-                mode: "temporary";
-                max_cooldown_strikes_before_ban: number;
-                ban_duration_seconds: number;
-              };
         };
-      };
-}) {
+      }
+  )) {
   return {
     id,
     profile_id: 1,
@@ -66,7 +81,6 @@ function createStrategyRow({
               failure_threshold: 2,
               backoff_multiplier: 2,
               max_open_seconds: recovery.routing_policy.max_open_seconds,
-              jitter_ratio: 0.2,
               ban_mode: recovery.routing_policy.ban_mode,
               max_open_strikes_before_ban: recovery.routing_policy.max_open_strikes_before_ban,
               ban_duration_seconds: recovery.routing_policy.ban_duration_seconds,
@@ -87,7 +101,6 @@ function createStrategyRow({
               failure_threshold: 2,
               backoff_multiplier: 2,
               max_cooldown_seconds: recovery.auto_recovery.cooldown.max_cooldown_seconds,
-              jitter_ratio: 0.2,
             },
             ban: recovery.auto_recovery.ban,
           },
@@ -244,6 +257,22 @@ test("shows adaptive and legacy recovery rows by name", async ({ page }) => {
 
     if (pathname === "/api/loadbalance/strategies") {
       return fulfillJson(strategies);
+    }
+
+    if (pathname === "/api/settings/costing") {
+      return fulfillJson(createCostingSettings());
+    }
+
+    if (pathname === "/api/settings/timezone") {
+      return fulfillJson({ timezone_preference: "UTC" });
+    }
+
+    if (pathname === "/api/models") {
+      return fulfillJson([]);
+    }
+
+    if (pathname === "/api/vendors") {
+      return fulfillJson([]);
     }
 
     return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });

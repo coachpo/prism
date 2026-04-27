@@ -61,6 +61,35 @@ func TestConfigBundleDownloadHeaders(t *testing.T) {
 	}
 }
 
+func TestConfigBundleV1ExportAllowsNullOptionalPricingFields(t *testing.T) {
+	harness := newConfigBundleContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertContractPricingTemplate(t, harness, profileID, "Null Optional Pricing")
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	items, ok := payload["pricing_templates"].([]any)
+	if !ok {
+		t.Fatalf("expected pricing_templates array, got %+v", payload)
+	}
+
+	for _, raw := range items {
+		item := asMap(t, raw)
+		if item["name"] != "Null Optional Pricing" {
+			continue
+		}
+		if item["cached_input_price"] != nil || item["cache_creation_price"] != nil || item["reasoning_price"] != nil {
+			t.Fatalf("expected null optional pricing fields in export, got %+v", item)
+		}
+		return
+	}
+
+	t.Fatalf("expected exported pricing template %q, got %+v", "Null Optional Pricing", items)
+}
+
 func TestVendorCatalogV1Export(t *testing.T) {
 	harness := newConfigBundleContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)

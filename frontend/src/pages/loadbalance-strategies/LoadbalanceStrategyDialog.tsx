@@ -493,41 +493,6 @@ export function LoadbalanceStrategyDialog({
                             />
                           </StrategyDialogField>
 
-                          <StrategyDialogField
-                            id="circuit-breaker-jitter-ratio"
-                            label={dialogMessages.jitterRatioLabel}
-                            description={dialogMessages.jitterRatioDescription}
-                          >
-                            <Input
-                              id="circuit-breaker-jitter-ratio"
-                              type="number"
-                              autoComplete="off"
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              value={enabledAutoRecovery.cooldown.jitter_ratio}
-                              onChange={(event) =>
-                                setLoadbalanceStrategyForm((prev) =>
-                                  prev.strategy_type !== "legacy" ||
-                                  prev.auto_recovery.mode !== "enabled"
-                                    ? prev
-                                    : {
-                                        ...prev,
-                                        auto_recovery: {
-                                          ...prev.auto_recovery,
-                                          cooldown: {
-                                            ...prev.auto_recovery.cooldown,
-                                            jitter_ratio: parseNumericInput(
-                                              event.target.value,
-                                              prev.auto_recovery.cooldown.jitter_ratio,
-                                            ),
-                                          },
-                                        },
-                                      },
-                                )
-                              }
-                            />
-                          </StrategyDialogField>
                         </div>
                       ) : adaptiveCircuitBreaker ? (
                         <div className="grid gap-4 md:grid-cols-2">
@@ -670,40 +635,6 @@ export function LoadbalanceStrategyDialog({
                             />
                           </StrategyDialogField>
 
-                          <StrategyDialogField
-                            id="adaptive-circuit-breaker-jitter-ratio"
-                            label={dialogMessages.jitterRatioLabel}
-                            description={dialogMessages.jitterRatioDescription}
-                          >
-                            <Input
-                              id="adaptive-circuit-breaker-jitter-ratio"
-                              type="number"
-                              autoComplete="off"
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              value={adaptiveCircuitBreaker.jitter_ratio}
-                              onChange={(event) =>
-                                setLoadbalanceStrategyForm((prev) =>
-                                  prev.strategy_type !== "adaptive"
-                                    ? prev
-                                    : {
-                                        ...prev,
-                                        routing_policy: {
-                                          ...prev.routing_policy,
-                                          circuit_breaker: {
-                                            ...prev.routing_policy.circuit_breaker,
-                                            jitter_ratio: parseNumericInput(
-                                              event.target.value,
-                                              prev.routing_policy.circuit_breaker.jitter_ratio,
-                                            ),
-                                          },
-                                        },
-                                      },
-                                )
-                              }
-                            />
-                          </StrategyDialogField>
                         </div>
                       ) : null}
                     </StrategyDialogSubsection>
