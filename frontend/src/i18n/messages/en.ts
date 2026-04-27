@@ -171,8 +171,6 @@ export interface Messages {
     failureThresholdLabel: string;
     failureStatusCodesDescription: string;
     failureStatusCodesLabel: string;
-    jitterRatioDescription: string;
-    jitterRatioLabel: string;
     maxCooldownStrikesBeforeBanDescription: string;
     maxCooldownStrikesBeforeBanLabel: string;
     maxCooldownDescription: string;
@@ -318,7 +316,6 @@ export interface Messages {
     baseCooldownMin: string;
     failureThresholdInteger: string;
     failureThresholdRange: string;
-    jitterRatioRange: string;
     maxCooldownIntegerSeconds: string;
     maxCooldownRange: string;
     maxCooldownStrikesInteger: string;
@@ -1731,9 +1728,6 @@ export const enMessages: Messages = {
     failureStatusCodesDescription:
       "HTTP status codes that should count toward automatic recovery.",
     failureStatusCodesLabel: "Failure Status Codes",
-    jitterRatioDescription:
-      "Random spread applied to the open window so retries do not all happen at the same instant.",
-    jitterRatioLabel: "Jitter Ratio",
     maxCooldownStrikesBeforeBanDescription:
       "Number of max-open strike events required before this connection is marked as banned.",
     maxCooldownStrikesBeforeBanLabel: "Max Open Strikes Before Ban",
@@ -1886,7 +1880,6 @@ export const enMessages: Messages = {
     baseCooldownMin: "Base open window must be at least 0 seconds",
     failureThresholdInteger: "Failure threshold must be a whole number",
     failureThresholdRange: "Failure threshold must be between 1 and 50",
-    jitterRatioRange: "Jitter ratio must be between 0 and 1",
     maxCooldownIntegerSeconds: "Max open window must be a whole number of seconds",
     maxCooldownRange: "Max open window must be between 1 and 86400 seconds",
     maxCooldownStrikesInteger: "Max open strikes before ban must be a whole number",
@@ -2099,7 +2092,7 @@ export const enMessages: Messages = {
     addPasskey: "Add passkey",
     authentication: "Authentication",
     authenticationDisabled: "Authentication disabled",
-    authenticationDisabledDescription: "Configure operator sign-in, recovery email, and passkeys for this Prism instance.",
+  authenticationDisabledDescription: "Configure operator sign-in and recovery email for this Prism instance.",
     authenticationIsDisabled: "Authentication is disabled",
     authenticationStatus: "Authentication status",
     authenticationToggleDescription: "Sign-in can only be enabled after the operator account and recovery email are fully configured.",
@@ -2115,7 +2108,7 @@ export const enMessages: Messages = {
     emailVerificationFailed: "Failed to verify email",
     emailVerificationSucceeded: "Email verified",
     enableAuthenticationToEnforceKeys: "Enable authentication in Settings when you are ready to enforce these keys.",
-    enableAuthenticationToManagePasskeys: "Enable authentication to register and manage passkeys.",
+  enableAuthenticationToManagePasskeys: "Enable authentication to manage operator access.",
     lastUsed: (value) => `Last used ${value}`,
     noPasskeysRegistered: "No passkeys registered",
     noPasskeysRegisteredDescription:
