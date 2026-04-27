@@ -68,7 +68,7 @@ export function OperatorEmailCard({
               ? passwordError
               : authSettings?.has_password
                 ? copy.passwordKeepCurrent
-                : messages.settingsAuthentication.enableAuthenticationToManagePasskeys
+                : copy.authenticationToggleDescription
           }
           helperClassName={passwordError ? "text-destructive" : undefined}
           htmlFor="auth-password"

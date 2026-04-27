@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/card";
 import { AuthenticationSetupGrid } from "./authentication/AuthenticationSetupGrid";
 import { AuthenticationStatusCard } from "./authentication/AuthenticationStatusCard";
-import { PasskeysCard } from "./authentication/PasskeysCard";
 import type { AuthenticationSectionProps } from "./authentication/types";
 
 export function AuthenticationSection({
@@ -65,20 +64,18 @@ export function AuthenticationSection({
             onSaveAuthSettings={props.onSaveAuthSettings}
           />
 
-          <AuthenticationSetupGrid
-            authEnabled={authEnabled}
-            authSaving={authSaving}
-            authSettings={authSettings}
-            password={password}
+	        <AuthenticationSetupGrid
+	          authEnabled={authEnabled}
+	          authSaving={authSaving}
+	          authSettings={authSettings}
+	          password={password}
             passwordError={passwordError}
             passwordMismatch={passwordMismatch}
-            username={username}
-            {...props}
-          />
-
-          <PasskeysCard authEnabled={authEnabled} />
-        </CardContent>
-      </Card>
-    </section>
+	          username={username}
+	          {...props}
+	        />
+	      </CardContent>
+	    </Card>
+	  </section>
   );
 }

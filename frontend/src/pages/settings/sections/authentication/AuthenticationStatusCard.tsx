@@ -33,7 +33,7 @@ export function AuthenticationStatusCard({
       <CardContent>
         <SwitchController
           label={copy.authentication}
-          description={copy.enableAuthenticationToManagePasskeys}
+          description={copy.authenticationToggleDescription}
           checked={authEnabled}
           disabled={authSaving || (!setupReady && !authEnabled)}
           onCheckedChange={(checked) => {
