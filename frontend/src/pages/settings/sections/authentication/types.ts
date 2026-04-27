@@ -22,12 +22,3 @@ export interface AuthenticationSectionProps {
   onConfirmEmailVerification: () => Promise<void>;
   onSaveAuthSettings: (nextEnabled?: boolean) => Promise<void>;
 }
-
-export interface PasskeyCredential {
-  id: number;
-  device_name: string | null;
-  backup_eligible: boolean | null;
-  backup_state: boolean | null;
-  created_at: string;
-  last_used_at: string | null;
-}
