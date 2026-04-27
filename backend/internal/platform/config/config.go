@@ -37,8 +37,8 @@ const (
 	defaultRuntimeDatabaseMinIdleConns           int32 = 1
 	defaultManagementDatabaseMaxConns            int32 = 12
 	defaultManagementDatabaseMinIdleConns        int32 = 0
-	defaultManagementM2MaxConcurrent             int64 = 6
-	defaultManagementM3MaxConcurrent             int64 = 2
+	defaultManagementM2MaxConcurrent             int64 = 10
+	defaultManagementM3MaxConcurrent             int64 = 6
 	defaultRuntimeTransportMaxIdleConns                = 100
 	defaultRuntimeTransportMaxIdleConnsPerHost         = 8
 	defaultRuntimeTransportMaxConnsPerHost             = 0
