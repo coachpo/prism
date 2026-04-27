@@ -70,6 +70,18 @@ func TestValidatePathCompatibilityAndHeaderHelpers(t *testing.T) {
 	}
 }
 
+func TestRequestWantsStreamUsesGeminiStreamingPath(t *testing.T) {
+	if !requestWantsStream(nil, "/v1beta/models/gemini-2.5-pro:streamGenerateContent") {
+		t.Fatal("expected Gemini streamGenerateContent path to force streaming")
+	}
+	if requestWantsStream(nil, "/v1beta/models/gemini-2.5-pro:generateContent?alt=sse") {
+		t.Fatal("expected generateContent path without stream body flag to remain non-streaming")
+	}
+	if !requestWantsStream([]byte(`{"stream":true}`), "/v1/chat/completions") {
+		t.Fatal("expected explicit stream body flag to remain streaming for generic routes")
+	}
+}
+
 func TestBuildRuntimePricingResult(t *testing.T) {
 	cachedInputPrice := "1"
 	cacheCreationPrice := "2"

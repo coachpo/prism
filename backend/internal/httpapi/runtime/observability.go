@@ -623,7 +623,10 @@ func billingState(success bool) (*bool, *bool, *string) {
 	return boolPtr(true), boolPtr(false), stringPtr("missing_pricing_template")
 }
 
-func requestWantsStream(rawBody []byte) bool {
+func requestWantsStream(rawBody []byte, requestPath string) bool {
+	if strings.Contains(strings.TrimSpace(requestPath), ":streamGenerateContent") {
+		return true
+	}
 	return requestBodyWantsStream(rawBody)
 }
 

@@ -332,7 +332,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		EffectiveRequestPath:   effectiveRequestPath,
 		RawRequestBody:         rawBody,
 		UpstreamBody:           upstreamBody,
-		IsStreamingRequest:     requestWantsStream(rawBody),
+		IsStreamingRequest:     requestWantsStream(rawBody, effectiveRequestPath),
 		Connections:            orderedConnections,
 		RuntimeStates:          runtimeStates,
 		BlocklistRules:         snapshot.BlocklistRules,

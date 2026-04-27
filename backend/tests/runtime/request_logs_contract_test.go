@@ -454,6 +454,41 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
 }
 
+func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好\"}]}}]}\n\n")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20}}\n\n")
+	}))
+	defer upstream.Close()
+
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "gemini",
+		PublicModelID:   "stream-gemini-authoritative-public-" + randomSuffix(),
+		TargetModelID:   "stream-gemini-authoritative-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "runtime-gemini-stream-authoritative-key",
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/v1beta/models/%s:streamGenerateContent", route.PublicModelID),
+		map[string]any{
+			"contents": []map[string]any{{
+				"role":  "user",
+				"parts": []map[string]any{{"text": "你好"}},
+			}},
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+}
+
 func assertLatestRequestLogUsage(t *testing.T, conn *pgx.Conn, profileID int, expectStream bool, wantInput int64, wantOutput int64, wantTotal int64) {
 	t.Helper()
 	waitForRuntimeTelemetryCounts(t, conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
