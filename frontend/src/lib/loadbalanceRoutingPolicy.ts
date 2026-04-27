@@ -39,7 +39,6 @@ export function createDefaultEnabledAutoRecovery(): LoadbalanceAutoRecoveryEnabl
       failure_threshold: 2,
       backoff_multiplier: 2,
       max_cooldown_seconds: 900,
-      jitter_ratio: 0.2,
     },
     ban: {
       mode: "off",
@@ -64,7 +63,6 @@ export function createDefaultAdaptiveRoutingPolicy(
       failure_threshold: 2,
       backoff_multiplier: 2,
       max_open_seconds: 900,
-      jitter_ratio: 0.2,
       ban_mode: "off",
       max_open_strikes_before_ban: 0,
       ban_duration_seconds: 0,

@@ -37,7 +37,6 @@ const AutoRecoveryImportSchema = z.union([
       failure_threshold: z.number().int().min(1).max(50),
       backoff_multiplier: z.number().min(1).max(10),
       max_cooldown_seconds: z.number().int().min(1).max(86_400),
-      jitter_ratio: z.number().min(0).max(1),
     }),
     ban: z.union([
       z.strictObject({
@@ -73,7 +72,6 @@ const AdaptiveRoutingPolicyImportSchema = z.strictObject({
     failure_threshold: z.number().int().min(1),
     backoff_multiplier: z.number().min(1),
     max_open_seconds: z.number().int().min(1),
-    jitter_ratio: z.number().min(0).max(1),
     ban_mode: z.enum(["off", "temporary", "manual"]),
     max_open_strikes_before_ban: z.number().int().min(0),
     ban_duration_seconds: z.number().int().min(0),
