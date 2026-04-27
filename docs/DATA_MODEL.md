@@ -718,7 +718,7 @@ Password-reset OTP challenges for the singleton operator account.
 
 ### 2.20 `webauthn_challenges`
 
-Challenge storage for passkey registration and authentication ceremonies.
+Retained internal challenge storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey ceremonies.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -730,7 +730,7 @@ Challenge storage for passkey registration and authentication ceremonies.
 
 ### 2.21 `webauthn_credentials`
 
-Stored passkey credentials for the singleton operator account.
+Retained internal credential storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey credential management.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -782,7 +782,7 @@ CREATE INDEX idx_connection_limiter_leases_profile_connection ON connection_limi
 CREATE INDEX idx_connection_limiter_leases_expires_at ON connection_limiter_leases(expires_at);
 CREATE INDEX idx_endpoint_fx_profile_model_endpoint_lookup ON endpoint_fx_rate_settings(profile_id, model_id, endpoint_id);
 
--- Auth and passkeys
+-- Auth and retained passkey-era tables
 CREATE INDEX idx_refresh_tokens_revoked_at ON refresh_tokens(revoked_at);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 CREATE INDEX idx_proxy_api_keys_is_active ON proxy_api_keys(is_active);
@@ -799,7 +799,7 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 - `vendors` are global and shared across all profiles.
 - `model_configs` reference shared vendor rows without vendor-owned delete cascade semantics; deleting a vendor must not delete profile-scoped model rows.
 - `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
-- `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, `password_reset_challenges`, and `webauthn_credentials`.
+- `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
 - `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `connection_limiter_state` and `connection_limiter_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
 - Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.

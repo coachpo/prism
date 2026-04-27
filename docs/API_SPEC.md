@@ -2081,13 +2081,6 @@ Returns the current authenticated session state.
 - `POST /api/auth/password-reset/request`: Request a reset email.
 - `POST /api/auth/password-reset/confirm`: Confirm reset with OTP and new password.
 
-### 7.8 WebAuthn (Passkeys)
-- `POST /api/auth/webauthn/register/options`: Get registration options.
-- `POST /api/auth/webauthn/register/verify`: Verify registration response.
-- `POST /api/auth/webauthn/authenticate/options`: Get authentication options.
-- `POST /api/auth/webauthn/authenticate/verify`: Verify authentication response.
-- `GET /api/auth/webauthn/credentials`: List registered credentials.
-- `DELETE /api/auth/webauthn/credentials/{id}`: Revoke a credential.
 
 ---
 

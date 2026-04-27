@@ -2,8 +2,8 @@
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the checked-in Go-served contract in `docs/openapi.json`.
 
-Validated again against current repo surfaces on 2026-04-19:
-- `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.2.35`, which is the current backend version returned by `/health`.
+Validated again against current repo surfaces on 2026-04-27:
+- `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.3.8`, which is the current backend version returned by `/health`.
 - `docs/openapi.json` is the management and health OpenAPI artifact served by the Go backend at `/openapi.json`.
 - The protected frontend route shell in `frontend/src/App.tsx` still mounts `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, and `/proxy-api-keys`; analytics now lives under `/dashboard?tab=analytics`.
 
@@ -57,12 +57,6 @@ Validated again against current repo surfaces on 2026-04-19:
 - `GET /api/auth/session`
 - `POST /api/auth/password-reset/request`
 - `POST /api/auth/password-reset/confirm`
-- `POST /api/auth/webauthn/register/options`
-- `POST /api/auth/webauthn/register/verify`
-- `POST /api/auth/webauthn/authenticate/options`
-- `POST /api/auth/webauthn/authenticate/verify`
-- `GET /api/auth/webauthn/credentials`
-- `DELETE /api/auth/webauthn/credentials/{credential_id}`
 
 ## 2. Shell Bootstrap And Profile Selection
 

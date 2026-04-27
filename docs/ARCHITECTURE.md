@@ -528,7 +528,7 @@ See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 
 ## 12. Security Considerations
 
-- **Operator Authentication**: Optional cookie-backed authentication for management APIs (`/api/*`). Supports username/password and WebAuthn (passkeys).
+- **Operator Authentication**: Optional cookie-backed authentication for management APIs (`/api/*`). Supports username/password.
 - **Proxy API Keys**: Optional API key enforcement for runtime proxy traffic (`/v1/*`, `/v1beta/*`). Keys are issued and managed through the dashboard.
 - **Auth Bifurcation**: Management auth (session cookies) and runtime auth (proxy API keys) are separate enforcement paths.
 - **Data at Rest**: API keys and secrets are stored in PostgreSQL. Endpoint secrets are encrypted at rest.
