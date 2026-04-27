@@ -2,6 +2,7 @@ package stats
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -458,6 +459,15 @@ func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return 0, err
 		}
+		if olderThanDays == nil && !deleteAll {
+			olderThanDays, err = loadRequestLogRetentionDays(r.Context(), tx, profile.ID)
+			if err != nil {
+				return 0, err
+			}
+			if olderThanDays == nil {
+				return 0, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "No request log retention policy configured; provide 'older_than_days' or 'delete_all=true', or configure request_logs_retention_days in /api/settings/retention"}
+			}
+		}
 		if err := statsdomain.DeleteRequestLogs(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
 			return 0, err
 		}
@@ -485,6 +495,15 @@ func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return 0, err
 		}
+		if olderThanDays == nil && !deleteAll {
+			olderThanDays, err = loadStatisticsRetentionDays(r.Context(), tx, profile.ID)
+			if err != nil {
+				return 0, err
+			}
+			if olderThanDays == nil {
+				return 0, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "No statistics retention policy configured; provide 'older_than_days' or 'delete_all=true', or configure statistics_retention_days in /api/settings/retention"}
+			}
+		}
 		if err := statsdomain.DeleteStatistics(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
 			return 0, err
 		}
@@ -496,6 +515,42 @@ func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request)
 	}
 	s.invalidateDashboardAggregateSnapshot(profileID)
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+}
+
+func loadRequestLogRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
+	requestLogsRetentionDays, _, err := loadRetentionSettings(ctx, tx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	return requestLogsRetentionDays, nil
+}
+
+func loadStatisticsRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
+	_, statisticsRetentionDays, err := loadRetentionSettings(ctx, tx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	return statisticsRetentionDays, nil
+}
+
+func loadRetentionSettings(ctx context.Context, tx pgx.Tx, profileID int) (*int, *int, error) {
+	var requestLogsRetentionDays sql.NullInt32
+	var statisticsRetentionDays sql.NullInt32
+	if err := tx.QueryRow(ctx, `SELECT request_logs_retention_days, statistics_retention_days FROM user_settings WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&requestLogsRetentionDays, &statisticsRetentionDays); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("load stats retention settings for profile %d: %w", profileID, err)
+	}
+	return nullableIntFromNullInt32(requestLogsRetentionDays), nullableIntFromNullInt32(statisticsRetentionDays), nil
+}
+
+func nullableIntFromNullInt32(value sql.NullInt32) *int {
+	if !value.Valid {
+		return nil
+	}
+	resolved := int(value.Int32)
+	return &resolved
 }
 
 func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.RequestLogListParams, error) {

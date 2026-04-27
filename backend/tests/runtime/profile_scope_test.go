@@ -28,6 +28,7 @@ import (
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
+	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
@@ -1286,14 +1287,15 @@ func TestRuntimeLoadBalanceProbeFailureReopensRuntimeState(t *testing.T) {
 		t.Fatalf("expected probe failure to extend cooldown strike state to 120s/2, got %+v", failureState)
 	}
 	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, primaryConnectionID)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 loadbalance event for probe failure, got %+v", events)
-	}
-	if events[0].EventType != "opened" || !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" {
+	assertLoadbalanceEventTypeSequence(t, events, "opened", "probe_eligible")
+	if !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" || events[0].ConsecutiveFailures != 2 || events[0].CooldownSeconds != 120 {
 		t.Fatalf("expected opened transient_http probe failure event, got %+v", events[0])
 	}
 	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != primaryEndpointID {
 		t.Fatalf("expected probe failure event model/endpoint snapshot %q/%d, got %+v", targetModelID, primaryEndpointID, events[0])
+	}
+	if !events[1].FailureKind.Valid || events[1].FailureKind.String != "transient_http" || events[1].ConsecutiveFailures != 1 || events[1].CooldownSeconds != 60 {
+		t.Fatalf("expected trailing probe_eligible transient_http event after probe failure reopen, got %+v", events[1])
 	}
 }
 
@@ -1403,14 +1405,15 @@ func TestRuntimeLoadBalanceWinningSuccessUpdatesRuntimeState(t *testing.T) {
 		t.Fatalf("expected success observation to persist latency and timestamp, got %+v", successState)
 	}
 	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 loadbalance event for recovery success, got %+v", events)
-	}
-	if events[0].EventType != "recovered" {
-		t.Fatalf("expected recovered loadbalance event, got %+v", events[0])
+	assertLoadbalanceEventTypeSequence(t, events, "recovered", "probe_eligible")
+	if events[0].FailureKind.Valid {
+		t.Fatalf("expected recovered event after winning success to keep an empty failure kind for stale open state, got %+v", events[0])
 	}
 	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != endpointID {
 		t.Fatalf("expected recovery event model/endpoint snapshot %q/%d, got %+v", targetModelID, endpointID, events[0])
+	}
+	if events[1].FailureKind.Valid {
+		t.Fatalf("expected trailing probe_eligible event after winning success to reuse the stale open state without a failure kind, got %+v", events[1])
 	}
 }
 
@@ -1470,14 +1473,15 @@ func TestRuntimeLoadBalanceProbeSuccessClosesRuntimeState(t *testing.T) {
 		t.Fatalf("expected probe success to persist latency and success timestamp, got %+v", successState)
 	}
 	events := loadLoadbalanceEvents(t, harness.conn, activeProfileID, connectionID)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 loadbalance event for probe recovery, got %+v", events)
-	}
-	if events[0].EventType != "recovered" || !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" {
+	assertLoadbalanceEventTypeSequence(t, events, "recovered", "probe_eligible")
+	if !events[0].FailureKind.Valid || events[0].FailureKind.String != "transient_http" {
 		t.Fatalf("expected recovered transient_http probe success event, got %+v", events[0])
 	}
 	if !events[0].ModelID.Valid || events[0].ModelID.String != targetModelID || !events[0].EndpointID.Valid || int(events[0].EndpointID.Int32) != endpointID {
 		t.Fatalf("expected probe recovery event model/endpoint snapshot %q/%d, got %+v", targetModelID, endpointID, events[0])
+	}
+	if !events[1].FailureKind.Valid || events[1].FailureKind.String != "transient_http" || events[1].ConsecutiveFailures != 1 || events[1].CooldownSeconds != 60 {
+		t.Fatalf("expected trailing probe_eligible transient_http event after probe success recovery, got %+v", events[1])
 	}
 }
 
@@ -1773,6 +1777,50 @@ func TestRuntimeAdaptiveHedgeLaunchesSecondAttemptAndFasterHedgedPathWins(t *tes
 	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
 }
 
+func TestRuntimeAdaptiveAdditionalAttemptBudgetStopsBeforeThirdConnection(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	publicModelID := "proxy-loadbalance-adaptive-budget-" + suffix
+	targetModelID := "native-loadbalance-adaptive-budget-" + suffix
+	firstUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "adaptive budget first unavailable"})
+	secondUpstream := newScriptedUpstream(t, http.StatusServiceUnavailable, map[string]any{"error": "adaptive budget second unavailable"})
+	thirdUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-adaptive-budget-third"})
+	routingPolicy := `{"kind":"adaptive","routing_objective":"minimize_latency","hedge":{"enabled":true,"delay_ms":200,"max_additional_attempts":1},"circuit_breaker":{"failure_status_codes":[403,422,429,500,502,503,504,529],"base_open_seconds":60,"failure_threshold":2,"backoff_multiplier":2.0,"max_open_seconds":900,"ban_mode":"off","max_open_strikes_before_ban":0,"ban_duration_seconds":0},"admission":{"respect_qps_limit":true,"respect_in_flight_limits":true}}`
+	strategyID := harness.seedAdaptiveStrategyWithRoutingPolicy(t, activeProfileID, "runtime-adaptive-budget-"+suffix, routingPolicy)
+	targetModelConfigID := harness.seedModel(t, activeProfileID, "openai", targetModelID, "native", &strategyID)
+	publicModelConfigID := harness.seedModel(t, activeProfileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTarget(t, publicModelConfigID, targetModelConfigID)
+	firstEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-budget-first-endpoint-"+suffix, firstUpstream.baseURL("/loadbalance/adaptive/budget/first"), "adaptive-budget-first-key", 0)
+	secondEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-budget-second-endpoint-"+suffix, secondUpstream.baseURL("/loadbalance/adaptive/budget/second"), "adaptive-budget-second-key", 1)
+	thirdEndpointID := harness.seedEndpoint(t, activeProfileID, "adaptive-budget-third-endpoint-"+suffix, thirdUpstream.baseURL("/loadbalance/adaptive/budget/third"), "adaptive-budget-third-key", 2)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, firstEndpointID, "adaptive-budget-first-connection-"+suffix, nil, nil, 0)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, secondEndpointID, "adaptive-budget-second-connection-"+suffix, nil, nil, 1)
+	_ = harness.seedConnection(t, activeProfileID, targetModelConfigID, thirdEndpointID, "adaptive-budget-third-connection-"+suffix, nil, nil, 2)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "adaptive additional attempt budget"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusServiceUnavailable)
+	if got := len(firstUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one first upstream request, got %d", got)
+	}
+	if got := len(secondUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected one second upstream request, got %d", got)
+	}
+	if got := len(thirdUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected third upstream to stay unused after exhausting additional-attempt budget, got %d requests", got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, activeProfileID, 2, 2)
+}
+
 func startSharedPostgresHarness() (testPostgresHarness, error) {
 	containerName := "prism-s14-runtime-" + randomSuffix()
 	if err := runDockerCommand(context.Background(), "run", "--rm", "-d", "--name", containerName, "-e", "POSTGRES_DB=postgres", "-e", "POSTGRES_USER=prism", "-e", "POSTGRES_PASSWORD=prism", "-P", "postgres:16-alpine"); err != nil {
@@ -1924,6 +1972,11 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("build profiles service: %v", err)
 	}
 	tb.Cleanup(profilesService.Close)
+	statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return time.Now().UTC() }})
+	if err != nil {
+		tb.Fatalf("build stats service: %v", err)
+	}
+	tb.Cleanup(statsService.Close)
 	runtimeService, err := runtimeapi.NewService(settings, runtimeOptions)
 	if err != nil {
 		tb.Fatalf("build runtime service: %v", err)
@@ -1936,6 +1989,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		RuntimeCache:       runtimeCache,
 		ConfigRulesService: configRulesService,
 		ProfilesService:    profilesService,
+		StatsService:       statsService,
 		RuntimeService:     runtimeService,
 	})
 	if err != nil {
@@ -2809,6 +2863,18 @@ func loadLoadbalanceEvents(t *testing.T, conn *pgx.Conn, profileID int, connecti
 		t.Fatalf("iterate loadbalance events for connection %d: %v", connectionID, err)
 	}
 	return events
+}
+
+func assertLoadbalanceEventTypeSequence(t *testing.T, events []persistedLoadbalanceEvent, want ...string) {
+	t.Helper()
+	if len(events) != len(want) {
+		t.Fatalf("expected %d loadbalance events %v, got %+v", len(want), want, events)
+	}
+	for index, eventType := range want {
+		if events[index].EventType != eventType {
+			t.Fatalf("expected loadbalance event %d to be %q, got %+v", index, eventType, events[index])
+		}
+	}
 }
 
 func loadRoundRobinNextCursor(t *testing.T, harness *runtimeHarness, profileID int, modelConfigID int, connectionCount int) int {

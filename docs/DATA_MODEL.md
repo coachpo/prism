@@ -801,6 +801,7 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 - `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
 - `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
+- `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `connection_limiter_state` and `connection_limiter_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
 - Cross-profile resource lookups are treated as not found (`404`) under effective profile scope.
 - Connection create/update must enforce profile consistency between model and endpoint references.
@@ -816,10 +817,10 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 ## 6. Runtime Isolation Notes
 
 - Proxy routing always resolves against the active profile snapshot.
-- Failover current state is persisted in `loadbalance_current_state` and namespaced by `(profile_id, connection_id)` to avoid cross-profile cooldown leakage.
-- Ban escalation state is persisted on the same `loadbalance_current_state` row via `max_cooldown_strikes`, `ban_mode`, and `banned_until_at`.
-- Connection limiter state is persisted in `connection_limiter_state` plus `connection_limiter_leases` and namespaced by `(profile_id, connection_id)` to avoid cross-profile admission leakage.
-- Runtime failover current-state rows track `consecutive_failures`, `blocked_until_at`, `last_cooldown_seconds`, `last_failure_kind`, `max_cooldown_strikes`, `ban_mode`, `banned_until_at`, and `probe_eligible_logged` for each `(profile_id, connection_id)` entry.
+- Runtime routing state is persisted in profile-scoped hot tables and namespaced by `(profile_id, connection_id)` so current state, cooldown, and ban decisions do not leak across profiles.
+- Ban escalation state stays with the same per-connection runtime row and tracks the resolved cooldown and ban fields together.
+- Connection limiter state is persisted in profile-scoped `UNLOGGED` hot tables plus lease rows and remains namespaced by `(profile_id, connection_id)` to avoid cross-profile admission leakage.
+- Runtime current-state rows track `consecutive_failures`, `blocked_until_at`, `last_cooldown_seconds`, `last_failure_kind`, `max_cooldown_strikes`, `ban_mode`, `banned_until_at`, and `probe_eligible_logged` for each `(profile_id, connection_id)` entry.
 - Runtime connection limiter rows reset after crash or unclean shutdown because the limiter tables are `UNLOGGED`; startup reconciliation recreates or compacts state from fresh traffic and surviving leases.
 - Failures are classified as `transient_http`, `connect_error`, or `timeout`; failover-worthy HTTP responses use the same threshold/backoff/jitter policy path as transport failures.
 - Ban escalation counts only failure transitions that newly hit the resolved max-cooldown cap under the explicit strategy policy.
@@ -840,3 +841,6 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 
 ## 8. Invariant Notes
+
+- The canonical split-bundle contract version is `1` for both profile bundles and vendor catalog bundles.
+- Runtime hot state remains profile-scoped and reset-on-crash by design.

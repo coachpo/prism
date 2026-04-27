@@ -58,8 +58,11 @@ type Dependencies struct {
 }
 
 type healthResponse struct {
-	Status  string `json:"status"`
-	Version string `json:"version"`
+	Status    string `json:"status"`
+	Version   string `json:"version"`
+	Liveness  string `json:"liveness"`
+	Readiness string `json:"readiness"`
+	Startup   string `json:"startup"`
 }
 
 type managementRouteClass int
@@ -623,7 +626,13 @@ func corsMiddleware(allowedOrigins map[string]struct{}) func(http.Handler) http.
 }
 
 func healthHandler(version string) http.HandlerFunc {
-	response := healthResponse{Status: "ok", Version: version}
+	response := healthResponse{
+		Status:    "ok",
+		Version:   version,
+		Liveness:  "ok",
+		Readiness: "ready",
+		Startup:   "complete",
+	}
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)

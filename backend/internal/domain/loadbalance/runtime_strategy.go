@@ -283,8 +283,8 @@ func (strategy RuntimeStrategy) HedgePolicy() RuntimeHedgePolicy {
 	if len(strategy.RoutingPolicyRaw) == 0 || json.Unmarshal(strategy.RoutingPolicyRaw, &policy) != nil {
 		return RuntimeHedgePolicy{}
 	}
-	maxAdditionalAttempts := maxInt(policy.Hedge.MaxAdditionalAttempts, 1)
-	if maxAdditionalAttempts > 1 {
+	maxAdditionalAttempts := policy.Hedge.MaxAdditionalAttempts
+	if maxAdditionalAttempts < 1 {
 		maxAdditionalAttempts = 1
 	}
 	return RuntimeHedgePolicy{

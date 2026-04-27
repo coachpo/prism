@@ -46,6 +46,36 @@ func TestConfigBundleV1Export(t *testing.T) {
 	assertJSONMatchesFixture(t, payload, want)
 }
 
+func TestConfigBundleV1ExportCarriesPortableTrafficRules(t *testing.T) {
+	harness := newConfigBundleContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleFixtureGraph(t, harness, profileID)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+
+	headerRules, ok := payload["header_blocklist_rules"].([]any)
+	if !ok || len(headerRules) != 1 {
+		t.Fatalf("expected one exported header blocklist rule, got %+v", payload["header_blocklist_rules"])
+	}
+	headerRule := asMap(t, headerRules[0])
+	if headerRule["name"] != "Authorization" || headerRule["match_type"] != "exact" || headerRule["pattern"] != "authorization" || headerRule["enabled"] != true {
+		t.Fatalf("expected exported header blocklist rule contents, got %+v", headerRule)
+	}
+
+	userAgentRules, ok := payload["user_agent_client_rules"].([]any)
+	if !ok || len(userAgentRules) != 1 {
+		t.Fatalf("expected one exported user-agent client rule, got %+v", payload["user_agent_client_rules"])
+	}
+	userAgentRule := asMap(t, userAgentRules[0])
+	if userAgentRule["name"] != "Acme Agent" || userAgentRule["pattern"] != "acme-agent" || userAgentRule["enabled"] != true {
+		t.Fatalf("expected exported user-agent client rule contents, got %+v", userAgentRule)
+	}
+}
+
 func TestConfigBundleDownloadHeaders(t *testing.T) {
 	harness := newConfigBundleContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -215,6 +245,9 @@ func seedConfigBundleFixtureGraph(t *testing.T, harness *contractHarness, profil
 	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM header_blocklist_rules WHERE profile_id = $1 AND is_system = FALSE`, profileID); err != nil {
 		t.Fatalf("clear profile header blocklist rules: %v", err)
 	}
+	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM user_agent_client_rules WHERE profile_id = $1 AND is_system = FALSE`, profileID); err != nil {
+		t.Fatalf("clear profile user-agent client rules: %v", err)
+	}
 
 	if _, err := harness.conn.Exec(context.Background(), `DELETE FROM vendors WHERE key = 'gemini'`); err != nil {
 		t.Fatalf("delete gemini vendor for fixture alignment: %v", err)
@@ -304,6 +337,9 @@ func seedConfigBundleFixtureGraph(t *testing.T, harness *contractHarness, profil
 	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO header_blocklist_rules (profile_id, name, match_type, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, $2, 'exact', 'authorization', TRUE, FALSE, $3, $3)`, profileID, "Authorization", now); err != nil {
 		t.Fatalf("insert profile header blocklist rule: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO user_agent_client_rules (profile_id, name, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, $2, $3, TRUE, FALSE, $4, $4)`, profileID, "Acme Agent", "acme-agent", now); err != nil {
+		t.Fatalf("insert profile user-agent client rule: %v", err)
 	}
 }
 

@@ -14,7 +14,7 @@ const { ConfigImportSchema } = load(path.join(frontendDir, "src/lib/configImport
 
 function buildValidConfigImport() {
   return {
-    version: 2,
+    version: 1,
     bundle_kind: "profile_config",
     vendor_refs: [],
     endpoints: [

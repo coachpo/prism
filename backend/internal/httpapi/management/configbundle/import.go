@@ -17,10 +17,9 @@ import (
 )
 
 const (
-	expectedProfileBundleVersion = 1
-	expectedProfileBundleKind    = "profile_config"
-	expectedVendorCatalogVersion = 1
-	expectedVendorCatalogKind    = "vendor_catalog"
+	canonicalBundleVersion     = 1
+	canonicalProfileBundleKind = "profile_config"
+	canonicalVendorCatalogKind = "vendor_catalog"
 )
 
 var validImportAPIFamilies = map[string]struct{}{
@@ -41,6 +40,26 @@ func importedConnectionCount(models []modelExport) int {
 		total += len(model.Connections)
 	}
 	return total
+}
+
+func validateProfileBundleEnvelope(data profileImportRequest) error {
+	if data.Version != canonicalBundleVersion {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle version '%d'; expected %d", data.Version, canonicalBundleVersion)}
+	}
+	if data.BundleKind != canonicalProfileBundleKind {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle kind '%s'; expected '%s'", data.BundleKind, canonicalProfileBundleKind)}
+	}
+	return nil
+}
+
+func validateVendorCatalogBundleEnvelope(data vendorCatalogImportRequest) error {
+	if data.Version != canonicalBundleVersion {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle version '%d'; expected %d", data.Version, canonicalBundleVersion)}
+	}
+	if data.BundleKind != canonicalVendorCatalogKind {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle kind '%s'; expected '%s'", data.BundleKind, canonicalVendorCatalogKind)}
+	}
+	return nil
 }
 
 func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, data profileImportRequest) (profileImportPreviewResponse, error) {
@@ -66,8 +85,8 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 
 	return profileImportPreviewResponse{
 		Ready:                    len(blockingErrors) == 0,
-		Version:                  expectedProfileBundleVersion,
-		BundleKind:               expectedProfileBundleKind,
+		Version:                  canonicalBundleVersion,
+		BundleKind:               canonicalProfileBundleKind,
 		EndpointsImported:        len(data.Endpoints),
 		PricingTemplatesImported: len(data.PricingTemplates),
 		StrategiesImported:       len(data.LoadbalanceStrategies),
@@ -141,6 +160,9 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 	if err := insertImportedHeaderBlocklistRules(ctx, exec, profileID, data.HeaderBlocklistRules, currentTime); err != nil {
 		return profileImportResponse{}, err
 	}
+	if err := insertImportedUserAgentClientRules(ctx, exec, profileID, data.UserAgentClientRules, currentTime); err != nil {
+		return profileImportResponse{}, err
+	}
 	if s.afterProfileImport != nil {
 		tx, ok := exec.(pgx.Tx)
 		if !ok {
@@ -161,14 +183,15 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 }
 
 func (s *Service) previewVendorCatalogImport(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (vendorCatalogImportPreviewResponse, error) {
+	data = normalizeVendorCatalogImportRequest(data)
 	createCount, updateCount, blockingErrors, _, err := countVendorCatalogChanges(ctx, exec, data)
 	if err != nil {
 		return vendorCatalogImportPreviewResponse{}, err
 	}
 	return vendorCatalogImportPreviewResponse{
 		Ready:          len(blockingErrors) == 0,
-		Version:        expectedVendorCatalogVersion,
-		BundleKind:     expectedVendorCatalogKind,
+		Version:        canonicalBundleVersion,
+		BundleKind:     canonicalVendorCatalogKind,
 		CreateCount:    createCount,
 		UpdateCount:    updateCount,
 		BlockingErrors: blockingErrors,
@@ -177,6 +200,7 @@ func (s *Service) previewVendorCatalogImport(ctx context.Context, exec queryExec
 }
 
 func (s *Service) importVendorCatalog(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (vendorCatalogImportResponse, error) {
+	data = normalizeVendorCatalogImportRequest(data)
 	_, _, blockingErrors, existingByKey, err := countVendorCatalogChanges(ctx, exec, data)
 	if err != nil {
 		return vendorCatalogImportResponse{}, err
@@ -209,12 +233,8 @@ func (s *Service) importVendorCatalog(ctx context.Context, exec queryExecutor, d
 }
 
 func validateProfileImportRequest(data profileImportRequest) error {
-	if data.Version != expectedProfileBundleVersion {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle version '%d'; expected %d", data.Version, expectedProfileBundleVersion)}
-	}
-
-	if data.BundleKind != expectedProfileBundleKind {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported profile config bundle kind '%s'; expected '%s'", data.BundleKind, expectedProfileBundleKind)}
+	if err := validateProfileBundleEnvelope(data); err != nil {
+		return err
 	}
 	if data.SecretPayload.Kind != "encrypted" {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "Config import secret payload kind must be 'encrypted'"}
@@ -445,15 +465,35 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		}
 		seenBlocklistRules[key] = struct{}{}
 	}
+	seenUserAgentRules := map[string]struct{}{}
+	for _, rule := range data.UserAgentClientRules {
+		if _, ok := seenUserAgentRules[rule.Pattern]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate user-agent client rule in import for pattern='%s'", rule.Pattern)}
+		}
+		seenUserAgentRules[rule.Pattern] = struct{}{}
+	}
 	return nil
 }
 
-func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (int, int, []string, map[string]*vendorRow, error) {
-	if data.Version != expectedVendorCatalogVersion {
-		return 0, 0, nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle version '%d'; expected %d", data.Version, expectedVendorCatalogVersion)}
+func normalizeVendorCatalogImportRequest(data vendorCatalogImportRequest) vendorCatalogImportRequest {
+	normalized := data
+	normalized.Vendors = make([]vendorCatalogRow, 0, len(data.Vendors))
+	for _, vendor := range data.Vendors {
+		normalized.Vendors = append(normalized.Vendors, vendorCatalogRow{
+			Key:                strings.ToLower(strings.TrimSpace(vendor.Key)),
+			Name:               strings.TrimSpace(vendor.Name),
+			Description:        trimmedOptionalString(vendor.Description),
+			IconKey:            normalizedIconKey(vendor.IconKey),
+			AuditEnabled:       vendor.AuditEnabled,
+			AuditCaptureBodies: vendor.AuditCaptureBodies,
+		})
 	}
-	if data.BundleKind != expectedVendorCatalogKind {
-		return 0, 0, nil, nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Unsupported vendor catalog bundle kind '%s'; expected '%s'", data.BundleKind, expectedVendorCatalogKind)}
+	return normalized
+}
+
+func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (int, int, []string, map[string]*vendorRow, error) {
+	if err := validateVendorCatalogBundleEnvelope(data); err != nil {
+		return 0, 0, nil, nil, err
 	}
 
 	seenKeys := map[string]struct{}{}
@@ -618,7 +658,7 @@ func lockProfileRow(ctx context.Context, exec queryExecutor, profileID int) erro
 }
 
 func lockImportTargetTables(ctx context.Context, exec queryExecutor) error {
-	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_proxy_targets, pricing_templates, vendors, user_settings, header_blocklist_rules IN SHARE ROW EXCLUSIVE MODE`)
+	_, err := exec.Exec(ctx, `LOCK TABLE endpoint_fx_rate_settings, connections, endpoints, loadbalance_strategies, model_configs, model_proxy_targets, pricing_templates, vendors, user_settings, header_blocklist_rules, user_agent_client_rules IN SHARE ROW EXCLUSIVE MODE`)
 	if err != nil {
 		return fmt.Errorf("lock config bundle import tables: %w", err)
 	}
@@ -635,6 +675,7 @@ func clearProfileImportState(ctx context.Context, exec queryExecutor, profileID 
 		`DELETE FROM loadbalance_strategies WHERE profile_id = $1`,
 		`DELETE FROM pricing_templates WHERE profile_id = $1`,
 		`DELETE FROM header_blocklist_rules WHERE profile_id = $1 AND is_system = FALSE`,
+		`DELETE FROM user_agent_client_rules WHERE profile_id = $1 AND is_system = FALSE`,
 	}
 	for _, query := range queries {
 		if _, err := exec.Exec(ctx, query, profileID); err != nil {
@@ -844,6 +885,23 @@ func insertImportedHeaderBlocklistRules(ctx context.Context, exec queryExecutor,
 	for _, rule := range sortedRules {
 		if _, err := exec.Exec(ctx, `INSERT INTO header_blocklist_rules (profile_id, name, match_type, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, FALSE, $6, $6)`, profileID, rule.Name, rule.MatchType, rule.Pattern, rule.Enabled, currentTime); err != nil {
 			return fmt.Errorf("insert imported header blocklist rule %q: %w", rule.Name, err)
+		}
+	}
+	return nil
+}
+
+func insertImportedUserAgentClientRules(ctx context.Context, exec queryExecutor, profileID int, rules []userAgentClientRuleExport, currentTime time.Time) error {
+	sortedRules := make([]userAgentClientRuleExport, len(rules))
+	copy(sortedRules, rules)
+	sort.SliceStable(sortedRules, func(left int, right int) bool {
+		if sortedRules[left].Pattern != sortedRules[right].Pattern {
+			return sortedRules[left].Pattern < sortedRules[right].Pattern
+		}
+		return sortedRules[left].Name < sortedRules[right].Name
+	})
+	for _, rule := range sortedRules {
+		if _, err := exec.Exec(ctx, `INSERT INTO user_agent_client_rules (profile_id, name, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, $2, $3, $4, FALSE, $5, $5)`, profileID, rule.Name, rule.Pattern, rule.Enabled, currentTime); err != nil {
+			return fmt.Errorf("insert imported user-agent client rule %q: %w", rule.Name, err)
 		}
 	}
 	return nil

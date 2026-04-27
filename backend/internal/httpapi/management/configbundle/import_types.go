@@ -15,6 +15,7 @@ type profileImportRequest struct {
 	Models                []modelExport               `json:"models"`
 	ProfileSettings       *profileSettingsExport      `json:"profile_settings"`
 	HeaderBlocklistRules  []headerBlocklistRuleExport `json:"header_blocklist_rules"`
+	UserAgentClientRules  []userAgentClientRuleExport `json:"user_agent_client_rules"`
 	SecretPayload         secretPayloadExport         `json:"secret_payload"`
 }
 
@@ -79,4 +80,3 @@ type importedStrategyPayload struct {
 }
 
 type secretPayloadEntryMap map[string]string
-

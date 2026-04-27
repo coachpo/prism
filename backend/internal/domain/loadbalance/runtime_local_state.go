@@ -30,9 +30,10 @@ type RuntimeConnectionAttemptHandle struct {
 }
 
 type RuntimeConnectionAttemptDecision struct {
-	Handle          RuntimeConnectionAttemptHandle
-	Skipped         bool
-	AdmissionReason string
+	Handle              RuntimeConnectionAttemptHandle
+	Skipped             bool
+	AdmissionReason     string
+	ProbeEligibleRecord *RuntimeConnectionState
 }
 
 type RuntimeStateTransition struct {
@@ -186,11 +187,17 @@ func (s *LocalRuntimeStateStore) TryBeginConnectionAttempt(input RuntimeConnecti
 	if !snapshot.IsEligible(nowAt) {
 		return RuntimeConnectionAttemptDecision{Skipped: true}
 	}
+	decision := RuntimeConnectionAttemptDecision{}
+	if probeEligibleRecord, ok := state.markProbeEligibleRecordLocked(nowAt); ok {
+		decision.ProbeEligibleRecord = &probeEligibleRecord
+	}
 	if reason := state.admissionRejectionReasonLocked(input.Admission, input.Policy, input.IsStreaming, nowAt); reason != "" {
-		return RuntimeConnectionAttemptDecision{AdmissionReason: reason}
+		decision.AdmissionReason = reason
+		return decision
 	}
 	if state.requiresHalfOpenProbeLocked(nowAt) && state.halfOpenProbeActive {
-		return RuntimeConnectionAttemptDecision{Skipped: true}
+		decision.Skipped = true
+		return decision
 	}
 
 	handle := RuntimeConnectionAttemptHandle{state: state}
@@ -213,7 +220,8 @@ func (s *LocalRuntimeStateStore) TryBeginConnectionAttempt(input RuntimeConnecti
 		handle.probeReserved = true
 	}
 	state.updatedAt = nowAt
-	return RuntimeConnectionAttemptDecision{Handle: handle}
+	decision.Handle = handle
+	return decision
 }
 
 func (s *LocalRuntimeStateStore) FinishConnectionAttempt(handle RuntimeConnectionAttemptHandle, releasedAt time.Time) {
@@ -560,6 +568,18 @@ func (state *localRuntimeConnectionState) advanceQPSWindowLocked(referenceNow ti
 
 func (state *localRuntimeConnectionState) requiresHalfOpenProbeLocked(referenceNow time.Time) bool {
 	return RequiresHalfOpenProbeLease(state.snapshotLocked(), referenceNow)
+}
+
+func (state *localRuntimeConnectionState) markProbeEligibleRecordLocked(referenceNow time.Time) (RuntimeConnectionState, bool) {
+	nowAt := referenceNow.UTC()
+	if state.state.ProbeEligibleLogged {
+		return RuntimeConnectionState{}, false
+	}
+	if deriveCurrentState(state.state.BanMode, state.state.BannedUntilAt, state.state.OpenUntilAt, nowAt) != "probe_eligible" {
+		return RuntimeConnectionState{}, false
+	}
+	state.state.ProbeEligibleLogged = true
+	return state.snapshotLocked(), true
 }
 
 func normalizeSeededRuntimeConnectionState(seeded RuntimeConnectionState, connectionID int) RuntimeConnectionState {

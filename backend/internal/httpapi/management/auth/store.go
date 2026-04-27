@@ -832,14 +832,14 @@ func scanProxyAPIKey(scanner interface{ Scan(...any) error }) (proxyAPIKeyRow, e
 }
 
 func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string, notes *string, authSubjectID *int) (string, proxyAPIKeyRow, error) {
+	now := s.nowUTC()
 	var count int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM proxy_api_keys`).Scan(&count); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM proxy_api_keys WHERE expires_at IS NULL OR expires_at > $1`, now).Scan(&count); err != nil {
 		return "", proxyAPIKeyRow{}, fmt.Errorf("count proxy api keys: %w", err)
 	}
 	if count >= proxyKeyLimit {
 		return "", proxyAPIKeyRow{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Maximum %d proxy API keys reached", proxyKeyLimit)}
 	}
-	now := s.nowUTC()
 	for attempt := 0; attempt < 5; attempt++ {
 		rawKey, keyPrefix, lastFour, keyHash, err := buildProxyAPIKey()
 		if err != nil {
@@ -933,13 +933,32 @@ func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, n
 }
 
 func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (string, proxyAPIKeyRow, error) {
-	if _, err := s.loadProxyAPIKeyByID(ctx, tx, keyID); err != nil {
+	current, err := s.loadProxyAPIKeyByID(ctx, tx, keyID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", proxyAPIKeyRow{}, &domainError{StatusCode: 404, Detail: "Proxy API key not found"}
 		}
 		return "", proxyAPIKeyRow{}, fmt.Errorf("load proxy api key: %w", err)
 	}
 	now := s.nowUTC()
+	var inheritedExpiry any
+	if current.ExpiresAt.Valid {
+		resolvedExpiry := current.ExpiresAt.Time.UTC()
+		if !resolvedExpiry.After(now) {
+			return "", proxyAPIKeyRow{}, &domainError{StatusCode: 409, Detail: "Expired proxy API keys cannot be rotated"}
+		}
+		inheritedExpiry = resolvedExpiry
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`UPDATE proxy_api_keys
+		SET is_active = FALSE, expires_at = $2, updated_at = $2
+		WHERE id = $1`,
+		keyID,
+		now,
+	); err != nil {
+		return "", proxyAPIKeyRow{}, fmt.Errorf("expire rotated proxy api key: %w", err)
+	}
 	for attempt := 0; attempt < 5; attempt++ {
 		rawKey, keyPrefix, lastFour, keyHash, err := buildProxyAPIKey()
 		if err != nil {
@@ -947,15 +966,35 @@ func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (
 		}
 		scanner := tx.QueryRow(
 			ctx,
-			`UPDATE proxy_api_keys
-			SET key_prefix = $2, key_hash = $3, last_four = $4, updated_at = $5
-			WHERE id = $1
+			`INSERT INTO proxy_api_keys (
+				name,
+				key_prefix,
+				key_hash,
+				last_four,
+				is_active,
+				expires_at,
+				last_used_at,
+				last_used_ip,
+				created_by_auth_subject_id,
+				notes,
+				rotated_from_id,
+				created_at,
+				updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			RETURNING id, name, key_prefix, key_hash, last_four, is_active, expires_at, last_used_at,
 				last_used_ip, created_by_auth_subject_id, notes, rotated_from_id, created_at, updated_at`,
-			keyID,
+			current.Name,
 			keyPrefix,
 			keyHash,
 			lastFour,
+			current.IsActive,
+			inheritedExpiry,
+			nil,
+			nil,
+			nullableInt32(nullableInt(current.CreatedByAuthSubjectID)),
+			nullableTrimmedStringPtr(nullableString(current.Notes)),
+			keyID,
+			now,
 			now,
 		)
 		row, scanErr := scanProxyAPIKey(scanner)

@@ -52,11 +52,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       debounceRef.current = null;
     }
     endpointOptionsLoadedOnceRef.current = false;
-    setEndpointOptionsLoaded(false);
-    setFilterOptions(EMPTY_FILTER_OPTIONS);
-    setError(null);
-    setLoading(enabled);
-  }, [enabled, revision]);
+  }, [revision]);
 
   const fetchData = useCallback(() => {
     const id = ++fetchIdRef.current;
@@ -95,8 +91,6 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       .catch((err) => {
         if (id !== fetchIdRef.current) return;
         setError(err instanceof Error ? err.message : messages.requestLogs.loadFailed);
-        setItems([]);
-        setTotal(0);
       })
       .finally(() => {
         if (id !== fetchIdRef.current) return;

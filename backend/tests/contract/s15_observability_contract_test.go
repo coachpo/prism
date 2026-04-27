@@ -16,6 +16,7 @@ import (
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementloadbalance "github.com/coachpo/prism/backend/internal/httpapi/management/loadbalance"
+	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
@@ -233,22 +234,35 @@ func TestStatsDelete(t *testing.T) {
 	insertUsageEvent(t, harness, usageEventSeed{ID: 40, ProfileID: profileID, IngressRequestID: "stats-delete-old", ModelID: "delete-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 41, ProfileID: profileID, IngressRequestID: "stats-delete-new", ModelID: "delete-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 
-	deleteRequestLogs := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/requests?older_than_days=1", nil, modelHeader(profileID))
+	retentionResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/retention",
+		map[string]any{
+			"request_logs_retention_days": 1,
+			"statistics_retention_days":   1,
+		},
+		modelHeader(profileID),
+	)
+	assertStatus(t, retentionResponse, http.StatusOK)
+
+	deleteRequestLogs := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/requests", nil, modelHeader(profileID))
 	assertStatus(t, deleteRequestLogs, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, deleteRequestLogs, &payload)
 	if payload["accepted"] != true {
-		t.Fatalf("expected stats request-log delete accepted response, got %+v", payload)
+		t.Fatalf("expected stats request-log retention delete accepted response, got %+v", payload)
 	}
 	if s15CountRows(t, harness, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected request-log delete to remove only old rows")
+		t.Fatalf("expected retention-policy request-log delete to remove only old rows")
 	}
 
-	deleteStatistics := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/statistics?delete_all=true", nil, modelHeader(profileID))
+	deleteStatistics := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/statistics", nil, modelHeader(profileID))
 	assertStatus(t, deleteStatistics, http.StatusOK)
 	decodeJSONResponse(t, deleteStatistics, &payload)
-	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1`, profileID) != 0 {
-		t.Fatalf("expected statistics delete to clear usage events, got %+v", payload)
+	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1`, profileID) != 1 {
+		t.Fatalf("expected retention-policy statistics delete to remove only old rows, got %+v", payload)
 	}
 }
 
@@ -257,6 +271,8 @@ func TestAuditLogs(t *testing.T) {
 	profileID := modelLoadDefaultProfileID(t, harness)
 	insertRequestLogSummaryRow(t, harness, 700, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-20*time.Minute))
 	insertAuditLog(t, harness, auditLogSeed{ID: 800, ProfileID: profileID, RequestLogID: intPtr(700), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("a", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_1"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 701, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-8*time.Minute), true)
+	insertAuditLog(t, harness, auditLogSeed{ID: 801, ProfileID: profileID, RequestLogID: intPtr(701), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("b", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_2"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-5 * time.Minute)})
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?request_log_id=700&limit=20", nil, modelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusConflict)
@@ -267,11 +283,28 @@ func TestAuditLogs(t *testing.T) {
 	}
 
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/800", nil, modelHeader(profileID))
-	assertStatus(t, detailResponse, http.StatusOK)
+	assertStatus(t, detailResponse, http.StatusConflict)
 	var detailPayload map[string]any
 	decodeJSONResponse(t, detailResponse, &detailPayload)
-	if detailPayload["request_body"] == nil || detailPayload["response_body"] == nil {
-		t.Fatalf("expected audit detail to return full captured bodies, got %+v", detailPayload)
+	if detailPayload["detail"] != "Audit capture unavailable for this request" {
+		t.Fatalf("expected disabled request snapshot to reject audit detail, got %+v", detailPayload)
+	}
+
+	visibleListResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	assertStatus(t, visibleListResponse, http.StatusOK)
+	var visibleListPayload map[string]any
+	decodeJSONResponse(t, visibleListResponse, &visibleListPayload)
+	items := visibleListPayload["items"].([]any)
+	if jsonInt(t, visibleListPayload["total"]) != 1 || len(items) != 1 || jsonInt(t, asMap(t, items[0])["id"]) != 801 {
+		t.Fatalf("expected audit list to exclude disabled request snapshots, got %+v", visibleListPayload)
+	}
+
+	enabledDetailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/801", nil, modelHeader(profileID))
+	assertStatus(t, enabledDetailResponse, http.StatusOK)
+	var enabledDetailPayload map[string]any
+	decodeJSONResponse(t, enabledDetailResponse, &enabledDetailPayload)
+	if enabledDetailPayload["request_body"] == nil || enabledDetailPayload["response_body"] == nil {
+		t.Fatalf("expected audit detail to return full captured bodies for enabled requests, got %+v", enabledDetailPayload)
 	}
 }
 
@@ -281,12 +314,22 @@ func TestAuditDelete(t *testing.T) {
 	insertAuditLog(t, harness, auditLogSeed{ID: 900, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
 	insertAuditLog(t, harness, auditLogSeed{ID: 901, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 
-	response := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/audit/logs?older_than_days=1", nil, modelHeader(profileID))
+	retentionResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/retention",
+		map[string]any{"audit_logs_retention_days": 1},
+		modelHeader(profileID),
+	)
+	assertStatus(t, retentionResponse, http.StatusOK)
+
+	response := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/audit/logs", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected audit delete to remove only old rows, got %+v", payload)
+		t.Fatalf("expected retention-policy audit delete to remove only old rows, got %+v", payload)
 	}
 }
 
@@ -311,6 +354,78 @@ func TestLoadbalanceCurrentState(t *testing.T) {
 	item := asMap(t, items[0])
 	if jsonInt(t, item["connection_id"]) != connectionID || item["state"] != "blocked" || item["blocked_until_at"] == nil || jsonInt(t, item["live_p95_latency_ms"]) != 540 {
 		t.Fatalf("unexpected loadbalance current-state payload: %+v", item)
+	}
+}
+
+func TestObservabilityLoadbalanceProbeEligibleStateAndSummaryRemainCoherent(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "S15 Probe Eligible Strategy")
+	modelConfigID := modelInsertModel(t, harness, profileID, &vendorID, "openai", "lb-probe-eligible-model", stringPtr("Loadbalance Probe Eligible Model"), "native", &strategyID, true)
+	endpointID := modelInsertEndpoint(t, harness, profileID, "LB Probe Eligible Endpoint", 0)
+	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
+	probeEligibleAt := fixedS15Now.Add(-1 * time.Minute)
+	failureKind := "transient_http"
+	insertRuntimeState(t, harness, runtimeStateSeed{
+		ProfileID:           profileID,
+		ConnectionID:        connectionID,
+		ConsecutiveFailures: 1,
+		LastFailureKind:     &failureKind,
+		LastCooldownSeconds: 60.0,
+		MaxCooldownStrikes:  1,
+		BanMode:             "off",
+		BlockedUntilAt:      timePtr(probeEligibleAt),
+		ProbeAvailableAt:    timePtr(probeEligibleAt),
+		ProbeEligibleLogged: false,
+		CircuitState:        "open",
+		CreatedAt:           fixedS15Now.Add(-10 * time.Minute),
+		UpdatedAt:           fixedS15Now,
+	})
+
+	currentStateResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/current-state?model_config_id=%d", modelConfigID), nil, modelHeader(profileID))
+	assertStatus(t, currentStateResponse, http.StatusOK)
+	var currentStatePayload map[string]any
+	decodeJSONResponse(t, currentStateResponse, &currentStatePayload)
+	item := s15CurrentStateItemByConnectionID(t, currentStatePayload, connectionID)
+	if item["state"] != "probe_eligible" || item["probe_eligible_logged"] != false || item["blocked_until_at"] == nil || item["probe_available_at"] == nil {
+		t.Fatalf("expected probe-eligible current-state payload, got %+v", item)
+	}
+	blockedUntilAtRaw, ok := item["blocked_until_at"].(string)
+	if !ok {
+		t.Fatalf("expected blocked_until_at string in probe-eligible payload, got %+v", item)
+	}
+	probeAvailableAtRaw, ok := item["probe_available_at"].(string)
+	if !ok {
+		t.Fatalf("expected probe_available_at string in probe-eligible payload, got %+v", item)
+	}
+	if blockedUntilAtRaw != probeAvailableAtRaw {
+		t.Fatalf("expected probe-eligible blocked/probe timestamps to stay aligned, got %+v", item)
+	}
+
+	blockedUntilMono := float64(probeEligibleAt.UTC().UnixNano()) / float64(time.Second)
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1150, ProfileID: profileID, ConnectionID: connectionID, EventType: "probe_eligible", FailureKind: &failureKind, ConsecutiveFailures: 1, CooldownSeconds: 60.0, BlockedUntilMono: &blockedUntilMono, ModelID: stringPtr("lb-probe-eligible-model"), EndpointID: &endpointID, VendorID: &vendorID, FailureThreshold: intPtr(1), BackoffMultiplier: float64Ptr(2.0), MaxCooldownSeconds: intPtr(900), MaxCooldownStrikes: intPtr(1), BanMode: stringPtr("off"), CreatedAt: fixedS15Now})
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events?model_id=lb-probe-eligible-model&limit=20&offset=0", nil, modelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	event := s15LoadbalanceEventByConnectionID(t, listPayload, connectionID)
+	summary := asMap(t, event["summary"])
+	if event["event_type"] != "probe_eligible" || summary["event"] != "Connection became probe eligible" || summary["cooldown"] != "60 seconds open interval completed" || !strings.Contains(summary["reason"].(string), "open interval") {
+		t.Fatalf("expected probe-eligible event summary payload, got %+v", event)
+	}
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events/%d", jsonInt(t, event["id"])), nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	detailSummary := asMap(t, detailPayload["summary"])
+	if detailPayload["event_type"] != "probe_eligible" || detailSummary["event"] != "Connection became probe eligible" {
+		t.Fatalf("expected probe-eligible event detail payload, got %+v", detailPayload)
+	}
+	if got, ok := detailPayload["blocked_until_mono"].(float64); !ok || math.Abs(got-blockedUntilMono) > 0.001 {
+		t.Fatalf("expected probe-eligible event detail blocked_until_mono %.6f, got %+v", blockedUntilMono, detailPayload)
 	}
 }
 
@@ -515,6 +630,15 @@ func TestLoadbalanceEventsReflectRuntimeRecoveredTransition(t *testing.T) {
 	})
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
 
+	currentStateResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/current-state?model_config_id=%d", targetModelConfigID), nil, modelHeader(profileID))
+	assertStatus(t, currentStateResponse, http.StatusOK)
+	var currentStatePayload map[string]any
+	decodeJSONResponse(t, currentStateResponse, &currentStatePayload)
+	currentStateItem := s15CurrentStateItemByConnectionID(t, currentStatePayload, connectionID)
+	if currentStateItem["state"] != "probe_eligible" || currentStateItem["circuit_state"] != "open" || currentStateItem["probe_eligible_logged"] != false {
+		t.Fatalf("expected expired open interval to surface probe_eligible current state before recovery, got %+v", currentStateItem)
+	}
+
 	runtimeResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "recovered transition"}},
 		"model":    publicModelID,
@@ -525,8 +649,12 @@ func TestLoadbalanceEventsReflectRuntimeRecoveredTransition(t *testing.T) {
 	assertStatus(t, listResponse, http.StatusOK)
 	var listPayload map[string]any
 	decodeJSONResponse(t, listResponse, &listPayload)
-	recoveredEvent := s15LoadbalanceEventByConnectionID(t, listPayload, connectionID)
-	if recoveredEvent["event_type"] != "recovered" || recoveredEvent["failure_kind"] != "transient_http" || asMap(t, recoveredEvent["summary"])["event"] != "Connection recovered" || !strings.Contains(asMap(t, recoveredEvent["summary"])["cooldown"].(string), "Recovered after a 60 seconds open interval") {
+	probeEligibleEvent := s15LoadbalanceEventByConnectionIDAndType(t, listPayload, connectionID, "probe_eligible")
+	if probeEligibleEvent["failure_kind"] != "transient_http" || asMap(t, probeEligibleEvent["summary"])["event"] != "Connection became probe eligible" || !strings.Contains(asMap(t, probeEligibleEvent["summary"])["cooldown"].(string), "open interval completed") {
+		t.Fatalf("expected probe_eligible event payload to reflect runtime probe semantics, got %+v", probeEligibleEvent)
+	}
+	recoveredEvent := s15LoadbalanceEventByConnectionIDAndType(t, listPayload, connectionID, "recovered")
+	if recoveredEvent["failure_kind"] != "transient_http" || asMap(t, recoveredEvent["summary"])["event"] != "Connection recovered" || !strings.Contains(asMap(t, recoveredEvent["summary"])["cooldown"].(string), "Recovered after a 60 seconds open interval") {
 		t.Fatalf("expected recovered event payload to reflect runtime recovery semantics, got %+v", recoveredEvent)
 	}
 	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events/%d", jsonInt(t, recoveredEvent["id"])), nil, modelHeader(profileID))
@@ -573,6 +701,11 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("build audit service: %v", err)
 	}
 	t.Cleanup(auditService.Close)
+	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }})
+	if err != nil {
+		t.Fatalf("build settings service: %v", err)
+	}
+	t.Cleanup(settingsService.Close)
 	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{Pool: pool, Now: func() time.Time { return fixedS15Now }, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build loadbalance service: %v", err)
@@ -588,7 +721,7 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("build runtime service: %v", err)
 	}
 	t.Cleanup(runtimeService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, RuntimeService: runtimeService, RuntimeCache: runtimeCache, RuntimeState: runtimeState, StatsService: statsService})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s15-contract-test", AuditService: auditService, LoadbalanceService: loadbalanceService, RuntimeService: runtimeService, RuntimeCache: runtimeCache, RuntimeState: runtimeState, SettingsService: settingsService, StatsService: statsService})
 	if err != nil {
 		t.Fatalf("build S15 handler: %v", err)
 	}
@@ -657,6 +790,7 @@ type runtimeStateSeed struct {
 	BanMode             string
 	BannedUntilAt       *time.Time
 	BlockedUntilAt      *time.Time
+	ProbeAvailableAt    *time.Time
 	ProbeEligibleLogged bool
 	CircuitState        string
 	LiveP95LatencyMS    *int
@@ -696,7 +830,12 @@ func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSee
 
 func insertRequestLogSummaryRow(t *testing.T, harness *contractHarness, id int, profileID int, modelID string, apiFamily string, endpointID int, connectionID int, statusCode int, responseTimeMS int, inputTokens int, outputTokens int, totalTokens int, createdAt time.Time) {
 	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, request_path, created_at, endpoint_base_url) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11, $12, TRUE, TRUE, '/v1/chat/completions', $13, $14)`, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, statusCode >= 200 && statusCode < 300, createdAt, fmt.Sprintf("https://endpoint-%d.invalid", endpointID)); err != nil {
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, createdAt, false)
+}
+
+func insertRequestLogSummaryRowWithAuditEnabled(t *testing.T, harness *contractHarness, id int, profileID int, modelID string, apiFamily string, endpointID int, connectionID int, statusCode int, responseTimeMS int, inputTokens int, outputTokens int, totalTokens int, createdAt time.Time, auditEnabledAtRequest bool) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, request_path, created_at, endpoint_base_url, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11, $12, TRUE, TRUE, '/v1/chat/completions', $13, $14, $15)`, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, statusCode >= 200 && statusCode < 300, createdAt, fmt.Sprintf("https://endpoint-%d.invalid", endpointID), auditEnabledAtRequest); err != nil {
 		t.Fatalf("insert request-log summary row %d: %v", id, err)
 	}
 }
@@ -731,6 +870,7 @@ func insertRuntimeState(t *testing.T, harness *contractHarness, seed runtimeStat
 		BanMode:             banMode,
 		BannedUntilAt:       seed.BannedUntilAt,
 		OpenUntilAt:         seed.BlockedUntilAt,
+		ProbeAvailableAt:    seed.ProbeAvailableAt,
 		WindowRequestCount:  4,
 		InFlightNonStream:   1,
 		ConsecutiveFailures: seed.ConsecutiveFailures,
@@ -808,6 +948,22 @@ func s15LoadbalanceEventByConnectionID(t *testing.T, payload map[string]any, con
 		}
 	}
 	t.Fatalf("expected loadbalance event for connection %d, got %+v", connectionID, payload)
+	return nil
+}
+
+func s15LoadbalanceEventByConnectionIDAndType(t *testing.T, payload map[string]any, connectionID int, eventType string) map[string]any {
+	t.Helper()
+	items, ok := payload["items"].([]any)
+	if !ok {
+		t.Fatalf("expected loadbalance event items array, got %+v", payload)
+	}
+	for _, raw := range items {
+		item := asMap(t, raw)
+		if jsonInt(t, item["connection_id"]) == connectionID && item["event_type"] == eventType {
+			return item
+		}
+	}
+	t.Fatalf("expected loadbalance event for connection %d with type %q, got %+v", connectionID, eventType, payload)
 	return nil
 }
 

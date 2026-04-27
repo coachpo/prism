@@ -6182,7 +6182,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
               }
             }
           }
@@ -6192,6 +6194,39 @@
   },
   "components": {
     "schemas": {
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "liveness": {
+            "type": "string",
+            "title": "Liveness"
+          },
+          "readiness": {
+            "type": "string",
+            "title": "Readiness"
+          },
+          "startup": {
+            "type": "string",
+            "title": "Startup"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "liveness",
+          "readiness",
+          "startup"
+        ],
+        "title": "HealthResponse"
+      },
       "AuditLogDeleteResponse": {
         "properties": {
           "accepted": {
@@ -7163,9 +7198,9 @@
         "properties": {
           "version": {
             "type": "integer",
-            "const": 3,
+            "const": 1,
             "title": "Version",
-            "default": 3
+            "default": 1
           },
           "bundle_kind": {
             "type": "string",
@@ -7253,9 +7288,9 @@
           },
           "version": {
             "type": "integer",
-            "const": 3,
+            "const": 1,
             "title": "Version",
-            "default": 3
+            "default": 1
           },
           "bundle_kind": {
             "type": "string",
@@ -7332,9 +7367,9 @@
         "properties": {
           "version": {
             "type": "integer",
-            "const": 3,
+            "const": 1,
             "title": "Version",
-            "default": 3
+            "default": 1
           },
           "bundle_kind": {
             "type": "string",
@@ -8104,9 +8139,9 @@
         "properties": {
           "version": {
             "type": "integer",
-            "const": 2,
+            "const": 1,
             "title": "Version",
-            "default": 2
+            "default": 1
           },
           "bundle_kind": {
             "type": "string",
@@ -8141,9 +8176,9 @@
           },
           "version": {
             "type": "integer",
-            "const": 2,
+            "const": 1,
             "title": "Version",
-            "default": 2
+            "default": 1
           },
           "bundle_kind": {
             "type": "string",
@@ -8186,9 +8221,9 @@
         "properties": {
           "version": {
             "type": "integer",
-            "const": 2,
+            "const": 1,
             "title": "Version",
-            "default": 2
+            "default": 1
           },
           "bundle_kind": {
             "type": "string",

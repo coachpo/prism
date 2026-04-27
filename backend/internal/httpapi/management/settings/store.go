@@ -29,7 +29,7 @@ func loadOrCreateUserSettings(ctx context.Context, tx pgx.Tx, profileID int, cur
 }
 
 func loadUserSettings(ctx context.Context, exec queryExecutor, profileID int, forUpdate bool) (userSettingsRow, bool, error) {
-	query := `SELECT id, profile_id, report_currency_code, report_currency_symbol, timezone_preference, created_at, updated_at FROM user_settings WHERE profile_id = $1`
+	query := `SELECT id, profile_id, report_currency_code, report_currency_symbol, timezone_preference, request_logs_retention_days, statistics_retention_days, audit_logs_retention_days, created_at, updated_at FROM user_settings WHERE profile_id = $1`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -49,7 +49,7 @@ func insertDefaultUserSettings(ctx context.Context, exec queryExecutor, profileI
 		ctx,
 		`INSERT INTO user_settings (profile_id, report_currency_code, report_currency_symbol, timezone_preference, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, profile_id, report_currency_code, report_currency_symbol, timezone_preference, created_at, updated_at`,
+		 RETURNING id, profile_id, report_currency_code, report_currency_symbol, timezone_preference, request_logs_retention_days, statistics_retention_days, audit_logs_retention_days, created_at, updated_at`,
 		profileID,
 		"USD",
 		"$",
@@ -66,11 +66,14 @@ func insertDefaultUserSettings(ctx context.Context, exec queryExecutor, profileI
 func updateUserSettings(ctx context.Context, exec queryExecutor, record userSettingsRow) error {
 	if _, err := exec.Exec(
 		ctx,
-		`UPDATE user_settings SET report_currency_code = $2, report_currency_symbol = $3, timezone_preference = $4, updated_at = $5 WHERE id = $1`,
+		`UPDATE user_settings SET report_currency_code = $2, report_currency_symbol = $3, timezone_preference = $4, request_logs_retention_days = $5, statistics_retention_days = $6, audit_logs_retention_days = $7, updated_at = $8 WHERE id = $1`,
 		record.ID,
 		record.ReportCurrencyCode,
 		record.ReportCurrencySymbol,
 		nullableString(record.TimezonePreference),
+		nullableInt(record.RequestLogsRetentionDays),
+		nullableInt(record.StatisticsRetentionDays),
+		nullableInt(record.AuditLogsRetentionDays),
 		record.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("update user settings %d: %w", record.ID, err)
@@ -160,11 +163,17 @@ func listValidConnectionPairs(ctx context.Context, exec queryExecutor, profileID
 
 func scanUserSettingsRow(scanner interface{ Scan(...any) error }) (userSettingsRow, error) {
 	var timezone sql.NullString
+	var requestLogsRetentionDays sql.NullInt32
+	var statisticsRetentionDays sql.NullInt32
+	var auditLogsRetentionDays sql.NullInt32
 	record := userSettingsRow{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ReportCurrencyCode, &record.ReportCurrencySymbol, &timezone, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &record.ReportCurrencyCode, &record.ReportCurrencySymbol, &timezone, &requestLogsRetentionDays, &statisticsRetentionDays, &auditLogsRetentionDays, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return userSettingsRow{}, err
 	}
 	record.TimezonePreference = nullableStringValue(timezone)
+	record.RequestLogsRetentionDays = nullableIntValue(requestLogsRetentionDays)
+	record.StatisticsRetentionDays = nullableIntValue(statisticsRetentionDays)
+	record.AuditLogsRetentionDays = nullableIntValue(auditLogsRetentionDays)
 	return record, nil
 }
 
@@ -181,6 +190,21 @@ func nullableStringValue(value sql.NullString) *string {
 }
 
 func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableIntValue(value sql.NullInt32) *int {
+	if !value.Valid {
+		return nil
+	}
+	resolved := int(value.Int32)
+	return &resolved
+}
+
+func nullableInt(value *int) any {
 	if value == nil {
 		return nil
 	}

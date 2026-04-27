@@ -16,6 +16,7 @@ type profileBundleResponse struct {
 	Models                []modelExport               `json:"models"`
 	ProfileSettings       profileSettingsExport       `json:"profile_settings"`
 	HeaderBlocklistRules  []headerBlocklistRuleExport `json:"header_blocklist_rules"`
+	UserAgentClientRules  []userAgentClientRuleExport `json:"user_agent_client_rules"`
 	SecretPayload         secretPayloadExport         `json:"secret_payload"`
 }
 
@@ -110,6 +111,12 @@ type headerBlocklistRuleExport struct {
 	MatchType string `json:"match_type"`
 	Pattern   string `json:"pattern"`
 	Enabled   bool   `json:"enabled"`
+}
+
+type userAgentClientRuleExport struct {
+	Name    string `json:"name"`
+	Pattern string `json:"pattern"`
+	Enabled bool   `json:"enabled"`
 }
 
 type secretPayloadExport struct {

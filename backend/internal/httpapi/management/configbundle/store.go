@@ -113,14 +113,20 @@ type headerBlocklistRuleRow struct {
 	Enabled   bool
 }
 
+type userAgentClientRuleRow struct {
+	Name    string
+	Pattern string
+	Enabled bool
+}
+
 func buildVendorCatalog(ctx context.Context, exec queryExecutor, exportTime time.Time) (vendorCatalogResponse, error) {
 	vendors, err := listAllVendors(ctx, exec)
 	if err != nil {
 		return vendorCatalogResponse{}, err
 	}
 	return vendorCatalogResponse{
-		Version:    1,
-		BundleKind: "vendor_catalog",
+		Version:    canonicalBundleVersion,
+		BundleKind: canonicalVendorCatalogKind,
 		ExportedAt: exportTime,
 		Vendors:    vendors,
 	}, nil
@@ -152,6 +158,10 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 		return profileBundleResponse{}, err
 	}
 	headerRules, err := listProfileHeaderBlocklistRules(ctx, exec, profileID)
+	if err != nil {
+		return profileBundleResponse{}, err
+	}
+	userAgentRules, err := listProfileUserAgentClientRules(ctx, exec, profileID)
 	if err != nil {
 		return profileBundleResponse{}, err
 	}
@@ -347,10 +357,14 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 	for _, rule := range headerRules {
 		exportedHeaderRules = append(exportedHeaderRules, headerBlocklistRuleExport(rule))
 	}
+	exportedUserAgentRules := make([]userAgentClientRuleExport, 0, len(userAgentRules))
+	for _, rule := range userAgentRules {
+		exportedUserAgentRules = append(exportedUserAgentRules, userAgentClientRuleExport(rule))
+	}
 
 	return profileBundleResponse{
-		Version:               1,
-		BundleKind:            "profile_config",
+		Version:               canonicalBundleVersion,
+		BundleKind:            canonicalProfileBundleKind,
 		ExportedAt:            exportTime,
 		VendorRefs:            exportedVendorRefs,
 		Endpoints:             exportedEndpoints,
@@ -364,6 +378,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			EndpointFXMappings:   exportedFXMappings,
 		},
 		HeaderBlocklistRules: exportedHeaderRules,
+		UserAgentClientRules: exportedUserAgentRules,
 		SecretPayload: secretPayloadExport{
 			Kind:    "encrypted",
 			Cipher:  bundleSecretCipher,
@@ -621,6 +636,27 @@ func listProfileHeaderBlocklistRules(ctx context.Context, exec queryExecutor, pr
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate header blocklist rules for profile %d: %w", profileID, err)
+	}
+	return items, nil
+}
+
+func listProfileUserAgentClientRules(ctx context.Context, exec queryExecutor, profileID int) ([]userAgentClientRuleRow, error) {
+	rows, err := exec.Query(ctx, `SELECT name, pattern, enabled FROM user_agent_client_rules WHERE profile_id = $1 AND is_system = FALSE ORDER BY pattern ASC, name ASC, id ASC`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("query user-agent client rules for profile %d: %w", profileID, err)
+	}
+	defer rows.Close()
+
+	items := make([]userAgentClientRuleRow, 0)
+	for rows.Next() {
+		item := userAgentClientRuleRow{}
+		if err := rows.Scan(&item.Name, &item.Pattern, &item.Enabled); err != nil {
+			return nil, fmt.Errorf("scan user-agent client rule row: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user-agent client rules for profile %d: %w", profileID, err)
 	}
 	return items, nil
 }

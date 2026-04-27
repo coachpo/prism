@@ -261,6 +261,7 @@ Profile export and import stay selected-profile scoped. `POST /api/config/profil
 3. Native connection planning applies the attached loadbalance strategy and per-connection limits.
 4. The upstream request is rewritten as needed for the target API family, then proxied through.
 5. Request logs, audit data, and loadbalance events are recorded for later operator investigation.
+6. Missing pricing stays visibly degraded or unpriced, it never silently looks complete.
 
 **Backend touchpoints**
 

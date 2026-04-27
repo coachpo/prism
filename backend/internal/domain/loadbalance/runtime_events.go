@@ -101,6 +101,14 @@ func RecordRuntimeAdmissionRejection(ctx context.Context, exec queryExecutor, pr
 	return nil
 }
 
+func InsertRuntimeProbeEligibleEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
+	payload := buildRuntimeProbeEligibleEventPayload(state, strategy)
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+		return fmt.Errorf("record runtime probe-eligible event for connection %d in profile %d: %w", connectionID, profileID, err)
+	}
+	return nil
+}
+
 func InsertRuntimeRecoveryEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, observedAt time.Time) error {
 	if !transition.RecoveryEventEligible {
 		return nil
@@ -161,6 +169,32 @@ func buildRuntimePlanningSkipEventPayload(state RuntimeConnectionState, strategy
 		MaxCooldownStrikes:  intPointer(state.MaxCooldownStrikes),
 		BanMode:             stringPointerIfNotEmpty(banModeValue),
 		BannedUntilAt:       bannedUntilAt,
+	}
+}
+
+func buildRuntimeProbeEligibleEventPayload(state RuntimeConnectionState, strategy RuntimeStrategy) runtimeEventPayload {
+	policy := strategy.FeedbackPolicy()
+	failureKind := state.LastFailureKind
+	if failureKind == nil {
+		failureKind = state.LastLiveFailureKind
+	}
+	blockedUntilAt := state.ProbeAvailableAt
+	if blockedUntilAt == nil {
+		blockedUntilAt = state.OpenUntilAt
+	}
+	banModeValue := normalizeBanMode(state.BanMode)
+	return runtimeEventPayload{
+		EventType:           "probe_eligible",
+		FailureKind:         failureKind,
+		ConsecutiveFailures: state.ConsecutiveFailures,
+		CooldownSeconds:     state.LastCooldownSeconds,
+		BlockedUntilAt:      blockedUntilAt,
+		FailureThreshold:    intPointer(policy.FailureThreshold),
+		BackoffMultiplier:   float64Pointer(policy.BackoffMultiplier),
+		MaxCooldownSeconds:  intPointer(policy.MaxOpenSeconds),
+		MaxCooldownStrikes:  intPointer(state.MaxCooldownStrikes),
+		BanMode:             stringPointerIfNotEmpty(banModeValue),
+		BannedUntilAt:       state.BannedUntilAt,
 	}
 }
 

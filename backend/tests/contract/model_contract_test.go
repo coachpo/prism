@@ -75,6 +75,96 @@ func TestModelCRUD(t *testing.T) {
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, duplicateCreate, http.StatusConflict, "Model ID 's8-native-model' already exists")
+	modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s8-native-model-b", stringPtr("S8 Native Model B"), "native", &strategyID, true)
+
+	proxyCreateWithoutTargets := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":  vendorID,
+			"api_family": "openai",
+			"model_id":   "s8-proxy-missing-targets",
+			"model_type": "proxy",
+			"is_enabled": true,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateWithoutTargets, http.StatusBadRequest, "proxy_targets is required for proxy models")
+
+	proxyCreateEmptyTargets := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":     vendorID,
+			"api_family":    "openai",
+			"model_id":      "s8-proxy-empty-targets",
+			"model_type":    "proxy",
+			"proxy_targets": []map[string]any{},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateEmptyTargets, http.StatusBadRequest, "proxy_targets is required for proxy models")
+
+	proxyCreateDuplicateTargets := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":  vendorID,
+			"api_family": "openai",
+			"model_id":   "s8-proxy-duplicate-targets",
+			"model_type": "proxy",
+			"proxy_targets": []map[string]any{
+				{"target_model_id": "s8-native-model", "position": 0},
+				{"target_model_id": "s8-native-model", "position": 1},
+			},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateDuplicateTargets, http.StatusBadRequest, "proxy_targets must contain unique target_model_id values")
+
+	proxyCreateDuplicatePositions := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":  vendorID,
+			"api_family": "openai",
+			"model_id":   "s8-proxy-duplicate-positions",
+			"model_type": "proxy",
+			"proxy_targets": []map[string]any{
+				{"target_model_id": "s8-native-model", "position": 0},
+				{"target_model_id": "s8-native-model-b", "position": 0},
+			},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateDuplicatePositions, http.StatusBadRequest, "proxy_targets must contain unique position values")
+
+	proxyCreateNonContiguousPositions := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":  vendorID,
+			"api_family": "openai",
+			"model_id":   "s8-proxy-non-contiguous-positions",
+			"model_type": "proxy",
+			"proxy_targets": []map[string]any{
+				{"target_model_id": "s8-native-model", "position": 0},
+				{"target_model_id": "s8-native-model-b", "position": 2},
+			},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateNonContiguousPositions, http.StatusBadRequest, "proxy_targets positions must be contiguous starting at 0")
 
 	proxyCreate := harness.requestJSON(
 		t,
@@ -109,6 +199,41 @@ func TestModelCRUD(t *testing.T) {
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, selfTargetUpdate, http.StatusBadRequest, "Proxy model cannot target itself")
+
+	proxyUpdateWithoutTargets := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{"display_name": "Proxy Rename Without Targets"},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateWithoutTargets, http.StatusBadRequest, "proxy_targets is required for proxy models")
+
+	proxyUpdateEmptyTargets := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{"proxy_targets": []map[string]any{}},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateEmptyTargets, http.StatusBadRequest, "proxy_targets is required for proxy models")
+
+	proxyUpdateNonContiguousPositions := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{
+			"proxy_targets": []map[string]any{
+				{"target_model_id": "s8-native-model", "position": 0},
+				{"target_model_id": "s8-native-model-b", "position": 2},
+			},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateNonContiguousPositions, http.StatusBadRequest, "proxy_targets positions must be contiguous starting at 0")
 
 	chainedProxyCreate := harness.requestJSON(
 		t,

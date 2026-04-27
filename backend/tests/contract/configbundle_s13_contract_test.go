@@ -153,6 +153,9 @@ func seedLegacyProfileImportState(t *testing.T, harness *contractHarness, profil
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO header_blocklist_rules (profile_id, name, match_type, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, $2, 'prefix', 'x-legacy-import', TRUE, FALSE, $3, $3)`, profileID, "Legacy Import Header", now); err != nil {
 		t.Fatalf("insert legacy import header rule: %v", err)
 	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO user_agent_client_rules (profile_id, name, pattern, enabled, is_system, created_at, updated_at) VALUES ($1, $2, $3, TRUE, FALSE, $4, $4)`, profileID, "Legacy Import Client", "legacy-import-client", now); err != nil {
+		t.Fatalf("insert legacy import user-agent client rule: %v", err)
+	}
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_round_robin_state (profile_id, model_config_id, next_cursor, created_at, updated_at) VALUES ($1, $2, 3, $3, $3)`, profileID, modelConfigID, now); err != nil {
 		t.Fatalf("insert legacy round robin state: %v", err)
 	}
@@ -166,6 +169,33 @@ func countRows(t *testing.T, harness *contractHarness, query string, args ...any
 		t.Fatalf("count rows with query %q: %v", query, err)
 	}
 	return count
+}
+
+func insertVendorCatalogVendor(t *testing.T, harness *contractHarness, key string, name string, description *string, iconKey *string, auditEnabled bool, auditCaptureBodies bool) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO vendors (key, name, description, icon_key, audit_enabled, audit_capture_bodies, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, key, name, description, iconKey, auditEnabled, auditCaptureBodies, configBundleFixtureTime); err != nil {
+		t.Fatalf("insert vendor %q: %v", key, err)
+	}
+}
+
+func vendorCatalogEntryByKey(t *testing.T, payload map[string]any, key string) map[string]any {
+	t.Helper()
+	vendors, ok := payload["vendors"].([]any)
+	if !ok {
+		t.Fatalf("expected vendors array in vendor catalog payload, got %+v", payload)
+	}
+	for _, raw := range vendors {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("expected vendor catalog entry map, got %T", raw)
+		}
+		if item["key"] == key {
+			return item
+		}
+	}
+
+	t.Fatalf("expected vendor catalog payload to include key %q, got %+v", key, vendors)
+	return nil
 }
 
 func TestConfigBundlePreviewResponses(t *testing.T) {
@@ -200,11 +230,148 @@ func TestConfigBundlePreviewResponses(t *testing.T) {
 	oldVersionPayload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
 	oldVersionPayload["version"] = 3
 	oldVersionResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", oldVersionPayload, nil)
-	assertStatus(t, oldVersionResponse, http.StatusOK)
-	var oldVersionPreview map[string]any
-	decodeJSONResponse(t, oldVersionResponse, &oldVersionPreview)
-	if oldVersionPreview["ready"] != false || oldVersionPreview["blocking_errors"].([]any)[0] != "Unsupported profile config bundle version '3'; expected 1" {
-		t.Fatalf("expected explicit v3 rejection in preview response, got %+v", oldVersionPreview)
+	assertErrorResponse(t, oldVersionResponse, http.StatusBadRequest, "Unsupported profile config bundle version '3'; expected 1")
+}
+
+func TestConfigBundleImportRejectsSupersededVersion(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleFixtureGraph(t, harness, profileID)
+
+	oldVersionPayload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
+	oldVersionPayload["version"] = 3
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", oldVersionPayload, modelHeader(profileID))
+	assertErrorResponse(t, importResponse, http.StatusBadRequest, "Unsupported profile config bundle version '3'; expected 1")
+}
+
+func TestVendorCatalogImportVersionContracts(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+
+	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
+	assertStatus(t, exportResponse, http.StatusOK)
+	var canonicalPayload map[string]any
+	decodeJSONResponse(t, exportResponse, &canonicalPayload)
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", canonicalPayload, nil)
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	if previewPayload["ready"] != true || previewPayload["version"] != float64(1) || previewPayload["bundle_kind"] != "vendor_catalog" || previewPayload["create_count"] != float64(0) || previewPayload["update_count"] != float64(0) {
+		t.Fatalf("expected ready canonical vendor catalog preview payload, got %+v", previewPayload)
+	}
+
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", canonicalPayload, nil)
+	assertStatus(t, importResponse, http.StatusOK)
+	var importPayload map[string]any
+	decodeJSONResponse(t, importResponse, &importPayload)
+	if importPayload["created_count"] != float64(0) || importPayload["updated_count"] != float64(0) {
+		t.Fatalf("expected canonical vendor catalog import to be accepted without changes, got %+v", importPayload)
+	}
+
+	oldVersionPayload := mustCloneBundlePayload(t, canonicalPayload)
+	oldVersionPayload["version"] = 2
+	oldPreviewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", oldVersionPayload, nil)
+	assertErrorResponse(t, oldPreviewResponse, http.StatusBadRequest, "Unsupported vendor catalog bundle version '2'; expected 1")
+
+	oldImportResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", oldVersionPayload, nil)
+	assertErrorResponse(t, oldImportResponse, http.StatusBadRequest, "Unsupported vendor catalog bundle version '2'; expected 1")
+}
+
+func TestVendorCatalogImportPreviewAndImportCounts(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+	insertVendorCatalogVendor(t, harness, "openrouter", "OpenRouter", stringPtr("Shared vendor metadata"), stringPtr("openrouter"), false, true)
+
+	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
+	assertStatus(t, exportResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, exportResponse, &payload)
+
+	openRouter := vendorCatalogEntryByKey(t, payload, "openrouter")
+	openRouter["key"] = " OPENROUTER "
+	openRouter["name"] = " OpenRouter HQ "
+	openRouter["description"] = " Primary shared vendor metadata "
+	openRouter["icon_key"] = " OPENROUTER-HQ "
+	openRouter["audit_enabled"] = true
+	openRouter["audit_capture_bodies"] = false
+
+	payload["vendors"] = append(payload["vendors"].([]any), map[string]any{
+		"key":                  " MISTRAL ",
+		"name":                 " Mistral ",
+		"description":          " European frontier model vendor ",
+		"icon_key":             " MISTRAL ",
+		"audit_enabled":        false,
+		"audit_capture_bodies": true,
+	})
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", payload, nil)
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	if previewPayload["ready"] != true || previewPayload["create_count"] != float64(1) || previewPayload["update_count"] != float64(1) {
+		t.Fatalf("expected vendor catalog preview to report one create and one update, got %+v", previewPayload)
+	}
+	if got := len(previewPayload["blocking_errors"].([]any)); got != 0 {
+		t.Fatalf("expected vendor catalog preview to have no blocking errors, got %+v", previewPayload)
+	}
+
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, nil)
+	assertStatus(t, importResponse, http.StatusOK)
+	var importPayload map[string]any
+	decodeJSONResponse(t, importResponse, &importPayload)
+	if importPayload["created_count"] != float64(1) || importPayload["updated_count"] != float64(1) {
+		t.Fatalf("expected vendor catalog import to persist one create and one update, got %+v", importPayload)
+	}
+
+	afterExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
+	assertStatus(t, afterExport, http.StatusOK)
+	var afterPayload map[string]any
+	decodeJSONResponse(t, afterExport, &afterPayload)
+
+	updatedOpenRouter := vendorCatalogEntryByKey(t, afterPayload, "openrouter")
+	if updatedOpenRouter["name"] != "OpenRouter HQ" || updatedOpenRouter["description"] != "Primary shared vendor metadata" || updatedOpenRouter["icon_key"] != "openrouter-hq" || updatedOpenRouter["audit_enabled"] != true || updatedOpenRouter["audit_capture_bodies"] != false {
+		t.Fatalf("expected normalized openrouter vendor update after import, got %+v", updatedOpenRouter)
+	}
+	createdMistral := vendorCatalogEntryByKey(t, afterPayload, "mistral")
+	if createdMistral["name"] != "Mistral" || createdMistral["description"] != "European frontier model vendor" || createdMistral["icon_key"] != "mistral" || createdMistral["audit_enabled"] != false || createdMistral["audit_capture_bodies"] != true {
+		t.Fatalf("expected normalized mistral vendor create after import, got %+v", createdMistral)
+	}
+}
+
+func TestVendorCatalogImportRejectsReadonlyOverwrite(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+
+	beforeExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
+	assertStatus(t, beforeExport, http.StatusOK)
+	var beforePayload map[string]any
+	decodeJSONResponse(t, beforeExport, &beforePayload)
+
+	readonlyPayload := mustCloneBundlePayload(t, beforePayload)
+	openAI := vendorCatalogEntryByKey(t, readonlyPayload, "openai")
+	openAI["name"] = "OpenAI Labs"
+	openAI["audit_enabled"] = true
+	openAI["audit_capture_bodies"] = false
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", readonlyPayload, nil)
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	if previewPayload["ready"] != false || previewPayload["create_count"] != float64(0) || previewPayload["update_count"] != float64(0) {
+		t.Fatalf("expected readonly vendor preview rejection, got %+v", previewPayload)
+	}
+	blockingErrors := previewPayload["blocking_errors"].([]any)
+	if len(blockingErrors) != 1 || blockingErrors[0] != "Readonly system vendor 'openai' cannot be overwritten by vendor catalog import" {
+		t.Fatalf("expected readonly vendor blocking error, got %+v", previewPayload)
+	}
+
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", readonlyPayload, nil)
+	assertErrorResponse(t, importResponse, http.StatusBadRequest, "Readonly system vendor 'openai' cannot be overwritten by vendor catalog import")
+
+	afterExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
+	assertStatus(t, afterExport, http.StatusOK)
+	var afterPayload map[string]any
+	decodeJSONResponse(t, afterExport, &afterPayload)
+	if !reflect.DeepEqual(beforePayload, afterPayload) {
+		t.Fatalf("expected readonly vendor rejection to preserve prior vendor catalog\nwant: %+v\n got: %+v", beforePayload, afterPayload)
 	}
 }
 
@@ -237,6 +404,9 @@ func TestConfigBundleImportReplace(t *testing.T) {
 		}
 		if countRows(t, harness, `SELECT COUNT(*) FROM header_blocklist_rules WHERE profile_id = $1 AND name = 'Legacy Import Header'`, profileID) != 0 {
 			t.Fatal("expected destructive replace to remove legacy header rule")
+		}
+		if countRows(t, harness, `SELECT COUNT(*) FROM user_agent_client_rules WHERE profile_id = $1 AND name = 'Legacy Import Client'`, profileID) != 0 {
+			t.Fatal("expected destructive replace to remove legacy user-agent client rule")
 		}
 		if countRows(t, harness, `SELECT COUNT(*) FROM loadbalance_round_robin_state WHERE profile_id = $1`, profileID) != 0 {
 			t.Fatal("expected destructive replace to clear round robin runtime state")

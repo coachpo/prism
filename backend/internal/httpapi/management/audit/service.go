@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -145,6 +146,15 @@ func (s *Service) handleDeleteLogs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return struct{}{}, err
 		}
+		if before == nil && olderThanDays == nil && !deleteAll {
+			olderThanDays, err = loadAuditLogRetentionDays(r.Context(), tx, profile.ID)
+			if err != nil {
+				return struct{}{}, err
+			}
+			if olderThanDays == nil {
+				return struct{}{}, &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "No audit log retention policy configured; provide 'before', 'older_than_days', or 'delete_all=true', or configure audit_logs_retention_days in /api/settings/retention"}
+			}
+		}
 		return struct{}{}, auditdomain.DeleteLogs(r.Context(), tx, auditdomain.DeleteParams{ProfileID: profile.ID, Before: before, OlderThanDays: olderThanDays, DeleteAll: deleteAll, ReferenceNow: s.nowUTC()})
 	})
 	if err != nil {
@@ -152,6 +162,21 @@ func (s *Service) handleDeleteLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+}
+
+func loadAuditLogRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
+	var auditLogsRetentionDays sql.NullInt32
+	if err := tx.QueryRow(ctx, `SELECT audit_logs_retention_days FROM user_settings WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&auditLogsRetentionDays); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load audit retention settings for profile %d: %w", profileID, err)
+	}
+	if !auditLogsRetentionDays.Valid {
+		return nil, nil
+	}
+	resolved := int(auditLogsRetentionDays.Int32)
+	return &resolved, nil
 }
 
 func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, error) {

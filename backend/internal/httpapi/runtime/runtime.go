@@ -239,6 +239,7 @@ type executionOutcome struct {
 	Skipped                   bool
 	Err                       error
 	AdmissionReason           string
+	ProbeEligibleRecord       *loadbalance.RuntimeConnectionState
 	FailoverEligible          bool
 	Definitive                bool
 	SuppressTransportFeedback bool
@@ -435,9 +436,20 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 	admissionRejections := 0
 	hedgePolicy := plan.Strategy.HedgePolicy()
 	hedgeUsed := false
+	maxAttempts := len(plan.Connections)
+	if strings.EqualFold(strings.TrimSpace(plan.Strategy.StrategyType), "adaptive") {
+		maxAttempts = minInt(maxAttempts, hedgePolicy.MaxAdditionalAttempts+1)
+		if maxAttempts < 1 {
+			maxAttempts = 1
+		}
+	}
 
 	for index := 0; index < len(plan.Connections); index++ {
-		if !hedgeUsed && hedgePolicy.Enabled && hedgePolicy.MaxAdditionalAttempts > 0 && len(plan.Connections)-index >= 2 {
+		remainingLaunchCapacity := maxAttempts - launchedAttempts
+		if remainingLaunchCapacity <= 0 {
+			break
+		}
+		if !hedgeUsed && hedgePolicy.Enabled && remainingLaunchCapacity >= 2 && len(plan.Connections)-index >= 2 {
 			hedged, err := s.executeHedgedRequest(ctx, method, plan, requestQuery, index, hedgePolicy, bodySource)
 			if err != nil {
 				return executionResult{}, err
@@ -470,6 +482,11 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 		if outcome.FatalError != nil {
 			return executionResult{}, outcome.FatalError
 		}
+		if outcome.ProbeEligibleRecord != nil {
+			if recordErr := s.recordRuntimeProbeEligible(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC()); recordErr != nil {
+				return executionResult{}, recordErr
+			}
+		}
 		if outcome.Skipped {
 			continue
 		}
@@ -497,7 +514,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 				return executionResult{}, feedbackErr
 			}
 		}
-		if outcome.FailoverEligible && index < len(plan.Connections)-1 {
+		if outcome.FailoverEligible && index < len(plan.Connections)-1 && launchedAttempts < maxAttempts {
 			lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
 			_ = outcome.Response.Body.Close()
 			continue
@@ -528,18 +545,33 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 }
 
 func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan requestPlan, requestQuery string, startIndex int, hedgePolicy loadbalance.RuntimeHedgePolicy, bodySource *runtimeRequestBodySource) (hedgedExecutionResult, error) {
-	primary := plan.Connections[startIndex]
-	secondary := plan.Connections[startIndex+1]
-	firstCtx, firstCancel := context.WithCancelCause(ctx)
-	defer firstCancel(nil)
-	results := make(chan hedgedAttemptResult, 2)
-	go func() {
-		results <- hedgedAttemptResult{Order: 0, Outcome: s.executeSingleAttempt(firstCtx, method, plan, requestQuery, primary, bodySource)}
-	}()
-	inFlight := 1
-	secondStarted := false
-	consumedConnections := 1
-	var secondCancel context.CancelCauseFunc
+	totalCandidates := hedgePolicy.MaxAdditionalAttempts + 1
+	remainingConnections := len(plan.Connections) - startIndex
+	if totalCandidates > remainingConnections {
+		totalCandidates = remainingConnections
+	}
+	if totalCandidates <= 0 {
+		return hedgedExecutionResult{}, nil
+	}
+
+	results := make(chan hedgedAttemptResult, totalCandidates)
+	cancelFuncs := make([]context.CancelCauseFunc, 0, totalCandidates)
+	inFlight := 0
+	launchedCandidates := 0
+	nextOrder := 0
+	launchAttempt := func(order int) {
+		attemptCtx, cancel := context.WithCancelCause(ctx)
+		cancelFuncs = append(cancelFuncs, cancel)
+		connection := plan.Connections[startIndex+order]
+		inFlight++
+		launchedCandidates++
+		go func() {
+			results <- hedgedAttemptResult{Order: order, Outcome: s.executeSingleAttempt(attemptCtx, method, plan, requestQuery, connection, bodySource)}
+		}()
+	}
+	launchAttempt(0)
+	nextOrder = 1
+
 	timer := time.NewTimer(hedgePolicy.Delay)
 	defer func() {
 		if !timer.Stop() {
@@ -549,42 +581,37 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 			}
 		}
 	}()
-	launchSecond := func() {
-		if secondStarted {
-			return
-		}
-		secondStarted = true
-		consumedConnections = 2
-		secondCtx, cancel := context.WithCancelCause(ctx)
-		secondCancel = cancel
-		inFlight++
-		go func() {
-			results <- hedgedAttemptResult{Order: 1, Outcome: s.executeSingleAttempt(secondCtx, method, plan, requestQuery, secondary, bodySource)}
-		}()
-	}
 
-	nonWinningAttempts := make([]executionAttempt, 0, 2)
-	result := hedgedExecutionResult{ConsumedConnections: consumedConnections}
+	nonWinningAttempts := make([]executionAttempt, 0, totalCandidates)
+	result := hedgedExecutionResult{ConsumedConnections: launchedCandidates}
 	var winner *executionOutcome
 
 	for inFlight > 0 {
 		var timerCh <-chan time.Time
-		if !secondStarted && winner == nil {
+		if winner == nil && nextOrder < totalCandidates {
 			timerCh = timer.C
 		}
 		select {
 		case <-timerCh:
-			launchSecond()
-			result.ConsumedConnections = consumedConnections
+			launchAttempt(nextOrder)
+			nextOrder++
+			result.ConsumedConnections = launchedCandidates
+			if winner == nil && nextOrder < totalCandidates {
+				timer.Reset(hedgePolicy.Delay)
+			}
 		case attemptResult := <-results:
 			inFlight--
 			outcome := attemptResult.Outcome
 			if outcome.FatalError != nil {
-				if secondCancel != nil {
-					secondCancel(nil)
+				for _, cancel := range cancelFuncs {
+					cancel(nil)
 				}
-				firstCancel(nil)
 				return hedgedExecutionResult{}, outcome.FatalError
+			}
+			if outcome.ProbeEligibleRecord != nil {
+				if recordErr := s.recordRuntimeProbeEligible(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC()); recordErr != nil {
+					return hedgedExecutionResult{}, recordErr
+				}
 			}
 			if outcome.Skipped {
 				continue
@@ -631,20 +658,20 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 				continue
 			}
 			winner = &outcome
-			if attemptResult.Order == 0 {
-				if secondCancel != nil {
-					secondCancel(errHedgeLoserCanceled)
+			for order, cancel := range cancelFuncs {
+				if order == attemptResult.Order {
+					continue
 				}
-			} else {
-				firstCancel(errHedgeLoserCanceled)
+				cancel(errHedgeLoserCanceled)
 			}
 		}
 	}
 
-	result.ConsumedConnections = consumedConnections
+	result.ConsumedConnections = launchedCandidates
+	result.Attempts = nonWinningAttempts
 	if winner != nil {
 		result.Winner = winner
-		result.Attempts = append(nonWinningAttempts, winner.Attempt)
+		result.Attempts = append(result.Attempts, winner.Attempt)
 	}
 	return result, nil
 }
@@ -673,10 +700,10 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		ObservedAt:  s.nowUTC(),
 	})
 	if decision.Skipped {
-		return executionOutcome{Connection: connection, Skipped: true}
+		return executionOutcome{Connection: connection, Skipped: true, ProbeEligibleRecord: decision.ProbeEligibleRecord}
 	}
 	if decision.AdmissionReason != "" {
-		return executionOutcome{Connection: connection, AdmissionReason: decision.AdmissionReason}
+		return executionOutcome{Connection: connection, AdmissionReason: decision.AdmissionReason, ProbeEligibleRecord: decision.ProbeEligibleRecord}
 	}
 	defer func() {
 		s.runtimeState.FinishConnectionAttempt(decision.Handle, s.nowUTC())
@@ -684,7 +711,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 
 	attemptStartedAt := s.nowUTC()
 	response, launched, requestErr := s.doUpstreamRequest(ctx, method, upstreamURL, headers, bodySource)
-	outcome := executionOutcome{Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr}
+	outcome := executionOutcome{Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, ProbeEligibleRecord: decision.ProbeEligibleRecord}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
 		outcome.Attempt = executionAttempt{
@@ -713,6 +740,18 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 
 func (s *Service) isHedgeLoserCancellation(ctx context.Context, err error) bool {
 	return err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), errHedgeLoserCanceled)
+}
+
+func (s *Service) recordRuntimeProbeEligible(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, state loadbalance.RuntimeConnectionState, observedAt time.Time) error {
+	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
+	defer cancel()
+	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
+		return true, loadbalance.InsertRuntimeProbeEligibleEvent(feedbackCtx, tx, profileID, connection.ID, state, strategy, observedAt)
+	})
+	if err != nil {
+		return fmt.Errorf("persist runtime probe-eligible feedback: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) error {
@@ -1054,6 +1093,13 @@ func filterResponseHeaders(source http.Header) http.Header {
 		}
 	}
 	return filtered
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func stringPointerIfNotEmpty(value string) *string {

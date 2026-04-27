@@ -86,14 +86,16 @@ type appAuthSnapshot struct {
 }
 
 type proxyKeySnapshot struct {
-	ID          int
-	Name        string
-	KeyPrefix   string
-	IsActive    bool
-	LastUsedAt  *time.Time
-	LastUsedIP  *string
-	CreatedByID *int
-	Notes       *string
+	ID            int
+	Name          string
+	KeyPrefix     string
+	IsActive      bool
+	ExpiresAt     *time.Time
+	LastUsedAt    *time.Time
+	LastUsedIP    *string
+	CreatedByID   *int
+	Notes         *string
+	RotatedFromID *int
 }
 
 func TestMain(m *testing.M) {
@@ -493,7 +495,7 @@ func TestProxyKeyRotate(t *testing.T) {
 		harness.client,
 		http.MethodPost,
 		"/api/settings/auth/proxy-keys",
-		map[string]any{"name": "Rotatable key"},
+		map[string]any{"name": "Rotatable key", "notes": "rotation lineage"},
 		nil,
 	)
 	assertStatus(t, createResponse, http.StatusCreated)
@@ -504,6 +506,11 @@ func TestProxyKeyRotate(t *testing.T) {
 	keyID := int(item["id"].(float64))
 	originalKey := createdPayload["key"].(string)
 	originalPrefix := item["key_prefix"].(string)
+	futureExpiry := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Microsecond)
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE proxy_api_keys SET expires_at = $2, updated_at = $2 WHERE id = $1`, keyID, futureExpiry); err != nil {
+		t.Fatalf("set proxy key expiry before rotation: %v", err)
+	}
+	originalSnapshot := loadProxyKeyByPrefix(t, harness, originalPrefix)
 
 	rotateResponse := harness.requestJSON(t, harness.client, http.MethodPost, fmt.Sprintf("/api/settings/auth/proxy-keys/%d/rotate", keyID), nil, nil)
 	assertStatus(t, rotateResponse, http.StatusOK)
@@ -511,16 +518,90 @@ func TestProxyKeyRotate(t *testing.T) {
 	var rotatedPayload map[string]any
 	decodeJSONResponse(t, rotateResponse, &rotatedPayload)
 	rotatedItem := rotatedPayload["item"].(map[string]any)
+	rotatedID := int(rotatedItem["id"].(float64))
 	rotatedKey := rotatedPayload["key"].(string)
 	if rotatedKey == "" || rotatedKey == originalKey {
 		t.Fatal("expected proxy key rotation to issue a new raw key")
 	}
+	if rotatedID == keyID {
+		t.Fatal("expected proxy key rotation to create a successor row")
+	}
 	if rotatedItem["key_prefix"] == originalPrefix {
 		t.Fatal("expected proxy key rotation to update the lookup prefix")
+	}
+	rotatedFromID, ok := rotatedItem["rotated_from_id"].(float64)
+	if !ok || int(rotatedFromID) != keyID {
+		t.Fatalf("expected rotated proxy key response to point to the previous key, got %+v", rotatedItem)
+	}
+	if rotatedItem["expires_at"] == nil {
+		t.Fatalf("expected rotated proxy key response to preserve the inherited expiry, got %+v", rotatedItem)
+	}
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth/proxy-keys", nil, nil)
+	assertStatus(t, listResponse, http.StatusOK)
+	var listed []map[string]any
+	decodeJSONResponse(t, listResponse, &listed)
+	if len(listed) != 2 {
+		t.Fatalf("expected proxy key rotation to preserve history in list responses, got %+v", listed)
+	}
+
+	snapshots := loadProxyKeys(t, harness)
+	if len(snapshots) != 2 {
+		t.Fatalf("expected proxy key rotation to preserve exactly two proxy key rows, got %+v", snapshots)
+	}
+	keysByID := make(map[int]proxyKeySnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		keysByID[snapshot.ID] = snapshot
+	}
+	historical := keysByID[keyID]
+	successor := keysByID[rotatedID]
+	if historical.KeyPrefix != originalPrefix {
+		t.Fatalf("expected historical proxy key to keep its original prefix, got %+v", historical)
+	}
+	if historical.IsActive {
+		t.Fatalf("expected historical proxy key to be deactivated on rotation, got %+v", historical)
+	}
+	if historical.ExpiresAt == nil || !historical.ExpiresAt.Before(futureExpiry) {
+		t.Fatalf("expected historical proxy key to expire immediately on rotation, got %+v", historical)
+	}
+	if historical.RotatedFromID != nil {
+		t.Fatalf("expected historical proxy key to remain the root of the chain, got %+v", historical)
+	}
+	if successor.RotatedFromID == nil || *successor.RotatedFromID != keyID {
+		t.Fatalf("expected successor proxy key to point back to the historical row, got %+v", successor)
+	}
+	if !successor.IsActive {
+		t.Fatalf("expected successor proxy key to preserve the current active state, got %+v", successor)
+	}
+	if successor.ExpiresAt == nil || !successor.ExpiresAt.Equal(futureExpiry) {
+		t.Fatalf("expected successor proxy key to inherit the prior expiry, got %+v", successor)
+	}
+	if successor.Name != originalSnapshot.Name {
+		t.Fatalf("expected successor proxy key to preserve the key name, got historical %+v successor %+v", originalSnapshot, successor)
+	}
+	if originalSnapshot.CreatedByID == nil || successor.CreatedByID == nil || *originalSnapshot.CreatedByID != *successor.CreatedByID {
+		t.Fatalf("expected successor proxy key to preserve the creator, got historical %+v successor %+v", originalSnapshot, successor)
+	}
+	if originalSnapshot.Notes == nil || successor.Notes == nil || *originalSnapshot.Notes != *successor.Notes {
+		t.Fatalf("expected successor proxy key to preserve notes, got historical %+v successor %+v", originalSnapshot, successor)
 	}
 
 	oldKeyRuntime := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/v1/chat/completions", map[string]any{"model": "gpt-4o"}, map[string]string{"Authorization": "Bearer " + originalKey})
 	assertErrorResponse(t, oldKeyRuntime, http.StatusUnauthorized, "Invalid proxy API key")
+
+	reauthenticatedClient := harness.newClient(t)
+	reauthenticatedResponse := harness.requestJSON(
+		t,
+		reauthenticatedClient,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "rotate-admin", "password": "rotate-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, reauthenticatedResponse, http.StatusOK)
+
+	historicalRotateResponse := harness.requestJSON(t, reauthenticatedClient, http.MethodPost, fmt.Sprintf("/api/settings/auth/proxy-keys/%d/rotate", keyID), nil, nil)
+	assertErrorResponse(t, historicalRotateResponse, http.StatusConflict, "Expired proxy API keys cannot be rotated")
 
 	newKeyRuntime := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/v1/chat/completions", map[string]any{"model": "gpt-4o"}, map[string]string{"Authorization": "Bearer " + rotatedKey})
 	assertErrorResponse(t, newKeyRuntime, http.StatusNotImplemented, "Runtime proxy not implemented in S5")
@@ -871,24 +952,48 @@ func loadAppAuthSettings(t *testing.T, harness *contractHarness) appAuthSnapshot
 	return snapshot
 }
 
+func loadProxyKeys(t *testing.T, harness *contractHarness) []proxyKeySnapshot {
+	t.Helper()
+	rows, err := harness.conn.Query(
+		context.Background(),
+		`SELECT id, name, key_prefix, is_active, expires_at, last_used_at, last_used_ip, created_by_auth_subject_id, notes, rotated_from_id FROM proxy_api_keys ORDER BY id ASC`,
+	)
+	if err != nil {
+		t.Fatalf("query proxy keys: %v", err)
+	}
+	defer rows.Close()
+	var snapshots []proxyKeySnapshot
+	for rows.Next() {
+		var expiresAt, lastUsedAt sqlNullTime
+		var lastUsedIP, notes sqlNullString
+		var createdByID, rotatedFromID sqlNullInt32
+		var snapshot proxyKeySnapshot
+		if err := rows.Scan(&snapshot.ID, &snapshot.Name, &snapshot.KeyPrefix, &snapshot.IsActive, &expiresAt, &lastUsedAt, &lastUsedIP, &createdByID, &notes, &rotatedFromID); err != nil {
+			t.Fatalf("scan proxy key: %v", err)
+		}
+		snapshot.ExpiresAt = expiresAt.ptr()
+		snapshot.LastUsedAt = lastUsedAt.ptr()
+		snapshot.LastUsedIP = lastUsedIP.ptr()
+		snapshot.CreatedByID = createdByID.ptr()
+		snapshot.Notes = notes.ptr()
+		snapshot.RotatedFromID = rotatedFromID.ptr()
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate proxy keys: %v", err)
+	}
+	return snapshots
+}
+
 func loadProxyKeyByPrefix(t *testing.T, harness *contractHarness, keyPrefix string) proxyKeySnapshot {
 	t.Helper()
-	var lastUsedAt sqlNullTime
-	var lastUsedIP, notes sqlNullString
-	var createdByID sqlNullInt32
-	var snapshot proxyKeySnapshot
-	if err := harness.conn.QueryRow(
-		context.Background(),
-		`SELECT id, name, key_prefix, is_active, last_used_at, last_used_ip, created_by_auth_subject_id, notes FROM proxy_api_keys WHERE key_prefix = $1 LIMIT 1`,
-		keyPrefix,
-	).Scan(&snapshot.ID, &snapshot.Name, &snapshot.KeyPrefix, &snapshot.IsActive, &lastUsedAt, &lastUsedIP, &createdByID, &notes); err != nil {
-		t.Fatalf("query proxy key by prefix: %v", err)
+	for _, snapshot := range loadProxyKeys(t, harness) {
+		if snapshot.KeyPrefix == keyPrefix {
+			return snapshot
+		}
 	}
-	snapshot.LastUsedAt = lastUsedAt.ptr()
-	snapshot.LastUsedIP = lastUsedIP.ptr()
-	snapshot.CreatedByID = createdByID.ptr()
-	snapshot.Notes = notes.ptr()
-	return snapshot
+	t.Fatalf("query proxy key by prefix: %s not found", keyPrefix)
+	return proxyKeySnapshot{}
 }
 
 type sqlNullString struct{ sql *string }

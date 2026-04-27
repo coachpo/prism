@@ -212,7 +212,10 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/optional-usage"),
 		EndpointAPIKey:  "runtime-priced-optional-usage-key",
 	})
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-template-"+suffix, reportCurrencyCode, "2", "5", "11", "13", "17")
+	cachedInputPrice := "11"
+	cacheCreationPrice := "13"
+	reasoningPrice := "17"
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-template-"+suffix, reportCurrencyCode, "2", "5", &cachedInputPrice, &cacheCreationPrice, &reasoningPrice)
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
@@ -265,6 +268,151 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
 	if usageEventRow != want {
 		t.Fatalf("expected usage_request_events pricing row %+v, got %+v", want, usageEventRow)
+	}
+}
+
+func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsMissing(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	var reportCurrencyCode string
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT report_currency_code FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`,
+		profileID,
+	).Scan(&reportCurrencyCode); err != nil {
+		t.Fatalf("load runtime report currency code: %v", err)
+	}
+
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-runtime-pricing-missing-dimension-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":     10,
+			"completion_tokens": 6,
+			"total_tokens":      16,
+			"completion_tokens_details": map[string]any{
+				"reasoning_tokens": 3,
+			},
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "missing-dimension-pricing-public-" + suffix,
+		TargetModelID:   "missing-dimension-pricing-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/missing-dimension"),
+		EndpointAPIKey:  "runtime-missing-dimension-pricing-key",
+	})
+	cachedInputPrice := "11"
+	cacheCreationPrice := "13"
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-missing-dimension-"+suffix, reportCurrencyCode, "2", "5", &cachedInputPrice, &cacheCreationPrice, nil)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "degrade missing reasoning pricing"}},
+			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected missing-dimension runtime request to hit upstream exactly once, got %d", got)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+
+	want := runtimePersistedPricingRow{
+		AttemptMetric:   1,
+		BillableFlag:    sql.NullBool{Bool: true, Valid: true},
+		PricedFlag:      sql.NullBool{Bool: false, Valid: true},
+		UnpricedReason:  sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
+		InputTokens:     sql.NullInt64{Int64: 10, Valid: true},
+		OutputTokens:    sql.NullInt64{Int64: 6, Valid: true},
+		TotalTokens:     sql.NullInt64{Int64: 16, Valid: true},
+		ReasoningTokens: sql.NullInt64{Int64: 3, Valid: true},
+	}
+	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
+	if requestLogRow != want {
+		t.Fatalf("expected degraded winning request_logs pricing row %+v, got %+v", want, requestLogRow)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
+	if usageEventRow != want {
+		t.Fatalf("expected degraded usage_request_events pricing row %+v, got %+v", want, usageEventRow)
+	}
+
+	listResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	items, ok := listPayload["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one degraded request-log list row, got %+v", listPayload)
+	}
+	listItem := asMapRuntime(t, items[0])
+	if pricedFlag, ok := listItem["priced_flag"].(bool); !ok || pricedFlag {
+		t.Fatalf("expected degraded request-log list row priced_flag=false, got %+v", listItem)
+	}
+	if listItem["unpriced_reason"] != "MISSING_PRICE_DATA" {
+		t.Fatalf("expected degraded request-log list row unpriced_reason=MISSING_PRICE_DATA, got %+v", listItem)
+	}
+	if totalCost, ok := listItem["total_cost_user_currency_micros"]; !ok || totalCost != nil {
+		t.Fatalf("expected degraded request-log list row total_cost_user_currency_micros=null, got %+v", listItem)
+	}
+	requestID := jsonInt(t, listItem["id"])
+
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	usage := asMapRuntime(t, detailPayload["usage"])
+	if pricedFlag, ok := usage["priced_flag"].(bool); !ok || pricedFlag {
+		t.Fatalf("expected degraded request-log detail usage.priced_flag=false, got %+v", usage)
+	}
+	if usage["unpriced_reason"] != "MISSING_PRICE_DATA" || jsonInt(t, usage["reasoning_tokens"]) != 3 {
+		t.Fatalf("expected degraded request-log detail usage payload to expose missing-price reasoning tokens, got %+v", usage)
+	}
+	costing := asMapRuntime(t, detailPayload["costing"])
+	if totalCost, ok := costing["total_cost_user_currency_micros"]; !ok || totalCost != nil {
+		t.Fatalf("expected degraded request-log detail costing.total_cost_user_currency_micros=null, got %+v", costing)
+	}
+
+	usageSnapshotResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, runtimeModelHeader(profileID))
+	assertStatus(t, usageSnapshotResponse, http.StatusOK)
+	var usageSnapshotPayload map[string]any
+	decodeJSONResponse(t, usageSnapshotResponse, &usageSnapshotPayload)
+	overview := asMapRuntime(t, usageSnapshotPayload["overview"])
+	if jsonInt(t, overview["success_requests"]) != 1 || jsonInt(t, overview["reasoning_tokens"]) != 3 || jsonInt(t, overview["total_cost_micros"]) != 0 {
+		t.Fatalf("expected degraded usage snapshot overview to keep reasoning tokens but zero cost, got %+v", overview)
+	}
+	costOverview := asMapRuntime(t, usageSnapshotPayload["cost_overview"])
+	if jsonInt(t, costOverview["priced_request_count"]) != 0 || jsonInt(t, costOverview["unpriced_request_count"]) != 1 {
+		t.Fatalf("expected degraded usage snapshot cost overview to count one unpriced request, got %+v", costOverview)
+	}
+	modelStatistics, ok := usageSnapshotPayload["model_statistics"].([]any)
+	if !ok || len(modelStatistics) != 1 {
+		t.Fatalf("expected one degraded usage snapshot model row, got %+v", usageSnapshotPayload)
+	}
+	modelRow := asMapRuntime(t, modelStatistics[0])
+	if jsonInt(t, modelRow["priced_request_count"]) != 0 || jsonInt(t, modelRow["unpriced_request_count"]) != 1 || jsonInt(t, modelRow["total_cost_micros"]) != 0 {
+		t.Fatalf("expected degraded usage snapshot model statistics to preserve unpriced counts, got %+v", modelRow)
+	}
+
+	spendingResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/spending?preset=1h&group_by=none&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, spendingResponse, http.StatusOK)
+	var spendingPayload map[string]any
+	decodeJSONResponse(t, spendingResponse, &spendingPayload)
+	summary := asMapRuntime(t, spendingPayload["summary"])
+	if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 0 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_reasoning_tokens"]) != 3 || jsonInt(t, summary["total_cost_micros"]) != 0 {
+		t.Fatalf("expected degraded spending summary to stay unpriced with zero cost, got %+v", summary)
+	}
+	unpricedBreakdown := asMapRuntime(t, spendingPayload["unpriced_breakdown"])
+	if jsonInt(t, unpricedBreakdown["MISSING_PRICE_DATA"]) != 1 {
+		t.Fatalf("expected degraded spending breakdown to count MISSING_PRICE_DATA, got %+v", unpricedBreakdown)
 	}
 }
 
@@ -793,6 +941,7 @@ func TestAuditLogsRejectDisabledRequestSnapshot(t *testing.T) {
 	profileID := loadRuntimeDefaultProfileID(t, harness)
 	seedRequestLogEndpoints(t, harness, profileID)
 	seedSimpleRequestLog(t, harness, profileID, 104, 12, nil, time.Date(2026, 4, 18, 12, 50, 0, 0, time.UTC), false)
+	seedRuntimeAuditLog(t, harness, 804, profileID, 104, time.Date(2026, 4, 18, 12, 55, 0, 0, time.UTC))
 
 	response := harness.requestJSON(t, http.MethodGet, "/api/audit/logs?request_log_id=104&limit=20", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusConflict)
@@ -800,6 +949,13 @@ func TestAuditLogsRejectDisabledRequestSnapshot(t *testing.T) {
 	decodeJSONResponse(t, response, &payload)
 	if payload["detail"] != "Audit capture unavailable for this request" {
 		t.Fatalf("expected disabled request snapshot to reject audit list, got %+v", payload)
+	}
+
+	detailResponse := harness.requestJSON(t, http.MethodGet, "/api/audit/logs/804", nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusConflict)
+	decodeJSONResponse(t, detailResponse, &payload)
+	if payload["detail"] != "Audit capture unavailable for this request" {
+		t.Fatalf("expected disabled request snapshot to reject audit detail, got %+v", payload)
 	}
 }
 
@@ -974,6 +1130,13 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	}
 }
 
+func seedRuntimeAuditLog(t *testing.T, harness *requestLogContractHarness, auditLogID int, profileID int, requestLogID int, createdAt time.Time) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, response_headers, response_body, is_stream, duration_ms, created_at) VALUES ($1, $2, $3, NULL, 'gpt-4o', NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', '{"authorization":"Bearer [REDACTED]"}', '{"messages":[{"role":"user","content":"hidden"}]}', 200, '{"x-request-id":"req-hidden"}', '{"ok":true}', FALSE, 1234, $4)`, auditLogID, profileID, requestLogID, createdAt); err != nil {
+		t.Fatalf("seed runtime audit log %d: %v", auditLogID, err)
+	}
+}
+
 func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, profileID int) {
 	t.Helper()
 	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
@@ -1010,7 +1173,7 @@ func loadVendorIDByKey(t *testing.T, conn *pgx.Conn, key string) int {
 	return vendorID
 }
 
-func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, name string, pricingCurrencyCode string, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) int {
+func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, name string, pricingCurrencyCode string, inputPrice string, outputPrice string, cachedInputPrice *string, cacheCreationPrice *string, reasoningPrice *string) int {
 	t.Helper()
 	now := time.Now().UTC()
 	var templateID int

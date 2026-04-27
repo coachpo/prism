@@ -79,4 +79,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/settings/costing", s.handlePutCostingSettings)
 	api.Get("/settings/timezone", s.handleGetTimezonePreference)
 	api.Put("/settings/timezone", s.handlePutTimezonePreference)
+	api.Get("/settings/retention", s.handleGetRetentionSettings)
+	api.Put("/settings/retention", s.handlePutRetentionSettings)
 }

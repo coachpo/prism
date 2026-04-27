@@ -233,6 +233,80 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimePricingResultAllowsMissingOptionalPriceWhenDimensionIsUnused(t *testing.T) {
+	inputTokens := 10
+	outputTokens := 10
+	totalTokens := 20
+	zero := 0
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
+		PricingUnit:         runtimePricingUnitPerMillion,
+		PricingCurrencyCode: "USD",
+		InputPrice:          "2",
+		OutputPrice:         "5",
+		Version:             7,
+	}
+
+	got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, responseUsage{
+		InputTokens:     &inputTokens,
+		OutputTokens:    &outputTokens,
+		TotalTokens:     &totalTokens,
+		ReasoningTokens: &zero,
+	})
+
+	want := runtimePricingResult{
+		Billable:                     true,
+		Priced:                       true,
+		InputCostMicros:              int64Ptr(20),
+		OutputCostMicros:             int64Ptr(50),
+		CacheReadInputCostMicros:     int64Ptr(0),
+		CacheCreationInputCostMicros: int64Ptr(0),
+		ReasoningCostMicros:          int64Ptr(0),
+		TotalCostOriginalMicros:      int64Ptr(70),
+		TotalCostUserCurrencyMicros:  int64Ptr(70),
+		CurrencyCodeOriginal:         stringPtr("USD"),
+		ReportCurrencyCode:           stringPtr("USD"),
+		ReportCurrencySymbol:         stringPtr("$"),
+		FXRateUsed:                   stringPtr("1"),
+		FXRateSource:                 stringPtr(runtimeFXSourceDefaultOneToOne),
+		PricingSnapshotUnit:          stringPtr(runtimePricingUnitPerMillion),
+		PricingSnapshotInput:         stringPtr("2"),
+		PricingSnapshotOutput:        stringPtr("5"),
+		PricingConfigVersionUsed:     intPtr(7),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected missing unused optional dimension to remain priced: want %+v got %+v", want, got)
+	}
+}
+
+func TestBuildRuntimePricingResultMarksMissingOptionalPriceDataUnpricedWhenDimensionIsUsed(t *testing.T) {
+	inputTokens := 10
+	outputTokens := 10
+	totalTokens := 20
+	reasoningTokens := 3
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
+		PricingUnit:         runtimePricingUnitPerMillion,
+		PricingCurrencyCode: "USD",
+		InputPrice:          "2",
+		OutputPrice:         "5",
+		Version:             7,
+	}
+
+	got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, responseUsage{
+		InputTokens:     &inputTokens,
+		OutputTokens:    &outputTokens,
+		TotalTokens:     &totalTokens,
+		ReasoningTokens: &reasoningTokens,
+	})
+
+	want := runtimePricingResult{
+		Billable:       true,
+		UnpricedReason: stringPtr(runtimeUnpricedReasonMissingData),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected missing used optional dimension to degrade pricing: want %+v got %+v", want, got)
+	}
+}
+
 func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPaths(t *testing.T) {
 	tests := []struct {
 		name    string

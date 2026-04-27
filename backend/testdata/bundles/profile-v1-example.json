@@ -186,6 +186,13 @@
       "enabled": true
     }
   ],
+  "user_agent_client_rules": [
+    {
+      "name": "Acme Agent",
+      "pattern": "acme-agent",
+      "enabled": true
+    }
+  ],
   "secret_payload": {
     "kind": "encrypted",
     "cipher": "fernet-v1",

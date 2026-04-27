@@ -24,8 +24,11 @@ func TestHealthVersionSurface(t *testing.T) {
 	}
 
 	var payload struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
+		Status    string `json:"status"`
+		Version   string `json:"version"`
+		Liveness  string `json:"liveness"`
+		Readiness string `json:"readiness"`
+		Startup   string `json:"startup"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode /health response: %v", err)
@@ -40,6 +43,15 @@ func TestHealthVersionSurface(t *testing.T) {
 	}
 	if payload.Version != expectedVersion {
 		t.Fatalf("expected /health version %q, got %q", expectedVersion, payload.Version)
+	}
+	if payload.Liveness != "ok" {
+		t.Fatalf("expected /health liveness ok, got %q", payload.Liveness)
+	}
+	if payload.Readiness != "ready" {
+		t.Fatalf("expected /health readiness ready, got %q", payload.Readiness)
+	}
+	if payload.Startup != "complete" {
+		t.Fatalf("expected /health startup complete, got %q", payload.Startup)
 	}
 }
 

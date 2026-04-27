@@ -128,7 +128,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		if created.ModelType == "proxy" {
-			if err := replaceProxyTargets(r.Context(), tx, created.ID, targetModels, requestBody.ProxyTargets); err != nil {
+			if err := replaceProxyTargets(r.Context(), tx, created.ID, created.ModelType, targetModels, requestBody.ProxyTargets); err != nil {
 				return modelConfigResponse{}, err
 			}
 		}
@@ -238,29 +238,33 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Proxy model cannot target itself"}
 			}
 		}
-		targetModels, err := resolveProxyTargets(r.Context(), tx, profile.ID, next.ModelType, newProxyTargets, next.APIFamily, stringPtr(current.ModelID))
+		if next.ModelType == "proxy" && !requestBody.ProxyTargets.Set {
+			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets is required for proxy models"}
+		}
+		targetModels, err := resolveProxyTargets(r.Context(), tx, profile.ID, next.ModelType, newProxyTargets, next.APIFamily, stringPtr(next.ModelID))
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		if next.ModelType == "native" {
-			if next.LoadbalanceStrategyID == nil {
-				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required for native models"}
-			}
-			if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *next.LoadbalanceStrategyID); err != nil {
-				return modelConfigResponse{}, err
-			}
-		} else {
+		if next.ModelType == "proxy" {
 			if requestBody.LoadbalanceStrategyID.Set && requestBody.LoadbalanceStrategyID.Value != nil {
 				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id must be null for proxy models"}
 			}
 			next.LoadbalanceStrategyID = nil
+		}
+		if err := validateModelTypeAndTargets(next.ModelType, newProxyTargets, next.LoadbalanceStrategyID); err != nil {
+			return modelConfigResponse{}, err
+		}
+		if next.ModelType == "native" {
+			if err := ensureLoadbalanceStrategyExists(r.Context(), tx, profile.ID, *next.LoadbalanceStrategyID); err != nil {
+				return modelConfigResponse{}, err
+			}
 		}
 		next.UpdatedAt = s.nowUTC()
 		updated, err := updateModel(r.Context(), tx, next)
 		if err != nil {
 			return modelConfigResponse{}, err
 		}
-		if err := replaceProxyTargets(r.Context(), tx, updated.ID, targetModels, newProxyTargets); err != nil {
+		if err := replaceProxyTargets(r.Context(), tx, updated.ID, next.ModelType, targetModels, newProxyTargets); err != nil {
 			return modelConfigResponse{}, err
 		}
 		if updated.ModelID != originalModelID {
@@ -589,8 +593,15 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 			return err
 		}
 	}
-	if requestBody.ModelType.Set && requestBody.ModelType.Value != nil && *requestBody.ModelType.Value == "native" && requestBody.ProxyTargets.Set && len(requestBody.ProxyTargets.Value) > 0 {
-		return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
+	if requestBody.ModelType.Set && requestBody.ModelType.Value != nil {
+		if *requestBody.ModelType.Value == "native" && requestBody.ProxyTargets.Set && len(requestBody.ProxyTargets.Value) > 0 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
+		}
+		if *requestBody.ModelType.Value == "proxy" && requestBody.ProxyTargets.Set {
+			if err := validateProxyTargetContract(*requestBody.ModelType.Value, requestBody.ProxyTargets.Value); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -599,15 +610,12 @@ func validateModelTypeAndTargets(modelType string, proxyTargets []proxyTargetRef
 	if !isValidModelType(modelType) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "model_type must be 'native' or 'proxy'"}
 	}
-	if err := validateProxyTargets(proxyTargets); err != nil {
+	if err := validateProxyTargetContract(modelType, proxyTargets); err != nil {
 		return err
 	}
 	if modelType == "native" {
 		if loadbalanceStrategyID == nil {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id is required for native models"}
-		}
-		if len(proxyTargets) > 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
 		}
 		return nil
 	}
@@ -617,19 +625,43 @@ func validateModelTypeAndTargets(modelType string, proxyTargets []proxyTargetRef
 	return nil
 }
 
+func validateProxyTargetContract(modelType string, proxyTargets []proxyTargetReference) error {
+	if modelType == "native" {
+		if len(proxyTargets) > 0 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
+		}
+		return nil
+	}
+	if len(proxyTargets) == 0 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets is required for proxy models"}
+	}
+	return validateProxyTargets(proxyTargets)
+}
+
 func validateProxyTargets(proxyTargets []proxyTargetReference) error {
 	seenTargets := map[string]struct{}{}
+	seenPositions := map[int]struct{}{}
 	for _, proxyTarget := range proxyTargets {
-		if strings.TrimSpace(proxyTarget.TargetModelID) == "" {
+		targetModelID := strings.TrimSpace(proxyTarget.TargetModelID)
+		if targetModelID == "" {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_model_id must not be empty"}
 		}
 		if proxyTarget.Position < 0 {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "position must be greater than or equal to 0"}
 		}
-		if _, ok := seenTargets[proxyTarget.TargetModelID]; ok {
+		if _, ok := seenTargets[targetModelID]; ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must contain unique target_model_id values"}
 		}
-		seenTargets[proxyTarget.TargetModelID] = struct{}{}
+		if _, ok := seenPositions[proxyTarget.Position]; ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must contain unique position values"}
+		}
+		seenTargets[targetModelID] = struct{}{}
+		seenPositions[proxyTarget.Position] = struct{}{}
+	}
+	for expectedPosition := 0; expectedPosition < len(proxyTargets); expectedPosition++ {
+		if _, ok := seenPositions[expectedPosition]; !ok {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets positions must be contiguous starting at 0"}
+		}
 	}
 	return nil
 }

@@ -44,6 +44,10 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if err := validateProfileBundleEnvelope(requestBody); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
 
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (profileImportPreviewResponse, error) {
 		preview, previewErr := s.previewProfileImport(r.Context(), tx, requestBody)
@@ -102,6 +106,10 @@ func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *htt
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if err := validateVendorCatalogBundleEnvelope(requestBody); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
 
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogImportPreviewResponse, error) {
 		return s.previewVendorCatalogImport(r.Context(), tx, requestBody)
@@ -133,18 +141,18 @@ func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Reque
 }
 
 func profileExportFilename(exportTime time.Time) string {
-	return fmt.Sprintf("prism-profile-config-v1-%s.json", exportTime.UTC().Format("2006-01-02"))
+	return fmt.Sprintf("prism-profile-config-v%d-%s.json", canonicalBundleVersion, exportTime.UTC().Format("2006-01-02"))
 }
 
 func vendorExportFilename(exportTime time.Time) string {
-	return fmt.Sprintf("prism-vendor-catalog-v1-%s.json", exportTime.UTC().Format("2006-01-02"))
+	return fmt.Sprintf("prism-vendor-catalog-v%d-%s.json", canonicalBundleVersion, exportTime.UTC().Format("2006-01-02"))
 }
 
 func buildProfilePreviewErrorResponse(data profileImportRequest, detail string) profileImportPreviewResponse {
 	return profileImportPreviewResponse{
 		Ready:                    false,
-		Version:                  data.Version,
-		BundleKind:               data.BundleKind,
+		Version:                  canonicalBundleVersion,
+		BundleKind:               canonicalProfileBundleKind,
 		EndpointsImported:        len(data.Endpoints),
 		PricingTemplatesImported: len(data.PricingTemplates),
 		StrategiesImported:       len(data.LoadbalanceStrategies),

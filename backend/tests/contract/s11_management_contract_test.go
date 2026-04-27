@@ -143,6 +143,72 @@ func TestTimezoneSettings(t *testing.T) {
 	}
 }
 
+func TestRetentionSettings(t *testing.T) {
+	harness := newS11ContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+
+	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/retention", nil, modelHeader(defaultProfileID))
+	assertStatus(t, initial, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, initial, &payload)
+	if payload["profile_id"] != float64(defaultProfileID) || payload["request_logs_retention_days"] != nil || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != nil {
+		t.Fatalf("expected default retention settings payload, got %+v", payload)
+	}
+
+	invalid := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/retention",
+		map[string]any{"request_logs_retention_days": 0},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, invalid, http.StatusBadRequest, "request_logs_retention_days must be >= 1 when provided")
+
+	updated := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/retention",
+		map[string]any{
+			"request_logs_retention_days": 14,
+			"statistics_retention_days":   30,
+			"audit_logs_retention_days":   7,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, updated, http.StatusOK)
+	decodeJSONResponse(t, updated, &payload)
+	if payload["request_logs_retention_days"] != float64(14) || payload["statistics_retention_days"] != float64(30) || payload["audit_logs_retention_days"] != float64(7) {
+		t.Fatalf("expected persisted retention settings payload, got %+v", payload)
+	}
+
+	cleared := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/retention",
+		map[string]any{
+			"request_logs_retention_days": 21,
+			"statistics_retention_days":   nil,
+			"audit_logs_retention_days":   90,
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, cleared, http.StatusOK)
+	decodeJSONResponse(t, cleared, &payload)
+	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) {
+		t.Fatalf("expected retention settings clear/update payload, got %+v", payload)
+	}
+
+	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/retention", nil, modelHeader(defaultProfileID))
+	assertStatus(t, loaded, http.StatusOK)
+	decodeJSONResponse(t, loaded, &payload)
+	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) {
+		t.Fatalf("expected retention settings round-trip to persist, got %+v", payload)
+	}
+}
+
 func TestLoadbalanceStrategyGet(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
@@ -196,6 +262,63 @@ func TestLoadbalanceStrategyGet(t *testing.T) {
 	routingPolicy := asMap(t, detail["routing_policy"])
 	if routingPolicy["kind"] != "adaptive" || routingPolicy["routing_objective"] != "maximize_availability" {
 		t.Fatalf("expected routing_policy detail payload, got %+v", detail)
+	}
+}
+
+func TestManagementLoadbalanceAdaptiveStrategyAllowsConfiguredAdditionalAttemptBudget(t *testing.T) {
+	harness := newS11ContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+
+	createResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/loadbalance/strategies",
+		map[string]any{
+			"name":          "S11 Adaptive Hedge Budget",
+			"strategy_type": "adaptive",
+			"routing_policy": map[string]any{
+				"kind":              "adaptive",
+				"routing_objective": "minimize_latency",
+				"hedge": map[string]any{
+					"enabled":                 true,
+					"delay_ms":                900,
+					"max_additional_attempts": 3,
+				},
+				"circuit_breaker": map[string]any{
+					"failure_status_codes":        []int{403, 422, 429, 500, 502, 503, 504, 529},
+					"base_open_seconds":           60,
+					"failure_threshold":           2,
+					"backoff_multiplier":          2,
+					"max_open_seconds":            900,
+					"ban_mode":                    "off",
+					"max_open_strikes_before_ban": 0,
+					"ban_duration_seconds":        0,
+				},
+				"admission": map[string]any{
+					"respect_qps_limit":        true,
+					"respect_in_flight_limits": true,
+				},
+			},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, createResponse, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, createResponse, &created)
+	hedge := asMap(t, asMap(t, created["routing_policy"])["hedge"])
+	if jsonInt(t, hedge["max_additional_attempts"]) != 3 {
+		t.Fatalf("expected create payload to preserve max_additional_attempts=3, got %+v", created)
+	}
+	strategyID := jsonInt(t, created["id"])
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/strategies/%d", strategyID), nil, modelHeader(defaultProfileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detail map[string]any
+	decodeJSONResponse(t, detailResponse, &detail)
+	hedge = asMap(t, asMap(t, detail["routing_policy"])["hedge"])
+	if jsonInt(t, hedge["max_additional_attempts"]) != 3 {
+		t.Fatalf("expected detail payload to preserve max_additional_attempts=3, got %+v", detail)
 	}
 }
 
@@ -325,6 +448,11 @@ func TestLoadbalanceStrategies(t *testing.T) {
 	decodeJSONResponse(t, updated, &updatedPayload)
 	if updatedPayload["name"] != "S11 Adaptive Primary" || updatedPayload["strategy_type"] != "adaptive" || updatedPayload["legacy_strategy_type"] != nil || updatedPayload["auto_recovery"] != nil {
 		t.Fatalf("expected adaptive update payload, got %+v", updatedPayload)
+	}
+	updatedRoutingPolicy := asMap(t, updatedPayload["routing_policy"])
+	updatedHedge := asMap(t, updatedRoutingPolicy["hedge"])
+	if jsonInt(t, updatedHedge["max_additional_attempts"]) != 2 || jsonInt(t, updatedHedge["delay_ms"]) != 1200 {
+		t.Fatalf("expected adaptive update payload to preserve configured hedge budget, got %+v", updatedPayload)
 	}
 
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
@@ -782,4 +910,3 @@ func TestProfileHeaderHelperSanity(_ *testing.T) {
 	_ = sort.Ints
 	_ = json.Valid
 }
-

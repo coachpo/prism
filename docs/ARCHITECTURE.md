@@ -107,6 +107,7 @@ frontend/
 - `./start.sh full` launches the frontend on `15173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000` so browser traffic stays same-origin.
 - Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; old encrypted bootstrap files must be replaced before boot.
+- Phase 1 keeps the split-bundle contract canonical, with `profile_config` and `vendor_catalog` both on one `version: 1` story and no surviving older bundle narrative.
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
@@ -241,7 +242,7 @@ Proxy request completes
 
 1. Request setup resolves the active-profile model, attached strategy, and one immutable effective strategy snapshot for the request.
 2. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, and runtime health signals.
-3. Executor claims per-attempt leases, uses the shared upstream timeout behavior from the backend runtime, and may launch one hedge only before any client-visible bytes are committed.
+3. Executor claims per-attempt leases, uses the shared upstream timeout behavior from the backend runtime, and may launch hedges only within the configured `max_additional_attempts` budget before any client-visible bytes are committed.
 4. Passive request outcomes feed back into runtime state, while durable transition history stays in `loadbalance_events`.
 
 If all eligible candidates are unavailable inside the current policy window, the gateway returns `503` with routing-availability detail.
@@ -250,7 +251,7 @@ If all eligible candidates are unavailable inside the current policy window, the
 
 ### 5.1 Concept
 
-Proxy models are ordered routing records that choose one native target model per request. A proxy request first resolves one same-`api_family` native target from `proxy_targets`, then that chosen target model's attached legacy or adaptive strategy runs unchanged.
+Proxy models are ordered routing records that choose one native target model per request. A proxy request first resolves one same-`api_family` native target from `proxy_targets`, then that chosen target model's attached legacy or adaptive strategy runs unchanged. The runtime never accepts empty target lists, non-contiguous positions, or cross-family proxy targets.
 
 ### 5.2 Rules
 

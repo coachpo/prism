@@ -150,8 +150,14 @@ func runtimePriceComponentMicros(tokens *int, price string) (int64, bool) {
 }
 
 func runtimePriceOptionalComponentMicros(tokens *int, price *string) (int64, bool) {
-	if price == nil || tokens == nil {
+	if tokens == nil {
 		return 0, true
+	}
+	if *tokens == 0 {
+		return 0, true
+	}
+	if price == nil {
+		return 0, false
 	}
 	return runtimePriceComponentMicros(tokens, *price)
 }

@@ -708,6 +708,7 @@ Profile export semantics:
 - Endpoints without an API key export `api_key_secret_ref: null` and do not contribute an entry to `secret_payload.entries[]`.
 - Endpoint secrets are exported only through `secret_payload.entries[]`.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
+- Profile bundles preserve ordered proxy targets, same-family model routing, and attached loadbalance references as part of the canonical contract.
 
 #### Preview Profile Import
 ```
@@ -798,7 +799,7 @@ Vendor catalog routes are global and do not require `X-Profile-Id`.
 Response `200`:
 ```json
 {
-  "version": 2,
+  "version": 1,
   "bundle_kind": "vendor_catalog",
   "exported_at": "2026-04-04T15:00:00Z",
   "vendors": [
@@ -822,7 +823,7 @@ Response `200`:
 ```json
 {
   "ready": true,
-  "version": 2,
+  "version": 1,
   "bundle_kind": "vendor_catalog",
   "create_count": 1,
   "update_count": 1,
@@ -848,6 +849,7 @@ Vendor catalog semantics:
 - Vendor catalog import upserts vendor metadata by `key`.
 - Vendor catalog preview/import reject duplicate bundle keys, duplicate bundle names, and global name collisions before mutation.
 - Vendor catalog import is independent from the profile backup/import flow.
+- Vendor catalog exports and imports stay on the same split-bundle contract version as profile bundles.
 
 ---
 
@@ -1186,13 +1188,18 @@ If token data cannot be extracted, all token fields are logged as `null`.
 ```
 GET /health
 ```
-Response `200` returns the current backend release version:
+Response `200` returns liveness, readiness, and startup state together with the current backend release version:
 ```json
 {
   "status": "ok",
-  "version": "<current release version>"
+  "version": "<current release version>",
+  "liveness": "ok",
+  "readiness": "ready",
+  "startup": "complete"
 }
 ```
+
+The health contract is not version only. It is the operator-facing target for backend readiness, startup state, and live in-app health views.
 
 ---
 
@@ -1299,7 +1306,7 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes `model_label`, `resolved_target_model_label`, and `is_proxy_origin` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes `model_label`, `resolved_target_model_label`, and `is_proxy_origin` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This is the operator drill-in surface for investigation, not a dashboard aggregate.
 
 `filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log native and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. For proxy traffic, `model_id` stays the requested proxy model and `resolved_target_model_id` captures the selected native target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
 
@@ -1779,7 +1786,7 @@ POST /api/loadbalance/strategies/defaults
 ```
 No request body.
 
-This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical defaults for that profile only.
+This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical defaults for that profile only. Those defaults are the canonical operator entrypoint for the adaptive routing contract.
 
 Response `200`:
 ```json
@@ -1835,7 +1842,7 @@ Validation rules:
 - `hedge.delay_ms` must be within `0..300000`, and `hedge.max_additional_attempts` within `1..10`.
 - `circuit_breaker.failure_status_codes` must be a unique, sorted list of valid HTTP status integers (`100..599`).
 - `circuit_breaker.base_open_seconds`, `failure_threshold`, `max_open_seconds`, and `backoff_multiplier` use the same bounds as the backend defaults.
-- Breaking change: old clients and imported bundles that still contain `jitter_ratio` are rejected in this release.
+- Old clients and imported bundles that still contain `jitter_ratio` are rejected in this release.
 - `circuit_breaker.ban_mode` is `off`, `temporary`, or `manual`.
 - `circuit_breaker.ban_mode = "off"` requires zero strike and duration values.
 - `circuit_breaker.ban_mode = "temporary"` requires both `max_open_strikes_before_ban >= 1` and `ban_duration_seconds >= 1`.
@@ -2157,10 +2164,5 @@ All errors follow this format:
 
 ## 10. OpenAPI Spec
 
-Auto-generated at:
-- Service default Swagger UI: `http://localhost:8000/docs`
-- Service default ReDoc: `http://localhost:8000/redoc`
-- Service default JSON spec: `http://localhost:8000/openapi.json`
-- Local `./start.sh` Swagger UI: `http://localhost:18000/docs`
-- Local `./start.sh` ReDoc: `http://localhost:18000/redoc`
-- Local `./start.sh` JSON spec: `http://localhost:18000/openapi.json`
+The checked-in OpenAPI artifact is the management-and-health contract served at `/openapi.json`. It stays aligned with the narrative docs, but the narrative docs remain the source of truth for the Phase 1 upgrade contract.
+

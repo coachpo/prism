@@ -107,11 +107,12 @@ func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (Audit
 		offset = 0
 	}
 	whereClause, args := buildListWhere(params)
+	visibleWhereClause := whereClause + ` AND ` + auditLogReadVisibilityClause("audit_logs")
 	var total int
-	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE `+whereClause, args...).Scan(&total); err != nil {
+	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE `+visibleWhereClause, args...).Scan(&total); err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("count audit logs for profile %d: %w", params.ProfileID, err)
 	}
-	rows, err := exec.Query(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, is_stream, duration_ms, created_at FROM audit_logs WHERE `+whereClause+` ORDER BY created_at DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2), append(append(args, limit), offset)...)
+	rows, err := exec.Query(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, is_stream, duration_ms, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2), append(append(args, limit), offset)...)
 	if err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("query audit logs for profile %d: %w", params.ProfileID, err)
 	}
@@ -131,6 +132,16 @@ func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (Audit
 }
 
 func GetLog(ctx context.Context, exec queryExecutor, profileID int, logID int) (*AuditLogDetail, error) {
+	readState, found, err := loadAuditLogReadState(ctx, exec, profileID, logID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	if readState.RequestLogID != nil && !readState.AuditEnabledAtRequest {
+		return nil, &HTTPError{StatusCode: 409, Detail: "Audit capture unavailable for this request"}
+	}
 	row := exec.QueryRow(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, response_headers, response_body, is_stream, duration_ms, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, logID)
 	item, err := scanDetail(row)
 	if err == pgx.ErrNoRows {
@@ -211,6 +222,27 @@ func buildListWhere(params ListParams) (string, []any) {
 		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func auditLogReadVisibilityClause(tableName string) string {
+	return fmt.Sprintf(`(%s.request_log_id IS NULL OR EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = %s.profile_id AND request_logs.id = %s.request_log_id AND request_logs.audit_enabled_at_request = TRUE))`, tableName, tableName, tableName)
+}
+
+type auditLogReadState struct {
+	RequestLogID          *int
+	AuditEnabledAtRequest bool
+}
+
+func loadAuditLogReadState(ctx context.Context, exec queryExecutor, profileID int, logID int) (auditLogReadState, bool, error) {
+	var requestLogID sql.NullInt32
+	var auditEnabledAtRequest sql.NullBool
+	if err := exec.QueryRow(ctx, `SELECT audit_logs.request_log_id, request_logs.audit_enabled_at_request FROM audit_logs LEFT JOIN request_logs ON request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id WHERE audit_logs.profile_id = $1 AND audit_logs.id = $2 LIMIT 1`, profileID, logID).Scan(&requestLogID, &auditEnabledAtRequest); err != nil {
+		if err == pgx.ErrNoRows {
+			return auditLogReadState{}, false, nil
+		}
+		return auditLogReadState{}, false, fmt.Errorf("load audit log %d read state for profile %d: %w", logID, profileID, err)
+	}
+	return auditLogReadState{RequestLogID: nullableInt32(requestLogID), AuditEnabledAtRequest: auditEnabledAtRequest.Valid && auditEnabledAtRequest.Bool}, true, nil
 }
 
 func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, error) {

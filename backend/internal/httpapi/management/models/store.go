@@ -375,25 +375,23 @@ func listProxyReferrers(ctx context.Context, exec queryExecutor, profileID int, 
 }
 
 func resolveProxyTargets(ctx context.Context, exec queryExecutor, profileID int, modelType string, proxyTargets []proxyTargetReference, apiFamily string, excludeModelID *string) ([]modelRecord, error) {
-	if modelType == "native" {
-		if len(proxyTargets) > 0 {
-			return nil, &domainError{StatusCode: 400, Detail: "proxy_targets must be empty for native models"}
-		}
-		return []modelRecord{}, nil
+	orderedProxyTargets := sortProxyTargetsByPosition(proxyTargets)
+	if err := validateProxyTargetContract(modelType, orderedProxyTargets); err != nil {
+		return nil, err
 	}
-	if len(proxyTargets) == 0 {
+	if modelType == "native" {
 		return []modelRecord{}, nil
 	}
 	if excludeModelID != nil {
-		for _, proxyTarget := range proxyTargets {
+		for _, proxyTarget := range orderedProxyTargets {
 			if proxyTarget.TargetModelID == *excludeModelID {
 				return nil, &domainError{StatusCode: 400, Detail: "Proxy model cannot target itself"}
 			}
 		}
 	}
 	args := []any{profileID}
-	targetModelIDs := make([]string, 0, len(proxyTargets))
-	for _, proxyTarget := range proxyTargets {
+	targetModelIDs := make([]string, 0, len(orderedProxyTargets))
+	for _, proxyTarget := range orderedProxyTargets {
 		targetModelIDs = append(targetModelIDs, proxyTarget.TargetModelID)
 		args = append(args, proxyTarget.TargetModelID)
 	}
@@ -416,8 +414,8 @@ func resolveProxyTargets(ctx context.Context, exec queryExecutor, profileID int,
 		return nil, fmt.Errorf("iterate proxy targets: %w", err)
 	}
 
-	orderedTargets := make([]modelRecord, 0, len(proxyTargets))
-	for _, proxyTarget := range proxyTargets {
+	orderedTargets := make([]modelRecord, 0, len(orderedProxyTargets))
+	for _, proxyTarget := range orderedProxyTargets {
 		target, ok := targetsByModelID[proxyTarget.TargetModelID]
 		if !ok {
 			return nil, &domainError{StatusCode: 400, Detail: fmt.Sprintf("Target model '%s' not found", proxyTarget.TargetModelID)}
@@ -433,11 +431,18 @@ func resolveProxyTargets(ctx context.Context, exec queryExecutor, profileID int,
 	return orderedTargets, nil
 }
 
-func replaceProxyTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int, targetModels []modelRecord, proxyTargets []proxyTargetReference) error {
+func replaceProxyTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int, modelType string, targetModels []modelRecord, proxyTargets []proxyTargetReference) error {
+	orderedProxyTargets := sortProxyTargetsByPosition(proxyTargets)
+	if err := validateProxyTargetContract(modelType, orderedProxyTargets); err != nil {
+		return err
+	}
+	if len(targetModels) != len(orderedProxyTargets) {
+		return fmt.Errorf("replace proxy targets for model %d: resolved target count mismatch", sourceModelConfigID)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM model_proxy_targets WHERE source_model_config_id = $1`, sourceModelConfigID); err != nil {
 		return fmt.Errorf("delete proxy targets for model %d: %w", sourceModelConfigID, err)
 	}
-	for index, proxyTarget := range proxyTargets {
+	for index, proxyTarget := range orderedProxyTargets {
 		if _, err := tx.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`, sourceModelConfigID, targetModels[index].ID, proxyTarget.Position); err != nil {
 			if isUniqueViolation(err, "uq_model_proxy_targets_source_target") {
 				return &domainError{StatusCode: 400, Detail: "proxy_targets must contain unique target_model_id values"}
@@ -633,6 +638,20 @@ func cloneProxyTargets(values []proxyTargetReference) []proxyTargetReference {
 	cloned := make([]proxyTargetReference, len(values))
 	copy(cloned, values)
 	return cloned
+}
+
+func sortProxyTargetsByPosition(values []proxyTargetReference) []proxyTargetReference {
+	ordered := cloneProxyTargets(values)
+	if len(ordered) < 2 {
+		return ordered
+	}
+	sort.Slice(ordered, func(left int, right int) bool {
+		if ordered[left].Position == ordered[right].Position {
+			return ordered[left].TargetModelID < ordered[right].TargetModelID
+		}
+		return ordered[left].Position < ordered[right].Position
+	})
+	return ordered
 }
 
 func placeholders(start int, count int) string {

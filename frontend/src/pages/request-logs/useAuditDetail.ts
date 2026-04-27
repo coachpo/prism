@@ -78,17 +78,8 @@ export function useAuditDetail({ requestLogId, auditEnabledAtRequest, enabled }:
   }, []);
 
   useEffect(() => {
-    if (!isActive || requestLogId === null) {
+    if (!isActive || requestLogId === null || isAuditDisabled) {
       activeLogIdRef.current = null;
-      return;
-    }
-
-    if (isAuditDisabled) {
-      activeLogIdRef.current = null;
-      setLoadedRequestLogId(requestLogId);
-      setAudits([]);
-      setError(null);
-      setLoading(false);
       return;
     }
 

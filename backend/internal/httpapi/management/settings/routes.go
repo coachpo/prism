@@ -134,6 +134,60 @@ func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Request) {
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return retentionSettingsResponse{}, err
+		}
+		settingsRow, err := loadOrCreateUserSettings(r.Context(), tx, profile.ID, s.nowUTC())
+		if err != nil {
+			return retentionSettingsResponse{}, err
+		}
+		return buildRetentionSettingsResponse(settingsRow), nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Request) {
+	var requestBody retentionSettingsUpdateRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := normalizeAndValidateRetentionRequest(&requestBody); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return retentionSettingsResponse{}, err
+		}
+		settingsRow, err := loadOrCreateUserSettings(r.Context(), tx, profile.ID, s.nowUTC())
+		if err != nil {
+			return retentionSettingsResponse{}, err
+		}
+		settingsRow.RequestLogsRetentionDays = requestBody.RequestLogsRetentionDays
+		settingsRow.StatisticsRetentionDays = requestBody.StatisticsRetentionDays
+		settingsRow.AuditLogsRetentionDays = requestBody.AuditLogsRetentionDays
+		settingsRow.UpdatedAt = s.nowUTC()
+		if err := updateUserSettings(r.Context(), tx, settingsRow); err != nil {
+			return retentionSettingsResponse{}, err
+		}
+		return buildRetentionSettingsResponse(settingsRow), nil
+	})
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
 func buildCostingSettingsResponse(settingsRow userSettingsRow, mappings []endpointFXMapping) costingSettingsResponse {
 	if mappings == nil {
 		mappings = []endpointFXMapping{}
@@ -149,6 +203,15 @@ func buildCostingSettingsResponse(settingsRow userSettingsRow, mappings []endpoi
 
 func buildTimezonePreferenceResponse(settingsRow userSettingsRow) timezonePreferenceResponse {
 	return timezonePreferenceResponse{ProfileID: settingsRow.ProfileID, TimezonePreference: settingsRow.TimezonePreference}
+}
+
+func buildRetentionSettingsResponse(settingsRow userSettingsRow) retentionSettingsResponse {
+	return retentionSettingsResponse{
+		ProfileID:                settingsRow.ProfileID,
+		RequestLogsRetentionDays: settingsRow.RequestLogsRetentionDays,
+		StatisticsRetentionDays:  settingsRow.StatisticsRetentionDays,
+		AuditLogsRetentionDays:   settingsRow.AuditLogsRetentionDays,
+	}
 }
 
 func normalizeAndValidateCostingRequest(requestBody *costingSettingsUpdateRequest) error {
@@ -193,6 +256,19 @@ func normalizeAndValidateTimezoneRequest(requestBody *timezonePreferenceUpdateRe
 	return nil
 }
 
+func normalizeAndValidateRetentionRequest(requestBody *retentionSettingsUpdateRequest) error {
+	if err := validateRetentionDays(requestBody.RequestLogsRetentionDays, "request_logs_retention_days"); err != nil {
+		return err
+	}
+	if err := validateRetentionDays(requestBody.StatisticsRetentionDays, "statistics_retention_days"); err != nil {
+		return err
+	}
+	if err := validateRetentionDays(requestBody.AuditLogsRetentionDays, "audit_logs_retention_days"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func normalizeTimezonePreference(value *string) (*string, error) {
 	if value == nil {
 		return nil, nil
@@ -205,6 +281,16 @@ func normalizeTimezonePreference(value *string) (*string, error) {
 		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: "timezone_preference must be at most 100 characters"}
 	}
 	return &trimmed, nil
+}
+
+func validateRetentionDays(value *int, fieldName string) error {
+	if value == nil {
+		return nil
+	}
+	if *value < 1 {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("%s must be >= 1 when provided", fieldName)}
+	}
+	return nil
 }
 
 func validateFXRate(value string) error {

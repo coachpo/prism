@@ -40,6 +40,30 @@ func TestRuntimeStrategyFailoverStatusCodes(t *testing.T) {
 	}
 }
 
+func TestRuntimeStrategyHedgePolicyHonorsConfiguredAdditionalAttemptBudget(t *testing.T) {
+	strategy := RuntimeStrategy{
+		StrategyType: "adaptive",
+		RoutingPolicyRaw: mustLoadbalanceJSON(t, map[string]any{
+			"hedge": map[string]any{
+				"enabled":                 true,
+				"delay_ms":                250,
+				"max_additional_attempts": 3,
+			},
+		}),
+	}
+
+	policy := strategy.HedgePolicy()
+	if !policy.Enabled {
+		t.Fatal("expected adaptive hedge policy to stay enabled")
+	}
+	if policy.Delay != 250*time.Millisecond {
+		t.Fatalf("expected 250ms hedge delay, got %s", policy.Delay)
+	}
+	if policy.MaxAdditionalAttempts != 3 {
+		t.Fatalf("expected max_additional_attempts=3, got %d", policy.MaxAdditionalAttempts)
+	}
+}
+
 func TestOrderConnectionIDsSingleReturnsOnlyFirstEligibleConnection(t *testing.T) {
 	strategy := RuntimeStrategy{StrategyType: "legacy", LegacyStrategyType: stringPointer("single")}
 	connections := []ConnectionOrderCandidate{{ID: 4, Priority: 2}, {ID: 3, Priority: 1}, {ID: 2, Priority: 1}}
