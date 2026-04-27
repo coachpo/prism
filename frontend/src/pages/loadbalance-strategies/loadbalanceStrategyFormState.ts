@@ -25,7 +25,6 @@ type AutoRecoveryEnabledDraft = {
     failure_threshold: number;
     backoff_multiplier: number;
     max_cooldown_seconds: number;
-    jitter_ratio: number;
   };
   ban:
     | {
@@ -87,7 +86,6 @@ type CircuitBreakerValidationState = {
   failure_threshold: number;
   backoff_multiplier: number;
   max_open_seconds: number;
-  jitter_ratio: number;
   ban_mode: LoadbalanceBanMode;
   max_open_strikes_before_ban: number;
   ban_duration_seconds: number;
@@ -434,7 +432,6 @@ function autoRecoveryDraftToPayload(autoRecovery: LoadbalanceAutoRecoveryDraft):
       failure_threshold: normalizeInteger(autoRecovery.cooldown.failure_threshold),
       backoff_multiplier: autoRecovery.cooldown.backoff_multiplier,
       max_cooldown_seconds: normalizeInteger(autoRecovery.cooldown.max_cooldown_seconds),
-      jitter_ratio: autoRecovery.cooldown.jitter_ratio,
     },
     ban:
       autoRecovery.ban.mode === "off"
@@ -506,7 +503,6 @@ export function getLoadbalanceStrategyFormValidationError(
       failure_threshold: autoRecovery.cooldown.failure_threshold,
       backoff_multiplier: autoRecovery.cooldown.backoff_multiplier,
       max_open_seconds: autoRecovery.cooldown.max_cooldown_seconds,
-      jitter_ratio: autoRecovery.cooldown.jitter_ratio,
       ban_mode: autoRecovery.ban.mode,
       max_open_strikes_before_ban:
         autoRecovery.ban.mode === "off" ? 0 : autoRecovery.ban.max_cooldown_strikes_before_ban,
@@ -566,14 +562,6 @@ function getCircuitBreakerValidationError(
   }
   if (circuitBreaker.max_open_seconds < 1 || circuitBreaker.max_open_seconds > 86_400) {
     return messages.maxCooldownRange;
-  }
-
-  if (
-    !Number.isFinite(circuitBreaker.jitter_ratio) ||
-    circuitBreaker.jitter_ratio < 0 ||
-    circuitBreaker.jitter_ratio > 1
-  ) {
-    return messages.jitterRatioRange;
   }
 
   if (circuitBreaker.ban_mode === "off") {
