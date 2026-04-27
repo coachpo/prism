@@ -1,7 +1,7 @@
 # FRONTEND LIB KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/lib/` is the frontend boundary to backend contracts and browser integrations. Keep the shared hotspots here: `api/core.ts`, `websocket.ts`, `referenceData.ts`, `configImportValidation.ts`, `loadbalanceRoutingPolicy.ts`, `appVersion.ts`, `reportingCurrency.ts`, `timezone.ts`, `costing.ts`, `clipboard.ts`, and `webauthn.ts`. This layer now owns the dual-family loadbalance contract mirror, including full adaptive `routing_policy` round-trips, family-specific import validation, shared objective/ban-policy defaults, and the selected-profile keyed reporting-currency cache used by settings and costing. `websocket/AGENTS.md` owns the helper split beneath the singleton client, and stats callers should go through the typed observability clients for the unified usage-snapshot route and the retained shared stats routes.
+`src/lib/` is the frontend boundary to backend contracts and browser integrations. Keep the shared hotspots here: `api/core.ts`, `websocket.ts`, `referenceData.ts`, `configImportValidation.ts`, `loadbalanceRoutingPolicy.ts`, `appVersion.ts`, `reportingCurrency.ts`, `timezone.ts`, `costing.ts`, and `clipboard.ts`. This layer now owns the dual-family loadbalance contract mirror, including full adaptive `routing_policy` round-trips, family-specific import validation, shared objective/ban-policy defaults, and the selected-profile keyed reporting-currency cache used by settings and costing. `websocket/AGENTS.md` owns the helper split beneath the singleton client, and stats callers should go through the typed observability clients for the unified usage-snapshot route and the retained shared stats routes.
 
 ## STRUCTURE
 ```
@@ -23,7 +23,6 @@ lib/
 ├── loadbalanceRoutingPolicy.ts   # Dual-family defaults, adaptive objective labels, and ban/failure-policy normalization
 ├── appVersion.ts                 # Browser-facing app version helper built from Vite-injected package metadata
 ├── reportingCurrency.ts          # Selected-profile keyed reporting-currency cache, normalization, and active-currency sync
-├── webauthn.ts                   # Browser passkey ceremony helpers
 ├── types.ts + types/             # Backend-aligned payload and domain types
 ├── costing.ts                    # Shared cost formatting and usage-label helpers
 ├── timezone.ts                   # Timezone preference cache and formatting helpers used by hooks/pages
@@ -44,7 +43,6 @@ lib/
 - Shared timezone preference lookup and formatting helpers consumed by `useTimezone()`: `timezone.ts`
 - Shared cost formatting and usage-label helpers layered over the active reporting currency: `costing.ts`
 - Browser clipboard helpers reused across route shells and detail views: `clipboard.ts`
-- Browser passkey helpers and support checks: `webauthn.ts`
 - Backend-aligned payload types: `types.ts`, `types/`
 
 ## CHILD DOCS
@@ -66,7 +64,6 @@ lib/
 - `websocket.ts` owns the singleton client, while `websocket/AGENTS.md` owns protocol parsing, subscription bookkeeping, and reconnect transport helpers. Consumers should use `useRealtimeData()` instead of creating clients directly.
 - `timezone.ts` owns shared timezone preference caching and helper access beneath `useTimezone()`.
 - `costing.ts` owns shared cost formatting and usage labels on top of the active reporting currency instead of duplicating cache or normalization logic.
-- Keep browser WebAuthn ceremony code in `webauthn.ts`.
 - Keep backend payload naming aligned with server schemas, including `vendor_id`, `vendor_key`, fixed `api_family` fields, vendor `icon_key` on vendor payloads only, and stats snapshot identifiers like `ingress_request_id`.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
@@ -77,6 +74,5 @@ lib/
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
 - Do not duplicate config import validation in page or dialog code when `configImportValidation.ts` already mirrors that contract.
 - Do not duplicate reporting-currency cache or normalization in settings, costing, or page code when `reportingCurrency.ts` already owns that seam.
-- Do not move passkey browser ceremony into page components when `webauthn.ts` already owns it.
 - Do not duplicate timezone or cost helper logic in page folders when `timezone.ts` and `costing.ts` already own those seams.
 - Do not camelCase backend response fields in the shared type layer.

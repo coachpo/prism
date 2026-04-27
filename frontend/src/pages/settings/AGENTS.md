@@ -51,7 +51,7 @@ settings/
 ## CHILD DOCS
 
 - `sections/AGENTS.md`: authentication-adjacent section UI, audit and privacy, billing and currency, backup, retention, timezone, and the nested `authentication/` and `billing-currency/` clusters.
-- `sections/authentication/AGENTS.md`: operator account, recovery email verification, passkey ceremony, and passkey presentation metadata.
+- `sections/authentication/AGENTS.md`: operator account and recovery email verification surface.
 - `dialogs/AGENTS.md`: delete confirmations, vendor CRUD modals, and audit-rule editors mounted by `../SettingsPage.tsx`.
 - `costing/AGENTS.md`: costing bootstrap, dirty-state derivation, FX mapping CRUD, save flows, and the split between costing hooks and billing-currency section UI.
 

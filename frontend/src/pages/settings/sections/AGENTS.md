@@ -21,13 +21,13 @@ sections/
 ├── BackupSection.tsx
 ├── RetentionDeletionSection.tsx
 ├── TimezoneSection.tsx
-├── authentication/                # Auth status, setup grid, passkey cards, browser ceremony hook, leaf AGENTS doc
+├── authentication/                # Auth status, setup grid, and recovery-email auth UI cluster
 └── billing-currency/              # Reporting currency card and FX mapping UI pieces
 ```
 
 ## WHERE TO LOOK
 
-- Auth setup, verified-email prerequisites, and passkey UX: `AuthenticationSection.tsx`, `authentication/`
+- Auth setup and verified-email prerequisites: `AuthenticationSection.tsx`, `authentication/`
 - Shared vendor-catalog table and Global-tab entrypoints for create/edit/delete flows: `VendorManagementSection.tsx`
 - Audit and privacy defaults, header blocklist, user-agent or client rule management, vendor toggles, and rules-panel rendering stay vendor-based today, even though request logs and statistics now filter by `api_family`: `AuditConfigurationSection.tsx`, `AuditConfigurationDefaultsCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationVendorToggles.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/`
@@ -39,13 +39,12 @@ sections/
 
 ## LOCAL CLUSTERS
 
-- `authentication/`: auth status cards, setup field shells, passkey metadata, `usePasskeyManagement.ts`, and the nested `authentication/AGENTS.md` leaf
+- `authentication/`: auth status cards, setup field shells, and the nested `authentication/AGENTS.md` leaf
 - `billing-currency/`: `ReportingCurrencyCard.tsx`, `FxMappingForm.tsx`, `FxMappingsSummary.tsx`, and `FxMappingsTable.tsx`
 
 ## CONVENTIONS
 
 - Keep these files focused on section rendering, local field composition, and section-specific copy.
-- Let `authentication/` own browser passkey ceremony and credential presentation details.
 - Let `VendorManagementSection.tsx` stay rendering-focused; bootstrap, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
 - Let `VendorManagementSection.tsx` stay rendering-focused and show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.
 - Let `billing-currency/` own the reporting-currency card and FX mapping presentation widgets.
@@ -56,6 +55,6 @@ sections/
 
 ## ANTI-PATTERNS
 
-- Do not move auth setup or passkey browser logic out of `authentication/`.
+- Do not move auth setup logic out of `authentication/`.
 - Do not move FX mapping CRUD state into `billing-currency/` presentation components. That boundary belongs to `../costing/`.
 - Do not invent extra settings sections or nested AGENTS files beyond the local clusters already covered here. `authentication/AGENTS.md` is the one justified nested leaf; `billing-currency/` remains parent-covered.
