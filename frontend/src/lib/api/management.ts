@@ -203,10 +203,6 @@ function normalizeRoutingPolicy(value: unknown): LoadbalanceRoutingPolicy {
         circuitBreaker.max_open_seconds,
         "routing_policy.circuit_breaker.max_open_seconds",
       ),
-      jitter_ratio: normalizeNumber(
-        circuitBreaker.jitter_ratio,
-        "routing_policy.circuit_breaker.jitter_ratio",
-      ),
       ban_mode: banMode as LoadbalanceBanMode,
       max_open_strikes_before_ban: normalizeInteger(
         circuitBreaker.max_open_strikes_before_ban,
@@ -273,7 +269,6 @@ function normalizeAutoRecovery(
         failure_threshold: normalizeInteger(cooldown.failure_threshold, "auto_recovery.cooldown.failure_threshold"),
         backoff_multiplier: normalizeNumber(cooldown.backoff_multiplier, "auto_recovery.cooldown.backoff_multiplier"),
         max_cooldown_seconds: normalizeInteger(cooldown.max_cooldown_seconds, "auto_recovery.cooldown.max_cooldown_seconds"),
-        jitter_ratio: normalizeNumber(cooldown.jitter_ratio, "auto_recovery.cooldown.jitter_ratio"),
       },
       ban: {
         mode: "off",
@@ -290,7 +285,6 @@ function normalizeAutoRecovery(
         failure_threshold: normalizeInteger(cooldown.failure_threshold, "auto_recovery.cooldown.failure_threshold"),
         backoff_multiplier: normalizeNumber(cooldown.backoff_multiplier, "auto_recovery.cooldown.backoff_multiplier"),
         max_cooldown_seconds: normalizeInteger(cooldown.max_cooldown_seconds, "auto_recovery.cooldown.max_cooldown_seconds"),
-        jitter_ratio: normalizeNumber(cooldown.jitter_ratio, "auto_recovery.cooldown.jitter_ratio"),
       },
       ban: {
         mode: "manual",
@@ -311,7 +305,6 @@ function normalizeAutoRecovery(
         failure_threshold: normalizeInteger(cooldown.failure_threshold, "auto_recovery.cooldown.failure_threshold"),
         backoff_multiplier: normalizeNumber(cooldown.backoff_multiplier, "auto_recovery.cooldown.backoff_multiplier"),
         max_cooldown_seconds: normalizeInteger(cooldown.max_cooldown_seconds, "auto_recovery.cooldown.max_cooldown_seconds"),
-        jitter_ratio: normalizeNumber(cooldown.jitter_ratio, "auto_recovery.cooldown.jitter_ratio"),
       },
       ban: {
         mode: "temporary",

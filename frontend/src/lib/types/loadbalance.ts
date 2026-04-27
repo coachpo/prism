@@ -31,7 +31,6 @@ export interface LoadbalanceRoutingPolicy {
     failure_threshold: number;
     backoff_multiplier: number;
     max_open_seconds: number;
-    jitter_ratio: number;
     ban_mode: LoadbalanceBanMode;
     max_open_strikes_before_ban: number;
     ban_duration_seconds: number;
@@ -52,7 +51,6 @@ export interface LoadbalanceAutoRecoveryCooldown {
   failure_threshold: number;
   backoff_multiplier: number;
   max_cooldown_seconds: number;
-  jitter_ratio: number;
 }
 
 export type LoadbalanceAutoRecoveryBan =
