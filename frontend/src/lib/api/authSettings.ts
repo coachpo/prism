@@ -15,7 +15,7 @@ import type {
   ProxyApiKeyUpdate,
   SessionResponse,
 } from "../types";
-import { buildQuery, request } from "./core";
+import { request } from "./core";
 
 export const auth = {
   status: () => request<AuthStatus>("/api/auth/status"),
@@ -76,53 +76,6 @@ export const settings = {
         }),
       delete: (id: number) =>
         request<{ deleted: boolean }>(`/api/settings/auth/proxy-keys/${id}`, {
-          method: "DELETE",
-        }),
-    },
-    webauthn: {
-      registrationOptions: () =>
-        request<Record<string, unknown>>("/api/auth/webauthn/register/options", {
-          method: "POST",
-        }),
-      registrationVerify: (data: { credential: Record<string, unknown>; device_name?: string }) =>
-        request<{ success: boolean; credential_id: number }>(
-          "/api/auth/webauthn/register/verify",
-          {
-            method: "POST",
-            body: JSON.stringify(data),
-          }
-        ),
-      authenticationOptions: (username?: string) => {
-        const query = buildQuery({ username: username?.trim() || undefined });
-        return request<Record<string, unknown>>(
-          `/api/auth/webauthn/authenticate/options${query ? `?${query}` : ""}`,
-          {
-            method: "POST",
-          }
-        );
-      },
-      authenticationVerify: (data: { credential: Record<string, unknown> }) =>
-        request<{ success: boolean; authenticated: boolean; username: string }>(
-          "/api/auth/webauthn/authenticate/verify",
-          {
-            method: "POST",
-            body: JSON.stringify(data),
-          }
-        ),
-      listCredentials: () =>
-        request<{
-          items: Array<{
-            id: number;
-            device_name: string | null;
-            backup_eligible: boolean | null;
-            backup_state: boolean | null;
-            last_used_at: string | null;
-            created_at: string;
-          }>;
-          total: number;
-        }>("/api/auth/webauthn/credentials"),
-      revokeCredential: (credentialId: number) =>
-        request<{ success: boolean }>(`/api/auth/webauthn/credentials/${credentialId}`, {
           method: "DELETE",
         }),
     },
