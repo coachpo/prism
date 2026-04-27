@@ -1,6 +1,14 @@
 import { ApiError, getApiProfileId, setApiProfileId } from "./api/core";
 import { auth, settings } from "./api/authSettings";
-import { audit, config, loadbalance, settingsCosting, settingsTimezone, stats } from "./api/observability";
+import {
+  audit,
+  config,
+  loadbalance,
+  settingsCosting,
+  settingsRetention,
+  settingsTimezone,
+  stats,
+} from "./api/observability";
 import {
   connections,
   endpoints,
@@ -29,6 +37,7 @@ export const api = {
   settings: {
     ...settings,
     costing: settingsCosting,
+    retention: settingsRetention,
     timezone: settingsTimezone,
   },
   stats,

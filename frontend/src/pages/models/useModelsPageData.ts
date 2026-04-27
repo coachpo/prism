@@ -130,6 +130,17 @@ export function useModelsPageData(revision: number) {
       toast.error(messages.modelsData.selectLoadbalanceStrategy);
       return;
     }
+    const validProxyTargetIds = new Set(nativeModelsForApiFamily.map((model) => model.model_id));
+    const hasInvalidProxyTargets = formData.proxy_targets.some(
+      (target) => !validProxyTargetIds.has(target.target_model_id),
+    );
+    if (
+      formData.model_type === "proxy" &&
+      (formData.proxy_targets.length === 0 || hasInvalidProxyTargets)
+    ) {
+      toast.error(messages.modelsData.proxyTargetRequired);
+      return;
+    }
     try {
       if (editingModel) {
         const updated = await api.models.update(editingModel.id, toModelUpdatePayload(formData));

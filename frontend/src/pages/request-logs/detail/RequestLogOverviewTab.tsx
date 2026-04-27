@@ -1,4 +1,5 @@
 import { AlertTriangle, Coins, Copy, FileText } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
 import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
@@ -22,6 +23,7 @@ import {
   SummaryStat,
 } from "./requestLogDetailShared";
 import { copyRequestLogText, getStatusIntent, getStatusTone } from "./requestLogDetailUtils";
+import { createConnectionNavigator } from "../connectionNavigation";
 
 interface RequestLogOverviewTabProps {
   request: RequestLogDetail;
@@ -73,6 +75,7 @@ export function RequestLogOverviewTab({
   request,
   formatTimestamp,
 }: RequestLogOverviewTabProps) {
+  const navigate = useNavigate();
   const { formatNumber, messages } = useLocale();
   const summary = request.summary;
   const requestInfo = request.request;
@@ -101,6 +104,7 @@ export function RequestLogOverviewTab({
     requestInfo.caller_client_display !== null
     || requestInfo.caller_user_agent !== null
     || requestInfo.user_agent_overridden;
+  const navigateToConnection = createConnectionNavigator({ navigate });
 
   const handleCopyErrorDetail = (event: MouseEvent<HTMLButtonElement>) => {
     if (!formattedErrorDetail) return;
@@ -328,6 +332,29 @@ export function RequestLogOverviewTab({
                   </span>
                 </DetailRow>
               ) : null}
+              <DetailRow label={messages.requestLogs.auditCapture}>
+                {routing.audit_enabled_at_request
+                  ? messages.requestLogs.yes
+                  : messages.requestLogs.auditCaptureUnavailable}
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.connection}>
+                {routing.connection_id !== null ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[12px]">#{routing.connection_id}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2.5 text-[11px]"
+                      onClick={() => void navigateToConnection(routing.connection_id!)}
+                    >
+                      {messages.requestLogs.viewConnection}
+                    </Button>
+                  </div>
+                ) : (
+                  messages.requestLogs.noConnectionRecorded
+                )}
+              </DetailRow>
             </div>
           </div>
         </SectionCard>
@@ -362,6 +389,39 @@ export function RequestLogOverviewTab({
                   {formatUnpricedReasonLabel(usage.unpriced_reason)}
                 </DetailRow>
               ) : null}
+              <DetailRow label={messages.requestLogs.reportCurrency}>
+                <span className="font-mono">{costing.report_currency_code ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.sourceCurrency}>
+                <span className="font-mono">{costing.currency_code_original ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.fxRateUsed}>
+                <span className="font-mono">{costing.fx_rate_used ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.fxRateSource}>
+                <span className="font-mono">{costing.fx_rate_source ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingUnit}>
+                <span className="font-mono">{request.pricing.pricing_snapshot_unit ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingConfigVersion}>
+                <span className="font-mono">{request.pricing.pricing_config_version_used ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingSnapshotInput}>
+                <span className="font-mono">{request.pricing.pricing_snapshot_input ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingSnapshotOutput}>
+                <span className="font-mono">{request.pricing.pricing_snapshot_output ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingSnapshotCacheRead}>
+                <span className="font-mono">{request.pricing.pricing_snapshot_cache_read_input ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingSnapshotCacheCreation}>
+                <span className="font-mono">{request.pricing.pricing_snapshot_cache_creation_input ?? "—"}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.pricingSnapshotReasoning}>
+                <span className="font-mono">{request.pricing.pricing_snapshot_reasoning ?? "—"}</span>
+              </DetailRow>
             </div>
           </div>
         </SectionCard>

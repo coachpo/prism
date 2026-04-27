@@ -55,10 +55,12 @@ export function AuditConfigurationRulesPanel({
             emptyState={copy.noSystemRules}
             icon={<Lock className="h-3.5 w-3.5 text-muted-foreground" />}
             locked
+            toggleLocked={false}
             open={systemRulesOpen}
             rules={systemRules}
             title={copy.systemRulesLocked}
             onOpenChange={onOpenChangeSystemRules}
+            onToggleRule={onToggleRule}
           />
 
           <AuditConfigurationRuleSection

@@ -63,6 +63,8 @@ export function ProxyKeysListCard({
                   <TableHead>{copy.preview}</TableHead>
                   <TableHead>{messages.loadbalanceEvents.created}</TableHead>
                   <TableHead>{copy.updated}</TableHead>
+                  <TableHead>{copy.expiresAt}</TableHead>
+                  <TableHead>{copy.lineage}</TableHead>
                   <TableHead>{copy.lastUsed}</TableHead>
                   <TableHead>{copy.lastIp}</TableHead>
                   <TableHead className="text-right">{copy.operation}</TableHead>

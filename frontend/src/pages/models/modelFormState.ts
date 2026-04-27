@@ -4,14 +4,23 @@ import type {
   ModelConfigCreate,
   ModelConfigListItem,
   ModelConfigUpdate,
+  ModelType,
   ProxyTarget,
   Vendor,
 } from "@/lib/types";
 
 export type SubmitEventLike = Pick<Event, "preventDefault">;
-export type ModelFormData = ModelConfigCreate & {
+export interface ModelFormData {
+  vendor_id: number | null;
+  api_family: ApiFamily;
+  model_id: string;
+  display_name: string;
+  model_type: ModelType;
+  proxy_targets: ProxyTarget[];
+  loadbalance_strategy_id: number | null;
+  is_enabled: boolean;
   last_auto_display_name?: string | null;
-};
+}
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
 
@@ -69,12 +78,15 @@ export function normalizeProxyTargets(proxyTargets: ProxyTarget[] | null | undef
 function getNormalizedRoutingState(formData: ModelFormData) {
   if (formData.model_type === "native") {
     return {
-      proxy_targets: [],
+      model_type: "native" as const,
+      proxy_targets: [] as [],
       loadbalance_strategy_id: formData.loadbalance_strategy_id ?? null,
     };
   }
 
   return {
+    model_type: "proxy" as const,
+    proxy_targets: normalizeProxyTargets(formData.proxy_targets),
     loadbalance_strategy_id: null,
   };
 }
@@ -124,7 +136,7 @@ export function createEditModelFormData(model: ModelConfigListItem): ModelFormDa
     model_id: model.model_id,
     display_name: displayName,
     model_type: model.model_type,
-    proxy_targets: [],
+    proxy_targets: normalizeProxyTargets(model.proxy_targets),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     is_enabled: model.is_enabled,
     last_auto_display_name: displayName === model.model_id ? model.model_id : displayName,
@@ -149,7 +161,6 @@ export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate
     api_family: formData.api_family,
     model_id: formData.model_id,
     display_name: normalizedDisplayName,
-    model_type: formData.model_type,
     is_enabled: formData.is_enabled,
     ...getNormalizedRoutingState(formData),
   };
@@ -161,7 +172,6 @@ export function toModelUpdatePayload(formData: ModelFormData): ModelConfigUpdate
     api_family: formData.api_family,
     display_name: formData.display_name || null,
     model_id: formData.model_id,
-    model_type: formData.model_type,
     is_enabled: formData.is_enabled,
     ...getNormalizedRoutingState(formData),
   };
@@ -188,6 +198,18 @@ export function setLoadbalanceStrategyIdOnForm(
   strategyId: number | null,
 ): ModelFormData {
   return { ...formData, loadbalance_strategy_id: strategyId };
+}
+
+export function setApiFamilyOnForm(formData: ModelFormData, apiFamily: ApiFamily): ModelFormData {
+  if (formData.api_family === apiFamily) {
+    return formData;
+  }
+
+  return {
+    ...formData,
+    api_family: apiFamily,
+    proxy_targets: formData.model_type === "proxy" ? [] : formData.proxy_targets,
+  };
 }
 
 export function setModelIdOnForm(formData: ModelFormData, modelId: string): ModelFormData {

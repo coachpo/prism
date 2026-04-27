@@ -118,21 +118,66 @@ const ProxyTargetImportSchema = z.strictObject({
   position: z.number().int().min(0),
 });
 
-const ModelImportSchema = z.strictObject({
+const NativeModelImportSchema = z.strictObject({
   vendor_key: z.string().nullable().optional(),
   api_family: z.enum(["openai", "anthropic", "gemini"]),
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
-  model_type: z.enum(["native", "proxy"]).optional(),
-  proxy_targets: z.array(ProxyTargetImportSchema).optional(),
-  loadbalance_strategy_name: z.string().nullable().optional(),
+  model_type: z.literal("native"),
+  proxy_targets: z.tuple([]),
+  loadbalance_strategy_name: z.string(),
   is_enabled: z.boolean().optional(),
-  connections: z.array(ConnectionImportSchema).optional(),
+  connections: z.array(ConnectionImportSchema),
 });
+
+const ProxyModelImportSchema = z.strictObject({
+  vendor_key: z.string().nullable().optional(),
+  api_family: z.enum(["openai", "anthropic", "gemini"]),
+  model_id: z.string(),
+  display_name: z.string().nullable().optional(),
+  model_type: z.literal("proxy"),
+  proxy_targets: z.array(ProxyTargetImportSchema),
+  loadbalance_strategy_name: z.null(),
+  is_enabled: z.boolean().optional(),
+  connections: z.tuple([]),
+}).superRefine((model, context) => {
+  const seenTargetModelIds = new Set();
+
+  for (const [index, target] of model.proxy_targets.entries()) {
+    if (target.position !== index) {
+      context.addIssue({
+        code: "custom",
+        path: ["proxy_targets", index, "position"],
+        message: "proxy_targets positions must be contiguous starting at 0",
+      });
+    }
+
+    if (seenTargetModelIds.has(target.target_model_id)) {
+      context.addIssue({
+        code: "custom",
+        path: ["proxy_targets", index, "target_model_id"],
+        message: "proxy_targets must contain unique target_model_id values",
+      });
+    }
+
+    seenTargetModelIds.add(target.target_model_id);
+  }
+});
+
+const ModelImportSchema = z.discriminatedUnion("model_type", [
+  NativeModelImportSchema,
+  ProxyModelImportSchema,
+]);
 
 const HeaderBlocklistRuleExportSchema = z.strictObject({
   name: z.string(),
   match_type: z.enum(["exact", "prefix"]),
+  pattern: z.string(),
+  enabled: z.boolean(),
+});
+
+const UserAgentRuleTransportSchema = z.strictObject({
+  name: z.string(),
   pattern: z.string(),
   enabled: z.boolean(),
 });
@@ -169,6 +214,15 @@ const SecretPayloadSchema = z.strictObject({
   entries: z.array(SecretPayloadEntrySchema),
 });
 
+const VendorCatalogRowSchema = z.strictObject({
+  key: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  icon_key: z.string().nullable(),
+  audit_enabled: z.boolean(),
+  audit_capture_bodies: z.boolean(),
+});
+
 export const ConfigImportSchema = z.strictObject({
   version: z.literal(1),
   bundle_kind: z.literal("profile_config"),
@@ -180,7 +234,16 @@ export const ConfigImportSchema = z.strictObject({
   models: z.array(ModelImportSchema),
   profile_settings: ProfileSettingsImportSchema.nullable().optional(),
   header_blocklist_rules: z.array(HeaderBlocklistRuleExportSchema).optional(),
+  user_agent_client_rules: z.array(UserAgentRuleTransportSchema).optional(),
   secret_payload: SecretPayloadSchema,
 });
 
+export const VendorCatalogImportSchema = z.strictObject({
+  version: z.literal(1),
+  bundle_kind: z.literal("vendor_catalog"),
+  exported_at: z.string().optional(),
+  vendors: z.array(VendorCatalogRowSchema),
+});
+
 export type ConfigImportSchemaType = z.infer<typeof ConfigImportSchema>;
+export type VendorCatalogImportSchemaType = z.infer<typeof VendorCatalogImportSchema>;

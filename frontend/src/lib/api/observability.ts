@@ -31,6 +31,8 @@ import type {
   ModelMetricsBatchResponse,
   UsageModelStatistic,
   StatsSummaryParams,
+  RetentionSettingsResponse,
+  RetentionSettingsUpdate,
   TimezonePreferenceResponse,
   TimezonePreferenceUpdate,
   ThroughputStatsResponse,
@@ -38,6 +40,10 @@ import type {
   UserAgentClientRule,
   UserAgentClientRuleCreate,
   UserAgentClientRuleUpdate,
+  VendorCatalogExportResponse,
+  VendorCatalogImportPreviewResponse,
+  VendorCatalogImportRequest,
+  VendorCatalogImportResponse,
 } from "../types";
 import { buildQuery, request } from "./core";
 
@@ -118,6 +124,15 @@ export const settingsTimezone = {
     }),
 };
 
+export const settingsRetention = {
+  get: () => request<RetentionSettingsResponse>("/api/settings/retention"),
+  update: (data: RetentionSettingsUpdate) =>
+    request<RetentionSettingsResponse>("/api/settings/retention", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+};
+
 export const config = {
   export: () => request<ConfigExportResponse>("/api/config/profile/export"),
   previewImport: (data: ConfigImportRequest) =>
@@ -130,6 +145,19 @@ export const config = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  vendors: {
+    export: () => request<VendorCatalogExportResponse>("/api/config/vendors/export"),
+    previewImport: (data: VendorCatalogImportRequest) =>
+      request<VendorCatalogImportPreviewResponse>("/api/config/vendors/import/preview", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    import: (data: VendorCatalogImportRequest) =>
+      request<VendorCatalogImportResponse>("/api/config/vendors/import", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
   headerBlocklistRules: {
     list: (includeDisabled = true) =>
       request<HeaderBlocklistRule[]>(

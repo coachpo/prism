@@ -38,6 +38,10 @@ export function EventTypeBadge({ eventType, className }: EventTypeBadgeProps) {
       label: messages.loadbalanceEvents.eventTypeBanned,
       intent: "danger" as const,
     },
+    probe_eligible: {
+      label: messages.loadbalanceEvents.eventTypeProbeEligible,
+      intent: "info" as const,
+    },
     recovered: {
       label: messages.loadbalanceEvents.eventTypeRecovered,
       intent: "success" as const,

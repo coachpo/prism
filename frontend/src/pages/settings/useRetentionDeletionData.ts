@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
+import type { RetentionSettingsResponse } from "@/lib/types";
 import { toast } from "sonner";
 import {
   type CleanupType,
@@ -8,8 +9,15 @@ import {
   type RetentionPreset,
   getCleanupTypeLabel,
 } from "./settingsPageHelpers";
+import type { SettingsSaveSection } from "./settingsSaveTypes";
 
-export function useRetentionDeletionData() {
+interface UseRetentionDeletionDataInput {
+  setRecentlySavedSection?: (section: SettingsSaveSection | null) => void;
+}
+
+export function useRetentionDeletionData({
+  setRecentlySavedSection,
+}: UseRetentionDeletionDataInput = {}) {
   const deleteKeyword = getStaticMessages().settingsDialogs.deleteConfirmKeyword;
   const [cleanupType, setCleanupType] = useState<CleanupType>("");
   const [retentionPreset, setRetentionPreset] = useState<RetentionPreset>("");
@@ -26,11 +34,56 @@ export function useRetentionDeletionData() {
   } | null>(null);
   const [deleteConfirmPhrase, setDeleteConfirmPhrase] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [retentionSettingsLoading, setRetentionSettingsLoading] = useState(true);
+  const [retentionSettingsSaving, setRetentionSettingsSaving] = useState(false);
+  const [savedRetentionSettings, setSavedRetentionSettings] = useState<RetentionSettingsResponse | null>(null);
+  const [retentionSettings, setRetentionSettings] = useState<RetentionSettingsResponse | null>(null);
 
   const isDeletePhraseValid = useMemo(
     () => deleteConfirmPhrase.trim().toLowerCase() === deleteKeyword.toLowerCase(),
     [deleteConfirmPhrase, deleteKeyword]
   );
+  const retentionSettingsDirty = useMemo(() => {
+    if (!savedRetentionSettings || !retentionSettings) {
+      return false;
+    }
+
+    return (
+      savedRetentionSettings.request_logs_retention_days !== retentionSettings.request_logs_retention_days
+      || savedRetentionSettings.statistics_retention_days !== retentionSettings.statistics_retention_days
+      || savedRetentionSettings.audit_logs_retention_days !== retentionSettings.audit_logs_retention_days
+    );
+  }, [retentionSettings, savedRetentionSettings]);
+
+  useEffect(() => {
+    let active = true;
+
+    setRetentionSettingsLoading(true);
+    void api.settings.retention.get()
+      .then((nextSettings) => {
+        if (!active) {
+          return;
+        }
+        setSavedRetentionSettings(nextSettings);
+        setRetentionSettings(nextSettings);
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        const messages = getStaticMessages();
+        toast.error(error instanceof Error ? error.message : messages.settingsRetentionDeletion.retentionLoadedFailed);
+      })
+      .finally(() => {
+        if (active) {
+          setRetentionSettingsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleOpenDeleteConfirm = () => {
     const messages = getStaticMessages();
@@ -100,6 +153,46 @@ export function useRetentionDeletionData() {
     }
   };
 
+  const setRetentionDays = (
+    key: "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days",
+    value: number | null,
+  ) => {
+    setRetentionSettings((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [key]: value,
+      };
+    });
+  };
+
+  const handleSaveRetentionSettings = async () => {
+    const messages = getStaticMessages();
+    if (!retentionSettings || !retentionSettingsDirty) {
+      return;
+    }
+
+    setRetentionSettingsSaving(true);
+    try {
+      const updated = await api.settings.retention.update({
+        request_logs_retention_days: retentionSettings.request_logs_retention_days,
+        statistics_retention_days: retentionSettings.statistics_retention_days,
+        audit_logs_retention_days: retentionSettings.audit_logs_retention_days,
+      });
+      setSavedRetentionSettings(updated);
+      setRetentionSettings(updated);
+      setRecentlySavedSection?.("retention");
+      toast.success(messages.settingsRetentionDeletion.retentionUpdated);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : messages.settingsRetentionDeletion.retentionUpdateFailed);
+    } finally {
+      setRetentionSettingsSaving(false);
+    }
+  };
+
   const setDeleteConfirm = (confirm: {
     type: DeleteCleanupType;
     days: number | null;
@@ -125,11 +218,17 @@ export function useRetentionDeletionData() {
     displayedDeleteConfirm,
     handleBatchDelete,
     handleOpenDeleteConfirm,
+    handleSaveRetentionSettings,
     isDeletePhraseValid,
     retentionPreset,
+    retentionSettings,
+    retentionSettingsDirty,
+    retentionSettingsLoading,
+    retentionSettingsSaving,
     setCleanupType,
     setDeleteConfirm,
     setDeleteConfirmPhrase,
+    setRetentionDays,
     setRetentionPreset,
   };
 }

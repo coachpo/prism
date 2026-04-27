@@ -116,6 +116,8 @@ export function ProxyKeyRow({
   const statusLabel = getRuntimeStatusLabel(item);
   const statusTone = getRuntimeStatusTone(item, authEnabled);
   const note = item.notes?.trim() || copy.noInternalNote;
+  const expiresAt = item.expires_at ? formatDateTime(item.expires_at, copy.neverExpires) : copy.neverExpires;
+  const lineage = item.rotated_from_id === null ? copy.currentKey : copy.rotatedFrom(item.rotated_from_id);
   const lastIp = item.last_used_ip || "—";
 
   return (
@@ -157,6 +159,21 @@ export function ProxyKeyRow({
         <MobileField
           label={copy.updated}
           value={formatDateTime(item.updated_at)}
+        />
+      </TableCell>
+
+      <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
+        <MobileField
+          label={copy.expiresAt}
+          value={expiresAt}
+        />
+      </TableCell>
+
+      <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
+        <MobileField
+          label={copy.lineage}
+          value={lineage}
+          mono
         />
       </TableCell>
 

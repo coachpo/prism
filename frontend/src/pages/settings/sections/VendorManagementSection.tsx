@@ -1,3 +1,4 @@
+import type { ChangeEvent, RefObject } from "react";
 import { Building2 } from "lucide-react";
 import { VendorIcon } from "@/components/VendorIcon";
 import { Button } from "@/components/ui/button";
@@ -18,9 +19,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { Vendor } from "@/lib/types";
+import type {
+  Vendor,
+  VendorCatalogImportPreviewResponse,
+  VendorCatalogImportRequest,
+} from "@/lib/types";
+import { VendorCatalogTransportCard } from "./VendorCatalogTransportCard";
 
 interface VendorManagementSectionProps {
+  catalogExporting: boolean;
+  catalogFileInputRef: RefObject<HTMLInputElement | null>;
+  catalogImporting: boolean;
+  catalogImportSummary: {
+    createCount: number;
+    updateCount: number;
+    vendorCount: number;
+  };
+  catalogParsedImport: VendorCatalogImportRequest | null;
+  catalogPreviewResult: VendorCatalogImportPreviewResponse | null;
+  catalogSelectedFile: File | null;
+  handleCatalogExport: () => Promise<void>;
+  handleCatalogFileSelect: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  handleCatalogImport: () => Promise<void>;
   vendors: Vendor[];
   vendorsLoading: boolean;
   onCreateVendor: () => void;
@@ -29,6 +49,16 @@ interface VendorManagementSectionProps {
 }
 
 export function VendorManagementSection({
+  catalogExporting,
+  catalogFileInputRef,
+  catalogImporting,
+  catalogImportSummary,
+  catalogParsedImport,
+  catalogPreviewResult,
+  catalogSelectedFile,
+  handleCatalogExport,
+  handleCatalogFileSelect,
+  handleCatalogImport,
   vendors,
   vendorsLoading,
   onCreateVendor,
@@ -38,7 +68,20 @@ export function VendorManagementSection({
   const { messages } = useLocale();
 
   return (
-    <section id="vendor-management" tabIndex={-1} className="scroll-mt-24">
+    <section id="vendor-management" tabIndex={-1} className="scroll-mt-24 space-y-4">
+      <VendorCatalogTransportCard
+        catalogExporting={catalogExporting}
+        catalogFileInputRef={catalogFileInputRef}
+        catalogImporting={catalogImporting}
+        catalogImportSummary={catalogImportSummary}
+        catalogParsedImport={catalogParsedImport}
+        catalogPreviewResult={catalogPreviewResult}
+        catalogSelectedFile={catalogSelectedFile}
+        handleCatalogExport={handleCatalogExport}
+        handleCatalogFileSelect={handleCatalogFileSelect}
+        handleCatalogImport={handleCatalogImport}
+      />
+
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

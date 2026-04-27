@@ -53,6 +53,16 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
       />
 
       <VendorManagementSection
+        catalogExporting={data.catalogExporting}
+        catalogFileInputRef={data.catalogFileInputRef}
+        catalogImporting={data.catalogImporting}
+        catalogImportSummary={data.catalogImportSummary}
+        catalogParsedImport={data.catalogParsedImport}
+        catalogPreviewResult={data.catalogPreviewResult}
+        catalogSelectedFile={data.catalogSelectedFile}
+        handleCatalogExport={data.handleCatalogExport}
+        handleCatalogFileSelect={data.handleCatalogFileSelect}
+        handleCatalogImport={data.handleCatalogImport}
         vendors={data.vendors}
         vendorsLoading={data.vendorsLoading}
         onCreateVendor={data.openCreateVendorDialog}

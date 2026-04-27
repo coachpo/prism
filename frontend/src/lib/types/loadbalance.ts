@@ -3,6 +3,7 @@ export type LoadbalanceEventType =
   | "extended"
   | "max_cooldown_strike"
   | "banned"
+  | "probe_eligible"
   | "recovered"
   | "not_opened";
 
@@ -44,7 +45,10 @@ export interface LoadbalanceRoutingPolicy {
 export type LoadbalanceCurrentStateValue =
   | "counting"
   | "blocked"
-  | "banned";
+  | "banned"
+  | "probe_eligible";
+
+export type LoadbalanceCircuitState = "open" | "half_open";
 
 export interface LoadbalanceAutoRecoveryCooldown {
   base_seconds: number;
@@ -137,13 +141,23 @@ export interface LoadbalanceStrategyDefaultsResponse {
 
 export interface LoadbalanceCurrentStateItem {
   connection_id: number;
+  circuit_state: LoadbalanceCircuitState | null;
+  probe_available_at: string | null;
+  window_started_at: string | null;
+  window_request_count: number;
+  in_flight_non_stream: number;
+  in_flight_stream: number;
   consecutive_failures: number;
   last_failure_kind: LoadbalanceFailureKind | null;
   last_cooldown_seconds: number;
-  blocked_until_at: string | null;
   max_cooldown_strikes: number;
   ban_mode: LoadbalanceBanMode;
   banned_until_at: string | null;
+  blocked_until_at: string | null;
+  probe_eligible_logged: boolean;
+  live_p95_latency_ms: number | null;
+  last_live_failure_at: string | null;
+  last_live_success_at: string | null;
   state: LoadbalanceCurrentStateValue;
   created_at: string;
   updated_at: string;
@@ -177,6 +191,9 @@ export interface LoadbalanceEvent {
   model_id: string | null;
   endpoint_id: number | null;
   vendor_id: number | null;
+  max_cooldown_strikes: number | null;
+  ban_mode: LoadbalanceBanMode | null;
+  banned_until_at: string | null;
   summary: LoadbalanceEventSummary;
   created_at: string;
 }
@@ -185,9 +202,6 @@ export interface LoadbalanceEventDetail extends LoadbalanceEvent {
   failure_threshold: number | null;
   backoff_multiplier: number | null;
   max_cooldown_seconds: number | null;
-  max_cooldown_strikes: number | null;
-  ban_mode: LoadbalanceBanMode | null;
-  banned_until_at: string | null;
 }
 
 export interface LoadbalanceEventListResponse {

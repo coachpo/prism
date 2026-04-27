@@ -14,6 +14,11 @@ export type ConnectionCardCurrentStateCopy = {
   ) => string;
   currentStateCounting: (failureSummary: string, failureKind: string) => string;
   currentStateManualBan: string;
+  currentStateProbeEligible: (
+    cooldown: string,
+    blockedUntil: string | null,
+    failureKind: string,
+  ) => string;
   currentStateTemporaryBan: (until: string | null) => string;
   failureKindConnectError: string;
   failureKindTimeout: string;
@@ -74,6 +79,10 @@ export function buildCurrentStateCopy(
 
   if (currentState.state === "blocked") {
     return copy.currentStateBlocked(failureSummary, cooldown, failureKindLabel, blockedUntilLabel);
+  }
+
+  if (currentState.state === "probe_eligible") {
+    return copy.currentStateProbeEligible(cooldown, blockedUntilLabel, failureKindLabel);
   }
 
   return copy.currentStateCounting(failureSummary, failureKindLabel);

@@ -171,6 +171,16 @@ export interface Messages {
     failureThresholdLabel: string;
     failureStatusCodesDescription: string;
     failureStatusCodesLabel: string;
+    hedgeAttemptsDescription: string;
+    hedgeAttemptsLabel: string;
+    hedgeDelayDescription: string;
+    hedgeDelayLabel: string;
+    hedgeDescription: string;
+    hedgeDisabledOption: string;
+    hedgeEnabledOption: string;
+    hedgeLabel: string;
+    inFlightAdmissionDescription: string;
+    inFlightAdmissionLabel: string;
     maxCooldownStrikesBeforeBanDescription: string;
     maxCooldownStrikesBeforeBanLabel: string;
     maxCooldownDescription: string;
@@ -179,6 +189,8 @@ export interface Messages {
     nameLabel: string;
     namePlaceholder: string;
     removeStatusCode: (code: number) => string;
+    qpsAdmissionDescription: string;
+    qpsAdmissionLabel: string;
     reliabilityControlsSectionTitle: string;
     routingPolicyLabel: string;
     save: string;
@@ -266,6 +278,9 @@ export interface Messages {
     emptyTitle: string;
   };
   loadbalanceStrategiesTable: {
+    adaptiveAdmissionSummary: (qps: string, inFlight: string) => string;
+    adaptiveHedgeDisabled: string;
+    adaptiveHedgeSummary: (delayMs: string, attempts: string) => string;
     adaptiveRoutingSummary: (label: string) => string;
     adaptiveOpenWindowSummary: (baseSeconds: string, maxSeconds: string) => string;
     adaptiveBanManualDismiss: (strikes: string) => string;
@@ -385,6 +400,27 @@ export interface Messages {
     saveCreate: string;
     saveEdit: string;
     saving: string;
+    catalogExportAction: string;
+    catalogExportDescription: string;
+    catalogExportFailed: string;
+    catalogExportSucceeded: string;
+    catalogExporting: string;
+    catalogImportAction: string;
+    catalogImportDescription: string;
+    catalogImportFailed: string;
+    catalogImportSucceeded: (created: string, updated: string) => string;
+    catalogImportTitle: string;
+    catalogImporting: string;
+    catalogInvalidJsonFile: string;
+    catalogInvalidPayload: (errors: string) => string;
+    catalogLoadedSummary: (fileName: string, count: string) => string;
+    catalogPreviewBlockingErrors: string;
+    catalogPreviewReady: string;
+    catalogPreviewSummary: (createCount: string, updateCount: string) => string;
+    catalogPreviewWarnings: string;
+    catalogSectionDescription: string;
+    catalogSectionTitle: string;
+    catalogExportTitle: string;
     sectionDescription: string;
     sectionTitle: string;
     tableDescription: string;
@@ -488,6 +524,7 @@ export interface Messages {
   };
   settingsRetentionDeletion: {
     allData: string;
+    auditLogsPolicy: string;
     dangerDescription: (profileLabel: string) => string;
     dataType: string;
     deletionFailed: string;
@@ -496,9 +533,19 @@ export interface Messages {
     deleteOlderThan: string;
     description: (profileLabel: string) => string;
     invalidRetentionOption: string;
+    keepForever: string;
+    requestLogsPolicy: string;
     retentionDays: (days: number) => string;
+    retentionLoadedFailed: string;
+    retentionPolicyDescription: string;
+    retentionPolicyTitle: string;
+    retentionUpdateFailed: string;
+    retentionUpdated: string;
+    saveRetention: string;
+    savingRetention: string;
     selectDataType: string;
     selectRetention: string;
+    statisticsPolicy: string;
     title: string;
   };
   settingsSaveState: {
@@ -901,6 +948,9 @@ export interface Messages {
       failureKind: string,
     ) => string;
     currentStateTemporaryBan: (until: string | null) => string;
+    lastLiveFailure: (time: string) => string;
+    lastLiveSuccess: (time: string) => string;
+    liveP95Latency: (latency: string) => string;
     customHeaders: string;
     customHeadersConfigured: (count: string) => string;
     customHeadersDescription: string;
@@ -982,6 +1032,7 @@ export interface Messages {
     removeHeader: string;
     recoveryBlocked: string;
     recoveryCounting: string;
+    recoveryProbeEligible: string;
     reasoningHandling: string;
     reasoningHandlingDefault: string;
     reasoningHandlingDefaultHint: string;
@@ -1078,6 +1129,7 @@ export interface Messages {
     deleted: string;
     deleteFailed: string;
     fetchFailed: string;
+    proxyTargetRequired: string;
     saveFailed: string;
     selectApiFamily: string;
     selectLoadbalanceStrategy: string;
@@ -1133,6 +1185,7 @@ export interface Messages {
     actions: string;
     active: string;
     apiKey: string;
+    currentKey: string;
     authenticationOff: string;
     authenticationOn: string;
     authenticationUnavailable: string;
@@ -1151,6 +1204,7 @@ export interface Messages {
     editDescription: string;
     editProxyApiKey: string;
     editProxyKeyAria: (name: string) => string;
+    expiresAt: string;
     issuedKeys: string;
     keyCount: (count: string) => string;
     keyLimitReached: string;
@@ -1158,6 +1212,7 @@ export interface Messages {
     keysProtectedDescription: string;
     keysUsed: (used: string, limit: string) => string;
     lastIp: string;
+    lineage: string;
     lastUsed: string;
     listDescription: string;
     name: string;
@@ -1171,7 +1226,9 @@ export interface Messages {
     notesPlaceholder: string;
     operation: string;
     preview: string;
+    neverExpires: string;
     rotateProxyKeyAria: (name: string) => string;
+    rotatedFrom: (id: number) => string;
     slotsRemaining: (remaining: string) => string;
     title: string;
     never: string;
@@ -1237,6 +1294,8 @@ export interface Messages {
     connection: string;
     detailDescription: string;
     endpoint: string;
+    fxRateSource: string;
+    fxRateUsed: string;
     fourHundredsOnly: string;
     last6Hours: string;
     last24Hours: string;
@@ -1315,6 +1374,15 @@ export interface Messages {
     yes: string;
     no: string;
     whyUnpriced: string;
+    reportCurrency: string;
+    sourceCurrency: string;
+    pricingConfigVersion: string;
+    pricingSnapshotCacheCreation: string;
+    pricingSnapshotCacheRead: string;
+    pricingSnapshotInput: string;
+    pricingSnapshotOutput: string;
+    pricingSnapshotReasoning: string;
+    pricingUnit: string;
     baseUrl: string;
     auditCapture: string;
     auditCaptureUnavailable: string;
@@ -1326,6 +1394,8 @@ export interface Messages {
     tokenRange: string;
     triage: string;
     view: string;
+    viewConnection: string;
+    noConnectionRecorded: string;
     fiveHundredsOnly: string;
     spend: string;
     viewRequestInLogs: string;
@@ -1728,6 +1798,20 @@ export const enMessages: Messages = {
     failureStatusCodesDescription:
       "HTTP status codes that should count toward automatic recovery.",
     failureStatusCodesLabel: "Failure Status Codes",
+    hedgeAttemptsDescription:
+      "How many extra adaptive attempts Prism may launch beyond the first routed connection.",
+    hedgeAttemptsLabel: "Max Additional Attempts",
+    hedgeDelayDescription:
+      "Delay before the next adaptive hedge attempt is allowed to launch.",
+    hedgeDelayLabel: "Hedge Delay (ms)",
+    hedgeDescription:
+      "Configure whether adaptive routing may retry with additional hedged attempts before giving up.",
+    hedgeDisabledOption: "Disabled",
+    hedgeEnabledOption: "Enabled",
+    hedgeLabel: "Adaptive Hedge",
+    inFlightAdmissionDescription:
+      "When enabled, adaptive routing respects configured in-flight limits before selecting a connection.",
+    inFlightAdmissionLabel: "Respect In-Flight Limits",
     maxCooldownStrikesBeforeBanDescription:
       "Number of max-open strike events required before this connection is marked as banned.",
     maxCooldownStrikesBeforeBanLabel: "Max Open Strikes Before Ban",
@@ -1738,6 +1822,9 @@ export const enMessages: Messages = {
     nameLabel: "Name",
     namePlaceholder: "e.g. round-robin-primary",
     removeStatusCode: (code) => `Remove status code ${code}`,
+    qpsAdmissionDescription:
+      "When enabled, adaptive routing respects configured QPS ceilings before selecting a connection.",
+    qpsAdmissionLabel: "Respect QPS Limits",
     reliabilityControlsSectionTitle: "Reliability Controls",
     routingPolicyLabel: "Routing Policy",
     save: "Save Strategy",
@@ -1827,6 +1914,9 @@ export const enMessages: Messages = {
     emptyTitle: "No loadbalance events yet",
   },
   loadbalanceStrategiesTable: {
+    adaptiveAdmissionSummary: (qps, inFlight) => `Admission QPS ${qps} • In-flight ${inFlight}`,
+    adaptiveHedgeDisabled: "Adaptive hedge disabled",
+    adaptiveHedgeSummary: (delayMs, attempts) => `Adaptive hedge ${delayMs}ms • ${attempts} extra attempts`,
     adaptiveRoutingSummary: (label) => `Routing policy ${label}`,
     adaptiveOpenWindowSummary: (baseSeconds, maxSeconds) => `Open window ${baseSeconds}s base • ${maxSeconds}s max`,
     adaptiveBanManualDismiss: (strikes) => `Manual dismiss after ${strikes} max-open strikes`,
@@ -1950,6 +2040,27 @@ export const enMessages: Messages = {
     saveCreate: "Create Vendor",
     saveEdit: "Save Vendor",
     saving: "Saving...",
+    catalogExportAction: "Export Vendor Catalog",
+    catalogExportDescription: "Download the canonical shared vendor catalog bundle used across all profiles.",
+    catalogExportFailed: "Failed to export vendor catalog",
+    catalogExportSucceeded: "Vendor catalog exported successfully",
+    catalogExporting: "Exporting...",
+    catalogImportAction: "Import Vendor Catalog",
+    catalogImportDescription: "Upload a vendor catalog bundle, review the preview result, and then apply the shared vendor catalog changes.",
+    catalogImportFailed: "Failed to import vendor catalog",
+    catalogImportSucceeded: (created, updated) => `Imported ${created} vendors and updated ${updated} vendors`,
+    catalogImportTitle: "Import & Preview",
+    catalogImporting: "Importing...",
+    catalogInvalidJsonFile: "Invalid JSON file",
+    catalogInvalidPayload: (errors) => `Invalid vendor catalog payload: ${errors}`,
+    catalogLoadedSummary: (fileName, count) => `Loaded ${fileName}: ${count} vendor rows.`,
+    catalogPreviewBlockingErrors: "Preview blocking errors",
+    catalogPreviewReady: "Preview ready for import",
+    catalogPreviewSummary: (createCount, updateCount) => `Preview: ${createCount} vendors to create, ${updateCount} vendors to update.`,
+    catalogPreviewWarnings: "Preview warnings",
+    catalogSectionDescription: "Export or preview-import the shared vendor catalog without leaving Global Settings.",
+    catalogSectionTitle: "Vendor Catalog Transport",
+    catalogExportTitle: "Export",
     sectionDescription: "Manage the shared vendor catalog used by models and audit defaults across all profiles.",
     sectionTitle: "Vendor Management",
     tableDescription: "Description",
@@ -2045,7 +2156,7 @@ export const enMessages: Messages = {
     loadingRules: "Loading rules...",
     noCustomRules: "No custom rules. Add one to strip private headers before forwarding.",
     noSystemRules: "No system rules found.",
-    systemRulesLocked: "System rules (locked)",
+    systemRulesLocked: "System rules",
   },
   settingsAuditUserAgentRules: {
     addRule: "Add Rule",
@@ -2055,10 +2166,11 @@ export const enMessages: Messages = {
     loadingRules: "Loading rules...",
     noCustomRules: "No custom rules. Add one to classify request-log clients from User-Agent values.",
     noSystemRules: "No system rules found.",
-    systemRulesLocked: "System rules (locked)",
+    systemRulesLocked: "System rules",
   },
   settingsRetentionDeletion: {
     allData: "All data",
+    auditLogsPolicy: "Audit log retention",
     dangerDescription: (profileLabel) => `This deletes data in ${profileLabel} and cannot be undone.`,
     dataType: "Data type",
     deleteData: "Delete data",
@@ -2068,9 +2180,19 @@ export const enMessages: Messages = {
     description: (profileLabel) =>
       `Delete stored data in ${profileLabel} with explicit retention and confirmation controls.`,
     invalidRetentionOption: "Select a valid retention option",
+    keepForever: "Keep forever",
+    requestLogsPolicy: "Request log retention",
     retentionDays: (days) => `${days} days`,
+    retentionLoadedFailed: "Failed to load retention settings",
+    retentionPolicyDescription: "Choose how long request logs, statistics, and audit records are retained before cleanup jobs apply.",
+    retentionPolicyTitle: "Retention policy",
+    retentionUpdateFailed: "Failed to update retention settings",
+    retentionUpdated: "Retention settings updated",
+    saveRetention: "Save retention",
+    savingRetention: "Saving...",
     selectDataType: "Select data type",
     selectRetention: "Select retention",
+    statisticsPolicy: "Statistics retention",
     title: "Retention & Deletion",
   },
   settingsSaveState: {
@@ -2441,6 +2563,9 @@ export const enMessages: Messages = {
       `The last ${cooldown} cooldown expired${blockedUntil ? ` at ${blockedUntil}` : ""}. This connection is now eligible for the next routed probe after ${failureKind}.`,
     currentStateTemporaryBan: (until) =>
       `This connection is banned until ${until ?? "the temporary ban expires"}.`,
+    lastLiveFailure: (time) => `Last live failure ${time}`,
+    lastLiveSuccess: (time) => `Last live success ${time}`,
+    liveP95Latency: (latency) => `Live P95 ${latency}`,
     customHeaders: "Custom Headers",
     customHeadersConfigured: (count) => `${count} configured`,
     customHeadersDescription: "Add optional request headers that Prism should send with this connection.",
@@ -2525,6 +2650,7 @@ export const enMessages: Messages = {
     removeHeader: "Remove header",
     recoveryBlocked: "Recovery Blocked",
     recoveryCounting: "Recovery Counting",
+    recoveryProbeEligible: "Probe Eligible",
     resetRecoveryState: "Reset Recovery State",
     requests24h: "Requests (24h)",
     requestsLabel: "Requests",
@@ -2665,12 +2791,12 @@ export const enMessages: Messages = {
     editModel: "Edit Model",
     modelId: "Model ID",
     modelIdPlaceholder: "e.g. gpt-4o",
-    noNativeModelsForFamily: (apiFamily) => `No native models available for the ${apiFamily} API family yet. Configure targets later on /models/:id/proxy.`,
-    noProxyTargetsSelected: "No proxy targets selected yet.",
+    noNativeModelsForFamily: (apiFamily) => `No native models are available for the ${apiFamily} API family yet. Create at least one native model before saving this proxy.`,
+    noProxyTargetsSelected: "Add at least one proxy target before saving this model.",
     optionalFriendlyName: "Optional friendly name",
     priority: (value) => `Priority ${value}`,
     proxyTargetsDescriptionPrimary: "Requests try these native targets in order and stop at the first available target.",
-    proxyTargetsDescriptionSecondary: "You can create this proxy now and configure targets later on /models/:id/proxy.",
+    proxyTargetsDescriptionSecondary: "Proxy models must include an ordered target list here before you can save, and you can keep refining that order later on /models/:id/proxy.",
     remainingNativeTargets: (count) => `${count} more native targets available.`,
     routingTypeDescription: "Turn this model on or off",
     save: "Save",
@@ -2697,6 +2823,7 @@ export const enMessages: Messages = {
     deleted: "Model deleted",
     deleteFailed: "Failed to delete model",
     fetchFailed: "Failed to fetch data",
+    proxyTargetRequired: "Please add at least one ordered proxy target for proxy models",
     saveFailed: "Failed to save model",
     selectApiFamily: "Please select an API family",
     selectLoadbalanceStrategy: "Please select a loadbalance strategy for native models",
@@ -2752,6 +2879,7 @@ export const enMessages: Messages = {
     actions: "Actions",
     active: "Active",
     apiKey: "API key",
+    currentKey: "Current key",
     authenticationOff: "Authentication Off",
     authenticationOn: "Authentication On",
     authenticationUnavailable: "Authentication Unavailable",
@@ -2771,6 +2899,7 @@ export const enMessages: Messages = {
     editDescription: "Update the stored name, note, and active state for this issued key. Rotating the secret is a separate action.",
     editProxyApiKey: "Edit Proxy API Key",
     editProxyKeyAria: (name) => `Edit proxy key ${name}`,
+    expiresAt: "Expires",
     issuedKeys: "Issued keys",
     keyCount: (count) => `${count} key${count === "1" ? "" : "s"}`,
     keyLimitReached: "Key limit reached",
@@ -2779,6 +2908,7 @@ export const enMessages: Messages = {
     keysUsed: (used, limit) => `${used} / ${limit} keys used`,
     lastIp: "Last IP",
     lastUsed: "Last used",
+    lineage: "Lineage",
     listDescription: "Edit metadata, rotate, or delete keys directly from the list below.",
     name: "Name",
     nameNote: "Name / note",
@@ -2791,7 +2921,9 @@ export const enMessages: Messages = {
     notesPlaceholder: "Used by the main website",
     operation: "Operation",
     preview: "Preview",
+    neverExpires: "Never expires",
     rotateProxyKeyAria: (name) => `Rotate proxy key ${name}`,
+    rotatedFrom: (id) => `Rotated from #${id}`,
     slotsRemaining: (remaining) => `${remaining} slot${remaining === "1" ? "" : "s"} remaining.`,
     title: "Proxy API Keys",
     never: "Never",
@@ -2832,6 +2964,8 @@ export const enMessages: Messages = {
     connection: "Connection",
     detailDescription: "Review request metadata, routing, tokens, costs, and captured upstream payloads.",
     endpoint: "Endpoint",
+    fxRateSource: "FX source",
+    fxRateUsed: "FX rate used",
     fiveHundredsOnly: "5xx only",
     fourHundredsOnly: "4xx only",
     last6Hours: "Last 6 hours",
@@ -2910,6 +3044,15 @@ export const enMessages: Messages = {
     yes: "Yes",
     no: "No",
     whyUnpriced: "Why unpriced",
+    reportCurrency: "Report currency",
+    sourceCurrency: "Source currency",
+    pricingConfigVersion: "Pricing config version",
+    pricingSnapshotCacheCreation: "Pricing snapshot cache creation",
+    pricingSnapshotCacheRead: "Pricing snapshot cache read",
+    pricingSnapshotInput: "Pricing snapshot input",
+    pricingSnapshotOutput: "Pricing snapshot output",
+    pricingSnapshotReasoning: "Pricing snapshot reasoning",
+    pricingUnit: "Pricing unit",
     baseUrl: "Base URL",
     auditCapture: "Audit capture",
     auditCaptureUnavailable: "Audit capture unavailable",
@@ -2922,6 +3065,8 @@ export const enMessages: Messages = {
     tokens: "Tokens",
     triage: "Triage",
     view: "View",
+    viewConnection: "Open connection",
+    noConnectionRecorded: "No connection recorded",
     spend: "Cost",
     viewRequestInLogs: "View in Request Logs",
     viewingRequest: (id) => `Viewing request #${id}`,

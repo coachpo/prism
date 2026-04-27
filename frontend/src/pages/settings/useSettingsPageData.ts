@@ -32,8 +32,8 @@ export function useSettingsPageData() {
     setRecentlySavedSection,
   });
   const audit = useAuditConfigurationData({ revision });
-  const retention = useRetentionDeletionData();
-  const vendorManagement = useVendorManagementData({ revision });
+  const retention = useRetentionDeletionData({ setRecentlySavedSection });
+  const vendorManagement = useVendorManagementData({ bumpRevision, revision });
   const { vendors: auditVendors, ...auditData } = audit;
 
   useEffect(() => {

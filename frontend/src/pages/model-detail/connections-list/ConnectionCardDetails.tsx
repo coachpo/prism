@@ -1,14 +1,16 @@
 import { Loader2 } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
-import type { Connection } from "@/lib/types";
+import type { Connection, LoadbalanceCurrentStateItem } from "@/lib/types";
 import type { FormatTime } from "./connectionCardTypes";
 
 export function ConnectionCardDetails({
   connection,
+  currentState,
   formatTime,
   isChecking,
 }: {
   connection: Connection;
+  currentState?: LoadbalanceCurrentStateItem;
   formatTime: FormatTime;
   isChecking: boolean;
 }) {
@@ -46,6 +48,36 @@ export function ConnectionCardDetails({
           <span>{copy.notCheckedYet}</span>
         )}
       </div>
+
+      {currentState ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {currentState.live_p95_latency_ms !== null ? (
+            <span>{copy.liveP95Latency(`${Math.round(currentState.live_p95_latency_ms)}ms`)}</span>
+          ) : null}
+          {currentState.last_live_success_at ? (
+            <span>
+              {copy.lastLiveSuccess(
+                formatTime(currentState.last_live_success_at, {
+                  hour: "numeric",
+                  minute: "numeric",
+                  second: "numeric",
+                }),
+              )}
+            </span>
+          ) : null}
+          {currentState.last_live_failure_at ? (
+            <span>
+              {copy.lastLiveFailure(
+                formatTime(currentState.last_live_failure_at, {
+                  hour: "numeric",
+                  minute: "numeric",
+                  second: "numeric",
+                }),
+              )}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 }

@@ -56,16 +56,14 @@ export function ModelStatisticsTable({ currency, items }: ModelStatisticsTablePr
     },
     {
       cell: (item) =>
-        item.total_cost_micros > 0
-          ? formatMoneyMicros(
-              item.total_cost_micros,
-              currency.symbol,
-              currency.code,
-              2,
-              6,
-              locale,
-            )
-          : "—",
+        formatMoneyMicros(
+          item.total_cost_micros,
+          currency.symbol,
+          currency.code,
+          2,
+          6,
+          locale,
+        ),
       className: "text-right tabular-nums",
       header: messages.statistics.totalSpend,
       headerClassName: "text-right",

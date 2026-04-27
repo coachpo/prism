@@ -289,6 +289,8 @@ test("shows adaptive and legacy recovery rows by name", async ({ page }) => {
   await expectRecoveryLines(page.getByRole("row", { name: /Adaptive Off/ }), [
     "Routing policy Minimize latency",
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
+    "Adaptive hedge disabled",
+    "Admission QPS Enabled • In-flight Enabled",
     "Open window 60s base • 900s max",
     "Ban off",
   ]);
@@ -296,6 +298,8 @@ test("shows adaptive and legacy recovery rows by name", async ({ page }) => {
   await expectRecoveryLines(page.getByRole("row", { name: /Adaptive Manual/ }), [
     "Routing policy Maximize availability",
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
+    "Adaptive hedge disabled",
+    "Admission QPS Enabled • In-flight Enabled",
     "Open window 60s base • 900s max",
     "Manual dismiss after 1 max-open strikes",
   ]);
@@ -303,6 +307,8 @@ test("shows adaptive and legacy recovery rows by name", async ({ page }) => {
   await expectRecoveryLines(page.getByRole("row", { name: /Adaptive Temporary/ }), [
     "Routing policy Minimize latency",
     "Status codes 403, 422, 429, 500, 502, 503, 504, 529",
+    "Adaptive hedge disabled",
+    "Admission QPS Enabled • In-flight Enabled",
     "Open window 60s base • 900s max",
     "Temporary ban after 1 max-open strikes • 28,800s",
   ]);

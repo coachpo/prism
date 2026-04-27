@@ -13,7 +13,7 @@ const auditRequestBody = "line-1\r\nline-2\r\nline-3";
 const auditResponseBody = "event: response.created\r\ndata: {\"id\":\"resp_101\"}";
 
 function normalizeClipboardText(value: string) {
-  return value.replaceAll("\r\n", "\n");
+  return value.split("\r\n").join("\n");
 }
 
 function createRequestLogDetail() {
@@ -57,6 +57,7 @@ function createRequestLogDetail() {
       connection_id: null,
       endpoint_base_url: "https://api.example.test",
       endpoint_description: "Primary endpoint",
+      audit_enabled_at_request: true,
     },
     usage: {
       input_tokens: 12,

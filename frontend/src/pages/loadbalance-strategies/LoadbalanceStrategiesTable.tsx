@@ -75,6 +75,16 @@ export function LoadbalanceStrategiesTable({
           getAdaptiveRoutingObjectiveLabel(strategy.routing_policy.routing_objective, strategyCopy),
         ),
         tableCopy.statusCodes(failureStatusCodes),
+        strategy.routing_policy.hedge.enabled
+          ? tableCopy.adaptiveHedgeSummary(
+              formatNumber(strategy.routing_policy.hedge.delay_ms),
+              formatNumber(strategy.routing_policy.hedge.max_additional_attempts),
+            )
+          : tableCopy.adaptiveHedgeDisabled,
+        tableCopy.adaptiveAdmissionSummary(
+          strategy.routing_policy.admission.respect_qps_limit ? tableCopy.enabled : tableCopy.disabled,
+          strategy.routing_policy.admission.respect_in_flight_limits ? tableCopy.enabled : tableCopy.disabled,
+        ),
         tableCopy.adaptiveOpenWindowSummary(
           formatNumber(circuitBreaker.base_open_seconds),
           formatNumber(circuitBreaker.max_open_seconds),

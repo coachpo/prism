@@ -21,8 +21,10 @@ import type {
   Vendor,
 } from "@/lib/types";
 import { getAdaptiveRoutingObjectiveLabel } from "@/lib/loadbalanceRoutingPolicy";
+import { ProxyTargetsEditor } from "./ProxyTargetsEditor";
 import type { ModelFormData, SubmitEventLike } from "./modelFormState";
 import {
+  setApiFamilyOnForm,
   setDisplayNameOnForm,
   setModelIdOnForm,
 } from "./modelFormState";
@@ -123,10 +125,7 @@ export function ModelDialog({
                   <ApiFamilySelect
                     value={formData.api_family ?? ""}
                     onValueChange={(value) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        api_family: value as typeof prev.api_family,
-                      }))
+                      setFormData((prev) => setApiFamilyOnForm(prev, value as typeof prev.api_family))
                     }
                     showAll={false}
                     className="w-full"
@@ -178,21 +177,20 @@ export function ModelDialog({
               </div>
 
               {formData.model_type === "proxy" ? (
-                <div className="flex flex-col gap-3 rounded-lg border border-dashed bg-muted/15 p-4">
-                  <div className="flex flex-col gap-1">
-                    <p className="text-sm font-medium text-foreground">{detailCopy.proxyTargets}</p>
-                    <p className="text-sm text-muted-foreground">{copy.proxyTargetsDescriptionPrimary}</p>
-                    <p className="text-sm text-muted-foreground">{copy.proxyTargetsDescriptionSecondary}</p>
-                  </div>
-                  <p className="rounded-md border border-dashed border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                    {copy.noProxyTargetsSelected}
-                  </p>
-                  {nativeModelsForApiFamily.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {copy.noNativeModelsForFamily(formData.api_family || messages.common.apiFamily)}
-                    </p>
-                  ) : null}
-                </div>
+                <ProxyTargetsEditor
+                  apiFamilyLabel={formData.api_family || messages.common.apiFamily}
+                  availableTargets={nativeModelsForApiFamily.map((model) => ({
+                    modelId: model.model_id,
+                    label: model.display_name || model.model_id,
+                  }))}
+                  proxyTargets={formData.proxy_targets}
+                  onChange={(proxyTargets) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      proxy_targets: proxyTargets,
+                    }))
+                  }
+                />
               ) : null}
 
               {formData.model_type === "native" ? (

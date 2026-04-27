@@ -16,6 +16,7 @@ interface AuditConfigurationRuleSectionProps {
   open: boolean;
   rules: HeaderBlocklistRule[];
   title: string;
+  toggleLocked?: boolean;
   onOpenChange: (open: boolean) => void;
   onToggleRule?: (rule: HeaderBlocklistRule, checked: boolean) => Promise<void>;
   onEditRule?: (rule: HeaderBlocklistRule) => void;
@@ -29,6 +30,7 @@ export function AuditConfigurationRuleSection({
   open,
   rules,
   title,
+  toggleLocked = locked,
   onOpenChange,
   onToggleRule,
   onEditRule,
@@ -51,6 +53,7 @@ export function AuditConfigurationRuleSection({
           <AuditConfigurationRuleTable
             locked={locked}
             rules={rules}
+            toggleLocked={toggleLocked}
             onToggleRule={onToggleRule}
             onEditRule={onEditRule}
             onDeleteRule={onDeleteRule}

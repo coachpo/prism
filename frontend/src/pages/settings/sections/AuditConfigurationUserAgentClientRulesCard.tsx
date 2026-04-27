@@ -25,6 +25,7 @@ interface UserAgentClientRuleSectionProps {
   open: boolean;
   rules: UserAgentClientRule[];
   title: string;
+  toggleLocked?: boolean;
   onOpenChange: (open: boolean) => void;
   onToggleRule?: (rule: UserAgentClientRule, checked: boolean) => Promise<void>;
   onEditRule?: (rule: UserAgentClientRule) => void;
@@ -51,6 +52,7 @@ function UserAgentClientRuleSection({
   open,
   rules,
   title,
+  toggleLocked = locked,
   onOpenChange,
   onToggleRule,
   onEditRule,
@@ -90,13 +92,13 @@ function UserAgentClientRuleSection({
                     <TableCell>
                       <Switch
                         checked={rule.enabled}
-                        disabled={locked}
+                        disabled={toggleLocked}
                         onCheckedChange={
-                          locked || !onToggleRule
+                          toggleLocked || !onToggleRule
                             ? undefined
                             : (checked) => void onToggleRule(rule, checked)
                         }
-                        className={locked ? undefined : "data-[state=checked]:bg-emerald-500"}
+                        className={toggleLocked ? undefined : "data-[state=checked]:bg-emerald-500"}
                       />
                     </TableCell>
                     <TableCell className="font-medium">
@@ -191,10 +193,12 @@ export function AuditConfigurationUserAgentClientRulesCard({
             <UserAgentClientRuleSection
               emptyState={rulesCopy.noSystemRules}
               locked
+              toggleLocked={false}
               open={systemRulesOpen}
               rules={systemRules}
               title={rulesCopy.systemRulesLocked}
               onOpenChange={setSystemRulesOpen}
+              onToggleRule={handleToggleRule}
             />
             <UserAgentClientRuleSection
               emptyState={rulesCopy.noCustomRules}

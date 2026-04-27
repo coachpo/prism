@@ -16,6 +16,7 @@ import { AuditConfigurationRuleActions } from "./AuditConfigurationRuleActions";
 interface AuditConfigurationRuleTableProps {
   locked: boolean;
   rules: HeaderBlocklistRule[];
+  toggleLocked?: boolean;
   onToggleRule?: (rule: HeaderBlocklistRule, checked: boolean) => Promise<void>;
   onEditRule?: (rule: HeaderBlocklistRule) => void;
   onDeleteRule?: (rule: HeaderBlocklistRule) => void;
@@ -24,6 +25,7 @@ interface AuditConfigurationRuleTableProps {
 export function AuditConfigurationRuleTable({
   locked,
   rules,
+  toggleLocked = locked,
   onToggleRule,
   onEditRule,
   onDeleteRule,
@@ -47,11 +49,11 @@ export function AuditConfigurationRuleTable({
               <TableCell>
                 <Switch
                   checked={rule.enabled}
-                  disabled={locked}
+                  disabled={toggleLocked}
                   onCheckedChange={
-                    locked || !onToggleRule ? undefined : (checked) => void onToggleRule(rule, checked)
+                    toggleLocked || !onToggleRule ? undefined : (checked) => void onToggleRule(rule, checked)
                   }
-                  className={locked ? undefined : "data-[state=checked]:bg-emerald-500"}
+                  className={toggleLocked ? undefined : "data-[state=checked]:bg-emerald-500"}
                 />
               </TableCell>
               <TableCell className="font-medium">

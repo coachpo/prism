@@ -309,6 +309,178 @@ export function LoadbalanceStrategyDialog({
               </StrategyDialogSection>
 
               <StrategyDialogSection title={dialogMessages.reliabilityControlsSectionTitle}>
+                {adaptiveForm ? (
+                  <StrategyDialogSubsection>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <StrategyDialogField
+                        id="adaptive-hedge-enabled"
+                        label={dialogMessages.hedgeLabel}
+                        description={dialogMessages.hedgeDescription}
+                      >
+                        <Select
+                          value={adaptiveForm.routing_policy.hedge.enabled ? "enabled" : "disabled"}
+                          onValueChange={(value) =>
+                            setLoadbalanceStrategyForm((prev) =>
+                              prev.strategy_type !== "adaptive"
+                                ? prev
+                                : {
+                                    ...prev,
+                                    routing_policy: {
+                                      ...prev.routing_policy,
+                                      hedge: {
+                                        ...prev.routing_policy.hedge,
+                                        enabled: value === "enabled",
+                                      },
+                                    },
+                                  },
+                            )
+                          }
+                        >
+                          <SelectTrigger id="adaptive-hedge-enabled" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">{dialogMessages.hedgeDisabledOption}</SelectItem>
+                            <SelectItem value="enabled">{dialogMessages.hedgeEnabledOption}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </StrategyDialogField>
+
+                      <StrategyDialogField
+                        id="adaptive-hedge-delay-ms"
+                        label={dialogMessages.hedgeDelayLabel}
+                        description={dialogMessages.hedgeDelayDescription}
+                      >
+                        <Input
+                          id="adaptive-hedge-delay-ms"
+                          type="number"
+                          autoComplete="off"
+                          min={0}
+                          step={1}
+                          value={adaptiveForm.routing_policy.hedge.delay_ms}
+                          onChange={(event) =>
+                            setLoadbalanceStrategyForm((prev) =>
+                              prev.strategy_type !== "adaptive"
+                                ? prev
+                                : {
+                                    ...prev,
+                                    routing_policy: {
+                                      ...prev.routing_policy,
+                                      hedge: {
+                                        ...prev.routing_policy.hedge,
+                                        delay_ms: parseIntegerInput(event.target.value, prev.routing_policy.hedge.delay_ms),
+                                      },
+                                    },
+                                  },
+                            )
+                          }
+                        />
+                      </StrategyDialogField>
+
+                      <StrategyDialogField
+                        id="adaptive-hedge-attempts"
+                        label={dialogMessages.hedgeAttemptsLabel}
+                        description={dialogMessages.hedgeAttemptsDescription}
+                      >
+                        <Input
+                          id="adaptive-hedge-attempts"
+                          type="number"
+                          autoComplete="off"
+                          min={1}
+                          step={1}
+                          value={adaptiveForm.routing_policy.hedge.max_additional_attempts}
+                          onChange={(event) =>
+                            setLoadbalanceStrategyForm((prev) =>
+                              prev.strategy_type !== "adaptive"
+                                ? prev
+                                : {
+                                    ...prev,
+                                    routing_policy: {
+                                      ...prev.routing_policy,
+                                      hedge: {
+                                        ...prev.routing_policy.hedge,
+                                        max_additional_attempts: parseIntegerInput(event.target.value, prev.routing_policy.hedge.max_additional_attempts),
+                                      },
+                                    },
+                                  },
+                            )
+                          }
+                        />
+                      </StrategyDialogField>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <StrategyDialogField
+                        id="adaptive-admission-qps"
+                        label={dialogMessages.qpsAdmissionLabel}
+                        description={dialogMessages.qpsAdmissionDescription}
+                      >
+                        <Select
+                          value={adaptiveForm.routing_policy.admission.respect_qps_limit ? "enabled" : "disabled"}
+                          onValueChange={(value) =>
+                            setLoadbalanceStrategyForm((prev) =>
+                              prev.strategy_type !== "adaptive"
+                                ? prev
+                                : {
+                                    ...prev,
+                                    routing_policy: {
+                                      ...prev.routing_policy,
+                                      admission: {
+                                        ...prev.routing_policy.admission,
+                                        respect_qps_limit: value === "enabled",
+                                      },
+                                    },
+                                  },
+                            )
+                          }
+                        >
+                          <SelectTrigger id="adaptive-admission-qps" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="enabled">{dialogMessages.hedgeEnabledOption}</SelectItem>
+                            <SelectItem value="disabled">{dialogMessages.hedgeDisabledOption}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </StrategyDialogField>
+
+                      <StrategyDialogField
+                        id="adaptive-admission-inflight"
+                        label={dialogMessages.inFlightAdmissionLabel}
+                        description={dialogMessages.inFlightAdmissionDescription}
+                      >
+                        <Select
+                          value={adaptiveForm.routing_policy.admission.respect_in_flight_limits ? "enabled" : "disabled"}
+                          onValueChange={(value) =>
+                            setLoadbalanceStrategyForm((prev) =>
+                              prev.strategy_type !== "adaptive"
+                                ? prev
+                                : {
+                                    ...prev,
+                                    routing_policy: {
+                                      ...prev.routing_policy,
+                                      admission: {
+                                        ...prev.routing_policy.admission,
+                                        respect_in_flight_limits: value === "enabled",
+                                      },
+                                    },
+                                  },
+                            )
+                          }
+                        >
+                          <SelectTrigger id="adaptive-admission-inflight" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="enabled">{dialogMessages.hedgeEnabledOption}</SelectItem>
+                            <SelectItem value="disabled">{dialogMessages.hedgeDisabledOption}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </StrategyDialogField>
+                    </div>
+                  </StrategyDialogSubsection>
+                ) : null}
+
                 {legacyForm ? (
                   <StrategyDialogSubsection>
                     <StrategyDialogField

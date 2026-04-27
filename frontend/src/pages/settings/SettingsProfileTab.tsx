@@ -150,6 +150,13 @@ export function SettingsProfileTab({
             setRetentionPreset={data.setRetentionPreset}
             deleting={data.deleting}
             handleOpenDeleteConfirm={data.handleOpenDeleteConfirm}
+            renderSectionSaveState={data.renderSaveStateForSection}
+            handleSaveRetentionSettings={data.handleSaveRetentionSettings}
+            retentionSettings={data.retentionSettings}
+            retentionSettingsDirty={data.retentionSettingsDirty}
+            retentionSettingsLoading={data.retentionSettingsLoading}
+            retentionSettingsSaving={data.retentionSettingsSaving}
+            setRetentionDays={data.setRetentionDays}
           />
         </div>
       </div>

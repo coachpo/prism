@@ -73,6 +73,7 @@ export function ConnectionCard({
 
             <ConnectionCardDetails
               connection={connection}
+              currentState={loadbalanceCurrentState}
               formatTime={formatTime}
               isChecking={isChecking}
             />

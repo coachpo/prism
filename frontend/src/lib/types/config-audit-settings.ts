@@ -90,17 +90,29 @@ export interface ConfigModelExport {
   connections: ConfigConnectionExport[];
 }
 
-export interface ConfigModelImport {
-  vendor_key?: string | null;
-  api_family: ApiFamily;
-  model_id: string;
-  display_name?: string | null;
-  model_type?: ModelType;
-  proxy_targets?: ProxyTarget[];
-  loadbalance_strategy_name?: string | null;
-  is_enabled?: boolean;
-  connections?: ConfigConnectionImport[];
-}
+export type ConfigModelImport =
+  | {
+      vendor_key?: string | null;
+      api_family: ApiFamily;
+      model_id: string;
+      display_name?: string | null;
+      model_type: "native";
+      proxy_targets: [];
+      loadbalance_strategy_name: string;
+      is_enabled?: boolean;
+      connections: ConfigConnectionImport[];
+    }
+  | {
+      vendor_key?: string | null;
+      api_family: ApiFamily;
+      model_id: string;
+      display_name?: string | null;
+      model_type: "proxy";
+      proxy_targets: ProxyTarget[];
+      loadbalance_strategy_name: null;
+      is_enabled?: boolean;
+      connections: [];
+    };
 
 export interface ConfigEndpointFxRateExport {
   model_id: string;
@@ -169,6 +181,7 @@ export interface ConfigExportResponse {
   models: ConfigModelExport[];
   profile_settings?: ConfigUserSettingsExport | null;
   header_blocklist_rules: HeaderBlocklistRuleExport[];
+  user_agent_client_rules: UserAgentClientRuleExport[];
   secret_payload: ConfigSecretPayload;
 }
 
@@ -183,6 +196,7 @@ export interface ConfigImportRequest {
   models: ConfigModelImport[];
   profile_settings?: ConfigUserSettingsImport | null;
   header_blocklist_rules?: HeaderBlocklistRuleExport[];
+  user_agent_client_rules?: UserAgentClientRuleExport[];
   secret_payload: ConfigSecretPayload;
 }
 
@@ -214,6 +228,35 @@ export interface ConfigImportPreviewResponse {
   decryptable_secret_refs: string[];
   blocking_errors: string[];
   warnings: string[];
+}
+
+export interface VendorCatalogExportResponse {
+  version: 1;
+  bundle_kind: "vendor_catalog";
+  exported_at: string;
+  vendors: ConfigVendorExport[];
+}
+
+export interface VendorCatalogImportRequest {
+  version: 1;
+  bundle_kind: "vendor_catalog";
+  exported_at?: string;
+  vendors: ConfigVendorImport[];
+}
+
+export interface VendorCatalogImportPreviewResponse {
+  ready: boolean;
+  version: 1;
+  bundle_kind: "vendor_catalog";
+  create_count: number;
+  update_count: number;
+  blocking_errors: string[];
+  warnings: string[];
+}
+
+export interface VendorCatalogImportResponse {
+  created_count: number;
+  updated_count: number;
 }
 
 export interface AuditLogListItem {
@@ -314,6 +357,19 @@ export interface TimezonePreferenceUpdate {
   timezone_preference?: string | null;
 }
 
+export interface RetentionSettingsResponse {
+  profile_id: number;
+  request_logs_retention_days: number | null;
+  statistics_retention_days: number | null;
+  audit_logs_retention_days: number | null;
+}
+
+export interface RetentionSettingsUpdate {
+  request_logs_retention_days?: number | null;
+  statistics_retention_days?: number | null;
+  audit_logs_retention_days?: number | null;
+}
+
 export interface HeaderBlocklistRule {
   id: number;
   name: string;
@@ -342,6 +398,12 @@ export interface HeaderBlocklistRuleUpdate {
 export interface HeaderBlocklistRuleExport {
   name: string;
   match_type: "exact" | "prefix";
+  pattern: string;
+  enabled: boolean;
+}
+
+export interface UserAgentClientRuleExport {
+  name: string;
   pattern: string;
   enabled: boolean;
 }

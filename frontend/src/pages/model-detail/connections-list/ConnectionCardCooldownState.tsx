@@ -52,6 +52,7 @@ export function ConnectionCardCooldownState({
               currentStateBlocked: copy.currentStateBlocked,
               currentStateCounting: copy.currentStateCounting,
               currentStateManualBan: copy.currentStateManualBan,
+              currentStateProbeEligible: copy.currentStateProbeEligible,
               currentStateTemporaryBan: copy.currentStateTemporaryBan,
               failureKindConnectError: copy.failureKindConnectError,
               failureKindTimeout: copy.failureKindTimeout,
@@ -86,6 +87,7 @@ function getCurrentStateTone(
     banned: string;
     recoveryBlocked: string;
     recoveryCounting: string;
+    recoveryProbeEligible: string;
   },
 ): {
   label: string;
@@ -105,6 +107,14 @@ function getCurrentStateTone(
       label: copy.banned,
       intent: "danger",
       panelClassName: "border-red-500/20 bg-red-500/5",
+    };
+  }
+
+  if (state === "probe_eligible") {
+    return {
+      label: copy.recoveryProbeEligible,
+      intent: "info",
+      panelClassName: "border-sky-500/20 bg-sky-500/5",
     };
   }
 

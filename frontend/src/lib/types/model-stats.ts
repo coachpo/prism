@@ -48,27 +48,46 @@ export interface ModelConfigListItem {
   updated_at: string;
 }
 
-export interface ModelConfigCreate {
-  vendor_id?: number | null;
-  api_family: ApiFamily;
-  model_id: string;
-  display_name?: string | null;
-  model_type?: ModelType;
-  proxy_targets?: ProxyTarget[];
-  loadbalance_strategy_id?: number | null;
-  is_enabled?: boolean;
-}
-
-export interface ModelConfigUpdate {
+interface ModelConfigMutationBase {
   vendor_id?: number | null;
   api_family?: ApiFamily;
   model_id?: string;
   display_name?: string | null;
-  model_type?: ModelType;
-  proxy_targets?: ProxyTarget[];
-  loadbalance_strategy_id?: number | null;
   is_enabled?: boolean;
 }
+
+export type ModelConfigCreate =
+  | (ModelConfigMutationBase & {
+      api_family: ApiFamily;
+      model_id: string;
+      model_type: "native";
+      proxy_targets?: [];
+      loadbalance_strategy_id: number | null;
+    })
+  | (ModelConfigMutationBase & {
+      api_family: ApiFamily;
+      model_id: string;
+      model_type: "proxy";
+      proxy_targets: ProxyTarget[];
+      loadbalance_strategy_id?: null;
+    });
+
+export type ModelConfigUpdate =
+  | (ModelConfigMutationBase & {
+      model_type: "native";
+      proxy_targets?: [];
+      loadbalance_strategy_id: number | null;
+    })
+  | (ModelConfigMutationBase & {
+      model_type: "proxy";
+      proxy_targets: ProxyTarget[];
+      loadbalance_strategy_id?: null;
+    })
+  | (ModelConfigMutationBase & {
+      model_type?: undefined;
+      proxy_targets?: ProxyTarget[];
+      loadbalance_strategy_id?: number | null;
+    });
 
 export interface RequestLogEntry {
   id: number;
