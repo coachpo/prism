@@ -16,14 +16,22 @@ import (
 
 const defaultBootstrapConfigPath = "config.json"
 
+type bootstrapStartupConfig struct {
+	Settings           config.Settings
+	ConfigPath         string
+	LoadedRevision     int
+	LoadedDocumentETag string
+}
+
 func main() {
-	settings, bootstrapConfigPath, err := loadBootstrapSettings()
+	bootstrapConfig, err := loadBootstrapSettings()
 	if err != nil {
 		slog.Error("failed to load bootstrap config", "error", err)
 		os.Exit(1)
 	}
+	settings := bootstrapConfig.Settings
 	if shouldPrintEffectiveStartupSettings() {
-		if err := printEffectiveStartupSettings(bootstrapConfigPath, settings); err != nil {
+		if err := printEffectiveStartupSettings(bootstrapConfig.ConfigPath, settings); err != nil {
 			slog.Error("failed to print effective startup settings", "error", err)
 			os.Exit(1)
 		}
@@ -45,7 +53,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	server, err := platformhttp.NewServer(settings)
+	server, err := platformhttp.NewServer(settings, platformhttp.ServerOptions{
+		BootstrapConfig: platformhttp.BootstrapConfigOptions{
+			ConfigPath:         bootstrapConfig.ConfigPath,
+			LoadedRevision:     bootstrapConfig.LoadedRevision,
+			LoadedDocumentETag: bootstrapConfig.LoadedDocumentETag,
+		},
+	})
 	if err != nil {
 		slog.Error("failed to build server", "error", err)
 		os.Exit(1)
@@ -67,17 +81,26 @@ func main() {
 	}
 }
 
-func loadBootstrapSettings() (config.Settings, string, error) {
+func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 	bootstrapConfigPath := strings.TrimSpace(os.Getenv(config.BootstrapConfigPathEnv))
 	if bootstrapConfigPath == "" {
 		bootstrapConfigPath = defaultBootstrapConfigPath
 	}
 
-	settings, err := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{}).LoadOrSeed(bootstrapConfigPath)
-	if err != nil {
-		return config.Settings{}, "", err
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	if _, err := manager.LoadOrSeed(bootstrapConfigPath); err != nil {
+		return bootstrapStartupConfig{}, err
 	}
-	return settings, bootstrapConfigPath, nil
+	snapshot, settings, err := manager.LoadBootstrapConfigDocument(bootstrapConfigPath)
+	if err != nil {
+		return bootstrapStartupConfig{}, err
+	}
+	return bootstrapStartupConfig{
+		Settings:           settings,
+		ConfigPath:         bootstrapConfigPath,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+	}, nil
 }
 
 func shouldPrintEffectiveStartupSettings() bool {

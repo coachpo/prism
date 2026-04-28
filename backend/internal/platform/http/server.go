@@ -18,6 +18,7 @@ import (
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
 	managementconfigbundle "github.com/coachpo/prism/backend/internal/httpapi/management/configbundle"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
 	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
@@ -36,25 +37,36 @@ import (
 )
 
 type Dependencies struct {
-	Version             string
-	OpenAPI             *openapi.Document
-	AuditService        *managementaudit.Service
-	AuthService         *managementauth.Service
-	RuntimeAuthService  *managementauth.Service
-	ConfigBundleService *managementconfigbundle.Service
-	ConfigRulesService  *managementconfigrules.Service
-	ConnectionsService  *managementconnections.Service
-	EndpointsService    *managementendpoints.Service
-	LoadbalanceService  *managementloadbalance.Service
-	ModelsService       *managementmodels.Service
-	ProfilesService     *managementprofiles.Service
-	RealtimeService     *realtimeapi.Service
-	RuntimeService      *runtimeapi.Service
-	RuntimeCache        *runtimeapi.SharedCache
-	RuntimeState        *loadbalancedomain.LocalRuntimeStateStore
-	SettingsService     *managementsettings.Service
-	StatsService        *managementstats.Service
-	VendorsService      *managementvendors.Service
+	Version                string
+	OpenAPI                *openapi.Document
+	AuditService           *managementaudit.Service
+	AuthService            *managementauth.Service
+	RuntimeAuthService     *managementauth.Service
+	BootstrapConfigService *managementbootstrapconfig.Service
+	ConfigBundleService    *managementconfigbundle.Service
+	ConfigRulesService     *managementconfigrules.Service
+	ConnectionsService     *managementconnections.Service
+	EndpointsService       *managementendpoints.Service
+	LoadbalanceService     *managementloadbalance.Service
+	ModelsService          *managementmodels.Service
+	ProfilesService        *managementprofiles.Service
+	RealtimeService        *realtimeapi.Service
+	RuntimeService         *runtimeapi.Service
+	RuntimeCache           *runtimeapi.SharedCache
+	RuntimeState           *loadbalancedomain.LocalRuntimeStateStore
+	SettingsService        *managementsettings.Service
+	StatsService           *managementstats.Service
+	VendorsService         *managementvendors.Service
+}
+
+type ServerOptions struct {
+	BootstrapConfig BootstrapConfigOptions
+}
+
+type BootstrapConfigOptions struct {
+	ConfigPath         string
+	LoadedRevision     int
+	LoadedDocumentETag string
 }
 
 type healthResponse struct {
@@ -111,6 +123,9 @@ var managementRouteRules = []managementRouteRule{
 	{method: http.MethodGet, pattern: "/loadbalance/events", class: managementRouteClassM3},
 	{method: http.MethodGet, pattern: "/loadbalance/events/{event_id}", class: managementRouteClassM3},
 	{method: http.MethodDelete, pattern: "/loadbalance/events", class: managementRouteClassM3},
+	{method: http.MethodGet, pattern: "/config/bootstrap", class: managementRouteClassM2},
+	{method: http.MethodPost, pattern: "/config/bootstrap/validate", class: managementRouteClassM2},
+	{method: http.MethodPut, pattern: "/config/bootstrap", class: managementRouteClassM2},
 	{method: http.MethodGet, pattern: "/config/profile/export", class: managementRouteClassM3},
 	{method: http.MethodPost, pattern: "/config/profile/import/preview", class: managementRouteClassM3},
 	{method: http.MethodPost, pattern: "/config/profile/import", class: managementRouteClassM3},
@@ -245,13 +260,24 @@ func managementRouteSegments(path string) []string {
 	return strings.Split(trimmed, "/")
 }
 
-func NewServer(settings config.Settings) (*http.Server, error) {
+func NewServer(settings config.Settings, options ServerOptions) (*http.Server, error) {
 	loadedVersion, err := version.Load()
 	if err != nil {
 		return nil, err
 	}
 
 	deps := Dependencies{Version: loadedVersion}
+	if strings.TrimSpace(options.BootstrapConfig.ConfigPath) != "" {
+		bootstrapConfigService, bootstrapErr := managementbootstrapconfig.NewService(settings, managementbootstrapconfig.Options{
+			ConfigPath:         options.BootstrapConfig.ConfigPath,
+			LoadedRevision:     options.BootstrapConfig.LoadedRevision,
+			LoadedDocumentETag: options.BootstrapConfig.LoadedDocumentETag,
+		})
+		if bootstrapErr != nil {
+			return nil, bootstrapErr
+		}
+		deps.BootstrapConfigService = bootstrapConfigService
+	}
 	if settings.DocsEnabled() {
 		deps.OpenAPI, err = openapi.Load()
 		if err != nil {
@@ -516,7 +542,7 @@ func NewHandlerWithDependencies(settings config.Settings, deps Dependencies) (ht
 func mountManagementBranch(router chi.Router, settings config.Settings, deps Dependencies) {
 	router.Get("/health", healthHandler(deps.Version))
 
-	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.StatsService, deps.VendorsService)
+	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.StatsService, deps.VendorsService)
 	if deps.AuthService != nil {
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
@@ -554,13 +580,16 @@ func mountRuntimeBranch(router chi.Router, deps Dependencies) {
 	}
 }
 
-func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, configBundleService *managementconfigbundle.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, profilesService *managementprofiles.Service, realtimeService *realtimeapi.Service, settingsService *managementsettings.Service, statsService *managementstats.Service, vendorsService *managementvendors.Service) http.Handler {
+func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, bootstrapConfigService *managementbootstrapconfig.Service, configBundleService *managementconfigbundle.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, profilesService *managementprofiles.Service, realtimeService *realtimeapi.Service, settingsService *managementsettings.Service, statsService *managementstats.Service, vendorsService *managementvendors.Service) http.Handler {
 	router := chi.NewRouter()
 	if auditService != nil {
 		auditService.MountManagementRoutes(router)
 	}
 	if authService != nil {
 		authService.MountManagementRoutes(router)
+	}
+	if bootstrapConfigService != nil {
+		bootstrapConfigService.MountManagementRoutes(router)
 	}
 	if configBundleService != nil {
 		configBundleService.MountManagementRoutes(router)
