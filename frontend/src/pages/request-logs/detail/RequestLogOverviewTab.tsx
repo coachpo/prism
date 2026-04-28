@@ -2,10 +2,7 @@ import { AlertTriangle, Coins, Copy, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import {
-  SpendTrustBadge,
-  SpendTrustNote,
-} from "@/components/SpendTrustIndicator";
+import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -212,7 +209,6 @@ export function RequestLogOverviewTab({
                         ? messages.spendTrust.unpriced
                         : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
                     </span>
-                    <SpendTrustBadge spendTrust={spendTrust} />
                   </div>
                 )}
               />
@@ -426,7 +422,6 @@ export function RequestLogOverviewTab({
                         ? messages.spendTrust.unpriced
                         : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
                     </span>
-                    <SpendTrustBadge spendTrust={spendTrust} />
                   </div>
                   {spendTrust !== "verified" ? (
                     <SpendTrustNote

@@ -1,5 +1,4 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
-import { SpendTrustBadge } from "@/components/SpendTrustIndicator";
 import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
@@ -110,7 +109,6 @@ function renderSpendCell(row: RequestLogListItem): React.ReactNode {
       <span className={cn("text-xs font-mono", spendTrust === "unpriced" ? "font-medium text-destructive" : "font-medium text-foreground")}>
         {value}
       </span>
-      <SpendTrustBadge spendTrust={spendTrust} />
     </div>
   );
 }

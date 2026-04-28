@@ -1,10 +1,7 @@
 import { Activity, DollarSign, Server } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { MetricCard } from "@/components/MetricCard";
-import {
-  SpendTrustBadge,
-  SpendTrustNote,
-} from "@/components/SpendTrustIndicator";
+import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn } from "@/lib/utils";
@@ -74,12 +71,7 @@ export function DashboardMetricsGrid({
         )}
       />
       <MetricCard
-        label={(
-          <>
-            <span>{messages.dashboard.spending30d}</span>
-            <SpendTrustBadge spendTrust={spendTrust} />
-          </>
-        )}
+        label={messages.dashboard.spending30d}
         value={spendMetricValue}
         detail={(
           <div className="space-y-1">

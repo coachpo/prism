@@ -2,10 +2,7 @@ import { useMemo } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
-import {
-  SpendTrustBadge,
-  SpendTrustNote,
-} from "@/components/SpendTrustIndicator";
+import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { TopSpendingCard } from "@/components/statistics/TopSpendingCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -284,12 +281,7 @@ export function UsageBreakdownSection({
         <Card className="border-border/70 bg-card/95 shadow-none">
           <CardHeader className="gap-3 border-b">
             <div className="grid flex-1 gap-1">
-              <CardTitle className="text-base">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3>{messages.statistics.costOverviewTitle}</h3>
-                  <SpendTrustBadge spendTrust={spendTrust} />
-                </div>
-              </CardTitle>
+              <CardTitle className="text-base">{messages.statistics.costOverviewTitle}</CardTitle>
               <CardDescription>{messages.statistics.requestBasedSpend}</CardDescription>
             </div>
             <CardAction className="flex items-center">
@@ -344,7 +336,6 @@ export function UsageBreakdownSection({
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                    <SpendTrustBadge spendTrust={spendTrust} />
                     {costSummary.priced_request_count !== null ? (
                       <Badge className="font-medium tabular-nums" variant="secondary">
                         {messages.statistics.pricedRequests(String(costSummary.priced_request_count))}

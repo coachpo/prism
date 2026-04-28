@@ -1,10 +1,7 @@
 import { ArrowUpRight, DollarSign } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { EmptyState } from "@/components/EmptyState";
-import {
-  SpendTrustBadge,
-  SpendTrustNote,
-} from "@/components/SpendTrustIndicator";
+import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
@@ -28,10 +25,7 @@ export function TopSpendingModelsCard({
   return (
     <Card className="md:col-span-2 lg:col-span-3">
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
-          <span>{messages.dashboard.topSpendingModels}</span>
-          <SpendTrustBadge spendTrust={currencyState.trust} />
-        </CardTitle>
+        <CardTitle>{messages.dashboard.topSpendingModels}</CardTitle>
         <div className="space-y-1">
           <CardDescription>{messages.dashboard.topSpendingModelsDescription}</CardDescription>
           {currencyState.trust !== "verified" ? (

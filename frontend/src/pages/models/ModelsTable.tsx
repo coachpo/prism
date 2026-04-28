@@ -3,10 +3,7 @@ import { ChevronDown, Eye, Plus, Server, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyState } from "@/components/EmptyState";
-import {
-  SpendTrustBadge,
-  SpendTrustNote,
-} from "@/components/SpendTrustIndicator";
+import { SpendTrustNote } from "@/components/SpendTrustIndicator";
 import { VendorIcon } from "@/components/VendorIcon";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { useLocale } from "@/i18n/useLocale";
@@ -468,7 +465,6 @@ export function ModelsTable({
       <Card className="gap-3 border-border/70 bg-card/95 px-4 py-3 shadow-none">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-foreground">{messages.dashboard.spending30d}</span>
-          <SpendTrustBadge spendTrust={currencyState.trust} />
         </div>
         {currencyState.trust !== "verified" ? (
           <SpendTrustNote spendTrust={currencyState.trust} />

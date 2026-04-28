@@ -2,7 +2,6 @@ import { Activity, CheckCircle2, XCircle } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { AnimatedListItem } from "@/components/AnimatedListItem";
 import { EmptyState } from "@/components/EmptyState";
-import { SpendTrustBadge } from "@/components/SpendTrustIndicator";
 import { ValueBadge } from "@/components/StatusBadge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
@@ -33,10 +32,7 @@ export function RecentActivityCard({
   return (
     <Card className="md:col-span-2 lg:col-span-4">
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
-          <span>{messages.dashboard.recentActivity}</span>
-          <SpendTrustBadge spendTrust={currencyState.trust} />
-        </CardTitle>
+        <CardTitle>{messages.dashboard.recentActivity}</CardTitle>
         <CardDescription>{messages.dashboard.recentActivityDescription}</CardDescription>
       </CardHeader>
       <CardContent>
