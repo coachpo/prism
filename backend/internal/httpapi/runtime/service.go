@@ -296,7 +296,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 		return
 	}
-	responseCapture, err := proxyNonEventResponseAndCaptureUsage(proxyWriter, execution.Response.Body, contentType, s.nowUTC)
+	responseCapture, err := proxyNonEventResponseAndCaptureUsage(proxyWriter, execution.Response.Body, contentType, s.nowUTC, plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest && !plan.IsStreamingRequest)
 	if err != nil {
 		if !proxyWriter.Committed() {
 			writeError(w, http.StatusBadGateway, "Failed to read upstream response")
@@ -366,6 +366,7 @@ func (writer *runtimeDeferredCommitWriter) Committed() bool {
 
 type runtimeResponseCapture struct {
 	Body                     []byte
+	AuditBody                []byte
 	Usage                    responseUsage
 	FirstMeaningfulPayloadAt *time.Time
 	CompletedAt              *time.Time
@@ -378,16 +379,30 @@ func (capture runtimeResponseCapture) extractedUsage() responseUsage {
 	return extractResponseUsage(capture.Body).normalized()
 }
 
-func proxyNonEventResponseAndCaptureUsage(dst io.Writer, src io.Reader, contentType string, now func() time.Time) (runtimeResponseCapture, error) {
+func proxyNonEventResponseAndCaptureUsage(dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if !responseMayContainJSONUsage(contentType) {
-		_, err := io.Copy(dst, src)
+		writers := []io.Writer{dst}
+		auditBuffer := &bytes.Buffer{}
+		if captureAuditBody {
+			writers = append(writers, auditBuffer)
+		}
+		_, err := io.Copy(io.MultiWriter(writers...), src)
 		completedAt := now()
-		return runtimeResponseCapture{CompletedAt: &completedAt}, err
+		capture := runtimeResponseCapture{CompletedAt: &completedAt}
+		if captureAuditBody {
+			capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
+		}
+		return capture, err
 	}
 	capture := newStreamedResponseUsageCapture()
-	_, copyErr := io.Copy(io.MultiWriter(dst, capture), src)
+	writers := []io.Writer{dst, capture}
+	auditBuffer := &bytes.Buffer{}
+	if captureAuditBody {
+		writers = append(writers, auditBuffer)
+	}
+	_, copyErr := io.Copy(io.MultiWriter(writers...), src)
 	completedAt := now()
-	return capture.runtimeResponseCapture(completedAt), copyErr
+	return capture.runtimeResponseCapture(completedAt, captureAuditBody, auditBuffer.Bytes()), copyErr
 }
 
 func responseMayContainJSONUsage(contentType string) bool {
@@ -413,13 +428,17 @@ func (capture *streamedResponseUsageCapture) Write(payload []byte) (int, error) 
 	return len(payload), nil
 }
 
-func (capture *streamedResponseUsageCapture) runtimeResponseCapture(completedAt time.Time) runtimeResponseCapture {
+func (capture *streamedResponseUsageCapture) runtimeResponseCapture(completedAt time.Time, captureAuditBody bool, auditBody []byte) runtimeResponseCapture {
 	usage := capture.parser.extractedUsage()
-	return runtimeResponseCapture{
+	responseCapture := runtimeResponseCapture{
 		Body:        buildUsageBodyFromResponseUsage(usage),
 		Usage:       usage,
 		CompletedAt: &completedAt,
 	}
+	if captureAuditBody {
+		responseCapture.AuditBody = append([]byte(nil), auditBody...)
+	}
+	return responseCapture
 }
 
 type runtimeJSONUsagePath uint8

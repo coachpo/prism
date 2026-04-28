@@ -169,6 +169,7 @@ type requestLogInsert struct {
 	CompletionDurationMS              *int
 	TTFTMS                            *int
 	AuditEnabledAtRequest             bool
+	AuditCaptureBodiesAtRequest       bool
 }
 
 type usageEventInsert struct {
@@ -219,6 +220,31 @@ type usageEventInsert struct {
 	TTFTMS                            *int
 }
 
+type auditLogInsert struct {
+	RequestLogAttemptNumber     int       `json:"request_log_attempt_number"`
+	ProfileID                   int       `json:"profile_id"`
+	VendorID                    *int      `json:"vendor_id,omitempty"`
+	ModelID                     string    `json:"model_id"`
+	EndpointID                  int       `json:"endpoint_id"`
+	ConnectionID                int       `json:"connection_id"`
+	EndpointBaseURL             string    `json:"endpoint_base_url"`
+	EndpointDescription         *string   `json:"endpoint_description,omitempty"`
+	RequestMethod               string    `json:"request_method"`
+	RequestURL                  string    `json:"request_url"`
+	RequestHeaders              string    `json:"request_headers"`
+	RequestBody                 *string   `json:"request_body,omitempty"`
+	RequestBodyStored           bool      `json:"request_body_stored"`
+	ResponseStatus              int       `json:"response_status"`
+	ResponseHeaders             *string   `json:"response_headers,omitempty"`
+	ResponseBody                *string   `json:"response_body,omitempty"`
+	ResponseBodyStored          bool      `json:"response_body_stored"`
+	IsStream                    bool      `json:"is_stream"`
+	DurationMS                  int       `json:"duration_ms"`
+	CreatedAt                   time.Time `json:"created_at"`
+	AuditEnabledAtRequest       bool      `json:"audit_enabled_at_request"`
+	AuditCaptureBodiesAtRequest bool      `json:"audit_capture_bodies_at_request"`
+}
+
 type runtimeProxyKeyUsageSignal struct {
 	KeyID      int       `json:"key_id"`
 	LastUsedAt time.Time `json:"last_used_at"`
@@ -227,6 +253,7 @@ type runtimeProxyKeyUsageSignal struct {
 
 type runtimeTelemetryEnvelope struct {
 	RequestLogs   []requestLogInsert          `json:"request_logs"`
+	AuditLogs     []auditLogInsert            `json:"audit_logs,omitempty"`
 	UsageEvent    usageEventInsert            `json:"usage_event"`
 	ProxyKeyUsage *runtimeProxyKeyUsageSignal `json:"proxy_key_usage,omitempty"`
 }
@@ -278,6 +305,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	if len(attempts) == 0 {
 		attempts = []executionAttempt{{
 			Connection:      result.Connection,
+			RequestURL:      request.URL.String(),
 			RequestHeaders:  result.RequestHeaders,
 			ResponseHeaders: result.Response.Header.Clone(),
 			StatusCode:      result.Response.StatusCode,
@@ -286,7 +314,10 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 		}}
 	}
 
+	capturedRequestBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest, plan.UpstreamBody)
+	capturedResponseBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest && !isStream, responseCapture.AuditBody)
 	requestLogs := make([]requestLogInsert, 0, len(attempts))
+	auditLogs := make([]auditLogInsert, 0, len(attempts))
 	for index, attempt := range attempts {
 		attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299
 		attemptBillableFlag, attemptPricedFlag, attemptUnpricedReason := billingState(attemptSuccess)
@@ -299,39 +330,40 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 			attemptResponseTimeMS = responseTimeMS
 		}
 		requestLog := requestLogInsert{
-			ProfileID:               plan.ProfileID,
-			ModelID:                 plan.RequestedModelID,
-			ResolvedTargetModelID:   plan.ResolvedTargetModelID,
-			APIFamily:               plan.APIFamily,
-			VendorID:                plan.RequestedVendorID,
-			VendorKey:               plan.RequestedVendorKey,
-			VendorName:              plan.RequestedVendorName,
-			EndpointID:              attempt.Connection.Endpoint.ID,
-			ConnectionID:            attempt.Connection.ID,
-			ProxyAPIKeyID:           proxyKeyIDPointer(proxyKey),
-			ProxyAPIKeyNameSnapshot: proxyKeyNamePointer(proxyKey),
-			IngressRequestID:        ingressRequestID,
-			AttemptNumber:           index + 1,
-			ProviderCorrelationID:   headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
-			EndpointBaseURL:         attempt.Connection.Endpoint.BaseURL,
-			EndpointDescription:     attempt.Connection.Endpoint.Name,
-			StatusCode:              attempt.StatusCode,
-			ResponseTimeMS:          attemptResponseTimeMS,
-			IsStream:                isStream,
-			SuccessFlag:             attemptSuccess,
-			BillableFlag:            attemptBillableFlag,
-			PricedFlag:              attemptPricedFlag,
-			UnpricedReason:          attemptUnpricedReason,
-			ReportCurrencyCode:      reportCurrencyCode,
-			ReportCurrencySymbol:    reportCurrencySymbol,
-			RequestPath:             request.URL.Path,
-			ErrorDetail:             nil,
-			CreatedAt:               attemptCreatedAt,
-			CallerUserAgent:         callerUserAgent,
-			UpstreamUserAgent:       headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
-			CompletionDurationMS:    nil,
-			TTFTMS:                  nil,
-			AuditEnabledAtRequest:   plan.AuditEnabledAtRequest,
+			ProfileID:                   plan.ProfileID,
+			ModelID:                     plan.RequestedModelID,
+			ResolvedTargetModelID:       plan.ResolvedTargetModelID,
+			APIFamily:                   plan.APIFamily,
+			VendorID:                    plan.RequestedVendorID,
+			VendorKey:                   plan.RequestedVendorKey,
+			VendorName:                  plan.RequestedVendorName,
+			EndpointID:                  attempt.Connection.Endpoint.ID,
+			ConnectionID:                attempt.Connection.ID,
+			ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
+			ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
+			IngressRequestID:            ingressRequestID,
+			AttemptNumber:               index + 1,
+			ProviderCorrelationID:       headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
+			EndpointBaseURL:             attempt.Connection.Endpoint.BaseURL,
+			EndpointDescription:         attempt.Connection.Endpoint.Name,
+			StatusCode:                  attempt.StatusCode,
+			ResponseTimeMS:              attemptResponseTimeMS,
+			IsStream:                    isStream,
+			SuccessFlag:                 attemptSuccess,
+			BillableFlag:                attemptBillableFlag,
+			PricedFlag:                  attemptPricedFlag,
+			UnpricedReason:              attemptUnpricedReason,
+			ReportCurrencyCode:          reportCurrencyCode,
+			ReportCurrencySymbol:        reportCurrencySymbol,
+			RequestPath:                 request.URL.Path,
+			ErrorDetail:                 nil,
+			CreatedAt:                   attemptCreatedAt,
+			CallerUserAgent:             callerUserAgent,
+			UpstreamUserAgent:           headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
+			CompletionDurationMS:        nil,
+			TTFTMS:                      nil,
+			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
+			AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
 		}
 		if index == len(attempts)-1 {
 			requestLog.InputTokens = usage.InputTokens
@@ -368,6 +400,38 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 			}
 		}
 		requestLogs = append(requestLogs, requestLog)
+		if !plan.AuditEnabledAtRequest {
+			continue
+		}
+		auditLog := auditLogInsert{
+			RequestLogAttemptNumber:     index + 1,
+			ProfileID:                   plan.ProfileID,
+			VendorID:                    plan.RequestedVendorID,
+			ModelID:                     plan.RequestedModelID,
+			EndpointID:                  attempt.Connection.Endpoint.ID,
+			ConnectionID:                attempt.Connection.ID,
+			EndpointBaseURL:             attempt.Connection.Endpoint.BaseURL,
+			EndpointDescription:         attempt.Connection.Endpoint.Name,
+			RequestMethod:               request.Method,
+			RequestURL:                  runtimeAuditRequestURL(attempt.RequestURL, request),
+			RequestHeaders:              marshalAuditHeaders(attempt.RequestHeaders),
+			RequestBody:                 capturedRequestBody,
+			RequestBodyStored:           capturedRequestBody != nil,
+			ResponseStatus:              attempt.StatusCode,
+			ResponseHeaders:             marshalAuditHTTPHeaders(attempt.ResponseHeaders),
+			ResponseBody:                nil,
+			ResponseBodyStored:          false,
+			IsStream:                    isStream,
+			DurationMS:                  attemptResponseTimeMS,
+			CreatedAt:                   attemptCreatedAt,
+			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
+			AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
+		}
+		if index == len(attempts)-1 {
+			auditLog.ResponseBody = capturedResponseBody
+			auditLog.ResponseBodyStored = capturedResponseBody != nil
+		}
+		auditLogs = append(auditLogs, auditLog)
 	}
 
 	attemptCount := len(requestLogs)
@@ -423,6 +487,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	}
 	return runtimeTelemetryEnvelope{
 		RequestLogs:   requestLogs,
+		AuditLogs:     auditLogs,
 		UsageEvent:    usageEvent,
 		ProxyKeyUsage: runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
 	}
@@ -449,8 +514,70 @@ func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream 
 	return ttftMS, &completionDuration
 }
 
+func runtimeCapturedAuditBody(enabled bool, body []byte) *string {
+	if !enabled || len(body) == 0 {
+		return nil
+	}
+	resolved := string(body)
+	return &resolved
+}
+
+func runtimeAuditRequestURL(requestURL string, request *http.Request) string {
+	trimmed := strings.TrimSpace(requestURL)
+	if trimmed != "" {
+		return trimmed
+	}
+	if request == nil || request.URL == nil {
+		return ""
+	}
+	return request.URL.String()
+}
+
+func marshalAuditHeaders(headers map[string]string) string {
+	if len(headers) == 0 {
+		return "{}"
+	}
+	sanitized := make(map[string]string, len(headers))
+	for key, value := range headers {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalizedKey == "" {
+			continue
+		}
+		if _, ok := clientAuthHeaders[normalizedKey]; ok {
+			sanitized[normalizedKey] = "[REDACTED]"
+			continue
+		}
+		sanitized[normalizedKey] = value
+	}
+	encoded, err := json.Marshal(sanitized)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
+}
+
+func marshalAuditHTTPHeaders(headers http.Header) *string {
+	if len(headers) == 0 {
+		return nil
+	}
+	flattened := make(map[string]string, len(headers))
+	for key, values := range headers {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalizedKey == "" {
+			continue
+		}
+		flattened[normalizedKey] = strings.Join(values, ", ")
+	}
+	encoded, err := json.Marshal(flattened)
+	if err != nil {
+		return nil
+	}
+	resolved := string(encoded)
+	return &resolved
+}
+
 func materializeRuntimeTelemetryEnvelopeTx(ctx context.Context, tx pgx.Tx, envelope runtimeTelemetryEnvelope) (int, error) {
-	requestLogID, err := insertRequestLogsAndUsageEventTx(ctx, tx, envelope.RequestLogs, envelope.UsageEvent)
+	requestLogID, err := insertRequestLogsAndUsageEventTx(ctx, tx, envelope.RequestLogs, envelope.AuditLogs, envelope.UsageEvent)
 	if err != nil {
 		return 0, err
 	}
@@ -460,12 +587,16 @@ func materializeRuntimeTelemetryEnvelopeTx(ctx context.Context, tx pgx.Tx, envel
 	return requestLogID, nil
 }
 
-func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLogs []requestLogInsert, usageEvent usageEventInsert) (int, error) {
+func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLogs []requestLogInsert, auditLogs []auditLogInsert, usageEvent usageEventInsert) (int, error) {
+	auditByAttempt := make(map[int]auditLogInsert, len(auditLogs))
+	for _, auditLog := range auditLogs {
+		auditByAttempt[auditLog.RequestLogAttemptNumber] = auditLog
+	}
 	var requestLogID int
 	for _, requestLog := range requestLogs {
 		err := tx.QueryRow(
 			ctx,
-			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56) RETURNING id`,
+			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -522,9 +653,15 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			nullableIntArg(requestLog.CompletionDurationMS),
 			nullableIntArg(requestLog.TTFTMS),
 			requestLog.AuditEnabledAtRequest,
+			requestLog.AuditCaptureBodiesAtRequest,
 		).Scan(&requestLogID)
 		if err != nil {
 			return 0, fmt.Errorf("insert request log: %w", err)
+		}
+		if auditLog, ok := auditByAttempt[requestLog.AttemptNumber]; ok {
+			if err := insertRuntimeAuditLogTx(ctx, tx, requestLogID, auditLog); err != nil {
+				return 0, err
+			}
 		}
 	}
 	if _, err := tx.Exec(
@@ -579,6 +716,38 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		return 0, fmt.Errorf("insert usage event: %w", err)
 	}
 	return requestLogID, nil
+}
+
+func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, auditLog auditLogInsert) error {
+	if _, err := tx.Exec(
+		ctx,
+		`INSERT INTO audit_logs (request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+		requestLogID,
+		auditLog.ProfileID,
+		nullableIntArg(auditLog.VendorID),
+		auditLog.ModelID,
+		auditLog.EndpointID,
+		auditLog.ConnectionID,
+		auditLog.EndpointBaseURL,
+		nullableStringArg(auditLog.EndpointDescription),
+		auditLog.RequestMethod,
+		auditLog.RequestURL,
+		auditLog.RequestHeaders,
+		nullableStringArg(auditLog.RequestBody),
+		auditLog.RequestBodyStored,
+		auditLog.ResponseStatus,
+		nullableStringArg(auditLog.ResponseHeaders),
+		nullableStringArg(auditLog.ResponseBody),
+		auditLog.ResponseBodyStored,
+		auditLog.IsStream,
+		auditLog.DurationMS,
+		auditLog.CreatedAt,
+		auditLog.AuditEnabledAtRequest,
+		auditLog.AuditCaptureBodiesAtRequest,
+	); err != nil {
+		return fmt.Errorf("insert audit log for request log %d: %w", requestLogID, err)
+	}
+	return nil
 }
 
 func extractResponseUsage(body []byte) responseUsage {

@@ -81,6 +81,7 @@ type runtimeModelRecord struct {
 	VendorKey             *string
 	VendorName            *string
 	AuditEnabled          bool
+	AuditCaptureBodies    bool
 	LoadbalanceStrategyID *int
 }
 
@@ -146,26 +147,27 @@ type headerBlocklistRule struct {
 }
 
 type requestPlan struct {
-	RequestedModelID       string
-	ResolvedTargetModelID  *string
-	ResolvedPricingModelID string
-	RequestedVendorID      *int
-	RequestedVendorKey     *string
-	RequestedVendorName    *string
-	ProfileID              int
-	APIFamily              string
-	AuditEnabledAtRequest  bool
-	ReportCurrencySnapshot runtimeReportCurrencySnapshot
-	EffectiveRequestPath   string
-	RawRequestBody         []byte
-	UpstreamBody           []byte
-	IsStreamingRequest     bool
-	Connections            []runtimeConnection
-	RuntimeStates          map[int]loadbalance.RuntimeConnectionState
-	BlocklistRules         []headerBlocklistRule
-	ClientHeaders          map[string]string
-	FailoverStatusCodes    []int
-	Strategy               loadbalance.RuntimeStrategy
+	RequestedModelID            string
+	ResolvedTargetModelID       *string
+	ResolvedPricingModelID      string
+	RequestedVendorID           *int
+	RequestedVendorKey          *string
+	RequestedVendorName         *string
+	ProfileID                   int
+	APIFamily                   string
+	AuditEnabledAtRequest       bool
+	AuditCaptureBodiesAtRequest bool
+	ReportCurrencySnapshot      runtimeReportCurrencySnapshot
+	EffectiveRequestPath        string
+	RawRequestBody              []byte
+	UpstreamBody                []byte
+	IsStreamingRequest          bool
+	Connections                 []runtimeConnection
+	RuntimeStates               map[int]loadbalance.RuntimeConnectionState
+	BlocklistRules              []headerBlocklistRule
+	ClientHeaders               map[string]string
+	FailoverStatusCodes         []int
+	Strategy                    loadbalance.RuntimeStrategy
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
@@ -215,6 +217,7 @@ func (source *runtimeRequestBodySource) Open() (io.ReadCloser, int64, error) {
 
 type executionAttempt struct {
 	Connection      runtimeConnection
+	RequestURL      string
 	RequestHeaders  map[string]string
 	ResponseHeaders http.Header
 	StatusCode      int
@@ -320,26 +323,27 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 	}
 
 	return requestPlan{
-		RequestedModelID:       requestedModelID,
-		ResolvedTargetModelID:  stringPointerIfNotEmpty(targetModel.ModelID),
-		ResolvedPricingModelID: strings.TrimSpace(targetModel.ModelID),
-		RequestedVendorID:      requestedModel.VendorID,
-		RequestedVendorKey:     requestedModel.VendorKey,
-		RequestedVendorName:    requestedModel.VendorName,
-		ProfileID:              activeProfile.ID,
-		APIFamily:              targetModel.APIFamily,
-		AuditEnabledAtRequest:  targetModel.AuditEnabled,
-		ReportCurrencySnapshot: snapshot.ReportCurrency,
-		EffectiveRequestPath:   effectiveRequestPath,
-		RawRequestBody:         rawBody,
-		UpstreamBody:           upstreamBody,
-		IsStreamingRequest:     requestWantsStream(rawBody, effectiveRequestPath),
-		Connections:            orderedConnections,
-		RuntimeStates:          runtimeStates,
-		BlocklistRules:         snapshot.BlocklistRules,
-		ClientHeaders:          flattenHeaders(request.Header),
-		FailoverStatusCodes:    strategy.FailoverStatusCodes(),
-		Strategy:               strategy,
+		RequestedModelID:            requestedModelID,
+		ResolvedTargetModelID:       stringPointerIfNotEmpty(targetModel.ModelID),
+		ResolvedPricingModelID:      strings.TrimSpace(targetModel.ModelID),
+		RequestedVendorID:           requestedModel.VendorID,
+		RequestedVendorKey:          requestedModel.VendorKey,
+		RequestedVendorName:         requestedModel.VendorName,
+		ProfileID:                   activeProfile.ID,
+		APIFamily:                   targetModel.APIFamily,
+		AuditEnabledAtRequest:       targetModel.AuditEnabled,
+		AuditCaptureBodiesAtRequest: targetModel.AuditEnabled && targetModel.AuditCaptureBodies,
+		ReportCurrencySnapshot:      snapshot.ReportCurrency,
+		EffectiveRequestPath:        effectiveRequestPath,
+		RawRequestBody:              rawBody,
+		UpstreamBody:                upstreamBody,
+		IsStreamingRequest:          requestWantsStream(rawBody, effectiveRequestPath),
+		Connections:                 orderedConnections,
+		RuntimeStates:               runtimeStates,
+		BlocklistRules:              snapshot.BlocklistRules,
+		ClientHeaders:               flattenHeaders(request.Header),
+		FailoverStatusCodes:         strategy.FailoverStatusCodes(),
+		Strategy:                    strategy,
 	}, nil
 }
 
@@ -716,6 +720,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 		attemptCompletedAt := s.nowUTC()
 		outcome.Attempt = executionAttempt{
 			Connection:     connection,
+			RequestURL:     upstreamURL,
 			RequestHeaders: cloneStringMap(headers),
 			StatusCode:     http.StatusBadGateway,
 			ResponseTimeMS: durationMilliseconds(attemptCompletedAt.Sub(attemptStartedAt)),

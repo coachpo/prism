@@ -225,7 +225,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 	rows, err := tx.Query(
 		ctx,
 		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.model_type,
-			vendors.id, vendors.key, vendors.name, COALESCE(vendors.audit_enabled, FALSE), model_configs.loadbalance_strategy_id
+			vendors.id, vendors.key, vendors.name, COALESCE(vendors.audit_enabled, FALSE), COALESCE(vendors.audit_capture_bodies, FALSE), model_configs.loadbalance_strategy_id
 		FROM model_configs
 		LEFT JOIN vendors ON vendors.id = model_configs.vendor_id
 		WHERE model_configs.profile_id = $1 AND model_configs.is_enabled = TRUE
@@ -244,7 +244,7 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 		var vendorKey sql.NullString
 		var vendorName sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &item.ModelType, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &strategyID); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &item.ModelType, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &item.AuditCaptureBodies, &strategyID); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {
