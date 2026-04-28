@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -14,6 +15,9 @@ const runtimeCacheInvalidationVisibilityDeadline = 2 * time.Second
 
 func TestRuntimeCacheInvalidation(t *testing.T) {
 	t.Run("AuthCacheInvalidationAfterProxyKeyRotation", runtimeAuthCacheInvalidationAfterProxyKeyRotation)
+	t.Run("AuthCacheInvalidationAfterProxyKeyRetire", runtimeAuthCacheInvalidationAfterProxyKeyRetire)
+	t.Run("AuthCacheInvalidationAfterProxyKeyExpiryMutation", runtimeAuthCacheInvalidationAfterProxyKeyExpiryMutation)
+	t.Run("AuthCacheInvalidationAfterAuthDisable", runtimeAuthCacheInvalidationAfterAuthDisable)
 	t.Run("AfterActiveProfileActivation", runtimeCacheInvalidationAfterActiveProfileActivation)
 	t.Run("PlanningCacheInvalidationAfterHeaderBlocklistWrite", runtimePlanningCacheInvalidationAfterHeaderBlocklistWrite)
 }
@@ -110,6 +114,144 @@ func runtimeAuthCacheInvalidationAfterProxyKeyRotation(t *testing.T) {
 	}
 
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+}
+
+func runtimeAuthCacheInvalidationAfterProxyKeyRetire(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	seedRuntimeVerifiedAuthSettings(t, harness, "retire-admin", "retire-password-123", "retire@example.com")
+	loginRuntimeHarness(t, harness, "retire-admin", "retire-password-123")
+
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-runtime-cache-retire"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "retire-public-" + randomSuffix(),
+		TargetModelID:   "retire-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/cache-invalidation/retire"),
+		EndpointAPIKey:  "cache-retire-upstream-key",
+	})
+
+	keyName := "Phase 2 runtime key retirement"
+	keyID, rawKey := createRuntimeProxyKey(t, harness, keyName)
+
+	baselineResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "pre-retire request"}}, "model": route.PublicModelID},
+		map[string]string{"Authorization": "Bearer " + rawKey},
+	)
+	assertStatus(t, baselineResponse, http.StatusOK)
+
+	retireRuntimeProxyKey(t, harness, keyID, keyName)
+	retireVisibleAt := time.Now()
+	retiredResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "post-retire request"}}, "model": route.PublicModelID},
+		map[string]string{"Authorization": "Bearer " + rawKey},
+	)
+	assertStatus(t, retiredResponse, http.StatusUnauthorized)
+	assertRuntimeCacheInvalidationVisibleWithin(t, retireVisibleAt, "proxy-key retirement stale-key rejection")
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected retired key request to stop before the upstream, got %d upstream requests", got)
+	}
+}
+
+func runtimeAuthCacheInvalidationAfterProxyKeyExpiryMutation(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	seedRuntimeVerifiedAuthSettings(t, harness, "expire-admin", "expire-password-123", "expire@example.com")
+	loginRuntimeHarness(t, harness, "expire-admin", "expire-password-123")
+
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-runtime-cache-expire"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "expire-public-" + randomSuffix(),
+		TargetModelID:   "expire-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/cache-invalidation/expire"),
+		EndpointAPIKey:  "cache-expire-upstream-key",
+	})
+
+	keyName := "Phase 2 runtime key expiry"
+	keyID, rawKey := createRuntimeProxyKey(t, harness, keyName)
+
+	baselineResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "pre-expiry request"}}, "model": route.PublicModelID},
+		map[string]string{"Authorization": "Bearer " + rawKey},
+	)
+	assertStatus(t, baselineResponse, http.StatusOK)
+
+	expireRuntimeProxyKey(t, harness, keyID, keyName, time.Now().UTC().Add(-1*time.Minute).Truncate(time.Microsecond))
+	expiryVisibleAt := time.Now()
+	expiredResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "post-expiry request"}}, "model": route.PublicModelID},
+		map[string]string{"Authorization": "Bearer " + rawKey},
+	)
+	assertStatus(t, expiredResponse, http.StatusUnauthorized)
+	assertRuntimeCacheInvalidationVisibleWithin(t, expiryVisibleAt, "proxy-key expiry stale-key rejection")
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected expired key request to stop before the upstream, got %d upstream requests", got)
+	}
+}
+
+func runtimeAuthCacheInvalidationAfterAuthDisable(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	seedRuntimeVerifiedAuthSettings(t, harness, "disable-admin", "disable-password-123", "disable@example.com")
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{Auth: true})
+	loginRuntimeHarness(t, harness, "disable-admin", "disable-password-123")
+
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "chatcmpl-runtime-cache-auth-disable"})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "disable-public-" + randomSuffix(),
+		TargetModelID:   "disable-target-" + randomSuffix(),
+		EndpointBaseURL: upstream.baseURL("/cache-invalidation/auth-disable"),
+		EndpointAPIKey:  "cache-disable-upstream-key",
+	})
+
+	baselineUnauthorized := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "auth-required baseline"}}, "model": route.PublicModelID},
+		nil,
+	)
+	assertStatus(t, baselineUnauthorized, http.StatusUnauthorized)
+
+	disableResponse := harness.requestJSON(
+		t,
+		http.MethodPut,
+		"/api/settings/auth",
+		map[string]any{"auth_enabled": false},
+		nil,
+	)
+	assertStatus(t, disableResponse, http.StatusOK)
+
+	disableVisibleAt := time.Now()
+	postDisableResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{"messages": []map[string]any{{"role": "user", "content": "post-disable runtime request"}}, "model": route.PublicModelID},
+		nil,
+	)
+	assertStatus(t, postDisableResponse, http.StatusOK)
+	assertRuntimeCacheInvalidationVisibleWithin(t, disableVisibleAt, "auth disable runtime publication")
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected runtime request without proxy key to reach upstream immediately after auth disable, got %d upstream requests", got)
+	}
 }
 
 func runtimeCacheInvalidationAfterActiveProfileActivation(t *testing.T) {
@@ -266,10 +408,8 @@ func assertRuntimeCacheInvalidationVisibleWithin(t *testing.T, startedAt time.Ti
 
 func createRuntimeProxyKey(t *testing.T, harness *runtimeHarness, name string) (int, string) {
 	t.Helper()
-	generation := harness.runtimeCache.PublishedGeneration()
 	response := harness.requestJSON(t, http.MethodPost, "/api/settings/auth/proxy-keys", map[string]any{"name": name}, nil)
 	assertStatus(t, response, http.StatusCreated)
-	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	item := payload["item"].(map[string]any)
@@ -278,13 +418,23 @@ func createRuntimeProxyKey(t *testing.T, harness *runtimeHarness, name string) (
 
 func rotateRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int) string {
 	t.Helper()
-	generation := harness.runtimeCache.PublishedGeneration()
 	response := harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/api/settings/auth/proxy-keys/%d/rotate", keyID), nil, nil)
 	assertStatus(t, response, http.StatusOK)
-	harness.waitForRuntimeSnapshotGeneration(t, generation)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	return itemlessString(t, payload["key"])
+}
+
+func retireRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int, name string) {
+	t.Helper()
+	response := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/settings/auth/proxy-keys/%d", keyID), map[string]any{"name": name, "is_active": false}, nil)
+	assertStatus(t, response, http.StatusOK)
+}
+
+func expireRuntimeProxyKey(t *testing.T, harness *runtimeHarness, keyID int, name string, expiresAt time.Time) {
+	t.Helper()
+	response := harness.requestJSON(t, http.MethodPatch, fmt.Sprintf("/api/settings/auth/proxy-keys/%d", keyID), map[string]any{"name": name, "expires_at": expiresAt}, nil)
+	assertStatus(t, response, http.StatusOK)
 }
 
 func createRuntimeHeaderBlocklistRule(t *testing.T, harness *runtimeHarness, profileID int, name string, matchType string, pattern string) {

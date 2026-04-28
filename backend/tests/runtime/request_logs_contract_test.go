@@ -181,6 +181,105 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 }
 
+func TestRuntimeRequestLogsPreserveRequestedAndResolvedModelIdentity(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-runtime-requested-resolved-identity-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":     8,
+			"completion_tokens": 5,
+			"total_tokens":      13,
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "requested-resolved-public-" + suffix,
+		TargetModelID:   "requested-resolved-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/requested-resolved"),
+		EndpointAPIKey:  "runtime-requested-resolved-key",
+	})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "preserve requested and resolved identity"}},
+			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	if got := requestModelID(t, upstream.lastRequest(t).Body); got != route.TargetModelID {
+		t.Fatalf("expected upstream request model %q, got %q", route.TargetModelID, got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
+}
+
+func TestRuntimeRequestLogsSkipCrossFamilyProxyTargets(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	anthropicUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "msg-cross-family-anthropic-" + suffix, "type": "message"})
+	openAIUpstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-cross-family-openai-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":     4,
+			"completion_tokens": 3,
+			"total_tokens":      7,
+		},
+	})
+
+	releaseRefresh := harness.suspendRuntimeSnapshotRefresh()
+	anthropicStrategyID := harness.seedLegacyStrategy(t, profileID, "request-logs-cross-family-anthropic-"+suffix, "round-robin")
+	openAIStrategyID := harness.seedLegacyStrategy(t, profileID, "request-logs-cross-family-openai-"+suffix, "round-robin")
+	anthropicTargetModelID := "cross-family-anthropic-target-" + suffix
+	openAITargetModelID := "cross-family-openai-target-" + suffix
+	publicModelID := "cross-family-public-" + suffix
+	anthropicTargetConfigID := harness.seedModel(t, profileID, "anthropic", anthropicTargetModelID, "native", &anthropicStrategyID)
+	openAITargetConfigID := harness.seedModel(t, profileID, "openai", openAITargetModelID, "native", &openAIStrategyID)
+	publicModelConfigID := harness.seedModel(t, profileID, "openai", publicModelID, "proxy", nil)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, anthropicTargetConfigID, 0)
+	harness.seedProxyTargetAtPosition(t, publicModelConfigID, openAITargetConfigID, 1)
+	anthropicEndpointID := harness.seedEndpoint(t, profileID, "request-logs-cross-family-anthropic-endpoint-"+suffix, anthropicUpstream.baseURL("/request-logs/cross-family/anthropic"), "runtime-cross-family-anthropic-key", 0)
+	openAIEndpointID := harness.seedEndpoint(t, profileID, "request-logs-cross-family-openai-endpoint-"+suffix, openAIUpstream.baseURL("/request-logs/cross-family/openai"), "runtime-cross-family-openai-key", 1)
+	harness.seedConnection(t, profileID, anthropicTargetConfigID, anthropicEndpointID, "request-logs-cross-family-anthropic-connection-"+suffix, nil, nil, 0)
+	harness.seedConnection(t, profileID, openAITargetConfigID, openAIEndpointID, "request-logs-cross-family-openai-connection-"+suffix, nil, nil, 0)
+	releaseRefresh()
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "skip cross-family proxy targets"}},
+			"model":    publicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	if got := len(anthropicUpstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected cross-family anthropic target to be skipped, got %d upstream requests", got)
+	}
+	if got := len(openAIUpstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected valid same-family target to receive exactly one upstream request, got %d", got)
+	}
+	if got := requestModelID(t, openAIUpstream.lastRequest(t).Body); got != openAITargetModelID {
+		t.Fatalf("expected same-family upstream request model %q, got %q", openAITargetModelID, got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, publicModelID, openAITargetModelID)
+}
+
 func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -897,6 +996,39 @@ func assertLatestRuntimeAttemptCounts(t *testing.T, conn *pgx.Conn, profileID in
 	}
 	if usageEventAttempt != wantUsageEventAttempt {
 		t.Fatalf("expected usage_request_events attempt_count=%d, got %d", wantUsageEventAttempt, usageEventAttempt)
+	}
+}
+
+func assertLatestRuntimeModelIdentity(t *testing.T, conn *pgx.Conn, profileID int, wantModelID string, wantResolvedTargetModelID string) {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+
+	var requestLogModelID string
+	var requestLogResolvedTargetModelID sql.NullString
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT model_id, resolved_target_model_id FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&requestLogModelID, &requestLogResolvedTargetModelID); err != nil {
+		t.Fatalf("load runtime request-log model identity: %v", err)
+	}
+	if requestLogModelID != wantModelID || !requestLogResolvedTargetModelID.Valid || requestLogResolvedTargetModelID.String != wantResolvedTargetModelID {
+		t.Fatalf("expected request_logs identity requested=%q resolved=%q, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, requestLogModelID, requestLogResolvedTargetModelID)
+	}
+
+	var usageEventModelID string
+	var usageEventResolvedTargetModelID sql.NullString
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT model_id, resolved_target_model_id FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&usageEventModelID, &usageEventResolvedTargetModelID); err != nil {
+		t.Fatalf("load runtime usage-event model identity: %v", err)
+	}
+	if usageEventModelID != wantModelID || !usageEventResolvedTargetModelID.Valid || usageEventResolvedTargetModelID.String != wantResolvedTargetModelID {
+		t.Fatalf("expected usage_request_events identity requested=%q resolved=%q, got requested=%q resolved=%+v", wantModelID, wantResolvedTargetModelID, usageEventModelID, usageEventResolvedTargetModelID)
 	}
 }
 
