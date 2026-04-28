@@ -25,8 +25,10 @@ export function ModelDetailPage() {
     vendors,
     isEditModelDialogOpen,
     setIsEditModelDialogOpen,
-    editLoadbalanceStrategyId,
-    setEditLoadbalanceStrategyId,
+    formData,
+    setFormData,
+    setLoadbalanceStrategyId,
+    nativeModelsForApiFamily,
     spending,
     spendingLoading,
     spendingCurrencySymbol,
@@ -160,14 +162,16 @@ export function ModelDetailPage() {
       />
 
       <ModelSettingsDialog
-        editLoadbalanceStrategyId={editLoadbalanceStrategyId}
+        formData={formData}
+        handleEditModelSubmit={handleEditModelSubmit}
         isOpen={isEditModelDialogOpen}
         loadbalanceStrategies={loadbalanceStrategies}
-        onOpenChange={setIsEditModelDialogOpen}
         model={model}
+        nativeModelsForApiFamily={nativeModelsForApiFamily}
+        onOpenChange={setIsEditModelDialogOpen}
+        setFormData={setFormData}
+        setLoadbalanceStrategyId={setLoadbalanceStrategyId}
         vendors={vendors}
-        setEditLoadbalanceStrategyId={setEditLoadbalanceStrategyId}
-        handleEditModelSubmit={handleEditModelSubmit}
       />
     </div>
   );

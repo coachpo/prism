@@ -36,7 +36,6 @@ export function useModelDetailData(id: string | undefined) {
   const [spendingLoading, setSpendingLoading] = useState(false);
   const [spendingCurrencySymbol, setSpendingCurrencySymbol] = useState("$");
   const [spendingCurrencyCode, setSpendingCurrencyCode] = useState("USD");
-  const [editLoadbalanceStrategyId, setEditLoadbalanceStrategyId] = useState("");
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionSearch, setConnectionSearch] = useState("");
@@ -47,7 +46,7 @@ export function useModelDetailData(id: string | undefined) {
 
   const {
     isEditModelDialogOpen,
-    setIsEditModelDialogOpen,
+    setIsEditModelDialogOpen: setIsEditModelDialogOpenState,
     isConnectionDialogOpen,
     setIsConnectionDialogOpen,
     editingConnection,
@@ -149,14 +148,19 @@ export function useModelDetailData(id: string | undefined) {
     setModel,
   });
 
-  const { proxyTargetOptions, proxyTargetsSaving, handleEditModelSubmit, handleSaveProxyTargets } = useModelDetailModelForm({
-    editLoadbalanceStrategyId,
+  const {
+    formData,
+    nativeModelsForApiFamily,
+    proxyTargetOptions,
+    setFormData,
+    setIsEditModelDialogOpen,
+    setLoadbalanceStrategyId,
+    handleEditModelSubmit,
+  } = useModelDetailModelForm({
     model,
     allModels,
-    isEditModelDialogOpen,
     revision,
-    setEditLoadbalanceStrategyId,
-    setIsEditModelDialogOpen,
+    setIsEditModelDialogOpenState,
     setAllModels,
     setModel,
   });
@@ -181,8 +185,10 @@ export function useModelDetailData(id: string | undefined) {
     vendors,
     isEditModelDialogOpen,
     setIsEditModelDialogOpen,
-    editLoadbalanceStrategyId,
-    setEditLoadbalanceStrategyId,
+    formData,
+    setFormData,
+    setLoadbalanceStrategyId,
+    nativeModelsForApiFamily,
     spending,
     spendingLoading,
     spendingCurrencySymbol,
@@ -213,7 +219,6 @@ export function useModelDetailData(id: string | undefined) {
     headerRows,
     setHeaderRows,
     proxyTargetOptions,
-    proxyTargetsSaving,
     proxyTargetSummary,
     endpointSourceDefaultName,
     openConnectionDialog,
@@ -223,7 +228,6 @@ export function useModelDetailData(id: string | undefined) {
     handleDialogTestConnection,
     handleToggleActive,
     handleEditModelSubmit,
-    handleSaveProxyTargets,
     pricingTemplates,
     reorderInFlight,
     handleReorderConnections,

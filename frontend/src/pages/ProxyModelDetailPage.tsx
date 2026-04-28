@@ -20,17 +20,17 @@ export function ProxyModelDetailPage() {
     vendors,
     isEditModelDialogOpen,
     setIsEditModelDialogOpen,
-    editLoadbalanceStrategyId,
-    setEditLoadbalanceStrategyId,
+    formData,
+    setFormData,
+    setLoadbalanceStrategyId,
+    nativeModelsForApiFamily,
     spending,
     spendingLoading,
     spendingCurrencySymbol,
     spendingCurrencyCode,
     proxyTargetOptions,
     proxyTargetSummary,
-    proxyTargetsSaving,
     handleEditModelSubmit,
-    handleSaveProxyTargets,
   } = useModelDetailData(id);
 
   if (loading) {
@@ -70,22 +70,19 @@ export function ProxyModelDetailPage() {
         onViewRequestLogs={() => navigateToRequestLogs(model.model_id)}
       />
 
-      <ProxyTargetsCard
-        availableTargets={proxyTargetOptions}
-        proxyTargets={model.proxy_targets}
-        saving={proxyTargetsSaving}
-        onSave={handleSaveProxyTargets}
-      />
+      <ProxyTargetsCard availableTargets={proxyTargetOptions} proxyTargets={model.proxy_targets} />
 
       <ModelSettingsDialog
-        editLoadbalanceStrategyId={editLoadbalanceStrategyId}
+        formData={formData}
+        handleEditModelSubmit={handleEditModelSubmit}
         isOpen={isEditModelDialogOpen}
         loadbalanceStrategies={loadbalanceStrategies}
-        onOpenChange={setIsEditModelDialogOpen}
         model={model}
+        nativeModelsForApiFamily={nativeModelsForApiFamily}
+        onOpenChange={setIsEditModelDialogOpen}
+        setFormData={setFormData}
+        setLoadbalanceStrategyId={setLoadbalanceStrategyId}
         vendors={vendors}
-        setEditLoadbalanceStrategyId={setEditLoadbalanceStrategyId}
-        handleEditModelSubmit={handleEditModelSubmit}
       />
     </div>
   );
