@@ -423,10 +423,30 @@ export interface Messages {
     catalogInvalidJsonFile: string;
     catalogInvalidPayload: (errors: string) => string;
     catalogLoadedSummary: (fileName: string, count: string) => string;
+    catalogPreviewAction: string;
+    catalogPreviewBlockingDescription: string;
     catalogPreviewBlockingErrors: string;
+    catalogPreviewCreateCount: string;
+    catalogPreviewDescription: string;
+    catalogPreviewFailed: string;
+    catalogPreviewGlobalTarget: string;
+    catalogPreviewInProgress: string;
+    catalogPreviewMutationScope: string;
+    catalogPreviewNotReady: string;
     catalogPreviewReady: string;
+    catalogPreviewReadyBoundToBundle: (fileName: string) => string;
+    catalogPreviewRequiresRefresh: string;
     catalogPreviewSummary: (createCount: string, updateCount: string) => string;
+    catalogPreviewTarget: string;
+    catalogPreviewUnchangedCount: string;
+    catalogPreviewUntouchedScope: string;
+    catalogPreviewUpdateCount: string;
     catalogPreviewWarnings: string;
+    catalogScopeProfileScopedConfig: string;
+    catalogScopeProfiles: string;
+    catalogScopeRequestLogs: string;
+    catalogStatusAffected: string;
+    catalogStatusUntouched: string;
     catalogSectionDescription: string;
     catalogSectionTitle: string;
     catalogExportTitle: string;
@@ -700,21 +720,60 @@ export interface Messages {
   };
   settingsBackup: {
     acknowledgement: string;
+    applyImport: string;
+    dangerous: string;
+    dangerousExportDescription: string;
     export: string;
-    exportConfiguration: string;
     exportDescription: string;
     exportInProgress: string;
     exportRestoreSnapshots: (profileLabel: string) => string;
-    exportsContainApiKeys: string;
+    exportWithSecrets: string;
+    exportWithSecretsDescription: string;
+    exportWithoutSecrets: string;
+    exportWithoutSecretsDescription: string;
     import: string;
-    importConfiguration: string;
     importDescription: string;
     importInProgress: string;
     loadedSummary: (fileName: string, endpoints: string, strategies: string, models: string, connections: string) => string;
+    previewAction: string;
     previewBlockingErrors: string;
+    previewDescription: string;
+    previewInProgress: string;
     previewReady: string;
+    previewReadyBoundToProfile: (profileLabel: string) => string;
+    previewReplacementScope: string;
+    previewRequiresRefresh: string;
+    previewRequiresRefreshAfterProfileChange: (profileLabel: string) => string;
+    previewSecretSummary: string;
+    previewUntouchedScope: string;
+    previewVendorResolutions: string;
+    previewVendorSummary: string;
     previewWarnings: string;
+    safeDefault: string;
+    scopeConnections: string;
+    scopeDecryptableSecretRefs: string;
+    scopeEndpointSecretRefs: string;
+    scopeEndpoints: string;
+    scopeExistingGlobalVendorMetadata: string;
+    scopeHeaderBlocklistRules: string;
+    scopeModels: string;
+    scopeOtherProfiles: string;
+    scopePricingTemplates: string;
+    scopeProfileSettings: string;
+    scopeRequestLogs: string;
+    scopeSecretPayloadEntries: string;
+    scopeStrategies: string;
+    scopeUserAgentClientRules: string;
+    statusAffected: string;
+    statusIncluded: string;
+    statusNotIncluded: string;
+    statusUntouched: string;
     title: string;
+    vendorResolutionCreate: string;
+    vendorResolutionReuse: string;
+    vendorSummaryCreateCount: string;
+    vendorSummaryReuseCount: string;
+    vendorSummaryWarningCount: string;
   };
   settingsBackupData: {
     acknowledgeSecretsBeforeExport: string;
@@ -724,6 +783,8 @@ export interface Messages {
     importSucceeded: (endpoints: string, strategies: string, models: string, connections: string) => string;
     invalidConfigPayload: (errors: string) => string;
     invalidJsonFile: string;
+    previewFailed: string;
+    previewRequiredBeforeImport: string;
   };
   settingsBackupValidation: {
     duplicateFxMapping: (modelId: string, endpointName: string) => string;
@@ -2100,19 +2161,42 @@ export const enMessages: Messages = {
     catalogExportFailed: "Failed to export vendor catalog",
     catalogExportSucceeded: "Vendor catalog exported successfully",
     catalogExporting: "Exporting...",
-    catalogImportAction: "Import Vendor Catalog",
-    catalogImportDescription: "Upload a vendor catalog bundle, review the preview result, and then apply the shared vendor catalog changes.",
+    catalogImportAction: "Apply vendor catalog",
+    catalogImportDescription: "Upload a vendor catalog bundle, run a preview, and only then apply the shared vendor catalog changes.",
     catalogImportFailed: "Failed to import vendor catalog",
     catalogImportSucceeded: (created, updated) => `Imported ${created} vendors and updated ${updated} vendors`,
-    catalogImportTitle: "Import & Preview",
+    catalogImportTitle: "Upload, preview & apply",
     catalogImporting: "Importing...",
     catalogInvalidJsonFile: "Invalid JSON file",
     catalogInvalidPayload: (errors) => `Invalid vendor catalog payload: ${errors}`,
     catalogLoadedSummary: (fileName, count) => `Loaded ${fileName}: ${count} vendor rows.`,
+    catalogPreviewAction: "Preview vendor catalog impact",
+    catalogPreviewBlockingDescription:
+      "This preview found blocking issues. Review them below and regenerate a preview after fixing the bundle.",
     catalogPreviewBlockingErrors: "Preview blocking errors",
-    catalogPreviewReady: "Preview ready for import",
+    catalogPreviewCreateCount: "Create vendors",
+    catalogPreviewDescription:
+      "Preview shows exactly which shared vendor records will change while confirming that profiles, profile-scoped settings, and request logs stay untouched.",
+    catalogPreviewFailed: "Failed to preview vendor catalog",
+    catalogPreviewGlobalTarget: "Global vendor catalog",
+    catalogPreviewInProgress: "Generating preview...",
+    catalogPreviewMutationScope: "Mutation scope",
+    catalogPreviewNotReady: "Preview not ready to apply",
+    catalogPreviewReady: "Preview ready for apply",
+    catalogPreviewReadyBoundToBundle: (fileName) => `Apply is bound to the currently loaded bundle: ${fileName}.`,
+    catalogPreviewRequiresRefresh:
+      "Run preview to bind a fresh token for the currently loaded vendor bundle before applying it.",
     catalogPreviewSummary: (createCount, updateCount) => `Preview: ${createCount} vendors to create, ${updateCount} vendors to update.`,
+    catalogPreviewTarget: "Target",
+    catalogPreviewUnchangedCount: "Leave unchanged",
+    catalogPreviewUntouchedScope: "Untouched scope",
+    catalogPreviewUpdateCount: "Update vendors",
     catalogPreviewWarnings: "Preview warnings",
+    catalogScopeProfileScopedConfig: "Profile-scoped configuration",
+    catalogScopeProfiles: "All profiles",
+    catalogScopeRequestLogs: "Request logs",
+    catalogStatusAffected: "Affected",
+    catalogStatusUntouched: "Untouched",
     catalogSectionDescription: "Export or preview-import the shared vendor catalog without leaving Global Settings.",
     catalogSectionTitle: "Vendor Catalog Transport",
     catalogExportTitle: "Export",
@@ -2399,32 +2483,73 @@ export const enMessages: Messages = {
     userAgentClientRuleUpdated: "User-agent client rule updated successfully",
   },
   settingsBackup: {
-    acknowledgement: "I understand this export includes endpoint API keys.",
-    export: "Export",
-    exportConfiguration: "Export Configuration",
-    exportDescription: "Download a profile bundle with encrypted endpoint secrets and profile-scoped configuration.",
+    acknowledgement: "I understand this export includes endpoint secrets and should be handled like a disaster-recovery bundle.",
+    applyImport: "Apply previewed import",
+    dangerous: "Dangerous",
+    dangerousExportDescription: "This path returns the full secret-bearing profile bundle, including encrypted secret payload entries and reusable endpoint secret refs. Use it only for disaster recovery.",
+    export: "Profile export",
+    exportDescription: "Choose the safe redacted bundle for routine sharing, or explicitly acknowledge the secret-bearing export path for disaster recovery.",
     exportInProgress: "Exporting...",
-    exportRestoreSnapshots: (profileLabel) => `Export or restore configuration snapshots for ${profileLabel}.`,
-    exportsContainApiKeys: "Exports include encrypted endpoint secrets and can be imported only on instances that use the matching bundle key.",
-    import: "Import",
-    importConfiguration: "Import Configuration",
-    importDescription: "Upload a version 3 profile bundle, review the preview result, and then restore this profile's configuration.",
-    importInProgress: "Importing...",
+    exportRestoreSnapshots: (profileLabel) => `Export or restore profile bundle operations for ${profileLabel}.`,
+    exportWithSecrets: "Export with secrets",
+    exportWithSecretsDescription: "Returns the dangerous full secret-bearing bundle for a complete round-trip.",
+    exportWithoutSecrets: "Export without secrets",
+    exportWithoutSecretsDescription: "Returns the safe redacted bundle, which stays import-compatible for preview and apply.",
+    import: "Profile import",
+    importDescription: "Upload a version 1 profile bundle, preview the exact replacement scope for this selected profile, and apply only with the current preview token.",
+    importInProgress: "Applying import...",
     loadedSummary: (fileName, endpoints, strategies, models, connections) =>
       `Loaded ${fileName}: ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} connections.`,
-    previewBlockingErrors: "Preview blocking errors",
-    previewReady: "Preview ready for import",
-    previewWarnings: "Preview warnings",
-    title: "Backup",
+    previewAction: "Preview import impact",
+    previewBlockingErrors: "Blocking errors",
+    previewDescription: "Preview is required before apply so you can inspect replacement scope, untouched scope, vendor handling, and secret readiness.",
+    previewInProgress: "Generating preview...",
+    previewReady: "Preview status",
+    previewReadyBoundToProfile: (profileLabel) => `This preview token is bound to ${profileLabel}. Changing the file or selected profile requires a fresh preview before apply.`,
+    previewReplacementScope: "Replacement scope",
+    previewRequiresRefresh: "Run preview to bind a fresh token for the currently loaded bundle before applying it.",
+    previewRequiresRefreshAfterProfileChange: (profileLabel) => `The selected profile changed to ${profileLabel}. Run preview again before apply so the import token matches this profile.`,
+    previewSecretSummary: "Secret summary",
+    previewUntouchedScope: "Untouched scope",
+    previewVendorResolutions: "Vendor resolutions",
+    previewVendorSummary: "Vendor summary",
+    previewWarnings: "Warnings",
+    safeDefault: "Safe default",
+    scopeConnections: "Connections",
+    scopeDecryptableSecretRefs: "Decryptable secret refs",
+    scopeEndpointSecretRefs: "Endpoint secret refs",
+    scopeEndpoints: "Endpoints",
+    scopeExistingGlobalVendorMetadata: "Existing global vendor metadata",
+    scopeHeaderBlocklistRules: "Header blocklist rules",
+    scopeModels: "Models",
+    scopeOtherProfiles: "Other profiles",
+    scopePricingTemplates: "Pricing templates",
+    scopeProfileSettings: "Profile settings",
+    scopeRequestLogs: "Request logs",
+    scopeSecretPayloadEntries: "Secret payload entries",
+    scopeStrategies: "Load-balance strategies",
+    scopeUserAgentClientRules: "User-agent client rules",
+    statusAffected: "Affected",
+    statusIncluded: "Included",
+    statusNotIncluded: "Not included",
+    statusUntouched: "Untouched",
+    title: "Configuration operations",
+    vendorResolutionCreate: "Create vendor",
+    vendorResolutionReuse: "Reuse vendor",
+    vendorSummaryCreateCount: "Vendors to create",
+    vendorSummaryReuseCount: "Vendors to reuse",
+    vendorSummaryWarningCount: "Vendor warnings",
   },
   settingsBackupData: {
-    acknowledgeSecretsBeforeExport: "Acknowledge that endpoint API keys are included before exporting.",
+    acknowledgeSecretsBeforeExport: "Acknowledge the dangerous secret-bearing export before continuing.",
     exportFailed: "Export failed",
     exportSucceeded: "Configuration exported successfully",
     importFailed: "Import failed",
     importSucceeded: (endpoints, strategies, models, connections) => `Imported ${endpoints} endpoints, ${strategies} strategies, ${models} models, ${connections} connections`,
     invalidConfigPayload: (errors) => `Invalid configuration payload: ${errors}`,
     invalidJsonFile: "Invalid JSON file",
+    previewFailed: "Preview failed",
+    previewRequiredBeforeImport: "Generate a fresh preview before applying this profile import.",
   },
   settingsBackupValidation: {
     duplicateFxMapping: (modelId, endpointName) =>
