@@ -32,9 +32,10 @@ export function RequestLogDetailSheet({
   formatTimestamp,
 }: RequestLogDetailSheetProps) {
   const { messages } = useLocale();
-  const { audits, loading: auditLoading, error: auditError } = useAuditDetail({
+  const { audits, loading: auditLoading, state: auditState } = useAuditDetail({
     requestLogId: request?.summary.id ?? null,
     auditEnabledAtRequest: request?.routing.audit_enabled_at_request ?? false,
+    auditCaptureBodiesAtRequest: request?.routing.audit_capture_bodies_at_request ?? false,
     enabled: open && activeTab === "audit",
   });
   const hasResolvedTargetContext = Boolean(
@@ -88,7 +89,7 @@ export function RequestLogDetailSheet({
                 <RequestLogAuditTab
                   audits={audits}
                   loading={auditLoading}
-                  error={auditError}
+                  state={auditState}
                   formatTimestamp={formatTimestamp}
                 />
               </TabsContent>

@@ -8,9 +8,10 @@ import { copyRequestLogText } from "./requestLogDetailUtils";
 interface RequestLogPayloadBlockProps {
   title: string;
   content: string;
+  emptyState?: string;
 }
 
-export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBlockProps) {
+export function RequestLogPayloadBlock({ title, content, emptyState }: RequestLogPayloadBlockProps) {
   const { messages } = useLocale();
   const hasContent = content.length > 0;
 
@@ -38,7 +39,7 @@ export function RequestLogPayloadBlock({ title, content }: RequestLogPayloadBloc
       </div>
       <ScrollArea className="h-56 rounded-xl border border-zinc-800 bg-zinc-950 shadow-inner">
         <pre className="min-h-full whitespace-pre-wrap break-all p-3 text-[11px] leading-5 text-zinc-50">
-          {hasContent ? content : messages.requestLogs.noCaptured(title.toLowerCase())}
+          {hasContent ? content : emptyState ?? messages.requestLogs.noCaptured(title.toLowerCase())}
         </pre>
       </ScrollArea>
     </div>

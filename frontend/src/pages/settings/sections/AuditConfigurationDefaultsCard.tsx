@@ -44,6 +44,7 @@ export function AuditConfigurationDefaultsCard({
           <p>
             <span className="font-medium text-foreground">{copy.bodies}:</span> {copy.bodiesSensitive}
           </p>
+          <p>{copy.requestTimeProvenanceNote}</p>
         </div>
 
         {vendors.length === 0 ? (

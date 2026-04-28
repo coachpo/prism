@@ -2,7 +2,88 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-13T00:00:00Z";
 
-function createRequestLogDetail(auditEnabledAtRequest: boolean) {
+type AuditScenario =
+  | "disabled"
+  | "metadata_only"
+  | "full"
+  | "full_streaming"
+  | "fetch_failure"
+  | "orphan_visibility";
+
+function getScenarioConfig(scenario: AuditScenario) {
+  switch (scenario) {
+    case "disabled":
+      return {
+        auditCaptureBodiesAtRequest: false,
+        auditEnabledAtRequest: false,
+        isStream: false,
+        listFails: false,
+        requestBody: null,
+        requestBodyStored: false,
+        responseBody: null,
+        responseBodyStored: false,
+      };
+    case "metadata_only":
+      return {
+        auditCaptureBodiesAtRequest: false,
+        auditEnabledAtRequest: true,
+        isStream: false,
+        listFails: false,
+        requestBody: null,
+        requestBodyStored: false,
+        responseBody: null,
+        responseBodyStored: false,
+      };
+    case "full":
+      return {
+        auditCaptureBodiesAtRequest: true,
+        auditEnabledAtRequest: true,
+        isStream: false,
+        listFails: false,
+        requestBody: '{"input":"hello"}',
+        requestBodyStored: true,
+        responseBody: '{"id":"resp_101","status":"ok"}',
+        responseBodyStored: true,
+      };
+    case "full_streaming":
+      return {
+        auditCaptureBodiesAtRequest: true,
+        auditEnabledAtRequest: true,
+        isStream: true,
+        listFails: false,
+        requestBody: '{"input":"stream me"}',
+        requestBodyStored: true,
+        responseBody: null,
+        responseBodyStored: false,
+      };
+    case "fetch_failure":
+      return {
+        auditCaptureBodiesAtRequest: true,
+        auditEnabledAtRequest: true,
+        isStream: false,
+        listFails: true,
+        requestBody: '{"input":"hello"}',
+        requestBodyStored: true,
+        responseBody: '{"id":"resp_101","status":"ok"}',
+        responseBodyStored: true,
+      };
+    case "orphan_visibility":
+      return {
+        auditCaptureBodiesAtRequest: true,
+        auditEnabledAtRequest: true,
+        isStream: false,
+        listFails: false,
+        requestBody: '{"input":"orphan me"}',
+        requestBodyStored: true,
+        responseBody: '{"id":"resp_201","status":"ok"}',
+        responseBodyStored: true,
+      };
+  }
+}
+
+function createRequestLogDetail(scenario: AuditScenario) {
+  const config = getScenarioConfig(scenario);
+
   return {
     summary: {
       id: 101,
@@ -15,7 +96,7 @@ function createRequestLogDetail(auditEnabledAtRequest: boolean) {
       vendor_name: "OpenAI",
       status_code: 502,
       response_time_ms: 125,
-      is_stream: false,
+      is_stream: config.isStream,
     },
     request: {
       request_path: "/v1/responses",
@@ -43,7 +124,8 @@ function createRequestLogDetail(auditEnabledAtRequest: boolean) {
       connection_id: null,
       endpoint_base_url: "https://api.example.test",
       endpoint_description: "Primary endpoint",
-      audit_enabled_at_request: auditEnabledAtRequest,
+      audit_enabled_at_request: config.auditEnabledAtRequest,
+      audit_capture_bodies_at_request: config.auditCaptureBodiesAtRequest,
     },
     usage: {
       input_tokens: 12,
@@ -83,7 +165,9 @@ function createRequestLogDetail(auditEnabledAtRequest: boolean) {
   };
 }
 
-function createAuditListItem() {
+function createAuditListItem(scenario: AuditScenario) {
+  const config = getScenarioConfig(scenario);
+
   return {
     id: 201,
     request_log_id: 101,
@@ -97,15 +181,21 @@ function createAuditListItem() {
     request_method: "POST",
     request_url: "https://api.example.test/v1/responses",
     request_headers: "content-type: application/json\nauthorization: Bearer [REDACTED]",
-    request_body_preview: '{"input":"hello"}',
+    request_body_preview: config.requestBody,
+    request_body_stored: config.requestBodyStored,
     response_status: 200,
-    is_stream: false,
+    response_body_stored: config.responseBodyStored,
+    is_stream: config.isStream,
     duration_ms: 125,
+    audit_enabled_at_request: config.auditEnabledAtRequest,
+    audit_capture_bodies_at_request: config.auditCaptureBodiesAtRequest,
     created_at: timestamp,
   };
 }
 
-function createAuditDetail() {
+function createAuditDetail(scenario: AuditScenario) {
+  const config = getScenarioConfig(scenario);
+
   return {
     id: 201,
     request_log_id: 101,
@@ -119,20 +209,25 @@ function createAuditDetail() {
     request_method: "POST",
     request_url: "https://api.example.test/v1/responses",
     request_headers: "content-type: application/json\nauthorization: Bearer [REDACTED]",
-    request_body: '{"input":"hello"}',
+    request_body: config.requestBody,
+    request_body_stored: config.requestBodyStored,
     response_status: 200,
     response_headers: "content-type: application/json",
-    response_body: '{"id":"resp_101","status":"ok"}',
-    is_stream: false,
+    response_body: config.responseBody,
+    response_body_stored: config.responseBodyStored,
+    is_stream: config.isStream,
     duration_ms: 125,
+    audit_enabled_at_request: config.auditEnabledAtRequest,
+    audit_capture_bodies_at_request: config.auditCaptureBodiesAtRequest,
     created_at: timestamp,
   };
 }
 
-async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boolean) {
-  const detail = createRequestLogDetail(auditEnabledAtRequest);
-  const auditListItem = createAuditListItem();
-  const auditDetail = createAuditDetail();
+async function mockRequestLogDetailRoutes(page: Page, scenario: AuditScenario) {
+  const config = getScenarioConfig(scenario);
+  const detail = createRequestLogDetail(scenario);
+  const auditListItem = createAuditListItem(scenario);
+  const auditDetail = createAuditDetail(scenario);
   let auditListRequests = 0;
   let auditDetailRequests = 0;
 
@@ -157,32 +252,8 @@ async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boo
 
     if (pathname === "/api/profiles/bootstrap") {
       return fulfillJson({
-        profiles: [
-          {
-            id: 1,
-            name: "Default",
-            description: null,
-            is_active: true,
-            is_default: true,
-            is_editable: true,
-            version: 1,
-            created_at: timestamp,
-            deleted_at: null,
-            updated_at: timestamp,
-          },
-        ],
-        active_profile: {
-          id: 1,
-          name: "Default",
-          description: null,
-          is_active: true,
-          is_default: true,
-          is_editable: true,
-          version: 1,
-          created_at: timestamp,
-          deleted_at: null,
-          updated_at: timestamp,
-        },
+        profiles: [{ id: 1, name: "Default", description: null, is_active: true, is_default: true, is_editable: true, version: 1, created_at: timestamp, deleted_at: null, updated_at: timestamp }],
+        active_profile: { id: 1, name: "Default", description: null, is_active: true, is_default: true, is_editable: true, version: 1, created_at: timestamp, deleted_at: null, updated_at: timestamp },
         profile_limits: { max_profiles: 5 },
       });
     }
@@ -197,9 +268,15 @@ async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boo
 
     if (pathname === "/api/audit/logs") {
       auditListRequests += 1;
-      if (!auditEnabledAtRequest) {
-        return fulfillJson({ detail: "Audit capture unavailable for this request" }, 409);
+
+      if (!config.auditEnabledAtRequest) {
+        return fulfillJson({ detail: "Audit should not be fetched for disabled rows" }, 409);
       }
+
+      if (config.listFails) {
+        return fulfillJson({ detail: "audit list failed" }, 500);
+      }
+
       return fulfillJson({
         items: searchParams.get("request_log_id") === "101" ? [auditListItem] : [],
         total: searchParams.get("request_log_id") === "101" ? 1 : 0,
@@ -224,24 +301,24 @@ async function mockRequestLogDetailRoutes(page: Page, auditEnabledAtRequest: boo
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 
   return {
-    getAuditListRequests: () => auditListRequests,
     getAuditDetailRequests: () => auditDetailRequests,
+    getAuditListRequests: () => auditListRequests,
   };
 }
 
 async function openRequestLogDetail(
   page: Page,
-  auditEnabledAtRequest: boolean,
+  scenario: AuditScenario,
   initialPath = "/request-logs?request_id=101",
 ) {
-  const counters = await mockRequestLogDetailRoutes(page, auditEnabledAtRequest);
+  const counters = await mockRequestLogDetailRoutes(page, scenario);
 
   await page.goto(initialPath);
 
   const drawer = page.getByTestId("request-log-detail-sheet");
   await expect(drawer).toBeVisible({ timeout: 15000 });
 
-  return { drawer, counters };
+  return { counters, drawer };
 }
 
 async function expectExactAuditUrlContract(page: Page, drawer: Locator) {
@@ -251,10 +328,7 @@ async function expectExactAuditUrlContract(page: Page, drawer: Locator) {
   await expect(page).toHaveURL(/\/request-logs\?request_id=101&detail_tab=audit$/);
   await expect(auditTab).toHaveAttribute("data-state", "active");
 
-  await Promise.all([
-    page.waitForURL(/\/request-logs\?request_id=101$/),
-    overviewTab.click(),
-  ]);
+  await Promise.all([page.waitForURL(/\/request-logs\?request_id=101$/), overviewTab.click()]);
   await expect(overviewTab).toHaveAttribute("data-state", "active");
 
   await Promise.all([
@@ -264,35 +338,65 @@ async function expectExactAuditUrlContract(page: Page, drawer: Locator) {
   await expect(auditTab).toHaveAttribute("data-state", "active");
 }
 
-test.describe("request log audit disabled state", () => {
-  test("audit deeplink keeps exact-mode URL state while disabled snapshots make zero audit API requests", async ({ page }) => {
-    const { drawer, counters } = await openRequestLogDetail(
-      page,
-      false,
-      "/request-logs?request_id=101&detail_tab=audit",
-    );
+test.describe("request log audit investigation states", () => {
+  test("disabled audit rows keep exact-mode URL state without firing audit APIs", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "disabled", "/request-logs?request_id=101&detail_tab=audit");
 
-    await expect(drawer.getByText("Audit capture unavailable")).toBeVisible();
-    await expect(drawer.getByText("Audit logging may be disabled for this vendor.")).toBeVisible();
+    await expect(drawer.getByText("Audit disabled at request time").first()).toBeVisible();
+    await expect(drawer.getByText("This request kept only request-log metadata because audit logging was off when it started.")).toBeVisible();
     expect(counters.getAuditListRequests()).toBe(0);
     expect(counters.getAuditDetailRequests()).toBe(0);
-
     await expectExactAuditUrlContract(page, drawer);
   });
 
-  test("audit deeplink keeps exact-mode URL state while enabled snapshots lazy-load audit logs", async ({ page }) => {
-    const { drawer, counters } = await openRequestLogDetail(
-      page,
-      true,
-      "/request-logs?request_id=101&detail_tab=audit",
-    );
+  test("metadata-only capture stays distinct from failure states", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "metadata_only", "/request-logs?request_id=101&detail_tab=audit");
 
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
-    await expect(drawer.getByText("Audit capture unavailable")).not.toBeVisible();
+    await expect(drawer.getByText("Metadata only").first()).toBeVisible();
+    await expect(drawer.getByText("Request body was intentionally not stored because this request used metadata-only audit capture.")).toBeVisible();
+    await expect(drawer.getByText("Response body was intentionally not stored because this request used metadata-only audit capture.")).toBeVisible();
+    await expectExactAuditUrlContract(page, drawer);
+  });
+
+  test("full capture shows stored request and response bodies", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "full", "/request-logs?request_id=101&detail_tab=audit");
+
+    await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+    await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
+    await expect(drawer.getByText("Full capture").first()).toBeVisible();
     await expect(drawer.getByText('{"input":"hello"}')).toBeVisible();
     await expect(drawer.getByText('{"id":"resp_101","status":"ok"}')).toBeVisible();
-
     await expectExactAuditUrlContract(page, drawer);
+  });
+
+  test("streaming full capture explains why response bodies are not stored", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "full_streaming", "/request-logs?request_id=101&detail_tab=audit");
+
+    await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+    await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
+    await expect(drawer.getByText("Full capture").first()).toBeVisible();
+    await expect(drawer.getByText('{"input":"stream me"}')).toBeVisible();
+    await expect(drawer.getByText("Streaming responses do not keep a stored response body, even when body capture was enabled.")).toBeVisible();
+  });
+
+  test("fetch failures stay visually distinct from disabled and captured states", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "fetch_failure", "/request-logs?request_id=101&detail_tab=audit");
+
+    await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+    await expect(drawer.getByText("Audit detail load failed")).toBeVisible({ timeout: 15000 });
+    await expect(drawer.getByText("Prism expected an audit record for this request but could not load it after multiple attempts.")).toBeVisible();
+    expect(counters.getAuditDetailRequests()).toBe(0);
+  });
+
+  test("orphaned audit rows stay visible even when request_log_id is null", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "orphan_visibility", "/request-logs?request_id=101&detail_tab=audit");
+
+    await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+    await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
+    await expect(drawer.getByText("Full capture").first()).toBeVisible();
+    await expect(drawer.getByText('{"input":"orphan me"}')).toBeVisible();
+    await expect(drawer.getByText('{"id":"resp_201","status":"ok"}')).toBeVisible();
   });
 });

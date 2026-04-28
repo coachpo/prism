@@ -32,6 +32,18 @@ function getMessages() {
   return getStaticMessages();
 }
 
+export type VendorAuditCaptureMode = "disabled" | "metadata_only" | "full";
+
+export function getVendorAuditCaptureMode(
+  vendor: Pick<Vendor, "audit_enabled" | "audit_capture_bodies">,
+): VendorAuditCaptureMode {
+  if (!vendor.audit_enabled) {
+    return "disabled";
+  }
+
+  return vendor.audit_capture_bodies ? "full" : "metadata_only";
+}
+
 export function useAuditConfigurationData({ revision }: UseAuditConfigurationDataInput) {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [blocklistRules, setBlocklistRules] = useState<HeaderBlocklistRule[]>([]);

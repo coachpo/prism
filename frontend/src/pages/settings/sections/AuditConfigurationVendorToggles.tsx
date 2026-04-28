@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useLocale } from "@/i18n/useLocale";
 import type { Vendor } from "@/lib/types";
+import { getVendorAuditCaptureMode } from "../useAuditConfigurationData";
 
 interface AuditConfigurationVendorTogglesProps {
   vendors: Vendor[];
@@ -22,6 +23,12 @@ export function AuditConfigurationVendorToggles({
       {vendors.map((vendor) => {
         const auditStatus = vendor.audit_enabled ? copy.on : copy.off;
         const bodiesStatus = vendor.audit_capture_bodies ? copy.on : copy.off;
+        const captureMode = getVendorAuditCaptureMode(vendor);
+        const captureModeLabel = captureMode === "disabled"
+          ? copy.modeDisabled
+          : captureMode === "metadata_only"
+            ? copy.modeMetadataOnly
+            : copy.modeFullCapture;
 
         return (
           <div key={vendor.id} className="rounded-lg border p-3">
@@ -34,9 +41,14 @@ export function AuditConfigurationVendorToggles({
               </div>
 
               <div className="flex flex-col items-start gap-2 md:items-end">
-                <p className="text-xs text-muted-foreground">
-                  {copy.audit}: {auditStatus} · {copy.bodies}: {bodiesStatus}
-                </p>
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  <p>
+                    {copy.mode}: <span className="font-medium text-foreground">{captureModeLabel}</span>
+                  </p>
+                  <p>
+                    {copy.audit}: {auditStatus} · {copy.bodies}: {bodiesStatus}
+                  </p>
+                </div>
                 <div className="flex items-center gap-5">
                   <div className="flex items-center gap-2">
                     <Switch

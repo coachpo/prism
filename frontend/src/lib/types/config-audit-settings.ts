@@ -273,9 +273,13 @@ export interface AuditLogListItem {
   request_url: string;
   request_headers: string;
   request_body_preview: string | null;
+  request_body_stored: boolean;
   response_status: number;
+  response_body_stored: boolean;
   is_stream: boolean;
   duration_ms: number;
+  audit_enabled_at_request: boolean;
+  audit_capture_bodies_at_request: boolean;
   created_at: string;
 }
 
@@ -293,11 +297,15 @@ export interface AuditLogDetail {
   request_url: string;
   request_headers: string;
   request_body: string | null;
+  request_body_stored: boolean;
   response_status: number;
   response_headers: string | null;
   response_body: string | null;
+  response_body_stored: boolean;
   is_stream: boolean;
   duration_ms: number;
+  audit_enabled_at_request: boolean;
+  audit_capture_bodies_at_request: boolean;
   created_at: string;
 }
 
