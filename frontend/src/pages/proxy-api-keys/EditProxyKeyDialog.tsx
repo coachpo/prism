@@ -19,12 +19,14 @@ type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 type Props = {
   open: boolean;
   proxyKeyActive: boolean;
+  proxyKeyExpiresAt: string;
   proxyKeyName: string;
   proxyKeyNotes: string;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: FormSubmitHandler;
   setProxyKeyActive: (value: boolean) => void;
+  setProxyKeyExpiresAt: (value: string) => void;
   setProxyKeyName: (value: string) => void;
   setProxyKeyNotes: (value: string) => void;
 };
@@ -32,12 +34,14 @@ type Props = {
 export function EditProxyKeyDialog({
   open,
   proxyKeyActive,
+  proxyKeyExpiresAt,
   proxyKeyName,
   proxyKeyNotes,
   saving,
   onOpenChange,
   onSubmit,
   setProxyKeyActive,
+  setProxyKeyExpiresAt,
   setProxyKeyName,
   setProxyKeyNotes,
 }: Props) {
@@ -81,11 +85,39 @@ export function EditProxyKeyDialog({
                     disabled={saving}
                   />
                 </div>
+
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="proxy-key-edit-expires-at">{copy.expiresAt}</Label>
+                    {proxyKeyExpiresAt ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="h-auto px-0 text-xs text-muted-foreground"
+                        onClick={() => setProxyKeyExpiresAt("")}
+                        disabled={saving}
+                      >
+                        {copy.clearExpiry}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <Input
+                    id="proxy-key-edit-expires-at"
+                    name="proxy-key-edit-expires-at"
+                    type="datetime-local"
+                    value={proxyKeyExpiresAt}
+                    onChange={(event) => setProxyKeyExpiresAt(event.target.value)}
+                    disabled={saving}
+                  />
+                  <p className="text-xs text-muted-foreground">{copy.expiresAtDescription}</p>
+                </div>
               </section>
 
               <section className="flex flex-col gap-4 rounded-lg border p-4">
                 <SwitchController
                   label={copy.active}
+                  description={copy.retireDescription}
                   checked={proxyKeyActive}
                   onCheckedChange={setProxyKeyActive}
                   disabled={saving}

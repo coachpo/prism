@@ -12,9 +12,14 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useLocale } from "@/i18n/useLocale";
 import type { ProxyApiKey } from "@/lib/types";
-import { formatDateTime, formatLastUsed, getRuntimeStatusLabel } from "./proxyKeyFormatting";
+import {
+  formatDateTime,
+  formatLastUsed,
+  getProxyKeyLifecycleLabel,
+} from "./proxyKeyFormatting";
 
 type Props = {
+  authEnabled: boolean;
   deleteConfirm: ProxyApiKey | null;
   displayedDeleteConfirm?: ProxyApiKey | null;
   deletingProxyKeyId: number | null;
@@ -22,9 +27,11 @@ type Props = {
   onClose: () => void;
   onDelete: () => void;
   onOpenChange: (open: boolean) => void;
+  successorId: number | null;
 };
 
 export function DeleteProxyKeyDialog({
+  authEnabled,
   deleteConfirm,
   displayedDeleteConfirm,
   deletingProxyKeyId,
@@ -32,6 +39,7 @@ export function DeleteProxyKeyDialog({
   onClose,
   onDelete,
   onOpenChange,
+  successorId,
 }: Props) {
   const { messages } = useLocale();
   const copy = messages.proxyApiKeys;
@@ -55,7 +63,9 @@ export function DeleteProxyKeyDialog({
                 <p className="text-sm font-medium text-foreground">{messages.settingsDialogs.deletionSummary}</p>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-medium text-foreground">{dialogKey.name}</p>
-                  <Badge variant="outline">{getRuntimeStatusLabel(dialogKey)}</Badge>
+                  <Badge variant="outline">
+                    {getProxyKeyLifecycleLabel(dialogKey, authEnabled, successorId)}
+                  </Badge>
                 </div>
                 <p className="break-all font-mono text-xs text-muted-foreground">{dialogKey.key_preview}</p>
               </div>

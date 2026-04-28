@@ -8,8 +8,9 @@ import type { ProxyApiKey } from "@/lib/types";
 import {
   formatDateTime,
   formatLastUsed,
-  getRuntimeStatusLabel,
-  getRuntimeStatusTone,
+  getProxyKeyLifecycleLabel,
+  getProxyKeyLifecycleTone,
+  getProxyKeyLineageLabel,
 } from "./proxyKeyFormatting";
 
 function MobileField({
@@ -24,21 +25,11 @@ function MobileField({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "min-w-0 space-y-1 bg-transparent px-0 py-0 md:space-y-0",
-        className
-      )}
-    >
+    <div className={cn("min-w-0 space-y-1 bg-transparent px-0 py-0 md:space-y-0", className)}>
       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground md:hidden">
         {label}
       </p>
-      <p
-        className={cn(
-          "mt-1 text-xs text-foreground",
-          mono ? "break-all font-mono" : undefined
-        )}
-      >
+      <p className={cn("mt-1 text-xs text-foreground", mono ? "break-all font-mono" : undefined)}>
         {value}
       </p>
     </div>
@@ -53,6 +44,7 @@ type Props = {
   onEdit: () => void;
   onRotate: () => void;
   rotating: boolean;
+  successorId: number | null;
 };
 
 type ProxyKeyActionsProps = Pick<Props, "deleting" | "onDelete" | "onEdit" | "onRotate" | "rotating"> & {
@@ -109,31 +101,29 @@ export function ProxyKeyRow({
   onEdit,
   onRotate,
   onDelete,
+  successorId,
 }: Props) {
   const { messages } = useLocale();
   const copy = messages.proxyApiKeys;
-  const showStatusBadge = !item.is_active || authEnabled;
-  const statusLabel = getRuntimeStatusLabel(item);
-  const statusTone = getRuntimeStatusTone(item, authEnabled);
+  const statusLabel = getProxyKeyLifecycleLabel(item, authEnabled, successorId);
+  const statusTone = getProxyKeyLifecycleTone(item, authEnabled, successorId);
   const note = item.notes?.trim() || copy.noInternalNote;
   const expiresAt = item.expires_at ? formatDateTime(item.expires_at, copy.neverExpires) : copy.neverExpires;
-  const lineage = item.rotated_from_id === null ? copy.currentKey : copy.rotatedFrom(item.rotated_from_id);
+  const lineage = getProxyKeyLineageLabel(item, successorId);
   const lastIp = item.last_used_ip || "—";
 
   return (
     <TableRow className="grid gap-3 px-3 py-3 md:table-row md:px-0 md:py-0">
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
         <div className="min-w-0 space-y-1">
-            <MobileOnlyLabel>{copy.nameNote}</MobileOnlyLabel>
+          <MobileOnlyLabel>{copy.nameNote}</MobileOnlyLabel>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="truncate font-medium" title={item.name}>
               {item.name}
             </span>
-            {showStatusBadge ? (
-              <Badge variant="outline" className={statusTone}>
-                {statusLabel}
-              </Badge>
-            ) : null}
+            <Badge variant="outline" className={statusTone}>
+              {statusLabel}
+            </Badge>
           </div>
           <p className="truncate text-xs text-muted-foreground" title={note}>
             {note}
@@ -149,47 +139,27 @@ export function ProxyKeyRow({
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
-        <MobileField
-          label={copy.created}
-          value={formatDateTime(item.created_at)}
-        />
+        <MobileField label={copy.created} value={formatDateTime(item.created_at)} />
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
-        <MobileField
-          label={copy.updated}
-          value={formatDateTime(item.updated_at)}
-        />
+        <MobileField label={copy.updated} value={formatDateTime(item.updated_at)} />
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
-        <MobileField
-          label={copy.expiresAt}
-          value={expiresAt}
-        />
+        <MobileField label={copy.expiresAt} value={expiresAt} />
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
-        <MobileField
-          label={copy.lineage}
-          value={lineage}
-          mono
-        />
+        <MobileField label={copy.lineage} value={lineage} mono />
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
-        <MobileField
-          label={copy.lastUsed}
-          value={formatLastUsed(item.last_used_at)}
-        />
+        <MobileField label={copy.lastUsed} value={formatLastUsed(item.last_used_at)} />
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:max-w-[12rem] md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)]">
-        <MobileField
-          label={copy.lastIp}
-          value={lastIp}
-          mono
-        />
+        <MobileField label={copy.lastIp} value={lastIp} mono />
       </TableCell>
 
       <TableCell className="block whitespace-normal px-0 py-0 align-top md:table-cell md:px-[var(--density-table-cell-px)] md:py-[var(--density-table-cell-py)] md:text-right">
