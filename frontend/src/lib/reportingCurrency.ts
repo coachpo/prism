@@ -5,11 +5,18 @@ export interface ReportingCurrency {
   symbol: string;
 }
 
-interface ReportingCurrencyLike {
+export interface ReportingCurrencyLike {
   code?: string | null;
   symbol?: string | null;
   report_currency_code?: string | null;
   report_currency_symbol?: string | null;
+}
+
+export type ReportingCurrencyTrust = "verified" | "fallback";
+
+export interface ReportingCurrencyState {
+  currency: ReportingCurrency;
+  trust: ReportingCurrencyTrust;
 }
 
 export const DEFAULT_REPORTING_CURRENCY: ReportingCurrency = {
@@ -17,11 +24,26 @@ export const DEFAULT_REPORTING_CURRENCY: ReportingCurrency = {
   symbol: "$",
 };
 
-const reportingCurrencyCache = new Map<string, ReportingCurrency>();
-const reportingCurrencyRequestCache = new Map<string, Promise<ReportingCurrency>>();
+export const DEFAULT_REPORTING_CURRENCY_STATE: ReportingCurrencyState = {
+  currency: DEFAULT_REPORTING_CURRENCY,
+  trust: "fallback",
+};
+
+const reportingCurrencyCache = new Map<string, ReportingCurrencyState>();
+const reportingCurrencyRequestCache = new Map<string, Promise<ReportingCurrencyState>>();
 
 let activeReportingCurrencyCacheKey: string | null = null;
-let activeReportingCurrency = DEFAULT_REPORTING_CURRENCY;
+let activeReportingCurrencyState = DEFAULT_REPORTING_CURRENCY_STATE;
+
+function buildReportingCurrencyState(
+  currency: ReportingCurrencyLike | ReportingCurrency | null | undefined,
+  trust: ReportingCurrencyTrust,
+): ReportingCurrencyState {
+  return {
+    currency: normalizeReportingCurrency(currency),
+    trust,
+  };
+}
 
 export function normalizeReportingCurrency(
   currency?: ReportingCurrencyLike | null,
@@ -36,41 +58,44 @@ export function normalizeReportingCurrency(
   };
 }
 
-function syncActiveReportingCurrency(cacheKey: string, currency: ReportingCurrency) {
+function syncActiveReportingCurrency(cacheKey: string, currencyState: ReportingCurrencyState) {
   if (activeReportingCurrencyCacheKey === cacheKey) {
-    activeReportingCurrency = currency;
+    activeReportingCurrencyState = currencyState;
   }
 }
 
-function getCachedReportingCurrency(cacheKey: string): ReportingCurrency | null {
-  const cachedCurrency = reportingCurrencyCache.get(cacheKey) ?? null;
+function getCachedReportingCurrencyState(cacheKey: string): ReportingCurrencyState | null {
+  const cachedCurrencyState = reportingCurrencyCache.get(cacheKey) ?? null;
 
-  if (cachedCurrency) {
-    syncActiveReportingCurrency(cacheKey, cachedCurrency);
+  if (cachedCurrencyState) {
+    syncActiveReportingCurrency(cacheKey, cachedCurrencyState);
   }
 
-  return cachedCurrency;
+  return cachedCurrencyState;
 }
 
-function failOpenReportingCurrency(cacheKey: string): ReportingCurrency {
-  const cachedCurrency = getCachedReportingCurrency(cacheKey);
-  if (cachedCurrency) {
-    return cachedCurrency;
-  }
+function buildFallbackReportingCurrencyState(cacheKey: string): ReportingCurrencyState {
+  const cachedCurrencyState = reportingCurrencyCache.get(cacheKey);
+  const fallbackCurrencyState = cachedCurrencyState
+    ? {
+        currency: cachedCurrencyState.currency,
+        trust: "fallback" as const,
+      }
+    : DEFAULT_REPORTING_CURRENCY_STATE;
 
-  reportingCurrencyCache.set(cacheKey, DEFAULT_REPORTING_CURRENCY);
-  syncActiveReportingCurrency(cacheKey, DEFAULT_REPORTING_CURRENCY);
-  return DEFAULT_REPORTING_CURRENCY;
+  reportingCurrencyCache.set(cacheKey, fallbackCurrencyState);
+  syncActiveReportingCurrency(cacheKey, fallbackCurrencyState);
+  return fallbackCurrencyState;
 }
 
-export function getReportingCurrency(
+export function getReportingCurrencyState(
   cacheKey: string,
   forceRefresh = false,
-): Promise<ReportingCurrency> {
+): Promise<ReportingCurrencyState> {
   if (!forceRefresh) {
-    const cachedCurrency = getCachedReportingCurrency(cacheKey);
-    if (cachedCurrency) {
-      return Promise.resolve(cachedCurrency);
+    const cachedCurrencyState = getCachedReportingCurrencyState(cacheKey);
+    if (cachedCurrencyState) {
+      return Promise.resolve(cachedCurrencyState);
     }
   }
 
@@ -83,8 +108,8 @@ export function getReportingCurrency(
 
   const loadPromise = api.settings.costing
     .get()
-    .then((settings) => primeReportingCurrency(cacheKey, settings))
-    .catch(() => failOpenReportingCurrency(cacheKey))
+    .then((settings) => primeReportingCurrencyState(cacheKey, settings))
+    .catch(() => buildFallbackReportingCurrencyState(cacheKey))
     .finally(() => {
       if (reportingCurrencyRequestCache.get(cacheKey) === loadPromise) {
         reportingCurrencyRequestCache.delete(cacheKey);
@@ -95,28 +120,52 @@ export function getReportingCurrency(
   return loadPromise;
 }
 
+export function getReportingCurrency(
+  cacheKey: string,
+  forceRefresh = false,
+): Promise<ReportingCurrency> {
+  return getReportingCurrencyState(cacheKey, forceRefresh).then((currencyState) => currencyState.currency);
+}
+
+export function primeReportingCurrencyState(
+  cacheKey: string,
+  currency: ReportingCurrencyLike,
+): ReportingCurrencyState {
+  const currencyState = buildReportingCurrencyState(currency, "verified");
+  reportingCurrencyCache.set(cacheKey, currencyState);
+  syncActiveReportingCurrency(cacheKey, currencyState);
+  return currencyState;
+}
+
 export function primeReportingCurrency(
   cacheKey: string,
   currency: ReportingCurrencyLike,
 ): ReportingCurrency {
-  const normalizedCurrency = normalizeReportingCurrency(currency);
-  reportingCurrencyCache.set(cacheKey, normalizedCurrency);
-  syncActiveReportingCurrency(cacheKey, normalizedCurrency);
-  return normalizedCurrency;
+  return primeReportingCurrencyState(cacheKey, currency).currency;
+}
+
+export function setActiveReportingCurrencyState(
+  cacheKey?: string | null,
+): ReportingCurrencyState {
+  activeReportingCurrencyCacheKey = cacheKey ?? null;
+  activeReportingCurrencyState = cacheKey
+    ? reportingCurrencyCache.get(cacheKey) ?? DEFAULT_REPORTING_CURRENCY_STATE
+    : DEFAULT_REPORTING_CURRENCY_STATE;
+  return activeReportingCurrencyState;
 }
 
 export function setActiveReportingCurrency(
   cacheKey?: string | null,
 ): ReportingCurrency {
-  activeReportingCurrencyCacheKey = cacheKey ?? null;
-  activeReportingCurrency = cacheKey
-    ? reportingCurrencyCache.get(cacheKey) ?? DEFAULT_REPORTING_CURRENCY
-    : DEFAULT_REPORTING_CURRENCY;
-  return activeReportingCurrency;
+  return setActiveReportingCurrencyState(cacheKey).currency;
+}
+
+export function getActiveReportingCurrencyState(): ReportingCurrencyState {
+  return activeReportingCurrencyState;
 }
 
 export function getActiveReportingCurrency(): ReportingCurrency {
-  return activeReportingCurrency;
+  return activeReportingCurrencyState.currency;
 }
 
 export function clearReportingCurrency(cacheKey?: string) {
@@ -124,7 +173,7 @@ export function clearReportingCurrency(cacheKey?: string) {
     reportingCurrencyCache.clear();
     reportingCurrencyRequestCache.clear();
     activeReportingCurrencyCacheKey = null;
-    activeReportingCurrency = DEFAULT_REPORTING_CURRENCY;
+    activeReportingCurrencyState = DEFAULT_REPORTING_CURRENCY_STATE;
     return;
   }
 
@@ -132,6 +181,6 @@ export function clearReportingCurrency(cacheKey?: string) {
   reportingCurrencyRequestCache.delete(cacheKey);
 
   if (activeReportingCurrencyCacheKey === cacheKey) {
-    activeReportingCurrency = DEFAULT_REPORTING_CURRENCY;
+    activeReportingCurrencyState = DEFAULT_REPORTING_CURRENCY_STATE;
   }
 }

@@ -663,11 +663,16 @@ export interface Messages {
     captureAndPrivacyDefaults: string;
     classifyClientsFromUserAgent: string;
     headerBlocklist: string;
+    mode: string;
+    modeDisabled: string;
+    modeFullCapture: string;
+    modeMetadataOnly: string;
     noVendorsAvailable: string;
     off: string;
     on: string;
     outputsMayBeCaptured: string;
     recordMetadata: string;
+    requestTimeProvenanceNote: string;
     stripsHeadersBeforeSendingUpstream: string;
     userAgentClientRules: string;
   };
@@ -1408,8 +1413,19 @@ export interface Messages {
     auditCapture: string;
     auditCaptureUnavailable: string;
     auditCaptureDisabledForVendor: string;
+    auditDisabledAtRequest: string;
+    auditDisabledDescription: string;
+    auditFullCapture: string;
+    auditFullCaptureDescription: string;
     auditLoadFailedTitle: string;
     auditLoadFailed: string;
+    auditMetadataOnly: string;
+    auditMetadataOnlyDescription: string;
+    auditRequestBodyNotStored: string;
+    auditRequestBodyNotStoredMetadataOnly: string;
+    auditResponseBodyNotStored: string;
+    auditResponseBodyNotStoredMetadataOnly: string;
+    auditStreamingResponseBodyNotStored: string;
     noAuditRecords: string;
     timeRange: string;
     tokenRange: string;
@@ -1446,6 +1462,15 @@ export interface Messages {
     signedOut: string;
     signOut: string;
   },
+  spendTrust: {
+    fallback: string;
+    fallbackDescription: string;
+    openPricingTemplates: string;
+    unpriced: string;
+    unpricedDescription: string;
+    verified: string;
+    verifiedDescription: string;
+  };
   statistics: {
     addLine: string;
     averageRpm: string;
@@ -2334,15 +2359,20 @@ export const enMessages: Messages = {
     audit: "Audit",
     auditAndPrivacy: "Audit & Privacy",
     bodies: "Bodies",
-    bodiesSensitive: "Include request/response bodies (sensitive).",
-    captureAndPrivacyDefaults: "Configure vendor-level audit capture and privacy defaults.",
+    bodiesSensitive: "Also store request bodies and non-streaming response bodies for future requests (sensitive).",
+    captureAndPrivacyDefaults: "Choose how future requests are captured for each vendor.",
     classifyClientsFromUserAgent: "Classify request-log clients from caller and upstream User-Agent values.",
     headerBlocklist: "Header Blocklist",
+    mode: "Mode",
+    modeDisabled: "Disabled",
+    modeFullCapture: "Full capture",
+    modeMetadataOnly: "Metadata only",
     noVendorsAvailable: "No vendors available.",
     off: "Off",
     on: "On",
-    outputsMayBeCaptured: "May capture prompts/outputs.",
-    recordMetadata: "Record request/response metadata.",
+    outputsMayBeCaptured: "Full capture may store prompts and non-streaming responses.",
+    recordMetadata: "Store request metadata and headers for future requests.",
+    requestTimeProvenanceNote: "Each request keeps the audit mode that was active when it started.",
     stripsHeadersBeforeSendingUpstream: "Strips headers before sending upstream.",
     userAgentClientRules: "User-Agent Client Rules",
   },
@@ -3008,7 +3038,7 @@ export const enMessages: Messages = {
     client: "Client",
     compact: "Compact",
     connection: "Connection",
-    detailDescription: "Review request metadata, routing, tokens, costs, and captured upstream payloads.",
+    detailDescription: "Review request metadata, routing, tokens, costs, and request-time audit provenance.",
     endpoint: "Endpoint",
     fxRateSource: "FX source",
     fxRateUsed: "FX rate used",
@@ -3101,10 +3131,21 @@ export const enMessages: Messages = {
     pricingUnit: "Pricing unit",
     baseUrl: "Base URL",
     auditCapture: "Audit capture",
-    auditCaptureUnavailable: "Audit capture unavailable",
-    auditCaptureDisabledForVendor: "Audit logging may be disabled for this vendor.",
+    auditCaptureUnavailable: "Audit disabled at request time",
+    auditCaptureDisabledForVendor: "This request ran while audit logging was off, so Prism did not store a separate audit row.",
+    auditDisabledAtRequest: "Audit disabled at request time",
+    auditDisabledDescription: "This request kept only request-log metadata because audit logging was off when it started.",
+    auditFullCapture: "Full capture",
+    auditFullCaptureDescription: "Audit logging and body capture were on when this request started. Streaming responses can still omit a stored response body.",
     auditLoadFailedTitle: "Audit detail load failed",
-    auditLoadFailed: "Failed to load audit details after multiple attempts.",
+    auditLoadFailed: "Prism expected an audit record for this request but could not load it after multiple attempts.",
+    auditMetadataOnly: "Metadata only",
+    auditMetadataOnlyDescription: "Audit logging was on, but body capture was off when this request started. Headers and timing are available; request and response bodies were intentionally not stored.",
+    auditRequestBodyNotStored: "Request body was not stored for this audit record.",
+    auditRequestBodyNotStoredMetadataOnly: "Request body was intentionally not stored because this request used metadata-only audit capture.",
+    auditResponseBodyNotStored: "Response body was not stored for this audit record.",
+    auditResponseBodyNotStoredMetadataOnly: "Response body was intentionally not stored because this request used metadata-only audit capture.",
+    auditStreamingResponseBodyNotStored: "Streaming responses do not keep a stored response body, even when body capture was enabled.",
     noAuditRecords: "No audit records found for this request.",
     timeRange: "Time range",
     tokenRange: "Token range",
@@ -3140,6 +3181,15 @@ export const enMessages: Messages = {
     profile: "Profile:",
     signedOut: "Signed out",
     signOut: "Sign out",
+  },
+  spendTrust: {
+    fallback: "Fallback",
+    fallbackDescription: "Spend is shown with fallback reporting currency until billing settings load again.",
+    openPricingTemplates: "Open Pricing Templates",
+    unpriced: "Unpriced",
+    unpricedDescription: "Missing pricing data stays separate from priced spend.",
+    verified: "Verified",
+    verifiedDescription: "Spend is using the verified reporting currency.",
   },
   statistics: {
     addLine: "Add Line",

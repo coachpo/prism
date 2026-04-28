@@ -1,8 +1,30 @@
 import { formatNumber, getCurrentLocale, type Locale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { getActiveReportingCurrency } from "@/lib/reportingCurrency";
+import {
+  getActiveReportingCurrency,
+  getActiveReportingCurrencyState,
+  type ReportingCurrency,
+  type ReportingCurrencyState,
+  type ReportingCurrencyTrust,
+} from "@/lib/reportingCurrency";
 
 const MICRO_FACTOR = 1_000_000;
+
+export interface SpendTrustInput {
+  costMicros?: number | null;
+  priced?: boolean | null;
+  unpricedReason?: string | null;
+  pricedRequestCount?: number | null;
+  unpricedRequestCount?: number | null;
+}
+
+export type SpendTrustState = ReportingCurrencyTrust | "unpriced";
+
+export interface SpendTrustContext {
+  currency: ReportingCurrency;
+  currencyTrust: ReportingCurrencyTrust;
+  spendTrust: SpendTrustState;
+}
 
 function getPricingUnitLabels(): Record<string, string> {
   return {
@@ -35,6 +57,55 @@ function formatEnumLabel(
     return fallback;
   }
   return labels[value] ?? fallback;
+}
+
+function hasOwnProperty<T extends object>(value: T, key: keyof SpendTrustInput): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function normalizeOptionalCount(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function hasUnpricedSpendContext(input: SpendTrustInput = {}): boolean {
+  if (input.unpricedReason !== null && input.unpricedReason !== undefined && input.unpricedReason !== "") {
+    return true;
+  }
+
+  if (input.priced === false) {
+    return true;
+  }
+
+  if (hasOwnProperty(input, "pricedRequestCount") || hasOwnProperty(input, "unpricedRequestCount")) {
+    const pricedRequestCount = normalizeOptionalCount(input.pricedRequestCount);
+    const unpricedRequestCount = normalizeOptionalCount(input.unpricedRequestCount);
+    return (pricedRequestCount ?? 0) <= 0 && (unpricedRequestCount ?? 0) > 0;
+  }
+
+  if (hasOwnProperty(input, "costMicros")) {
+    return input.costMicros === null || input.costMicros === undefined;
+  }
+
+  return false;
+}
+
+export function resolveSpendTrustState(
+  input: SpendTrustInput = {},
+  currencyState: Pick<ReportingCurrencyState, "trust"> = getActiveReportingCurrencyState(),
+): SpendTrustState {
+  return hasUnpricedSpendContext(input) ? "unpriced" : currencyState.trust;
+}
+
+export function getActiveSpendTrustContext(
+  input: SpendTrustInput = {},
+): SpendTrustContext {
+  const activeCurrencyState = getActiveReportingCurrencyState();
+
+  return {
+    currency: activeCurrencyState.currency,
+    currencyTrust: activeCurrencyState.trust,
+    spendTrust: resolveSpendTrustState(input, activeCurrencyState),
+  };
 }
 
 export function microsToDecimal(micros: number | null | undefined): number {

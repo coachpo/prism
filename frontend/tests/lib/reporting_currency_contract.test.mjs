@@ -53,11 +53,19 @@ test("reporting currency loader caches normalized values per profile scope", asy
     report_currency_symbol: "€",
   }));
 
-  const first = await reportingCurrency.getReportingCurrency("profile:7");
-  const second = await reportingCurrency.getReportingCurrency("profile:7");
+  const first = await reportingCurrency.getReportingCurrencyState("profile:7");
+  const second = await reportingCurrency.getReportingCurrencyState("profile:7");
+  const wrappedCurrency = await reportingCurrency.getReportingCurrency("profile:7");
 
-  assert.deepEqual(first, { code: "EUR", symbol: "€" });
-  assert.deepEqual(second, { code: "EUR", symbol: "€" });
+  assert.deepEqual(first, {
+    currency: { code: "EUR", symbol: "€" },
+    trust: "verified",
+  });
+  assert.deepEqual(second, {
+    currency: { code: "EUR", symbol: "€" },
+    trust: "verified",
+  });
+  assert.deepEqual(wrappedCurrency, { code: "EUR", symbol: "€" });
   assert.equal(reportingCurrency.getCalls.length, 1);
 });
 
@@ -66,47 +74,51 @@ test("reporting currency can be manually primed and synchronously activated", as
     throw new Error("settings request should not run for a primed scope");
   });
 
-  const primed = reportingCurrency.primeReportingCurrency("profile:9", {
+  const primed = reportingCurrency.primeReportingCurrencyState("profile:9", {
     report_currency_code: " cad ",
     report_currency_symbol: "C$ ",
   });
 
-  const active = reportingCurrency.setActiveReportingCurrency("profile:9");
-  const cached = await reportingCurrency.getReportingCurrency("profile:9");
+  const active = reportingCurrency.setActiveReportingCurrencyState("profile:9");
+  const cached = await reportingCurrency.getReportingCurrencyState("profile:9");
 
-  assert.deepEqual(primed, { code: "CAD", symbol: "C$ " });
-  assert.deepEqual(active, { code: "CAD", symbol: "C$ " });
-  assert.deepEqual(reportingCurrency.getActiveReportingCurrency(), {
+  assert.deepEqual(primed, {
+    currency: { code: "CAD", symbol: "C$ " },
+    trust: "verified",
+  });
+  assert.deepEqual(active, primed);
+  assert.deepEqual(cached, primed);
+  assert.deepEqual(reportingCurrency.getActiveReportingCurrencyState(), primed);
+  assert.deepEqual(await reportingCurrency.getReportingCurrency("profile:9"), {
     code: "CAD",
     symbol: "C$ ",
   });
-  assert.deepEqual(cached, { code: "CAD", symbol: "C$ " });
   assert.equal(reportingCurrency.getCalls.length, 0);
 });
 
-test("reporting currency clear resets the active scope back to the default", async () => {
+test("reporting currency clear resets the active scope back to the default fallback state", async () => {
   const reportingCurrency = loadReportingCurrencyModule(async () => ({
     report_currency_code: "gbp",
     report_currency_symbol: "£",
   }));
 
-  await reportingCurrency.getReportingCurrency("profile:11");
-  reportingCurrency.setActiveReportingCurrency("profile:11");
-  assert.deepEqual(reportingCurrency.getActiveReportingCurrency(), {
-    code: "GBP",
-    symbol: "£",
+  await reportingCurrency.getReportingCurrencyState("profile:11");
+  reportingCurrency.setActiveReportingCurrencyState("profile:11");
+  assert.deepEqual(reportingCurrency.getActiveReportingCurrencyState(), {
+    currency: { code: "GBP", symbol: "£" },
+    trust: "verified",
   });
 
   reportingCurrency.clearReportingCurrency("profile:11");
   assert.deepEqual(
-    reportingCurrency.getActiveReportingCurrency(),
-    reportingCurrency.DEFAULT_REPORTING_CURRENCY,
+    reportingCurrency.getActiveReportingCurrencyState(),
+    reportingCurrency.DEFAULT_REPORTING_CURRENCY_STATE,
   );
 
   reportingCurrency.clearReportingCurrency();
   assert.deepEqual(
-    reportingCurrency.getActiveReportingCurrency(),
-    reportingCurrency.DEFAULT_REPORTING_CURRENCY,
+    reportingCurrency.getActiveReportingCurrencyState(),
+    reportingCurrency.DEFAULT_REPORTING_CURRENCY_STATE,
   );
 });
 
@@ -114,8 +126,8 @@ test("reporting currency reuses one in-flight request per profile scope", async 
   const deferred = createDeferred();
   const reportingCurrency = loadReportingCurrencyModule(() => deferred.promise);
 
-  const first = reportingCurrency.getReportingCurrency("profile:13");
-  const second = reportingCurrency.getReportingCurrency("profile:13");
+  const first = reportingCurrency.getReportingCurrencyState("profile:13");
+  const second = reportingCurrency.getReportingCurrencyState("profile:13");
 
   assert.strictEqual(first, second);
   assert.equal(reportingCurrency.getCalls.length, 1);
@@ -126,24 +138,61 @@ test("reporting currency reuses one in-flight request per profile scope", async 
   });
 
   const [firstResult, secondResult] = await Promise.all([first, second]);
-  assert.deepEqual(firstResult, { code: "JPY", symbol: "¥" });
-  assert.deepEqual(secondResult, { code: "JPY", symbol: "¥" });
+  assert.deepEqual(firstResult, {
+    currency: { code: "JPY", symbol: "¥" },
+    trust: "verified",
+  });
+  assert.deepEqual(secondResult, {
+    currency: { code: "JPY", symbol: "¥" },
+    trust: "verified",
+  });
 });
 
-test("reporting currency fails open to the default when an empty scope fetch fails", async () => {
+test("reporting currency downgrades cached scopes to fallback trust when refresh fails", async () => {
+  let shouldFail = false;
+  const reportingCurrency = loadReportingCurrencyModule(async () => {
+    if (shouldFail) {
+      throw new Error("costing settings unavailable");
+    }
+
+    return {
+      report_currency_code: "aud",
+      report_currency_symbol: "A$",
+    };
+  });
+
+  const verified = await reportingCurrency.getReportingCurrencyState("profile:15");
+  shouldFail = true;
+  reportingCurrency.setActiveReportingCurrencyState("profile:15");
+
+  const fallback = await reportingCurrency.getReportingCurrencyState("profile:15", true);
+
+  assert.deepEqual(verified, {
+    currency: { code: "AUD", symbol: "A$" },
+    trust: "verified",
+  });
+  assert.deepEqual(fallback, {
+    currency: { code: "AUD", symbol: "A$" },
+    trust: "fallback",
+  });
+  assert.deepEqual(reportingCurrency.getActiveReportingCurrencyState(), fallback);
+  assert.equal(reportingCurrency.getCalls.length, 2);
+});
+
+test("reporting currency fetch failures expose fallback state instead of trusted default USD", async () => {
   const reportingCurrency = loadReportingCurrencyModule(async () => {
     throw new Error("costing settings unavailable");
   });
 
-  reportingCurrency.setActiveReportingCurrency("profile:15");
-  const result = await reportingCurrency.getReportingCurrency("profile:15");
-  const cached = await reportingCurrency.getReportingCurrency("profile:15");
+  reportingCurrency.setActiveReportingCurrencyState("profile:17");
+  const result = await reportingCurrency.getReportingCurrencyState("profile:17");
+  const wrappedCurrency = await reportingCurrency.getReportingCurrency("profile:17");
 
-  assert.deepEqual(result, reportingCurrency.DEFAULT_REPORTING_CURRENCY);
-  assert.deepEqual(cached, reportingCurrency.DEFAULT_REPORTING_CURRENCY);
+  assert.deepEqual(result, reportingCurrency.DEFAULT_REPORTING_CURRENCY_STATE);
+  assert.deepEqual(wrappedCurrency, reportingCurrency.DEFAULT_REPORTING_CURRENCY);
   assert.deepEqual(
-    reportingCurrency.getActiveReportingCurrency(),
-    reportingCurrency.DEFAULT_REPORTING_CURRENCY,
+    reportingCurrency.getActiveReportingCurrencyState(),
+    reportingCurrency.DEFAULT_REPORTING_CURRENCY_STATE,
   );
   assert.equal(reportingCurrency.getCalls.length, 1);
 });

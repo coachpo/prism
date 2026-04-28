@@ -10,11 +10,12 @@ import {
 } from "react";
 import { useProfileContext } from "@/context/ProfileContext";
 import {
-  DEFAULT_REPORTING_CURRENCY,
-  getReportingCurrency,
-  primeReportingCurrency,
-  setActiveReportingCurrency,
+  DEFAULT_REPORTING_CURRENCY_STATE,
+  getReportingCurrencyState,
+  primeReportingCurrencyState,
+  setActiveReportingCurrencyState,
   type ReportingCurrency,
+  type ReportingCurrencyState,
 } from "@/lib/reportingCurrency";
 
 export interface ReportingCurrencySource {
@@ -27,8 +28,9 @@ export interface ReportingCurrencySource {
 interface ReportingCurrencyContextValue {
   ready: boolean;
   currency: ReportingCurrency;
-  refresh: () => Promise<ReportingCurrency>;
-  prime: (currency: ReportingCurrencySource) => ReportingCurrency;
+  currencyState: ReportingCurrencyState;
+  refresh: () => Promise<ReportingCurrencyState>;
+  prime: (currency: ReportingCurrencySource) => ReportingCurrencyState;
 }
 
 const ReportingCurrencyContext = createContext<ReportingCurrencyContextValue | undefined>(undefined);
@@ -55,49 +57,52 @@ export function ReportingCurrencyProvider({
   );
   const requestIdRef = useRef(0);
   const [readyCacheKey, setReadyCacheKey] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<ReportingCurrency>(DEFAULT_REPORTING_CURRENCY);
+  const [currencyState, setCurrencyState] = useState<ReportingCurrencyState>(
+    DEFAULT_REPORTING_CURRENCY_STATE,
+  );
   const isReady = cacheKey === null || readyCacheKey === cacheKey;
-  const exposedCurrency = cacheKey === null ? DEFAULT_REPORTING_CURRENCY : currency;
+  const exposedCurrencyState = cacheKey === null ? DEFAULT_REPORTING_CURRENCY_STATE : currencyState;
+  const exposedCurrency = exposedCurrencyState.currency;
 
   const loadCurrency = useCallback(async (nextCacheKey: string | null, forceRefresh = false) => {
     const requestId = ++requestIdRef.current;
 
     if (nextCacheKey === null) {
-      const fallbackCurrency = setActiveReportingCurrency(null);
+      const fallbackCurrencyState = setActiveReportingCurrencyState(null);
 
       await Promise.resolve();
 
       if (requestId !== requestIdRef.current) {
-        return fallbackCurrency;
+        return fallbackCurrencyState;
       }
 
       setReadyCacheKey(null);
-      setCurrency(fallbackCurrency);
-      return fallbackCurrency;
+      setCurrencyState(fallbackCurrencyState);
+      return fallbackCurrencyState;
     }
 
-    setActiveReportingCurrency(nextCacheKey);
+    setActiveReportingCurrencyState(nextCacheKey);
 
     try {
-      const nextCurrency = await getReportingCurrency(nextCacheKey, forceRefresh);
+      const nextCurrencyState = await getReportingCurrencyState(nextCacheKey, forceRefresh);
 
       if (requestId !== requestIdRef.current) {
-        return nextCurrency;
+        return nextCurrencyState;
       }
 
-      setActiveReportingCurrency(nextCacheKey);
+      setActiveReportingCurrencyState(nextCacheKey);
       setReadyCacheKey(nextCacheKey);
-      setCurrency(nextCurrency);
-      return nextCurrency;
+      setCurrencyState(nextCurrencyState);
+      return nextCurrencyState;
     } catch {
-      const fallbackCurrency = setActiveReportingCurrency(nextCacheKey);
+      const fallbackCurrencyState = setActiveReportingCurrencyState(nextCacheKey);
 
       if (requestId === requestIdRef.current) {
         setReadyCacheKey(nextCacheKey);
-        setCurrency(fallbackCurrency);
+        setCurrencyState(fallbackCurrencyState);
       }
 
-      return fallbackCurrency;
+      return fallbackCurrencyState;
     }
   }, []);
 
@@ -106,7 +111,7 @@ export function ReportingCurrencyProvider({
 
     void (async () => {
       if (cacheKey === null) {
-        const fallbackCurrency = setActiveReportingCurrency(null);
+        const fallbackCurrencyState = setActiveReportingCurrencyState(null);
 
         await Promise.resolve();
 
@@ -115,31 +120,31 @@ export function ReportingCurrencyProvider({
         }
 
         setReadyCacheKey(null);
-        setCurrency(fallbackCurrency);
+        setCurrencyState(fallbackCurrencyState);
         return;
       }
 
-      setActiveReportingCurrency(cacheKey);
+      setActiveReportingCurrencyState(cacheKey);
 
       try {
-        const nextCurrency = await getReportingCurrency(cacheKey);
+        const nextCurrencyState = await getReportingCurrencyState(cacheKey);
 
         if (requestId !== requestIdRef.current) {
           return;
         }
 
-        setActiveReportingCurrency(cacheKey);
+        setActiveReportingCurrencyState(cacheKey);
         setReadyCacheKey(cacheKey);
-        setCurrency(nextCurrency);
+        setCurrencyState(nextCurrencyState);
       } catch {
-        const fallbackCurrency = setActiveReportingCurrency(cacheKey);
+        const fallbackCurrencyState = setActiveReportingCurrencyState(cacheKey);
 
         if (requestId !== requestIdRef.current) {
           return;
         }
 
         setReadyCacheKey(cacheKey);
-        setCurrency(fallbackCurrency);
+        setCurrencyState(fallbackCurrencyState);
       }
     })();
   }, [cacheKey]);
@@ -147,7 +152,7 @@ export function ReportingCurrencyProvider({
   useEffect(() => {
     return () => {
       requestIdRef.current += 1;
-      setActiveReportingCurrency(null);
+      setActiveReportingCurrencyState(null);
     };
   }, []);
 
@@ -158,17 +163,17 @@ export function ReportingCurrencyProvider({
       requestIdRef.current += 1;
 
       if (cacheKey === null) {
-        const fallbackCurrency = setActiveReportingCurrency(null);
+        const fallbackCurrencyState = setActiveReportingCurrencyState(null);
         setReadyCacheKey(null);
-        setCurrency(fallbackCurrency);
-        return fallbackCurrency;
+        setCurrencyState(fallbackCurrencyState);
+        return fallbackCurrencyState;
       }
 
-      const primedCurrency = primeReportingCurrency(cacheKey, nextCurrency);
-      setActiveReportingCurrency(cacheKey);
+      const primedCurrencyState = primeReportingCurrencyState(cacheKey, nextCurrency);
+      setActiveReportingCurrencyState(cacheKey);
       setReadyCacheKey(cacheKey);
-      setCurrency(primedCurrency);
-      return primedCurrency;
+      setCurrencyState(primedCurrencyState);
+      return primedCurrencyState;
     },
     [cacheKey],
   );
@@ -177,10 +182,11 @@ export function ReportingCurrencyProvider({
     () => ({
       ready: isReady,
       currency: exposedCurrency,
+      currencyState: exposedCurrencyState,
       refresh,
       prime,
     }),
-    [exposedCurrency, isReady, prime, refresh],
+    [exposedCurrency, exposedCurrencyState, isReady, prime, refresh],
   );
 
   return (
