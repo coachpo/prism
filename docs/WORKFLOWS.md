@@ -29,7 +29,8 @@ Validated again against current repo surfaces on 2026-04-27:
 - Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
 - Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, and `/api/realtime/ws`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, and `/api/realtime/ws`.
+- `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 
 ## 1. Sign In And Session Bootstrap
@@ -213,6 +214,14 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 3. Global settings cover operator authentication and shared vendor management.
 4. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
+The configuration-operations flow is explicit in both lanes:
+- profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
+- secret-bearing profile export uses `POST /api/config/profile/export/with-secrets` with `X-Prism-Dangerous-Confirm: profile-export`
+- profile import uses upload, preview, then apply with `X-Prism-Preview-Token`
+- profile import replaces profile-scoped rows only, while global vendor rows, other profiles, and request logs remain untouched
+- vendor catalog import mutates only the shared vendor catalog and leaves profile-scoped rows untouched
+- apply stays header-bound, and the raw bundle JSON is not rewritten in transit
+
 **Backend touchpoints**
 
 - `GET /api/settings/costing`
@@ -220,8 +229,12 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 - `GET /api/settings/timezone`
 - `PUT /api/settings/timezone`
 - `GET /api/config/profile/export`
+- `POST /api/config/profile/export/with-secrets`
 - `POST /api/config/profile/import/preview`
 - `POST /api/config/profile/import`
+- `GET /api/config/vendors/export`
+- `POST /api/config/vendors/import/preview`
+- `POST /api/config/vendors/import`
 - `GET /api/config/header-blocklist-rules`
 - `PATCH /api/config/header-blocklist-rules/{rule_id}`
 - `DELETE /api/config/header-blocklist-rules/{rule_id}`
@@ -248,7 +261,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 - `DELETE /api/audit/logs`
 - `DELETE /api/loadbalance/events`
 
-Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is the one config readiness route in this workflow that stays global and does not require `X-Profile-Id`.
+Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is a profile-scoped config readiness route and requires `X-Profile-Id`.
 
 ## 8. Runtime Proxy Traffic
 

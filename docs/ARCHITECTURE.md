@@ -173,7 +173,7 @@ Vendor rows are global publisher metadata. Models may keep `vendor_id = null` an
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
   - Runtime proxy routes (`/v1/*`, `/v1beta/*`) ignore management overrides and always use the active profile.
-- Profile-scoped config bundle routes live under `/api/config/profile/*`, except `POST /api/config/profile/import/preview`, which is global.
+- Profile-scoped config bundle routes live under `/api/config/profile/*`, and `POST /api/config/profile/import/preview` is also profile-scoped and requires `X-Profile-Id`.
 - Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
@@ -185,10 +185,14 @@ The Settings shell mirrors that split: the Profile tab keeps backup, billing and
 
 The current split-bundle config workflow also mirrors that ownership split:
 - profile export/import uses `bundle_kind = profile_config` and is authoritative only for profile-scoped rows
+- `GET /api/config/profile/export` returns the safe redacted bundle, while `POST /api/config/profile/export/with-secrets` returns the dangerous full secret-bearing bundle
 - vendor catalog export/import uses `bundle_kind = vendor_catalog` and is authoritative only for shared vendor metadata
-- profile bundles never export plaintext endpoint API keys; endpoint secrets move through an encrypted `secret_payload`
-- endpoints without upstream credentials export `api_key_secret_ref = null` and do not create a bundle secret entry
+- profile bundles never export plaintext endpoint API keys; safe exports null reusable endpoint secret refs and omit `secret_payload.entries[]`
+- dangerous profile exports include `secret_payload.entries[]` and reusable endpoint secret refs
 - profile import resolves vendors by `vendor_key` when present, keeps vendorless models vendorless when `vendor_key` is null, reuses existing global vendors, and never mutates existing global vendor metadata from profile-bundle hint drift
+- profile import replaces profile-scoped rows only, while global vendor rows, other profiles, and request logs remain untouched
+- vendor catalog import mutates only the shared vendor catalog and leaves profile-scoped rows untouched
+- apply is header-bound with `X-Prism-Preview-Token`, and the raw bundle JSON stays unchanged in transit
 - these bundle and backup flows remain PostgreSQL-backed state transport and do not seed or replace the startup bootstrap JSON
 
 ### 3.6 Custom Header Injection
