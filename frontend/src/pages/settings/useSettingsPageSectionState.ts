@@ -12,11 +12,14 @@ function getCurrentHash(): string {
 }
 
 function resolveInitialTab(hash: string): SettingsTab {
+  if (hash === SETTINGS_TABS.startup) {
+    return SETTINGS_TABS.startup;
+  }
   return INSTANCE_SECTION_IDS.has(hash) ? SETTINGS_TABS.global : SETTINGS_TABS.profile;
 }
 
 function resolveInitialSectionId(hash: string): string | null {
-  if (INSTANCE_SECTION_IDS.has(hash)) {
+  if (hash === SETTINGS_TABS.startup || INSTANCE_SECTION_IDS.has(hash)) {
     return null;
   }
   return SETTINGS_SECTION_IDS.has(hash) ? hash : SETTINGS_SECTIONS[0].id;
@@ -33,6 +36,13 @@ export function useSettingsPageSectionState() {
     const handleHashChange = () => {
       const hash = getCurrentHash();
       const shouldHighlightAudit = hash === "audit-configuration";
+      if (hash === SETTINGS_TABS.startup) {
+        setActiveTabState(SETTINGS_TABS.startup);
+        setActiveSectionId(null);
+        setIsAuditConfigurationFocused(false);
+        return;
+      }
+
       if (INSTANCE_SECTION_IDS.has(hash)) {
         setActiveTabState(SETTINGS_TABS.global);
         setActiveSectionId(null);
@@ -55,8 +65,13 @@ export function useSettingsPageSectionState() {
 
   const setActiveTab = useCallback((nextTab: SettingsTab) => {
     setActiveTabState(nextTab);
-    if (nextTab === SETTINGS_TABS.global) {
+    if (nextTab === SETTINGS_TABS.startup) {
       setActiveSectionId(null);
+      setIsAuditConfigurationFocused(false);
+      window.history.replaceState(null, "", "#startup");
+    } else if (nextTab === SETTINGS_TABS.global) {
+      setActiveSectionId(null);
+      setIsAuditConfigurationFocused(false);
     } else if (activeSectionId === null) {
       setActiveSectionId(SETTINGS_SECTIONS[0].id);
     }

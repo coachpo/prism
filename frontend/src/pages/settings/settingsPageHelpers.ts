@@ -10,6 +10,7 @@ import { isValidPositiveDecimalString } from "@/lib/costing";
 export const SETTINGS_TABS = {
   profile: "profile",
   global: "global",
+  startup: "startup",
 } as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[keyof typeof SETTINGS_TABS];

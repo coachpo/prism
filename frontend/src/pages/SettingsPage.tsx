@@ -9,6 +9,7 @@ import { DeleteUserAgentClientRuleConfirmDialog } from "./settings/dialogs/Delet
 import { UserAgentClientRuleDialog } from "./settings/dialogs/UserAgentClientRuleDialog";
 import { SettingsProfileTab } from "./settings/SettingsProfileTab";
 import { SettingsGlobalTab } from "./settings/SettingsGlobalTab";
+import { SettingsStartupTab } from "./settings/SettingsStartupTab";
 import { useSettingsPageData } from "./settings/useSettingsPageData";
 import { useSettingsPageSectionState } from "./settings/useSettingsPageSectionState";
 import { SETTINGS_TABS } from "./settings/settingsPageHelpers";
@@ -51,6 +52,7 @@ export function SettingsPage() {
         <TabsList>
           <TabsTrigger value={SETTINGS_TABS.profile}>{messages.settingsPage.profileTab}</TabsTrigger>
           <TabsTrigger value={SETTINGS_TABS.global}>{messages.settingsPage.globalTab}</TabsTrigger>
+          <TabsTrigger value={SETTINGS_TABS.startup}>{messages.settingsPage.startupTab}</TabsTrigger>
         </TabsList>
 
         <TabsContent value={SETTINGS_TABS.profile}>
@@ -65,6 +67,10 @@ export function SettingsPage() {
 
         <TabsContent value={SETTINGS_TABS.global}>
           <SettingsGlobalTab data={data} />
+        </TabsContent>
+
+        <TabsContent value={SETTINGS_TABS.startup}>
+          <SettingsStartupTab />
         </TabsContent>
       </Tabs>
 
