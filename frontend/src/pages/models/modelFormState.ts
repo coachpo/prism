@@ -22,6 +22,11 @@ export interface ModelFormData {
   last_auto_display_name?: string | null;
 }
 
+export type ModelFormValidationError =
+  | "api_family_required"
+  | "loadbalance_strategy_required"
+  | "proxy_target_required";
+
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
 
 export function resolveModelApiFamily(
@@ -126,7 +131,19 @@ export function removeProxyTarget(proxyTargets: ProxyTarget[], targetModelId: st
   );
 }
 
-export function createEditModelFormData(model: ModelConfigListItem): ModelFormData {
+type EditableModelFormSource = Pick<
+  ModelConfig,
+  | "vendor_id"
+  | "api_family"
+  | "model_id"
+  | "display_name"
+  | "model_type"
+  | "proxy_targets"
+  | "loadbalance_strategy_id"
+  | "is_enabled"
+>;
+
+export function createEditModelFormData(model: EditableModelFormSource): ModelFormData {
   const vendorId = resolveModelVendorId(model);
   const displayName = model.display_name || "";
 
@@ -151,6 +168,37 @@ export function createNewModelFormData(
     ...DEFAULT_MODEL_FORM_DATA,
     loadbalance_strategy_id: loadbalanceStrategyId,
   };
+}
+
+export function validateModelFormData(
+  formData: ModelFormData,
+  availableProxyTargetModelIds?: Iterable<string>,
+): ModelFormValidationError | null {
+  if (!formData.api_family) {
+    return "api_family_required";
+  }
+
+  if (formData.model_type === "native" && formData.loadbalance_strategy_id === null) {
+    return "loadbalance_strategy_required";
+  }
+
+  if (formData.model_type !== "proxy") {
+    return null;
+  }
+
+  const normalizedProxyTargets = normalizeProxyTargets(formData.proxy_targets);
+  if (normalizedProxyTargets.length === 0) {
+    return "proxy_target_required";
+  }
+
+  if (!availableProxyTargetModelIds) {
+    return null;
+  }
+
+  const validProxyTargetIds = new Set(availableProxyTargetModelIds);
+  return normalizedProxyTargets.some((target) => !validProxyTargetIds.has(target.target_model_id))
+    ? "proxy_target_required"
+    : null;
 }
 
 export function toModelCreatePayload(formData: ModelFormData): ModelConfigCreate {

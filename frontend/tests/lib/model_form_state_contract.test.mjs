@@ -15,6 +15,7 @@ const {
   setApiFamilyOnForm,
   toModelCreatePayload,
   toModelUpdatePayload,
+  validateModelFormData,
 } = load(path.join(frontendDir, "src/pages/models/modelFormState.ts"));
 
 test("edit model form preserves and normalizes existing proxy targets", () => {
@@ -114,4 +115,39 @@ test("proxy model payloads keep ordered targets and clear native routing fields"
     loadbalance_strategy_id: null,
     is_enabled: true,
   });
+});
+
+test("shared validation requires same-family proxy targets and native strategies", () => {
+  assert.equal(
+    validateModelFormData(
+      {
+        vendor_id: 11,
+        api_family: "openai",
+        model_id: "proxy-gateway",
+        display_name: "Proxy Gateway",
+        model_type: "proxy",
+        proxy_targets: [{ target_model_id: "native-b", position: 0 }],
+        loadbalance_strategy_id: null,
+        is_enabled: true,
+        last_auto_display_name: "Proxy Gateway",
+      },
+      ["native-a"],
+    ),
+    "proxy_target_required",
+  );
+
+  assert.equal(
+    validateModelFormData({
+      vendor_id: 11,
+      api_family: "openai",
+      model_id: "native-gateway",
+      display_name: "Native Gateway",
+      model_type: "native",
+      proxy_targets: [],
+      loadbalance_strategy_id: null,
+      is_enabled: true,
+      last_auto_display_name: "Native Gateway",
+    }),
+    "loadbalance_strategy_required",
+  );
 });
