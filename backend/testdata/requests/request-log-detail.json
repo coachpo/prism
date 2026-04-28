@@ -38,7 +38,8 @@
     "connection_id": 34,
     "endpoint_base_url": "https://api.openai.com",
     "endpoint_description": "Primary production key",
-    "audit_enabled_at_request": false
+    "audit_enabled_at_request": false,
+    "audit_capture_bodies_at_request": false
   },
   "usage": {
     "input_tokens": 15,
@@ -63,8 +64,8 @@
     "currency_code_original": "USD",
     "report_currency_code": "USD",
     "report_currency_symbol": "$",
-    "fx_rate_used": null,
-    "fx_rate_source": null
+    "fx_rate_used": "1",
+    "fx_rate_source": "DEFAULT_1_TO_1"
   },
   "pricing": {
     "pricing_snapshot_unit": "1M tokens",

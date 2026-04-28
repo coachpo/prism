@@ -49,45 +49,53 @@ type DeleteParams struct {
 }
 
 type AuditLogListItem struct {
-	ID                  int       `json:"id"`
-	RequestLogID        *int      `json:"request_log_id"`
-	ProfileID           int       `json:"profile_id"`
-	VendorID            *int      `json:"vendor_id"`
-	ModelID             string    `json:"model_id"`
-	EndpointID          *int      `json:"endpoint_id"`
-	ConnectionID        *int      `json:"connection_id"`
-	EndpointBaseURL     *string   `json:"endpoint_base_url"`
-	EndpointDescription *string   `json:"endpoint_description"`
-	RequestMethod       string    `json:"request_method"`
-	RequestURL          string    `json:"request_url"`
-	RequestHeaders      string    `json:"request_headers"`
-	RequestBodyPreview  *string   `json:"request_body_preview"`
-	ResponseStatus      int       `json:"response_status"`
-	IsStream            bool      `json:"is_stream"`
-	DurationMS          int       `json:"duration_ms"`
-	CreatedAt           time.Time `json:"created_at"`
+	ID                          int       `json:"id"`
+	RequestLogID                *int      `json:"request_log_id"`
+	ProfileID                   int       `json:"profile_id"`
+	VendorID                    *int      `json:"vendor_id"`
+	ModelID                     string    `json:"model_id"`
+	EndpointID                  *int      `json:"endpoint_id"`
+	ConnectionID                *int      `json:"connection_id"`
+	EndpointBaseURL             *string   `json:"endpoint_base_url"`
+	EndpointDescription         *string   `json:"endpoint_description"`
+	RequestMethod               string    `json:"request_method"`
+	RequestURL                  string    `json:"request_url"`
+	RequestHeaders              string    `json:"request_headers"`
+	RequestBodyPreview          *string   `json:"request_body_preview"`
+	RequestBodyStored           bool      `json:"request_body_stored"`
+	ResponseStatus              int       `json:"response_status"`
+	ResponseBodyStored          bool      `json:"response_body_stored"`
+	IsStream                    bool      `json:"is_stream"`
+	DurationMS                  int       `json:"duration_ms"`
+	AuditEnabledAtRequest       bool      `json:"audit_enabled_at_request"`
+	AuditCaptureBodiesAtRequest bool      `json:"audit_capture_bodies_at_request"`
+	CreatedAt                   time.Time `json:"created_at"`
 }
 
 type AuditLogDetail struct {
-	ID                  int       `json:"id"`
-	RequestLogID        *int      `json:"request_log_id"`
-	ProfileID           int       `json:"profile_id"`
-	VendorID            *int      `json:"vendor_id"`
-	ModelID             string    `json:"model_id"`
-	EndpointID          *int      `json:"endpoint_id"`
-	ConnectionID        *int      `json:"connection_id"`
-	EndpointBaseURL     *string   `json:"endpoint_base_url"`
-	EndpointDescription *string   `json:"endpoint_description"`
-	RequestMethod       string    `json:"request_method"`
-	RequestURL          string    `json:"request_url"`
-	RequestHeaders      string    `json:"request_headers"`
-	RequestBody         *string   `json:"request_body"`
-	ResponseStatus      int       `json:"response_status"`
-	ResponseHeaders     *string   `json:"response_headers"`
-	ResponseBody        *string   `json:"response_body"`
-	IsStream            bool      `json:"is_stream"`
-	DurationMS          int       `json:"duration_ms"`
-	CreatedAt           time.Time `json:"created_at"`
+	ID                          int       `json:"id"`
+	RequestLogID                *int      `json:"request_log_id"`
+	ProfileID                   int       `json:"profile_id"`
+	VendorID                    *int      `json:"vendor_id"`
+	ModelID                     string    `json:"model_id"`
+	EndpointID                  *int      `json:"endpoint_id"`
+	ConnectionID                *int      `json:"connection_id"`
+	EndpointBaseURL             *string   `json:"endpoint_base_url"`
+	EndpointDescription         *string   `json:"endpoint_description"`
+	RequestMethod               string    `json:"request_method"`
+	RequestURL                  string    `json:"request_url"`
+	RequestHeaders              string    `json:"request_headers"`
+	RequestBody                 *string   `json:"request_body"`
+	RequestBodyStored           bool      `json:"request_body_stored"`
+	ResponseStatus              int       `json:"response_status"`
+	ResponseHeaders             *string   `json:"response_headers"`
+	ResponseBody                *string   `json:"response_body"`
+	ResponseBodyStored          bool      `json:"response_body_stored"`
+	IsStream                    bool      `json:"is_stream"`
+	DurationMS                  int       `json:"duration_ms"`
+	AuditEnabledAtRequest       bool      `json:"audit_enabled_at_request"`
+	AuditCaptureBodiesAtRequest bool      `json:"audit_capture_bodies_at_request"`
+	CreatedAt                   time.Time `json:"created_at"`
 }
 
 type AuditLogListResponse struct {
@@ -112,7 +120,7 @@ func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (Audit
 	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE `+visibleWhereClause, args...).Scan(&total); err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("count audit logs for profile %d: %w", params.ProfileID, err)
 	}
-	rows, err := exec.Query(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, is_stream, duration_ms, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2), append(append(args, limit), offset)...)
+	rows, err := exec.Query(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2), append(append(args, limit), offset)...)
 	if err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("query audit logs for profile %d: %w", params.ProfileID, err)
 	}
@@ -139,10 +147,10 @@ func GetLog(ctx context.Context, exec queryExecutor, profileID int, logID int) (
 	if !found {
 		return nil, nil
 	}
-	if readState.RequestLogID != nil && !readState.AuditEnabledAtRequest {
+	if !readState.AuditEnabledAtRequest {
 		return nil, &HTTPError{StatusCode: 409, Detail: "Audit capture unavailable for this request"}
 	}
-	row := exec.QueryRow(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, response_headers, response_body, is_stream, duration_ms, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, logID)
+	row := exec.QueryRow(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, logID)
 	item, err := scanDetail(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -225,7 +233,7 @@ func buildListWhere(params ListParams) (string, []any) {
 }
 
 func auditLogReadVisibilityClause(tableName string) string {
-	return fmt.Sprintf(`(%s.request_log_id IS NULL OR EXISTS (SELECT 1 FROM request_logs WHERE request_logs.profile_id = %s.profile_id AND request_logs.id = %s.request_log_id AND request_logs.audit_enabled_at_request = TRUE))`, tableName, tableName, tableName)
+	return fmt.Sprintf(`%s.audit_enabled_at_request = TRUE`, tableName)
 }
 
 type auditLogReadState struct {
@@ -235,14 +243,14 @@ type auditLogReadState struct {
 
 func loadAuditLogReadState(ctx context.Context, exec queryExecutor, profileID int, logID int) (auditLogReadState, bool, error) {
 	var requestLogID sql.NullInt32
-	var auditEnabledAtRequest sql.NullBool
-	if err := exec.QueryRow(ctx, `SELECT audit_logs.request_log_id, request_logs.audit_enabled_at_request FROM audit_logs LEFT JOIN request_logs ON request_logs.profile_id = audit_logs.profile_id AND request_logs.id = audit_logs.request_log_id WHERE audit_logs.profile_id = $1 AND audit_logs.id = $2 LIMIT 1`, profileID, logID).Scan(&requestLogID, &auditEnabledAtRequest); err != nil {
+	var auditEnabledAtRequest bool
+	if err := exec.QueryRow(ctx, `SELECT request_log_id, audit_enabled_at_request FROM audit_logs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, logID).Scan(&requestLogID, &auditEnabledAtRequest); err != nil {
 		if err == pgx.ErrNoRows {
 			return auditLogReadState{}, false, nil
 		}
 		return auditLogReadState{}, false, fmt.Errorf("load audit log %d read state for profile %d: %w", logID, profileID, err)
 	}
-	return auditLogReadState{RequestLogID: nullableInt32(requestLogID), AuditEnabledAtRequest: auditEnabledAtRequest.Valid && auditEnabledAtRequest.Bool}, true, nil
+	return auditLogReadState{RequestLogID: nullableInt32(requestLogID), AuditEnabledAtRequest: auditEnabledAtRequest}, true, nil
 }
 
 func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, error) {
@@ -254,7 +262,7 @@ func scanListItem(scanner interface{ Scan(...any) error }) (AuditLogListItem, er
 	var endpointDescription sql.NullString
 	var requestBody sql.NullString
 	item := AuditLogListItem{}
-	if err := scanner.Scan(&item.ID, &requestLogID, &item.ProfileID, &vendorID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.ResponseStatus, &item.IsStream, &item.DurationMS, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &requestLogID, &item.ProfileID, &vendorID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.RequestBodyStored, &item.ResponseStatus, &item.ResponseBodyStored, &item.IsStream, &item.DurationMS, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
 		return AuditLogListItem{}, fmt.Errorf("scan audit-log list row: %w", err)
 	}
 	item.RequestLogID = nullableInt32(requestLogID)
@@ -279,7 +287,7 @@ func scanDetail(scanner interface{ Scan(...any) error }) (AuditLogDetail, error)
 	var responseHeaders sql.NullString
 	var responseBody sql.NullString
 	item := AuditLogDetail{}
-	if err := scanner.Scan(&item.ID, &requestLogID, &item.ProfileID, &vendorID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.ResponseStatus, &responseHeaders, &responseBody, &item.IsStream, &item.DurationMS, &item.CreatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &requestLogID, &item.ProfileID, &vendorID, &item.ModelID, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.RequestMethod, &item.RequestURL, &item.RequestHeaders, &requestBody, &item.RequestBodyStored, &item.ResponseStatus, &responseHeaders, &responseBody, &item.ResponseBodyStored, &item.IsStream, &item.DurationMS, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &item.CreatedAt); err != nil {
 		return AuditLogDetail{}, err
 	}
 	item.RequestLogID = nullableInt32(requestLogID)

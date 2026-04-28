@@ -66,6 +66,7 @@ type requestLogDetailRow struct {
 	EndpointBaseURL                   *string
 	EndpointDescription               *string
 	AuditEnabledAtRequest             bool
+	AuditCaptureBodiesAtRequest       bool
 	InputTokens                       *int
 	OutputTokens                      *int
 	TotalTokens                       *int
@@ -253,13 +254,14 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			ErrorDetail:             row.ErrorDetail,
 		},
 		Routing: RequestLogDetailRouting{
-			ProfileID:             row.ProfileID,
-			EndpointLabel:         resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, row.EndpointBaseURL, row.EndpointID, "Unknown Endpoint"),
-			EndpointID:            row.EndpointID,
-			ConnectionID:          row.ConnectionID,
-			EndpointBaseURL:       row.EndpointBaseURL,
-			EndpointDescription:   row.EndpointDescription,
-			AuditEnabledAtRequest: row.AuditEnabledAtRequest,
+			ProfileID:                   row.ProfileID,
+			EndpointLabel:               resolveEndpointLabel(currentEndpoint.Name, currentEndpoint.BaseURL, row.EndpointBaseURL, row.EndpointID, "Unknown Endpoint"),
+			EndpointID:                  row.EndpointID,
+			ConnectionID:                row.ConnectionID,
+			EndpointBaseURL:             row.EndpointBaseURL,
+			EndpointDescription:         row.EndpointDescription,
+			AuditEnabledAtRequest:       row.AuditEnabledAtRequest,
+			AuditCaptureBodiesAtRequest: row.AuditCaptureBodiesAtRequest,
 		},
 		Usage: RequestLogDetailUsage{
 			InputTokens:              row.InputTokens,
@@ -452,7 +454,7 @@ func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRec
 func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID int, requestID int) (requestLogDetailRow, bool, error) {
 	row := exec.QueryRow(
 		ctx,
-		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, endpoint_id, connection_id, endpoint_base_url, endpoint_description, audit_enabled_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
+		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, endpoint_id, connection_id, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
 		 LIMIT 1`,
@@ -509,6 +511,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.CallerUserAgent = nullableString(callerUserAgent)
 	item.UpstreamUserAgent = nullableString(upstreamUserAgent)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
+	item = normalizeRequestLogListSpendState(item)
 	return item, nil
 }
 
@@ -561,7 +564,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var pricingSnapshotReasoning sql.NullString
 	var pricingConfigVersionUsed sql.NullInt32
 	item := requestLogDetailRow{}
-	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
+	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
 		return requestLogDetailRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -612,5 +615,25 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.PricingSnapshotCacheCreationInput = nullableString(pricingSnapshotCacheCreationInput)
 	item.PricingSnapshotReasoning = nullableString(pricingSnapshotReasoning)
 	item.PricingConfigVersionUsed = nullableInt32(pricingConfigVersionUsed)
+	item = normalizeRequestLogDetailSpendState(item)
 	return item, nil
+}
+
+func normalizeRequestLogListSpendState(item requestLogListRow) requestLogListRow {
+	item.PricedFlag, item.UnpricedReason = normalizeObservedSpendCoherence(successfulStatusCode(item.StatusCode), item.PricedFlag, item.UnpricedReason, item.TotalCostUserCurrencyMicros != nil)
+	return item
+}
+
+func normalizeRequestLogDetailSpendState(item requestLogDetailRow) requestLogDetailRow {
+	success := successfulStatusCode(item.StatusCode)
+	if item.SuccessFlag != nil {
+		success = *item.SuccessFlag
+	}
+	item.PricedFlag, item.UnpricedReason = normalizeObservedSpendCoherence(success, item.PricedFlag, item.UnpricedReason, item.TotalCostUserCurrencyMicros != nil)
+	item.FXRateUsed, item.FXRateSource = normalizeObservedFXCoherence(success, item.PricedFlag, item.UnpricedReason, item.TotalCostUserCurrencyMicros != nil, item.CurrencyCodeOriginal, item.ReportCurrencyCode, item.FXRateUsed, item.FXRateSource)
+	return item
+}
+
+func successfulStatusCode(statusCode int) bool {
+	return statusCode >= 200 && statusCode <= 299
 }
