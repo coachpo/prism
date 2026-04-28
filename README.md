@@ -52,7 +52,7 @@ cd prism
 
 Prism is a monorepo: the backend and frontend live in the same checkout under `backend/` and `frontend/`.
 
-The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
+The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `5432`.
 
 For subproject-specific setup and commands, use:
 
@@ -84,7 +84,7 @@ docker run -d \
   ghcr.io/coachpo/prism-frontend:latest
 ```
 
-A plaintext bootstrap file such as `config.json` is the steady-state startup contract. Point `PRISM_CONFIG_PATH` at that file. If an old encrypted bootstrap file is still on disk, replace it before booting.
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting.
 
 The frontend image defaults to same-origin API calls. In production, put frontend and backend behind a reverse proxy and route `/` to frontend, and `/api`, `/v1`, and `/v1beta` to backend.
 
@@ -152,24 +152,24 @@ pnpm run lint
 
 Use [`frontend/.env.example`](frontend/.env.example) as the frontend sample.
 
-Plaintext bootstrap startup uses one steady-state external input:
+Plaintext bootstrap startup uses a single steady-state external input:
 
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
+- `DATABASE_URL` is optional and defaults to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`
 
-That copied bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
+That bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
 
 Other configuration notes:
 
-- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `15432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
-- Launcher startup only supports the local bootstrap contract: backend host must stay local, backend port must stay `18000`, and the bootstrap config must resolve to the launcher-managed PostgreSQL DSN `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
+- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `5432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
+- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port stays `18000`, and the bootstrap config resolves to the launcher-managed PostgreSQL DSN `postgres://prism:prism@localhost:5432/prism?sslmode=disable`
 - If you set `PRISM_CONFIG_PATH` in `.env`, `./start.sh` resolves relative paths from the repo root before launching the backend
 - Direct backend runs should prefer an absolute `PRISM_CONFIG_PATH`
 - Frontend build/runtime metadata uses `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying `/api`, `/v1`, and `/v1beta` to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
-- `CONFIG_BUNDLE_ENCRYPTION_KEY` is an optional seed input for profile/vendor state-bundle encryption
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using the fixed local backend port, local PostgreSQL DSN, and local frontend CORS origins. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using the fixed local backend port and local PostgreSQL DSN. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` keeps browser traffic same-origin through the launcher origin and Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

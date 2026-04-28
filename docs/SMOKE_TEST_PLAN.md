@@ -56,7 +56,7 @@ This plan is synthesized from:
 
 - Go 1.26.2 toolchain, Node `24+`, pnpm `10.30.1`, Docker, and Docker Compose.
 - When using the checked-in launcher, backend available at `http://localhost:18000` and frontend at `http://localhost:15173`.
-- `backend/docker-compose.yml` binds PostgreSQL on `15432` for local orchestration.
+- `backend/docker-compose.yml` binds PostgreSQL on `5432` for local orchestration.
 - Upstream behavior controlled by test doubles or known test endpoints.
 - At least one active model with connections for each runtime `api_family` under test.
 
@@ -201,7 +201,7 @@ Prepare seed state through API (not manual DB edits):
 | A03 | P0 | First boot with empty DB | DB created, vendors seeded |
 | A04 | P0 | `GET /health` | `200`, JSON contains `status=ok` and a non-empty `version` string |
 | A05 | P1 | OpenAPI endpoints (`/docs`, `/redoc`, `/openapi.json`) | Accessible |
-| A06 | P1 | CORS preflight | Allowed origin is echoed from `CORS_ALLOWED_ORIGINS` and credentials headers are present |
+| A06 | P1 | CORS preflight | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; explicit backend base URLs remain available for standalone frontend workflows |
 
 ## B. Configuration CRUD and Validation
 

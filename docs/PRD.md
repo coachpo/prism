@@ -237,7 +237,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 | Concurrent requests | Support 10+ simultaneous proxy requests |
 | Database | PostgreSQL (Go-managed startup migrations) |
 | API standard | OpenAPI 3.1 contract served from the checked-in artifact |
-| CORS | Configured allow list from `CORS_ALLOWED_ORIGINS`; local defaults target the Vite dev server with credentials enabled |
+| CORS | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL |
 
 ## 6. Tech Stack
 

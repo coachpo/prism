@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	bootstrapFixtureDatabaseURL = "postgres://prism:bootstrap-password@db.internal:5432/prism?sslmode=disable"
-	bootstrapFixtureSecretKey   = "bootstrap-runtime-secret-encryption-key"
-	bootstrapFixtureJWTSecret   = "bootstrap-jwt-signing-secret"
-	bootstrapFixtureBundleKey   = "bootstrap-bundle-encryption-key"
-	bootstrapSeedDefaultSecret  = "prism-dev-runtime-secret-change-me"
+	bootstrapFixtureDatabaseURL      = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
+	bootstrapFixtureSecretKey        = "prism-dev-runtime-secret-change-me"
+	bootstrapFixtureJWTSecret        = "prism-dev-jwt-secret-change-me-2026"
+	bootstrapFixtureBundleKey        = "prism-dev-runtime-secret-change-me"
+	bootstrapSeedOverrideDatabaseURL = "postgres://prism:override-password@db.seed.internal:5432/prism?sslmode=disable"
 )
 
 type bootstrapSeededFile struct {
@@ -79,20 +79,48 @@ type bootstrapSeededFile struct {
 	} `json:"stateTransfer"`
 }
 
-func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
+func TestBootstrapConfigFileIsSeededFromCanonicalDefaults(t *testing.T) {
 	seededPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
-	legacyDatabaseURL := "postgres://prism:legacy-password@db.seed.internal:5432/prism?sslmode=disable"
-	legacyJWTSecret := "legacy-seeded-jwt-secret"
-	legacyBundleKey := "legacy-seeded-bundle-key"
 	seededAt := time.Date(2026, 4, 26, 16, 15, 0, 0, time.UTC)
 
 	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: seededPath,
+		"DATABASE_URL":                "",
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return seededAt },
+	})
+
+	settings, err := manager.LoadOrSeedFromEnv()
+	if err != nil {
+		t.Fatalf("seed bootstrap config from canonical defaults: %v", err)
+	}
+	assertSeededBootstrapSettings(t, settings, bootstrapFixtureDatabaseURL)
+
+	raw, err := os.ReadFile(seededPath)
+	if err != nil {
+		t.Fatalf("read seeded bootstrap config file: %v", err)
+	}
+	assertSeededBootstrapFile(t, raw, seededAt, bootstrapFixtureDatabaseURL)
+
+	loadedAgain, err := manager.Load(seededPath)
+	if err != nil {
+		t.Fatalf("load seeded bootstrap config file: %v", err)
+	}
+	assertSeededBootstrapSettings(t, loadedAgain, bootstrapFixtureDatabaseURL)
+}
+
+func TestBootstrapConfigFileSeedingIgnoresDeletedLegacyEnvInputs(t *testing.T) {
+	seededPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	seededAt := time.Date(2026, 4, 26, 16, 18, 0, 0, time.UTC)
+
+	setBootstrapSeedEnv(t, map[string]string{
 		config.BootstrapConfigPathEnv:      seededPath,
+		"DATABASE_URL":                     "",
 		"HOST":                             "127.0.0.1",
 		"PORT":                             "19090",
 		"APP_ENV":                          "production",
-		"DATABASE_URL":                     legacyDatabaseURL,
-		"RUNTIME_TELEMETRY_MODE":           "synchronous",
 		"RUNTIME_BUFFERING_MODE":           "streaming",
 		"RUNTIME_TRANSPORT_MAX_IDLE_CONNS": "77",
 		"RUNTIME_TRANSPORT_MAX_IDLE_CONNS_PER_HOST": "11",
@@ -107,15 +135,15 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 		"MANAGEMENT_DB_MIN_IDLE_CONNS":              "3",
 		"MANAGEMENT_ADMISSION_M2_MAX_CONCURRENT":    "8",
 		"MANAGEMENT_ADMISSION_M3_MAX_CONCURRENT":    "4",
-		"CONFIG_BUNDLE_ENCRYPTION_KEY":              legacyBundleKey,
-		"CORS_ALLOWED_ORIGINS":                      "http://localhost:15173,http://127.0.0.1:15173",
-		"AUTH_JWT_SECRET":                           legacyJWTSecret,
+		"CORS_ALLOWED_ORIGINS":                      "https://legacy.example.invalid",
+		"AUTH_JWT_SECRET":                           "legacy-seeded-jwt-secret",
 		"AUTH_ACCESS_TOKEN_TTL_SECONDS":             "1200",
 		"AUTH_REFRESH_TOKEN_TTL_SECONDS":            "7200",
 		"AUTH_RESET_CODE_TTL_SECONDS":               "300",
 		"AUTH_COOKIE_NAME":                          "prism_seed_access",
 		"AUTH_REFRESH_COOKIE_NAME":                  "prism_seed_refresh",
 		"AUTH_COOKIE_SECURE":                        "true",
+		"CONFIG_BUNDLE_ENCRYPTION_KEY":              "legacy-seeded-bundle-key",
 	})
 
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{
@@ -124,57 +152,151 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 
 	settings, err := manager.LoadOrSeedFromEnv()
 	if err != nil {
-		t.Fatalf("seed bootstrap config from legacy env: %v", err)
+		t.Fatalf("seed bootstrap config while deleted legacy env inputs are set: %v", err)
 	}
-	if settings.Host != "127.0.0.1" || settings.Port != 19090 {
-		t.Fatalf("unexpected seeded server settings: %+v", settings)
-	}
-	if settings.DocsEnabled() {
-		t.Fatal("expected seeded bootstrap config to disable docs for production APP_ENV")
-	}
-	if settings.DatabaseURL != legacyDatabaseURL {
-		t.Fatalf("expected seeded database URL %q, got %q", legacyDatabaseURL, settings.DatabaseURL)
-	}
-	if settings.SecretEncryptionKey != bootstrapSeedDefaultSecret {
-		t.Fatalf("expected seeded secret encryption key %q, got %q", bootstrapSeedDefaultSecret, settings.SecretEncryptionKey)
-	}
-	if settings.ConfigBundleEncryptionKey != legacyBundleKey || settings.AuthJWTSecret != legacyJWTSecret {
-		t.Fatalf("unexpected seeded plaintext settings: bundle=%q jwt=%q", settings.ConfigBundleEncryptionKey, settings.AuthJWTSecret)
-	}
-	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox || settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
-		t.Fatalf("unexpected seeded runtime modes: telemetry=%q buffering=%q", settings.RuntimeTelemetryMode, settings.RuntimeBufferingMode)
-	}
-	transport := settings.RuntimeTransport()
-	if transport.MaxIdleConns != 77 || transport.MaxIdleConnsPerHost != 11 || transport.MaxConnsPerHost != 17 {
-		t.Fatalf("unexpected seeded runtime transport pool: %+v", transport)
-	}
-	if transport.IdleConnTimeout != 35*time.Second || transport.ResponseHeaderTimeout != 7*time.Second || transport.TLSHandshakeTimeout != 9*time.Second || transport.ExpectContinueTimeout != 2*time.Second {
-		t.Fatalf("unexpected seeded runtime transport timeouts: %+v", transport)
-	}
-	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 5 || got.MinIdleConns != 2 {
-		t.Fatalf("unexpected seeded runtime DB budget: %+v", got)
-	}
-	if got := settings.ManagementDatabaseBudget(); got.MaxConns != 14 || got.MinIdleConns != 3 {
-		t.Fatalf("unexpected seeded management DB budget: %+v", got)
-	}
-	if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 8 || got.M3MaxConcurrent != 4 {
-		t.Fatalf("unexpected seeded management admission budget: %+v", got)
-	}
-	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
-		t.Fatalf("unexpected seeded CORS origins: %+v", got)
-	}
-	if settings.AuthAccessTokenTTLSeconds != 1200 || settings.AuthRefreshTokenTTLSeconds != 7200 || settings.AuthResetCodeTTLSeconds != 300 {
-		t.Fatalf("unexpected seeded auth TTLs: %+v", settings)
-	}
-	if settings.AuthCookieName != "prism_seed_access" || settings.AuthRefreshCookieName != "prism_seed_refresh" || !settings.AuthCookieSecure {
-		t.Fatalf("unexpected seeded auth cookies: %+v", settings)
-	}
+	assertSeededBootstrapSettings(t, settings, bootstrapFixtureDatabaseURL)
 
 	raw, err := os.ReadFile(seededPath)
 	if err != nil {
 		t.Fatalf("read seeded bootstrap config file: %v", err)
 	}
-	for _, secret := range []string{legacyDatabaseURL, legacyJWTSecret, legacyBundleKey, bootstrapSeedDefaultSecret} {
+	assertSeededBootstrapFile(t, raw, seededAt, bootstrapFixtureDatabaseURL)
+
+	loadedAgain, err := manager.Load(seededPath)
+	if err != nil {
+		t.Fatalf("load seeded bootstrap config file: %v", err)
+	}
+	assertSeededBootstrapSettings(t, loadedAgain, bootstrapFixtureDatabaseURL)
+}
+
+func TestBootstrapConfigFileSeedingAppliesDatabaseURLOverride(t *testing.T) {
+	seededPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	seededAt := time.Date(2026, 4, 26, 16, 20, 0, 0, time.UTC)
+
+	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: seededPath,
+		"DATABASE_URL":                bootstrapSeedOverrideDatabaseURL,
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return seededAt },
+	})
+
+	settings, err := manager.LoadOrSeedFromEnv()
+	if err != nil {
+		t.Fatalf("seed bootstrap config from canonical defaults with DATABASE_URL override: %v", err)
+	}
+	assertSeededBootstrapSettings(t, settings, bootstrapSeedOverrideDatabaseURL)
+
+	raw, err := os.ReadFile(seededPath)
+	if err != nil {
+		t.Fatalf("read seeded bootstrap config file: %v", err)
+	}
+	assertSeededBootstrapFile(t, raw, seededAt, bootstrapSeedOverrideDatabaseURL)
+
+	loadedAgain, err := manager.Load(seededPath)
+	if err != nil {
+		t.Fatalf("load seeded bootstrap config file: %v", err)
+	}
+	assertSeededBootstrapSettings(t, loadedAgain, bootstrapSeedOverrideDatabaseURL)
+}
+
+func TestBootstrapConfigFileWinsWhenPresent(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	original := loadIntegrationBootstrapFixtureBytes(t, "bootstrap-valid-v1.json")
+	if err := os.WriteFile(configPath, original, 0o600); err != nil {
+		t.Fatalf("write existing bootstrap fixture: %v", err)
+	}
+
+	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: configPath,
+		"DATABASE_URL":                bootstrapSeedOverrideDatabaseURL,
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	settings, err := manager.LoadOrSeedFromEnv()
+	if err != nil {
+		t.Fatalf("load existing bootstrap config file: %v", err)
+	}
+	assertSeededBootstrapSettings(t, settings, bootstrapFixtureDatabaseURL)
+
+	rawAfter, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read bootstrap config after precedence load: %v", err)
+	}
+	if !bytes.Equal(original, rawAfter) {
+		t.Fatal("expected existing bootstrap config file to remain unchanged when it already exists")
+	}
+}
+
+func TestEncryptedBootstrapConfigFileFailsFast(t *testing.T) {
+	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: integrationBootstrapFixturePath(t, "bootstrap-unsupported-encrypted-v1.json"),
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	_, err := manager.LoadOrSeedFromEnv()
+	if err == nil {
+		t.Fatal("expected legacy encrypted bootstrap file to fail")
+	}
+	if !strings.Contains(err.Error(), "unsupported legacy encrypted format fields") {
+		t.Fatalf("expected unsupported legacy format error, got %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "master-key") {
+		t.Fatalf("expected direct unsupported-format rejection instead of a retired master-key error, got %v", err)
+	}
+}
+
+func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantDatabaseURL string) {
+	t.Helper()
+	if settings.Host != "0.0.0.0" || settings.Port != 18000 {
+		t.Fatalf("unexpected seeded server settings: %+v", settings)
+	}
+	if settings.AppEnv != config.EnvironmentDevelopment || !settings.DocsEnabled() {
+		t.Fatalf("unexpected seeded app environment: %q", settings.AppEnv)
+	}
+	if settings.DatabaseURL != wantDatabaseURL {
+		t.Fatalf("expected seeded database URL %q, got %q", wantDatabaseURL, settings.DatabaseURL)
+	}
+	if settings.SecretEncryptionKey != bootstrapFixtureSecretKey || settings.ConfigBundleEncryptionKey != bootstrapFixtureBundleKey {
+		t.Fatalf("unexpected seeded plaintext settings: secret=%q bundle=%q", settings.SecretEncryptionKey, settings.ConfigBundleEncryptionKey)
+	}
+	if settings.AuthJWTSecret != bootstrapFixtureJWTSecret {
+		t.Fatalf("unexpected seeded auth JWT secret: %q", settings.AuthJWTSecret)
+	}
+	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox || settings.RuntimeBufferingMode != config.RuntimeBufferingModeBuffered {
+		t.Fatalf("unexpected seeded runtime modes: telemetry=%q buffering=%q", settings.RuntimeTelemetryMode, settings.RuntimeBufferingMode)
+	}
+	transport := settings.RuntimeTransport()
+	if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 8 || transport.MaxConnsPerHost != 0 {
+		t.Fatalf("unexpected seeded runtime transport pool: %+v", transport)
+	}
+	if transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
+		t.Fatalf("unexpected seeded runtime transport timeouts: %+v", transport)
+	}
+	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 4 || got.MinIdleConns != 1 {
+		t.Fatalf("unexpected seeded runtime DB budget: %+v", got)
+	}
+	if got := settings.ManagementDatabaseBudget(); got.MaxConns != 12 || got.MinIdleConns != 0 {
+		t.Fatalf("unexpected seeded management DB budget: %+v", got)
+	}
+	if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 10 || got.M3MaxConcurrent != 6 {
+		t.Fatalf("unexpected seeded management admission budget: %+v", got)
+	}
+	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
+		t.Fatalf("unexpected seeded CORS origins: %+v", got)
+	}
+	if settings.AuthAccessTokenTTLSeconds != 900 || settings.AuthRefreshTokenTTLSeconds != 604800 || settings.AuthResetCodeTTLSeconds != 600 {
+		t.Fatalf("unexpected seeded auth TTLs: %+v", settings)
+	}
+	if settings.AuthCookieName != "prism_access_token" || settings.AuthRefreshCookieName != "prism_refresh_token" || settings.AuthCookieSecure {
+		t.Fatalf("unexpected seeded auth cookies: %+v", settings)
+	}
+}
+
+func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wantDatabaseURL string) {
+	t.Helper()
+	for _, secret := range []string{wantDatabaseURL, bootstrapFixtureJWTSecret, bootstrapFixtureSecretKey, bootstrapFixtureBundleKey} {
 		if !bytes.Contains(raw, []byte(secret)) {
 			t.Fatalf("expected seeded bootstrap config to keep plaintext value %q", secret)
 		}
@@ -193,115 +315,41 @@ func TestBootstrapConfigFileIsSeededFromEnv(t *testing.T) {
 	if seeded.Meta.SchemaVersion != 1 || seeded.Meta.Revision != 1 || seeded.Meta.CreatedAt != seededAt.Format(time.RFC3339) || seeded.Meta.UpdatedAt != seededAt.Format(time.RFC3339) {
 		t.Fatalf("unexpected seeded meta payload: %+v", seeded.Meta)
 	}
-	if seeded.Server.Host != "127.0.0.1" || seeded.Server.Port != 19090 || seeded.Server.DocsEnabled {
+	if seeded.Server.Host != "0.0.0.0" || seeded.Server.Port != 18000 || !seeded.Server.DocsEnabled {
 		t.Fatalf("unexpected seeded server payload: %+v", seeded.Server)
 	}
-	if seeded.Database.URL != legacyDatabaseURL {
+	if seeded.Database.URL != wantDatabaseURL {
 		t.Fatalf("unexpected seeded database URL: %q", seeded.Database.URL)
 	}
-	if seeded.Database.RuntimePool.MaxConns != 5 || seeded.Database.RuntimePool.MinIdleConns != 2 {
+	if seeded.Database.RuntimePool.MaxConns != 4 || seeded.Database.RuntimePool.MinIdleConns != 1 {
 		t.Fatalf("unexpected seeded runtime DB payload: %+v", seeded.Database.RuntimePool)
 	}
-	if seeded.Database.ManagementPool.MaxConns != 14 || seeded.Database.ManagementPool.MinIdleConns != 3 {
+	if seeded.Database.ManagementPool.MaxConns != 12 || seeded.Database.ManagementPool.MinIdleConns != 0 {
 		t.Fatalf("unexpected seeded management DB payload: %+v", seeded.Database.ManagementPool)
 	}
-	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 8 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 4 {
+	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 10 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 6 {
 		t.Fatalf("unexpected seeded admission payload: %+v", seeded.Database.ManagementAdmission)
 	}
-	if seeded.Runtime.BufferingMode != "streaming" || seeded.Runtime.SecretEncryptionKey != bootstrapSeedDefaultSecret {
+	if seeded.Runtime.BufferingMode != "buffered" || seeded.Runtime.SecretEncryptionKey != bootstrapFixtureSecretKey {
 		t.Fatalf("unexpected seeded runtime payload: %+v", seeded.Runtime)
 	}
-	if seeded.Runtime.Transport.MaxIdleConns != 77 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 11 || seeded.Runtime.Transport.MaxConnsPerHost != 17 {
+	if seeded.Runtime.Transport.MaxIdleConns != 100 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 8 || seeded.Runtime.Transport.MaxConnsPerHost != 0 {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)
 	}
-	if seeded.Runtime.Transport.IdleConnTimeout != "35s" || seeded.Runtime.Transport.ResponseHeaderTimeout != "7s" || seeded.Runtime.Transport.TLSHandshakeTimeout != "9s" || seeded.Runtime.Transport.ExpectContinueTimeout != "2s" {
+	if seeded.Runtime.Transport.IdleConnTimeout != "1m30s" || seeded.Runtime.Transport.ResponseHeaderTimeout != "0s" || seeded.Runtime.Transport.TLSHandshakeTimeout != "10s" || seeded.Runtime.Transport.ExpectContinueTimeout != "1s" {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)
 	}
 	if len(seeded.HTTP.CORSAllowedOrigins) != 2 || seeded.HTTP.CORSAllowedOrigins[0] != "http://localhost:15173" || seeded.HTTP.CORSAllowedOrigins[1] != "http://127.0.0.1:15173" {
 		t.Fatalf("unexpected seeded CORS payload: %+v", seeded.HTTP.CORSAllowedOrigins)
 	}
-	if seeded.Auth.JWTSigningKey != legacyJWTSecret || seeded.Auth.AccessTokenTTLSeconds != 1200 || seeded.Auth.RefreshTokenTTLSeconds != 7200 || seeded.Auth.ResetCodeTTLSeconds != 300 {
+	if seeded.Auth.JWTSigningKey != bootstrapFixtureJWTSecret || seeded.Auth.AccessTokenTTLSeconds != 900 || seeded.Auth.RefreshTokenTTLSeconds != 604800 || seeded.Auth.ResetCodeTTLSeconds != 600 {
 		t.Fatalf("unexpected seeded auth payload: %+v", seeded.Auth)
 	}
-	if seeded.Auth.AccessCookieName != "prism_seed_access" || seeded.Auth.RefreshCookieName != "prism_seed_refresh" || !seeded.Auth.CookieSecure {
+	if seeded.Auth.AccessCookieName != "prism_access_token" || seeded.Auth.RefreshCookieName != "prism_refresh_token" || seeded.Auth.CookieSecure {
 		t.Fatalf("unexpected seeded auth payload: %+v", seeded.Auth)
 	}
-	if seeded.StateTransfer.BundleEncryptionKey != legacyBundleKey {
+	if seeded.StateTransfer.BundleEncryptionKey != bootstrapFixtureBundleKey {
 		t.Fatalf("unexpected seeded bundle key payload: %q", seeded.StateTransfer.BundleEncryptionKey)
-	}
-
-	loadedAgain, err := manager.Load(seededPath)
-	if err != nil {
-		t.Fatalf("load seeded bootstrap config file: %v", err)
-	}
-	if loadedAgain.DatabaseURL != settings.DatabaseURL || loadedAgain.AuthJWTSecret != settings.AuthJWTSecret || loadedAgain.ConfigBundleEncryptionKey != settings.ConfigBundleEncryptionKey || loadedAgain.SecretEncryptionKey != settings.SecretEncryptionKey {
-		t.Fatalf("expected seeded file to round-trip through bootstrap parser, got %+v", loadedAgain)
-	}
-}
-
-func TestBootstrapConfigFileWinsWhenPresent(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
-	original := loadIntegrationBootstrapFixtureBytes(t, "bootstrap-valid-v1.json")
-	if err := os.WriteFile(configPath, original, 0o600); err != nil {
-		t.Fatalf("write existing bootstrap fixture: %v", err)
-	}
-
-	setBootstrapSeedEnv(t, map[string]string{
-		config.BootstrapConfigPathEnv:  configPath,
-		"PORT":                         "0",
-		"DATABASE_URL":                 "",
-		"CORS_ALLOWED_ORIGINS":         "not-a-uri",
-		"AUTH_JWT_SECRET":              "",
-		"CONFIG_BUNDLE_ENCRYPTION_KEY": "ignored-legacy-bundle-key",
-	})
-
-	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	settings, err := manager.LoadOrSeedFromEnv()
-	if err != nil {
-		t.Fatalf("load existing bootstrap config file: %v", err)
-	}
-	if settings.Host != "127.0.0.1" || settings.Port != 18000 || !settings.DocsEnabled() {
-		t.Fatalf("expected existing bootstrap file server settings to win, got %+v", settings)
-	}
-	if settings.DatabaseURL != bootstrapFixtureDatabaseURL || settings.AuthJWTSecret != bootstrapFixtureJWTSecret {
-		t.Fatalf("expected existing bootstrap plaintext values to win, got database=%q jwt=%q", settings.DatabaseURL, settings.AuthJWTSecret)
-	}
-	if settings.SecretEncryptionKey != bootstrapFixtureSecretKey || settings.ConfigBundleEncryptionKey != bootstrapFixtureBundleKey {
-		t.Fatalf("expected existing bootstrap encryption settings to win, got secret=%q bundle=%q", settings.SecretEncryptionKey, settings.ConfigBundleEncryptionKey)
-	}
-	if settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
-		t.Fatalf("expected existing bootstrap runtime buffering mode to win, got %q", settings.RuntimeBufferingMode)
-	}
-	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
-		t.Fatalf("unexpected existing bootstrap CORS origins: %+v", got)
-	}
-
-	rawAfter, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read bootstrap config after precedence load: %v", err)
-	}
-	if !bytes.Equal(original, rawAfter) {
-		t.Fatal("expected existing bootstrap config file to remain unchanged when it already exists")
-	}
-}
-
-func TestEncryptedBootstrapConfigFileFailsFast(t *testing.T) {
-	setBootstrapSeedEnv(t, map[string]string{
-		config.BootstrapConfigPathEnv: integrationBootstrapFixturePath(t, "bootstrap-unsupported-encrypted-v1.json"),
-		"DATABASE_URL":                "postgres://ignored:ignored@localhost:5432/ignored?sslmode=disable",
-		"AUTH_JWT_SECRET":             "ignored-jwt-secret",
-	})
-
-	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	_, err := manager.LoadOrSeedFromEnv()
-	if err == nil {
-		t.Fatal("expected legacy encrypted bootstrap file to fail")
-	}
-	if !strings.Contains(err.Error(), "unsupported legacy encrypted format fields") {
-		t.Fatalf("expected unsupported legacy format error, got %v", err)
-	}
-	if strings.Contains(strings.ToLower(err.Error()), "master-key") {
-		t.Fatalf("expected direct unsupported-format rejection instead of a retired master-key error, got %v", err)
 	}
 }
 

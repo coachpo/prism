@@ -6,34 +6,34 @@
     "updatedAt": "2026-04-26T14:00:00Z"
   },
   "server": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 18000,
     "docsEnabled": true
   },
   "database": {
-    "url": "postgres://prism:bootstrap-password@db.internal:5432/prism?sslmode=disable",
+    "url": "postgres://prism:prism@localhost:5432/prism?sslmode=disable",
     "runtimePool": {
       "maxConns": 4,
       "minIdleConns": 1
     },
     "managementPool": {
       "maxConns": 12,
-      "minIdleConns": 2
+      "minIdleConns": 0
     },
     "managementAdmission": {
-      "m2MaxConcurrent": 6,
-      "m3MaxConcurrent": 2
+      "m2MaxConcurrent": 10,
+      "m3MaxConcurrent": 6
     }
   },
   "runtime": {
-    "bufferingMode": "streaming",
-    "secretEncryptionKey": "bootstrap-runtime-secret-encryption-key",
+    "bufferingMode": "buffered",
+    "secretEncryptionKey": "prism-dev-runtime-secret-change-me",
     "transport": {
-      "maxIdleConns": 120,
-      "maxIdleConnsPerHost": 12,
-      "maxConnsPerHost": 24,
-      "idleConnTimeout": "45s",
-      "responseHeaderTimeout": "15s",
+      "maxIdleConns": 100,
+      "maxIdleConnsPerHost": 8,
+      "maxConnsPerHost": 0,
+      "idleConnTimeout": "1m30s",
+      "responseHeaderTimeout": "0s",
       "tlsHandshakeTimeout": "10s",
       "expectContinueTimeout": "1s"
     }
@@ -45,7 +45,7 @@
     ]
   },
   "auth": {
-    "jwtSigningKey": "bootstrap-jwt-signing-secret",
+    "jwtSigningKey": "prism-dev-jwt-secret-change-me-2026",
     "accessTokenTtlSeconds": 900,
     "refreshTokenTtlSeconds": 604800,
     "resetCodeTtlSeconds": 600,
@@ -54,6 +54,6 @@
     "cookieSecure": false
   },
   "stateTransfer": {
-    "bundleEncryptionKey": "bootstrap-bundle-encryption-key"
+    "bundleEncryptionKey": "prism-dev-runtime-secret-change-me"
   }
 }

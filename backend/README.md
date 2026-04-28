@@ -36,7 +36,7 @@ If the selected bootstrap config keeps docs enabled, it also serves:
 - ReDoc: `http://localhost:18000/redoc`
 - OpenAPI JSON: `http://localhost:18000/openapi.json`
 
-Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. Legacy `HOST`, `PORT`, and related app env vars are one-time seed inputs only when the bootstrap file does not exist yet.
+Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`.
 
 ## Verification
 
@@ -50,10 +50,10 @@ go build ./cmd/prism-backend
 
 ## Configuration
 - Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`.
-- When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is no longer the supported source of truth.
-- When the bootstrap file is missing, Prism can seed it once from legacy startup env inputs such as `DATABASE_URL`, `HOST`, `PORT`, `CORS_ALLOWED_ORIGINS`, auth settings, and `CONFIG_BUNDLE_ENCRYPTION_KEY`.
+- When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is not the supported source of truth.
+- When the bootstrap file is missing, Prism seeds it from built-in defaults plus the optional `DATABASE_URL` input only.
 - Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport; the bootstrap JSON owns startup inputs only.
-- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000`, the local PostgreSQL DSN, and the expected frontend CORS origins.
+- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000` and the local PostgreSQL DSN on host port `5432`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file still resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 

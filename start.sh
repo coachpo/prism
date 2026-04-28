@@ -5,11 +5,10 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
-DATABASE_PORT=15432
+DATABASE_PORT=5432
 BACKEND_PORT=18000
 FRONTEND_PORT=15173
 DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"
-CORS_ALLOWED_ORIGINS="http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}"
 ORIGINAL_PATH="$PATH"
 
 load_dotenv_file() {
@@ -147,12 +146,14 @@ is_prism_backend_pid() {
     local pid="$1"
     local exe
     local cwd
+    local exe_name
 
     exe="$(pid_exe "$pid")"
     cwd="$(pid_cwd "$pid")"
+    exe_name="${exe##*/}"
 
     [[ "$cwd" == "$BACKEND_DIR" ]] || return 1
-    [[ "$exe" == "$BACKEND_BINARY" || "${exe##*/}" == "prism-backend" ]]
+    [[ "$exe" == "$BACKEND_BINARY" || "$exe" == "$BACKEND_BINARY (deleted)" || "$exe_name" == "prism-backend" || "$exe_name" == "prism-backend (deleted)" ]]
 }
 
 is_prism_frontend_pid() {
@@ -246,14 +247,16 @@ ensure_bootstrap_config() {
 load_effective_startup_settings() {
     local line
 
-    EFFECTIVE_HOST=""
-    EFFECTIVE_PORT=""
+    EFFECTIVE_CONFIG_PATH=""
+    EFFECTIVE_SERVER_HOST=""
+    EFFECTIVE_SERVER_PORT=""
     EFFECTIVE_DATABASE_URL=""
 
     while IFS= read -r line; do
         case "$line" in
-            HOST=*) EFFECTIVE_HOST="${line#HOST=}" ;;
-            PORT=*) EFFECTIVE_PORT="${line#PORT=}" ;;
+            PRISM_CONFIG_PATH=*) EFFECTIVE_CONFIG_PATH="${line#PRISM_CONFIG_PATH=}" ;;
+            SERVER_HOST=*) EFFECTIVE_SERVER_HOST="${line#SERVER_HOST=}" ;;
+            SERVER_PORT=*) EFFECTIVE_SERVER_PORT="${line#SERVER_PORT=}" ;;
             DATABASE_URL=*) EFFECTIVE_DATABASE_URL="${line#DATABASE_URL=}" ;;
         esac
     done < <(cd "$BACKEND_DIR" && PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1 "$BACKEND_BINARY")
@@ -262,13 +265,19 @@ load_effective_startup_settings() {
 ensure_local_launcher_contract() {
     load_effective_startup_settings
 
-    if [[ "$EFFECTIVE_HOST" != "0.0.0.0" && "$EFFECTIVE_HOST" != "127.0.0.1" && "$EFFECTIVE_HOST" != "localhost" && "$EFFECTIVE_HOST" != "::" && "$EFFECTIVE_HOST" != "[::]" ]]; then
-        echo "Error: start.sh requires a local backend host, got $EFFECTIVE_HOST" >&2
+    if [[ "$EFFECTIVE_CONFIG_PATH" != "$PRISM_CONFIG_PATH" ]]; then
+        echo "Error: start.sh requires PRISM_CONFIG_PATH=$PRISM_CONFIG_PATH" >&2
+        echo "Current bootstrap config resolves PRISM_CONFIG_PATH=$EFFECTIVE_CONFIG_PATH" >&2
         exit 1
     fi
 
-    if [[ "$EFFECTIVE_PORT" != "$BACKEND_PORT" ]]; then
-        echo "Error: start.sh requires backend port $BACKEND_PORT, got $EFFECTIVE_PORT" >&2
+    if [[ "$EFFECTIVE_SERVER_HOST" != "0.0.0.0" && "$EFFECTIVE_SERVER_HOST" != "127.0.0.1" && "$EFFECTIVE_SERVER_HOST" != "localhost" && "$EFFECTIVE_SERVER_HOST" != "::" && "$EFFECTIVE_SERVER_HOST" != "[::]" ]]; then
+        echo "Error: start.sh requires a local backend host, got $EFFECTIVE_SERVER_HOST" >&2
+        exit 1
+    fi
+
+    if [[ "$EFFECTIVE_SERVER_PORT" != "$BACKEND_PORT" ]]; then
+        echo "Error: start.sh requires backend port $BACKEND_PORT, got $EFFECTIVE_SERVER_PORT" >&2
         exit 1
     fi
 
@@ -301,10 +310,7 @@ docker compose version >/dev/null
 
 PRISM_CONFIG_PATH="$(resolve_config_path)"
 export PRISM_CONFIG_PATH
-export HOST="0.0.0.0"
-export PORT="$BACKEND_PORT"
 export DATABASE_URL
-export CORS_ALLOWED_ORIGINS
 
 BACKEND_BINARY="$BACKEND_DIR/prism-backend"
 

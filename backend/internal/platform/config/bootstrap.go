@@ -18,6 +18,7 @@ import (
 const (
 	BootstrapConfigPathEnv = "PRISM_CONFIG_PATH"
 
+	defaultBootstrapConfigPath    = "config.json"
 	bootstrapConfigSchemaVersion  = 1
 	bootstrapDirectoryPermissions = 0o755
 )
@@ -141,13 +142,13 @@ func (m BootstrapConfigManager) LoadOrSeed(path string) (Settings, error) {
 		return Settings{}, fmt.Errorf("stat bootstrap config %q: %w", normalizedPath, err)
 	}
 
-	payload, settings, err := m.seedPayloadFromEnv()
+	payload, settings, err := m.seedPayloadFromDefaults()
 	if err != nil {
-		return Settings{}, fmt.Errorf("seed bootstrap config %q from legacy env: %w", normalizedPath, err)
+		return Settings{}, fmt.Errorf("create bootstrap config %q from canonical defaults: %w", normalizedPath, err)
 	}
 	written, err := m.WriteAtomicallyIfAbsent(normalizedPath, payload)
 	if err != nil {
-		return Settings{}, fmt.Errorf("seed bootstrap config %q from legacy env: %w", normalizedPath, err)
+		return Settings{}, fmt.Errorf("create bootstrap config %q from canonical defaults: %w", normalizedPath, err)
 	}
 	if !written {
 		return m.Load(normalizedPath)
@@ -244,13 +245,13 @@ func (m BootstrapConfigManager) resolvedTimeNow() func() time.Time {
 func resolveBootstrapExternalInputsFromEnv() (string, error) {
 	configPath := strings.TrimSpace(os.Getenv(BootstrapConfigPathEnv))
 	if configPath == "" {
-		return "", fmt.Errorf("%s is required", BootstrapConfigPathEnv)
+		return defaultBootstrapConfigPath, nil
 	}
 	return configPath, nil
 }
 
-func (m BootstrapConfigManager) seedPayloadFromEnv() ([]byte, Settings, error) {
-	document, err := buildSeededBootstrapDocument(loadSeedSettingsFromEnv(), m.resolvedTimeNow()().UTC())
+func (m BootstrapConfigManager) seedPayloadFromDefaults() ([]byte, Settings, error) {
+	document, err := buildSeededBootstrapDocument(Load(), m.resolvedTimeNow()().UTC())
 	if err != nil {
 		return nil, Settings{}, err
 	}
@@ -668,17 +669,17 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
 	runtimeTransport := settings.RuntimeTransport()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
-	databaseURL, err := requiredSeedValue("DATABASE_URL", settings.DatabaseURL)
-	if err != nil {
-		return bootstrapConfigDocument{}, err
+	databaseURL := strings.TrimSpace(settings.DatabaseURL)
+	if databaseURL == "" {
+		return bootstrapConfigDocument{}, fmt.Errorf("seeded database URL is empty")
 	}
 	runtimeSecretEncryptionKey := strings.TrimSpace(settings.SecretEncryptionKey)
 	if runtimeSecretEncryptionKey == "" {
 		return bootstrapConfigDocument{}, fmt.Errorf("seeded runtime secret encryption key is empty")
 	}
-	authJWTSecret, err := requiredSeedValue("AUTH_JWT_SECRET", settings.AuthJWTSecret)
-	if err != nil {
-		return bootstrapConfigDocument{}, err
+	authJWTSecret := strings.TrimSpace(settings.AuthJWTSecret)
+	if authJWTSecret == "" {
+		return bootstrapConfigDocument{}, fmt.Errorf("seeded auth JWT signing key is empty")
 	}
 	bundleEncryptionKey := strings.TrimSpace(settings.ConfigBundleEncryptionKey)
 	if bundleEncryptionKey == "" {
@@ -867,14 +868,6 @@ func parseDurationField(path string, value *string) (time.Duration, error) {
 		return 0, fmt.Errorf("bootstrap config field %s must parse as a Go duration", path)
 	}
 	return parsed, nil
-}
-
-func requiredSeedValue(envName string, value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", fmt.Errorf("legacy startup %s is required to seed bootstrap config", envName)
-	}
-	return trimmed, nil
 }
 
 func hasBootstrapField(value json.RawMessage) bool {

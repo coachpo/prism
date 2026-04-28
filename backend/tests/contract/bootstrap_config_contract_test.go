@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	bootstrapContractDatabaseURL = "postgres://prism:bootstrap-password@db.internal:5432/prism?sslmode=disable"
-	bootstrapContractSecretKey   = "bootstrap-runtime-secret-encryption-key"
-	bootstrapContractJWTSecret   = "bootstrap-jwt-signing-secret"
-	bootstrapContractBundleKey   = "bootstrap-bundle-encryption-key"
+	bootstrapContractDatabaseURL = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
+	bootstrapContractSecretKey   = "prism-dev-runtime-secret-change-me"
+	bootstrapContractJWTSecret   = "prism-dev-jwt-secret-change-me-2026"
+	bootstrapContractBundleKey   = "prism-dev-runtime-secret-change-me"
 )
 
 func TestBootstrapConfigSchema(t *testing.T) {
@@ -152,7 +152,7 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 		{
 			name: "management admission m3 exceeds m2",
 			mutate: func(payload map[string]any) {
-				payload["database"].(map[string]any)["managementAdmission"].(map[string]any)["m3MaxConcurrent"] = 7
+				payload["database"].(map[string]any)["managementAdmission"].(map[string]any)["m3MaxConcurrent"] = 11
 			},
 			wantErr: "database.managementAdmission.m3MaxConcurrent must be less than or equal to database.managementAdmission.m2MaxConcurrent",
 		},
@@ -195,7 +195,7 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load valid bootstrap fixture: %v", err)
 		}
-		if settings.Host != "127.0.0.1" || settings.Port != 18000 {
+		if settings.Host != "0.0.0.0" || settings.Port != 18000 {
 			t.Fatalf("unexpected server settings: %+v", settings)
 		}
 		if !settings.DocsEnabled() {
@@ -222,15 +222,21 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox {
 			t.Fatalf("expected durable runtime telemetry mode, got %q", settings.RuntimeTelemetryMode)
 		}
-		if settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
-			t.Fatalf("expected streaming runtime buffering mode, got %q", settings.RuntimeBufferingMode)
+		if settings.RuntimeBufferingMode != config.RuntimeBufferingModeBuffered {
+			t.Fatalf("expected buffered runtime buffering mode, got %q", settings.RuntimeBufferingMode)
 		}
 		transport := settings.RuntimeTransport()
-		if transport.MaxIdleConns != 120 || transport.MaxIdleConnsPerHost != 12 || transport.MaxConnsPerHost != 24 {
+		if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 8 || transport.MaxConnsPerHost != 0 {
 			t.Fatalf("unexpected runtime transport pool settings: %+v", transport)
 		}
-		if transport.IdleConnTimeout != 45*time.Second || transport.ResponseHeaderTimeout != 15*time.Second || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
+		if transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 			t.Fatalf("unexpected runtime transport timeouts: %+v", transport)
+		}
+		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 12 || got.MinIdleConns != 0 {
+			t.Fatalf("unexpected management database budget: %+v", got)
+		}
+		if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 10 || got.M3MaxConcurrent != 6 {
+			t.Fatalf("unexpected management admission budget: %+v", got)
 		}
 		if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
 			t.Fatalf("unexpected CORS origins: %+v", got)

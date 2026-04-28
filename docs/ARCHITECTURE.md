@@ -21,7 +21,7 @@
                     └──────────────────────────────────────────┘
 ```
 
-*Local `./start.sh` defaults are backend `18000`, frontend `15173`, and PostgreSQL `15432`. Standalone frontend containers commonly expose `3000`.
+*Local `./start.sh` defaults are backend `18000`, frontend `15173`, and PostgreSQL `5432`. Standalone frontend containers commonly expose `3000`.
 
 ## 2. Component Architecture
 
@@ -53,7 +53,7 @@ backend/
 ├── testdata/                   # checked-in OpenAPI, bundle, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
 ├── Dockerfile                  # live Go backend image build
-├── docker-compose.yml          # local PostgreSQL helper on host port 15432
+├── docker-compose.yml          # local PostgreSQL helper on host port 5432
 └── VERSION                     # backend version surface
 ```
 
@@ -105,8 +105,9 @@ frontend/
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
 - Root local orchestration lives in `start.sh`: it loads the root `.env`, starts PostgreSQL from `backend/docker-compose.yml`, validates that the selected bootstrap config still matches the fixed local launcher contract, and launches the Go backend service on `18000`.
 - `./start.sh full` launches the frontend on `15173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000` so browser traffic stays same-origin.
-- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
+- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; the only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`.
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; old encrypted bootstrap files must be replaced before boot.
+- Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
 - Phase 1 keeps the split-bundle contract canonical, with `profile_config` and `vendor_catalog` both on one `version: 1` story and no surviving older bundle narrative.
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
@@ -541,7 +542,7 @@ See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 - **Proxy API Keys**: Optional API key enforcement for runtime proxy traffic (`/v1/*`, `/v1beta/*`). Keys are issued and managed through the dashboard.
 - **Auth Bifurcation**: Management auth (session cookies) and runtime auth (proxy API keys) are separate enforcement paths.
 - **Data at Rest**: API keys and secrets are stored in PostgreSQL. Endpoint secrets are encrypted at rest.
-- **CORS**: Allowed origins come from `CORS_ALLOWED_ORIGINS`; local defaults target the Vite dev server.
+- **CORS**: Local browser traffic stays same-origin through the launcher-local Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL.
 - **Network**: No TLS termination; run behind a reverse proxy for HTTPS. Restricted to trusted local/LAN access.
 
 ## 13. Supported Runtime API Families

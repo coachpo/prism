@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -295,35 +293,13 @@ func combineRuntimeSettingsMutators(mutators ...func(*config.Settings)) func(*co
 }
 
 func useBenchmarkRuntimeTransportOverrides(settings *config.Settings) {
-	settings.RuntimeTransportConfig.MaxIdleConns = benchmarkRuntimeTransportIntEnvOrCurrent("RUNTIME_TRANSPORT_MAX_IDLE_CONNS", settings.RuntimeTransportConfig.MaxIdleConns)
-	settings.RuntimeTransportConfig.MaxIdleConnsPerHost = benchmarkRuntimeTransportIntEnvOrCurrent("RUNTIME_TRANSPORT_MAX_IDLE_CONNS_PER_HOST", settings.RuntimeTransportConfig.MaxIdleConnsPerHost)
-	settings.RuntimeTransportConfig.MaxConnsPerHost = benchmarkRuntimeTransportIntEnvOrCurrent("RUNTIME_TRANSPORT_MAX_CONNS_PER_HOST", settings.RuntimeTransportConfig.MaxConnsPerHost)
-	settings.RuntimeTransportConfig.IdleConnTimeout = benchmarkRuntimeTransportDurationEnvOrCurrent("RUNTIME_TRANSPORT_IDLE_CONN_TIMEOUT", settings.RuntimeTransportConfig.IdleConnTimeout)
-	settings.RuntimeTransportConfig.ResponseHeaderTimeout = benchmarkRuntimeTransportDurationEnvOrCurrent("RUNTIME_TRANSPORT_RESPONSE_HEADER_TIMEOUT", settings.RuntimeTransportConfig.ResponseHeaderTimeout)
-	settings.RuntimeTransportConfig.TLSHandshakeTimeout = benchmarkRuntimeTransportDurationEnvOrCurrent("RUNTIME_TRANSPORT_TLS_HANDSHAKE_TIMEOUT", settings.RuntimeTransportConfig.TLSHandshakeTimeout)
-	settings.RuntimeTransportConfig.ExpectContinueTimeout = benchmarkRuntimeTransportDurationEnvOrCurrent("RUNTIME_TRANSPORT_EXPECT_CONTINUE_TIMEOUT", settings.RuntimeTransportConfig.ExpectContinueTimeout)
-}
-
-func benchmarkRuntimeTransportIntEnvOrCurrent(name string, current int) int {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return current
+	settings.RuntimeTransportConfig = config.RuntimeTransportConfig{
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   8,
+		MaxConnsPerHost:       0,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: 0,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return current
-	}
-	return parsed
-}
-
-func benchmarkRuntimeTransportDurationEnvOrCurrent(name string, current time.Duration) time.Duration {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return current
-	}
-	parsed, err := time.ParseDuration(value)
-	if err != nil {
-		return current
-	}
-	return parsed
 }

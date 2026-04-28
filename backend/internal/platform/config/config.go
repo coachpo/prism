@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -30,7 +29,20 @@ const (
 	RuntimeBufferingModeStreaming RuntimeBufferingMode = "streaming"
 )
 
-const defaultSeedSecretEncryptionKey = "prism-dev-runtime-secret-change-me"
+const (
+	bootstrapDatabaseURLEnv            = "DATABASE_URL"
+	defaultBootstrapHost               = "0.0.0.0"
+	defaultBootstrapPort               = 18000
+	defaultBootstrapDatabaseURL        = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
+	defaultBootstrapCORSAllowedOrigins = "http://localhost:15173,http://127.0.0.1:15173"
+	defaultSeedSecretEncryptionKey     = "prism-dev-runtime-secret-change-me"
+	defaultAuthJWTSecret               = "prism-dev-jwt-secret-change-me-2026"
+	defaultAuthAccessTokenTTLSeconds   = 900
+	defaultAuthRefreshTokenTTLSeconds  = 604800
+	defaultAuthResetCodeTTLSeconds     = 600
+	defaultAuthCookieName              = "prism_access_token"
+	defaultAuthRefreshCookieName       = "prism_refresh_token"
+)
 
 const (
 	defaultRuntimeDatabaseMaxConns               int32 = 4
@@ -92,32 +104,45 @@ type Settings struct {
 }
 
 func Load() Settings {
-	return loadSeedSettingsFromEnv()
+	return loadCanonicalDefaultSettings(resolveDatabaseURLFromEnv())
 }
 
-func loadSeedSettingsFromEnv() Settings {
-	return Settings{
-		Host:                             envOrDefault("HOST", "0.0.0.0"),
-		Port:                             intEnvOrDefault("PORT", 8000),
-		AppEnv:                           parseEnvironment(os.Getenv("APP_ENV")),
-		DatabaseURL:                      strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		RuntimeTelemetryMode:             loadRuntimeTelemetryModeFromEnv(RuntimeTelemetryModeDurableOutbox),
-		RuntimeBufferingMode:             loadRuntimeBufferingModeFromEnv(RuntimeBufferingModeBuffered),
-		RuntimeTransportConfig:           loadRuntimeTransportConfigFromEnv(defaultRuntimeTransportConfig()),
-		RuntimeDatabasePoolBudget:        loadDatabasePoolBudgetFromEnv("RUNTIME_DB", DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns}),
-		ManagementDatabasePoolBudget:     loadDatabasePoolBudgetFromEnv("MANAGEMENT_DB", DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns}),
-		ManagementAdmissionControlBudget: loadManagementAdmissionBudgetFromEnv(ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent}),
-		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
-		ConfigBundleEncryptionKey:        os.Getenv("CONFIG_BUNDLE_ENCRYPTION_KEY"),
-		CORSAllowedOrigins:               envOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"),
-		AuthJWTSecret:                    envOrDefault("AUTH_JWT_SECRET", "prism-dev-jwt-secret-change-me-2026"),
-		AuthAccessTokenTTLSeconds:        intEnvOrDefault("AUTH_ACCESS_TOKEN_TTL_SECONDS", 900),
-		AuthRefreshTokenTTLSeconds:       intEnvOrDefault("AUTH_REFRESH_TOKEN_TTL_SECONDS", 604800),
-		AuthResetCodeTTLSeconds:          intEnvOrDefault("AUTH_RESET_CODE_TTL_SECONDS", 600),
-		AuthCookieName:                   envOrDefault("AUTH_COOKIE_NAME", "prism_access_token"),
-		AuthRefreshCookieName:            envOrDefault("AUTH_REFRESH_COOKIE_NAME", "prism_refresh_token"),
-		AuthCookieSecure:                 boolEnvOrDefault("AUTH_COOKIE_SECURE", false),
+func loadCanonicalDefaultSettings(databaseURL string) Settings {
+	resolvedDatabaseURL := strings.TrimSpace(databaseURL)
+	if resolvedDatabaseURL == "" {
+		resolvedDatabaseURL = defaultBootstrapDatabaseURL
 	}
+
+	return Settings{
+		Host:                             defaultBootstrapHost,
+		Port:                             defaultBootstrapPort,
+		AppEnv:                           EnvironmentDevelopment,
+		DatabaseURL:                      resolvedDatabaseURL,
+		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
+		RuntimeBufferingMode:             RuntimeBufferingModeBuffered,
+		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
+		RuntimeDatabasePoolBudget:        DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns},
+		ManagementDatabasePoolBudget:     DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns},
+		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent},
+		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
+		ConfigBundleEncryptionKey:        defaultSeedSecretEncryptionKey,
+		CORSAllowedOrigins:               defaultBootstrapCORSAllowedOrigins,
+		AuthJWTSecret:                    defaultAuthJWTSecret,
+		AuthAccessTokenTTLSeconds:        defaultAuthAccessTokenTTLSeconds,
+		AuthRefreshTokenTTLSeconds:       defaultAuthRefreshTokenTTLSeconds,
+		AuthResetCodeTTLSeconds:          defaultAuthResetCodeTTLSeconds,
+		AuthCookieName:                   defaultAuthCookieName,
+		AuthRefreshCookieName:            defaultAuthRefreshCookieName,
+		AuthCookieSecure:                 false,
+	}
+}
+
+func resolveDatabaseURLFromEnv() string {
+	value := strings.TrimSpace(os.Getenv(bootstrapDatabaseURLEnv))
+	if value == "" {
+		return defaultBootstrapDatabaseURL
+	}
+	return value
 }
 
 func (s Settings) ResolvedRuntimeTelemetryMode() RuntimeTelemetryMode {
@@ -173,53 +198,6 @@ func (s Settings) CORSAllowedOriginsList() []string {
 	return origins
 }
 
-func envOrDefault(name string, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback
-	}
-
-	return value
-}
-
-func intEnvOrDefault(name string, fallback int) int {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return fallback
-	}
-
-	return parsed
-}
-
-func boolEnvOrDefault(name string, fallback bool) bool {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func durationEnvOrDefault(name string, fallback time.Duration) time.Duration {
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := time.ParseDuration(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
 func defaultRuntimeTransportConfig() RuntimeTransportConfig {
 	return RuntimeTransportConfig{
 		MaxIdleConns:          defaultRuntimeTransportMaxIdleConns,
@@ -230,50 +208,6 @@ func defaultRuntimeTransportConfig() RuntimeTransportConfig {
 		TLSHandshakeTimeout:   defaultRuntimeTransportTLSHandshakeTimeout,
 		ExpectContinueTimeout: defaultRuntimeTransportExpectContinueTimeout,
 	}
-}
-
-func loadDatabasePoolBudgetFromEnv(prefix string, defaults DatabasePoolBudget) DatabasePoolBudget {
-	return normalizeDatabasePoolBudget(
-		DatabasePoolBudget{
-			MaxConns:     int32(intEnvOrDefault(prefix+"_MAX_CONNS", int(defaults.MaxConns))),
-			MinIdleConns: int32(intEnvOrDefault(prefix+"_MIN_IDLE_CONNS", int(defaults.MinIdleConns))),
-		},
-		defaults,
-	)
-}
-
-func loadManagementAdmissionBudgetFromEnv(defaults ManagementAdmissionBudget) ManagementAdmissionBudget {
-	return normalizeManagementAdmissionBudget(
-		ManagementAdmissionBudget{
-			M2MaxConcurrent: int64(intEnvOrDefault("MANAGEMENT_ADMISSION_M2_MAX_CONCURRENT", int(defaults.M2MaxConcurrent))),
-			M3MaxConcurrent: int64(intEnvOrDefault("MANAGEMENT_ADMISSION_M3_MAX_CONCURRENT", int(defaults.M3MaxConcurrent))),
-		},
-		defaults,
-		0,
-	)
-}
-
-func loadRuntimeTransportConfigFromEnv(defaults RuntimeTransportConfig) RuntimeTransportConfig {
-	return normalizeRuntimeTransportConfig(
-		RuntimeTransportConfig{
-			MaxIdleConns:          intEnvOrDefault("RUNTIME_TRANSPORT_MAX_IDLE_CONNS", defaults.MaxIdleConns),
-			MaxIdleConnsPerHost:   intEnvOrDefault("RUNTIME_TRANSPORT_MAX_IDLE_CONNS_PER_HOST", defaults.MaxIdleConnsPerHost),
-			MaxConnsPerHost:       intEnvOrDefault("RUNTIME_TRANSPORT_MAX_CONNS_PER_HOST", defaults.MaxConnsPerHost),
-			IdleConnTimeout:       durationEnvOrDefault("RUNTIME_TRANSPORT_IDLE_CONN_TIMEOUT", defaults.IdleConnTimeout),
-			ResponseHeaderTimeout: durationEnvOrDefault("RUNTIME_TRANSPORT_RESPONSE_HEADER_TIMEOUT", defaults.ResponseHeaderTimeout),
-			TLSHandshakeTimeout:   durationEnvOrDefault("RUNTIME_TRANSPORT_TLS_HANDSHAKE_TIMEOUT", defaults.TLSHandshakeTimeout),
-			ExpectContinueTimeout: durationEnvOrDefault("RUNTIME_TRANSPORT_EXPECT_CONTINUE_TIMEOUT", defaults.ExpectContinueTimeout),
-		},
-		defaults,
-	)
-}
-
-func loadRuntimeTelemetryModeFromEnv(fallback RuntimeTelemetryMode) RuntimeTelemetryMode {
-	return normalizeRuntimeTelemetryMode(RuntimeTelemetryMode(envOrDefault("RUNTIME_TELEMETRY_MODE", string(fallback))))
-}
-
-func loadRuntimeBufferingModeFromEnv(fallback RuntimeBufferingMode) RuntimeBufferingMode {
-	return normalizeRuntimeBufferingMode(RuntimeBufferingMode(envOrDefault("RUNTIME_BUFFERING_MODE", string(fallback))))
 }
 
 func normalizeDatabasePoolBudget(candidate DatabasePoolBudget, defaults DatabasePoolBudget) DatabasePoolBudget {
@@ -356,18 +290,5 @@ func normalizeRuntimeBufferingMode(candidate RuntimeBufferingMode) RuntimeBuffer
 		fallthrough
 	default:
 		return RuntimeBufferingModeBuffered
-	}
-}
-
-func parseEnvironment(value string) Environment {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", string(EnvironmentDevelopment):
-		return EnvironmentDevelopment
-	case string(EnvironmentTest):
-		return EnvironmentTest
-	case string(EnvironmentProduction):
-		return EnvironmentProduction
-	default:
-		return EnvironmentDevelopment
 	}
 }
