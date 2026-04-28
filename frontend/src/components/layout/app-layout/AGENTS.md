@@ -12,7 +12,7 @@ app-layout/
 ├── ProfileDialogs.tsx          # Create, edit, activate, and delete profile dialogs
 ├── ProfileSwitcher.tsx         # Sidebar header profile switcher trigger and actions
 ├── SiteHeader.tsx              # Shell header chrome, sidebar trigger, and breadcrumbs
-├── shell state hook           # Shell composition over auth, profile, dialogs, sidebar state, and route-scope checks
+├── useAppLayoutState.ts        # Shell composition over auth, profile, dialogs, sidebar state, and route-scope checks
 ├── useProfileDialogState.ts    # Profile dialog open state and mutation handlers
 ├── useProfileSwitcherState.ts  # Switcher open, close, and select behavior
 ├── useShellNavigation.ts       # Breadcrumb and route-scope handoff for settings hashes and request-log detail mode
@@ -25,7 +25,7 @@ app-layout/
 - Shell composition and `Outlet` handoff: `../page.tsx`
 - Sidebar links, profile-scoped route prefixes, max profile count, and visible version label: `navigationProfileConfig.ts`
 - Breadcrumb and route-scope handoff for settings hashes and request-log detail mode: `useShellNavigation.ts`, `navigationProfileConfig.ts`
-- Auth/profile context composition, sidebar state, route-scope detection, and logout flow: the shell state hook
+- Auth/profile context composition, sidebar state, route-scope detection, and logout flow: `useAppLayoutState.ts`
 - Dialog open state and profile CRUD/activate/delete handlers: `useProfileDialogState.ts`, `ProfileDialogs.tsx`
 - Switcher open, close, and selection behavior: `useProfileSwitcherState.ts`, `ProfileSwitcher.tsx`
 - Conflict copy parsing for profile-limit and duplicate-name flows: `profileConflictMessageParser.ts`
@@ -35,10 +35,10 @@ app-layout/
 
 ## CONVENTIONS
 
-- Keep `page.tsx` thin. State composition belongs in the shell state hook.
+- Keep `page.tsx` thin. State composition belongs in `useAppLayoutState.ts`.
 - Keep navigation, profile-scoped prefixes, profile cap, and version-label formatting in `navigationProfileConfig.ts`.
 - Keep breadcrumb, settings-hash, and request-log detail handoff in `useShellNavigation.ts`.
-- Use `useAuth()` and `useProfileContext()` through the shell state hook; route shells should not duplicate shell bootstrap logic.
+- Use `useAuth()` and `useProfileContext()` through `useAppLayoutState.ts`; route shells should not duplicate shell bootstrap logic.
 - Keep dialog mutation handlers in `useProfileDialogState.ts`, with `ProfileDialogs.tsx` staying presentation-focused.
 - Keep profile switcher open, close, and selection behavior in `useProfileSwitcherState.ts` instead of scattering it across header or sidebar components.
 - Keep footer preferences, logout, and version-label concerns in `NavUser.tsx`.

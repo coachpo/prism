@@ -1,14 +1,14 @@
 # FRONTEND MODEL DETAIL DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx` and `../ProxyModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered proxy-target summary/editing for proxy models, connection mutation flows, manual health checks, 24-hour KPIs, model-scoped loadbalance events, current recovery state (cooldown plus ban state), and the parent-covered `connections-list/` UI cluster.
+`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx` and `../ProxyModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered proxy-target summary/editing for proxy models, connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current recovery state (cooldown plus ban state), and the parent-covered `connections-list/` UI cluster.
 
 ## STRUCTURE
 ```
 model-detail/
 ├── useModelDetailData.ts             # High-level page composition
 ├── useModelDetailPageShell.ts        # Route-shell tabs, header state, and page composition handoff
-├── useModelDetailBootstrap.ts        # Parallel bootstrap fetches and redirects
+├── useModelDetailBootstrap.ts        # Parallel bootstrap fetches, redirects, and spending summary load
 ├── useModelDetailConnectionFlows.ts  # Create, edit, delete, and reorder orchestration
 ├── useModelDetailConnectionMutations.ts
 ├── useModelDetailDialogState.ts
@@ -16,7 +16,6 @@ model-detail/
 ├── useModelDetailModelForm.ts
 ├── useConnectionHealthChecks.ts
 ├── useConnectionFocus.ts
-├── useModelDetailMetrics24h.ts
 ├── useModelLoadbalanceCurrentState.ts
 ├── OverviewCards.tsx
 ├── ModelDetailHeader.tsx
@@ -37,7 +36,7 @@ model-detail/
 - High-level composition and page-owned side effects: `useModelDetailData.ts`
 - Bootstrap fetches, focus handoff, and redirect handling: `useModelDetailBootstrap.ts`, `useConnectionFocus.ts`
 - Connection create, edit, delete, and reorder flows: `useModelDetailConnectionFlows.ts`, `useModelDetailConnectionMutations.ts`, `useModelDetailDialogState.ts`
-- Health checks and 24-hour KPI loading: `useConnectionHealthChecks.ts`, `useModelDetailMetrics24h.ts`, `OverviewCards.tsx`
+- Health checks and spending-summary loading: `useConnectionHealthChecks.ts`, `useModelDetailBootstrap.ts`, `useModelDetailData.ts`, `OverviewCards.tsx`
 - Default forms, ordered proxy-target options, strategy summary helpers, and optimistic helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`, `ModelSettingsDialog.tsx`, `ProxyTargetsCard.tsx`
 - Connection list shell plus local cluster: `ConnectionsList.tsx`, `connections-list/`
 - Model-scoped loadbalance event refresh, paging, and detail wiring: `LoadbalanceEventsTab.tsx`, `useModelLoadbalanceEvents.ts`, `../../components/AGENTS.md`
@@ -51,7 +50,7 @@ model-detail/
 - Use `Promise.allSettled` for health-check batches so one failing connection does not collapse the page.
 - Keep model loadbalance current state in `useModelLoadbalanceCurrentState.ts`, including refresh and reset actions, instead of scattering cooldown/ban state inside cards or tabs.
 - Keep optimistic priority reordering in the hook layer plus the connection-list helpers, and revert UI order if the backend PATCH fails.
-- Keep connection-card recovery copy in `connections-list/ConnectionCardSectionsShared.ts`; tone labels and reset wording in `ConnectionCardCooldownState.tsx` should stay presentation-only.
+- Keep connection-card recovery copy in `connections-list/ConnectionCardSectionsShared.ts`; tone labels and reset wording in `connections-list/ConnectionCardCooldownState.tsx` should stay presentation-only.
 - Keep loadbalance event badge/detail rendering in the shared `src/components/loadbalance/` components; `LoadbalanceEventsTab.tsx` should remain a thin page shell.
 - Keep proxy-target option building and update payload shaping in `useModelDetailDataSupport.ts` / `useModelDetailModelForm.ts`; proxy-target card/dialog rendering should stay presentation-focused.
 - Treat `connections-list/` as a local cluster that stays documented here. It supports the parent route and should not get its own AGENTS file.
