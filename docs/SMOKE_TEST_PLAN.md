@@ -306,6 +306,7 @@ Prepare seed state through API (not manual DB edits):
 | F12 | P0 | Audit filters/pagination | Correct subsets and totals |
 | F13 | P0 | Audit delete validation | `400` |
 | F14 | P1 | Audit non-interference on write failure | Proxy response unaffected |
+| F15 | P0 | Orphan audit row visibility | Audit rows with null `request_log_id` remain visible in audit APIs and keep request-time provenance |
 
 ## G. Batch Deletion and FK Semantics
 
@@ -367,8 +368,8 @@ Prepare seed state through API (not manual DB edits):
 | I05 | P0 | Statistics cards and request table | Data renders and updates |
 | I06 | P0 | Statistics "All" time range consistency | Summary totals align with table totals |
 | I07 | P0 | Statistics api_family filter | Only OpenAI/Anthropic/Gemini options |
-| I08 | P0 | Audit list/filter/detail UI | Works end-to-end; stream notice shown |
-| I09 | P0 | Settings audit toggles | Persist and reflect backend |
+| I08 | P0 | Audit list/filter/detail UI | Works end-to-end; stream notice shown; request-time provenance distinguishes disabled, metadata-only, and full capture |
+| I09 | P0 | Settings audit toggles | Persist and reflect backend; active-request provenance stays frozen after toggles |
 | I10 | P0 | Settings data management preset buttons | Correct API calls and toasts |
 | I11 | P1 | Connection custom header editor | Add/remove/persist roundtrip |
 | I12 | P1 | Frontend error details | Backend `detail` surfaced to user |

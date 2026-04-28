@@ -1705,7 +1705,7 @@ Response `200`:
 ```
 
 The list API returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail API for full content.
-If vendor body capture is disabled, `request_body_preview` is `null`.
+If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. Streaming responses never store `response_body`, so a streaming row may still have request metadata with a null response body. Rows whose `request_log_id` is `null` are orphaned audit rows from deleted request logs, and they remain visible in the audit APIs.
 Rows are ordered by `created_at DESC`.
 
 ### 5.2 Get Audit Log Detail
@@ -2181,3 +2181,4 @@ Scope-control errors follow this format:
 ## 10. OpenAPI Spec
 
 The checked-in OpenAPI artifact is the management-and-health contract served at `/openapi.json`. It stays aligned with the narrative docs, but the narrative docs remain the source of truth for the Phase 1 upgrade contract.
+ract.

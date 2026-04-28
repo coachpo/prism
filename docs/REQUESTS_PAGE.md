@@ -96,7 +96,9 @@ Required behavior:
 
 - Avoid audit fetches during normal table browsing.
 - Skip linked-audit fetches entirely when `audit_enabled_at_request` is `false`.
+- Treat `audit_capture_bodies_at_request` as the request-time provenance flag for metadata-only vs full capture instead of inferring from body presence.
 - Retry linked-audit lookup up to five times with a one-second delay when the linked audit list is still empty or audit fetches fail transiently.
+- Keep orphaned audit rows visible when linked request logs were deleted, while still treating `request_log_id` as nullable provenance rather than a browse filter.
 - Resolve audit detail rows with `Promise.allSettled()` so one failed detail fetch does not hide other captured rows.
 - Keep audit loading isolated from the main request-list fetch lifecycle.
 

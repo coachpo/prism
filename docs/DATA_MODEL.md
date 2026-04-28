@@ -563,6 +563,10 @@ Audit rows for upstream attempts with immutable profile attribution.
 | endpoint_description | TEXT | NULLABLE | Endpoint description snapshot |
 | request_method/request_url/request_headers/request_body | mixed | request fields | Upstream request snapshot |
 | response_status/response_headers/response_body | mixed | response fields | Upstream response snapshot |
+| audit_enabled_at_request | BOOLEAN | NOT NULL | Whether audit was enabled when the request started |
+| audit_capture_bodies_at_request | BOOLEAN | NOT NULL | Whether body capture was enabled when the request started |
+| request_body_stored | BOOLEAN | NOT NULL | Whether request body content was stored |
+| response_body_stored | BOOLEAN | NOT NULL | Whether response body content was stored |
 | is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
 | duration_ms | INTEGER | NOT NULL | Request duration |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Audit timestamp |

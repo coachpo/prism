@@ -373,8 +373,8 @@ Request-log semantics are per-attempt: one incoming runtime request can create m
 
 ### 8.1 Concept
 
-Full HTTP request/response recording for proxied requests, toggled per vendor when vendor metadata exists. Vendorless models do not synthesize audit defaults from `api_family`. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
-Audit rows are written per upstream attempt, including failover attempts.
+Audit logging records the request-time provenance that was active when the request started. Vendorless models do not synthesize audit defaults from `api_family`; the request keeps the mode it started with, whether audit was disabled, metadata only, or full capture. Sensitive data in headers (API keys, auth tokens) is redacted before storage.
+Audit rows are written per upstream attempt, including failover attempts, and metadata-only requests still create audit metadata even when bodies are not stored.
 
 ### 8.2 Audit Flow (Non-Streaming)
 
@@ -413,7 +413,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
            -> Record connection metadata (connection_id, endpoint_base_url, endpoint_description)
            -> Link to request_log entry via request_log_id
            -> Store immutable profile_id attribution
-           -> response_body = NULL (streaming bodies are never stored)
+           -> response_body = NULL for streaming captures, because response bodies are not stored for streamed responses
             -> INSERT into audit_logs using a dedicated audit write path
 ```
 
