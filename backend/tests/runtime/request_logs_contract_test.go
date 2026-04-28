@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,16 +78,30 @@ func TestRequestLogListContract(t *testing.T) {
 	if staleItem["endpoint_label"] != "Endpoint 999" {
 		t.Fatalf("expected stale request-log row to keep synthetic endpoint label, got %+v", staleItem)
 	}
-	if pricedFlag, ok := staleItem["priced_flag"].(bool); !ok || !pricedFlag {
-		t.Fatalf("expected stale request-log row priced_flag=true, got %+v", staleItem)
+	if pricedFlag, ok := staleItem["priced_flag"].(bool); !ok || pricedFlag {
+		t.Fatalf("expected stale request-log row priced_flag=false when cost is missing, got %+v", staleItem)
 	}
-	if unpricedReason, ok := staleItem["unpriced_reason"]; !ok || unpricedReason != nil {
-		t.Fatalf("expected stale request-log row unpriced_reason=null, got %+v", staleItem)
+	if staleItem["unpriced_reason"] != "MISSING_PRICE_DATA" {
+		t.Fatalf("expected stale request-log row unpriced_reason=MISSING_PRICE_DATA when cost is missing, got %+v", staleItem)
 	}
 	endpoints := payload["filter_options"].(map[string]any)["endpoints"].([]any)
 	firstEndpoint := endpoints[0].(map[string]any)
 	if firstEndpoint["endpoint_id"] != float64(999) || firstEndpoint["endpoint_label"] != "Endpoint 999" {
 		t.Fatalf("expected stale endpoint option to prepend synthetic label, got %+v", payload)
+	}
+	staleDetailResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/102", nil, runtimeModelHeader(profileID))
+	assertStatus(t, staleDetailResponse, http.StatusOK)
+	decodeJSONResponse(t, staleDetailResponse, &payload)
+	staleUsage := asMapRuntime(t, payload["usage"])
+	if pricedFlag, ok := staleUsage["priced_flag"].(bool); !ok || pricedFlag {
+		t.Fatalf("expected stale request-log detail usage.priced_flag=false when cost is missing, got %+v", staleUsage)
+	}
+	if staleUsage["unpriced_reason"] != "MISSING_PRICE_DATA" {
+		t.Fatalf("expected stale request-log detail usage.unpriced_reason=MISSING_PRICE_DATA when cost is missing, got %+v", staleUsage)
+	}
+	staleCosting := asMapRuntime(t, payload["costing"])
+	if totalCost, ok := staleCosting["total_cost_user_currency_micros"]; !ok || totalCost != nil {
+		t.Fatalf("expected stale request-log detail costing.total_cost_user_currency_micros=null when cost is missing, got %+v", staleCosting)
 	}
 	staleModelResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?model_id=stale-selected-model&limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, staleModelResponse, http.StatusOK)
@@ -122,6 +137,10 @@ func TestRequestLogDetailContract(t *testing.T) {
 	auditEnabledAtRequest, ok := routing["audit_enabled_at_request"].(bool)
 	if !ok || auditEnabledAtRequest {
 		t.Fatalf("expected request-log detail routing.audit_enabled_at_request=false boolean, got %+v", routing)
+	}
+	auditCaptureBodiesAtRequest, ok := routing["audit_capture_bodies_at_request"].(bool)
+	if !ok || auditCaptureBodiesAtRequest {
+		t.Fatalf("expected request-log detail routing.audit_capture_bodies_at_request=false boolean, got %+v", routing)
 	}
 	for _, absent := range []string{"model_id", "resolved_target_model_id", "api_family", "vendor_id", "vendor_key", "vendor_name"} {
 		if _, ok := routing[absent]; ok {
@@ -179,6 +198,148 @@ func TestRuntimeRequestLogPersistsAuditEnabledSnapshot(t *testing.T) {
 		t.Fatalf("expected runtime request log to persist audit_enabled_at_request=true for audit-enabled executed vendor")
 	}
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+}
+
+func TestRuntimeAuditLogMaterializesMetadataOnlyThroughTelemetryOutbox(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = FALSE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable metadata-only audit for runtime vendor: %v", err)
+	}
+	publicModelID := "audit-metadata-public-" + randomSuffix()
+	targetModelID := "audit-metadata-target-" + randomSuffix()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: harness.upstream.baseURL("/audit-metadata-only"),
+		EndpointAPIKey:  "runtime-audit-metadata-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to metadata-only audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "persist metadata-only audit row"}}, "model": route.PublicModelID}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestAuditEnabled bool
+	var requestAuditCaptureBodies bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT audit_enabled_at_request, audit_capture_bodies_at_request FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestAuditEnabled, &requestAuditCaptureBodies); err != nil {
+		t.Fatalf("load persisted metadata-only request-log audit snapshot: %v", err)
+	}
+	if !requestAuditEnabled || requestAuditCaptureBodies {
+		t.Fatalf("expected metadata-only request log snapshot true/false, got enabled=%v capture=%v", requestAuditEnabled, requestAuditCaptureBodies)
+	}
+
+	var requestBody sql.NullString
+	var requestBodyStored bool
+	var responseBody sql.NullString
+	var responseBodyStored bool
+	var auditEnabledAtRequest bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, request_body_stored, response_body, response_body_stored, audit_enabled_at_request, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &requestBodyStored, &responseBody, &responseBodyStored, &auditEnabledAtRequest, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load materialized metadata-only audit log: %v", err)
+	}
+	if requestBody.Valid || requestBodyStored || responseBody.Valid || responseBodyStored || !auditEnabledAtRequest || auditCaptureBodiesAtRequest {
+		t.Fatalf("expected metadata-only audit row with nil bodies and true/false provenance, got request=%+v requestStored=%v response=%+v responseStored=%v enabled=%v capture=%v", requestBody, requestBodyStored, responseBody, responseBodyStored, auditEnabledAtRequest, auditCaptureBodiesAtRequest)
+	}
+}
+
+func TestRuntimeAuditLogCapturesBodiesThroughTelemetryOutbox(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable full audit capture for runtime vendor: %v", err)
+	}
+	publicModelID := "audit-bodies-public-" + randomSuffix()
+	targetModelID := "audit-bodies-target-" + randomSuffix()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: harness.upstream.baseURL("/audit-capture-bodies"),
+		EndpointAPIKey:  "runtime-audit-bodies-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to full-capture audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"messages": []map[string]any{{"role": "user", "content": "persist full audit row"}}, "model": route.PublicModelID}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestBody sql.NullString
+	var requestBodyStored bool
+	var responseBody sql.NullString
+	var responseBodyStored bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, request_body_stored, response_body, response_body_stored, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &requestBodyStored, &responseBody, &responseBodyStored, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load materialized full-capture audit log: %v", err)
+	}
+	if !requestBody.Valid || !requestBodyStored || !responseBody.Valid || !responseBodyStored || !auditCaptureBodiesAtRequest {
+		t.Fatalf("expected full-capture audit row with stored request/response bodies and true provenance, got request=%+v requestStored=%v response=%+v responseStored=%v capture=%v", requestBody, requestBodyStored, responseBody, responseBodyStored, auditCaptureBodiesAtRequest)
+	}
+	if !strings.Contains(requestBody.String, route.TargetModelID) {
+		t.Fatalf("expected stored audit request body to reflect rewritten upstream target model %q, got %q", route.TargetModelID, requestBody.String)
+	}
+	if !strings.Contains(responseBody.String, `"id"`) {
+		t.Fatalf("expected stored audit response body to preserve upstream JSON payload, got %q", responseBody.String)
+	}
+}
+
+func TestRuntimeStreamingAuditLogDoesNotClaimStoredResponseBody(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable streaming audit capture for runtime vendor: %v", err)
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.created\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n")
+		_, _ = io.WriteString(w, "event: response.completed\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n")
+	}))
+	defer upstream.Close()
+	publicModelID := "audit-stream-public-" + randomSuffix()
+	targetModelID := "audit-stream-target-" + randomSuffix()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "runtime-audit-stream-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to streaming audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": []map[string]any{{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": "truthful streaming audit"}}}}, "stream": true}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var requestBody sql.NullString
+	var requestBodyStored bool
+	var responseBody sql.NullString
+	var responseBodyStored bool
+	var isStream bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, request_body_stored, response_body, response_body_stored, is_stream, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &requestBodyStored, &responseBody, &responseBodyStored, &isStream, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load materialized streaming audit log: %v", err)
+	}
+	if !requestBody.Valid || !requestBodyStored || responseBody.Valid || responseBodyStored || !isStream || !auditCaptureBodiesAtRequest {
+		t.Fatalf("expected streaming audit row to keep request body but no stored response body, got request=%+v requestStored=%v response=%+v responseStored=%v isStream=%v capture=%v", requestBody, requestBodyStored, responseBody, responseBodyStored, isStream, auditCaptureBodiesAtRequest)
+	}
 }
 
 func TestRuntimeRequestLogsPreserveRequestedAndResolvedModelIdentity(t *testing.T) {
@@ -367,6 +528,142 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
 	if usageEventRow != want {
 		t.Fatalf("expected usage_request_events pricing row %+v, got %+v", want, usageEventRow)
+	}
+}
+
+func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	var reportCurrencyCode string
+	var reportCurrencySymbol string
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT report_currency_code, report_currency_symbol FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`,
+		profileID,
+	).Scan(&reportCurrencyCode, &reportCurrencySymbol); err != nil {
+		t.Fatalf("load runtime report currency snapshot: %v", err)
+	}
+
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-runtime-pricing-zero-cost-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":     10,
+			"completion_tokens": 6,
+			"total_tokens":      16,
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "priced-zero-public-" + suffix,
+		TargetModelID:   "priced-zero-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/zero-cost"),
+		EndpointAPIKey:  "runtime-priced-zero-key",
+	})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-zero-cost-"+suffix, reportCurrencyCode, "0", "0", nil, nil, nil)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "keep priced zero distinct from unpriced"}},
+			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected priced-zero runtime request to hit upstream exactly once, got %d", got)
+	}
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+
+	want := runtimePersistedPricingRow{
+		AttemptMetric:                1,
+		BillableFlag:                 sql.NullBool{Bool: true, Valid: true},
+		PricedFlag:                   sql.NullBool{Bool: true, Valid: true},
+		InputTokens:                  sql.NullInt64{Int64: 10, Valid: true},
+		OutputTokens:                 sql.NullInt64{Int64: 6, Valid: true},
+		TotalTokens:                  sql.NullInt64{Int64: 16, Valid: true},
+		InputCostMicros:              sql.NullInt64{Int64: 0, Valid: true},
+		OutputCostMicros:             sql.NullInt64{Int64: 0, Valid: true},
+		CacheReadInputCostMicros:     sql.NullInt64{Int64: 0, Valid: true},
+		CacheCreationInputCostMicros: sql.NullInt64{Int64: 0, Valid: true},
+		ReasoningCostMicros:          sql.NullInt64{Int64: 0, Valid: true},
+		TotalCostOriginalMicros:      sql.NullInt64{Int64: 0, Valid: true},
+		TotalCostUserCurrencyMicros:  sql.NullInt64{Int64: 0, Valid: true},
+		CurrencyCodeOriginal:         sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencyCode:           sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencySymbol:         sql.NullString{String: reportCurrencySymbol, Valid: true},
+		FXRateUsed:                   sql.NullString{String: "1", Valid: true},
+		FXRateSource:                 sql.NullString{String: "DEFAULT_1_TO_1", Valid: true},
+		PricingSnapshotUnit:          sql.NullString{String: "PER_1M", Valid: true},
+		PricingSnapshotInput:         sql.NullString{String: "0", Valid: true},
+		PricingSnapshotOutput:        sql.NullString{String: "0", Valid: true},
+		PricingConfigVersionUsed:     sql.NullInt64{Int64: 1, Valid: true},
+	}
+	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
+	if requestLogRow != want {
+		t.Fatalf("expected priced-zero request_logs pricing row %+v, got %+v", want, requestLogRow)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
+	if usageEventRow != want {
+		t.Fatalf("expected priced-zero usage_request_events pricing row %+v, got %+v", want, usageEventRow)
+	}
+
+	listResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	items, ok := listPayload["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one priced-zero request-log list row, got %+v", listPayload)
+	}
+	listItem := asMapRuntime(t, items[0])
+	if pricedFlag, ok := listItem["priced_flag"].(bool); !ok || !pricedFlag {
+		t.Fatalf("expected priced-zero request-log list row priced_flag=true, got %+v", listItem)
+	}
+	if unpricedReason, ok := listItem["unpriced_reason"]; !ok || unpricedReason != nil {
+		t.Fatalf("expected priced-zero request-log list row unpriced_reason=null, got %+v", listItem)
+	}
+	if jsonInt(t, listItem["total_cost_user_currency_micros"]) != 0 {
+		t.Fatalf("expected priced-zero request-log list row total_cost_user_currency_micros=0, got %+v", listItem)
+	}
+	requestID := jsonInt(t, listItem["id"])
+
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	usage := asMapRuntime(t, detailPayload["usage"])
+	if pricedFlag, ok := usage["priced_flag"].(bool); !ok || !pricedFlag {
+		t.Fatalf("expected priced-zero request-log detail usage.priced_flag=true, got %+v", usage)
+	}
+	if unpricedReason, ok := usage["unpriced_reason"]; !ok || unpricedReason != nil {
+		t.Fatalf("expected priced-zero request-log detail usage.unpriced_reason=null, got %+v", usage)
+	}
+	costing := asMapRuntime(t, detailPayload["costing"])
+	if jsonInt(t, costing["total_cost_user_currency_micros"]) != 0 {
+		t.Fatalf("expected priced-zero request-log detail costing.total_cost_user_currency_micros=0, got %+v", costing)
+	}
+	if costing["fx_rate_used"] != "1" || costing["fx_rate_source"] != "DEFAULT_1_TO_1" {
+		t.Fatalf("expected priced-zero request-log detail costing fx provenance to stay explicit, got %+v", costing)
+	}
+
+	spendingResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/spending?preset=1h&group_by=none&limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, spendingResponse, http.StatusOK)
+	var spendingPayload map[string]any
+	decodeJSONResponse(t, spendingResponse, &spendingPayload)
+	summary := asMapRuntime(t, spendingPayload["summary"])
+	if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 0 || jsonInt(t, summary["total_cost_micros"]) != 0 {
+		t.Fatalf("expected priced-zero spending summary to stay priced with zero cost, got %+v", summary)
+	}
+	unpricedBreakdown := asMapRuntime(t, spendingPayload["unpriced_breakdown"])
+	if len(unpricedBreakdown) != 0 {
+		t.Fatalf("expected priced-zero spending breakdown to stay empty, got %+v", unpricedBreakdown)
 	}
 }
 
@@ -1246,7 +1543,7 @@ func seedRequestLogUserAgentRules(t *testing.T, harness *requestLogContractHarne
 func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, profileID int) {
 	t.Helper()
 	createdAt := time.Date(2026, 4, 18, 12, 34, 56, 0, time.UTC)
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, vendor_id, vendor_key, vendor_name, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NULL, $24, $25, $26, $27, $28, $29, $30, $31, $32, NULL, NULL, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, NULL, $45, $46, $47, $48, $49, $50, $51)`, 101, profileID, "gpt-4o", "openai", 1, "openai", "OpenAI", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, vendor_id, vendor_key, vendor_name, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NULL, $24, $25, $26, $27, $28, $29, $30, $31, $32, NULL, NULL, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, NULL, $45, $46, $47, $48, $49, $50, $51, $52)`, 101, profileID, "gpt-4o", "openai", 1, "openai", "OpenAI", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false, false); err != nil {
 		t.Fatalf("seed fixture request log: %v", err)
 	}
 }
@@ -1257,14 +1554,14 @@ func seedSimpleRequestLog(t *testing.T, harness *requestLogContractHarness, prof
 	if endpointBaseURL != nil {
 		historicalBaseURL = *endpointBaseURL
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request) VALUES ($1, $2, 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, endpoint_base_url, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'gpt-4o', 'openai', $3, NULL, $4, 1, $5, 200, 120, FALSE, TRUE, TRUE, TRUE, '/v1/chat/completions', $6, $7, FALSE)`, id, profileID, endpointID, fmt.Sprintf("req-%d", id), historicalBaseURL, createdAt, auditEnabledAtRequest); err != nil {
 		t.Fatalf("seed simple request log %d: %v", id, err)
 	}
 }
 
 func seedRuntimeAuditLog(t *testing.T, harness *requestLogContractHarness, auditLogID int, profileID int, requestLogID int, createdAt time.Time) {
 	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, response_headers, response_body, is_stream, duration_ms, created_at) VALUES ($1, $2, $3, NULL, 'gpt-4o', NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', '{"authorization":"Bearer [REDACTED]"}', '{"messages":[{"role":"user","content":"hidden"}]}', 200, '{"x-request-id":"req-hidden"}', '{"ok":true}', FALSE, 1234, $4)`, auditLogID, profileID, requestLogID, createdAt); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, $3, NULL, 'gpt-4o', NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', '{"authorization":"Bearer [REDACTED]"}', '{"messages":[{"role":"user","content":"hidden"}]}', TRUE, 200, '{"x-request-id":"req-hidden"}', '{"ok":true}', TRUE, FALSE, 1234, FALSE, TRUE, $4)`, auditLogID, profileID, requestLogID, createdAt); err != nil {
 		t.Fatalf("seed runtime audit log %d: %v", auditLogID, err)
 	}
 }

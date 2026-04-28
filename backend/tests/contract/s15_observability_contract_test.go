@@ -102,7 +102,7 @@ func TestEndpointModelStatistics(t *testing.T) {
 		t.Fatalf("expected one endpoint-model statistics row, got %+v", payload)
 	}
 	row := payload[0]
-	if row["model_id"] != "endpoint-model" || row["model_label"] != "Endpoint Model" || jsonInt(t, row["request_count"]) != 3 || jsonInt(t, row["success_count"]) != 2 || jsonInt(t, row["failed_count"]) != 1 || jsonInt(t, row["priced_request_count"]) != 1 || jsonInt(t, row["unpriced_request_count"]) != 1 {
+	if row["model_id"] != "endpoint-model" || row["model_label"] != "Endpoint Model" || jsonInt(t, row["request_count"]) != 3 || jsonInt(t, row["success_count"]) != 2 || jsonInt(t, row["failed_count"]) != 1 || jsonInt(t, row["priced_request_count"]) != 0 || jsonInt(t, row["unpriced_request_count"]) != 2 {
 		t.Fatalf("unexpected endpoint-model statistics payload: %+v", row)
 	}
 	if jsonInt(t, row["p50_ttft_ms"]) != 250 || jsonInt(t, row["p95_ttft_ms"]) != 385 || math.Abs(row["avg_output_rate_tps"].(float64)-24.74) > 0.001 {
@@ -226,6 +226,41 @@ func TestSpending(t *testing.T) {
 	}
 }
 
+func TestObservabilityTreatsSuccessfulMissingCostRowsAsUnpriced(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertUsageEvent(t, harness, usageEventSeed{ID: 35, ProfileID: profileID, IngressRequestID: "missing-cost-1", ModelID: "missing-cost-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(25), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-2 * time.Hour)})
+
+	usageSnapshotResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=all", nil, modelHeader(profileID))
+	assertStatus(t, usageSnapshotResponse, http.StatusOK)
+	var usageSnapshotPayload map[string]any
+	decodeJSONResponse(t, usageSnapshotResponse, &usageSnapshotPayload)
+	costOverview := asMap(t, usageSnapshotPayload["cost_overview"])
+	if jsonInt(t, costOverview["priced_request_count"]) != 0 || jsonInt(t, costOverview["unpriced_request_count"]) != 1 || jsonInt(t, costOverview["total_cost_micros"]) != 0 {
+		t.Fatalf("expected missing-cost usage snapshot to stay unpriced with zero cost, got %+v", usageSnapshotPayload)
+	}
+	modelStatistics := usageSnapshotPayload["model_statistics"].([]any)
+	if len(modelStatistics) != 1 {
+		t.Fatalf("expected one missing-cost model statistic row, got %+v", usageSnapshotPayload)
+	}
+	modelRow := asMap(t, modelStatistics[0])
+	if jsonInt(t, modelRow["priced_request_count"]) != 0 || jsonInt(t, modelRow["unpriced_request_count"]) != 1 || jsonInt(t, modelRow["total_cost_micros"]) != 0 {
+		t.Fatalf("expected missing-cost model statistics to count one unpriced request without inventing spend, got %+v", modelRow)
+	}
+
+	spendingResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/spending?preset=all&group_by=none&limit=50&offset=0", nil, modelHeader(profileID))
+	assertStatus(t, spendingResponse, http.StatusOK)
+	var spendingPayload map[string]any
+	decodeJSONResponse(t, spendingResponse, &spendingPayload)
+	summary := asMap(t, spendingPayload["summary"])
+	if jsonInt(t, summary["successful_request_count"]) != 1 || jsonInt(t, summary["priced_request_count"]) != 0 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_cost_micros"]) != 0 {
+		t.Fatalf("expected missing-cost spending summary to stay unpriced with zero cost, got %+v", summary)
+	}
+	if jsonInt(t, asMap(t, spendingPayload["unpriced_breakdown"])["MISSING_PRICE_DATA"]) != 1 {
+		t.Fatalf("expected missing-cost spending breakdown to count MISSING_PRICE_DATA, got %+v", spendingPayload)
+	}
+}
+
 func TestStatsDelete(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -270,9 +305,11 @@ func TestAuditLogs(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 	insertRequestLogSummaryRow(t, harness, 700, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-20*time.Minute))
-	insertAuditLog(t, harness, auditLogSeed{ID: 800, ProfileID: profileID, RequestLogID: intPtr(700), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("a", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_1"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 800, ProfileID: profileID, RequestLogID: intPtr(700), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("a", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_1"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, AuditEnabledAtRequest: false, AuditCaptureBodiesAtRequest: true, CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
 	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 701, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-8*time.Minute), true)
-	insertAuditLog(t, harness, auditLogSeed{ID: 801, ProfileID: profileID, RequestLogID: intPtr(701), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("b", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_2"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-5 * time.Minute)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 801, ProfileID: profileID, RequestLogID: intPtr(701), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, RequestBody: stringPtr(strings.Repeat("b", 210)), ResponseHeaders: stringPtr(`{"x-request-id":"req_2"}`), ResponseBody: stringPtr(`{"ok":true}`), ResponseStatus: 200, AuditEnabledAtRequest: true, AuditCaptureBodiesAtRequest: true, CreatedAt: fixedS15Now.Add(-5 * time.Minute)})
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 702, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-6*time.Minute), true)
+	insertAuditLog(t, harness, auditLogSeed{ID: 802, ProfileID: profileID, RequestLogID: intPtr(702), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, ResponseStatus: 200, AuditEnabledAtRequest: true, AuditCaptureBodiesAtRequest: false, CreatedAt: fixedS15Now.Add(-4 * time.Minute)})
 
 	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?request_log_id=700&limit=20", nil, modelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusConflict)
@@ -295,15 +332,26 @@ func TestAuditLogs(t *testing.T) {
 	var visibleListPayload map[string]any
 	decodeJSONResponse(t, visibleListResponse, &visibleListPayload)
 	items := visibleListPayload["items"].([]any)
-	if jsonInt(t, visibleListPayload["total"]) != 1 || len(items) != 1 || jsonInt(t, asMap(t, items[0])["id"]) != 801 {
-		t.Fatalf("expected audit list to exclude disabled request snapshots, got %+v", visibleListPayload)
+	if jsonInt(t, visibleListPayload["total"]) != 2 || len(items) != 2 {
+		t.Fatalf("expected audit list to show only enabled rows, got %+v", visibleListPayload)
+	}
+	if jsonInt(t, asMap(t, items[0])["id"]) != 802 || jsonInt(t, asMap(t, items[1])["id"]) != 801 {
+		t.Fatalf("expected metadata-only row to sort ahead of full-capture row, got %+v", visibleListPayload)
+	}
+
+	metadataDetailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/802", nil, modelHeader(profileID))
+	assertStatus(t, metadataDetailResponse, http.StatusOK)
+	var metadataDetailPayload map[string]any
+	decodeJSONResponse(t, metadataDetailResponse, &metadataDetailPayload)
+	if metadataDetailPayload["request_body"] != nil || metadataDetailPayload["response_body"] != nil || metadataDetailPayload["request_body_stored"] != false || metadataDetailPayload["response_body_stored"] != false || metadataDetailPayload["audit_capture_bodies_at_request"] != false {
+		t.Fatalf("expected metadata-only audit detail to be a first-class nil-body state, got %+v", metadataDetailPayload)
 	}
 
 	enabledDetailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/801", nil, modelHeader(profileID))
 	assertStatus(t, enabledDetailResponse, http.StatusOK)
 	var enabledDetailPayload map[string]any
 	decodeJSONResponse(t, enabledDetailResponse, &enabledDetailPayload)
-	if enabledDetailPayload["request_body"] == nil || enabledDetailPayload["response_body"] == nil {
+	if enabledDetailPayload["request_body"] == nil || enabledDetailPayload["response_body"] == nil || enabledDetailPayload["request_body_stored"] != true || enabledDetailPayload["response_body_stored"] != true || enabledDetailPayload["audit_capture_bodies_at_request"] != true {
 		t.Fatalf("expected audit detail to return full captured bodies for enabled requests, got %+v", enabledDetailPayload)
 	}
 }
@@ -311,8 +359,8 @@ func TestAuditLogs(t *testing.T) {
 func TestAuditDelete(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertAuditLog(t, harness, auditLogSeed{ID: 900, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
-	insertAuditLog(t, harness, auditLogSeed{ID: 901, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 900, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 901, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 
 	retentionResponse := harness.requestJSON(
 		t,
@@ -330,6 +378,45 @@ func TestAuditDelete(t *testing.T) {
 	decodeJSONResponse(t, response, &payload)
 	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 1 {
 		t.Fatalf("expected retention-policy audit delete to remove only old rows, got %+v", payload)
+	}
+}
+
+func TestRequestLogDeletionDoesNotWidenAuditVisibility(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertRequestLogSummaryRow(t, harness, 710, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-12*time.Minute))
+	insertAuditLog(t, harness, auditLogSeed{ID: 810, ProfileID: profileID, RequestLogID: intPtr(710), ModelID: "audit-model", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: false, CreatedAt: fixedS15Now.Add(-11 * time.Minute)})
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 711, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-10*time.Minute), true)
+	insertAuditLog(t, harness, auditLogSeed{ID: 811, ProfileID: profileID, RequestLogID: intPtr(711), ModelID: "audit-model", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-9 * time.Minute)})
+
+	beforeDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	assertStatus(t, beforeDelete, http.StatusOK)
+	var beforeDeletePayload map[string]any
+	decodeJSONResponse(t, beforeDelete, &beforeDeletePayload)
+	if jsonInt(t, beforeDeletePayload["total"]) != 1 || jsonInt(t, asMap(t, beforeDeletePayload["items"].([]any)[0])["id"]) != 811 {
+		t.Fatalf("expected only enabled audit row visible before request-log deletion, got %+v", beforeDeletePayload)
+	}
+
+	deleteResponse := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/requests?delete_all=true", nil, modelHeader(profileID))
+	assertStatus(t, deleteResponse, http.StatusOK)
+	var deletePayload map[string]any
+	decodeJSONResponse(t, deleteResponse, &deletePayload)
+	if deletePayload["accepted"] != true {
+		t.Fatalf("expected request-log delete accepted response, got %+v", deletePayload)
+	}
+	if s15CountRows(t, harness, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`, profileID) != 0 {
+		t.Fatalf("expected request-log delete to remove all parent request rows")
+	}
+	if s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1 AND request_log_id IS NULL`, profileID) != 2 {
+		t.Fatalf("expected request-log delete to orphan both audit rows by nulling request_log_id")
+	}
+
+	afterDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	assertStatus(t, afterDelete, http.StatusOK)
+	var afterDeletePayload map[string]any
+	decodeJSONResponse(t, afterDelete, &afterDeletePayload)
+	if jsonInt(t, afterDeletePayload["total"]) != 1 || jsonInt(t, asMap(t, afterDeletePayload["items"].([]any)[0])["id"]) != 811 {
+		t.Fatalf("expected request-log deletion to keep orphan visibility frozen instead of widening it, got %+v", afterDeletePayload)
 	}
 }
 
@@ -768,16 +855,20 @@ type usageEventSeed struct {
 }
 
 type auditLogSeed struct {
-	ID              int
-	ProfileID       int
-	RequestLogID    *int
-	ModelID         string
-	RequestHeaders  string
-	RequestBody     *string
-	ResponseStatus  int
-	ResponseHeaders *string
-	ResponseBody    *string
-	CreatedAt       time.Time
+	ID                          int
+	ProfileID                   int
+	RequestLogID                *int
+	ModelID                     string
+	RequestHeaders              string
+	RequestBody                 *string
+	RequestBodyStored           *bool
+	ResponseStatus              int
+	ResponseHeaders             *string
+	ResponseBody                *string
+	ResponseBodyStored          *bool
+	AuditEnabledAtRequest       bool
+	AuditCaptureBodiesAtRequest bool
+	CreatedAt                   time.Time
 }
 
 type runtimeStateSeed struct {
@@ -835,14 +926,26 @@ func insertRequestLogSummaryRow(t *testing.T, harness *contractHarness, id int, 
 
 func insertRequestLogSummaryRowWithAuditEnabled(t *testing.T, harness *contractHarness, id int, profileID int, modelID string, apiFamily string, endpointID int, connectionID int, statusCode int, responseTimeMS int, inputTokens int, outputTokens int, totalTokens int, createdAt time.Time, auditEnabledAtRequest bool) {
 	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, request_path, created_at, endpoint_base_url, audit_enabled_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11, $12, TRUE, TRUE, '/v1/chat/completions', $13, $14, $15)`, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, statusCode >= 200 && statusCode < 300, createdAt, fmt.Sprintf("https://endpoint-%d.invalid", endpointID), auditEnabledAtRequest); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, request_path, created_at, endpoint_base_url, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11, $12, TRUE, TRUE, '/v1/chat/completions', $13, $14, $15, FALSE)`, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, statusCode >= 200 && statusCode < 300, createdAt, fmt.Sprintf("https://endpoint-%d.invalid", endpointID), auditEnabledAtRequest); err != nil {
 		t.Fatalf("insert request-log summary row %d: %v", id, err)
 	}
 }
 
 func insertAuditLog(t *testing.T, harness *contractHarness, seed auditLogSeed) {
 	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, response_status, response_headers, response_body, is_stream, duration_ms, created_at) VALUES ($1, $2, $3, NULL, $4, NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', $5, $6, $7, $8, $9, FALSE, 1234, $10)`, seed.ID, seed.ProfileID, nullableTestInt(seed.RequestLogID), seed.ModelID, seed.RequestHeaders, nullableTestString(seed.RequestBody), seed.ResponseStatus, nullableTestString(seed.ResponseHeaders), nullableTestString(seed.ResponseBody), seed.CreatedAt); err != nil {
+	requestBodyStored := seed.RequestBody != nil
+	if seed.RequestBodyStored != nil {
+		requestBodyStored = *seed.RequestBodyStored
+	}
+	responseBodyStored := seed.ResponseBody != nil
+	if seed.ResponseBodyStored != nil {
+		responseBodyStored = *seed.ResponseBodyStored
+	}
+	auditCaptureBodiesAtRequest := seed.AuditCaptureBodiesAtRequest
+	if !auditCaptureBodiesAtRequest && (seed.RequestBody != nil || seed.ResponseBody != nil) {
+		auditCaptureBodiesAtRequest = true
+	}
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, $3, NULL, $4, NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', $5, $6, $7, $8, $9, $10, $11, FALSE, 1234, $12, $13, $14)`, seed.ID, seed.ProfileID, nullableTestInt(seed.RequestLogID), seed.ModelID, seed.RequestHeaders, nullableTestString(seed.RequestBody), requestBodyStored, seed.ResponseStatus, nullableTestString(seed.ResponseHeaders), nullableTestString(seed.ResponseBody), responseBodyStored, seed.AuditEnabledAtRequest, auditCaptureBodiesAtRequest, seed.CreatedAt); err != nil {
 		t.Fatalf("insert audit log %d: %v", seed.ID, err)
 	}
 }

@@ -33,11 +33,11 @@ func TestBaselineFreshApply(t *testing.T) {
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected empty database to apply baseline, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
+	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 }
 
@@ -93,7 +93,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 		t.Fatalf("expected noop run to report no versions, got %v", secondResult.Versions)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
 }
 
 func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
@@ -111,13 +111,16 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, migrate.DefaultBaselineVersion); err != nil {
 		t.Fatalf("seed prism baseline history: %v", err)
 	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, audit_enabled_at_request boolean)`); err != nil {
+	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, audit_enabled_at_request boolean)`); err != nil {
 		t.Fatalf("create legacy request_logs table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `CREATE TABLE audit_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, request_log_id bigint, request_body text, response_body text)`); err != nil {
+		t.Fatalf("create legacy audit_logs table: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `CREATE TABLE user_settings (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, report_currency_code character varying(3) NOT NULL, report_currency_symbol character varying(5) NOT NULL, timezone_preference character varying(100), created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`); err != nil {
 		t.Fatalf("create legacy user_settings table: %v", err)
 	}
-	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (audit_enabled_at_request) VALUES (NULL), (TRUE), (FALSE)`); err != nil {
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (profile_id, audit_enabled_at_request) VALUES (1, NULL), (1, TRUE), (1, FALSE)`); err != nil {
 		t.Fatalf("seed legacy request_logs rows: %v", err)
 	}
 
@@ -128,13 +131,114 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy request_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
 	assertRequestLogAuditEnabledRows(t, testContext, conn, []bool{false, true, false})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
+}
+
+func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "audit_log_request_time_provenance")
+	defer func() { _ = conn.Close(testContext) }()
+
+	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+		t.Fatalf("create prism migration history table: %v", err)
+	}
+	for _, version := range []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"} {
+		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, version); err != nil {
+			t.Fatalf("seed prism migration history %s: %v", version, err)
+		}
+	}
+	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, audit_enabled_at_request boolean NOT NULL)`); err != nil {
+		t.Fatalf("create legacy request_logs table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `CREATE TABLE audit_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, request_log_id bigint, request_body text, response_body text)`); err != nil {
+		t.Fatalf("create legacy audit_logs table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (id, profile_id, audit_enabled_at_request) VALUES (1, 2, TRUE), (2, 2, FALSE)`); err != nil {
+		t.Fatalf("seed legacy request_logs rows: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO audit_logs (id, profile_id, request_log_id, request_body, response_body) VALUES (10, 2, 1, '{"request":true}', '{"response":true}'), (11, 2, 2, NULL, NULL), (12, 2, NULL, '{"orphan":true}', NULL)`); err != nil {
+		t.Fatalf("seed legacy audit_logs rows: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run audit-log provenance migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected legacy audit_logs database to apply migration, got %q", result.Outcome)
+	}
+	if got, want := result.Versions, []string{"000005_audit_log_request_time_provenance"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("expected applied versions %v, got %v", want, got)
+	}
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
+
+	rows, err := conn.Query(testContext, `SELECT audit_capture_bodies_at_request FROM request_logs ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query request_logs audit_capture_bodies_at_request rows: %v", err)
+	}
+	defer rows.Close()
+	requestLogCaptureRows := []bool{}
+	for rows.Next() {
+		var value bool
+		if err := rows.Scan(&value); err != nil {
+			t.Fatalf("scan request_logs audit_capture_bodies_at_request row: %v", err)
+		}
+		requestLogCaptureRows = append(requestLogCaptureRows, value)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate request_logs audit_capture_bodies_at_request rows: %v", err)
+	}
+	if len(requestLogCaptureRows) != 2 || !requestLogCaptureRows[0] || requestLogCaptureRows[1] {
+		t.Fatalf("expected request_logs audit_capture_bodies_at_request rows [true false], got %v", requestLogCaptureRows)
+	}
+
+	var requestLogIsNullable string
+	var requestLogDefault string
+	if err := conn.QueryRow(testContext, `SELECT is_nullable, COALESCE(column_default, '') FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'request_logs' AND column_name = 'audit_capture_bodies_at_request'`).Scan(&requestLogIsNullable, &requestLogDefault); err != nil {
+		t.Fatalf("load request_logs audit_capture_bodies_at_request column contract: %v", err)
+	}
+	if requestLogIsNullable != "NO" || !strings.Contains(strings.ToLower(requestLogDefault), "false") {
+		t.Fatalf("expected request_logs.audit_capture_bodies_at_request NOT NULL with false default, got is_nullable=%q default=%q", requestLogIsNullable, requestLogDefault)
+	}
+
+	provenanceRows, err := conn.Query(testContext, `SELECT request_body_stored, response_body_stored, audit_enabled_at_request, audit_capture_bodies_at_request FROM audit_logs ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query audit_logs provenance rows: %v", err)
+	}
+	defer provenanceRows.Close()
+	gotAuditRows := [][4]bool{}
+	for provenanceRows.Next() {
+		var requestBodyStored bool
+		var responseBodyStored bool
+		var auditEnabled bool
+		var auditCaptureBodies bool
+		if err := provenanceRows.Scan(&requestBodyStored, &responseBodyStored, &auditEnabled, &auditCaptureBodies); err != nil {
+			t.Fatalf("scan audit_logs provenance row: %v", err)
+		}
+		gotAuditRows = append(gotAuditRows, [4]bool{requestBodyStored, responseBodyStored, auditEnabled, auditCaptureBodies})
+	}
+	if err := provenanceRows.Err(); err != nil {
+		t.Fatalf("iterate audit_logs provenance rows: %v", err)
+	}
+	wantAuditRows := [][4]bool{{true, true, true, true}, {false, false, false, false}, {true, false, true, true}}
+	if len(gotAuditRows) != len(wantAuditRows) {
+		t.Fatalf("expected audit_logs provenance rows %v, got %v", wantAuditRows, gotAuditRows)
+	}
+	for index := range wantAuditRows {
+		if gotAuditRows[index] != wantAuditRows[index] {
+			t.Fatalf("expected audit_logs provenance rows %v, got %v", wantAuditRows, gotAuditRows)
+		}
+	}
 }
 
 type postgresHarness struct {
