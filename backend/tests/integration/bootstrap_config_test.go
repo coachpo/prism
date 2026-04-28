@@ -17,7 +17,7 @@ import (
 const (
 	bootstrapFixtureDatabaseURL      = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
 	bootstrapFixtureSecretKey        = "prism-dev-runtime-secret-change-me"
-	bootstrapFixtureJWTSecret        = "prism-dev-jwt-secret-change-me-2026"
+	bootstrapFixtureJWTSecret        = "prism-dev-jwt-secret-change-me"
 	bootstrapFixtureBundleKey        = "prism-dev-runtime-secret-change-me"
 	bootstrapSeedOverrideDatabaseURL = "postgres://prism:override-password@db.seed.internal:5432/prism?sslmode=disable"
 )

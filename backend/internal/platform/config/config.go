@@ -36,7 +36,7 @@ const (
 	defaultBootstrapDatabaseURL        = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
 	defaultBootstrapCORSAllowedOrigins = "http://localhost:15173,http://127.0.0.1:15173"
 	defaultSeedSecretEncryptionKey     = "prism-dev-runtime-secret-change-me"
-	defaultAuthJWTSecret               = "prism-dev-jwt-secret-change-me-2026"
+	defaultAuthJWTSecret               = "prism-dev-jwt-secret-change-me"
 	defaultAuthAccessTokenTTLSeconds   = 900
 	defaultAuthRefreshTokenTTLSeconds  = 604800
 	defaultAuthResetCodeTTLSeconds     = 600

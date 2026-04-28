@@ -45,7 +45,7 @@
     ]
   },
   "auth": {
-    "jwtSigningKey": "prism-dev-jwt-secret-change-me-2026",
+    "jwtSigningKey": "prism-dev-jwt-secret-change-me",
     "accessTokenTtlSeconds": 900,
     "refreshTokenTtlSeconds": 604800,
     "resetCodeTtlSeconds": 600,

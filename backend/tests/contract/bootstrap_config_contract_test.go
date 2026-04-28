@@ -16,7 +16,7 @@ import (
 const (
 	bootstrapContractDatabaseURL = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
 	bootstrapContractSecretKey   = "prism-dev-runtime-secret-change-me"
-	bootstrapContractJWTSecret   = "prism-dev-jwt-secret-change-me-2026"
+	bootstrapContractJWTSecret   = "prism-dev-jwt-secret-change-me"
 	bootstrapContractBundleKey   = "prism-dev-runtime-secret-change-me"
 )
 
