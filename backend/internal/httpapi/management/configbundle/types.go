@@ -139,3 +139,46 @@ type vendorCatalogRow struct {
 	AuditEnabled       bool    `json:"audit_enabled"`
 	AuditCaptureBodies bool    `json:"audit_capture_bodies"`
 }
+
+type profileImportReplacementScope struct {
+	Target                string `json:"target"`
+	Endpoints             int    `json:"endpoints"`
+	PricingTemplates      int    `json:"pricing_templates"`
+	LoadbalanceStrategies int    `json:"loadbalance_strategies"`
+	Models                int    `json:"models"`
+	Connections           int    `json:"connections"`
+	HeaderBlocklistRules  int    `json:"header_blocklist_rules"`
+	UserAgentClientRules  int    `json:"user_agent_client_rules"`
+	ProfileSettings       bool   `json:"profile_settings"`
+}
+
+type profileImportUntouchedScope struct {
+	OtherProfiles                bool `json:"other_profiles"`
+	ExistingGlobalVendorMetadata bool `json:"existing_global_vendor_metadata"`
+	RequestLogs                  bool `json:"request_logs"`
+}
+
+type profileImportVendorSummary struct {
+	CreateCount  int `json:"create_count"`
+	ReuseCount   int `json:"reuse_count"`
+	WarningCount int `json:"warning_count"`
+}
+
+type profileImportSecretSummary struct {
+	EndpointSecretRefs    int `json:"endpoint_secret_refs"`
+	SecretPayloadEntries  int `json:"secret_payload_entries"`
+	DecryptableSecretRefs int `json:"decryptable_secret_refs"`
+}
+
+type vendorCatalogImportMutationScope struct {
+	Target         string `json:"target"`
+	CreateCount    int    `json:"create_count"`
+	UpdateCount    int    `json:"update_count"`
+	UnchangedCount int    `json:"unchanged_count"`
+}
+
+type vendorCatalogImportUntouchedScope struct {
+	Profiles            bool `json:"profiles"`
+	ProfileScopedConfig bool `json:"profile_scoped_config"`
+	RequestLogs         bool `json:"request_logs"`
+}

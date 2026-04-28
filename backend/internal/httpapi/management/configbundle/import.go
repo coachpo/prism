@@ -83,10 +83,18 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 		}
 	}
 
+	return buildProfilePreviewResponse(data, vendorResolutions, sortedSecretRefs(decryptedSecrets), blockingErrors, warnings), nil
+}
+
+func buildProfilePreviewResponse(data profileImportRequest, vendorResolutions []profileImportVendorResolution, decryptableSecretRefs []string, blockingErrors []string, warnings []string) profileImportPreviewResponse {
 	return profileImportPreviewResponse{
 		Ready:                    len(blockingErrors) == 0,
 		Version:                  canonicalBundleVersion,
 		BundleKind:               canonicalProfileBundleKind,
+		ReplacementScope:         buildProfileImportReplacementScope(data),
+		UntouchedScope:           buildProfileImportUntouchedScope(),
+		VendorSummary:            buildProfileImportVendorSummary(vendorResolutions),
+		SecretSummary:            buildProfileImportSecretSummary(data, decryptableSecretRefs),
 		EndpointsImported:        len(data.Endpoints),
 		PricingTemplatesImported: len(data.PricingTemplates),
 		StrategiesImported:       len(data.LoadbalanceStrategies),
@@ -94,10 +102,52 @@ func (s *Service) previewProfileImport(ctx context.Context, exec queryExecutor, 
 		ConnectionsImported:      importedConnectionCount(data.Models),
 		VendorResolutions:        vendorResolutions,
 		SecretKeyID:              data.SecretPayload.KeyID,
-		DecryptableSecretRefs:    sortedSecretRefs(decryptedSecrets),
+		DecryptableSecretRefs:    decryptableSecretRefs,
 		BlockingErrors:           blockingErrors,
 		Warnings:                 warnings,
-	}, nil
+	}
+}
+
+func buildProfileImportReplacementScope(data profileImportRequest) profileImportReplacementScope {
+	return profileImportReplacementScope{
+		Target:                "selected_profile",
+		Endpoints:             len(data.Endpoints),
+		PricingTemplates:      len(data.PricingTemplates),
+		LoadbalanceStrategies: len(data.LoadbalanceStrategies),
+		Models:                len(data.Models),
+		Connections:           importedConnectionCount(data.Models),
+		HeaderBlocklistRules:  len(data.HeaderBlocklistRules),
+		UserAgentClientRules:  len(data.UserAgentClientRules),
+		ProfileSettings:       data.ProfileSettings != nil,
+	}
+}
+
+func buildProfileImportUntouchedScope() profileImportUntouchedScope {
+	return profileImportUntouchedScope{OtherProfiles: true, ExistingGlobalVendorMetadata: true, RequestLogs: true}
+}
+
+func buildProfileImportVendorSummary(vendorResolutions []profileImportVendorResolution) profileImportVendorSummary {
+	createCount := 0
+	warningCount := 0
+	for _, resolution := range vendorResolutions {
+		if resolution.Resolution == "create" {
+			createCount++
+		}
+		if resolution.Warning != nil {
+			warningCount++
+		}
+	}
+	return profileImportVendorSummary{CreateCount: createCount, ReuseCount: len(vendorResolutions) - createCount, WarningCount: warningCount}
+}
+
+func buildProfileImportSecretSummary(data profileImportRequest, decryptableSecretRefs []string) profileImportSecretSummary {
+	endpointSecretRefs := 0
+	for _, endpoint := range data.Endpoints {
+		if trimmedOptionalString(endpoint.APIKeySecretRef) != nil {
+			endpointSecretRefs++
+		}
+	}
+	return profileImportSecretSummary{EndpointSecretRefs: endpointSecretRefs, SecretPayloadEntries: len(data.SecretPayload.Entries), DecryptableSecretRefs: len(decryptableSecretRefs)}
 }
 
 func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, profileID int, data profileImportRequest) (profileImportResponse, error) {
@@ -184,24 +234,38 @@ func (s *Service) executeProfileImport(ctx context.Context, exec queryExecutor, 
 
 func (s *Service) previewVendorCatalogImport(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (vendorCatalogImportPreviewResponse, error) {
 	data = normalizeVendorCatalogImportRequest(data)
-	createCount, updateCount, blockingErrors, _, err := countVendorCatalogChanges(ctx, exec, data)
+	createCount, updateCount, unchangedCount, blockingErrors, _, err := countVendorCatalogChanges(ctx, exec, data)
 	if err != nil {
 		return vendorCatalogImportPreviewResponse{}, err
 	}
+	return buildVendorCatalogPreviewResponse(createCount, updateCount, unchangedCount, blockingErrors), nil
+}
+
+func buildVendorCatalogPreviewResponse(createCount int, updateCount int, unchangedCount int, blockingErrors []string) vendorCatalogImportPreviewResponse {
 	return vendorCatalogImportPreviewResponse{
 		Ready:          len(blockingErrors) == 0,
 		Version:        canonicalBundleVersion,
 		BundleKind:     canonicalVendorCatalogKind,
+		MutationScope:  buildVendorCatalogImportMutationScope(createCount, updateCount, unchangedCount),
+		UntouchedScope: buildVendorCatalogImportUntouchedScope(),
 		CreateCount:    createCount,
 		UpdateCount:    updateCount,
 		BlockingErrors: blockingErrors,
 		Warnings:       []string{},
-	}, nil
+	}
+}
+
+func buildVendorCatalogImportMutationScope(createCount int, updateCount int, unchangedCount int) vendorCatalogImportMutationScope {
+	return vendorCatalogImportMutationScope{Target: "global_vendor_catalog", CreateCount: createCount, UpdateCount: updateCount, UnchangedCount: unchangedCount}
+}
+
+func buildVendorCatalogImportUntouchedScope() vendorCatalogImportUntouchedScope {
+	return vendorCatalogImportUntouchedScope{Profiles: true, ProfileScopedConfig: true, RequestLogs: true}
 }
 
 func (s *Service) importVendorCatalog(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (vendorCatalogImportResponse, error) {
 	data = normalizeVendorCatalogImportRequest(data)
-	_, _, blockingErrors, existingByKey, err := countVendorCatalogChanges(ctx, exec, data)
+	_, _, _, blockingErrors, existingByKey, err := countVendorCatalogChanges(ctx, exec, data)
 	if err != nil {
 		return vendorCatalogImportResponse{}, err
 	}
@@ -491,9 +555,9 @@ func normalizeVendorCatalogImportRequest(data vendorCatalogImportRequest) vendor
 	return normalized
 }
 
-func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (int, int, []string, map[string]*vendorRow, error) {
+func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (int, int, int, []string, map[string]*vendorRow, error) {
 	if err := validateVendorCatalogBundleEnvelope(data); err != nil {
-		return 0, 0, nil, nil, err
+		return 0, 0, 0, nil, nil, err
 	}
 
 	seenKeys := map[string]struct{}{}
@@ -517,10 +581,11 @@ func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data ven
 
 	existingByKey, existingByName, err := loadVendorsByKeysOrNames(ctx, exec, keys, names)
 	if err != nil {
-		return 0, 0, nil, nil, err
+		return 0, 0, 0, nil, nil, err
 	}
 	createCount := 0
 	updateCount := 0
+	unchangedCount := 0
 	for _, vendor := range data.Vendors {
 		existing := existingByKey[vendor.Key]
 		existingNameVendor := existingByName[vendor.Name]
@@ -541,7 +606,9 @@ func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data ven
 
 			if existing.Key != canonical.Key || existing.Name != canonical.Name || !sameOptionalString(existing.Description, stringPtr(canonical.Description)) || !sameOptionalString(existing.IconKey, stringPtr(canonical.IconKey)) || vendor.Name != canonical.Name || !sameOptionalString(vendor.Description, stringPtr(canonical.Description)) || !sameOptionalString(vendor.IconKey, stringPtr(canonical.IconKey)) || existing.AuditEnabled != vendor.AuditEnabled || existing.AuditCaptureBodies != vendor.AuditCaptureBodies {
 				blockingErrors = append(blockingErrors, fmt.Sprintf("Readonly system vendor '%s' cannot be overwritten by vendor catalog import", canonicalKey))
+				continue
 			}
+			unchangedCount++
 			continue
 		}
 		if existing == nil {
@@ -558,10 +625,12 @@ func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data ven
 		}
 		if existing.Name != vendor.Name || !sameOptionalString(existing.Description, vendor.Description) || !sameOptionalString(existing.IconKey, vendor.IconKey) || existing.AuditEnabled != vendor.AuditEnabled || existing.AuditCaptureBodies != vendor.AuditCaptureBodies {
 			updateCount++
+			continue
 		}
+		unchangedCount++
 	}
 
-	return createCount, updateCount, blockingErrors, existingByKey, nil
+	return createCount, updateCount, unchangedCount, blockingErrors, existingByKey, nil
 }
 
 func previewImportVendors(ctx context.Context, exec queryExecutor, vendorRefs []vendorRefExport) (map[string]*vendorRow, []profileImportVendorResolution, []string, error) {

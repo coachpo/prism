@@ -23,6 +23,12 @@ type profileImportPreviewResponse struct {
 	Ready                    bool                            `json:"ready"`
 	Version                  int                             `json:"version"`
 	BundleKind               string                          `json:"bundle_kind"`
+	PreviewToken             string                          `json:"preview_token"`
+	BundleFingerprint        string                          `json:"bundle_fingerprint"`
+	ReplacementScope         profileImportReplacementScope   `json:"replacement_scope"`
+	UntouchedScope           profileImportUntouchedScope     `json:"untouched_scope"`
+	VendorSummary            profileImportVendorSummary      `json:"vendor_summary"`
+	SecretSummary            profileImportSecretSummary      `json:"secret_summary"`
 	EndpointsImported        int                             `json:"endpoints_imported"`
 	PricingTemplatesImported int                             `json:"pricing_templates_imported"`
 	StrategiesImported       int                             `json:"strategies_imported"`
@@ -57,13 +63,17 @@ type vendorCatalogImportRequest struct {
 }
 
 type vendorCatalogImportPreviewResponse struct {
-	Ready          bool     `json:"ready"`
-	Version        int      `json:"version"`
-	BundleKind     string   `json:"bundle_kind"`
-	CreateCount    int      `json:"create_count"`
-	UpdateCount    int      `json:"update_count"`
-	BlockingErrors []string `json:"blocking_errors"`
-	Warnings       []string `json:"warnings"`
+	Ready             bool                              `json:"ready"`
+	Version           int                               `json:"version"`
+	BundleKind        string                            `json:"bundle_kind"`
+	PreviewToken      string                            `json:"preview_token"`
+	BundleFingerprint string                            `json:"bundle_fingerprint"`
+	MutationScope     vendorCatalogImportMutationScope  `json:"mutation_scope"`
+	UntouchedScope    vendorCatalogImportUntouchedScope `json:"untouched_scope"`
+	CreateCount       int                               `json:"create_count"`
+	UpdateCount       int                               `json:"update_count"`
+	BlockingErrors    []string                          `json:"blocking_errors"`
+	Warnings          []string                          `json:"warnings"`
 }
 
 type vendorCatalogImportResponse struct {

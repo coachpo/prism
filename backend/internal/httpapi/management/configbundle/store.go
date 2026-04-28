@@ -132,7 +132,7 @@ func buildVendorCatalog(ctx context.Context, exec queryExecutor, exportTime time
 	}, nil
 }
 
-func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, profileID int, exportTime time.Time, bundleSecretKeyID string) (profileBundleResponse, error) {
+func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, profileID int, exportTime time.Time, bundleSecretKeyID string, includeSecrets bool) (profileBundleResponse, error) {
 	endpoints, err := listOrderedEndpoints(ctx, exec, profileID)
 	if err != nil {
 		return profileBundleResponse{}, err
@@ -172,7 +172,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 	for _, endpoint := range endpoints {
 		endpointByID[endpoint.ID] = endpoint
 		var secretRef *string
-		if endpointdomain.HasAPIKey(endpoint.APIKey) {
+		if includeSecrets && endpointdomain.HasAPIKey(endpoint.APIKey) {
 			decryptedAPIKey, decryptErr := endpointdomain.DecryptSecret(endpoint.APIKey, s.secretEncryptionKey)
 			if decryptErr != nil {
 				return profileBundleResponse{}, fmt.Errorf("decrypt endpoint %q secret: %w", endpoint.Name, decryptErr)
