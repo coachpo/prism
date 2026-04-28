@@ -22,6 +22,7 @@ import (
 
 type configBundleImportHarnessOptions struct {
 	afterProfileImport func(context.Context, pgx.Tx) error
+	now                func() time.Time
 }
 
 func newConfigBundleImportHarness(t *testing.T, options configBundleImportHarnessOptions) *contractHarness {
@@ -56,9 +57,14 @@ func newConfigBundleImportHarness(t *testing.T, options configBundleImportHarnes
 	}
 	t.Cleanup(pool.Close)
 
+	now := options.now
+	if now == nil {
+		now = func() time.Time { return configBundleFixtureTime }
+	}
+
 	configBundleService, err := managementconfigbundle.NewService(settings, managementconfigbundle.Options{
 		Pool:              pool,
-		Now:               func() time.Time { return configBundleFixtureTime },
+		Now:               now,
 		BundleSecretKeyID: configBundleFixtureKeyID,
 		BundleSecretEncrypter: func(value string) (string, error) {
 			switch value {
@@ -198,17 +204,146 @@ func vendorCatalogEntryByKey(t *testing.T, payload map[string]any, key string) m
 	return nil
 }
 
+func mergeHeaders(headers ...map[string]string) map[string]string {
+	merged := map[string]string{}
+	for _, item := range headers {
+		for key, value := range item {
+			merged[key] = value
+		}
+	}
+	return merged
+}
+
+func dangerousProfileExportHeaders(profileID int) map[string]string {
+	return mergeHeaders(modelHeader(profileID), map[string]string{"X-Prism-Dangerous-Confirm": "profile-export"})
+}
+
+func previewTokenHeaders(token string) map[string]string {
+	return map[string]string{"X-Prism-Preview-Token": token}
+}
+
+func TestConfigBundleProfileExportSafety(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleFixtureGraph(t, harness, profileID)
+
+	safeExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, safeExport, http.StatusOK)
+	var safePayload map[string]any
+	decodeJSONResponse(t, safeExport, &safePayload)
+	for _, raw := range safePayload["endpoints"].([]any) {
+		endpoint := asMap(t, raw)
+		if endpoint["api_key_secret_ref"] != nil {
+			t.Fatalf("expected safe export to redact endpoint secret refs, got %+v", endpoint)
+		}
+	}
+	if entries := asMap(t, safePayload["secret_payload"])["entries"].([]any); len(entries) != 0 {
+		t.Fatalf("expected safe export to omit encrypted secret entries, got %+v", safePayload)
+	}
+
+	missingConfirm := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/export/with-secrets", nil, modelHeader(profileID))
+	assertErrorResponse(t, missingConfirm, http.StatusBadRequest, "X-Prism-Dangerous-Confirm header must be 'profile-export'")
+
+	wrongConfirm := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/export/with-secrets", nil, mergeHeaders(modelHeader(profileID), map[string]string{"X-Prism-Dangerous-Confirm": "wrong"}))
+	assertErrorResponse(t, wrongConfirm, http.StatusBadRequest, "X-Prism-Dangerous-Confirm header must be 'profile-export'")
+
+	dangerousExport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/export/with-secrets", nil, dangerousProfileExportHeaders(profileID))
+	assertStatus(t, dangerousExport, http.StatusOK)
+	var dangerousPayload map[string]any
+	decodeJSONResponse(t, dangerousExport, &dangerousPayload)
+	assertJSONMatchesFixture(t, dangerousPayload, loadBundleFixture(t, "profile-v1-example.json"))
+}
+
+func TestConfigBundleProfileImportPreviewToken(t *testing.T) {
+	currentTime := configBundleFixtureTime
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{now: func() time.Time { return currentTime }})
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleFixtureGraph(t, harness, profileID)
+	otherProfileID := vendorInsertProfile(t, harness, "preview-token-other-profile")
+	bundle := loadBundleFixture(t, "profile-v1-example.json")
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", bundle, modelHeader(profileID))
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	previewToken := previewPayload["preview_token"].(string)
+	if previewToken == "" || previewPayload["bundle_fingerprint"] == "" {
+		t.Fatalf("expected profile preview token data, got %+v", previewPayload)
+	}
+
+	missingToken := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, modelHeader(profileID))
+	assertErrorResponse(t, missingToken, http.StatusBadRequest, "X-Prism-Preview-Token header is required")
+
+	invalidToken := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders("not-a-real-token")))
+	assertErrorResponse(t, invalidToken, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+
+	profileMismatch := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(otherProfileID), previewTokenHeaders(previewToken)))
+	assertErrorResponse(t, profileMismatch, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+
+	mismatchedBundle := mustCloneBundlePayload(t, bundle)
+	mismatchedBundle["models"].([]any)[0].(map[string]any)["display_name"] = "preview-token-mismatch"
+	mismatch := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", mismatchedBundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
+	assertErrorResponse(t, mismatch, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+
+	validImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
+	assertStatus(t, validImport, http.StatusOK)
+
+	currentTime = currentTime.Add(20 * time.Minute)
+	staleToken := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
+	assertErrorResponse(t, staleToken, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+}
+
+func TestVendorCatalogImportPreviewToken(t *testing.T) {
+	currentTime := configBundleFixtureTime
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{now: func() time.Time { return currentTime }})
+
+	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
+	assertStatus(t, exportResponse, http.StatusOK)
+	var bundle map[string]any
+	decodeJSONResponse(t, exportResponse, &bundle)
+
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", bundle, nil)
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	previewToken := previewPayload["preview_token"].(string)
+	if previewToken == "" || previewPayload["bundle_fingerprint"] == "" {
+		t.Fatalf("expected vendor preview token data, got %+v", previewPayload)
+	}
+
+	missingToken := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", bundle, nil)
+	assertErrorResponse(t, missingToken, http.StatusBadRequest, "X-Prism-Preview-Token header is required")
+
+	invalidToken := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", bundle, previewTokenHeaders("not-a-real-token"))
+	assertErrorResponse(t, invalidToken, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+
+	mismatchedBundle := mustCloneBundlePayload(t, bundle)
+	vendorCatalogEntryByKey(t, mismatchedBundle, "openai")["name"] = "OpenAI Preview Token Mismatch"
+	mismatch := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", mismatchedBundle, previewTokenHeaders(previewToken))
+	assertErrorResponse(t, mismatch, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+
+	validImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", bundle, previewTokenHeaders(previewToken))
+	assertStatus(t, validImport, http.StatusOK)
+
+	currentTime = currentTime.Add(20 * time.Minute)
+	staleToken := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", bundle, previewTokenHeaders(previewToken))
+	assertErrorResponse(t, staleToken, http.StatusConflict, "Preview token is invalid, expired, or does not match this bundle. Run preview again and retry.")
+}
+
 func TestConfigBundlePreviewResponses(t *testing.T) {
 	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
 	profileID := modelLoadDefaultProfileID(t, harness)
 	seedConfigBundleFixtureGraph(t, harness, profileID)
 
-	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", loadBundleFixture(t, "profile-v1-example.json"), nil)
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", loadBundleFixture(t, "profile-v1-example.json"), modelHeader(profileID))
 	assertStatus(t, previewResponse, http.StatusOK)
 	var previewPayload map[string]any
 	decodeJSONResponse(t, previewResponse, &previewPayload)
 	if previewPayload["ready"] != true || previewPayload["version"] != float64(1) || previewPayload["bundle_kind"] != "profile_config" || previewPayload["secret_key_id"] != configBundleFixtureKeyID {
 		t.Fatalf("expected ready v1 preview payload, got %+v", previewPayload)
+	}
+	if previewPayload["preview_token"] == "" || previewPayload["bundle_fingerprint"] == "" {
+		t.Fatalf("expected preview payload to include preview token data, got %+v", previewPayload)
 	}
 	if got := len(previewPayload["decryptable_secret_refs"].([]any)); got != 2 {
 		t.Fatalf("expected 2 decryptable secret refs, got %+v", previewPayload)
@@ -216,20 +351,32 @@ func TestConfigBundlePreviewResponses(t *testing.T) {
 	if got := len(previewPayload["vendor_resolutions"].([]any)); got != 2 {
 		t.Fatalf("expected 2 vendor resolutions, got %+v", previewPayload)
 	}
+	if replacementScope := asMap(t, previewPayload["replacement_scope"]); replacementScope["target"] != "selected_profile" || replacementScope["header_blocklist_rules"] != float64(1) || replacementScope["user_agent_client_rules"] != float64(1) {
+		t.Fatalf("expected profile replacement scope summary, got %+v", replacementScope)
+	}
+	if vendorSummary := asMap(t, previewPayload["vendor_summary"]); vendorSummary["create_count"] != float64(0) || vendorSummary["reuse_count"] != float64(2) || vendorSummary["warning_count"] != float64(0) {
+		t.Fatalf("expected profile vendor summary, got %+v", vendorSummary)
+	}
+	if secretSummary := asMap(t, previewPayload["secret_summary"]); secretSummary["endpoint_secret_refs"] != float64(2) || secretSummary["secret_payload_entries"] != float64(2) || secretSummary["decryptable_secret_refs"] != float64(2) {
+		t.Fatalf("expected profile secret summary, got %+v", secretSummary)
+	}
 
 	warningPayload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
 	warningPayload["vendor_refs"].([]any)[0].(map[string]any)["description_hint"] = "Drifted OpenAI vendor description"
-	warningResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", warningPayload, nil)
+	warningResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", warningPayload, modelHeader(profileID))
 	assertStatus(t, warningResponse, http.StatusOK)
 	var warningPreview map[string]any
 	decodeJSONResponse(t, warningResponse, &warningPreview)
 	if warningPreview["ready"] != true || len(warningPreview["warnings"].([]any)) != 1 {
 		t.Fatalf("expected non-blocking vendor warning preview, got %+v", warningPreview)
 	}
+	if vendorSummary := asMap(t, warningPreview["vendor_summary"]); vendorSummary["warning_count"] != float64(1) {
+		t.Fatalf("expected vendor warning count in summary, got %+v", vendorSummary)
+	}
 
 	oldVersionPayload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
 	oldVersionPayload["version"] = 3
-	oldVersionResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", oldVersionPayload, nil)
+	oldVersionResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", oldVersionPayload, modelHeader(profileID))
 	assertErrorResponse(t, oldVersionResponse, http.StatusBadRequest, "Unsupported profile config bundle version '3'; expected 1")
 }
 
@@ -240,7 +387,7 @@ func TestConfigBundleImportRejectsSupersededVersion(t *testing.T) {
 
 	oldVersionPayload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
 	oldVersionPayload["version"] = 3
-	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", oldVersionPayload, modelHeader(profileID))
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", oldVersionPayload, mergeHeaders(modelHeader(profileID), previewTokenHeaders("stale-preview-token")))
 	assertErrorResponse(t, importResponse, http.StatusBadRequest, "Unsupported profile config bundle version '3'; expected 1")
 }
 
@@ -256,11 +403,15 @@ func TestVendorCatalogImportVersionContracts(t *testing.T) {
 	assertStatus(t, previewResponse, http.StatusOK)
 	var previewPayload map[string]any
 	decodeJSONResponse(t, previewResponse, &previewPayload)
-	if previewPayload["ready"] != true || previewPayload["version"] != float64(1) || previewPayload["bundle_kind"] != "vendor_catalog" || previewPayload["create_count"] != float64(0) || previewPayload["update_count"] != float64(0) {
+	if previewPayload["ready"] != true || previewPayload["version"] != float64(1) || previewPayload["bundle_kind"] != "vendor_catalog" || previewPayload["create_count"] != float64(0) || previewPayload["update_count"] != float64(0) || previewPayload["preview_token"] == "" || previewPayload["bundle_fingerprint"] == "" {
 		t.Fatalf("expected ready canonical vendor catalog preview payload, got %+v", previewPayload)
 	}
+	if mutationScope := asMap(t, previewPayload["mutation_scope"]); mutationScope["target"] != "global_vendor_catalog" || mutationScope["unchanged_count"] != float64(len(canonicalPayload["vendors"].([]any))) {
+		t.Fatalf("expected vendor mutation scope summary, got %+v", mutationScope)
+	}
+	previewToken := previewPayload["preview_token"].(string)
 
-	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", canonicalPayload, nil)
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", canonicalPayload, previewTokenHeaders(previewToken))
 	assertStatus(t, importResponse, http.StatusOK)
 	var importPayload map[string]any
 	decodeJSONResponse(t, importResponse, &importPayload)
@@ -273,7 +424,7 @@ func TestVendorCatalogImportVersionContracts(t *testing.T) {
 	oldPreviewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import/preview", oldVersionPayload, nil)
 	assertErrorResponse(t, oldPreviewResponse, http.StatusBadRequest, "Unsupported vendor catalog bundle version '2'; expected 1")
 
-	oldImportResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", oldVersionPayload, nil)
+	oldImportResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", oldVersionPayload, previewTokenHeaders("stale-preview-token"))
 	assertErrorResponse(t, oldImportResponse, http.StatusBadRequest, "Unsupported vendor catalog bundle version '2'; expected 1")
 }
 
@@ -307,14 +458,18 @@ func TestVendorCatalogImportPreviewAndImportCounts(t *testing.T) {
 	assertStatus(t, previewResponse, http.StatusOK)
 	var previewPayload map[string]any
 	decodeJSONResponse(t, previewResponse, &previewPayload)
-	if previewPayload["ready"] != true || previewPayload["create_count"] != float64(1) || previewPayload["update_count"] != float64(1) {
+	if previewPayload["ready"] != true || previewPayload["create_count"] != float64(1) || previewPayload["update_count"] != float64(1) || previewPayload["preview_token"] == "" || previewPayload["bundle_fingerprint"] == "" {
 		t.Fatalf("expected vendor catalog preview to report one create and one update, got %+v", previewPayload)
+	}
+	if mutationScope := asMap(t, previewPayload["mutation_scope"]); mutationScope["unchanged_count"] != float64(len(payload["vendors"].([]any))-2) {
+		t.Fatalf("expected vendor mutation scope unchanged count, got %+v", mutationScope)
 	}
 	if got := len(previewPayload["blocking_errors"].([]any)); got != 0 {
 		t.Fatalf("expected vendor catalog preview to have no blocking errors, got %+v", previewPayload)
 	}
+	previewToken := previewPayload["preview_token"].(string)
 
-	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, nil)
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", payload, previewTokenHeaders(previewToken))
 	assertStatus(t, importResponse, http.StatusOK)
 	var importPayload map[string]any
 	decodeJSONResponse(t, importResponse, &importPayload)
@@ -355,15 +510,16 @@ func TestVendorCatalogImportRejectsReadonlyOverwrite(t *testing.T) {
 	assertStatus(t, previewResponse, http.StatusOK)
 	var previewPayload map[string]any
 	decodeJSONResponse(t, previewResponse, &previewPayload)
-	if previewPayload["ready"] != false || previewPayload["create_count"] != float64(0) || previewPayload["update_count"] != float64(0) {
+	if previewPayload["ready"] != false || previewPayload["create_count"] != float64(0) || previewPayload["update_count"] != float64(0) || previewPayload["preview_token"] == "" || previewPayload["bundle_fingerprint"] == "" {
 		t.Fatalf("expected readonly vendor preview rejection, got %+v", previewPayload)
 	}
 	blockingErrors := previewPayload["blocking_errors"].([]any)
 	if len(blockingErrors) != 1 || blockingErrors[0] != "Readonly system vendor 'openai' cannot be overwritten by vendor catalog import" {
 		t.Fatalf("expected readonly vendor blocking error, got %+v", previewPayload)
 	}
+	previewToken := previewPayload["preview_token"].(string)
 
-	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", readonlyPayload, nil)
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/vendors/import", readonlyPayload, previewTokenHeaders(previewToken))
 	assertErrorResponse(t, importResponse, http.StatusBadRequest, "Readonly system vendor 'openai' cannot be overwritten by vendor catalog import")
 
 	afterExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/vendors/export", nil, nil)
@@ -382,8 +538,13 @@ func TestConfigBundleImportReplace(t *testing.T) {
 		seedConfigBundleFixtureGraph(t, harness, profileID)
 		seedLegacyProfileImportState(t, harness, profileID)
 		replacementPayload := mutateReplacementProfileBundle(t)
+		previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", replacementPayload, modelHeader(profileID))
+		assertStatus(t, previewResponse, http.StatusOK)
+		var previewPayload map[string]any
+		decodeJSONResponse(t, previewResponse, &previewPayload)
+		previewToken := previewPayload["preview_token"].(string)
 
-		importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", replacementPayload, modelHeader(profileID))
+		importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", replacementPayload, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
 		assertStatus(t, importResponse, http.StatusOK)
 		var importPayload map[string]any
 		decodeJSONResponse(t, importResponse, &importPayload)
@@ -391,7 +552,7 @@ func TestConfigBundleImportReplace(t *testing.T) {
 			t.Fatalf("expected replace import counts, got %+v", importPayload)
 		}
 
-		exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+		exportResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/export/with-secrets", nil, dangerousProfileExportHeaders(profileID))
 		assertStatus(t, exportResponse, http.StatusOK)
 		var exportPayload map[string]any
 		decodeJSONResponse(t, exportResponse, &exportPayload)
@@ -420,16 +581,21 @@ func TestConfigBundleImportReplace(t *testing.T) {
 		}})
 		profileID := modelLoadDefaultProfileID(t, harness)
 		seedConfigBundleFixtureGraph(t, harness, profileID)
-		beforeExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+		beforeExport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/export/with-secrets", nil, dangerousProfileExportHeaders(profileID))
 		assertStatus(t, beforeExport, http.StatusOK)
 		var beforePayload map[string]any
 		decodeJSONResponse(t, beforeExport, &beforePayload)
 
 		replacementPayload := mutateReplacementProfileBundle(t)
-		failedImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", replacementPayload, modelHeader(profileID))
+		previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", replacementPayload, modelHeader(profileID))
+		assertStatus(t, previewResponse, http.StatusOK)
+		var previewPayload map[string]any
+		decodeJSONResponse(t, previewResponse, &previewPayload)
+		previewToken := previewPayload["preview_token"].(string)
+		failedImport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", replacementPayload, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
 		assertErrorResponse(t, failedImport, http.StatusConflict, injectedFailure)
 
-		afterExport := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+		afterExport := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/export/with-secrets", nil, dangerousProfileExportHeaders(profileID))
 		assertStatus(t, afterExport, http.StatusOK)
 		var afterPayload map[string]any
 		decodeJSONResponse(t, afterExport, &afterPayload)

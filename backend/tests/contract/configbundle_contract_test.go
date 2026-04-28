@@ -42,7 +42,7 @@ func TestConfigBundleV1Export(t *testing.T) {
 
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	want := loadBundleFixture(t, "profile-v1-example.json")
+	want := redactedProfileBundleFixture(t)
 	assertJSONMatchesFixture(t, payload, want)
 }
 
@@ -358,6 +358,28 @@ func loadBundleFixture(t *testing.T, fileName string) map[string]any {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("decode bundle fixture %s: %v", fileName, err)
 	}
+	return payload
+}
+
+func redactedProfileBundleFixture(t *testing.T) map[string]any {
+	t.Helper()
+	payload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
+	endpoints, ok := payload["endpoints"].([]any)
+	if !ok {
+		t.Fatalf("expected endpoints array in profile fixture, got %+v", payload)
+	}
+	for _, raw := range endpoints {
+		endpoint, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("expected endpoint fixture entry map, got %T", raw)
+		}
+		endpoint["api_key_secret_ref"] = nil
+	}
+	secretPayload, ok := payload["secret_payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected secret payload map in profile fixture, got %+v", payload)
+	}
+	secretPayload["entries"] = []any{}
 	return payload
 }
 
