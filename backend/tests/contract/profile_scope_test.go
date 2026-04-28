@@ -224,12 +224,24 @@ func TestSelectedEffectiveProfileScope(t *testing.T) {
 	assertStatus(t, globalProfiles, http.StatusOK)
 	globalBootstrap := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles/bootstrap", nil, nil)
 	assertStatus(t, globalBootstrap, http.StatusOK)
+	strayGlobalHeader := map[string]string{profiledomain.ProfileIDHeader: "999999"}
+	globalProfilesWithStrayHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles", nil, strayGlobalHeader)
+	assertStatus(t, globalProfilesWithStrayHeader, http.StatusOK)
+	globalBootstrapWithStrayHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles/bootstrap", nil, strayGlobalHeader)
+	assertStatus(t, globalBootstrapWithStrayHeader, http.StatusOK)
 
 	activeResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles/active", nil, nil)
 	assertStatus(t, activeResponse, http.StatusOK)
 	var activePayload map[string]any
 	decodeJSONResponse(t, activeResponse, &activePayload)
 	activeID := jsonInt(t, activePayload["id"])
+	globalActiveWithStrayHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles/active", nil, strayGlobalHeader)
+	assertStatus(t, globalActiveWithStrayHeader, http.StatusOK)
+	var globalActiveWithStrayHeaderPayload map[string]any
+	decodeJSONResponse(t, globalActiveWithStrayHeader, &globalActiveWithStrayHeaderPayload)
+	if got := jsonInt(t, globalActiveWithStrayHeaderPayload["id"]); got != activeID {
+		t.Fatalf("expected global /api/profiles/active to ignore stray %s and keep active id %d, got %+v", profiledomain.ProfileIDHeader, activeID, globalActiveWithStrayHeaderPayload)
+	}
 
 	selectedProfileResponse := harness.requestJSON(
 		t,
@@ -254,7 +266,7 @@ func TestSelectedEffectiveProfileScope(t *testing.T) {
 			if errors.As(err, &httpErr) {
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.WriteHeader(httpErr.StatusCode)
-				_ = json.NewEncoder(w).Encode(map[string]string{"detail": httpErr.Detail})
+				_ = json.NewEncoder(w).Encode(httpErr.ResponseBody())
 				return
 			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -268,19 +280,19 @@ func TestSelectedEffectiveProfileScope(t *testing.T) {
 	defer probeServer.Close()
 
 	missingHeader := scopeProbeRequest(t, probeServer.URL, nil)
-	assertErrorResponse(t, missingHeader, http.StatusBadRequest, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
 
 	invalidHeaderValue := "not-an-integer"
 	invalidHeader := scopeProbeRequest(t, probeServer.URL, &invalidHeaderValue)
-	assertErrorResponse(t, invalidHeader, http.StatusBadRequest, fmt.Sprintf("%s must be an integer", profiledomain.ProfileIDHeader))
+	assertErrorResponseCode(t, invalidHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderInvalid, fmt.Sprintf("%s must be an integer", profiledomain.ProfileIDHeader))
 
-	negativeHeaderValue := "-1"
-	negativeHeader := scopeProbeRequest(t, probeServer.URL, &negativeHeaderValue)
-	assertErrorResponse(t, negativeHeader, http.StatusBadRequest, fmt.Sprintf("%s must be a positive integer", profiledomain.ProfileIDHeader))
+	nonPositiveHeaderValue := "0"
+	nonPositiveHeader := scopeProbeRequest(t, probeServer.URL, &nonPositiveHeaderValue)
+	assertErrorResponseCode(t, nonPositiveHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderNonPositive, fmt.Sprintf("%s must be a positive integer", profiledomain.ProfileIDHeader))
 
 	missingProfileValue := "999999"
 	missingProfile := scopeProbeRequest(t, probeServer.URL, &missingProfileValue)
-	assertErrorResponse(t, missingProfile, http.StatusNotFound, "Profile 999999 not found")
+	assertErrorResponseCode(t, missingProfile, http.StatusNotFound, profiledomain.ScopeErrorCodeProfileNotFound, "Profile 999999 not found")
 
 	selectedHeaderValue := fmt.Sprintf("%d", selectedID)
 	selectedProbe := scopeProbeRequest(t, probeServer.URL, &selectedHeaderValue)
@@ -325,7 +337,13 @@ func TestManagementRouteSeamKeepsEffectiveProfileScopeAfterRouterAuthSplit(t *te
 	loginWithVerifiedAuth(t, harness, "profile-seam-admin", "profile-seam-password-123", "profile-seam@example.com")
 
 	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, nil)
-	assertErrorResponse(t, missingHeader, http.StatusBadRequest, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+	invalidHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, map[string]string{profiledomain.ProfileIDHeader: "not-an-integer"})
+	assertErrorResponseCode(t, invalidHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderInvalid, fmt.Sprintf("%s must be an integer", profiledomain.ProfileIDHeader))
+	nonPositiveHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, map[string]string{profiledomain.ProfileIDHeader: "0"})
+	assertErrorResponseCode(t, nonPositiveHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderNonPositive, fmt.Sprintf("%s must be a positive integer", profiledomain.ProfileIDHeader))
+	missingProfile := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, modelHeader(999999))
+	assertErrorResponseCode(t, missingProfile, http.StatusNotFound, profiledomain.ScopeErrorCodeProfileNotFound, "Profile 999999 not found")
 
 	activeSummary := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/summary?group_by=api_family", nil, modelHeader(activeID))
 	assertStatus(t, activeSummary, http.StatusOK)

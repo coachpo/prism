@@ -223,6 +223,73 @@ func TestRuntimeIgnoresXProfileId(t *testing.T) {
 	}
 }
 
+func TestRuntimeV1BetaIgnoresXProfileId(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	inactiveProfileID := harness.createProfile(t, "Runtime Gemini Ignore Override")
+	suffix := randomSuffix()
+	publicModelID := "runtime-gemini-ignore-" + suffix
+	activeRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       activeProfileID,
+		APIFamily:       "gemini",
+		PublicModelID:   publicModelID,
+		TargetModelID:   "runtime-gemini-active-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/gemini-active"),
+		EndpointAPIKey:  "gemini-active-upstream-key",
+	})
+	inactiveRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       inactiveProfileID,
+		APIFamily:       "gemini",
+		PublicModelID:   publicModelID,
+		TargetModelID:   "runtime-gemini-inactive-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/gemini-inactive"),
+		EndpointAPIKey:  "gemini-inactive-upstream-key",
+	})
+
+	runtimePayload := map[string]any{
+		"contents": []map[string]any{{
+			"role":  "user",
+			"parts": []map[string]any{{"text": "ignore override"}},
+		}},
+	}
+	harness.upstream.clear()
+	firstResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/v1beta/models/%s:generateContent", publicModelID),
+		runtimePayload,
+		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", inactiveProfileID)},
+	)
+	assertStatus(t, firstResponse, http.StatusOK)
+	firstRequest := harness.upstream.lastRequest(t)
+	firstExpectedPath := fmt.Sprintf("/gemini-active/v1beta/models/%s:generateContent", activeRoute.TargetModelID)
+	if firstRequest.Path != firstExpectedPath {
+		t.Fatalf("expected first /v1beta upstream path to use active profile route, got %s", firstRequest.Path)
+	}
+	if firstRequest.Headers.Get("Authorization") != "Bearer "+activeRoute.EndpointAPIKey {
+		t.Fatalf("expected first /v1beta upstream authorization header, got %q", firstRequest.Headers.Get("Authorization"))
+	}
+
+	harness.activateProfile(t, inactiveProfileID, activeProfileID)
+	harness.upstream.clear()
+	secondResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		fmt.Sprintf("/v1beta/models/%s:generateContent", publicModelID),
+		runtimePayload,
+		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", activeProfileID)},
+	)
+	assertStatus(t, secondResponse, http.StatusOK)
+	secondRequest := harness.upstream.lastRequest(t)
+	secondExpectedPath := fmt.Sprintf("/gemini-inactive/v1beta/models/%s:generateContent", inactiveRoute.TargetModelID)
+	if secondRequest.Path != secondExpectedPath {
+		t.Fatalf("expected second /v1beta upstream path to follow the new active profile, got %s", secondRequest.Path)
+	}
+	if secondRequest.Headers.Get("Authorization") != "Bearer "+inactiveRoute.EndpointAPIKey {
+		t.Fatalf("expected second /v1beta upstream authorization header, got %q", secondRequest.Headers.Get("Authorization"))
+	}
+}
+
 func TestRuntimeBranchAuthSplitStillIgnoresXProfileId(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	activeProfileID := harness.activeProfileID(t)

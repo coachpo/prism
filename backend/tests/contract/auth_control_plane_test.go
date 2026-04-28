@@ -245,6 +245,91 @@ func TestCurrentSession(t *testing.T) {
 	assertSessionPayload(t, sessionResponse, true, true, stringPtr("current-admin"))
 }
 
+func TestAuthDisableInvalidatesCurrentSession(t *testing.T) {
+	harness := newContractHarness(t)
+	loginWithVerifiedAuth(t, harness, "disable-admin", "disable-password-123", "disable@example.com")
+
+	disableResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/auth",
+		map[string]any{"auth_enabled": false},
+		nil,
+	)
+	assertStatus(t, disableResponse, http.StatusOK)
+	if cookieValue(t, harness.client, harness.url, "prism_access_token") != "" {
+		t.Fatal("expected access cookie to be cleared after disabling auth")
+	}
+	if cookieValue(t, harness.client, harness.url, "prism_refresh_token") != "" {
+		t.Fatal("expected refresh cookie to be cleared after disabling auth")
+	}
+
+	bootstrapResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/auth/public-bootstrap", nil, nil)
+	assertStatus(t, bootstrapResponse, http.StatusOK)
+	assertSessionPayload(t, bootstrapResponse, false, false, nil)
+
+	for _, token := range loadRefreshTokens(t, harness) {
+		if token.RevokedAt == nil {
+			t.Fatalf("expected refresh token %d to be revoked after disabling auth", token.ID)
+		}
+	}
+}
+
+func TestAuthUsernameChangeInvalidatesCurrentSession(t *testing.T) {
+	harness := newContractHarness(t)
+	loginWithVerifiedAuth(t, harness, "rename-admin", "rename-password-123", "rename@example.com")
+
+	updateResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		"/api/settings/auth",
+		map[string]any{"auth_enabled": true, "username": "rename-admin-v2"},
+		nil,
+	)
+	assertStatus(t, updateResponse, http.StatusOK)
+	if cookieValue(t, harness.client, harness.url, "prism_access_token") != "" {
+		t.Fatal("expected access cookie to be cleared after username change")
+	}
+	if cookieValue(t, harness.client, harness.url, "prism_refresh_token") != "" {
+		t.Fatal("expected refresh cookie to be cleared after username change")
+	}
+
+	settings := loadAppAuthSettings(t, harness)
+	if settings.TokenVersion != 1 {
+		t.Fatalf("expected username change to increment token version to 1, got %d", settings.TokenVersion)
+	}
+	for _, token := range loadRefreshTokens(t, harness) {
+		if token.RevokedAt == nil {
+			t.Fatalf("expected refresh token %d to be revoked after username change", token.ID)
+		}
+	}
+
+	staleSession := harness.requestJSON(t, harness.client, http.MethodGet, "/api/auth/session", nil, nil)
+	assertErrorResponse(t, staleSession, http.StatusUnauthorized, "Authentication required")
+
+	oldUsernameLogin := harness.requestJSON(
+		t,
+		harness.newClient(t),
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "rename-admin", "password": "rename-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertErrorResponse(t, oldUsernameLogin, http.StatusUnauthorized, "Invalid credentials")
+
+	newUsernameLogin := harness.requestJSON(
+		t,
+		harness.newClient(t),
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{"username": "rename-admin-v2", "password": "rename-password-123", "session_duration": "7_days"},
+		nil,
+	)
+	assertStatus(t, newUsernameLogin, http.StatusOK)
+}
+
 func TestPasswordReset(t *testing.T) {
 	harness := newContractHarness(t)
 	seedVerifiedAuthSettings(t, harness, "reset-admin", "reset-password-123", "reset@example.com")
@@ -483,6 +568,44 @@ func TestProxyKeyCRUD(t *testing.T) {
 	decodeJSONResponse(t, finalList, &emptyList)
 	if len(emptyList) != 0 {
 		t.Fatalf("expected proxy API key list to be empty after delete, got %+v", emptyList)
+	}
+}
+
+func TestProxyKeyExpiryMutation(t *testing.T) {
+	harness := newContractHarness(t)
+	loginWithVerifiedAuth(t, harness, "expiry-admin", "expiry-password-123", "expiry@example.com")
+
+	futureExpiry := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Microsecond)
+	createResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/settings/auth/proxy-keys",
+		map[string]any{"name": "Expiring key", "expires_at": futureExpiry},
+		nil,
+	)
+	assertStatus(t, createResponse, http.StatusCreated)
+	var createdPayload map[string]any
+	decodeJSONResponse(t, createResponse, &createdPayload)
+	createdItem := createdPayload["item"].(map[string]any)
+	createdSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
+	if createdSnapshot.ExpiresAt == nil || !createdSnapshot.ExpiresAt.Equal(futureExpiry) {
+		t.Fatalf("expected proxy key create payload to persist expires_at %s, got %+v", futureExpiry.Format(time.RFC3339Nano), createdSnapshot)
+	}
+
+	expiredAt := time.Now().UTC().Add(-1 * time.Minute).Truncate(time.Microsecond)
+	updateResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPatch,
+		fmt.Sprintf("/api/settings/auth/proxy-keys/%d", createdSnapshot.ID),
+		map[string]any{"name": "Expiring key", "expires_at": expiredAt},
+		nil,
+	)
+	assertStatus(t, updateResponse, http.StatusOK)
+	updatedSnapshot := loadProxyKeyByPrefix(t, harness, createdItem["key_prefix"].(string))
+	if updatedSnapshot.ExpiresAt == nil || !updatedSnapshot.ExpiresAt.Equal(expiredAt) {
+		t.Fatalf("expected proxy key update payload to persist expires_at %s, got %+v", expiredAt.Format(time.RFC3339Nano), updatedSnapshot)
 	}
 }
 
@@ -1075,6 +1198,16 @@ func assertErrorResponse(t *testing.T, response *http.Response, wantStatus int, 
 	decodeJSONResponse(t, response, &payload)
 	if payload["detail"] != wantDetail {
 		t.Fatalf("expected error detail %q, got %+v", wantDetail, payload)
+	}
+}
+
+func assertErrorResponseCode(t *testing.T, response *http.Response, wantStatus int, wantCode string, wantDetail string) {
+	t.Helper()
+	assertStatus(t, response, wantStatus)
+	var payload map[string]string
+	decodeJSONResponse(t, response, &payload)
+	if payload["code"] != wantCode || payload["detail"] != wantDetail {
+		t.Fatalf("expected error code/detail %q/%q, got %+v", wantCode, wantDetail, payload)
 	}
 }
 
