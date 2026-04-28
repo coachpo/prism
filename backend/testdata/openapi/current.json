@@ -724,24 +724,6 @@
         ],
         "summary": "List Models",
         "operationId": "list_models_api_models_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -767,7 +749,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -775,24 +762,6 @@
         ],
         "summary": "Create Model",
         "operationId": "create_model_api_models_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -824,7 +793,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/models/by-endpoints": {
@@ -834,24 +808,6 @@
         ],
         "summary": "Get Models By Endpoints",
         "operationId": "get_models_by_endpoints_api_models_by_endpoints_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -883,7 +839,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/models/{model_config_id}": {
@@ -904,20 +865,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -960,20 +908,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1026,20 +961,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1082,20 +1004,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1133,24 +1042,6 @@
         ],
         "summary": "List Endpoints",
         "operationId": "list_endpoints_api_endpoints_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1176,7 +1067,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1184,24 +1080,6 @@
         ],
         "summary": "Create Endpoint",
         "operationId": "create_endpoint_api_endpoints_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1233,7 +1111,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/endpoints/{endpoint_id}/position": {
@@ -1254,20 +1137,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1315,24 +1185,6 @@
         ],
         "summary": "List All Connections",
         "operationId": "list_all_connections_api_endpoints_connections_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1354,7 +1206,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/endpoints/{endpoint_id}": {
@@ -1375,20 +1232,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1441,20 +1285,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1497,20 +1328,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1544,24 +1362,6 @@
         ],
         "summary": "List Connections Batch",
         "operationId": "list_connections_batch_api_models_connections_batch_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1593,7 +1393,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/models/{model_config_id}/connections": {
@@ -1614,20 +1419,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1674,20 +1466,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1742,20 +1521,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1810,20 +1576,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1876,20 +1629,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1941,20 +1681,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -2013,20 +1740,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -2081,20 +1795,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2139,20 +1840,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2296,20 +1984,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2370,20 +2045,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2428,20 +2090,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2591,20 +2240,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2638,24 +2274,6 @@
         ],
         "summary": "Model Metrics Batch",
         "operationId": "model_metrics_batch_api_stats_models_metrics_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2687,7 +2305,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/stats/connection-success-rates": {
@@ -2733,20 +2356,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2946,20 +2556,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3022,20 +2619,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3169,20 +2753,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3236,20 +2807,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3346,20 +2904,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3552,20 +3097,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3643,20 +3175,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3701,20 +3220,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3748,24 +3254,6 @@
         ],
         "summary": "List Strategies",
         "operationId": "list_strategies_api_loadbalance_strategies_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3791,7 +3279,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -3799,24 +3292,6 @@
         ],
         "summary": "Create Strategy",
         "operationId": "create_strategy_api_loadbalance_strategies_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3848,7 +3323,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/loadbalance/strategies/defaults": {
@@ -3858,24 +3338,6 @@
         ],
         "summary": "Create Strategy Defaults",
         "operationId": "create_strategy_defaults_api_loadbalance_strategies_defaults_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3897,7 +3359,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/loadbalance/strategies/{strategy_id}": {
@@ -3918,20 +3385,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3974,20 +3428,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -4040,20 +3481,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4097,20 +3525,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4155,20 +3570,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4237,20 +3639,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4328,20 +3717,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4386,20 +3762,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4433,24 +3796,6 @@
         ],
         "summary": "Export Profile Config",
         "operationId": "export_profile_config_api_config_profile_export_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4472,7 +3817,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/profile/import/preview": {
@@ -4523,24 +3873,6 @@
         ],
         "summary": "Import Profile Config",
         "operationId": "import_profile_config_api_config_profile_import_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -4572,7 +3904,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/vendors/export": {
@@ -4697,20 +4034,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4746,24 +4070,6 @@
         ],
         "summary": "Create Header Blocklist Rule",
         "operationId": "create_header_blocklist_rule_api_config_header_blocklist_rules_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -4795,7 +4101,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/header-blocklist-rules/{rule_id}": {
@@ -4816,20 +4127,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4872,20 +4170,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -4938,20 +4223,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4995,20 +4267,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -5044,24 +4303,6 @@
         ],
         "summary": "Create User Agent Client Rule",
         "operationId": "create_user_agent_client_rule_api_config_user_agent_client_rules_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5093,7 +4334,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/user-agent-client-rules/{rule_id}": {
@@ -5114,20 +4360,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -5170,20 +4403,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -5236,20 +4456,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -5281,24 +4488,6 @@
         ],
         "summary": "Get Costing Settings",
         "operationId": "get_costing_settings_api_settings_costing_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5320,7 +4509,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -5328,24 +4522,6 @@
         ],
         "summary": "Update Costing Settings",
         "operationId": "update_costing_settings_api_settings_costing_put",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5377,7 +4553,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/settings/timezone": {
@@ -5387,24 +4568,6 @@
         ],
         "summary": "Get Timezone Preference",
         "operationId": "get_timezone_preference_api_settings_timezone_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5426,7 +4589,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -5434,24 +4602,6 @@
         ],
         "summary": "Update Timezone Preference",
         "operationId": "update_timezone_preference_api_settings_timezone_put",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5483,7 +4633,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/settings/auth": {
@@ -5831,24 +4986,6 @@
         ],
         "summary": "List Pricing Templates",
         "operationId": "list_pricing_templates_api_pricing_templates_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5874,7 +5011,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -5882,24 +5024,6 @@
         ],
         "summary": "Create Pricing Template",
         "operationId": "create_pricing_template_api_pricing_templates_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5931,7 +5055,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/pricing-templates/{template_id}": {
@@ -5952,20 +5081,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -6008,20 +5124,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -6074,20 +5177,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -6130,20 +5220,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -15028,6 +14105,37 @@
         },
         "type": "object",
         "title": "VendorUpdate"
+      },
+      "ScopeControlError": {
+        "type": "object",
+        "required": [
+          "code",
+          "detail"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "title": "ScopeControlError"
+      }
+    },
+    "parameters": {
+      "XProfileIdRequired": {
+        "name": "X-Profile-Id",
+        "in": "header",
+        "required": true,
+        "description": "Selected profile ID for profile-scoped management routes.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "title": "X-Profile-Id"
+        }
       }
     }
   }
