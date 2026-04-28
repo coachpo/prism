@@ -477,11 +477,147 @@ export interface Messages {
     profileScopedSettings: string;
     profileTab: string;
     retentionDeletion: string;
+    startupTab: string;
     selectedProfileFallback: string;
     sectionsTitle: string;
     settingsDescription: string;
     settingsTitle: string;
     timezone: string;
+  };
+  settingsStartup: {
+    accessCookieName: string;
+    accessTokenTtlSeconds: string;
+    auth: string;
+    authAndCookiesDescription: string;
+    authAndCookiesTitle: string;
+    backendValidationFailed: string;
+    backendValidationPassed: string;
+    bootstrapConfigValidated: string;
+    bufferingMode: string;
+    buffered: string;
+    bundleEncryptionKey: string;
+    bundleEncryptionKeyChangeLabel: string;
+    clear: string;
+    clientChecksPassed: string;
+    completeDangerousChecklist: string;
+    completeValidationBeforeSaving: string;
+    confirmationRequiredBeforeSave: string;
+    configPath: string;
+    corsAllowedOrigins: string;
+    corsOriginsDescription: string;
+    corsOriginsAbsolute: string;
+    corsOriginsRequired: string;
+    corsOriginsUnique: string;
+    currentSecretMetadata: (value: string) => string;
+    dangerDialogDescription: string;
+    dangerDialogTitle: string;
+    dangerousChangesStaged: string;
+    dangerousChecklistDescription: string;
+    dangerousChecklistTitle: string;
+    database: string;
+    databaseAndCapacityDescription: string;
+    databaseAndCapacityTitle: string;
+    databaseUrl: string;
+    databaseUrlChangeLabel: string;
+    docsEnabled: string;
+    docsEnabledDescription: string;
+    enterNewValueWhenReplacing: string;
+    expectContinueTimeout: string;
+    failedToLoad: string;
+    failedToSave: string;
+    failedToValidate: string;
+    field: string;
+    fileRevision: string;
+    fileStatusDescription: string;
+    fileStatusTitle: string;
+    fixClientErrorsBeforeBackendValidation: string;
+    hostChangeLabel: string;
+    idleConnTimeout: string;
+    jwtSigningKey: string;
+    jwtSigningKeyChangeLabel: string;
+    leaveBlankToPreserveCurrentSecret: string;
+    loaded: string;
+    loadedRevision: string;
+    loadFailedTitle: string;
+    loadFailedDescription: string;
+    managementMaxConns: string;
+    managementMinIdle: string;
+    minIdleMustNotExceedMax: string;
+    maxConnsPerHost: string;
+    maxIdleConns: string;
+    maxIdlePerHost: string;
+    message: string;
+    m2MaxConcurrent: string;
+    m3ConcurrencyLimit: string;
+    m3MaxConcurrent: string;
+    noChangeCurrentlyStaged: string;
+    noEffectiveChangesWritten: string;
+    noLocalChangesDetected: string;
+    noValidationRunYet: string;
+    notConfigured: string;
+    notRecorded: string;
+    portChangeLabel: string;
+    preserve: string;
+    preserveOnly: string;
+    preserveOnlyInThisVersion: string;
+    readOnly: string;
+    refreshCookieName: string;
+    refreshTokenTtlSeconds: string;
+    responseHeaderTimeout: string;
+    replacementDisabled: string;
+    replaceOnSave: string;
+    requiredConfirmations: (tokens: string) => string;
+    resetCodeTtlSeconds: string;
+    restartRequired: string;
+    restartRequiredDescription: string;
+    retry: string;
+    reviewAndSaveDescription: string;
+    reviewAndSaveTitle: string;
+    runtimeMaxConns: string;
+    runtimeMinIdle: string;
+    runtimeSecretEncryptionKey: string;
+    safeValuesChanged: string;
+    saveAndRequireRestart: string;
+    saveDangerousChangesCancel: string;
+    saveRestartRequiredMessage: string;
+    savedRestartRequiredToast: string;
+    alreadyUpToDateToast: string;
+    saveStartupConfig: string;
+    schemaVersion: string;
+    secretReplacementCount: (count: number) => string;
+    secureCookies: string;
+    secureCookiesDescription: string;
+    secrets: string;
+    selectMode: string;
+    server: string;
+    serverAndBrowserAccessDescription: string;
+    serverAndBrowserAccessTitle: string;
+    serverHost: string;
+    serverHostRequired: string;
+    serverPort: string;
+    serverPortRange: string;
+    set: string;
+    state: string;
+    stateTransferDescription: string;
+    stateTransferTitle: string;
+    status: string;
+    startupBootstrapConfigTitle: string;
+    startupBootstrapConfigDescription: string;
+    streaming: string;
+    transport: string;
+    transportDescription: string;
+    transportTitle: string;
+    tlsHandshakeTimeout: string;
+    updated: string;
+    usePositiveInteger: string;
+    useRequiredValue: string;
+    useZeroOrPositiveInteger: string;
+    validate: string;
+    validationStatusError: string;
+    validationStatusSuccess: string;
+    validationStatusWarning: string;
+    validationUnavailable: string;
+    writable: string;
   };
   settingsDialogs: {
     activateRuleImmediately: string;
@@ -2228,11 +2364,147 @@ export const enMessages: Messages = {
     profileScopedSettings: "Profile-scoped settings",
     profileTab: "Profile",
     retentionDeletion: "Retention & Deletion",
+    startupTab: "Startup",
     selectedProfileFallback: "the selected profile",
     sectionsTitle: "Settings Sections",
     settingsDescription: "Manage instance-wide authentication and profile-scoped configuration",
     settingsTitle: "Settings",
     timezone: "Timezone",
+  },
+  settingsStartup: {
+    accessCookieName: "Access cookie name",
+    accessTokenTtlSeconds: "Access token TTL seconds",
+    auth: "Auth",
+    authAndCookiesDescription: "JWT signing metadata, token TTLs, and cookie startup settings.",
+    authAndCookiesTitle: "Auth and cookies",
+    backendValidationFailed: "Backend validation failed",
+    backendValidationPassed: "Backend validation passed. No file was written.",
+    bootstrapConfigValidated: "Startup bootstrap config validated",
+    bufferingMode: "Buffering mode",
+    buffered: "buffered",
+    bundleEncryptionKey: "Bundle encryption key",
+    bundleEncryptionKeyChangeLabel: "State transfer encryption-key replacement affects future config bundles",
+    clear: "Clear",
+    clientChecksPassed: "Client-side checks passed.",
+    completeDangerousChecklist: "Complete the dangerous-change checklist before saving.",
+    completeValidationBeforeSaving: "Complete required validation before saving.",
+    confirmationRequiredBeforeSave: "Confirmation required before save.",
+    configPath: "Config path",
+    corsAllowedOrigins: "CORS allowed origins",
+    corsOriginsDescription: "Comma-separated absolute origins, for example http://localhost:15173.",
+    corsOriginsAbsolute: "CORS origins must be absolute URLs.",
+    corsOriginsRequired: "At least one CORS origin is required.",
+    corsOriginsUnique: "CORS origins must be unique.",
+    currentSecretMetadata: (value) => `Current metadata: ${value}.`,
+    dangerDialogDescription: "These edits will be written to config.json for the next Prism restart. The running process will not hot-reload them.",
+    dangerDialogTitle: "Save dangerous startup changes?",
+    dangerousChangesStaged: "Dangerous changes staged",
+    dangerousChecklistDescription: "Required only for listener, database URL, JWT signing key, and bundle encryption-key changes.",
+    dangerousChecklistTitle: "Dangerous confirmation checklist",
+    database: "Database",
+    databaseAndCapacityDescription: "PostgreSQL secret metadata plus pool and admission limits.",
+    databaseAndCapacityTitle: "Database and capacity",
+    databaseUrl: "Database URL",
+    databaseUrlChangeLabel: "Database URL replacement points Prism at a different PostgreSQL target",
+    docsEnabled: "Docs enabled",
+    docsEnabledDescription: "Serve Swagger UI, ReDoc, and OpenAPI after restart.",
+    enterNewValueWhenReplacing: "Enter a new value only when replacing it.",
+    expectContinueTimeout: "Expect continue timeout",
+    failedToLoad: "Failed to load startup bootstrap config",
+    failedToSave: "Failed to save startup bootstrap config",
+    failedToValidate: "Startup bootstrap validation failed",
+    field: "Field",
+    fileRevision: "File revision",
+    fileStatusDescription: "Concurrency metadata for the selected PRISM_CONFIG_PATH file.",
+    fileStatusTitle: "File status",
+    fixClientErrorsBeforeBackendValidation: "Fix client-side validation errors before backend validation.",
+    hostChangeLabel: "Server host changes where Prism listens after restart",
+    idleConnTimeout: "Idle conn timeout",
+    jwtSigningKey: "JWT signing key",
+    jwtSigningKeyChangeLabel: "JWT signing key replacement can invalidate operator sessions after restart",
+    leaveBlankToPreserveCurrentSecret: "Leave blank to preserve current secret",
+    loaded: "Loaded",
+    loadedRevision: "Loaded revision",
+    loadFailedTitle: "Startup bootstrap config unavailable",
+    loadFailedDescription: "The startup bootstrap config could not be loaded.",
+    managementMaxConns: "Management max conns",
+    managementMinIdle: "Management min idle",
+    minIdleMustNotExceedMax: "Minimum idle connections must not exceed max connections.",
+    maxConnsPerHost: "Max conns per host",
+    maxIdleConns: "Max idle conns",
+    maxIdlePerHost: "Max idle per host",
+    message: "Message",
+    m2MaxConcurrent: "M2 max concurrent",
+    m3ConcurrencyLimit: "M3 concurrency must not exceed M2 concurrency.",
+    m3MaxConcurrent: "M3 max concurrent",
+    noChangeCurrentlyStaged: "No change currently staged.",
+    noEffectiveChangesWritten: "No effective changes were written.",
+    noLocalChangesDetected: "No local changes detected",
+    noValidationRunYet: "No validation run yet.",
+    notConfigured: "not configured",
+    notRecorded: "Not recorded",
+    portChangeLabel: "Server port changes the management and proxy port after restart",
+    preserve: "Preserve",
+    preserveOnly: "Preserve only",
+    preserveOnlyInThisVersion: "Preserve-only in this version.",
+    readOnly: "Read-only",
+    refreshCookieName: "Refresh cookie name",
+    refreshTokenTtlSeconds: "Refresh token TTL seconds",
+    responseHeaderTimeout: "Response header timeout",
+    replacementDisabled: "Replacement disabled",
+    replaceOnSave: "Replace on save",
+    requiredConfirmations: (tokens) => ` Required confirmations: ${tokens}.`,
+    resetCodeTtlSeconds: "Reset code TTL seconds",
+    restartRequired: "Restart required",
+    restartRequiredDescription: "The config file differs from the settings loaded by the running process. Restart Prism to apply these startup settings.",
+    retry: "Retry",
+    reviewAndSaveDescription: "Validate edits, confirm dangerous next-startup changes, then write config.json.",
+    reviewAndSaveTitle: "Review and save",
+    runtimeMaxConns: "Runtime max conns",
+    runtimeMinIdle: "Runtime min idle",
+    runtimeSecretEncryptionKey: "Runtime secret encryption key",
+    safeValuesChanged: "Safe values changed",
+    saveAndRequireRestart: "Save and require restart",
+    saveDangerousChangesCancel: "Cancel",
+    saveRestartRequiredMessage: "Saved to config.json. Restart Prism for changes to take effect.",
+    savedRestartRequiredToast: "Startup bootstrap config saved. Restart required.",
+    alreadyUpToDateToast: "Startup bootstrap config already up to date.",
+    saveStartupConfig: "Save startup config",
+    schemaVersion: "Schema version",
+    secretReplacementCount: (count) => `${count} secret replacement${count === 1 ? "" : "s"} staged`,
+    secureCookies: "Secure cookies",
+    secureCookiesDescription: "Send auth cookies only over HTTPS after restart.",
+    secrets: "Secrets",
+    selectMode: "Select mode",
+    server: "Server",
+    serverAndBrowserAccessDescription: "Listener, docs, and browser CORS settings for next startup.",
+    serverAndBrowserAccessTitle: "Server and browser access",
+    serverHost: "Server host",
+    serverHostRequired: "Server host is required.",
+    serverPort: "Server port",
+    serverPortRange: "Server port must be an integer from 1 to 65535.",
+    set: "set",
+    state: "State",
+    stateTransferDescription: "Config bundle encryption metadata. Runtime secret encryption key is read-only and preserve-only.",
+    stateTransferTitle: "State transfer",
+    status: "Status",
+    startupBootstrapConfigTitle: "Startup bootstrap config",
+    startupBootstrapConfigDescription: "These settings are loaded when Prism starts. Saving updates config.json; restart Prism for changes to take effect.",
+    streaming: "streaming",
+    transport: "Transport",
+    transportDescription: "Proxy buffering and HTTP transport limits used after restart.",
+    transportTitle: "Runtime transport",
+    tlsHandshakeTimeout: "TLS handshake timeout",
+    updated: "Updated",
+    usePositiveInteger: "Use a positive integer.",
+    useRequiredValue: "This field is required.",
+    useZeroOrPositiveInteger: "Use zero or a positive integer.",
+    validate: "Validate",
+    validationStatusError: "error",
+    validationStatusSuccess: "success",
+    validationStatusWarning: "warning",
+    validationUnavailable: "Validation failed",
+    writable: "Writable",
   },
   settingsDialogs: {
     activateRuleImmediately: "Activate this rule immediately",
