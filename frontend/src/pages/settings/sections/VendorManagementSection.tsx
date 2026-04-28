@@ -33,14 +33,19 @@ interface VendorManagementSectionProps {
   catalogImportSummary: {
     createCount: number;
     updateCount: number;
+    unchangedCount: number;
     vendorCount: number;
   };
   catalogParsedImport: VendorCatalogImportRequest | null;
+  catalogPreviewing: boolean;
+  catalogPreviewInvalidationReason: "bundle_changed" | null;
+  catalogPreviewReadyForSelection: boolean;
   catalogPreviewResult: VendorCatalogImportPreviewResponse | null;
   catalogSelectedFile: File | null;
   handleCatalogExport: () => Promise<void>;
   handleCatalogFileSelect: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleCatalogImport: () => Promise<void>;
+  handleCatalogPreview: () => Promise<void>;
   vendors: Vendor[];
   vendorsLoading: boolean;
   onCreateVendor: () => void;
@@ -54,11 +59,15 @@ export function VendorManagementSection({
   catalogImporting,
   catalogImportSummary,
   catalogParsedImport,
+  catalogPreviewing,
+  catalogPreviewInvalidationReason,
+  catalogPreviewReadyForSelection,
   catalogPreviewResult,
   catalogSelectedFile,
   handleCatalogExport,
   handleCatalogFileSelect,
   handleCatalogImport,
+  handleCatalogPreview,
   vendors,
   vendorsLoading,
   onCreateVendor,
@@ -68,26 +77,30 @@ export function VendorManagementSection({
   const { messages } = useLocale();
 
   return (
-    <section id="vendor-management" tabIndex={-1} className="scroll-mt-24 space-y-4">
+    <section id="vendor-management" tabIndex={-1} className="scroll-mt-24 flex flex-col gap-4">
       <VendorCatalogTransportCard
         catalogExporting={catalogExporting}
         catalogFileInputRef={catalogFileInputRef}
         catalogImporting={catalogImporting}
         catalogImportSummary={catalogImportSummary}
         catalogParsedImport={catalogParsedImport}
+        catalogPreviewing={catalogPreviewing}
+        catalogPreviewInvalidationReason={catalogPreviewInvalidationReason}
+        catalogPreviewReadyForSelection={catalogPreviewReadyForSelection}
         catalogPreviewResult={catalogPreviewResult}
         catalogSelectedFile={catalogSelectedFile}
         handleCatalogExport={handleCatalogExport}
         handleCatalogFileSelect={handleCatalogFileSelect}
         handleCatalogImport={handleCatalogImport}
+        handleCatalogPreview={handleCatalogPreview}
       />
 
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
+            <div className="flex flex-col gap-1">
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Building2 className="h-4 w-4" />
+                <Building2 className="size-4" />
                 {messages.vendorManagement.sectionTitle}
               </CardTitle>
               <CardDescription className="text-xs">
@@ -104,11 +117,9 @@ export function VendorManagementSection({
           {vendorsLoading ? (
             <div className="h-24 animate-pulse rounded-md bg-muted/50" />
           ) : vendors.length === 0 ? (
-            <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-sm">
+            <div className="flex flex-col gap-1 rounded-lg border border-dashed bg-muted/20 p-6 text-sm">
               <p className="font-medium">{messages.vendorManagement.emptyTitle}</p>
-              <p className="mt-1 text-muted-foreground">
-                {messages.vendorManagement.emptyDescription}
-              </p>
+              <p className="text-muted-foreground">{messages.vendorManagement.emptyDescription}</p>
             </div>
           ) : (
             <div className="rounded-md border">

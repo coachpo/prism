@@ -44,9 +44,12 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
   const [vendorUsageRows, setVendorUsageRows] = useState<VendorModelUsageItem[]>([]);
   const [catalogExporting, setCatalogExporting] = useState(false);
   const [catalogImporting, setCatalogImporting] = useState(false);
+  const [catalogPreviewing, setCatalogPreviewing] = useState(false);
   const [catalogSelectedFile, setCatalogSelectedFile] = useState<File | null>(null);
   const [catalogParsedImport, setCatalogParsedImport] = useState<VendorCatalogImportRequest | null>(null);
   const [catalogPreviewResult, setCatalogPreviewResult] = useState<VendorCatalogImportPreviewResponse | null>(null);
+  const [catalogPreviewInvalidationReason, setCatalogPreviewInvalidationReason] = useState<"bundle_changed" | null>(null);
+  const [catalogPreviewSelectionToken, setCatalogPreviewSelectionToken] = useState<number | null>(null);
   const catalogFileInputRef = useRef<HTMLInputElement>(null);
   const currentCatalogSelectionTokenRef = useRef(0);
 
@@ -65,15 +68,29 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
     setCatalogSelectedFile(null);
     setCatalogParsedImport(null);
     setCatalogPreviewResult(null);
+    setCatalogPreviewInvalidationReason(null);
+    setCatalogPreviewSelectionToken(null);
     if (catalogFileInputRef.current) {
       catalogFileInputRef.current.value = "";
     }
   }, []);
 
+  const catalogPreviewReadyForSelection = useMemo(
+    () =>
+      Boolean(
+        catalogParsedImport &&
+          catalogPreviewResult?.ready &&
+          catalogPreviewSelectionToken !== null &&
+          catalogPreviewSelectionToken === currentCatalogSelectionTokenRef.current,
+      ),
+    [catalogParsedImport, catalogPreviewResult, catalogPreviewSelectionToken],
+  );
+
   const catalogImportSummary = useMemo(
     () => ({
-      createCount: catalogPreviewResult?.create_count ?? 0,
-      updateCount: catalogPreviewResult?.update_count ?? 0,
+      createCount: catalogPreviewResult?.mutation_scope.create_count ?? catalogPreviewResult?.create_count ?? 0,
+      updateCount: catalogPreviewResult?.mutation_scope.update_count ?? catalogPreviewResult?.update_count ?? 0,
+      unchangedCount: catalogPreviewResult?.mutation_scope.unchanged_count ?? 0,
       vendorCount: catalogParsedImport?.vendors.length ?? 0,
     }),
     [catalogParsedImport, catalogPreviewResult],
@@ -131,6 +148,8 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
     setCatalogSelectedFile(file);
     setCatalogParsedImport(null);
     setCatalogPreviewResult(null);
+    setCatalogPreviewInvalidationReason("bundle_changed");
+    setCatalogPreviewSelectionToken(null);
 
     try {
       const text = await file.text();
@@ -147,16 +166,7 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
         throw new Error(messages.vendorManagement.catalogInvalidPayload(errors));
       }
 
-      const catalogImport = validation.data as VendorCatalogImportRequest;
-      const preview = await api.config.vendors.previewImport(catalogImport);
-      if (currentCatalogSelectionTokenRef.current !== selectionToken) {
-        return;
-      }
-      setCatalogParsedImport(catalogImport);
-      setCatalogPreviewResult(preview);
-      if (!preview.ready && preview.blocking_errors.length > 0) {
-        toast.error(preview.blocking_errors[0]);
-      }
+      setCatalogParsedImport(validation.data as VendorCatalogImportRequest);
     } catch (error) {
       if (currentCatalogSelectionTokenRef.current !== selectionToken) {
         return;
@@ -166,18 +176,55 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
     }
   };
 
+  const handleCatalogPreview = async () => {
+    const messages = getStaticMessages();
+    if (!catalogParsedImport) {
+      toast.error(messages.vendorManagement.catalogPreviewRequiresRefresh);
+      return;
+    }
+
+    const selectionToken = currentCatalogSelectionTokenRef.current;
+    setCatalogPreviewing(true);
+    try {
+      const preview = await api.config.vendors.previewImport(catalogParsedImport);
+      if (currentCatalogSelectionTokenRef.current !== selectionToken) {
+        return;
+      }
+      setCatalogPreviewResult(preview);
+      setCatalogPreviewInvalidationReason(null);
+      setCatalogPreviewSelectionToken(selectionToken);
+      if (!preview.ready && preview.blocking_errors.length > 0) {
+        toast.error(preview.blocking_errors[0]);
+      }
+    } catch (error) {
+      if (currentCatalogSelectionTokenRef.current !== selectionToken) {
+        return;
+      }
+      setCatalogPreviewResult(null);
+      setCatalogPreviewSelectionToken(null);
+      setCatalogPreviewInvalidationReason("bundle_changed");
+      toast.error(error instanceof Error ? error.message : messages.vendorManagement.catalogPreviewFailed);
+    } finally {
+      if (currentCatalogSelectionTokenRef.current === selectionToken) {
+        setCatalogPreviewing(false);
+      }
+    }
+  };
+
   const handleCatalogImport = async () => {
     const messages = getStaticMessages();
-    if (!catalogParsedImport || !catalogPreviewResult?.ready) {
+    if (!catalogParsedImport || !catalogPreviewResult?.ready || !catalogPreviewReadyForSelection) {
       if (catalogPreviewResult && catalogPreviewResult.blocking_errors.length > 0) {
         toast.error(catalogPreviewResult.blocking_errors[0]);
+      } else {
+        toast.error(messages.vendorManagement.catalogPreviewRequiresRefresh);
       }
       return;
     }
 
     setCatalogImporting(true);
     try {
-      const result = await api.config.vendors.import(catalogParsedImport);
+      const result = await api.config.vendors.import(catalogParsedImport, catalogPreviewResult.preview_token);
       const nextVendors = await api.vendors.list();
       setVendors(nextVendors);
       setSharedVendors(revision, nextVendors);
@@ -306,6 +353,9 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
     catalogImporting,
     catalogImportSummary,
     catalogParsedImport,
+    catalogPreviewing,
+    catalogPreviewInvalidationReason,
+    catalogPreviewReadyForSelection,
     catalogPreviewResult,
     catalogSelectedFile,
     closeDeleteVendorDialog,
@@ -318,6 +368,7 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
     handleCatalogExport,
     handleCatalogFileSelect,
     handleCatalogImport,
+    handleCatalogPreview,
     handleDeleteVendor,
     handleDeleteVendorClick,
     handleEditVendor,

@@ -58,11 +58,15 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
         catalogImporting={data.catalogImporting}
         catalogImportSummary={data.catalogImportSummary}
         catalogParsedImport={data.catalogParsedImport}
+        catalogPreviewing={data.catalogPreviewing}
+        catalogPreviewInvalidationReason={data.catalogPreviewInvalidationReason}
+        catalogPreviewReadyForSelection={data.catalogPreviewReadyForSelection}
         catalogPreviewResult={data.catalogPreviewResult}
         catalogSelectedFile={data.catalogSelectedFile}
         handleCatalogExport={data.handleCatalogExport}
         handleCatalogFileSelect={data.handleCatalogFileSelect}
         handleCatalogImport={data.handleCatalogImport}
+        handleCatalogPreview={data.handleCatalogPreview}
         vendors={data.vendors}
         vendorsLoading={data.vendorsLoading}
         onCreateVendor={data.openCreateVendorDialog}
