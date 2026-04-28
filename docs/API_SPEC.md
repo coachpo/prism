@@ -10,7 +10,7 @@ Local `./start.sh` base URL: `http://localhost:18000`
   - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
   - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/vendors/*`, and `POST /api/config/profile/import/preview`.
+- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, and `/api/config/vendors/*`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Profile-scoped management routes include `/api/config/profile/import`, `/api/settings/costing`, `/api/settings/timezone`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
@@ -676,7 +676,7 @@ Response `200`:
     {
       "name": "Primary OpenAI",
       "base_url": "https://api.openai.com",
-      "api_key_secret_ref": "endpoint:Primary OpenAI:api_key",
+      "api_key_secret_ref": null,
       "position": 0
     }
   ],
@@ -690,16 +690,12 @@ Response `200`:
     "endpoint_fx_mappings": []
   },
   "header_blocklist_rules": [],
+  "user_agent_client_rules": [],
   "secret_payload": {
     "kind": "encrypted",
     "cipher": "fernet-v1",
     "key_id": "sha256:...",
-    "entries": [
-      {
-        "ref": "endpoint:Primary OpenAI:api_key",
-        "ciphertext": "enc:..."
-      }
-    ]
+    "entries": []
   }
 }
 ```
@@ -707,11 +703,13 @@ The response includes a `Content-Disposition` header to trigger a file download:
 
 Profile export semantics:
 - `bundle_kind` is always `profile_config`.
+- `GET /api/config/profile/export` returns the safe redacted default bundle.
+- `POST /api/config/profile/export/with-secrets` returns the dangerous full secret-bearing bundle and requires `X-Prism-Dangerous-Confirm: profile-export`.
 - `vendor_refs` are non-authoritative hints keyed by actual referenced `vendor_key` values only.
 - Vendorless models export `vendor_key: null` and do not add entries to `vendor_refs`.
-- Export never includes plaintext `endpoints[].api_key`.
-- Endpoints without an API key export `api_key_secret_ref: null` and do not contribute an entry to `secret_payload.entries[]`.
-- Endpoint secrets are exported only through `secret_payload.entries[]`.
+- Safe exports never include plaintext `endpoints[].api_key`.
+- Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
+- Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
 - Profile bundles preserve ordered proxy targets, same-family model routing, and attached loadbalance references as part of the canonical contract.
 
@@ -721,7 +719,7 @@ POST /api/config/profile/import/preview
 ```
 Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
 
-This preview route is global and does not require `X-Profile-Id`.
+This preview route is profile-scoped and requires `X-Profile-Id`.
 
 Response `200`:
 ```json
@@ -741,6 +739,34 @@ Response `200`:
       "warning": null
     }
   ],
+  "replacement_scope": {
+    "target": "selected_profile",
+    "endpoints": 2,
+    "pricing_templates": 4,
+    "loadbalance_strategies": 2,
+    "models": 5,
+    "connections": 10,
+    "header_blocklist_rules": 2,
+    "user_agent_client_rules": 1,
+    "profile_settings": true
+  },
+  "untouched_scope": {
+    "other_profiles": true,
+    "existing_global_vendor_metadata": true,
+    "request_logs": true
+  },
+  "vendor_summary": {
+    "create_count": 1,
+    "reuse_count": 2,
+    "warning_count": 0
+  },
+  "secret_summary": {
+    "endpoint_secret_refs": 1,
+    "secret_payload_entries": 1,
+    "decryptable_secret_refs": 1
+  },
+  "preview_token": "ptok_...",
+  "bundle_fingerprint": "sha256:...",
   "secret_key_id": "sha256:...",
   "decryptable_secret_refs": [
     "endpoint:Primary OpenAI:api_key"
@@ -753,6 +779,7 @@ Response `200`:
 Preview semantics:
 - Preview is the authoritative backend readiness check for profile import.
 - The backend validates bundle kind/version, internal references, vendor resolution, and secret decryption before returning `ready: true`.
+- Preview returns a server-issued preview token, and apply must send that token in `X-Prism-Preview-Token`.
 - Preview rejects plaintext or otherwise non-encrypted `secret_payload.entries[].ciphertext` values.
 - When bundle key validation or secret decryption fails, preview returns `ready: false` with `blocking_errors[]` and does not mutate profile state.
 
@@ -763,6 +790,12 @@ POST /api/config/profile/import
 Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
 
 This import route is profile-scoped and requires `X-Profile-Id`.
+
+Apply semantics:
+- `X-Prism-Preview-Token` is required on apply.
+- Missing preview token returns `400`.
+- Invalid, stale, or mismatched preview token returns `409`.
+- The preview/apply linkage lives in the header only; the raw bundle JSON stays unchanged.
 
 Response `200`:
 ```json
@@ -778,6 +811,8 @@ Response `200`:
 Profile import semantics:
 - Import is profile-targeted and replaces configuration in the effective profile only.
 - Other profiles are not deleted or mutated.
+- The profile import lanes replace profile-scoped rows only, including endpoints, connections, model configs, profile settings, loadbalance strategies, header blocklist rules, and user-agent client rules that belong to the effective profile.
+- Global vendor rows, other profiles, and request logs remain untouched.
 - `models[].vendor_key` is optional; when omitted or `null`, the imported model persists with `vendor_id = null` and `vendor = null`.
 - When `models[].vendor_key` is present, the backend resolves or creates the matching shared vendor row by that key only.
 - Global vendor rows are resolved by `vendor_key` only.
@@ -832,6 +867,19 @@ Response `200`:
   "bundle_kind": "vendor_catalog",
   "create_count": 1,
   "update_count": 1,
+  "mutation_scope": {
+    "target": "global_vendor_catalog",
+    "create_count": 1,
+    "update_count": 1,
+    "unchanged_count": 0
+  },
+  "untouched_scope": {
+    "profiles": true,
+    "profile_scoped_config": true,
+    "request_logs": true
+  },
+  "preview_token": "ptok_...",
+  "bundle_fingerprint": "sha256:...",
   "blocking_errors": [],
   "warnings": []
 }
@@ -849,9 +897,16 @@ Response `200`:
 }
 ```
 
+Apply semantics:
+- `X-Prism-Preview-Token` is required on apply.
+- Missing preview token returns `400`.
+- Invalid, stale, or mismatched preview token returns `409`.
+- The preview/apply linkage lives in the header only; the raw bundle JSON stays unchanged.
+
 Vendor catalog semantics:
 - Vendor catalog bundles are authoritative for global vendor metadata only.
 - Vendor catalog import upserts vendor metadata by `key`.
+- Vendor catalog preview/import mutate only the shared vendor catalog.
 - Vendor catalog preview/import reject duplicate bundle keys, duplicate bundle names, and global name collisions before mutation.
 - Vendor catalog import is independent from the profile backup/import flow.
 - Vendor catalog exports and imports stay on the same split-bundle contract version as profile bundles.

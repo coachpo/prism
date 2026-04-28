@@ -3827,6 +3827,70 @@
         ]
       }
     },
+    "/api/config/profile/export/with-secrets": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Export Profile Config With Secrets",
+        "operationId": "export_profile_config_with_secrets_api_config_profile_export_with_secrets_post",
+        "parameters": [
+          {
+            "name": "X-Prism-Dangerous-Confirm",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "profile-export",
+              "title": "X-Prism-Dangerous-Confirm"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigExportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dangerous Confirm Missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config/profile/import/preview": {
       "post": {
         "tags": [
@@ -3865,7 +3929,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/profile/import": {
@@ -3896,6 +3965,42 @@
               }
             }
           },
+          "400": {
+            "description": "Preview Token Missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Preview Token Mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -3908,6 +4013,15 @@
           }
         },
         "parameters": [
+          {
+            "name": "X-Prism-Preview-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Prism-Preview-Token"
+            }
+          },
           {
             "$ref": "#/components/parameters/XProfileIdRequired"
           }
@@ -3973,7 +4087,8 @@
               }
             }
           }
-        }
+        },
+        "parameters": []
       }
     },
     "/api/config/vendors/import": {
@@ -4004,6 +4119,42 @@
               }
             }
           },
+          "400": {
+            "description": "Preview Token Missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Preview Token Mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -4014,7 +4165,18 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-Prism-Preview-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Prism-Preview-Token"
+            }
+          }
+        ]
       }
     },
     "/api/config/header-blocklist-rules": {
@@ -6344,6 +6506,13 @@
             "type": "array",
             "title": "Header Blocklist Rules"
           },
+          "user_agent_client_rules": {
+            "items": {
+              "$ref": "#/components/schemas/UserAgentClientRuleExport"
+            },
+            "type": "array",
+            "title": "User Agent Client Rules"
+          },
           "secret_payload": {
             "$ref": "#/components/schemas/ConfigSecretPayload"
           }
@@ -6404,6 +6573,26 @@
             "type": "array",
             "title": "Vendor Resolutions"
           },
+          "replacement_scope": {
+            "$ref": "#/components/schemas/ProfileImportReplacementScope"
+          },
+          "untouched_scope": {
+            "$ref": "#/components/schemas/ProfileImportUntouchedScope"
+          },
+          "vendor_summary": {
+            "$ref": "#/components/schemas/ProfileImportVendorSummary"
+          },
+          "secret_summary": {
+            "$ref": "#/components/schemas/ProfileImportSecretSummary"
+          },
+          "preview_token": {
+            "type": "string",
+            "title": "Preview Token"
+          },
+          "bundle_fingerprint": {
+            "type": "string",
+            "title": "Bundle Fingerprint"
+          },
           "secret_key_id": {
             "type": "string",
             "title": "Secret Key Id"
@@ -6438,9 +6627,137 @@
           "strategies_imported",
           "models_imported",
           "connections_imported",
+          "replacement_scope",
+          "untouched_scope",
+          "vendor_summary",
+          "secret_summary",
+          "preview_token",
+          "bundle_fingerprint",
           "secret_key_id"
         ],
         "title": "ConfigImportPreviewResponse"
+      },
+      "ProfileImportReplacementScope": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "endpoints": {
+            "type": "integer",
+            "title": "Endpoints"
+          },
+          "pricing_templates": {
+            "type": "integer",
+            "title": "Pricing Templates"
+          },
+          "loadbalance_strategies": {
+            "type": "integer",
+            "title": "Loadbalance Strategies"
+          },
+          "models": {
+            "type": "integer",
+            "title": "Models"
+          },
+          "connections": {
+            "type": "integer",
+            "title": "Connections"
+          },
+          "header_blocklist_rules": {
+            "type": "integer",
+            "title": "Header Blocklist Rules"
+          },
+          "user_agent_client_rules": {
+            "type": "integer",
+            "title": "User Agent Client Rules"
+          },
+          "profile_settings": {
+            "type": "boolean",
+            "title": "Profile Settings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "endpoints",
+          "pricing_templates",
+          "loadbalance_strategies",
+          "models",
+          "connections",
+          "header_blocklist_rules",
+          "user_agent_client_rules",
+          "profile_settings"
+        ],
+        "title": "ProfileImportReplacementScope"
+      },
+      "ProfileImportUntouchedScope": {
+        "properties": {
+          "other_profiles": {
+            "type": "boolean",
+            "title": "Other Profiles"
+          },
+          "existing_global_vendor_metadata": {
+            "type": "boolean",
+            "title": "Existing Global Vendor Metadata"
+          },
+          "request_logs": {
+            "type": "boolean",
+            "title": "Request Logs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "other_profiles",
+          "existing_global_vendor_metadata",
+          "request_logs"
+        ],
+        "title": "ProfileImportUntouchedScope"
+      },
+      "ProfileImportVendorSummary": {
+        "properties": {
+          "create_count": {
+            "type": "integer",
+            "title": "Create Count"
+          },
+          "reuse_count": {
+            "type": "integer",
+            "title": "Reuse Count"
+          },
+          "warning_count": {
+            "type": "integer",
+            "title": "Warning Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "create_count",
+          "reuse_count",
+          "warning_count"
+        ],
+        "title": "ProfileImportVendorSummary"
+      },
+      "ProfileImportSecretSummary": {
+        "properties": {
+          "endpoint_secret_refs": {
+            "type": "integer",
+            "title": "Endpoint Secret Refs"
+          },
+          "secret_payload_entries": {
+            "type": "integer",
+            "title": "Secret Payload Entries"
+          },
+          "decryptable_secret_refs": {
+            "type": "integer",
+            "title": "Decryptable Secret Refs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "endpoint_secret_refs",
+          "secret_payload_entries",
+          "decryptable_secret_refs"
+        ],
+        "title": "ProfileImportSecretSummary"
       },
       "ConfigImportRequest": {
         "properties": {
@@ -6519,6 +6836,13 @@
             },
             "type": "array",
             "title": "Header Blocklist Rules"
+          },
+          "user_agent_client_rules": {
+            "items": {
+              "$ref": "#/components/schemas/UserAgentClientRuleExport"
+            },
+            "type": "array",
+            "title": "User Agent Client Rules"
           },
           "secret_payload": {
             "$ref": "#/components/schemas/ConfigSecretPayload"
@@ -7273,6 +7597,20 @@
             "type": "integer",
             "title": "Update Count"
           },
+          "mutation_scope": {
+            "$ref": "#/components/schemas/VendorCatalogImportMutationScope"
+          },
+          "untouched_scope": {
+            "$ref": "#/components/schemas/VendorCatalogImportUntouchedScope"
+          },
+          "preview_token": {
+            "type": "string",
+            "title": "Preview Token"
+          },
+          "bundle_fingerprint": {
+            "type": "string",
+            "title": "Bundle Fingerprint"
+          },
           "blocking_errors": {
             "items": {
               "type": "string"
@@ -7292,9 +7630,64 @@
         "required": [
           "ready",
           "create_count",
-          "update_count"
+          "update_count",
+          "mutation_scope",
+          "untouched_scope",
+          "preview_token",
+          "bundle_fingerprint"
         ],
         "title": "ConfigVendorCatalogImportPreviewResponse"
+      },
+      "VendorCatalogImportMutationScope": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "create_count": {
+            "type": "integer",
+            "title": "Create Count"
+          },
+          "update_count": {
+            "type": "integer",
+            "title": "Update Count"
+          },
+          "unchanged_count": {
+            "type": "integer",
+            "title": "Unchanged Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "create_count",
+          "update_count",
+          "unchanged_count"
+        ],
+        "title": "VendorCatalogImportMutationScope"
+      },
+      "VendorCatalogImportUntouchedScope": {
+        "properties": {
+          "profiles": {
+            "type": "boolean",
+            "title": "Profiles"
+          },
+          "profile_scoped_config": {
+            "type": "boolean",
+            "title": "Profile Scoped Config"
+          },
+          "request_logs": {
+            "type": "boolean",
+            "title": "Request Logs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles",
+          "profile_scoped_config",
+          "request_logs"
+        ],
+        "title": "VendorCatalogImportUntouchedScope"
       },
       "ConfigVendorCatalogImportRequest": {
         "properties": {
