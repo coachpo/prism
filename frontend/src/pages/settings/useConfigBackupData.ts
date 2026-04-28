@@ -1,38 +1,74 @@
-import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import { z } from "zod";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import { ConfigImportSchema } from "@/lib/configImportValidation";
 import type { ConfigImportPreviewResponse, ConfigImportRequest } from "@/lib/types";
 import { toast } from "sonner";
 
+type ConfigExportMode = "safe" | "dangerous";
+type PreviewInvalidationReason = "bundle_changed" | "profile_changed";
+
 interface UseConfigBackupDataInput {
   bumpRevision: () => void;
+  selectedProfileId: number | null;
 }
 
-function buildProfileConfigExportFilename(now: Date = new Date()) {
+function buildProfileConfigExportFilename(mode: ConfigExportMode, now: Date = new Date()) {
   const date = now.toISOString().split("T")[0];
-  return `prism-profile-config-v1-${date}.json`;
+  return mode === "dangerous"
+    ? `prism-profile-config-with-secrets-v1-${date}.json`
+    : `prism-profile-config-v1-${date}.json`;
 }
 
-export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) {
+export function useConfigBackupData({ bumpRevision, selectedProfileId }: UseConfigBackupDataInput) {
   const [importing, setImporting] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exportingMode, setExportingMode] = useState<ConfigExportMode | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [exportSecretsAcknowledged, setExportSecretsAcknowledged] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsedConfig, setParsedConfig] = useState<ConfigImportRequest | null>(null);
   const [previewResult, setPreviewResult] = useState<ConfigImportPreviewResponse | null>(null);
+  const [previewInvalidationReason, setPreviewInvalidationReason] =
+    useState<PreviewInvalidationReason | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentSelectionTokenRef = useRef(0);
+  const currentPreviewRequestTokenRef = useRef(0);
+  const currentPreviewBindingRef = useRef<{
+    selectionToken: number;
+    profileId: number | null;
+  } | null>(null);
+  const latestSelectedProfileIdRef = useRef(selectedProfileId);
 
-  const resetSelectedFile = () => {
+  const clearPreviewState = useCallback((reason: PreviewInvalidationReason | null) => {
+    currentPreviewBindingRef.current = null;
+    currentPreviewRequestTokenRef.current += 1;
+    setPreviewResult(null);
+    setPreviewInvalidationReason(reason);
+    setPreviewing(false);
+  }, []);
+
+  const resetSelectedFile = useCallback(() => {
+    currentSelectionTokenRef.current += 1;
     setSelectedFile(null);
     setParsedConfig(null);
-    setPreviewResult(null);
+    clearPreviewState(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  };
+  }, [clearPreviewState]);
+
+  useEffect(() => {
+    const previousProfileId = latestSelectedProfileIdRef.current;
+    latestSelectedProfileIdRef.current = selectedProfileId;
+
+    if (previousProfileId === selectedProfileId) {
+      return;
+    }
+
+    if (selectedFile || parsedConfig || previewResult) {
+      clearPreviewState("profile_changed");
+    }
+  }, [clearPreviewState, parsedConfig, previewResult, selectedFile, selectedProfileId]);
 
   const importSummary = useMemo(() => {
     const endpointsCount = previewResult?.endpoints_imported ?? parsedConfig?.endpoints?.length ?? 0;
@@ -52,26 +88,33 @@ export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) 
     };
   }, [parsedConfig, previewResult]);
 
-  const handleExport = async () => {
+  const downloadExport = async (mode: ConfigExportMode) => {
     const messages = getStaticMessages();
 
-    setExporting(true);
+    if (mode === "dangerous" && !exportSecretsAcknowledged) {
+      toast.error(messages.settingsBackupData.acknowledgeSecretsBeforeExport);
+      return;
+    }
+
+    setExportingMode(mode);
     try {
-      const data = await api.config.export();
+      const data = mode === "dangerous"
+        ? await api.config.exportWithSecrets()
+        : await api.config.export();
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = buildProfileConfigExportFilename();
+      anchor.download = buildProfileConfigExportFilename(mode);
       anchor.click();
       URL.revokeObjectURL(url);
       toast.success(messages.settingsBackupData.exportSucceeded);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.settingsBackupData.exportFailed);
     } finally {
-      setExporting(false);
+      setExportingMode(null);
     }
   };
 
@@ -86,11 +129,11 @@ export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) 
     currentSelectionTokenRef.current = selectionToken;
     setSelectedFile(file);
     setParsedConfig(null);
-    setPreviewResult(null);
+    clearPreviewState("bundle_changed");
 
     try {
       const text = await file.text();
-      if (currentSelectionTokenRef.current != selectionToken) {
+      if (currentSelectionTokenRef.current !== selectionToken) {
         return;
       }
       const parsed = JSON.parse(text);
@@ -98,23 +141,14 @@ export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) 
 
       if (!validation.success) {
         const errors = validation.error.issues
-          .map((issue: z.ZodIssue) => `${issue.path.join(".")}: ${issue.message}`)
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
           .join(", ");
         throw new Error(messages.settingsBackupData.invalidConfigPayload(errors));
       }
 
-      const config = validation.data as ConfigImportRequest;
-      const preview = await api.config.previewImport(config);
-      if (currentSelectionTokenRef.current != selectionToken) {
-        return;
-      }
-      setParsedConfig(config);
-      setPreviewResult(preview);
-      if (!preview.ready && preview.blocking_errors.length > 0) {
-        toast.error(preview.blocking_errors[0]);
-      }
+      setParsedConfig(validation.data as ConfigImportRequest);
     } catch (error) {
-      if (currentSelectionTokenRef.current != selectionToken) {
+      if (currentSelectionTokenRef.current !== selectionToken) {
         return;
       }
       toast.error(error instanceof Error ? error.message : messages.settingsBackupData.invalidJsonFile);
@@ -122,18 +156,72 @@ export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) 
     }
   };
 
+  const handlePreviewImport = async () => {
+    const messages = getStaticMessages();
+    if (!parsedConfig) {
+      return;
+    }
+
+    const selectionToken = currentSelectionTokenRef.current;
+    const profileId = latestSelectedProfileIdRef.current;
+    const previewRequestToken = currentPreviewRequestTokenRef.current + 1;
+    currentPreviewRequestTokenRef.current = previewRequestToken;
+    currentPreviewBindingRef.current = null;
+    setPreviewResult(null);
+    setPreviewing(true);
+
+    try {
+      const preview = await api.config.previewImport(parsedConfig);
+      if (currentPreviewRequestTokenRef.current !== previewRequestToken) {
+        return;
+      }
+      if (currentSelectionTokenRef.current !== selectionToken) {
+        return;
+      }
+      if (latestSelectedProfileIdRef.current !== profileId) {
+        return;
+      }
+
+      currentPreviewBindingRef.current = {
+        selectionToken,
+        profileId,
+      };
+      setPreviewInvalidationReason(null);
+      setPreviewResult(preview);
+      if (!preview.ready && preview.blocking_errors.length > 0) {
+        toast.error(preview.blocking_errors[0]);
+      }
+    } catch (error) {
+      if (currentPreviewRequestTokenRef.current !== previewRequestToken) {
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : messages.settingsBackupData.previewFailed);
+      clearPreviewState("bundle_changed");
+    } finally {
+      if (currentPreviewRequestTokenRef.current === previewRequestToken) {
+        setPreviewing(false);
+      }
+    }
+  };
+
   const handleImport = async () => {
     const messages = getStaticMessages();
-    if (!parsedConfig || !previewResult?.ready) {
-      if (previewResult && previewResult.blocking_errors.length > 0) {
-        toast.error(previewResult.blocking_errors[0]);
-      }
+    const previewBinding = currentPreviewBindingRef.current;
+
+    if (
+      !parsedConfig ||
+      !previewResult?.ready ||
+      !previewBinding ||
+      previewBinding.selectionToken !== currentSelectionTokenRef.current ||
+      previewBinding.profileId !== latestSelectedProfileIdRef.current
+    ) {
+      toast.error(previewResult?.blocking_errors[0] ?? messages.settingsBackupData.previewRequiredBeforeImport);
       return;
     }
 
     setImporting(true);
     try {
-      const result = await api.config.import(parsedConfig);
+      const result = await api.config.import(parsedConfig, previewResult.preview_token);
       toast.success(messages.settingsBackupData.importSucceeded(
         String(result.endpoints_imported),
         String(result.strategies_imported),
@@ -151,15 +239,19 @@ export function useConfigBackupData({ bumpRevision }: UseConfigBackupDataInput) 
 
   return {
     exportSecretsAcknowledged,
-    exporting,
+    exportingMode,
     fileInputRef,
-    handleExport,
+    handleDangerousExport: () => downloadExport("dangerous"),
     handleFileSelect,
     handleImport,
+    handlePreviewImport,
+    handleSafeExport: () => downloadExport("safe"),
     importSummary,
     importing,
     parsedConfig,
+    previewInvalidationReason,
     previewResult,
+    previewing,
     selectedFile,
     setExportSecretsAcknowledged,
   };

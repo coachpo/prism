@@ -25,7 +25,10 @@ export function useSettingsPageData() {
 
   const [recentlySavedSection, setRecentlySavedSection] = useState<SettingsSaveSection | null>(null);
 
-  const backup = useConfigBackupData({ bumpRevision });
+  const backup = useConfigBackupData({
+    bumpRevision,
+    selectedProfileId: selectedProfile?.id ?? null,
+  });
   const auth = useAuthenticationSettingsData({ navigate, refreshAuth, revision });
   const costing = useCostingSettingsData({
     bumpRevision,

@@ -53,16 +53,22 @@ export function SettingsProfileTab({
         <div className="space-y-6">
           <BackupSection
             selectedProfileLabel={data.selectedProfileLabel}
-            exporting={data.exporting}
-            handleExport={data.handleExport}
+            exportSecretsAcknowledged={data.exportSecretsAcknowledged}
+            exportingMode={data.exportingMode}
             fileInputRef={data.fileInputRef}
+            handleDangerousExport={data.handleDangerousExport}
             handleFileSelect={data.handleFileSelect}
-            selectedFile={data.selectedFile}
-            parsedConfig={data.parsedConfig}
-            previewResult={data.previewResult}
-            importSummary={data.importSummary}
-            importing={data.importing}
             handleImport={data.handleImport}
+            handlePreviewImport={data.handlePreviewImport}
+            handleSafeExport={data.handleSafeExport}
+            importing={data.importing}
+            importSummary={data.importSummary}
+            parsedConfig={data.parsedConfig}
+            previewInvalidationReason={data.previewInvalidationReason}
+            previewResult={data.previewResult}
+            previewing={data.previewing}
+            selectedFile={data.selectedFile}
+            setExportSecretsAcknowledged={data.setExportSecretsAcknowledged}
           />
 
           <BillingCurrencySection
