@@ -11,15 +11,15 @@ import (
 func ResolveEffectiveProfile(ctx context.Context, exec QueryExecutor, rawHeader string) (Profile, error) {
 	trimmed := strings.TrimSpace(rawHeader)
 	if trimmed == "" {
-		return Profile{}, &HTTPError{StatusCode: 400, Detail: fmt.Sprintf("%s header is required", ProfileIDHeader)}
+		return Profile{}, &HTTPError{StatusCode: 400, Code: ScopeErrorCodeHeaderMissing, Detail: fmt.Sprintf("%s header is required", ProfileIDHeader)}
 	}
 
 	profileID, err := strconv.Atoi(trimmed)
 	if err != nil {
-		return Profile{}, &HTTPError{StatusCode: 400, Detail: fmt.Sprintf("%s must be an integer", ProfileIDHeader)}
+		return Profile{}, &HTTPError{StatusCode: 400, Code: ScopeErrorCodeHeaderInvalid, Detail: fmt.Sprintf("%s must be an integer", ProfileIDHeader)}
 	}
 	if profileID <= 0 {
-		return Profile{}, &HTTPError{StatusCode: 400, Detail: fmt.Sprintf("%s must be a positive integer", ProfileIDHeader)}
+		return Profile{}, &HTTPError{StatusCode: 400, Code: ScopeErrorCodeHeaderNonPositive, Detail: fmt.Sprintf("%s must be a positive integer", ProfileIDHeader)}
 	}
 
 	profile, found, err := LoadNonDeletedProfile(ctx, exec, profileID)
@@ -27,7 +27,7 @@ func ResolveEffectiveProfile(ctx context.Context, exec QueryExecutor, rawHeader 
 		return Profile{}, err
 	}
 	if !found {
-		return Profile{}, &HTTPError{StatusCode: 404, Detail: fmt.Sprintf("Profile %d not found", profileID)}
+		return Profile{}, &HTTPError{StatusCode: 404, Code: ScopeErrorCodeProfileNotFound, Detail: fmt.Sprintf("Profile %d not found", profileID)}
 	}
 	return profile, nil
 }
