@@ -345,7 +345,7 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureUsage(&forwarded, strings.NewReader(test.payload), "application/json", time.Now)
+			capture, err := proxyNonEventResponseAndCaptureUsage(&forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
 			if err != nil {
 				t.Fatalf("capture streamed non-sse usage: %v", err)
 			}
