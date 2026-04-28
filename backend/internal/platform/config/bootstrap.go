@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,166 @@ type BootstrapConfigManagerOptions struct {
 type BootstrapConfigManager struct {
 	readFile func(string) ([]byte, error)
 	timeNow  func() time.Time
+}
+
+const (
+	BootstrapConfigSecretDatabaseURL                        = "database.url"
+	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "runtime.secretEncryptionKey"
+	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
+	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
+	BootstrapConfigConfirmationServerHostChange             = "server-host-change"
+	BootstrapConfigConfirmationServerPortChange             = "server-port-change"
+	BootstrapConfigConfirmationDatabaseURLChange            = "database-url-change"
+	BootstrapConfigConfirmationAuthJWTSigningKeyChange      = "auth-jwt-signing-key-change"
+	BootstrapConfigConfirmationStateTransferBundleKeyChange = "state-transfer-bundle-encryption-key-change"
+)
+
+type BootstrapConfigSecretAction string
+
+const (
+	BootstrapConfigSecretActionPreserve BootstrapConfigSecretAction = "preserve"
+	BootstrapConfigSecretActionReplace  BootstrapConfigSecretAction = "replace"
+)
+
+type BootstrapConfigSnapshot struct {
+	ConfigPath    string                                   `json:"config_path"`
+	SchemaVersion int                                      `json:"schema_version"`
+	FileRevision  int                                      `json:"file_revision"`
+	CreatedAt     string                                   `json:"created_at"`
+	UpdatedAt     string                                   `json:"updated_at"`
+	DocumentETag  string                                   `json:"document_etag"`
+	Values        BootstrapConfigValues                    `json:"values"`
+	Secrets       map[string]BootstrapConfigSecretMetadata `json:"secrets"`
+}
+
+type BootstrapConfigResponse struct {
+	ConfigPath         string                                   `json:"config_path"`
+	SchemaVersion      int                                      `json:"schema_version"`
+	FileRevision       int                                      `json:"file_revision"`
+	LoadedRevision     int                                      `json:"loaded_revision"`
+	DocumentETag       string                                   `json:"document_etag"`
+	LoadedDocumentETag string                                   `json:"loaded_document_etag"`
+	CreatedAt          string                                   `json:"created_at"`
+	UpdatedAt          string                                   `json:"updated_at"`
+	RestartRequired    bool                                     `json:"restart_required"`
+	Writable           bool                                     `json:"writable"`
+	Values             BootstrapConfigValues                    `json:"values"`
+	Secrets            map[string]BootstrapConfigSecretMetadata `json:"secrets"`
+}
+
+type BootstrapConfigValues struct {
+	Server   *BootstrapConfigServerValues   `json:"server"`
+	Database *BootstrapConfigDatabaseValues `json:"database"`
+	Runtime  *BootstrapConfigRuntimeValues  `json:"runtime"`
+	HTTP     *BootstrapConfigHTTPValues     `json:"http"`
+	Auth     *BootstrapConfigAuthValues     `json:"auth"`
+}
+
+type BootstrapConfigServerValues struct {
+	Host        *string `json:"host"`
+	Port        *int    `json:"port"`
+	DocsEnabled *bool   `json:"docs_enabled"`
+}
+
+type BootstrapConfigDatabaseValues struct {
+	RuntimePool         *BootstrapConfigDatabasePoolValues        `json:"runtime_pool"`
+	ManagementPool      *BootstrapConfigDatabasePoolValues        `json:"management_pool"`
+	ManagementAdmission *BootstrapConfigManagementAdmissionValues `json:"management_admission"`
+}
+
+type BootstrapConfigDatabasePoolValues struct {
+	MaxConns     *int `json:"max_conns"`
+	MinIdleConns *int `json:"min_idle_conns"`
+}
+
+type BootstrapConfigManagementAdmissionValues struct {
+	M2MaxConcurrent *int `json:"m2_max_concurrent"`
+	M3MaxConcurrent *int `json:"m3_max_concurrent"`
+}
+
+type BootstrapConfigRuntimeValues struct {
+	BufferingMode *string                                `json:"buffering_mode"`
+	Transport     *BootstrapConfigRuntimeTransportValues `json:"transport"`
+}
+
+type BootstrapConfigRuntimeTransportValues struct {
+	MaxIdleConns          *int    `json:"max_idle_conns"`
+	MaxIdleConnsPerHost   *int    `json:"max_idle_conns_per_host"`
+	MaxConnsPerHost       *int    `json:"max_conns_per_host"`
+	IdleConnTimeout       *string `json:"idle_conn_timeout"`
+	ResponseHeaderTimeout *string `json:"response_header_timeout"`
+	TLSHandshakeTimeout   *string `json:"tls_handshake_timeout"`
+	ExpectContinueTimeout *string `json:"expect_continue_timeout"`
+}
+
+type BootstrapConfigHTTPValues struct {
+	CORSAllowedOrigins *[]string `json:"cors_allowed_origins"`
+}
+
+type BootstrapConfigAuthValues struct {
+	AccessTokenTTLSeconds  *int    `json:"access_token_ttl_seconds"`
+	RefreshTokenTTLSeconds *int    `json:"refresh_token_ttl_seconds"`
+	ResetCodeTTLSeconds    *int    `json:"reset_code_ttl_seconds"`
+	AccessCookieName       *string `json:"access_cookie_name"`
+	RefreshCookieName      *string `json:"refresh_cookie_name"`
+	CookieSecure           *bool   `json:"cookie_secure"`
+}
+
+type BootstrapConfigSecretMetadata struct {
+	Configured bool   `json:"configured"`
+	Editable   bool   `json:"editable"`
+	Masked     string `json:"masked"`
+}
+
+type BootstrapConfigSecretUpdate struct {
+	Action BootstrapConfigSecretAction `json:"action"`
+	Value  *string                     `json:"value,omitempty"`
+}
+
+type BootstrapConfigUpdateRequest struct {
+	ExpectedRevision int                                    `json:"expected_revision"`
+	ExpectedETag     string                                 `json:"expected_etag"`
+	Values           *BootstrapConfigValues                 `json:"values"`
+	SecretUpdates    map[string]BootstrapConfigSecretUpdate `json:"secret_updates"`
+	Confirmations    []string                               `json:"confirmations,omitempty"`
+}
+
+type BootstrapConfigPreparedUpdate struct {
+	Payload  []byte                  `json:"-"`
+	Snapshot BootstrapConfigSnapshot `json:"snapshot"`
+	Noop     bool                    `json:"noop"`
+}
+
+type BootstrapConfigConflictError struct {
+	ExpectedRevision int
+	CurrentRevision  int
+	ExpectedETag     string
+	CurrentETag      string
+}
+
+func (e *BootstrapConfigConflictError) Error() string {
+	return "bootstrap config has changed since it was loaded"
+}
+
+type BootstrapConfigSecretOperationError struct {
+	Field  string
+	Action BootstrapConfigSecretAction
+	Reason string
+}
+
+func (e *BootstrapConfigSecretOperationError) Error() string {
+	if e.Action == "" {
+		return fmt.Sprintf("bootstrap config secret %s is invalid: %s", e.Field, e.Reason)
+	}
+	return fmt.Sprintf("bootstrap config secret %s action %q is invalid: %s", e.Field, e.Action, e.Reason)
+}
+
+type BootstrapConfigMissingConfirmationsError struct {
+	RequiredConfirmations []string
+}
+
+func (e *BootstrapConfigMissingConfirmationsError) Error() string {
+	return fmt.Sprintf("bootstrap config update requires confirmations: %s", strings.Join(e.RequiredConfirmations, ", "))
 }
 
 type bootstrapConfigDocument struct {
@@ -164,22 +325,116 @@ func (m BootstrapConfigManager) LoadOrSeedFromEnv() (Settings, error) {
 	return m.LoadOrSeed(configPath)
 }
 
-func (m BootstrapConfigManager) Parse(raw []byte) (Settings, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return Settings{}, fmt.Errorf("bootstrap config is empty")
+func (m BootstrapConfigManager) LoadBootstrapConfigDocument(path string) (BootstrapConfigSnapshot, Settings, error) {
+	_, snapshot, settings, _, err := m.loadBootstrapConfigDocument(path)
+	return snapshot, settings, err
+}
+
+func BuildBootstrapConfigResponse(snapshot BootstrapConfigSnapshot, loadedRevision int, loadedDocumentETag string, writable bool) BootstrapConfigResponse {
+	loadedETag := strings.TrimSpace(loadedDocumentETag)
+	restartRequired := false
+	if loadedRevision > 0 && loadedRevision != snapshot.FileRevision {
+		restartRequired = true
 	}
-	if err := detectUnsupportedBootstrapFormat(raw); err != nil {
-		return Settings{}, err
+	if loadedETag != "" && loadedETag != snapshot.DocumentETag {
+		restartRequired = true
+	}
+	return BootstrapConfigResponse{
+		ConfigPath:         snapshot.ConfigPath,
+		SchemaVersion:      snapshot.SchemaVersion,
+		FileRevision:       snapshot.FileRevision,
+		LoadedRevision:     loadedRevision,
+		DocumentETag:       snapshot.DocumentETag,
+		LoadedDocumentETag: loadedETag,
+		CreatedAt:          snapshot.CreatedAt,
+		UpdatedAt:          snapshot.UpdatedAt,
+		RestartRequired:    restartRequired,
+		Writable:           writable,
+		Values:             snapshot.Values,
+		Secrets:            snapshot.Secrets,
+	}
+}
+
+func (m BootstrapConfigManager) PrepareBootstrapConfigUpdate(path string, request BootstrapConfigUpdateRequest) (BootstrapConfigPreparedUpdate, error) {
+	currentDocument, currentSnapshot, _, currentPayload, err := m.loadBootstrapConfigDocument(path)
+	if err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	if err := validateBootstrapConfigExpectations(currentSnapshot, request); err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
 	}
 
-	document, err := decodeBootstrapConfig(raw)
+	candidate := cloneBootstrapConfigDocument(currentDocument)
+	applyBootstrapConfigValues(&candidate, request.Values)
+	if err := applyBootstrapConfigSecretUpdates(&candidate, currentDocument, request.SecretUpdates); err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	if err := candidate.validateSchema(); err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	if err := candidate.validateSemantics(); err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	if _, err := candidate.toSettings(); err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	if requiredConfirmations := missingBootstrapConfigConfirmations(currentDocument, candidate, request.Confirmations); len(requiredConfirmations) > 0 {
+		return BootstrapConfigPreparedUpdate{}, &BootstrapConfigMissingConfirmationsError{RequiredConfirmations: requiredConfirmations}
+	}
+
+	candidatePayload, err := canonicalBootstrapConfigPayload(candidate)
 	if err != nil {
-		return Settings{}, err
+		return BootstrapConfigPreparedUpdate{}, err
 	}
-	if err := document.validateSchema(); err != nil {
-		return Settings{}, err
+	if bytes.Equal(candidatePayload, currentPayload) {
+		return BootstrapConfigPreparedUpdate{Payload: cloneBytes(currentPayload), Snapshot: currentSnapshot, Noop: true}, nil
 	}
-	if err := document.validateSemantics(); err != nil {
+
+	revision, err := requiredIntMin("meta.revision", currentDocument.Meta.Revision, 1)
+	if err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	candidate.Meta.Revision = intPointer(revision + 1)
+	candidate.Meta.UpdatedAt = stringPointer(m.resolvedTimeNow()().UTC().Format(time.RFC3339))
+
+	updatedSnapshot, _, updatedPayload, err := buildBootstrapConfigSnapshot(currentSnapshot.ConfigPath, candidate)
+	if err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	return BootstrapConfigPreparedUpdate{Payload: cloneBytes(updatedPayload), Snapshot: updatedSnapshot}, nil
+}
+
+func (m BootstrapConfigManager) ValidateBootstrapConfigUpdate(path string, request BootstrapConfigUpdateRequest) (BootstrapConfigPreparedUpdate, error) {
+	return m.PrepareBootstrapConfigUpdate(path, request)
+}
+
+func (m BootstrapConfigManager) WriteBootstrapConfigUpdate(path string, prepared BootstrapConfigPreparedUpdate) (BootstrapConfigSnapshot, error) {
+	if prepared.Noop {
+		return prepared.Snapshot, nil
+	}
+	if len(bytes.TrimSpace(prepared.Payload)) == 0 {
+		return BootstrapConfigSnapshot{}, fmt.Errorf("bootstrap config prepared payload is empty")
+	}
+	if err := m.WriteAtomically(path, prepared.Payload); err != nil {
+		return BootstrapConfigSnapshot{}, err
+	}
+	return prepared.Snapshot, nil
+}
+
+func (m BootstrapConfigManager) SaveBootstrapConfigUpdate(path string, request BootstrapConfigUpdateRequest) (BootstrapConfigPreparedUpdate, error) {
+	prepared, err := m.PrepareBootstrapConfigUpdate(path, request)
+	if err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	if _, err := m.WriteBootstrapConfigUpdate(path, prepared); err != nil {
+		return BootstrapConfigPreparedUpdate{}, err
+	}
+	return prepared, nil
+}
+
+func (m BootstrapConfigManager) Parse(raw []byte) (Settings, error) {
+	document, err := parseBootstrapConfigDocument(raw)
+	if err != nil {
 		return Settings{}, err
 	}
 	return document.toSettings()
@@ -240,6 +495,652 @@ func (m BootstrapConfigManager) resolvedTimeNow() func() time.Time {
 		return m.timeNow
 	}
 	return time.Now
+}
+
+func (m BootstrapConfigManager) loadBootstrapConfigDocument(path string) (bootstrapConfigDocument, BootstrapConfigSnapshot, Settings, []byte, error) {
+	normalizedPath := strings.TrimSpace(path)
+	if normalizedPath == "" {
+		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, fmt.Errorf("bootstrap config path is required")
+	}
+	raw, err := m.resolvedReadFile()(normalizedPath)
+	if err != nil {
+		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, fmt.Errorf("read bootstrap config %q: %w", normalizedPath, err)
+	}
+	document, err := parseBootstrapConfigDocument(raw)
+	if err != nil {
+		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	snapshot, settings, canonicalPayload, err := buildBootstrapConfigSnapshot(normalizedPath, document)
+	if err != nil {
+		return bootstrapConfigDocument{}, BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	return document, snapshot, settings, canonicalPayload, nil
+}
+
+func buildBootstrapConfigSnapshot(path string, document bootstrapConfigDocument) (BootstrapConfigSnapshot, Settings, []byte, error) {
+	if err := document.validateSchema(); err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	if err := document.validateSemantics(); err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	settings, err := document.toSettings()
+	if err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	canonicalPayload, err := canonicalBootstrapConfigPayload(document)
+	if err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	schemaVersion, err := requiredIntConst("meta.schemaVersion", document.Meta.SchemaVersion, bootstrapConfigSchemaVersion)
+	if err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	revision, err := requiredIntMin("meta.revision", document.Meta.Revision, 1)
+	if err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	createdAt, err := requiredTrimmedString("meta.createdAt", document.Meta.CreatedAt, 1, 0)
+	if err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	updatedAt, err := requiredTrimmedString("meta.updatedAt", document.Meta.UpdatedAt, 1, 0)
+	if err != nil {
+		return BootstrapConfigSnapshot{}, Settings{}, nil, err
+	}
+	return BootstrapConfigSnapshot{
+		ConfigPath:    strings.TrimSpace(path),
+		SchemaVersion: schemaVersion,
+		FileRevision:  revision,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+		DocumentETag:  bootstrapConfigETag(canonicalPayload),
+		Values:        safeBootstrapConfigValues(document),
+		Secrets:       bootstrapConfigSecretMetadata(document),
+	}, settings, cloneBytes(canonicalPayload), nil
+}
+
+func validateBootstrapConfigExpectations(current BootstrapConfigSnapshot, request BootstrapConfigUpdateRequest) error {
+	expectedETag := strings.TrimSpace(request.ExpectedETag)
+	if request.ExpectedRevision == current.FileRevision && expectedETag == current.DocumentETag {
+		return nil
+	}
+	return &BootstrapConfigConflictError{
+		ExpectedRevision: request.ExpectedRevision,
+		CurrentRevision:  current.FileRevision,
+		ExpectedETag:     expectedETag,
+		CurrentETag:      current.DocumentETag,
+	}
+}
+
+func applyBootstrapConfigValues(document *bootstrapConfigDocument, values *BootstrapConfigValues) {
+	if values == nil {
+		document.Server = nil
+		document.Database = nil
+		document.Runtime = nil
+		document.HTTP = nil
+		document.Auth = nil
+		return
+	}
+	databaseURL := currentBootstrapDatabaseURL(document)
+	runtimeSecret := currentBootstrapRuntimeSecret(document)
+	authJWTSigningKey := currentBootstrapAuthJWTSigningKey(document)
+	document.Server = bootstrapServerFromSafeValues(values.Server)
+	document.Database = bootstrapDatabaseFromSafeValues(values.Database, databaseURL)
+	document.Runtime = bootstrapRuntimeFromSafeValues(values.Runtime, runtimeSecret)
+	document.HTTP = bootstrapHTTPFromSafeValues(values.HTTP)
+	document.Auth = bootstrapAuthFromSafeValues(values.Auth, authJWTSigningKey)
+}
+
+func applyBootstrapConfigSecretUpdates(candidate *bootstrapConfigDocument, current bootstrapConfigDocument, updates map[string]BootstrapConfigSecretUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	unknownFields := make([]string, 0)
+	for field := range updates {
+		if !isKnownBootstrapConfigSecretField(field) {
+			unknownFields = append(unknownFields, field)
+		}
+	}
+	if len(unknownFields) > 0 {
+		slices.Sort(unknownFields)
+		return &BootstrapConfigSecretOperationError{Field: unknownFields[0], Reason: "unsupported secret field"}
+	}
+	for _, field := range orderedBootstrapConfigSecretFields() {
+		update, ok := updates[field]
+		if !ok {
+			continue
+		}
+		switch update.Action {
+		case BootstrapConfigSecretActionPreserve:
+			continue
+		case BootstrapConfigSecretActionReplace:
+			if field == BootstrapConfigSecretRuntimeSecretEncryptionKey {
+				return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "runtime secret encryption key is preserve-only in v1"}
+			}
+			value, err := replacementBootstrapSecretValue(field, update.Value, current)
+			if err != nil {
+				return err
+			}
+			setBootstrapConfigSecret(candidate, field, value)
+		default:
+			return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "action must be preserve or replace"}
+		}
+	}
+	return nil
+}
+
+func replacementBootstrapSecretValue(field string, value *string, current bootstrapConfigDocument) (string, error) {
+	if value == nil {
+		return "", &BootstrapConfigSecretOperationError{Field: field, Action: BootstrapConfigSecretActionReplace, Reason: "replacement value is required"}
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return "", &BootstrapConfigSecretOperationError{Field: field, Action: BootstrapConfigSecretActionReplace, Reason: "replacement value is required"}
+	}
+	metadata := bootstrapConfigSecretMetadata(current)[field]
+	if isRedactedBootstrapSecretPlaceholder(trimmed, metadata) || databaseURLHasRedactedQueryPlaceholder(field, trimmed) {
+		return "", &BootstrapConfigSecretOperationError{Field: field, Action: BootstrapConfigSecretActionReplace, Reason: "replacement value must not be a redacted placeholder"}
+	}
+	return trimmed, nil
+}
+
+func isRedactedBootstrapSecretPlaceholder(value string, metadata BootstrapConfigSecretMetadata) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	if metadata.Masked != "" && trimmed == metadata.Masked {
+		return true
+	}
+	if isBootstrapRedactedToken(trimmed) {
+		return true
+	}
+	lower := strings.ToLower(trimmed)
+	return strings.Contains(trimmed, ":***@") || strings.Contains(lower, "%2a%2a%2a") || strings.Contains(lower, "[redacted]")
+}
+
+func databaseURLHasRedactedQueryPlaceholder(field string, value string) bool {
+	if field != BootstrapConfigSecretDatabaseURL {
+		return false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return false
+	}
+	query := parsed.Query()
+	for key, values := range query {
+		if !isSensitiveDatabaseURLQueryKey(key) {
+			continue
+		}
+		for _, item := range values {
+			if isBootstrapRedactedToken(item) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isBootstrapRedactedToken(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	switch lower {
+	case "***", "set", "configured", "redacted", "[redacted]", "********":
+		return true
+	default:
+		return strings.Contains(lower, "%2a%2a%2a") || strings.Contains(lower, "[redacted]")
+	}
+}
+
+func setBootstrapConfigSecret(document *bootstrapConfigDocument, field string, value string) {
+	switch field {
+	case BootstrapConfigSecretDatabaseURL:
+		if document.Database == nil {
+			document.Database = &bootstrapDatabase{}
+		}
+		document.Database.URL = stringPointer(value)
+	case BootstrapConfigSecretAuthJWTSigningKey:
+		if document.Auth == nil {
+			document.Auth = &bootstrapAuth{}
+		}
+		document.Auth.JWTSigningKey = stringPointer(value)
+	case BootstrapConfigSecretStateTransferBundleKey:
+		if document.StateTransfer == nil {
+			document.StateTransfer = &bootstrapStateTransfer{}
+		}
+		document.StateTransfer.BundleEncryptionKey = stringPointer(value)
+	}
+}
+
+func missingBootstrapConfigConfirmations(current bootstrapConfigDocument, candidate bootstrapConfigDocument, confirmations []string) []string {
+	provided := make(map[string]struct{}, len(confirmations))
+	for _, confirmation := range confirmations {
+		trimmed := strings.TrimSpace(confirmation)
+		if trimmed != "" {
+			provided[trimmed] = struct{}{}
+		}
+	}
+	required := make([]string, 0, 5)
+	if bootstrapStringValueChanged(current.Server.Host, candidate.Server.Host) {
+		required = append(required, BootstrapConfigConfirmationServerHostChange)
+	}
+	if bootstrapIntValueChanged(current.Server.Port, candidate.Server.Port) {
+		required = append(required, BootstrapConfigConfirmationServerPortChange)
+	}
+	if bootstrapStringValueChanged(current.Database.URL, candidate.Database.URL) {
+		required = append(required, BootstrapConfigConfirmationDatabaseURLChange)
+	}
+	if bootstrapStringValueChanged(current.Auth.JWTSigningKey, candidate.Auth.JWTSigningKey) {
+		required = append(required, BootstrapConfigConfirmationAuthJWTSigningKeyChange)
+	}
+	if bootstrapStringValueChanged(current.StateTransfer.BundleEncryptionKey, candidate.StateTransfer.BundleEncryptionKey) {
+		required = append(required, BootstrapConfigConfirmationStateTransferBundleKeyChange)
+	}
+	missing := make([]string, 0, len(required))
+	for _, confirmation := range required {
+		if _, ok := provided[confirmation]; !ok {
+			missing = append(missing, confirmation)
+		}
+	}
+	return missing
+}
+
+func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfigValues {
+	return BootstrapConfigValues{
+		Server: &BootstrapConfigServerValues{
+			Host:        cloneStringPointer(document.Server.Host),
+			Port:        cloneIntPointer(document.Server.Port),
+			DocsEnabled: cloneBoolPointer(document.Server.DocsEnabled),
+		},
+		Database: &BootstrapConfigDatabaseValues{
+			RuntimePool: &BootstrapConfigDatabasePoolValues{
+				MaxConns:     cloneIntPointer(document.Database.RuntimePool.MaxConns),
+				MinIdleConns: cloneIntPointer(document.Database.RuntimePool.MinIdleConns),
+			},
+			ManagementPool: &BootstrapConfigDatabasePoolValues{
+				MaxConns:     cloneIntPointer(document.Database.ManagementPool.MaxConns),
+				MinIdleConns: cloneIntPointer(document.Database.ManagementPool.MinIdleConns),
+			},
+			ManagementAdmission: &BootstrapConfigManagementAdmissionValues{
+				M2MaxConcurrent: cloneIntPointer(document.Database.ManagementAdmission.M2MaxConcurrent),
+				M3MaxConcurrent: cloneIntPointer(document.Database.ManagementAdmission.M3MaxConcurrent),
+			},
+		},
+		Runtime: &BootstrapConfigRuntimeValues{
+			BufferingMode: cloneStringPointer(document.Runtime.BufferingMode),
+			Transport: &BootstrapConfigRuntimeTransportValues{
+				MaxIdleConns:          cloneIntPointer(document.Runtime.Transport.MaxIdleConns),
+				MaxIdleConnsPerHost:   cloneIntPointer(document.Runtime.Transport.MaxIdleConnsPerHost),
+				MaxConnsPerHost:       cloneIntPointer(document.Runtime.Transport.MaxConnsPerHost),
+				IdleConnTimeout:       cloneStringPointer(document.Runtime.Transport.IdleConnTimeout),
+				ResponseHeaderTimeout: cloneStringPointer(document.Runtime.Transport.ResponseHeaderTimeout),
+				TLSHandshakeTimeout:   cloneStringPointer(document.Runtime.Transport.TLSHandshakeTimeout),
+				ExpectContinueTimeout: cloneStringPointer(document.Runtime.Transport.ExpectContinueTimeout),
+			},
+		},
+		HTTP: &BootstrapConfigHTTPValues{
+			CORSAllowedOrigins: cloneStringSlicePointer(document.HTTP.CORSAllowedOrigins),
+		},
+		Auth: &BootstrapConfigAuthValues{
+			AccessTokenTTLSeconds:  cloneIntPointer(document.Auth.AccessTokenTTLSeconds),
+			RefreshTokenTTLSeconds: cloneIntPointer(document.Auth.RefreshTokenTTLSeconds),
+			ResetCodeTTLSeconds:    cloneIntPointer(document.Auth.ResetCodeTTLSeconds),
+			AccessCookieName:       cloneStringPointer(document.Auth.AccessCookieName),
+			RefreshCookieName:      cloneStringPointer(document.Auth.RefreshCookieName),
+			CookieSecure:           cloneBoolPointer(document.Auth.CookieSecure),
+		},
+	}
+}
+
+func bootstrapConfigSecretMetadata(document bootstrapConfigDocument) map[string]BootstrapConfigSecretMetadata {
+	return map[string]BootstrapConfigSecretMetadata{
+		BootstrapConfigSecretDatabaseURL:                secretMetadata(document.Database.URL, true, maskBootstrapDatabaseURL),
+		BootstrapConfigSecretRuntimeSecretEncryptionKey: secretMetadata(document.Runtime.SecretEncryptionKey, false, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretAuthJWTSigningKey:          secretMetadata(document.Auth.JWTSigningKey, true, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretStateTransferBundleKey:     secretMetadata(document.StateTransfer.BundleEncryptionKey, true, maskConfiguredBootstrapSecret),
+	}
+}
+
+func secretMetadata(value *string, editable bool, mask func(string) string) BootstrapConfigSecretMetadata {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return BootstrapConfigSecretMetadata{Editable: editable}
+	}
+	return BootstrapConfigSecretMetadata{Configured: true, Editable: editable, Masked: mask(*value)}
+}
+
+func maskConfiguredBootstrapSecret(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return "set"
+}
+
+func maskBootstrapDatabaseURL(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || strings.TrimSpace(parsed.Scheme) == "" || strings.TrimSpace(parsed.Host) == "" {
+		return "set"
+	}
+	if parsed.User != nil {
+		username := parsed.User.Username()
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			parsed.User = url.UserPassword(username, "***")
+		}
+	}
+	query := parsed.Query()
+	for key, values := range query {
+		if !isSensitiveDatabaseURLQueryKey(key) {
+			continue
+		}
+		for index := range values {
+			values[index] = "***"
+		}
+		query[key] = values
+	}
+	parsed.RawQuery = query.Encode()
+	masked := parsed.String()
+	masked = strings.ReplaceAll(masked, "%2A%2A%2A", "***")
+	masked = strings.ReplaceAll(masked, "%2a%2a%2a", "***")
+	return masked
+}
+
+func isSensitiveDatabaseURLQueryKey(key string) bool {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	return lower == "pass" || lower == "pwd" || lower == "passwd" || strings.Contains(lower, "password") || strings.Contains(lower, "passphrase") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "key")
+}
+
+func bootstrapServerFromSafeValues(values *BootstrapConfigServerValues) *bootstrapServer {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapServer{Host: cloneStringPointer(values.Host), Port: cloneIntPointer(values.Port), DocsEnabled: cloneBoolPointer(values.DocsEnabled)}
+}
+
+func bootstrapDatabaseFromSafeValues(values *BootstrapConfigDatabaseValues, databaseURL *string) *bootstrapDatabase {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapDatabase{
+		URL:                 cloneStringPointer(databaseURL),
+		RuntimePool:         bootstrapDatabasePoolFromSafeValues(values.RuntimePool),
+		ManagementPool:      bootstrapDatabasePoolFromSafeValues(values.ManagementPool),
+		ManagementAdmission: bootstrapManagementAdmissionFromSafeValues(values.ManagementAdmission),
+	}
+}
+
+func bootstrapDatabasePoolFromSafeValues(values *BootstrapConfigDatabasePoolValues) *bootstrapDatabasePool {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapDatabasePool{MaxConns: cloneIntPointer(values.MaxConns), MinIdleConns: cloneIntPointer(values.MinIdleConns)}
+}
+
+func bootstrapManagementAdmissionFromSafeValues(values *BootstrapConfigManagementAdmissionValues) *bootstrapManagementAdmission {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapManagementAdmission{M2MaxConcurrent: cloneIntPointer(values.M2MaxConcurrent), M3MaxConcurrent: cloneIntPointer(values.M3MaxConcurrent)}
+}
+
+func bootstrapRuntimeFromSafeValues(values *BootstrapConfigRuntimeValues, secretEncryptionKey *string) *bootstrapRuntime {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapRuntime{
+		BufferingMode:       cloneStringPointer(values.BufferingMode),
+		SecretEncryptionKey: cloneStringPointer(secretEncryptionKey),
+		Transport:           bootstrapRuntimeTransportFromSafeValues(values.Transport),
+	}
+}
+
+func bootstrapRuntimeTransportFromSafeValues(values *BootstrapConfigRuntimeTransportValues) *bootstrapRuntimeTransport {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapRuntimeTransport{
+		MaxIdleConns:          cloneIntPointer(values.MaxIdleConns),
+		MaxIdleConnsPerHost:   cloneIntPointer(values.MaxIdleConnsPerHost),
+		MaxConnsPerHost:       cloneIntPointer(values.MaxConnsPerHost),
+		IdleConnTimeout:       cloneStringPointer(values.IdleConnTimeout),
+		ResponseHeaderTimeout: cloneStringPointer(values.ResponseHeaderTimeout),
+		TLSHandshakeTimeout:   cloneStringPointer(values.TLSHandshakeTimeout),
+		ExpectContinueTimeout: cloneStringPointer(values.ExpectContinueTimeout),
+	}
+}
+
+func bootstrapHTTPFromSafeValues(values *BootstrapConfigHTTPValues) *bootstrapHTTP {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapHTTP{CORSAllowedOrigins: cloneStringSlicePointer(values.CORSAllowedOrigins)}
+}
+
+func bootstrapAuthFromSafeValues(values *BootstrapConfigAuthValues, jwtSigningKey *string) *bootstrapAuth {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapAuth{
+		JWTSigningKey:          cloneStringPointer(jwtSigningKey),
+		AccessTokenTTLSeconds:  cloneIntPointer(values.AccessTokenTTLSeconds),
+		RefreshTokenTTLSeconds: cloneIntPointer(values.RefreshTokenTTLSeconds),
+		ResetCodeTTLSeconds:    cloneIntPointer(values.ResetCodeTTLSeconds),
+		AccessCookieName:       cloneStringPointer(values.AccessCookieName),
+		RefreshCookieName:      cloneStringPointer(values.RefreshCookieName),
+		CookieSecure:           cloneBoolPointer(values.CookieSecure),
+	}
+}
+
+func currentBootstrapDatabaseURL(document *bootstrapConfigDocument) *string {
+	if document == nil || document.Database == nil {
+		return nil
+	}
+	return cloneStringPointer(document.Database.URL)
+}
+
+func currentBootstrapRuntimeSecret(document *bootstrapConfigDocument) *string {
+	if document == nil || document.Runtime == nil {
+		return nil
+	}
+	return cloneStringPointer(document.Runtime.SecretEncryptionKey)
+}
+
+func currentBootstrapAuthJWTSigningKey(document *bootstrapConfigDocument) *string {
+	if document == nil || document.Auth == nil {
+		return nil
+	}
+	return cloneStringPointer(document.Auth.JWTSigningKey)
+}
+
+func orderedBootstrapConfigSecretFields() []string {
+	return []string{
+		BootstrapConfigSecretDatabaseURL,
+		BootstrapConfigSecretRuntimeSecretEncryptionKey,
+		BootstrapConfigSecretAuthJWTSigningKey,
+		BootstrapConfigSecretStateTransferBundleKey,
+	}
+}
+
+func isKnownBootstrapConfigSecretField(field string) bool {
+	switch field {
+	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey:
+		return true
+	default:
+		return false
+	}
+}
+
+func bootstrapStringValueChanged(current *string, candidate *string) bool {
+	if current == nil || candidate == nil {
+		return false
+	}
+	return strings.TrimSpace(*current) != strings.TrimSpace(*candidate)
+}
+
+func bootstrapIntValueChanged(current *int, candidate *int) bool {
+	if current == nil || candidate == nil {
+		return false
+	}
+	return *current != *candidate
+}
+
+func parseBootstrapConfigDocument(raw []byte) (bootstrapConfigDocument, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return bootstrapConfigDocument{}, fmt.Errorf("bootstrap config is empty")
+	}
+	if err := detectUnsupportedBootstrapFormat(raw); err != nil {
+		return bootstrapConfigDocument{}, err
+	}
+	document, err := decodeBootstrapConfig(raw)
+	if err != nil {
+		return bootstrapConfigDocument{}, err
+	}
+	if err := document.validateSchema(); err != nil {
+		return bootstrapConfigDocument{}, err
+	}
+	if err := document.validateSemantics(); err != nil {
+		return bootstrapConfigDocument{}, err
+	}
+	return document, nil
+}
+
+func canonicalBootstrapConfigPayload(document bootstrapConfigDocument) ([]byte, error) {
+	payload, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal canonical bootstrap config JSON: %w", err)
+	}
+	return payload, nil
+}
+
+func bootstrapConfigETag(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return fmt.Sprintf("sha256:%x", sum[:])
+}
+
+func cloneBootstrapConfigDocument(document bootstrapConfigDocument) bootstrapConfigDocument {
+	clone := bootstrapConfigDocument{}
+	if document.Meta != nil {
+		clone.Meta = &bootstrapMeta{SchemaVersion: cloneIntPointer(document.Meta.SchemaVersion), Revision: cloneIntPointer(document.Meta.Revision), CreatedAt: cloneStringPointer(document.Meta.CreatedAt), UpdatedAt: cloneStringPointer(document.Meta.UpdatedAt)}
+	}
+	clone.Server = bootstrapServerFromSafeValues(safeBootstrapServerValues(document.Server))
+	clone.Database = bootstrapDatabaseFromSafeValues(safeBootstrapDatabaseValues(document.Database), currentBootstrapDatabaseURL(&document))
+	clone.Runtime = bootstrapRuntimeFromSafeValues(safeBootstrapRuntimeValues(document.Runtime), currentBootstrapRuntimeSecret(&document))
+	clone.HTTP = bootstrapHTTPFromSafeValues(safeBootstrapHTTPValues(document.HTTP))
+	clone.Auth = bootstrapAuthFromSafeValues(safeBootstrapAuthValues(document.Auth), currentBootstrapAuthJWTSigningKey(&document))
+	if document.StateTransfer != nil {
+		clone.StateTransfer = &bootstrapStateTransfer{BundleEncryptionKey: cloneStringPointer(document.StateTransfer.BundleEncryptionKey)}
+	}
+	return clone
+}
+
+func safeBootstrapServerValues(server *bootstrapServer) *BootstrapConfigServerValues {
+	if server == nil {
+		return nil
+	}
+	return &BootstrapConfigServerValues{Host: cloneStringPointer(server.Host), Port: cloneIntPointer(server.Port), DocsEnabled: cloneBoolPointer(server.DocsEnabled)}
+}
+
+func safeBootstrapDatabaseValues(database *bootstrapDatabase) *BootstrapConfigDatabaseValues {
+	if database == nil {
+		return nil
+	}
+	return &BootstrapConfigDatabaseValues{
+		RuntimePool:         safeBootstrapDatabasePoolValues(database.RuntimePool),
+		ManagementPool:      safeBootstrapDatabasePoolValues(database.ManagementPool),
+		ManagementAdmission: safeBootstrapManagementAdmissionValues(database.ManagementAdmission),
+	}
+}
+
+func safeBootstrapDatabasePoolValues(pool *bootstrapDatabasePool) *BootstrapConfigDatabasePoolValues {
+	if pool == nil {
+		return nil
+	}
+	return &BootstrapConfigDatabasePoolValues{MaxConns: cloneIntPointer(pool.MaxConns), MinIdleConns: cloneIntPointer(pool.MinIdleConns)}
+}
+
+func safeBootstrapManagementAdmissionValues(admission *bootstrapManagementAdmission) *BootstrapConfigManagementAdmissionValues {
+	if admission == nil {
+		return nil
+	}
+	return &BootstrapConfigManagementAdmissionValues{M2MaxConcurrent: cloneIntPointer(admission.M2MaxConcurrent), M3MaxConcurrent: cloneIntPointer(admission.M3MaxConcurrent)}
+}
+
+func safeBootstrapRuntimeValues(runtimeConfig *bootstrapRuntime) *BootstrapConfigRuntimeValues {
+	if runtimeConfig == nil {
+		return nil
+	}
+	return &BootstrapConfigRuntimeValues{BufferingMode: cloneStringPointer(runtimeConfig.BufferingMode), Transport: safeBootstrapRuntimeTransportValues(runtimeConfig.Transport)}
+}
+
+func safeBootstrapRuntimeTransportValues(transport *bootstrapRuntimeTransport) *BootstrapConfigRuntimeTransportValues {
+	if transport == nil {
+		return nil
+	}
+	return &BootstrapConfigRuntimeTransportValues{
+		MaxIdleConns:          cloneIntPointer(transport.MaxIdleConns),
+		MaxIdleConnsPerHost:   cloneIntPointer(transport.MaxIdleConnsPerHost),
+		MaxConnsPerHost:       cloneIntPointer(transport.MaxConnsPerHost),
+		IdleConnTimeout:       cloneStringPointer(transport.IdleConnTimeout),
+		ResponseHeaderTimeout: cloneStringPointer(transport.ResponseHeaderTimeout),
+		TLSHandshakeTimeout:   cloneStringPointer(transport.TLSHandshakeTimeout),
+		ExpectContinueTimeout: cloneStringPointer(transport.ExpectContinueTimeout),
+	}
+}
+
+func safeBootstrapHTTPValues(httpConfig *bootstrapHTTP) *BootstrapConfigHTTPValues {
+	if httpConfig == nil {
+		return nil
+	}
+	return &BootstrapConfigHTTPValues{CORSAllowedOrigins: cloneStringSlicePointer(httpConfig.CORSAllowedOrigins)}
+}
+
+func safeBootstrapAuthValues(auth *bootstrapAuth) *BootstrapConfigAuthValues {
+	if auth == nil {
+		return nil
+	}
+	return &BootstrapConfigAuthValues{
+		AccessTokenTTLSeconds:  cloneIntPointer(auth.AccessTokenTTLSeconds),
+		RefreshTokenTTLSeconds: cloneIntPointer(auth.RefreshTokenTTLSeconds),
+		ResetCodeTTLSeconds:    cloneIntPointer(auth.ResetCodeTTLSeconds),
+		AccessCookieName:       cloneStringPointer(auth.AccessCookieName),
+		RefreshCookieName:      cloneStringPointer(auth.RefreshCookieName),
+		CookieSecure:           cloneBoolPointer(auth.CookieSecure),
+	}
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	return intPointer(*value)
+}
+
+func cloneStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return stringPointer(*value)
+}
+
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	return boolPointer(*value)
+}
+
+func cloneStringSlicePointer(value *[]string) *[]string {
+	if value == nil {
+		return nil
+	}
+	clone := append([]string(nil), (*value)...)
+	return &clone
+}
+
+func cloneBytes(value []byte) []byte {
+	return append([]byte(nil), value...)
 }
 
 func resolveBootstrapExternalInputsFromEnv() (string, error) {
