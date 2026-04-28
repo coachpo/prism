@@ -294,6 +294,7 @@ test.describe("dashboard reporting currency", () => {
     const spendingCard = page.locator('[data-slot="metric-card"]').filter({ hasText: "30d Total Spend" }).first();
 
     await expect(spendingMetric).toHaveText("¥0.25 CNY");
+    await expect(spendingCard).toContainText("Verified");
     await expect(spendingCard).toContainText("Request-based spend");
     await expect(spendingCard).toContainText("9 priced");
     await expect(spendingCard).toContainText("2 unpriced");

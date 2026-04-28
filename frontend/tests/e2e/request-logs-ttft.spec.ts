@@ -339,7 +339,9 @@ test.describe("request logs TTFT", () => {
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(1)).toHaveText("80ms");
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(2)).toHaveText("—");
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(3)).toHaveText("45");
-    await expect(summaryStrip.locator("[data-slot='metric-value']").nth(4)).toHaveText("$0.50");
+    const totalCostSummary = summaryStrip.locator("[data-slot='metric-value']").nth(4);
+    await expect(totalCostSummary).toContainText("$0.50");
+    await expect(totalCostSummary).toContainText("Verified");
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(5)).not.toHaveText("");
   });
 });

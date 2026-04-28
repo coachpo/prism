@@ -225,6 +225,7 @@ export interface RequestLogDetailRouting {
   endpoint_base_url: string | null;
   endpoint_description: string | null;
   audit_enabled_at_request: boolean;
+  audit_capture_bodies_at_request: boolean;
 }
 
 export interface RequestLogDetailUsage {

@@ -304,7 +304,12 @@ function createRequestLogsResponse(
   };
 }
 
-async function mockCurrencyRoutes(page: Page) {
+async function mockCurrencyRoutes(
+  page: Page,
+  options: {
+    costingSettingsFailure?: boolean;
+  } = {},
+) {
   const profile = createProfile();
   const model = createModelListItem();
   const requestLogItems = createRequestLogItems();
@@ -362,6 +367,10 @@ async function mockCurrencyRoutes(page: Page) {
     }
 
     if (pathname === "/api/settings/costing") {
+      if (options.costingSettingsFailure) {
+        return fulfillJson({ detail: "costing unavailable" }, 500);
+      }
+
       return fulfillJson({
         report_currency_code: canonicalCurrency.code,
         report_currency_symbol: canonicalCurrency.symbol,
@@ -461,7 +470,18 @@ test.describe("models and request logs reporting currency", () => {
     await page.goto("/models");
 
     await expect(page.getByText("€1.25 EUR spend")).toBeVisible();
+    await expect(page.getByText("Verified").first()).toBeVisible();
     await expect(page.getByText("$1.25")).toHaveCount(0);
+  });
+
+  test("shows fallback currency guidance when reporting currency settings cannot be verified", async ({ page }) => {
+    await mockCurrencyRoutes(page, { costingSettingsFailure: true });
+
+    await page.goto("/models");
+
+    await expect(page.getByText("Fallback").first()).toBeVisible();
+    await expect(page.getByText("Spend is shown with fallback reporting currency until billing settings load again.")).toBeVisible();
+    await expect(page.getByText("$1.25 USD spend")).toBeVisible();
   });
 
   test("keeps browse-mode request-log spend distinct for payload symbols, canonical fallback, priced zero, and missing cost", async ({ page }) => {
@@ -473,35 +493,31 @@ test.describe("models and request logs reporting currency", () => {
       .getByRole("button")
       .filter({ hasText: "Payload symbol row" })
       .locator(":scope > div")
-      .nth(10)
-      .locator("span");
+      .nth(10);
     const canonicalFallbackSpend = page
       .getByRole("button")
       .filter({ hasText: "Canonical fallback row" })
       .locator(":scope > div")
-      .nth(10)
-      .locator("span");
+      .nth(10);
     const zeroSpend = page
       .getByRole("button")
       .filter({ hasText: "Zero spend row" })
       .locator(":scope > div")
-      .nth(10)
-      .locator("span");
+      .nth(10);
     const unpricedSpend = page
       .getByRole("button")
       .filter({ hasText: "Unpriced row" })
       .locator(":scope > div")
-      .nth(10)
-      .locator("span");
+      .nth(10);
 
-    await expect(payloadSymbolSpend).toHaveText("$0.75");
-    await expect(canonicalFallbackSpend).toHaveText("€0.50 EUR");
-    await expect(canonicalFallbackSpend).not.toHaveText("$0.50");
-    await expect(zeroSpend).toHaveText("$0.00");
-    await expect(zeroSpend).toHaveClass(/text-foreground/);
-    await expect(zeroSpend).toHaveClass(/font-medium/);
-    await expect(unpricedSpend).toHaveText("—");
-    await expect(unpricedSpend).toHaveClass(/text-muted-foreground/);
+    await expect(payloadSymbolSpend).toContainText("$0.75");
+    await expect(payloadSymbolSpend).toContainText("Verified");
+    await expect(canonicalFallbackSpend).toContainText("€0.50 EUR");
+    await expect(canonicalFallbackSpend).toContainText("Verified");
+    await expect(canonicalFallbackSpend).not.toContainText("$0.50");
+    await expect(zeroSpend).toContainText("$0.00");
+    await expect(zeroSpend).toContainText("Verified");
+    await expect(unpricedSpend).toContainText("Unpriced");
   });
 
   test("keeps detail-mode request-log spend distinct for priced zero and missing cost", async ({ page }) => {
@@ -509,13 +525,18 @@ test.describe("models and request logs reporting currency", () => {
 
     await page.goto("/request-logs?request_id=103");
 
+    const pricedZeroSummary = page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4);
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
-    await expect(page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4)).toHaveText("$0.00");
+    await expect(pricedZeroSummary).toContainText("$0.00");
+    await expect(pricedZeroSummary).toContainText("Verified");
 
     await page.goto("/request-logs?request_id=104");
 
+    const unpricedSummary = page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4);
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
-    await expect(page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4)).toHaveText("—");
+    await expect(unpricedSummary).toContainText("Unpriced");
+    await expect(unpricedSummary).not.toContainText("$0.00");
+    await expect(page.getByRole("link", { name: "Open Pricing Templates" })).toBeVisible();
   });
 
   test("uses the canonical fallback in dashboard recent activity when request payload symbols are missing", async ({ page }) => {
@@ -525,6 +546,8 @@ test.describe("models and request logs reporting currency", () => {
 
     await expect(page.getByText("$0.75")).toBeVisible();
     await expect(page.getByText("€0.50 EUR")).toBeVisible();
+    await expect(page.getByText("Unpriced")).toBeVisible();
+    await expect(page.getByText("Verified").first()).toBeVisible();
     await expect(page.getByText("$0.50")).toHaveCount(0);
   });
 });

@@ -2,9 +2,11 @@ import { Activity, CheckCircle2, XCircle } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { AnimatedListItem } from "@/components/AnimatedListItem";
 import { EmptyState } from "@/components/EmptyState";
+import { SpendTrustBadge } from "@/components/SpendTrustIndicator";
 import { ValueBadge } from "@/components/StatusBadge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatMoneyMicros } from "@/lib/costing";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
+import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 
@@ -25,12 +27,16 @@ export function RecentActivityCard({
   recentNewIds,
   recentRequests,
 }: RecentActivityCardProps) {
+  const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, locale, messages } = useLocale();
 
   return (
     <Card className="md:col-span-2 lg:col-span-4">
       <CardHeader>
-        <CardTitle>{messages.dashboard.recentActivity}</CardTitle>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          <span>{messages.dashboard.recentActivity}</span>
+          <SpendTrustBadge spendTrust={currencyState.trust} />
+        </CardTitle>
         <CardDescription>{messages.dashboard.recentActivityDescription}</CardDescription>
       </CardHeader>
       <CardContent>
@@ -42,8 +48,18 @@ export function RecentActivityCard({
           />
         ) : (
           <div className="space-y-4">
-            {recentRequests.map((request) => (
-              <AnimatedListItem
+            {recentRequests.map((request) => {
+              const spendTrust = resolveSpendTrustState(
+                {
+                  costMicros: request.total_cost_user_currency_micros,
+                  priced: request.priced_flag,
+                  unpricedReason: request.unpriced_reason,
+                },
+                currencyState,
+              );
+
+              return (
+                <AnimatedListItem
                 key={request.id}
                 isNew={recentNewIds.has(request.id)}
                 animation="left"
@@ -94,16 +110,22 @@ export function RecentActivityCard({
                       <p className="text-sm font-medium">
                         {messages.requestLogs.totalTokens}: {formatNumber(request.total_tokens || 0)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatMoneyMicros(
-                          request.total_cost_user_currency_micros,
-                          request.report_currency_symbol ?? undefined,
-                          undefined,
-                          2,
-                          6,
-                          locale,
-                        )}
-                      </p>
+                      {spendTrust === "unpriced" ? (
+                        <p className="text-xs font-medium text-destructive">
+                          {messages.spendTrust.unpriced}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {formatMoneyMicros(
+                            request.total_cost_user_currency_micros,
+                            request.report_currency_symbol ?? undefined,
+                            undefined,
+                            2,
+                            6,
+                            locale,
+                          )}
+                        </p>
+                      )}
                     </div>
                     <ValueBadge
                       label={String(request.status_code)}
@@ -112,7 +134,8 @@ export function RecentActivityCard({
                   </div>
                 </button>
               </AnimatedListItem>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>

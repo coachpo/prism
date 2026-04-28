@@ -2,6 +2,10 @@ import { useMemo } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SpendTrustBadge,
+  SpendTrustNote,
+} from "@/components/SpendTrustIndicator";
 import { TopSpendingCard } from "@/components/statistics/TopSpendingCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,8 +23,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { useLocale } from "@/i18n/useLocale";
-import { formatMoneyMicros } from "@/lib/costing";
+import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import type {
   UsageChartGranularity,
   UsageCostOverviewPoint,
@@ -100,7 +105,16 @@ export function UsageBreakdownSection({
   topEndpointSpendStatistics,
   tokenTypeBreakdown,
 }: UsageBreakdownSectionProps) {
+  const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, locale, messages } = useLocale();
+  const spendTrust = resolveSpendTrustState(
+    {
+      costMicros: costSummary.total_cost_micros,
+      pricedRequestCount: costSummary.priced_request_count,
+      unpricedRequestCount: costSummary.unpriced_request_count,
+    },
+    currencyState,
+  );
   const tokenBreakdownConfig = useMemo<ChartConfig>(
     () => ({
       cached_tokens: { color: "var(--color-chart-4)", label: messages.statistics.cachedPrefix },
@@ -271,7 +285,10 @@ export function UsageBreakdownSection({
           <CardHeader className="gap-3 border-b">
             <div className="grid flex-1 gap-1">
               <CardTitle className="text-base">
-                <h3>{messages.statistics.costOverviewTitle}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3>{messages.statistics.costOverviewTitle}</h3>
+                  <SpendTrustBadge spendTrust={spendTrust} />
+                </div>
               </CardTitle>
               <CardDescription>{messages.statistics.requestBasedSpend}</CardDescription>
             </div>
@@ -321,10 +338,13 @@ export function UsageBreakdownSection({
                       className="text-3xl font-semibold tracking-tight sm:text-[2rem]"
                       data-testid="usage-cost-summary-total"
                     >
-                      {formatMoneyMicros(costSummary.total_cost_micros, currency.symbol, currency.code, 2, 6, locale)}
+                      {spendTrust === "unpriced"
+                        ? messages.spendTrust.unpriced
+                        : formatMoneyMicros(costSummary.total_cost_micros, currency.symbol, currency.code, 2, 6, locale)}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <SpendTrustBadge spendTrust={spendTrust} />
                     {costSummary.priced_request_count !== null ? (
                       <Badge className="font-medium tabular-nums" variant="secondary">
                         {messages.statistics.pricedRequests(String(costSummary.priced_request_count))}
@@ -337,6 +357,13 @@ export function UsageBreakdownSection({
                     ) : null}
                   </div>
                 </div>
+                {spendTrust !== "verified" ? (
+                  <SpendTrustNote
+                    className="mt-3"
+                    spendTrust={spendTrust}
+                    showPricingTemplatesLink={spendTrust === "unpriced"}
+                  />
+                ) : null}
               </div>
 
               <ChartContainer className="aspect-auto h-56 w-full" config={costConfig}>

@@ -1,8 +1,9 @@
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import { SpendTrustBadge } from "@/components/SpendTrustIndicator";
 import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { formatNumber, getCurrentLocale } from "@/i18n/format";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import { formatMoneyMicros } from "@/lib/costing";
+import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 import { AlertCircle, Clock } from "lucide-react";
@@ -88,6 +89,28 @@ function renderClientCell(row: RequestLogListItem): React.ReactNode {
       <span className="truncate text-muted-foreground">{callerDisplay}</span>
       <span className="shrink-0 text-muted-foreground">→</span>
       <span className="truncate font-medium">{upstreamDisplay}</span>
+    </div>
+  );
+}
+
+function renderSpendCell(row: RequestLogListItem): React.ReactNode {
+  const spendTrust = resolveSpendTrustState({
+    costMicros: row.total_cost_user_currency_micros,
+    priced: row.priced_flag,
+    unpricedReason: row.unpriced_reason,
+  });
+  const messages = getStaticMessages();
+  const value =
+    spendTrust === "unpriced"
+      ? messages.spendTrust.unpriced
+      : formatCost(row.total_cost_user_currency_micros, row.report_currency_symbol);
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <span className={cn("text-xs font-mono", spendTrust === "unpriced" ? "font-medium text-destructive" : "font-medium text-foreground")}>
+        {value}
+      </span>
+      <SpendTrustBadge spendTrust={spendTrust} />
     </div>
   );
 }
@@ -237,21 +260,10 @@ export function getColumns(): ColumnDef[] {
     {
       key: "total_cost",
       label: messages.spend,
-      width: 104,
+      width: 132,
       grow: 0,
       align: "right",
-      render: (row) => (
-        <span
-          className={cn(
-            "text-xs font-mono",
-            row.total_cost_user_currency_micros !== null
-              ? "text-foreground font-medium"
-              : "text-muted-foreground",
-          )}
-        >
-          {formatCost(row.total_cost_user_currency_micros, row.report_currency_symbol)}
-        </span>
-      ),
+      render: (row) => renderSpendCell(row),
     },
     {
       key: "is_stream",

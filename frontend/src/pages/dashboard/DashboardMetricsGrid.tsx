@@ -1,7 +1,12 @@
 import { Activity, DollarSign, Server } from "lucide-react";
 import { useLocale } from "@/i18n/useLocale";
 import { MetricCard } from "@/components/MetricCard";
-import { formatMoneyMicros } from "@/lib/costing";
+import {
+  SpendTrustBadge,
+  SpendTrustNote,
+} from "@/components/SpendTrustIndicator";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
+import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn } from "@/lib/utils";
 import type { DashboardMetricSnapshot } from "./useDashboardPageData";
 
@@ -32,7 +37,20 @@ export function DashboardMetricsGrid({
   highlighted,
   snapshot,
 }: DashboardMetricsGridProps) {
+  const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, locale, messages } = useLocale();
+  const spendTrust = resolveSpendTrustState(
+    {
+      costMicros: snapshot.totalCost,
+      pricedRequestCount: snapshot.pricedRequestCount,
+      unpricedRequestCount: snapshot.unpricedRequestCount,
+    },
+    currencyState,
+  );
+  const spendMetricValue =
+    spendTrust === "unpriced"
+      ? "—"
+      : formatMoneyMicros(snapshot.totalCost, undefined, undefined, 2, 6, locale);
 
   return (
     <div className="grid gap-[var(--density-card-gap)] md:grid-cols-2 lg:grid-cols-4">
@@ -56,12 +74,29 @@ export function DashboardMetricsGrid({
         )}
       />
       <MetricCard
-        label={messages.dashboard.spending30d}
-        value={formatMoneyMicros(snapshot.totalCost, undefined, undefined, 2, 6, locale)}
-        detail={formatSpendCoverageDetail(
-          snapshot.pricedRequestCount,
-          snapshot.unpricedRequestCount,
-          messages,
+        label={(
+          <>
+            <span>{messages.dashboard.spending30d}</span>
+            <SpendTrustBadge spendTrust={spendTrust} />
+          </>
+        )}
+        value={spendMetricValue}
+        detail={(
+          <div className="space-y-1">
+            <p>
+              {formatSpendCoverageDetail(
+                snapshot.pricedRequestCount,
+                snapshot.unpricedRequestCount,
+                messages,
+              )}
+            </p>
+            {spendTrust !== "verified" ? (
+              <SpendTrustNote
+                spendTrust={spendTrust}
+                showPricingTemplatesLink={spendTrust === "unpriced"}
+              />
+            ) : null}
+          </div>
         )}
         icon={<DollarSign className="h-4 w-4" />}
         className={cn(

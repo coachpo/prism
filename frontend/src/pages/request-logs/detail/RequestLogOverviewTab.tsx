@@ -2,10 +2,15 @@ import { AlertTriangle, Coins, Copy, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLocale } from "@/i18n/useLocale";
 import { ApiFamilyIcon } from "@/components/ApiFamilyIcon";
+import {
+  SpendTrustBadge,
+  SpendTrustNote,
+} from "@/components/SpendTrustIndicator";
 import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { MouseEvent } from "react";
 import type { RequestLogDetail } from "@/lib/types";
@@ -15,7 +20,7 @@ import {
   formatTtft,
   formatTokens,
 } from "../columns";
-import { formatUnpricedReasonLabel } from "@/lib/costing";
+import { formatUnpricedReasonLabel, resolveSpendTrustState } from "@/lib/costing";
 import {
   ApiFamilyPill,
   DetailRow,
@@ -24,6 +29,7 @@ import {
 } from "./requestLogDetailShared";
 import { copyRequestLogText, getStatusIntent, getStatusTone } from "./requestLogDetailUtils";
 import { createConnectionNavigator } from "../connectionNavigation";
+import { resolveRequestAuditCaptureMode } from "../requestLogAuditState";
 
 interface RequestLogOverviewTabProps {
   request: RequestLogDetail;
@@ -71,17 +77,42 @@ function renderClientDetailValue(display: string | null, rawUserAgent: string | 
   );
 }
 
+function renderAuditCaptureState(
+  routing: RequestLogDetail["routing"],
+  messages: ReturnType<typeof useLocale>["messages"],
+) {
+  const captureMode = resolveRequestAuditCaptureMode(routing);
+
+  switch (captureMode) {
+    case "disabled":
+      return <TypeBadge label={messages.requestLogs.auditDisabledAtRequest} intent="muted" />;
+    case "metadata_only":
+      return <TypeBadge label={messages.requestLogs.auditMetadataOnly} intent="info" />;
+    case "full":
+      return <TypeBadge label={messages.requestLogs.auditFullCapture} intent="success" />;
+  }
+}
+
 export function RequestLogOverviewTab({
   request,
   formatTimestamp,
 }: RequestLogOverviewTabProps) {
   const navigate = useNavigate();
+  const { currencyState } = useReportingCurrencyContext();
   const { formatNumber, messages } = useLocale();
   const summary = request.summary;
   const requestInfo = request.request;
   const routing = request.routing;
   const usage = request.usage;
   const costing = request.costing;
+  const spendTrust = resolveSpendTrustState(
+    {
+      costMicros: costing.total_cost_user_currency_micros,
+      priced: usage.priced_flag,
+      unpricedReason: usage.unpriced_reason,
+    },
+    currencyState,
+  );
   const tone = getStatusTone(summary.status_code);
   const requestedModelLabel = summary.model_label;
   const resolvedTargetLabel = summary.resolved_target_model_label;
@@ -174,8 +205,16 @@ export function RequestLogOverviewTab({
               />
               <SummaryStat
                 label={messages.requestLogs.totalCost}
-                value={formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
-                valueClassName="font-mono"
+                value={(
+                  <div className="flex flex-col items-start gap-1">
+                    <span className="font-mono">
+                      {spendTrust === "unpriced"
+                        ? messages.spendTrust.unpriced
+                        : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
+                    </span>
+                    <SpendTrustBadge spendTrust={spendTrust} />
+                  </div>
+                )}
               />
               <SummaryStat
                 label={messages.requestLogs.timestamp}
@@ -333,9 +372,7 @@ export function RequestLogOverviewTab({
                 </DetailRow>
               ) : null}
               <DetailRow label={messages.requestLogs.auditCapture}>
-                {routing.audit_enabled_at_request
-                  ? messages.requestLogs.yes
-                  : messages.requestLogs.auditCaptureUnavailable}
+                {renderAuditCaptureState(routing, messages)}
               </DetailRow>
               <DetailRow label={messages.requestLogs.connection}>
                 {routing.connection_id !== null ? (
@@ -381,7 +418,24 @@ export function RequestLogOverviewTab({
               <SectionSubheading>{messages.requestLogs.costBreakdown}</SectionSubheading>
               <DetailRow label={messages.requestLogs.input}><span className="font-mono">{formatCost(costing.input_cost_micros, costing.report_currency_symbol)}</span></DetailRow>
               <DetailRow label={messages.requestLogs.output}><span className="font-mono">{formatCost(costing.output_cost_micros, costing.report_currency_symbol)}</span></DetailRow>
-              <DetailRow label={messages.requestLogs.total}><span className="font-mono">{formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}</span></DetailRow>
+              <DetailRow label={messages.requestLogs.total}>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono">
+                      {spendTrust === "unpriced"
+                        ? messages.spendTrust.unpriced
+                        : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
+                    </span>
+                    <SpendTrustBadge spendTrust={spendTrust} />
+                  </div>
+                  {spendTrust !== "verified" ? (
+                    <SpendTrustNote
+                      spendTrust={spendTrust}
+                      showPricingTemplatesLink={spendTrust === "unpriced"}
+                    />
+                  ) : null}
+                </div>
+              </DetailRow>
               <DetailRow label={messages.requestLogs.priced}>{usage.priced_flag ? messages.requestLogs.yes : messages.requestLogs.no}</DetailRow>
               <DetailRow label={messages.requestLogs.billable}>{usage.billable_flag ? messages.requestLogs.yes : messages.requestLogs.no}</DetailRow>
               {usage.unpriced_reason ? (

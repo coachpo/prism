@@ -3,7 +3,12 @@ import { ChevronDown, Eye, Plus, Server, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SpendTrustBadge,
+  SpendTrustNote,
+} from "@/components/SpendTrustIndicator";
 import { VendorIcon } from "@/components/VendorIcon";
+import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
 import { useLocale } from "@/i18n/useLocale";
 import { isKnownUnknownVendorLabel } from "@/i18n/staticMessages";
 import {
@@ -430,6 +435,7 @@ export function ModelsTable({
   search,
   setDeleteTarget,
 }: Props) {
+  const { currencyState } = useReportingCurrencyContext();
   const { messages } = useLocale();
   const navigate = useNavigate();
   const vendorGroups = useMemo(() => groupModels(filtered, messages.modelsUi.unknownVendor), [filtered, messages.modelsUi.unknownVendor]);
@@ -459,6 +465,15 @@ export function ModelsTable({
 
   return (
     <div className="grid gap-3 p-4">
+      <Card className="gap-3 border-border/70 bg-card/95 px-4 py-3 shadow-none">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">{messages.dashboard.spending30d}</span>
+          <SpendTrustBadge spendTrust={currencyState.trust} />
+        </div>
+        {currencyState.trust !== "verified" ? (
+          <SpendTrustNote spendTrust={currencyState.trust} />
+        ) : null}
+      </Card>
       {vendorGroups.map((group) => (
         <VendorSection
           key={group.groupKey}
