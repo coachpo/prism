@@ -16,6 +16,18 @@ import (
 )
 
 func (s *Service) handleExportProfileBundle(w http.ResponseWriter, r *http.Request) {
+	s.exportProfileBundle(w, r, false)
+}
+
+func (s *Service) handleExportProfileBundleWithSecrets(w http.ResponseWriter, r *http.Request) {
+	if err := requireDangerousProfileExportConfirm(r); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	s.exportProfileBundle(w, r, true)
+}
+
+func (s *Service) exportProfileBundle(w http.ResponseWriter, r *http.Request, includeSecrets bool) {
 	exportTime := s.nowUTC()
 	keyID, err := s.resolvedBundleSecretKeyID()
 	if err != nil {
@@ -28,9 +40,8 @@ func (s *Service) handleExportProfileBundle(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			return profileBundleResponse{}, err
 		}
-		return s.buildProfileBundle(r.Context(), tx, profile.ID, exportTime, keyID)
+		return s.buildProfileBundle(r.Context(), tx, profile.ID, exportTime, keyID, includeSecrets)
 	})
-
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
@@ -50,11 +61,27 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	bundleFingerprint, err := profileImportBundleFingerprint(requestBody)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (profileImportPreviewResponse, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return profileImportPreviewResponse{}, err
+		}
+		previewToken, err := s.issueProfilePreviewToken(profile.ID, bundleFingerprint)
+		if err != nil {
+			return profileImportPreviewResponse{}, err
+		}
 		preview, previewErr := s.previewProfileImport(r.Context(), tx, requestBody)
 		if previewErr != nil {
-			return buildProfilePreviewErrorResponse(requestBody, previewErrorDetail(previewErr)), nil
+			preview = buildProfilePreviewErrorResponse(requestBody, previewErrorDetail(previewErr))
 		}
+		preview.PreviewToken = previewToken
+		preview.BundleFingerprint = bundleFingerprint
 		return preview, nil
 	})
 	if err != nil {
@@ -67,15 +94,26 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 
 func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
-
 	if err := decodeJSONBody(r, &requestBody); err != nil {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := validateProfileBundleEnvelope(requestBody); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	previewToken, err := requirePreviewTokenHeader(r)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
 
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (profileImportResponse, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
+			return profileImportResponse{}, err
+		}
+		if err := s.validateProfilePreviewToken(previewToken, profile.ID, requestBody); err != nil {
 			return profileImportResponse{}, err
 		}
 		return s.executeProfileImport(r.Context(), tx, profile.ID, requestBody)
@@ -112,8 +150,25 @@ func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *htt
 		return
 	}
 
+	bundleFingerprint, err := vendorCatalogImportBundleFingerprint(requestBody)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	previewToken, err := s.issueVendorPreviewToken(bundleFingerprint)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config bundle", func(tx pgx.Tx) (vendorCatalogImportPreviewResponse, error) {
-		return s.previewVendorCatalogImport(r.Context(), tx, requestBody)
+		preview, err := s.previewVendorCatalogImport(r.Context(), tx, requestBody)
+		if err != nil {
+			return vendorCatalogImportPreviewResponse{}, err
+		}
+		preview.PreviewToken = previewToken
+		preview.BundleFingerprint = bundleFingerprint
+		return preview, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
@@ -127,6 +182,19 @@ func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Reque
 	var requestBody vendorCatalogImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := validateVendorCatalogBundleEnvelope(requestBody); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	previewToken, err := requirePreviewTokenHeader(r)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	if err := s.validateVendorPreviewToken(previewToken, requestBody); err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
 
@@ -150,21 +218,7 @@ func vendorExportFilename(exportTime time.Time) string {
 }
 
 func buildProfilePreviewErrorResponse(data profileImportRequest, detail string) profileImportPreviewResponse {
-	return profileImportPreviewResponse{
-		Ready:                    false,
-		Version:                  canonicalBundleVersion,
-		BundleKind:               canonicalProfileBundleKind,
-		EndpointsImported:        len(data.Endpoints),
-		PricingTemplatesImported: len(data.PricingTemplates),
-		StrategiesImported:       len(data.LoadbalanceStrategies),
-		ModelsImported:           len(data.Models),
-		ConnectionsImported:      importedConnectionCount(data.Models),
-		VendorResolutions:        []profileImportVendorResolution{},
-		SecretKeyID:              data.SecretPayload.KeyID,
-		DecryptableSecretRefs:    []string{},
-		BlockingErrors:           []string{detail},
-		Warnings:                 []string{},
-	}
+	return buildProfilePreviewResponse(data, []profileImportVendorResolution{}, []string{}, []string{detail}, []string{})
 }
 
 func previewErrorDetail(err error) string {

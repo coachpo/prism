@@ -29,6 +29,7 @@ type Service struct {
 	allowedOrigins        map[string]struct{}
 	secretEncryptionKey   string
 	bundleSecretKeyID     string
+	previewTokenKey       string
 	bundleSecretEncrypter func(string) (string, error)
 	bundleSecretDecrypter func(string) (string, error)
 	afterProfileImport    func(context.Context, pgx.Tx) error
@@ -102,6 +103,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		allowedOrigins:        allowedOrigins,
 		secretEncryptionKey:   settings.SecretEncryptionKey,
 		bundleSecretKeyID:     bundleSecretKeyID,
+		previewTokenKey:       bundleKey,
 		bundleSecretEncrypter: bundleSecretEncrypter,
 		bundleSecretDecrypter: bundleSecretDecrypter,
 		afterProfileImport:    options.AfterProfileImport,
@@ -120,6 +122,7 @@ func (s *Service) nowUTC() time.Time {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/config/profile/export", s.handleExportProfileBundle)
+	api.Post("/config/profile/export/with-secrets", s.handleExportProfileBundleWithSecrets)
 	api.Post("/config/profile/import/preview", s.handlePreviewProfileImport)
 	api.Post("/config/profile/import", s.handleImportProfileBundle)
 	api.Get("/config/vendors/export", s.handleExportVendorCatalog)
@@ -132,4 +135,11 @@ func (s *Service) resolvedBundleSecretKeyID() (string, error) {
 		return "", fmt.Errorf("config bundle encryption key is required")
 	}
 	return s.bundleSecretKeyID, nil
+}
+
+func (s *Service) resolvedPreviewTokenKey() (string, error) {
+	if strings.TrimSpace(s.previewTokenKey) == "" {
+		return "", fmt.Errorf("config bundle encryption key is required")
+	}
+	return s.previewTokenKey, nil
 }
