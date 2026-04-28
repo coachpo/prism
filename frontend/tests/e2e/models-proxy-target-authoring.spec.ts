@@ -150,7 +150,7 @@ test("main model dialog authors ordered proxy targets before save", async ({ pag
   await page.getByRole("option", { name: "Proxy" }).click();
 
   await page.getByRole("dialog", { name: "New Model" }).getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Please add at least one ordered proxy target for proxy models")).toBeVisible();
+  await expect(page.getByText("Please add at least one ordered proxy target for proxy models").last()).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
   await page.locator("#proxy-target-select").click();
@@ -172,7 +172,7 @@ test("main model dialog authors ordered proxy targets before save", async ({ pag
   await page.keyboard.press("Escape");
 
   await page.getByRole("dialog", { name: "New Model" }).getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Please add at least one ordered proxy target for proxy models")).toBeVisible();
+  await expect(page.getByText("Please add at least one ordered proxy target for proxy models").last()).toBeVisible();
   expect(routes.getCreatedPayloads()).toHaveLength(0);
 
   await page.locator("#proxy-target-select").click();
