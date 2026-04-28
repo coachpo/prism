@@ -75,9 +75,79 @@ function createModelListItem() {
   };
 }
 
+function createSafeExportBundle() {
+  return {
+    version: 1 as const,
+    bundle_kind: "profile_config" as const,
+    exported_at: `${fixedDate}T12:00:00Z`,
+    vendor_refs: [],
+    endpoints: [
+      {
+        name: "Default endpoint",
+        base_url: "https://safe.example.invalid",
+        api_key_secret_ref: null,
+        position: 0,
+      },
+    ],
+    pricing_templates: [],
+    loadbalance_strategies: [],
+    models: [],
+    profile_settings: {
+      timezone_preference: null,
+      report_currency_code: "EUR",
+      report_currency_symbol: "€",
+      endpoint_fx_mappings: [],
+    },
+    header_blocklist_rules: [],
+    user_agent_client_rules: [],
+    secret_payload: {
+      kind: "encrypted" as const,
+      cipher: "fernet-v1" as const,
+      key_id: "bundle-key-id",
+      entries: [],
+    },
+  };
+}
+
+function createDangerousExportBundle() {
+  return {
+    version: 1 as const,
+    bundle_kind: "profile_config" as const,
+    exported_at: `${fixedDate}T12:00:00Z`,
+    vendor_refs: [],
+    endpoints: [
+      {
+        name: "Default endpoint",
+        base_url: "https://dangerous.example.invalid",
+        api_key_secret_ref: "endpoint-secret-ref",
+        position: 0,
+      },
+    ],
+    pricing_templates: [],
+    loadbalance_strategies: [],
+    models: [],
+    profile_settings: {
+      timezone_preference: null,
+      report_currency_code: "EUR",
+      report_currency_symbol: "€",
+      endpoint_fx_mappings: [],
+    },
+    header_blocklist_rules: [],
+    user_agent_client_rules: [],
+    secret_payload: {
+      kind: "encrypted" as const,
+      cipher: "fernet-v1" as const,
+      key_id: "bundle-key-id",
+      entries: [{ ref: "endpoint-secret-ref", ciphertext: "ciphertext" }],
+    },
+  };
+}
+
 async function mockSettingsRoutes(page: Page) {
   const profile = createProfile();
-  let exportRequestCount = 0;
+  let safeExportRequestCount = 0;
+  let dangerousExportRequestCount = 0;
+  const dangerousConfirmHeaders: string[] = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -123,12 +193,21 @@ async function mockSettingsRoutes(page: Page) {
       return fulfillJson([]);
     }
     if (pathname === "/api/config/profile/export" && request.method() === "GET") {
-      exportRequestCount += 1;
-      return fulfillJson(
-        { version: 1, bundle_kind: "profile_config", exported_at: `${fixedDate}T12:00:00Z`, vendor_refs: [], endpoints: [], pricing_templates: [], loadbalance_strategies: [], models: [], profile_settings: { timezone_preference: null, report_currency_code: "EUR", report_currency_symbol: "€", endpoint_fx_mappings: [], header_blocklist_rules: [] }, secret_payload: { cipher: "fernet-v1", key_id: "bundle-key-id", values: {} } },
-        200,
-        { "Content-Disposition": 'attachment; filename="gateway-config-1999-01-01.json"' },
-      );
+      safeExportRequestCount += 1;
+      return fulfillJson(createSafeExportBundle(), 200, {
+        "Content-Disposition": 'attachment; filename="server-safe-name.json"',
+      });
+    }
+    if (pathname === "/api/config/profile/export/with-secrets" && request.method() === "POST") {
+      const dangerousConfirmHeader = (await request.allHeaders())["x-prism-dangerous-confirm"] ?? "";
+      dangerousConfirmHeaders.push(dangerousConfirmHeader);
+      if (dangerousConfirmHeader !== "profile-export") {
+        return fulfillJson({ error: "missing dangerous confirm header" }, 400);
+      }
+      dangerousExportRequestCount += 1;
+      return fulfillJson(createDangerousExportBundle(), 200, {
+        "Content-Disposition": 'attachment; filename="server-dangerous-name.json"',
+      });
     }
 
     throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
@@ -174,21 +253,24 @@ async function mockSettingsRoutes(page: Page) {
   }, fixedTimestamp);
 
   return {
-    getExportRequestCount: () => exportRequestCount,
+    getDangerousConfirmHeaders: () => dangerousConfirmHeaders,
+    getDangerousExportRequestCount: () => dangerousExportRequestCount,
+    getSafeExportRequestCount: () => safeExportRequestCount,
   };
 }
 
-test("settings export synthesizes the versioned filename locally", async ({ page }) => {
+test("profile safe export uses the redacted route and synthesizes the filename locally", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
 
   await page.goto("/settings#backup");
   const backupSection = page.locator("section#backup");
   await expect(backupSection).toBeVisible();
 
-  await backupSection.getByRole("button", { name: "Export Configuration" }).click();
+  await backupSection.getByTestId("profile-export-safe").click();
 
   await expect(page.getByText("Configuration exported successfully")).toBeVisible();
-  expect(routes.getExportRequestCount()).toBe(1);
+  expect(routes.getSafeExportRequestCount()).toBe(1);
+  expect(routes.getDangerousExportRequestCount()).toBe(0);
 
   const capture = await page.evaluate(
     () => (window as Window & { __downloadCapture?: DownloadCapture }).__downloadCapture ?? null,
@@ -196,6 +278,37 @@ test("settings export synthesizes the versioned filename locally", async ({ page
 
   expect(capture).not.toBeNull();
   expect(capture?.download).toBe(`prism-profile-config-v1-${fixedDate}.json`);
-  expect(capture?.download).not.toBe("gateway-config-1999-01-01.json");
+  expect(capture?.download).not.toBe("server-safe-name.json");
+  expect(capture?.href.startsWith("blob:")).toBe(true);
+});
+
+test("profile dangerous export stays disabled until acknowledged and uses the dangerous route", async ({ page }) => {
+  const routes = await mockSettingsRoutes(page);
+
+  await page.goto("/settings#backup");
+  const backupSection = page.locator("section#backup");
+  const dangerousButton = backupSection.getByTestId("profile-export-dangerous");
+
+  await expect(backupSection).toBeVisible();
+  await expect(backupSection.getByText("This path returns the full secret-bearing profile bundle, including encrypted secret payload entries and reusable endpoint secret refs. Use it only for disaster recovery.")).toBeVisible();
+  await expect(dangerousButton).toBeDisabled();
+
+  await backupSection.getByTestId("profile-export-dangerous-acknowledgement").click();
+  await expect(dangerousButton).toBeEnabled();
+
+  await dangerousButton.click();
+
+  await expect(page.getByText("Configuration exported successfully")).toBeVisible();
+  expect(routes.getSafeExportRequestCount()).toBe(0);
+  expect(routes.getDangerousExportRequestCount()).toBe(1);
+  expect(routes.getDangerousConfirmHeaders()).toEqual(["profile-export"]);
+
+  const capture = await page.evaluate(
+    () => (window as Window & { __downloadCapture?: DownloadCapture }).__downloadCapture ?? null,
+  );
+
+  expect(capture).not.toBeNull();
+  expect(capture?.download).toBe(`prism-profile-config-with-secrets-v1-${fixedDate}.json`);
+  expect(capture?.download).not.toBe("server-dangerous-name.json");
   expect(capture?.href.startsWith("blob:")).toBe(true);
 });
