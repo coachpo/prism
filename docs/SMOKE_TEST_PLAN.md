@@ -156,6 +156,7 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/loadbalance/events/{id}` | G17, M14 |
 | `DELETE /api/loadbalance/events` | G13-G15, M14 |
 | `GET /api/config/profile/export` | H01-H04, L14, M16 |
+| `POST /api/config/profile/export/with-secrets` | H01A |
 | `POST /api/config/profile/import/preview` | H05-H07, L15-L16, M17-M18 |
 | `POST /api/config/profile/import` | H05-H07, L15-L16, M17-M18 |
 | `GET /api/config/vendors/export` | H10 |
@@ -345,7 +346,7 @@ Prepare seed state through API (not manual DB edits):
 | H04 | P0 | Export includes connection `custom_headers` | Fields preserved |
 | H05 | P0 | Valid import replace (target profile only) | Only effective profile config replaced; other profiles unchanged |
 | H05D | P0 | Import vendorless model | Imported model persists with `vendor_id = null` while keeping required `api_family` |
-| H05E | P0 | Import preview without selected-profile header | Preview remains available without `X-Profile-Id`, reports readiness or blocking errors, and does not mutate profile state |
+| H05E | P0 | Import preview with selected-profile header | Preview requires `X-Profile-Id`, reports readiness or blocking errors, and does not mutate profile state |
 | H05A | P0 | Import with endpoint position hints | Imported endpoint order follows provided `position` values and is normalized contiguously |
 | H05B | P0 | Import payload without endpoint position | Imported endpoint order follows file order and remains valid |
 | H05C | P0 | Import with duplicate/gapped connection priorities | Imported connections are normalized to contiguous `0..N-1` while preserving relative order by imported priority then payload order |
@@ -526,15 +527,16 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Includes `version: 1`, `bundle_kind: profile_config`, `vendor_refs` for actually referenced vendor rows, encrypted `secret_payload`, ordered `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
-| L15 | P0 | Config import current format | Restores vendors, strategies, proxy targets, templates, connections, vendorless models, and settings into target profile |
-| L16 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
-| L17 | P1 | FX conversion with custom rate | Correct converted cost |
-| L18 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
-| L19 | P1 | Spending report pagination | `limit`/`offset` respected |
-| L20 | P1 | Spending report `top_n` | Returns correct top spenders |
-| L21 | P1 | Older request logs without pricing data | Unpriced rows aggregate under `UNKNOWN` bucket when reason is null/empty |
-| L22 | P1 | Special token pricing uses explicit values | Templates use explicit token prices only |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 1`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, ordered `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
+| L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
+| L16 | P0 | Config import current format | Preview and apply restore vendors, strategies, proxy targets, templates, connections, vendorless models, and settings into the target profile only |
+| L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
+| L18 | P1 | FX conversion with custom rate | Correct converted cost |
+| L19 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
+| L20 | P1 | Spending report pagination | `limit`/`offset` respected |
+| L21 | P1 | Spending report `top_n` | Returns correct top spenders |
+| L22 | P1 | Older request logs without pricing data | Unpriced rows aggregate under `UNKNOWN` bucket when reason is null/empty |
+| L23 | P1 | Special token pricing uses explicit values | Templates use explicit token prices only |
 
 | L28 | P1 | Pricing template usage endpoint | `/connections` response matches current assignments |
 | L27 | P0 | Delete pricing template not in use | `200`/success response and template removed from list |
@@ -564,9 +566,10 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M13 | P0 | Proxy target exists only in another profile | Ordered target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
-| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=1`, `bundle_kind=profile_config`, and includes `vendor_refs`, encrypted `secret_payload`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, ordered `proxy_targets`, nullable model `vendor_key`, required `api_family`, pricing templates, and `profile_settings` |
-| M17 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
-| M18 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
+| M16 | P0 | Config export from selected profile | Output is profile-targeted `version=1`, `bundle_kind=profile_config`, and includes safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |
+| M17 | P0 | Config import preview/apply binding | Apply only succeeds after preview returns a token and the same token is sent in `X-Prism-Preview-Token` |
+| M18 | P0 | Config import replace into profile A | Replaces A only; profile B/C scoped data remains unchanged |
+| M19 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | M19 | P0 | Costing/settings isolation | Updating currency/FX in A does not mutate B/C settings or spending results |
 | M20 | P0 | Header blocklist scope merge | Runtime uses global system rules + active profile user rules; management CRUD/list views stay on effective-profile scope |
 | M21 | P1 | Failover recovery-state isolation by profile | Cooldown/recovery state in profile A does not affect profile B |

@@ -220,7 +220,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 ### 4.15 Profile Isolation & Management
 - Profiles are isolated configuration namespaces (for example A/B/C) with one globally active profile for runtime routing at any time
 - Selected profile controls management/API scope; active profile controls `/v1/*` and `/v1beta/*` runtime traffic
-- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes (profiles, vendors, auth, realtime, auth-setting flows, vendor-catalog config flows, and profile-import preview) stay outside selected-profile scoping
+- Management APIs require `X-Profile-Id` for profile-scoped `/api/*` routes, while global management routes (profiles, vendors, auth, realtime, auth-setting flows, and vendor-catalog config flows) stay outside selected-profile scoping; `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`
 - Profile lifecycle supports create/list/update/activate/delete where delete is soft-delete for inactive profiles (`deleted_at`)
 - Active profile deletion is rejected; activation uses an optimistic CAS guard (`expected_active_profile_id`) and returns `409` on conflict
 - Capacity is capped at 10 non-deleted profiles; creating an 11th profile is rejected until one profile is deleted

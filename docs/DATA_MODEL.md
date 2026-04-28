@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current split-bundle configuration format (profile bundle v1, vendor catalog bundle v1).
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current split-bundle configuration format (`version: 1` profile bundle, `version: 1` vendor catalog bundle).
 
 ## 1. Entity Relationship Diagram
 
@@ -377,7 +377,7 @@ Reusable credential objects scoped to one profile.
 Constraints and indexes:
 - `UNIQUE(profile_id, name)`.
 - `INDEX(profile_id, position)` for ordered reads.
-- Profile config export never emits plaintext `api_key`; the version 3 profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
+- Profile config export never emits plaintext `api_key`; the `version: 1` profile bundle uses `api_key_secret_ref` plus encrypted `secret_payload.entries[]` instead.
 - Endpoints with no upstream credential export `api_key_secret_ref = null` and do not emit a bundle secret entry.
 
 ### 2.5 `connections` (profile-scoped routing)
