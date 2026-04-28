@@ -25,6 +25,7 @@ import {
   toModelListItem,
   toModelUpdatePayload,
   type SubmitEventLike,
+  validateModelFormData,
 } from "./modelFormState";
 import { useModelMetrics24h } from "./useModelMetrics24h";
 
@@ -122,22 +123,22 @@ export function useModelsPageData(revision: number) {
   const handleSubmit = async (event: SubmitEventLike) => {
     const messages = getStaticMessages();
     event.preventDefault();
-    if (!formData.api_family) {
+    const validationError = validateModelFormData(
+      formData,
+      nativeModelsForApiFamily.map((model) => model.model_id),
+    );
+
+    if (validationError === "api_family_required") {
       toast.error(messages.modelsData.selectApiFamily);
       return;
     }
-    if (formData.model_type === "native" && formData.loadbalance_strategy_id === null) {
+
+    if (validationError === "loadbalance_strategy_required") {
       toast.error(messages.modelsData.selectLoadbalanceStrategy);
       return;
     }
-    const validProxyTargetIds = new Set(nativeModelsForApiFamily.map((model) => model.model_id));
-    const hasInvalidProxyTargets = formData.proxy_targets.some(
-      (target) => !validProxyTargetIds.has(target.target_model_id),
-    );
-    if (
-      formData.model_type === "proxy" &&
-      (formData.proxy_targets.length === 0 || hasInvalidProxyTargets)
-    ) {
+
+    if (validationError === "proxy_target_required") {
       toast.error(messages.modelsData.proxyTargetRequired);
       return;
     }
