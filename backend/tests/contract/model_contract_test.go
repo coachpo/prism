@@ -28,7 +28,7 @@ func TestModelCRUD(t *testing.T) {
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S8 Legacy Strategy")
 
 	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, nil)
-	assertErrorResponse(t, missingHeader, http.StatusBadRequest, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
 
 	nativeCreate := harness.requestJSON(
 		t,
@@ -282,6 +282,75 @@ func TestModelCRUD(t *testing.T) {
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, wrongFamilyProxy, http.StatusBadRequest, "Proxy targets must use the same api_family as the proxy model")
+
+	secondProxyCreate := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":     vendorID,
+			"api_family":    "openai",
+			"model_id":      "s8-second-proxy-model",
+			"model_type":    "proxy",
+			"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model-b", "position": 0}},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, secondProxyCreate, http.StatusCreated)
+
+	proxyUpdateDuplicateTargets := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}, {"target_model_id": "s8-native-model", "position": 1}}},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateDuplicateTargets, http.StatusBadRequest, "proxy_targets must contain unique target_model_id values")
+
+	proxyUpdateDuplicatePositions := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}, {"target_model_id": "s8-native-model-b", "position": 0}}},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateDuplicatePositions, http.StatusBadRequest, "proxy_targets must contain unique position values")
+
+	proxyUpdateMissingTarget := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "does-not-exist", "position": 0}}},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateMissingTarget, http.StatusBadRequest, "Target model 'does-not-exist' not found")
+
+	proxyUpdateChainedTarget := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-second-proxy-model", "position": 0}}},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateChainedTarget, http.StatusBadRequest, "Target model 's8-second-proxy-model' is not a native model (chained proxies not allowed)")
+
+	proxyUpdateWrongFamily := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		map[string]any{
+			"api_family":    "anthropic",
+			"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}},
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateWrongFamily, http.StatusBadRequest, "Proxy targets must use the same api_family as the proxy model")
 
 	firstEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "S8 Detail Endpoint A", 0)
 	secondEndpointID := modelInsertEndpoint(t, harness, defaultProfileID, "S8 Detail Endpoint B", 1)

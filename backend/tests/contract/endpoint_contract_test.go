@@ -23,7 +23,7 @@ func TestEndpointCRUD(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/endpoints", nil, nil)
-	assertErrorResponse(t, missingHeader, http.StatusBadRequest, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
+	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
 
 	createPrimary := harness.requestJSON(t, harness.client, http.MethodPost, "/api/endpoints", map[string]any{"name": "Primary OpenAI", "base_url": "https://api.openai.com/", "api_key": "sk-primary"}, modelHeader(defaultProfileID))
 	assertStatus(t, createPrimary, http.StatusCreated)
