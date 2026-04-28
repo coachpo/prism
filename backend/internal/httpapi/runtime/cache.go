@@ -400,6 +400,10 @@ func (r RefreshRequest) normalized() RefreshRequest {
 	return normalized
 }
 
+func (r RefreshRequest) HasWork() bool {
+	return !r.normalized().isEmpty()
+}
+
 func (r RefreshRequest) isEmpty() bool {
 	return !r.Auth && !r.ActiveProfile && !r.PlanningAll && len(r.PlanningProfileIDs) == 0
 }

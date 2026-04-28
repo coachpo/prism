@@ -162,6 +162,9 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 
 	targetModelIDs := snapshot.ProxyTargetsBySourceID[requestedModel.ID]
 	for _, targetModelID := range targetModelIDs {
+		if !proxyTargetMatchesRequestedModel(snapshot, requestedModel, targetModelID) {
+			continue
+		}
 		model, connections, runtimeStates, strategy, err := s.loadNativeExecutionTargetFromSnapshot(profileID, snapshot, targetModelID, requestedModel.ModelID, referenceNow)
 		if err == nil {
 			return model, connections, runtimeStates, strategy, nil
@@ -173,6 +176,17 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
 	}
 	return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Proxy model '%s' has no routable targets.", requestedModel.ModelID)}
+}
+
+func proxyTargetMatchesRequestedModel(snapshot *planningSnapshot, requestedModel runtimeModelRecord, targetModelID string) bool {
+	targetModel, ok := snapshot.ModelsByID[targetModelID]
+	if !ok {
+		return false
+	}
+	if targetModel.ModelType != "native" {
+		return false
+	}
+	return targetModel.APIFamily == requestedModel.APIFamily
 }
 
 func (s *Service) loadNativeExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, modelID string, requestedModelID string, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
@@ -437,4 +451,3 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 	}
 	return items, nil
 }
-

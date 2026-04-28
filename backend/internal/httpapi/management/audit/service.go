@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
@@ -319,7 +320,7 @@ func loadRequestLogAuditCaptureState(ctx context.Context, tx pgx.Tx, profileID i
 func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		writeError(w, r, allowedOrigins, profileErr.StatusCode, profileErr.Detail)
+		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
 		return
 	}
 	var auditErr *auditdomain.HTTPError

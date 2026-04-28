@@ -144,6 +144,7 @@ func TestClassifyRuntimeCacheInvalidation(t *testing.T) {
 		want      runtimeCacheInvalidationAction
 	}{
 		{name: "auth settings write invalidates runtime auth", method: http.MethodPut, path: "/api/settings/auth", want: runtimeCacheInvalidationAction{auth: true}},
+		{name: "proxy key patch invalidates runtime auth", method: http.MethodPatch, path: "/api/settings/auth/proxy-keys/7", want: runtimeCacheInvalidationAction{auth: true}},
 		{name: "profile activation invalidates active profile", method: http.MethodPost, path: "/api/profiles/7/activate", want: runtimeCacheInvalidationAction{activeProfile: true}},
 		{name: "costing write invalidates one planning snapshot", method: http.MethodPut, path: "/api/settings/costing", profileID: "42", want: runtimeCacheInvalidationAction{planningIDs: []int{42}}},
 		{name: "vendor write invalidates all planning snapshots", method: http.MethodPatch, path: "/api/vendors/9", want: runtimeCacheInvalidationAction{planningAll: true}},

@@ -1,9 +1,12 @@
 package platformhttp
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
@@ -28,6 +31,8 @@ type statusCapturingResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
 }
+
+const immediateRuntimeCacheRefreshTimeout = 30 * time.Second
 
 func newRuntimeCacheInvalidationMiddleware(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) *runtimeCacheInvalidationMiddleware {
 	if planningCache == nil && authService == nil && runtimeState == nil {
@@ -130,8 +135,18 @@ func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCa
 		PlanningProfileIDs: append([]int(nil), a.planningIDs...),
 	}
 	if planningCache != nil {
-		if request.Auth || request.ActiveProfile || request.PlanningAll || len(request.PlanningProfileIDs) > 0 {
-			planningCache.ScheduleRefresh(request)
+		if request.HasWork() {
+			if request.Auth {
+				ctx, cancel := context.WithTimeout(context.Background(), immediateRuntimeCacheRefreshTimeout)
+				err := planningCache.RefreshNow(ctx, request)
+				cancel()
+				if err != nil {
+					slog.Error("failed to publish runtime auth snapshot immediately", "error", err, "active_profile", request.ActiveProfile, "planning_all", request.PlanningAll, "planning_profile_ids", request.PlanningProfileIDs)
+					planningCache.ScheduleRefresh(request)
+				}
+			} else {
+				planningCache.ScheduleRefresh(request)
+			}
 		}
 	} else if a.auth && authService != nil {
 		authService.InvalidateRuntimeCache()
