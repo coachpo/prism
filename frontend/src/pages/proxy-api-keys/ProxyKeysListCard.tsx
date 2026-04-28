@@ -18,6 +18,7 @@ interface ProxyKeysListCardProps {
   onDelete: (item: ProxyApiKey) => void;
   onEdit: (item: ProxyApiKey) => void;
   onRotate: (keyId: number) => void;
+  proxyKeySuccessorByParentId: Map<number, number>;
   rotatingProxyKeyId: number | null;
 }
 
@@ -28,6 +29,7 @@ export function ProxyKeysListCard({
   onDelete,
   onEdit,
   onRotate,
+  proxyKeySuccessorByParentId,
   rotatingProxyKeyId,
 }: ProxyKeysListCardProps) {
   const { formatNumber, messages } = useLocale();
@@ -39,13 +41,9 @@ export function ProxyKeysListCard({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1">
             <CardTitle className="text-base">{copy.issuedKeys}</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {copy.listDescription}
-            </p>
+            <p className="text-sm text-muted-foreground">{copy.listDescription}</p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {copy.keyCount(formatNumber(displayedProxyKeys.length))}
-          </p>
+          <p className="text-sm text-muted-foreground">{copy.keyCount(formatNumber(displayedProxyKeys.length))}</p>
         </div>
       </CardHeader>
       <CardContent>
@@ -80,11 +78,12 @@ export function ProxyKeysListCard({
                       key={item.id}
                       item={item}
                       authEnabled={authEnabled}
-                      rotating={rotating}
                       deleting={deleting}
+                      onDelete={() => onDelete(item)}
                       onEdit={() => onEdit(item)}
                       onRotate={() => onRotate(item.id)}
-                      onDelete={() => onDelete(item)}
+                      rotating={rotating}
+                      successorId={proxyKeySuccessorByParentId.get(item.id) ?? null}
                     />
                   );
                 })}

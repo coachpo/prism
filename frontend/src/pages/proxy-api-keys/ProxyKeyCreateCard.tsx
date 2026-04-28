@@ -2,9 +2,9 @@ import type { ComponentProps } from "react";
 import { CopyButton } from "@/components/CopyButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useLocale } from "@/i18n/useLocale";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLocale } from "@/i18n/useLocale";
 
 type FormSubmitHandler = NonNullable<ComponentProps<"form">["onSubmit"]>;
 
@@ -14,11 +14,13 @@ interface ProxyKeyCreateCardProps {
   creatingProxyKey: boolean;
   handleCreateSubmit: FormSubmitHandler;
   latestGeneratedKey: string | null;
+  proxyKeyExpiresAt: string;
   proxyKeyLimit: number;
   proxyKeyName: string;
   proxyKeyNotes: string;
   proxyKeysUsed: number;
   remainingKeys: number;
+  setProxyKeyExpiresAt: (value: string) => void;
   setProxyKeyName: (value: string) => void;
   setProxyKeyNotes: (value: string) => void;
 }
@@ -29,25 +31,26 @@ export function ProxyKeyCreateCard({
   creatingProxyKey,
   handleCreateSubmit,
   latestGeneratedKey,
+  proxyKeyExpiresAt,
   proxyKeyLimit,
   proxyKeyName,
   proxyKeyNotes,
   proxyKeysUsed,
   remainingKeys,
+  setProxyKeyExpiresAt,
   setProxyKeyName,
   setProxyKeyNotes,
 }: ProxyKeyCreateCardProps) {
   const { formatNumber, messages } = useLocale();
   const copy = messages.proxyApiKeys;
+
   return (
     <form onSubmit={handleCreateSubmit}>
       <Card>
         <CardHeader className="pb-3">
           <div className="space-y-1">
             <CardTitle className="text-base">{copy.createProxyKey}</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {copy.createDescription}
-            </p>
+            <p className="text-sm text-muted-foreground">{copy.createDescription}</p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -58,9 +61,7 @@ export function ProxyKeyCreateCard({
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-700 dark:text-emerald-300">
                     {copy.newSecret}
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    {copy.newSecretDescription}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{copy.newSecretDescription}</p>
                 </div>
                 <CopyButton
                   value={latestGeneratedKey}
@@ -75,7 +76,7 @@ export function ProxyKeyCreateCard({
             </div>
           ) : null}
 
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,14rem)_minmax(0,18rem)_minmax(0,16rem)_auto] xl:items-end">
             <div className="space-y-1">
               <Label htmlFor="proxy-key-name" className="text-xs text-muted-foreground">
                 {copy.name}
@@ -88,7 +89,6 @@ export function ProxyKeyCreateCard({
                 onChange={(event) => setProxyKeyName(event.target.value)}
                 placeholder={copy.namePlaceholder}
                 disabled={creatingProxyKey || !authAvailable}
-                className="w-56"
               />
             </div>
 
@@ -104,8 +104,36 @@ export function ProxyKeyCreateCard({
                 onChange={(event) => setProxyKeyNotes(event.target.value)}
                 placeholder={copy.notesPlaceholder}
                 disabled={creatingProxyKey || !authAvailable}
-                className="w-72"
               />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="proxy-key-expires-at" className="text-xs text-muted-foreground">
+                  {copy.expiresAt}
+                </Label>
+                {proxyKeyExpiresAt ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    className="h-auto px-0 text-xs text-muted-foreground"
+                    onClick={() => setProxyKeyExpiresAt("")}
+                    disabled={creatingProxyKey || !authAvailable}
+                  >
+                    {copy.clearExpiry}
+                  </Button>
+                ) : null}
+              </div>
+              <Input
+                id="proxy-key-expires-at"
+                name="proxy-key-expires-at"
+                type="datetime-local"
+                value={proxyKeyExpiresAt}
+                onChange={(event) => setProxyKeyExpiresAt(event.target.value)}
+                disabled={creatingProxyKey || !authAvailable}
+              />
+              <p className="text-xs text-muted-foreground">{copy.expiresAtDescription}</p>
             </div>
 
             <Button type="submit" disabled={createDisabled}>
