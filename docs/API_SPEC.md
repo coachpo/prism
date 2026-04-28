@@ -5,10 +5,15 @@ Service default base URL: `http://localhost:8000`
 Local `./start.sh` base URL: `http://localhost:18000`
 
 ## 0. Profile Context Semantics
-- Profile routes (`/api/profiles/*`) are global and do not require `X-Profile-Id`.
-- Profile-scoped management endpoints require `X-Profile-Id` to select explicit profile scope; global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/vendors/*`, and `POST /api/config/profile/import/preview`.
+- Prism has three route classes:
+  - Global management routes, which omit `X-Profile-Id`.
+  - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
+  - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
+- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/vendors/*`, and `POST /api/config/profile/import/preview`.
+- Profile-scoped management routes include `/api/config/profile/import`, `/api/settings/costing`, `/api/settings/timezone`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
+- Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
 
 
 ## 1. Management API (`/api/*`)
@@ -310,7 +315,7 @@ Validation rules:
 - `model_id` must be unique within the effective profile scope
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `vendor_id` is optional metadata and may be `null`.
-- If `model_type = "proxy"`: `proxy_targets` is required, must be non-empty, must contain unique native target model IDs from the same profile and same `api_family`, and must use contiguous `position` values starting at `0`. `loadbalance_strategy_id` must be null/omitted.
+- If `model_type = "proxy"`: `proxy_targets` is required and must be a non-empty ordered list. Every entry must reference a unique native target model from the same profile and same `api_family`, and `position` values must stay contiguous starting at `0`. `loadbalance_strategy_id` must be null/omitted.
 - If `model_type = "native"`: `proxy_targets` must be empty/omitted and `loadbalance_strategy_id` is required.
 - Proxy target self-reference is rejected.
 - Deleting a native model referenced by any proxy target returns `400` until the proxy targets are removed or updated.
@@ -331,7 +336,7 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Proxy-model updates use ordered `proxy_targets` in the same shape as create. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if proxy-target validation fails.
+Proxy-model updates use the same strict `proxy_targets` authoring contract as create: a non-empty ordered list of unique same-profile native targets from the same `api_family`, contiguous `position` values starting at `0`, no self-targets, and no `loadbalance_strategy_id`. Native-model updates continue to omit or empty `proxy_targets` and provide `loadbalance_strategy_id`. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if proxy-target validation fails.
 
 #### Delete Model
 ```
@@ -716,7 +721,7 @@ POST /api/config/profile/import/preview
 ```
 Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
 
-This preview route is a global readiness check and does not require `X-Profile-Id`.
+This preview route is global and does not require `X-Profile-Id`.
 
 Response `200`:
 ```json
@@ -757,7 +762,7 @@ POST /api/config/profile/import
 ```
 Request: Full profile bundle using `version: 1` and `bundle_kind: "profile_config"`.
 
-This import route is profile-targeted and requires `X-Profile-Id`.
+This import route is profile-scoped and requires `X-Profile-Id`.
 
 Response `200`:
 ```json
@@ -870,6 +875,11 @@ Request fields:
 - `username`
 - `password`
 
+Lifecycle contract:
+- Disabling auth clears the current browser cookies in the response and invalidates stale management sessions immediately.
+- Changing the operator username or password invalidates stale management sessions immediately, even when auth remains enabled.
+- After invalidation, `GET /api/auth/session` returns `401`, while `GET /api/auth/status` continues to report the live global auth mode.
+
 #### Request Email Verification
 ```
 POST /api/settings/auth/email-verification/request
@@ -886,6 +896,11 @@ POST /api/settings/auth/email-verification/confirm
 - `PATCH /api/settings/auth/proxy-keys/{id}`
 - `POST /api/settings/auth/proxy-keys/{id}/rotate`
 - `DELETE /api/settings/auth/proxy-keys/{id}`
+
+Proxy-key lifecycle contract:
+- Create and update payloads accept optional `expires_at` in RFC3339 form; `null` clears expiry.
+- List responses keep historical rows with `is_active`, `expires_at`, and `rotated_from_id` so the UI can render retired, expired, and rotated lineage without rewriting history.
+- Rotate is lineage-creating, not in-place mutation: the historical row becomes inactive, a successor row is created with `rotated_from_id` pointing at the predecessor, and only the successor response includes the new one-time secret.
 
 #### Get Costing Settings
 ```
@@ -907,7 +922,7 @@ Response `200`:
 }
 ```
 
-`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing` and `/api/settings/timezone` are profile-scoped and use explicit `X-Profile-Id`.
+`/api/settings/auth*` routes are global management endpoints. `/api/settings/costing` and `/api/settings/timezone` are profile-scoped and require `X-Profile-Id`.
 
 #### Update Costing Settings
 ```
@@ -1205,7 +1220,7 @@ The health contract is not version only. It is the operator-facing target for ba
 
 ## 4. Statistics API
 
-Stats APIs are profile-scoped by explicit `X-Profile-Id` (required header).
+Stats APIs are profile-scoped and require `X-Profile-Id`.
 
 ### 4.1 Usage Snapshot
 ```
@@ -1637,7 +1652,7 @@ Response `200`:
 
 ## 5. Audit API
 
-Audit APIs are profile-scoped by explicit `X-Profile-Id` (required header).
+Audit APIs are profile-scoped and require `X-Profile-Id`.
 
 ### 5.1 List Audit Logs
 ```
@@ -1772,7 +1787,7 @@ When body capture is enabled for the vendor, request and response bodies are tru
 
 ## 6. Loadbalance API
 
-Loadbalance APIs are profile-scoped by explicit `X-Profile-Id` (required header).
+Loadbalance APIs are profile-scoped and require `X-Profile-Id`.
 
 ### 6.1 List Loadbalance Strategies
 ```
@@ -1802,7 +1817,7 @@ Response `200`:
 
 The response includes the full current strategy list in `items` plus creation metadata so the caller can tell which canonical rows were created versus already present.
 
-Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in the selected profile. In that case, the error payload includes `detail.conflicting_names` with the conflicting names.
+Returns `409` when one or more canonical default names are already occupied by non-canonical strategies in the selected profile. In that case, the error payload includes `code` plus `detail.conflicting_names` with the conflicting names.
 
 ### 6.3 Create Loadbalance Strategy
 ```
@@ -2145,10 +2160,11 @@ Example `dashboard.update` payload:
 
 ## 9. Error Responses
 
-All errors follow this format:
+Scope-control errors follow this format:
 ```json
 {
-  "detail": "Error message describing what went wrong"
+  "code": "profile_scope_header_missing",
+  "detail": "X-Profile-Id header is required"
 }
 ```
 
@@ -2165,4 +2181,3 @@ All errors follow this format:
 ## 10. OpenAPI Spec
 
 The checked-in OpenAPI artifact is the management-and-health contract served at `/openapi.json`. It stays aligned with the narrative docs, but the narrative docs remain the source of truth for the Phase 1 upgrade contract.
-

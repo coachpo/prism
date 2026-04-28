@@ -724,24 +724,6 @@
         ],
         "summary": "List Models",
         "operationId": "list_models_api_models_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -767,7 +749,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -775,26 +762,9 @@
         ],
         "summary": "Create Model",
         "operationId": "create_model_api_models_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
+          "description": "Native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`. Proxy models provide a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`, and omit `loadbalance_strategy_id`.",
           "content": {
             "application/json": {
               "schema": {
@@ -824,7 +794,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/models/by-endpoints": {
@@ -834,24 +809,6 @@
         ],
         "summary": "Get Models By Endpoints",
         "operationId": "get_models_by_endpoints_api_models_by_endpoints_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -883,7 +840,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/models/{model_config_id}": {
@@ -904,20 +866,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -960,24 +909,12 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
           "required": true,
+          "description": "Model updates keep the same routing contract as create: native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`, while proxy models provide a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0` and omit `loadbalance_strategy_id`.",
           "content": {
             "application/json": {
               "schema": {
@@ -1026,20 +963,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1082,20 +1006,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1133,24 +1044,6 @@
         ],
         "summary": "List Endpoints",
         "operationId": "list_endpoints_api_endpoints_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1176,7 +1069,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -1184,24 +1082,6 @@
         ],
         "summary": "Create Endpoint",
         "operationId": "create_endpoint_api_endpoints_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1233,7 +1113,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/endpoints/{endpoint_id}/position": {
@@ -1254,20 +1139,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1315,24 +1187,6 @@
         ],
         "summary": "List All Connections",
         "operationId": "list_all_connections_api_endpoints_connections_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1354,7 +1208,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/endpoints/{endpoint_id}": {
@@ -1375,20 +1234,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1441,20 +1287,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1497,20 +1330,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1544,24 +1364,6 @@
         ],
         "summary": "List Connections Batch",
         "operationId": "list_connections_batch_api_models_connections_batch_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1593,7 +1395,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/models/{model_config_id}/connections": {
@@ -1614,20 +1421,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1674,20 +1468,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1742,20 +1523,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1810,20 +1578,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -1876,20 +1631,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -1941,20 +1683,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -2013,20 +1742,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -2081,20 +1797,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2139,20 +1842,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2296,20 +1986,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2370,20 +2047,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2428,20 +2092,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2591,20 +2242,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2638,24 +2276,6 @@
         ],
         "summary": "Model Metrics Batch",
         "operationId": "model_metrics_batch_api_stats_models_metrics_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2687,7 +2307,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/stats/connection-success-rates": {
@@ -2733,20 +2358,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -2946,20 +2558,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3022,20 +2621,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3169,20 +2755,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3236,20 +2809,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3346,20 +2906,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3552,20 +3099,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3643,20 +3177,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3701,20 +3222,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3748,24 +3256,6 @@
         ],
         "summary": "List Strategies",
         "operationId": "list_strategies_api_loadbalance_strategies_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3791,7 +3281,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -3799,24 +3294,6 @@
         ],
         "summary": "Create Strategy",
         "operationId": "create_strategy_api_loadbalance_strategies_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3848,7 +3325,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/loadbalance/strategies/defaults": {
@@ -3858,24 +3340,6 @@
         ],
         "summary": "Create Strategy Defaults",
         "operationId": "create_strategy_defaults_api_loadbalance_strategies_defaults_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3897,7 +3361,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/loadbalance/strategies/{strategy_id}": {
@@ -3918,20 +3387,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -3974,20 +3430,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -4040,20 +3483,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4097,20 +3527,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4155,20 +3572,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4237,20 +3641,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4328,20 +3719,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4386,20 +3764,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4433,24 +3798,6 @@
         ],
         "summary": "Export Profile Config",
         "operationId": "export_profile_config_api_config_profile_export_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4472,7 +3819,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/profile/import/preview": {
@@ -4523,24 +3875,6 @@
         ],
         "summary": "Import Profile Config",
         "operationId": "import_profile_config_api_config_profile_import_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -4572,7 +3906,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/vendors/export": {
@@ -4697,20 +4036,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4746,24 +4072,6 @@
         ],
         "summary": "Create Header Blocklist Rule",
         "operationId": "create_header_blocklist_rule_api_config_header_blocklist_rules_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -4795,7 +4103,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/header-blocklist-rules/{rule_id}": {
@@ -4816,20 +4129,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4872,20 +4172,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -4938,20 +4225,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -4995,20 +4269,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -5044,24 +4305,6 @@
         ],
         "summary": "Create User Agent Client Rule",
         "operationId": "create_user_agent_client_rule_api_config_user_agent_client_rules_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5093,7 +4336,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/user-agent-client-rules/{rule_id}": {
@@ -5114,20 +4362,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -5170,20 +4405,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -5236,20 +4458,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -5281,24 +4490,6 @@
         ],
         "summary": "Get Costing Settings",
         "operationId": "get_costing_settings_api_settings_costing_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5320,7 +4511,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -5328,24 +4524,6 @@
         ],
         "summary": "Update Costing Settings",
         "operationId": "update_costing_settings_api_settings_costing_put",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5377,7 +4555,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/settings/timezone": {
@@ -5387,24 +4570,6 @@
         ],
         "summary": "Get Timezone Preference",
         "operationId": "get_timezone_preference_api_settings_timezone_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5426,7 +4591,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -5434,24 +4604,6 @@
         ],
         "summary": "Update Timezone Preference",
         "operationId": "update_timezone_preference_api_settings_timezone_put",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5483,7 +4635,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/settings/auth": {
@@ -5831,24 +4988,6 @@
         ],
         "summary": "List Pricing Templates",
         "operationId": "list_pricing_templates_api_pricing_templates_get",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5874,7 +5013,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -5882,24 +5026,6 @@
         ],
         "summary": "Create Pricing Template",
         "operationId": "create_pricing_template_api_pricing_templates_post",
-        "parameters": [
-          {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -5931,7 +5057,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/pricing-templates/{template_id}": {
@@ -5952,20 +5083,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -6008,20 +5126,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "requestBody": {
@@ -6074,20 +5179,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -6130,20 +5222,7 @@
             }
           },
           {
-            "name": "X-Profile-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Profile-Id"
-            }
+            "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ],
         "responses": {
@@ -10687,6 +9766,7 @@
         "title": "LoginRequest"
       },
       "ModelConfigCreate": {
+        "description": "Create a native or proxy model. Proxy models require a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`; native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`.",
         "properties": {
           "vendor_id": {
             "anyOf": [
@@ -10730,6 +9810,7 @@
               "proxy"
             ],
             "title": "Model Type",
+            "description": "Choose `native` for directly routed models or `proxy` for ordered proxy routing through native targets.",
             "default": "native"
           },
           "proxy_targets": {
@@ -10737,7 +9818,8 @@
               "$ref": "#/components/schemas/ProxyTargetReference"
             },
             "type": "array",
-            "title": "Proxy Targets"
+            "title": "Proxy Targets",
+            "description": "Proxy-only ordered routing list. Required and non-empty when `model_type` is `proxy`. Every entry must reference a unique native target in the same profile and same `api_family`, with contiguous `position` values starting at `0`. Omit or send an empty list for native models."
           },
           "loadbalance_strategy_id": {
             "anyOf": [
@@ -10748,7 +9830,8 @@
                 "type": "null"
               }
             ],
-            "title": "Loadbalance Strategy Id"
+            "title": "Loadbalance Strategy Id",
+            "description": "Native-only routing strategy. Required for native models and omitted or null for proxy models."
           },
           "is_enabled": {
             "type": "boolean",
@@ -11044,6 +10127,7 @@
         "title": "ModelConfigResponse"
       },
       "ModelConfigUpdate": {
+        "description": "Update a native or proxy model. Proxy updates keep the same strict authoring contract as create: a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`; native updates omit or empty `proxy_targets` and provide `loadbalance_strategy_id`.",
         "properties": {
           "vendor_id": {
             "anyOf": [
@@ -11107,7 +10191,8 @@
                 "type": "null"
               }
             ],
-            "title": "Model Type"
+            "title": "Model Type",
+            "description": "When provided, `proxy` uses ordered proxy routing and `native` uses direct routed connections plus a loadbalance strategy."
           },
           "proxy_targets": {
             "anyOf": [
@@ -11121,7 +10206,8 @@
                 "type": "null"
               }
             ],
-            "title": "Proxy Targets"
+            "title": "Proxy Targets",
+            "description": "Proxy-only ordered routing list. When `model_type` is `proxy`, send the full non-empty ordered list of unique native same-profile, same-`api_family` targets with contiguous `position` values starting at `0`. Omit, null, or empty the field for native models."
           },
           "loadbalance_strategy_id": {
             "anyOf": [
@@ -11132,7 +10218,8 @@
                 "type": "null"
               }
             ],
-            "title": "Loadbalance Strategy Id"
+            "title": "Loadbalance Strategy Id",
+            "description": "Native-only routing strategy. Provide it for native models and omit or null it for proxy models."
           },
           "is_enabled": {
             "anyOf": [
@@ -12098,15 +11185,18 @@
         "title": "ProxyApiKeyUpdate"
       },
       "ProxyTargetReference": {
+        "description": "One ordered proxy target entry. `target_model_id` must point to a native model in the same profile and same `api_family` as the proxy model, and the full list must stay contiguous from `position` `0..n-1`.",
         "properties": {
           "target_model_id": {
             "type": "string",
-            "title": "Target Model Id"
+            "title": "Target Model Id",
+            "description": "Target native model identifier. Proxy-to-proxy chaining and cross-family targets are rejected."
           },
           "position": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Position"
+            "title": "Position",
+            "description": "Zero-based priority within the ordered proxy target list."
           }
         },
         "type": "object",
@@ -12580,7 +11670,8 @@
           },
           "model_id": {
             "type": "string",
-            "title": "Model Id"
+            "title": "Model Id",
+            "description": "Requested model identifier from the incoming runtime request. For proxy traffic this stays on the proxy model that the caller asked for."
           },
           "model_label": {
             "type": "string",
@@ -12595,7 +11686,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Id"
+            "title": "Resolved Target Model Id",
+            "description": "Resolved native target chosen for execution when proxy routing is involved. Null when the requested model executed directly."
           },
           "resolved_target_model_label": {
             "anyOf": [
@@ -12606,7 +11698,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Label"
+            "title": "Resolved Target Model Label",
+            "description": "Display label for the resolved native target when it differs from the requested model."
           },
           "is_proxy_origin": {
             "type": "boolean",
@@ -12875,7 +11968,8 @@
           },
           "model_id": {
             "type": "string",
-            "title": "Model Id"
+            "title": "Model Id",
+            "description": "Requested model identifier from the incoming runtime request. For proxy traffic this stays on the proxy model that the caller asked for."
           },
           "model_label": {
             "type": "string",
@@ -12890,7 +11984,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Id"
+            "title": "Resolved Target Model Id",
+            "description": "Resolved native target chosen for execution when proxy routing is involved. Null when the requested model executed directly."
           },
           "resolved_target_model_label": {
             "anyOf": [
@@ -12901,7 +11996,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Label"
+            "title": "Resolved Target Model Label",
+            "description": "Display label for the resolved native target when it differs from the requested model."
           },
           "is_proxy_origin": {
             "type": "boolean",
@@ -15028,6 +14124,37 @@
           "model_label"
         ],
         "title": "RequestLogListModelOptionResponse"
+      },
+      "ScopeControlError": {
+        "type": "object",
+        "required": [
+          "code",
+          "detail"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "title": "ScopeControlError"
+      }
+    },
+    "parameters": {
+      "XProfileIdRequired": {
+        "name": "X-Profile-Id",
+        "in": "header",
+        "required": true,
+        "description": "Selected profile ID for profile-scoped management routes.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "title": "X-Profile-Id"
+        }
       }
     }
   }
