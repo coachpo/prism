@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/useAuth";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext";
+import { useLocale } from "@/i18n/useLocale";
 import { renderSectionSaveState } from "./sectionSaveState";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 import { useAuditConfigurationData } from "./useAuditConfigurationData";
@@ -14,12 +15,13 @@ import { useVendorManagementData } from "./useVendorManagementData";
 
 export function useSettingsPageData() {
   const navigate = useNavigate();
+  const { messages } = useLocale();
   const { refreshAuth } = useAuth();
   const { selectedProfile, revision, bumpRevision } = useProfileContext();
   const { prime: primeReportingCurrency } = useReportingCurrencyContext();
   const selectedProfileLabel = selectedProfile
     ? `${selectedProfile.name} (#${selectedProfile.id})`
-    : "the selected profile";
+    : messages.settingsPage.selectedProfileFallback;
 
   const [recentlySavedSection, setRecentlySavedSection] = useState<SettingsSaveSection | null>(null);
 

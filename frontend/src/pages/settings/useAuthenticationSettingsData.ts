@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { NavigateFunction } from "react-router-dom";
+import { broadcastAuthStateChange } from "@/context/auth/broadcast";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type { AuthSettings } from "@/lib/types";
@@ -99,6 +100,7 @@ export function useAuthenticationSettingsData({
         setAuthEmail(saved.pending_email ?? saved.email ?? "");
         setAuthPassword("");
         setAuthPasswordConfirm("");
+        broadcastAuthStateChange();
 
         try {
           await refreshAuth();

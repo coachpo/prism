@@ -12,16 +12,16 @@ export function resolveSelectedProfile(
     }
   }
 
-  const defaultProfile = profiles.find((profile) => profile.is_default);
-  if (defaultProfile) {
-    return defaultProfile;
-  }
-
   if (activeProfileId !== null) {
     const activeProfile = profiles.find((profile) => profile.id === activeProfileId);
     if (activeProfile) {
       return activeProfile;
     }
+  }
+
+  const defaultProfile = profiles.find((profile) => profile.is_default);
+  if (defaultProfile) {
+    return defaultProfile;
   }
 
   return profiles[0] ?? null;
