@@ -5,6 +5,8 @@ import type {
   AuditLogParams,
   BackendHealthResponse,
   BatchDeleteResponse,
+  BootstrapConfigResponse,
+  BootstrapConfigUpdateRequest,
   ConfigExportResponse,
   ConfigImportPreviewResponse,
   ConfigImportRequest,
@@ -139,6 +141,19 @@ export const settingsRetention = {
 };
 
 export const config = {
+  bootstrap: {
+    get: () => request<BootstrapConfigResponse>("/api/config/bootstrap"),
+    validate: (data: BootstrapConfigUpdateRequest) =>
+      request<BootstrapConfigResponse>("/api/config/bootstrap/validate", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (data: BootstrapConfigUpdateRequest) =>
+      request<BootstrapConfigResponse>("/api/config/bootstrap", {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+  },
   export: () => request<ConfigExportResponse>("/api/config/profile/export"),
   exportWithSecrets: () =>
     request<ConfigExportResponse>("/api/config/profile/export/with-secrets", {
