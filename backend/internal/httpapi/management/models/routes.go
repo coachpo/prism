@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
@@ -232,11 +233,6 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		}
 		if next.ModelType == "proxy" && current.ModelType != "proxy" && len(connectionsBefore) > 0 {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Cannot convert native model with connections to proxy. Delete connections first."}
-		}
-		for _, proxyTarget := range newProxyTargets {
-			if proxyTarget.TargetModelID == next.ModelID {
-				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Proxy model cannot target itself"}
-			}
 		}
 		if next.ModelType == "proxy" && !requestBody.ProxyTargets.Set {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets is required for proxy models"}
@@ -722,7 +718,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map
 	}
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		writeError(w, r, allowedOrigins, profileErr.StatusCode, profileErr.Detail)
+		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
 		return
 	}
 	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
