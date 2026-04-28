@@ -130,15 +130,6 @@ export interface Messages {
     topSpendingModelsDescription: string;
     viewFullReport: string;
   };
-  healthSummary: {
-    description: string;
-    liveness: string;
-    readiness: string;
-    startup: string;
-    status: string;
-    title: string;
-    version: string;
-  };
   locale: {
     changeLanguage: string;
     label: string;
@@ -1660,12 +1651,10 @@ export interface Messages {
     signOut: string;
   },
   spendTrust: {
-    fallback: string;
     fallbackDescription: string;
     openPricingTemplates: string;
     unpriced: string;
     unpricedDescription: string;
-    verified: string;
     verifiedDescription: string;
   };
   statistics: {
@@ -1990,15 +1979,6 @@ export const enMessages: Messages = {
     topSpendingModels: "Top Models by Spend",
     topSpendingModelsDescription: "Highest request-based spend in the last 30 days",
     viewFullReport: "View Full Report",
-  },
-  healthSummary: {
-    description: "Instance-level backend readiness from /health. This summary is not profile-scoped.",
-    liveness: "Liveness",
-    readiness: "Readiness",
-    startup: "Startup",
-    status: "Status",
-    title: "Backend health",
-    version: "Version",
   },
   locale: {
     changeLanguage: "Change language",
@@ -3580,12 +3560,10 @@ export const enMessages: Messages = {
     signOut: "Sign out",
   },
   spendTrust: {
-    fallback: "Fallback",
     fallbackDescription: "Spend is shown with fallback reporting currency until billing settings load again.",
     openPricingTemplates: "Open Pricing Templates",
     unpriced: "Unpriced",
     unpricedDescription: "Missing pricing data stays separate from priced spend.",
-    verified: "Verified",
     verifiedDescription: "Spend is using the verified reporting currency.",
   },
   statistics: {

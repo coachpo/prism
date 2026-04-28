@@ -132,15 +132,6 @@ export const zhCNMessages: Messages = {
     topSpendingModelsDescription: "最近 30 天请求支出最高的模型",
     viewFullReport: "查看完整报告",
   },
-  healthSummary: {
-    description: "来自 /health 的实例级后端就绪状态摘要，不受所选配置档案影响。",
-    liveness: "存活状态",
-    readiness: "就绪状态",
-    startup: "启动状态",
-    status: "状态",
-    title: "后端健康状态",
-    version: "版本",
-  },
   locale: {
     changeLanguage: "切换语言",
     label: "语言",
@@ -1672,12 +1663,10 @@ export const zhCNMessages: Messages = {
     signOut: "退出登录",
   },
   spendTrust: {
-    fallback: "回退币种",
     fallbackDescription: "当前支出正在使用回退报告币种显示，待计费设置重新加载后恢复验证状态。",
     openPricingTemplates: "打开价格模板",
     unpriced: "未定价",
     unpricedDescription: "缺失的定价数据会与已定价支出明确区分。",
-    verified: "已验证",
     verifiedDescription: "当前支出正在使用已验证的报告币种。",
   },
   statistics: {
