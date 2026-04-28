@@ -1,12 +1,13 @@
 # FRONTEND HOOKS KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/hooks/` contains Prism's shared reactive helpers for realtime updates, periodic polling, and shared display formatting.
+`src/hooks/` contains Prism's shared reactive helpers for realtime updates, backend-health state, periodic polling, and shared display formatting.
 
 ## STRUCTURE
 ```
 hooks/
 ├── useRealtimeData.ts   # Shared realtime subscription hook over the singleton websocket client
+├── useBackendHealth.ts  # Shared backend-health fetch and refresh state over api.health.get()
 ├── usePolling.ts        # Tab-visibility-aware polling hook
 └── useTimezone.ts       # Shared timestamp formatting hook over i18n helpers
 ```
@@ -14,6 +15,7 @@ hooks/
 ## WHERE TO LOOK
 
 - Shared realtime subscription lifecycle and profile-aware channel wiring: `useRealtimeData.ts`, `../lib/websocket.ts`
+- Shared backend-health fetch/state over `api.health.get()`: `useBackendHealth.ts`, `../lib/api.ts`
 - Standard periodic refresh with visibility-aware start/stop behavior: `usePolling.ts`
 - Shared timestamp formatting through the locale layer: `useTimezone.ts`, `../i18n/format.ts`
 
