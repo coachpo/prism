@@ -140,14 +140,24 @@ export const settingsRetention = {
 
 export const config = {
   export: () => request<ConfigExportResponse>("/api/config/profile/export"),
+  exportWithSecrets: () =>
+    request<ConfigExportResponse>("/api/config/profile/export/with-secrets", {
+      method: "POST",
+      headers: {
+        "X-Prism-Dangerous-Confirm": "profile-export",
+      },
+    }),
   previewImport: (data: ConfigImportRequest) =>
     request<ConfigImportPreviewResponse>("/api/config/profile/import/preview", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  import: (data: ConfigImportRequest) =>
+  import: (data: ConfigImportRequest, previewToken: string) =>
     request<ConfigImportResponse>("/api/config/profile/import", {
       method: "POST",
+      headers: {
+        "X-Prism-Preview-Token": previewToken,
+      },
       body: JSON.stringify(data),
     }),
   vendors: {
@@ -157,9 +167,12 @@ export const config = {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    import: (data: VendorCatalogImportRequest) =>
+    import: (data: VendorCatalogImportRequest, previewToken: string) =>
       request<VendorCatalogImportResponse>("/api/config/vendors/import", {
         method: "POST",
+        headers: {
+          "X-Prism-Preview-Token": previewToken,
+        },
         body: JSON.stringify(data),
       }),
   },

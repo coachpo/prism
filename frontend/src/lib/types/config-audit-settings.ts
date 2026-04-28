@@ -214,10 +214,46 @@ export interface ConfigImportVendorResolution {
   warning?: string | null;
 }
 
+export interface ConfigImportReplacementScope {
+  target: "selected_profile";
+  endpoints: number;
+  pricing_templates: number;
+  loadbalance_strategies: number;
+  models: number;
+  connections: number;
+  header_blocklist_rules: number;
+  user_agent_client_rules: number;
+  profile_settings: boolean;
+}
+
+export interface ConfigImportUntouchedScope {
+  other_profiles: boolean;
+  existing_global_vendor_metadata: boolean;
+  request_logs: boolean;
+}
+
+export interface ConfigImportVendorSummary {
+  create_count: number;
+  reuse_count: number;
+  warning_count: number;
+}
+
+export interface ConfigImportSecretSummary {
+  endpoint_secret_refs: number;
+  secret_payload_entries: number;
+  decryptable_secret_refs: number;
+}
+
 export interface ConfigImportPreviewResponse {
   ready: boolean;
   version: 1;
   bundle_kind: "profile_config";
+  preview_token: string;
+  bundle_fingerprint: string;
+  replacement_scope: ConfigImportReplacementScope;
+  untouched_scope: ConfigImportUntouchedScope;
+  vendor_summary: ConfigImportVendorSummary;
+  secret_summary: ConfigImportSecretSummary;
   endpoints_imported: number;
   pricing_templates_imported: number;
   strategies_imported: number;
@@ -244,10 +280,27 @@ export interface VendorCatalogImportRequest {
   vendors: ConfigVendorImport[];
 }
 
+export interface VendorCatalogImportMutationScope {
+  target: "global_vendor_catalog";
+  create_count: number;
+  update_count: number;
+  unchanged_count: number;
+}
+
+export interface VendorCatalogImportUntouchedScope {
+  profiles: boolean;
+  profile_scoped_config: boolean;
+  request_logs: boolean;
+}
+
 export interface VendorCatalogImportPreviewResponse {
   ready: boolean;
   version: 1;
   bundle_kind: "vendor_catalog";
+  preview_token: string;
+  bundle_fingerprint: string;
+  mutation_scope: VendorCatalogImportMutationScope;
+  untouched_scope: VendorCatalogImportUntouchedScope;
   create_count: number;
   update_count: number;
   blocking_errors: string[];
