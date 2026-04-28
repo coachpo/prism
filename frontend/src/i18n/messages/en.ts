@@ -457,6 +457,7 @@ export interface Messages {
     profileScopedSettings: string;
     profileTab: string;
     retentionDeletion: string;
+    selectedProfileFallback: string;
     sectionsTitle: string;
     settingsDescription: string;
     settingsTitle: string;
@@ -1197,6 +1198,7 @@ export interface Messages {
     actions: string;
     active: string;
     apiKey: string;
+    clearExpiry: string;
     currentKey: string;
     authenticationOff: string;
     authenticationOn: string;
@@ -1217,6 +1219,8 @@ export interface Messages {
     editProxyApiKey: string;
     editProxyKeyAria: (name: string) => string;
     expiresAt: string;
+    expiresAtDescription: string;
+    expired: string;
     issuedKeys: string;
     keyCount: (count: string) => string;
     keyLimitReached: string;
@@ -1237,10 +1241,15 @@ export interface Messages {
     notes: string;
     notesPlaceholder: string;
     operation: string;
+    prepared: string;
     preview: string;
     neverExpires: string;
+    retireDescription: string;
+    retired: string;
     rotateProxyKeyAria: (name: string) => string;
+    rotated: string;
     rotatedFrom: (id: number) => string;
+    rotatedTo: (id: number) => string;
     slotsRemaining: (remaining: string) => string;
     title: string;
     never: string;
@@ -2105,10 +2114,12 @@ export const enMessages: Messages = {
     globalSettings: "Global settings",
     globalSettingsDescription: "Changes here apply to all profiles and the entire Prism instance.",
     globalTab: "Global",
-    profileScopedDescription: (profileLabel) => `Changes here affect ${profileLabel} and its runtime traffic.`,
+    profileScopedDescription: (profileLabel) =>
+      `Changes here manage ${profileLabel}. Runtime traffic keeps following the active profile until you activate another one.`,
     profileScopedSettings: "Profile-scoped settings",
     profileTab: "Profile",
     retentionDeletion: "Retention & Deletion",
+    selectedProfileFallback: "the selected profile",
     sectionsTitle: "Settings Sections",
     settingsDescription: "Manage instance-wide authentication and profile-scoped configuration",
     settingsTitle: "Settings",
@@ -2486,10 +2497,10 @@ export const enMessages: Messages = {
     activate: "Activate",
     activating: "Activating...",
     activateDescription:
-      "This will switch the active runtime profile. Existing traffic will route using the newly active profile.",
+      "Selecting a profile only changes management scope. Activate to switch runtime traffic to the selected profile.",
     activateTitle: (name) => `Activate "${name}" for runtime traffic?`,
     active: "Active",
-    activeShort: (name) => `Active: ${name}`,
+    activeShort: (name) => `Active runtime: ${name}`,
     cancel: "Cancel",
     clearSearch: "Clear search",
     create: "Create",
@@ -2498,7 +2509,7 @@ export const enMessages: Messages = {
     createNewProfile: "Create new profile",
     createTitle: "Create Profile",
     creating: "Creating...",
-    currentActive: "Current active:",
+    currentActive: "Current active runtime:",
     default: "Default",
     delete: "Delete",
     deleteDescription: (name) => `Delete selected profile ${name}. This action is irreversible.`,
@@ -2518,7 +2529,7 @@ export const enMessages: Messages = {
     initializeFailed: "Failed to initialize profiles",
     name: "Name",
     nameRequired: "Profile name is required",
-    newActive: "New active:",
+    newActive: "New active runtime:",
     noDescription: "No description",
     noMatches: "No matches",
     noProfilesDescription: "Create a profile to start routing traffic or running tests.",
@@ -2530,11 +2541,11 @@ export const enMessages: Messages = {
     selectProfileToEdit: "Select a profile to edit.",
     lockedProfileEditDisabled: "Default profile is locked and cannot be edited.",
     profileNamePlaceholder: "Profile name",
-    profileTriggerTitle: (selected, active) => `Selected profile: ${selected}. Active runtime: ${active}.`,
+    profileTriggerTitle: (selected, active) => `Selected management profile: ${selected}. Active runtime: ${active}.`,
     save: "Save",
     saving: "Saving...",
     searchPlaceholder: "Search profiles...",
-    selectProfile: "Select profile",
+    selectProfile: "Select management profile",
     createFailed: "Failed to create profile",
     createdProfile: (name) => `Created profile ${name}`,
     updateFailed: "Failed to update profile",
@@ -2672,7 +2683,7 @@ export const enMessages: Messages = {
     proxyRouting: "Proxy Routing",
     proxyTargets: "Proxy Targets",
     proxyTargetsHint:
-      "Manage ordered proxy targets from the dedicated card on this page. Proxy targets must stay on the same API family even when the vendor metadata changes.",
+      "Manage ordered proxy targets in model settings. Proxy targets must stay on the same API family even when the vendor metadata changes.",
     qpsLimit: "QPS Limit",
     removeHeader: "Remove header",
     recoveryBlocked: "Recovery Blocked",
@@ -2906,6 +2917,7 @@ export const enMessages: Messages = {
     actions: "Actions",
     active: "Active",
     apiKey: "API key",
+    clearExpiry: "Clear expiry",
     currentKey: "Current key",
     authenticationOff: "Authentication Off",
     authenticationOn: "Authentication On",
@@ -2923,10 +2935,12 @@ export const enMessages: Messages = {
     description:
       "Manage machine credentials used by upstream clients to access the Prism proxy. Applies to all profiles.",
     disabled: "Disabled",
-    editDescription: "Update the stored name, note, and active state for this issued key. Rotating the secret is a separate action.",
+    editDescription: "Update the stored name, note, expiry, and active state for this issued key. Rotating the secret is a separate action.",
     editProxyApiKey: "Edit Proxy API Key",
     editProxyKeyAria: (name) => `Edit proxy key ${name}`,
     expiresAt: "Expires",
+    expiresAtDescription: "Leave blank to keep this key active until you retire or rotate it.",
+    expired: "Expired",
     issuedKeys: "Issued keys",
     keyCount: (count) => `${count} key${count === "1" ? "" : "s"}`,
     keyLimitReached: "Key limit reached",
@@ -2947,10 +2961,15 @@ export const enMessages: Messages = {
     notes: "Notes",
     notesPlaceholder: "Used by the main website",
     operation: "Operation",
+    prepared: "Prepared",
     preview: "Preview",
     neverExpires: "Never expires",
+    retireDescription: "Turn this off to retire the key immediately without deleting its historical record.",
+    retired: "Retired",
     rotateProxyKeyAria: (name) => `Rotate proxy key ${name}`,
+    rotated: "Rotated",
     rotatedFrom: (id) => `Rotated from #${id}`,
+    rotatedTo: (id) => `Rotated to #${id}`,
     slotsRemaining: (remaining) => `${remaining} slot${remaining === "1" ? "" : "s"} remaining.`,
     title: "Proxy API Keys",
     never: "Never",
@@ -3115,7 +3134,7 @@ export const enMessages: Messages = {
       observability: "Observability",
       access: "Access",
     },
-    runningShort: (name) => `${name} running`,
+    runningShort: (name) => `Runtime: ${name}`,
     logoutFailed: "Failed to sign out",
     primaryNavigation: "Primary navigation",
     profile: "Profile:",
