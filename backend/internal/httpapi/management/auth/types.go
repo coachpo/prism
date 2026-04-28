@@ -79,14 +79,16 @@ type proxyAPIKeyResponse struct {
 }
 
 type proxyAPIKeyCreateRequest struct {
-	Name  string  `json:"name"`
-	Notes *string `json:"notes"`
+	Name      string     `json:"name"`
+	Notes     *string    `json:"notes"`
+	ExpiresAt *time.Time `json:"expires_at"`
 }
 
 type proxyAPIKeyUpdateRequest struct {
-	Name     string  `json:"name"`
-	Notes    *string `json:"notes"`
-	IsActive *bool   `json:"is_active"`
+	Name      string     `json:"name"`
+	Notes     *string    `json:"notes"`
+	IsActive  *bool      `json:"is_active"`
+	ExpiresAt *time.Time `json:"expires_at"`
 }
 
 type proxyAPIKeyMutationResponse struct {

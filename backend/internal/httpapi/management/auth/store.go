@@ -115,6 +115,11 @@ type sessionBundle struct {
 	SessionDuration  sessionDuration
 }
 
+type authSettingsMutationResult struct {
+	Row                appAuthSettingsRow
+	SessionInvalidated bool
+}
+
 func (s *Service) loadOrCreateAppAuthSettings(ctx context.Context, exec queryExecutor) (appAuthSettingsRow, error) {
 	row, err := loadAppAuthSettings(ctx, exec)
 	if err == nil {
@@ -506,7 +511,7 @@ func (s *Service) revokeRefreshTokenFamily(ctx context.Context, tx pgx.Tx, refre
 	return nil
 }
 
-func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, request authSettingsUpdateRequest) (appAuthSettingsRow, error) {
+func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, request authSettingsUpdateRequest) (authSettingsMutationResult, error) {
 	username := normalizeUsername(request.Username)
 	password := normalizePassword(request.Password)
 	revokeSessions := false
@@ -515,20 +520,24 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 
 	if request.AuthEnabled {
 		if username == nil || *username == "" {
-			return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "username is required"}
+			return authSettingsMutationResult{}, &domainError{StatusCode: 400, Detail: "username is required"}
 		}
 		if !settingsRow.Email.Valid || !settingsRow.EmailBoundAt.Valid {
-			return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "A verified email is required"}
+			return authSettingsMutationResult{}, &domainError{StatusCode: 400, Detail: "A verified email is required"}
 		}
 		if !settingsRow.PasswordHash.Valid && (password == nil || *password == "") {
-			return appAuthSettingsRow{}, &domainError{StatusCode: 400, Detail: "password is required"}
+			return authSettingsMutationResult{}, &domainError{StatusCode: 400, Detail: "password is required"}
 		}
 		updatedRow.AuthEnabled = true
 		updatedRow.Username = toNullString(username)
+		if settingsRow.AuthEnabled && username != nil && stringValue(settingsRow.Username) != *username {
+			updatedRow.TokenVersion++
+			revokeSessions = true
+		}
 		if password != nil && *password != "" {
 			hash, err := hashPassword(*password)
 			if err != nil {
-				return appAuthSettingsRow{}, err
+				return authSettingsMutationResult{}, err
 			}
 			updatedRow.PasswordHash = sql.NullString{String: hash, Valid: true}
 			updatedRow.TokenVersion++
@@ -546,7 +555,7 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 		if password != nil && *password != "" {
 			hash, err := hashPassword(*password)
 			if err != nil {
-				return appAuthSettingsRow{}, err
+				return authSettingsMutationResult{}, err
 			}
 			updatedRow.PasswordHash = sql.NullString{String: hash, Valid: true}
 			updatedRow.TokenVersion++
@@ -556,7 +565,7 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 
 	if revokeSessions {
 		if err := s.revokeAllRefreshTokens(ctx, tx, settingsRow.ID); err != nil {
-			return appAuthSettingsRow{}, err
+			return authSettingsMutationResult{}, err
 		}
 	}
 
@@ -577,9 +586,9 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 	)
 	row, err := scanAppAuthSettings(scanner)
 	if err != nil {
-		return appAuthSettingsRow{}, fmt.Errorf("update auth settings: %w", err)
+		return authSettingsMutationResult{}, fmt.Errorf("update auth settings: %w", err)
 	}
-	return row, nil
+	return authSettingsMutationResult{Row: row, SessionInvalidated: settingsRow.AuthEnabled && revokeSessions}, nil
 }
 
 func (s *Service) beginEmailVerification(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, email string) (appAuthSettingsRow, string, error) {
@@ -831,8 +840,9 @@ func scanProxyAPIKey(scanner interface{ Scan(...any) error }) (proxyAPIKeyRow, e
 	return row, nil
 }
 
-func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string, notes *string, authSubjectID *int) (string, proxyAPIKeyRow, error) {
+func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string, notes *string, expiresAt *time.Time, authSubjectID *int) (string, proxyAPIKeyRow, error) {
 	now := s.nowUTC()
+	resolvedExpiresAt := normalizeProxyKeyExpiry(expiresAt)
 	var count int
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM proxy_api_keys WHERE expires_at IS NULL OR expires_at > $1`, now).Scan(&count); err != nil {
 		return "", proxyAPIKeyRow{}, fmt.Errorf("count proxy api keys: %w", err)
@@ -869,7 +879,7 @@ func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string,
 			keyHash,
 			lastFour,
 			true,
-			nil,
+			nullableTimePtr(resolvedExpiresAt),
 			nil,
 			nil,
 			nullableInt32(authSubjectID),
@@ -900,7 +910,7 @@ func (s *Service) loadProxyAPIKeyByID(ctx context.Context, exec queryExecutor, k
 	return scanProxyAPIKey(scanner)
 }
 
-func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, name string, notes *string, isActive *bool) (proxyAPIKeyRow, error) {
+func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, name string, notes *string, isActive *bool, expiresAt *time.Time) (proxyAPIKeyRow, error) {
 	current, err := s.loadProxyAPIKeyByID(ctx, tx, keyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -912,10 +922,15 @@ func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, n
 	if isActive != nil {
 		activeValue = *isActive
 	}
+	resolvedExpiresAt := nullableTime(current.ExpiresAt)
+	if expiresAt != nil {
+		resolvedExpiresAt = normalizeProxyKeyExpiry(expiresAt)
+	}
+	now := s.nowUTC()
 	scanner := tx.QueryRow(
 		ctx,
 		`UPDATE proxy_api_keys
-		SET name = $2, notes = $3, is_active = $4, updated_at = $5
+		SET name = $2, notes = $3, is_active = $4, expires_at = $5, updated_at = $6
 		WHERE id = $1
 		RETURNING id, name, key_prefix, key_hash, last_four, is_active, expires_at, last_used_at,
 			last_used_ip, created_by_auth_subject_id, notes, rotated_from_id, created_at, updated_at`,
@@ -923,7 +938,8 @@ func (s *Service) updateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int, n
 		name,
 		nullableTrimmedStringPtr(notes),
 		activeValue,
-		s.nowUTC(),
+		nullableTimePtr(resolvedExpiresAt),
+		now,
 	)
 	row, err := scanProxyAPIKey(scanner)
 	if err != nil {
@@ -1195,6 +1211,21 @@ func nullableTime(value sql.NullTime) *time.Time {
 	}
 	result := value.Time.UTC()
 	return &result
+}
+
+func normalizeProxyKeyExpiry(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	resolved := value.UTC()
+	return &resolved
+}
+
+func nullableTimePtr(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.UTC()
 }
 
 func nullableInt(value sql.NullInt32) *int {

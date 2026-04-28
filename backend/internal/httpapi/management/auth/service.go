@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -197,6 +199,13 @@ func (s *Service) InvalidateRuntimeCache() {
 	if s == nil || s.runtimeCache == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := s.runtimeCache.RefreshNow(ctx, runtimeapi.RefreshRequest{Auth: true})
+	if err == nil {
+		return
+	}
+	slog.Error("failed to publish runtime auth snapshot immediately", "error", err)
 	s.runtimeCache.Invalidate()
 }
 

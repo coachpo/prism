@@ -59,6 +59,13 @@ func (c *RuntimeCache) Invalidate() {
 	c.ScheduleRefresh(runtimeapi.RefreshRequest{Auth: true})
 }
 
+func (c *RuntimeCache) RefreshNow(ctx context.Context, request runtimeapi.RefreshRequest) error {
+	if c == nil || c.shared == nil {
+		return runtimeapi.ErrPublishedRuntimeSnapshotUnavailable
+	}
+	return c.shared.RefreshNow(ctx, request)
+}
+
 func (c *RuntimeCache) ScheduleRefresh(request runtimeapi.RefreshRequest) {
 	if c == nil || c.shared == nil {
 		return

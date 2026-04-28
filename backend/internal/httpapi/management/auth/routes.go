@@ -414,10 +414,10 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (appAuthSettingsRow, error) {
+	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (authSettingsMutationResult, error) {
 		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
 		if loadErr != nil {
-			return appAuthSettingsRow{}, fmt.Errorf("load auth settings: %w", loadErr)
+			return authSettingsMutationResult{}, fmt.Errorf("load auth settings: %w", loadErr)
 		}
 		return s.updateAuthSettings(r.Context(), tx, settingsRow, requestBody)
 	})
@@ -426,7 +426,10 @@ func (s *Service) handlePutAuthSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.invalidateAppAuthSettingsSnapshot()
-	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(updatedRow))
+	if result.SessionInvalidated {
+		s.clearAuthCookies(w)
+	}
+	writeJSON(w, http.StatusOK, s.buildAuthSettingsResponse(result.Row))
 }
 
 func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.Request) {
@@ -509,7 +512,7 @@ func (s *Service) handleCreateProxyKey(w http.ResponseWriter, r *http.Request) {
 	}
 	notes := normalizeNotes(requestBody.Notes)
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyMutationResponse, error) {
-		rawKey, row, createErr := s.createProxyAPIKey(r.Context(), tx, name, notes, authSubjectIDFromRequest(r))
+		rawKey, row, createErr := s.createProxyAPIKey(r.Context(), tx, name, notes, requestBody.ExpiresAt, authSubjectIDFromRequest(r))
 		if createErr != nil {
 			return proxyAPIKeyMutationResponse{}, createErr
 		}
@@ -540,7 +543,7 @@ func (s *Service) handleUpdateProxyKey(w http.ResponseWriter, r *http.Request) {
 	}
 	notes := normalizeNotes(requestBody.Notes)
 	updatedRow, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (proxyAPIKeyRow, error) {
-		return s.updateProxyAPIKey(r.Context(), tx, keyID, name, notes, requestBody.IsActive)
+		return s.updateProxyAPIKey(r.Context(), tx, keyID, name, notes, requestBody.IsActive, requestBody.ExpiresAt)
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
