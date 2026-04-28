@@ -1,7 +1,5 @@
 import { Plus } from "lucide-react";
-import { BackendHealthSummary } from "@/components/BackendHealthSummary";
 import { useProfileContext } from "@/context/ProfileContext";
-import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { useLocale } from "@/i18n/useLocale";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -15,7 +13,6 @@ import { useModelsPageData } from "./models/useModelsPageData";
 
 export function ModelsPage() {
   const { revision } = useProfileContext();
-  const backendHealth = useBackendHealth();
   const { formatNumber, messages } = useLocale();
   const data = useModelsPageData(revision);
   const copy = messages.modelsPage;
@@ -47,12 +44,6 @@ export function ModelsPage() {
           {copy.newModel}
         </Button>
       </PageHeader>
-
-      <BackendHealthSummary
-        error={backendHealth.error}
-        health={backendHealth.health}
-        loading={backendHealth.loading}
-      />
 
       <div className="space-y-4">
         <ModelsToolbar
