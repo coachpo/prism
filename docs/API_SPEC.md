@@ -10,7 +10,7 @@ Local `./start.sh` base URL: `http://localhost:18000`
   - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
   - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, and `/api/config/vendors/*`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
+- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/config/bootstrap`, and `/api/config/bootstrap/validate`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Profile-scoped management routes include `/api/config/profile/import`, `/api/settings/costing`, `/api/settings/timezone`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
@@ -18,7 +18,72 @@ Local `./start.sh` base URL: `http://localhost:18000`
 
 ## 1. Management API (`/api/*`)
 
-### 1.0 Profiles
+### 1.0 Bootstrap Config
+
+The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, it does not hot-reload the running process, and file writes only apply on the next Prism start.
+
+#### Get Bootstrap Config
+```
+GET /api/config/bootstrap
+```
+
+Response `200` returns safe metadata only. Raw secret values never appear in the payload.
+```json
+{
+  "config_path": "config.json",
+  "schema_version": 1,
+  "file_revision": 12,
+  "loaded_revision": 12,
+  "document_etag": "sha256:abc123",
+  "loaded_document_etag": "sha256:abc123",
+  "created_at": "2026-04-28T00:00:00Z",
+  "updated_at": "2026-04-28T00:00:00Z",
+  "restart_required": false,
+  "writable": true,
+  "values": {
+    "server": {
+      "host": "127.0.0.1",
+      "port": 18000,
+      "docs_enabled": true
+    }
+  },
+  "secrets": {
+    "database.url": {
+      "configured": true,
+      "editable": true,
+      "masked": "postgres://prism:***@localhost:5432/prism?sslmode=disable"
+    },
+    "runtime.secretEncryptionKey": {
+      "configured": true,
+      "editable": false,
+      "masked": "preserve-only"
+    }
+  }
+}
+```
+
+#### Validate Bootstrap Config
+```
+POST /api/config/bootstrap/validate
+```
+
+Request bodies follow the same shape as PUT, including required non-zero `expected_revision`, required non-empty `expected_etag`, `values`, `secret_updates`, and optional `confirmations`. Validation checks secret actions, confirmation requirements, and exact revision/etag concurrency before any file write.
+
+#### Update Bootstrap Config
+```
+PUT /api/config/bootstrap
+```
+
+A successful write returns the same safe response shape as GET, with `restart_required` set when the stored startup file changed. Updates require both the non-zero `expected_revision` and non-empty `expected_etag` to match the current file metadata, secret fields use explicit `preserve` or `replace` actions, redacted placeholders are not persisted, and dangerous changes require confirmation tokens for:
+- `server-host-change`
+- `server-port-change`
+- `database-url-change`
+- `auth-jwt-signing-key-change`
+- `state-transfer-bundle-encryption-key-change`
+
+`runtime.secretEncryptionKey` is preserve-only in v1.
+
+### 1.1 Profiles
 #### List Profiles
 ```
 GET /api/profiles

@@ -4805,6 +4805,127 @@
         ]
       }
     },
+    "/api/config/bootstrap": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Bootstrap Config",
+        "operationId": "get_bootstrap_config_api_config_bootstrap_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Put Bootstrap Config",
+        "operationId": "put_bootstrap_config_api_config_bootstrap_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/bootstrap/validate": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Validate Bootstrap Config",
+        "operationId": "validate_bootstrap_config_api_config_bootstrap_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/settings/auth": {
       "get": {
         "tags": [
@@ -11237,6 +11358,223 @@
           "profile_limits"
         ],
         "title": "ProfileBootstrapResponse"
+      },
+      "BootstrapConfigConflictResponse": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "properties": {
+              "message": {"type": "string", "title": "Message"},
+              "expected_revision": {"type": "integer", "title": "Expected Revision"},
+              "current_revision": {"type": "integer", "title": "Current Revision"},
+              "expected_etag": {"type": "string", "title": "Expected Etag"},
+              "current_etag": {"type": "string", "title": "Current Etag"}
+            },
+            "required": ["message", "expected_revision", "current_revision", "expected_etag", "current_etag"],
+            "title": "BootstrapConfigConflictDetail"
+          }
+        },
+        "type": "object",
+        "required": ["detail"],
+        "title": "BootstrapConfigConflictResponse"
+      },
+      "BootstrapConfigResponse": {
+        "properties": {
+          "config_path": {"type": "string", "title": "Config Path"},
+          "schema_version": {"type": "integer", "title": "Schema Version"},
+          "file_revision": {"type": "integer", "title": "File Revision"},
+          "loaded_revision": {"type": "integer", "title": "Loaded Revision"},
+          "document_etag": {"type": "string", "title": "Document Etag"},
+          "loaded_document_etag": {"type": "string", "title": "Loaded Document Etag"},
+          "created_at": {"type": "string", "format": "date-time", "title": "Created At"},
+          "updated_at": {"type": "string", "format": "date-time", "title": "Updated At"},
+          "restart_required": {"type": "boolean", "title": "Restart Required"},
+          "writable": {"type": "boolean", "title": "Writable"},
+          "values": {"$ref": "#/components/schemas/BootstrapConfigValues"},
+          "secrets": {"$ref": "#/components/schemas/BootstrapConfigSecrets"}
+        },
+        "type": "object",
+        "required": [
+          "config_path",
+          "schema_version",
+          "file_revision",
+          "loaded_revision",
+          "document_etag",
+          "loaded_document_etag",
+          "created_at",
+          "updated_at",
+          "restart_required",
+          "writable",
+          "values",
+          "secrets"
+        ],
+        "title": "BootstrapConfigResponse"
+      },
+      "BootstrapConfigSecretMetadata": {
+        "properties": {
+          "configured": {"type": "boolean", "title": "Configured"},
+          "editable": {"type": "boolean", "title": "Editable"},
+          "masked": {"type": "string", "title": "Masked"}
+        },
+        "type": "object",
+        "required": ["configured", "editable", "masked"],
+        "title": "BootstrapConfigSecretMetadata"
+      },
+      "BootstrapConfigSecretUpdate": {
+        "properties": {
+          "action": {"type": "string", "enum": ["preserve", "replace"], "title": "Action"},
+          "value": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Value"}
+        },
+        "type": "object",
+        "required": ["action"],
+        "title": "BootstrapConfigSecretUpdate"
+      },
+      "BootstrapConfigSecrets": {
+        "additionalProperties": {"$ref": "#/components/schemas/BootstrapConfigSecretMetadata"},
+        "type": "object",
+        "title": "BootstrapConfigSecrets"
+      },
+      "BootstrapConfigUpdateRequest": {
+        "properties": {
+          "expected_revision": {"type": "integer", "minimum": 1, "title": "Expected Revision"},
+          "expected_etag": {"type": "string", "minLength": 1, "title": "Expected Etag"},
+          "values": {"$ref": "#/components/schemas/BootstrapConfigValues"},
+          "secret_updates": {
+            "additionalProperties": {"$ref": "#/components/schemas/BootstrapConfigSecretUpdate"},
+            "type": "object",
+            "title": "Secret Updates"
+          },
+          "confirmations": {
+            "items": {"type": "string"},
+            "type": "array",
+            "title": "Confirmations"
+          }
+        },
+        "type": "object",
+        "required": ["expected_revision", "expected_etag", "values", "secret_updates"],
+        "title": "BootstrapConfigUpdateRequest"
+      },
+      "BootstrapConfigValidationErrorResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {"type": "string"},
+              {
+                "type": "object",
+                "properties": {
+                  "message": {"type": "string", "title": "Message"},
+                  "field": {"type": "string", "title": "Field"},
+                  "action": {"type": "string", "title": "Action"},
+                  "reason": {"type": "string", "title": "Reason"},
+                  "required_confirmations": {
+                    "items": {"type": "string"},
+                    "type": "array",
+                    "title": "Required Confirmations"
+                  }
+                },
+                "required": ["message"]
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": ["detail"],
+        "title": "BootstrapConfigValidationErrorResponse"
+      },
+      "BootstrapConfigValues": {
+        "properties": {
+          "server": {"$ref": "#/components/schemas/BootstrapConfigServerValues"},
+          "database": {"$ref": "#/components/schemas/BootstrapConfigDatabaseValues"},
+          "runtime": {"$ref": "#/components/schemas/BootstrapConfigRuntimeValues"},
+          "http": {"$ref": "#/components/schemas/BootstrapConfigHTTPValues"},
+          "auth": {"$ref": "#/components/schemas/BootstrapConfigAuthValues"}
+        },
+        "type": "object",
+        "required": ["server", "database", "runtime", "http", "auth"],
+        "title": "BootstrapConfigValues"
+      },
+      "BootstrapConfigServerValues": {
+        "properties": {
+          "host": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Host"},
+          "port": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Port"},
+          "docs_enabled": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "title": "Docs Enabled"}
+        },
+        "type": "object",
+        "required": ["host", "port", "docs_enabled"],
+        "title": "BootstrapConfigServerValues"
+      },
+      "BootstrapConfigDatabaseValues": {
+        "properties": {
+          "runtime_pool": {"$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"},
+          "management_pool": {"$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"},
+          "management_admission": {"$ref": "#/components/schemas/BootstrapConfigManagementAdmissionValues"}
+        },
+        "type": "object",
+        "required": ["runtime_pool", "management_pool", "management_admission"],
+        "title": "BootstrapConfigDatabaseValues"
+      },
+      "BootstrapConfigDatabasePoolValues": {
+        "properties": {
+          "max_conns": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Conns"},
+          "min_idle_conns": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Min Idle Conns"}
+        },
+        "type": "object",
+        "required": ["max_conns", "min_idle_conns"],
+        "title": "BootstrapConfigDatabasePoolValues"
+      },
+      "BootstrapConfigManagementAdmissionValues": {
+        "properties": {
+          "m2_max_concurrent": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "M2 Max Concurrent"},
+          "m3_max_concurrent": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "M3 Max Concurrent"}
+        },
+        "type": "object",
+        "required": ["m2_max_concurrent", "m3_max_concurrent"],
+        "title": "BootstrapConfigManagementAdmissionValues"
+      },
+      "BootstrapConfigRuntimeValues": {
+        "properties": {
+          "buffering_mode": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Buffering Mode"},
+          "transport": {"$ref": "#/components/schemas/BootstrapConfigRuntimeTransportValues"}
+        },
+        "type": "object",
+        "required": ["buffering_mode", "transport"],
+        "title": "BootstrapConfigRuntimeValues"
+      },
+      "BootstrapConfigRuntimeTransportValues": {
+        "properties": {
+          "max_idle_conns": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Idle Conns"},
+          "max_idle_conns_per_host": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Idle Conns Per Host"},
+          "max_conns_per_host": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Conns Per Host"},
+          "idle_conn_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Idle Conn Timeout"},
+          "response_header_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Response Header Timeout"},
+          "tls_handshake_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Tls Handshake Timeout"},
+          "expect_continue_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Expect Continue Timeout"}
+        },
+        "type": "object",
+        "required": ["max_idle_conns", "max_idle_conns_per_host", "max_conns_per_host", "idle_conn_timeout", "response_header_timeout", "tls_handshake_timeout", "expect_continue_timeout"],
+        "title": "BootstrapConfigRuntimeTransportValues"
+      },
+      "BootstrapConfigHTTPValues": {
+        "properties": {
+          "cors_allowed_origins": {"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}], "title": "Cors Allowed Origins"}
+        },
+        "type": "object",
+        "required": ["cors_allowed_origins"],
+        "title": "BootstrapConfigHTTPValues"
+      },
+      "BootstrapConfigAuthValues": {
+        "properties": {
+          "access_token_ttl_seconds": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Access Token Ttl Seconds"},
+          "refresh_token_ttl_seconds": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Refresh Token Ttl Seconds"},
+          "reset_code_ttl_seconds": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Reset Code Ttl Seconds"},
+          "access_cookie_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Access Cookie Name"},
+          "refresh_cookie_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Refresh Cookie Name"},
+          "cookie_secure": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "title": "Cookie Secure"}
+        },
+        "type": "object",
+        "required": ["access_token_ttl_seconds", "refresh_token_ttl_seconds", "reset_code_ttl_seconds", "access_cookie_name", "refresh_cookie_name", "cookie_secure"],
+        "title": "BootstrapConfigAuthValues"
       },
       "ProfileCreate": {
         "properties": {
