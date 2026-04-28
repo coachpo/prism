@@ -1,7 +1,7 @@
 # FRONTEND MODEL DETAIL DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx` and `../ProxyModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered proxy-target summary/editing for proxy models, connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current recovery state (cooldown plus ban state), and the parent-covered `connections-list/` UI cluster.
+`pages/model-detail/` owns the heavy route logic behind `../ModelDetailPage.tsx` and `../ProxyModelDetailPage.tsx`: bootstrap and redirect handling, family-aware strategy summary display, ordered proxy-target summary/editing for proxy models, connection mutation flows, manual health checks, model spending summaries, model-scoped loadbalance events, current recovery state (cooldown plus ban state), the OpenAI probe helper split in `connectionProbeBehavior.ts`, and the parent-covered `connections-list/` UI cluster.
 
 ## STRUCTURE
 ```
@@ -15,6 +15,7 @@ model-detail/
 ├── useModelDetailDataSupport.ts      # Default form factories, redirect targets, optimistic helpers
 ├── useModelDetailModelForm.ts
 ├── useConnectionHealthChecks.ts
+├── connectionProbeBehavior.ts       # OpenAI probe variant decomposition and normalization helpers
 ├── useConnectionFocus.ts
 ├── useModelLoadbalanceCurrentState.ts
 ├── OverviewCards.tsx
@@ -38,6 +39,7 @@ model-detail/
 - Connection create, edit, delete, and reorder flows: `useModelDetailConnectionFlows.ts`, `useModelDetailConnectionMutations.ts`, `useModelDetailDialogState.ts`
 - Health checks and spending-summary loading: `useConnectionHealthChecks.ts`, `useModelDetailBootstrap.ts`, `useModelDetailData.ts`, `OverviewCards.tsx`
 - Default forms, ordered proxy-target options, strategy summary helpers, and optimistic helpers: `useModelDetailDataSupport.ts`, `useModelDetailModelForm.ts`, `ModelSettingsDialog.tsx`, `ProxyTargetsCard.tsx`
+- OpenAI probe variant decomposition and normalization: `connectionProbeBehavior.ts`
 - Connection list shell plus local cluster: `ConnectionsList.tsx`, `connections-list/`
 - Model-scoped loadbalance event refresh, paging, and detail wiring: `LoadbalanceEventsTab.tsx`, `useModelLoadbalanceEvents.ts`, `../../components/AGENTS.md`
 - Current recovery-state fetch and reset actions: `useModelLoadbalanceCurrentState.ts`
@@ -53,6 +55,7 @@ model-detail/
 - Keep connection-card recovery copy in `connections-list/ConnectionCardSectionsShared.ts`; tone labels and reset wording in `connections-list/ConnectionCardCooldownState.tsx` should stay presentation-only.
 - Keep loadbalance event badge/detail rendering in the shared `src/components/loadbalance/` components; `LoadbalanceEventsTab.tsx` should remain a thin page shell.
 - Keep proxy-target option building and update payload shaping in `useModelDetailDataSupport.ts` / `useModelDetailModelForm.ts`; proxy-target card/dialog rendering should stay presentation-focused.
+- Keep OpenAI probe variant decomposition and normalization in `connectionProbeBehavior.ts` instead of scattering probe endpoint logic across dialog or form files.
 - Treat `connections-list/` as a local cluster that stays documented here. It supports the parent route and should not get its own AGENTS file.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 

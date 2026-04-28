@@ -1,7 +1,7 @@
 # FRONTEND SETTINGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile and Global tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, and costing state in `costing/AGENTS.md`.
+`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile, Global, and Startup tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, and costing state in `costing/AGENTS.md`.
 
 ## STRUCTURE
 ```
@@ -14,6 +14,7 @@ settings/
 ├── SettingsSectionsNav.tsx         # Sticky section navigation for profile-tab sections
 ├── SettingsProfileTab.tsx          # Profile-tab body and section layout
 ├── SettingsGlobalTab.tsx           # Global-tab body for auth + shared vendor management
+├── SettingsStartupTab.tsx         # Startup-tab body for plaintext bootstrap config
 ├── useSettingsPageData.ts          # Top-level page composition across backup, auth, costing, audit, retention
 ├── useSettingsPageSectionState.ts  # Active tab, hash, scroll focus, and section jumps
 ├── useSettingsSectionNavigation.ts   # Scroll target registration and section jump helpers
@@ -31,14 +32,14 @@ settings/
 
 ## SHELL CONTRACT
 
-- `SettingsPage.tsx` renders two tabs: `Profile` and `Global`.
+- `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
 - The Profile tab owns section navigation and mounts backup, billing and currency, timezone, audit and privacy, and retention and deletion.
-- The Global tab mounts instance-wide authentication plus the shared vendor-management section and its dialogs. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
+- The Global tab mounts instance-wide authentication plus the shared vendor-management section and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
 
-- Thin route shell, tab split, section order, and dialog mounts: `../SettingsPage.tsx`
+- Thin route shell, tab split, startup-tab mount, section order, and dialog mounts: `../SettingsPage.tsx`, `SettingsStartupTab.tsx`
 - Cross-section composition, selected-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `useSettingsSectionNavigation.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
