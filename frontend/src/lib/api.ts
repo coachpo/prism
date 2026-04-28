@@ -3,7 +3,6 @@ import { auth, settings } from "./api/authSettings";
 import {
   audit,
   config,
-  health,
   loadbalance,
   settingsCosting,
   settingsRetention,
@@ -21,14 +20,13 @@ import {
 } from "./api/management";
 
 export { ApiError, getApiProfileId, setApiProfileId };
-export { health, stats } from "./api/observability";
+export { stats } from "./api/observability";
 
 export const api = {
   audit,
   auth,
   config,
   connections,
-  health,
   endpoints,
   loadbalance,
   loadbalanceStrategies,

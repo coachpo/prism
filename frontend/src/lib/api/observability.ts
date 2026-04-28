@@ -3,7 +3,6 @@ import type {
   AuditLogDetail,
   AuditLogListResponse,
   AuditLogParams,
-  BackendHealthResponse,
   BatchDeleteResponse,
   BootstrapConfigResponse,
   BootstrapConfigUpdateRequest,
@@ -53,10 +52,6 @@ import { buildQuery, request } from "./core";
 function buildStatsQuery(params?: StatsRequestParams) {
   return buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
 }
-
-export const health = {
-  get: () => request<BackendHealthResponse>("/health"),
-};
 
 export const stats = {
   requests: (params?: StatsRequestParams) => {

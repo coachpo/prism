@@ -6,5 +6,4 @@ export * from "./types/usage-statistics";
 export * from "./types/config-audit-settings";
 export * from "./types/auth";
 export * from "./types/loadbalance";
-export * from "./types/health";
 export * from "./types/bootstrap-config";
