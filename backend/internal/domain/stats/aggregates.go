@@ -341,7 +341,8 @@ func GetEndpointModelStatistics(ctx context.Context, exec queryExecutor, params 
 		return nil, err
 	}
 	aggregates := map[string]*endpointModelAggregate{}
-	for _, record := range records {
+	for _, rawRecord := range records {
+		record := normalizeUsageEventPricingCoherence(rawRecord)
 		group := aggregates[record.ModelID]
 		modelLabel := record.ModelID
 		if record.CurrentModelLabel != nil && strings.TrimSpace(*record.CurrentModelLabel) != "" {
@@ -427,7 +428,8 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 		return SpendingReportResponse{}, err
 	}
 	successRecords := make([]usageEventRecord, 0)
-	for _, record := range records {
+	for _, rawRecord := range records {
+		record := normalizeUsageEventPricingCoherence(rawRecord)
 		if record.SuccessFlag {
 			successRecords = append(successRecords, record)
 		}
@@ -941,6 +943,7 @@ func scanUsageEventRecord(scanner interface{ Scan(...any) error }) (usageEventRe
 	item.CacheCreationInputTokens = intValue(nullableInt32(cacheCreationInputTokens))
 	item.ReasoningTokens = intValue(nullableInt32(reasoningTokens))
 	item.TotalCostUserCurrencyMicros = int64Value(nullableInt64(totalCostUserCurrencyMicros))
+	item.HasTotalCostUserCurrencyMicros = totalCostUserCurrencyMicros.Valid
 	item.ResponseTimeMS = nullableInt32(responseTimeMS)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)

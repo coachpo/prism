@@ -48,40 +48,41 @@ type compiledUserAgentRule struct {
 }
 
 type usageEventRecord struct {
-	ID                          int
-	CreatedAt                   time.Time
-	ProfileID                   int
-	IngressRequestID            string
-	ModelID                     string
-	ResolvedTargetModelID       *string
-	APIFamily                   string
-	EndpointID                  *int
-	ConnectionID                *int
-	ProxyAPIKeyID               *int
-	ProxyAPIKeyNameSnapshot     *string
-	StatusCode                  int
-	SuccessFlag                 bool
-	BillableFlag                bool
-	PricedFlag                  bool
-	UnpricedReason              *string
-	InputTokens                 int
-	OutputTokens                int
-	HasOutputTokens             bool
-	TotalTokens                 int
-	CacheReadInputTokens        int
-	CacheCreationInputTokens    int
-	ReasoningTokens             int
-	TotalCostUserCurrencyMicros int64
-	AttemptCount                int
-	RequestPath                 string
-	ResponseTimeMS              *int
-	TTFTMS                      *int
-	CompletionDurationMS        *int
-	CurrentModelLabel           *string
-	CurrentEndpointName         *string
-	CurrentEndpointBaseURL      *string
-	CurrentProxyAPIKeyName      *string
-	CurrentProxyAPIKeyPrefix    *string
+	ID                             int
+	CreatedAt                      time.Time
+	ProfileID                      int
+	IngressRequestID               string
+	ModelID                        string
+	ResolvedTargetModelID          *string
+	APIFamily                      string
+	EndpointID                     *int
+	ConnectionID                   *int
+	ProxyAPIKeyID                  *int
+	ProxyAPIKeyNameSnapshot        *string
+	StatusCode                     int
+	SuccessFlag                    bool
+	BillableFlag                   bool
+	PricedFlag                     bool
+	UnpricedReason                 *string
+	InputTokens                    int
+	OutputTokens                   int
+	HasOutputTokens                bool
+	TotalTokens                    int
+	CacheReadInputTokens           int
+	CacheCreationInputTokens       int
+	ReasoningTokens                int
+	TotalCostUserCurrencyMicros    int64
+	HasTotalCostUserCurrencyMicros bool
+	AttemptCount                   int
+	RequestPath                    string
+	ResponseTimeMS                 *int
+	TTFTMS                         *int
+	CompletionDurationMS           *int
+	CurrentModelLabel              *string
+	CurrentEndpointName            *string
+	CurrentEndpointBaseURL         *string
+	CurrentProxyAPIKeyName         *string
+	CurrentProxyAPIKeyPrefix       *string
 }
 
 type snapshotEvent struct {
