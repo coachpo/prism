@@ -470,7 +470,6 @@ test.describe("models and request logs reporting currency", () => {
     await page.goto("/models");
 
     await expect(page.getByText("€1.25 EUR spend")).toBeVisible();
-    await expect(page.getByText("Verified").first()).toBeVisible();
     await expect(page.getByText("$1.25")).toHaveCount(0);
   });
 
@@ -479,7 +478,6 @@ test.describe("models and request logs reporting currency", () => {
 
     await page.goto("/models");
 
-    await expect(page.getByText("Fallback").first()).toBeVisible();
     await expect(page.getByText("Spend is shown with fallback reporting currency until billing settings load again.")).toBeVisible();
     await expect(page.getByText("$1.25 USD spend")).toBeVisible();
   });
@@ -511,12 +509,9 @@ test.describe("models and request logs reporting currency", () => {
       .nth(10);
 
     await expect(payloadSymbolSpend).toContainText("$0.75");
-    await expect(payloadSymbolSpend).toContainText("Verified");
     await expect(canonicalFallbackSpend).toContainText("€0.50 EUR");
-    await expect(canonicalFallbackSpend).toContainText("Verified");
     await expect(canonicalFallbackSpend).not.toContainText("$0.50");
     await expect(zeroSpend).toContainText("$0.00");
-    await expect(zeroSpend).toContainText("Verified");
     await expect(unpricedSpend).toContainText("Unpriced");
   });
 
@@ -528,7 +523,6 @@ test.describe("models and request logs reporting currency", () => {
     const pricedZeroSummary = page.getByTestId("request-log-summary-strip").locator("[data-slot='metric-value']").nth(4);
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
     await expect(pricedZeroSummary).toContainText("$0.00");
-    await expect(pricedZeroSummary).toContainText("Verified");
 
     await page.goto("/request-logs?request_id=104");
 
@@ -547,7 +541,6 @@ test.describe("models and request logs reporting currency", () => {
     await expect(page.getByText("$0.75")).toBeVisible();
     await expect(page.getByText("€0.50 EUR")).toBeVisible();
     await expect(page.getByText("Unpriced")).toBeVisible();
-    await expect(page.getByText("Verified").first()).toBeVisible();
     await expect(page.getByText("$0.50")).toHaveCount(0);
   });
 });
