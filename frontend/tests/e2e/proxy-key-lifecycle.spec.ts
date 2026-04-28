@@ -1,0 +1,276 @@
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import type { ProxyApiKey, ProxyApiKeyCreate, ProxyApiKeyUpdate } from "../../src/lib/types";
+
+const timestamp = "2026-04-28T12:00:00Z";
+
+function createProfile() {
+  return {
+    id: 1,
+    name: "Default",
+    description: null,
+    is_active: true,
+    is_default: true,
+    is_editable: true,
+    version: 1,
+    created_at: timestamp,
+    deleted_at: null,
+    updated_at: timestamp,
+  };
+}
+
+function createProxyKey(overrides: Partial<ProxyApiKey> = {}): ProxyApiKey {
+  return {
+    id: 101,
+    name: "Current key",
+    key_prefix: "pk_current",
+    key_preview: "pk_current••••1234",
+    is_active: true,
+    expires_at: null,
+    last_used_at: null,
+    last_used_ip: null,
+    notes: "Main production client",
+    rotated_from_id: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+    ...overrides,
+  };
+}
+
+async function seedLocale(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("prism.locale", "en");
+  });
+}
+
+async function fulfillJson(route: Route, body: unknown, status = 200) {
+  await route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+}
+
+function keyRow(page: Page, name: string): Locator {
+  return page.getByRole("row").filter({ hasText: name });
+}
+
+async function installProxyKeyRoutes(page: Page) {
+  const profile = createProfile();
+  const createPayloads: ProxyApiKeyCreate[] = [];
+  const updatePayloads: ProxyApiKeyUpdate[] = [];
+  const rotatePayloads: number[] = [];
+  let nextId = 200;
+  let proxyKeys: ProxyApiKey[] = [
+    createProxyKey(),
+    createProxyKey({
+      id: 102,
+      name: "Expired key",
+      key_prefix: "pk_expired",
+      key_preview: "pk_expired••••9876",
+      is_active: true,
+      expires_at: "2026-04-20T09:00:00Z",
+      notes: "Old integration",
+    }),
+  ];
+
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const pathname = new URL(request.url()).pathname;
+
+    if (!pathname.startsWith("/api/")) {
+      await route.continue();
+      return;
+    }
+
+    if (pathname === "/api/auth/status") {
+      await fulfillJson(route, { auth_enabled: false });
+      return;
+    }
+
+    if (pathname === "/api/profiles/bootstrap") {
+      await fulfillJson(route, {
+        profiles: [profile],
+        active_profile: profile,
+        profile_limits: { max_profiles: 5 },
+      });
+      return;
+    }
+
+    if (pathname === "/api/settings/costing") {
+      await fulfillJson(route, {
+        report_currency_code: "USD",
+        report_currency_symbol: "$",
+        endpoint_fx_mappings: [],
+        timezone_preference: null,
+      });
+      return;
+    }
+
+    if (pathname === "/api/settings/auth" && request.method() === "GET") {
+      await fulfillJson(route, {
+        auth_enabled: false,
+        username: null,
+        email: null,
+        email_bound_at: null,
+        pending_email: null,
+        email_verification_required: false,
+        has_password: false,
+        proxy_key_limit: 10,
+      });
+      return;
+    }
+
+    if (pathname === "/api/settings/auth/proxy-keys" && request.method() === "GET") {
+      await fulfillJson(route, proxyKeys);
+      return;
+    }
+
+    if (pathname === "/api/settings/auth/proxy-keys" && request.method() === "POST") {
+      const payload = request.postDataJSON() as ProxyApiKeyCreate;
+      createPayloads.push(payload);
+      const item = createProxyKey({
+        id: nextId,
+        name: payload.name,
+        notes: payload.notes ?? null,
+        expires_at: payload.expires_at ?? null,
+        key_prefix: `pk_${nextId}`,
+        key_preview: `pk_${nextId}••••${String(nextId).slice(-4).padStart(4, "0")}`,
+        created_at: "2026-05-01T08:30:00Z",
+        updated_at: "2026-05-01T08:30:00Z",
+      });
+      nextId += 1;
+      proxyKeys = [item, ...proxyKeys];
+      await fulfillJson(route, { key: `sk-live-created-${item.id}`, item }, 201);
+      return;
+    }
+
+    const patchMatch = pathname.match(/^\/api\/settings\/auth\/proxy-keys\/(\d+)$/);
+    if (patchMatch && request.method() === "PATCH") {
+      const keyId = Number.parseInt(patchMatch[1]!, 10);
+      const payload = request.postDataJSON() as ProxyApiKeyUpdate;
+      updatePayloads.push(payload);
+      proxyKeys = proxyKeys.map((item) =>
+        item.id === keyId
+          ? {
+              ...item,
+              name: payload.name,
+              notes: payload.notes,
+              is_active: payload.is_active,
+              expires_at: payload.expires_at,
+              updated_at: "2026-05-01T09:00:00Z",
+            }
+          : item
+      );
+      const updated = proxyKeys.find((item) => item.id === keyId)!;
+      await fulfillJson(route, updated);
+      return;
+    }
+
+    const rotateMatch = pathname.match(/^\/api\/settings\/auth\/proxy-keys\/(\d+)\/rotate$/);
+    if (rotateMatch && request.method() === "POST") {
+      const keyId = Number.parseInt(rotateMatch[1]!, 10);
+      rotatePayloads.push(keyId);
+      const source = proxyKeys.find((item) => item.id === keyId)!;
+      const rotationTime = "2026-05-01T10:00:00Z";
+      const successor = createProxyKey({
+        id: nextId,
+        name: source.name,
+        notes: source.notes,
+        key_prefix: `pk_${nextId}`,
+        key_preview: `pk_${nextId}••••${String(nextId).slice(-4).padStart(4, "0")}`,
+        rotated_from_id: keyId,
+        expires_at: source.expires_at,
+        created_at: rotationTime,
+        updated_at: rotationTime,
+      });
+      nextId += 1;
+      proxyKeys = [
+        successor,
+        ...proxyKeys.map((item) =>
+          item.id === keyId
+            ? {
+                ...item,
+                is_active: false,
+                expires_at: rotationTime,
+                updated_at: rotationTime,
+              }
+            : item
+        ),
+      ];
+      await fulfillJson(route, { key: `sk-live-rotated-${successor.id}`, item: successor });
+      return;
+    }
+
+    if (patchMatch && request.method() === "DELETE") {
+      const keyId = Number.parseInt(patchMatch[1]!, 10);
+      proxyKeys = proxyKeys.filter((item) => item.id !== keyId);
+      await fulfillJson(route, { deleted: true });
+      return;
+    }
+
+    throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
+  });
+
+  return {
+    getCreatePayloads: () => createPayloads,
+    getRotatePayloads: () => rotatePayloads,
+    getUpdatePayloads: () => updatePayloads,
+  };
+}
+
+test("proxy key lifecycle shows expiry, retirement, and rotation lineage without dropping history", async ({ page }) => {
+  const routes = await installProxyKeyRoutes(page);
+  await seedLocale(page);
+
+  await page.goto("/proxy-api-keys");
+  await expect(page.getByRole("heading", { name: "Proxy API Keys" })).toBeVisible();
+
+  const expiredKeyRow = keyRow(page, "Expired key");
+  await expect(expiredKeyRow).toBeVisible();
+  await expect(expiredKeyRow.getByText("Expired", { exact: true })).toBeVisible();
+
+  await page.getByLabel("Name").fill("Created with expiry");
+  await page.getByLabel("Notes").fill("Short lived client");
+  await page.getByLabel("Expires").fill("2026-05-02T08:30");
+  await page.getByRole("button", { name: "Create key" }).click();
+
+  const expectedExpiry = new Date("2026-05-02T08:30").toISOString();
+  expect(routes.getCreatePayloads()).toEqual([
+    {
+      name: "Created with expiry",
+      notes: "Short lived client",
+      expires_at: expectedExpiry,
+    },
+  ]);
+  await expect(page.getByText("sk-live-created-200")).toBeVisible();
+  await expect(page.getByText("Created with expiry")).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit proxy key Created with expiry" }).click();
+
+  const editDialog = page.getByRole("dialog", { name: "Edit Proxy API Key" });
+  await expect(editDialog).toBeVisible();
+  await editDialog.getByRole("button", { name: "Clear expiry" }).click();
+  await editDialog.locator('[data-slot="switch"]').click();
+  await editDialog.getByRole("button", { name: "Save" }).click();
+
+  expect(routes.getUpdatePayloads()).toEqual([
+    {
+      name: "Created with expiry",
+      notes: "Short lived client",
+      is_active: false,
+      expires_at: null,
+    },
+  ]);
+  await expect(keyRow(page, "Created with expiry").getByText("Retired", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Rotate proxy key Current key" }).click();
+  expect(routes.getRotatePayloads()).toEqual([101]);
+  await expect(page.getByText("sk-live-rotated-201")).toBeVisible();
+
+  const predecessorRow = page.getByRole("row").filter({ hasText: "Rotated to #201" });
+  const successorRow = page.getByRole("row").filter({ hasText: "Rotated from #101" });
+
+  await expect(predecessorRow.getByText("Rotated to #201", { exact: true })).toBeVisible();
+  await expect(predecessorRow.getByText("Rotated", { exact: true })).toBeVisible();
+  await expect(successorRow.getByText("Rotated from #101", { exact: true })).toBeVisible();
+});
