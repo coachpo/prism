@@ -20,6 +20,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **Request telemetry**: latency, token usage, success rates, and error patterns
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: connection health based on recent request data
+- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup` for next-restart writes, with masked secret metadata and explicit confirmation for dangerous changes
 - **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
 
 ### Architecture
@@ -156,6 +157,8 @@ Plaintext bootstrap startup uses a single steady-state external input:
 
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
 - `DATABASE_URL` is optional and defaults to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`
+
+The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, PUT applies explicit preserve or replace secret actions with expected revision and etag checks, and dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
 
 That bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
 

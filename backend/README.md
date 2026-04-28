@@ -52,10 +52,12 @@ go build ./cmd/prism-backend
 - Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`.
 - When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is not the supported source of truth.
 - When the bootstrap file is missing, Prism seeds it from built-in defaults plus the optional `DATABASE_URL` input only.
-- Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport; the bootstrap JSON owns startup inputs only.
+- The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport.
 - `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000` and the local PostgreSQL DSN on host port `5432`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file still resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
+- Bootstrap writes are durable only for the next start, and Prism must be restarted to apply listener, database, auth, or transport changes.
+- The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
 
 ## Database and docs artifacts
 - Schema migrations are Go-managed and applied from `migrations/` at startup.
