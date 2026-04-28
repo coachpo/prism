@@ -38,11 +38,39 @@ function createVendor(id: number, key: string, name: string, description: string
   };
 }
 
+function buildVendorImportBundle() {
+  return {
+    version: 1,
+    bundle_kind: "vendor_catalog" as const,
+    vendors: [
+      {
+        key: "openai",
+        name: "OpenAI Updated",
+        description: "Updated vendor",
+        icon_key: "openai",
+        audit_enabled: true,
+        audit_capture_bodies: false,
+      },
+      {
+        key: "anthropic",
+        name: "Anthropic",
+        description: "New vendor",
+        icon_key: "anthropic",
+        audit_enabled: true,
+        audit_capture_bodies: false,
+      },
+    ],
+  };
+}
+
 async function mockSettingsRoutes(page: Page) {
   const profile = createProfile();
+  const previewTokenBindings = new Map<string, string>();
   let vendors = [createVendor(1, "openai", "OpenAI", "Primary vendor")];
   let exportRequestCount = 0;
   const importedPayloads: unknown[] = [];
+  const previewPayloads: unknown[] = [];
+  const appliedPreviewTokens: string[] = [];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -89,17 +117,59 @@ async function mockSettingsRoutes(page: Page) {
           version: 1,
           bundle_kind: "vendor_catalog",
           exported_at: `${fixedDate}T12:00:00Z`,
-          vendors: [{ key: "openai", name: "OpenAI", description: "Primary vendor", icon_key: "openai", audit_enabled: true, audit_capture_bodies: false }],
+          vendors: [
+            {
+              key: "openai",
+              name: "OpenAI",
+              description: "Primary vendor",
+              icon_key: "openai",
+              audit_enabled: true,
+              audit_capture_bodies: false,
+            },
+          ],
         },
         200,
         { "Content-Disposition": 'attachment; filename="ignored-server-name.json"' },
       );
     }
     if (pathname === "/api/config/vendors/import/preview" && request.method() === "POST") {
-      return fulfillJson({ ready: true, version: 1, bundle_kind: "vendor_catalog", create_count: 1, update_count: 1, blocking_errors: [], warnings: ["Readonly vendors will be skipped."] });
+      const payload = request.postDataJSON();
+      const previewToken = `vendor-preview-token-${previewPayloads.length + 1}`;
+      previewPayloads.push(payload);
+      previewTokenBindings.set(previewToken, JSON.stringify(payload));
+      return fulfillJson({
+        ready: true,
+        version: 1,
+        bundle_kind: "vendor_catalog",
+        preview_token: previewToken,
+        bundle_fingerprint: `vendor-fingerprint-${previewPayloads.length}`,
+        mutation_scope: {
+          target: "global_vendor_catalog",
+          create_count: 1,
+          update_count: 1,
+          unchanged_count: 0,
+        },
+        untouched_scope: {
+          profiles: true,
+          profile_scoped_config: true,
+          request_logs: true,
+        },
+        create_count: 1,
+        update_count: 1,
+        blocking_errors: [],
+        warnings: ["Readonly vendors will be skipped."],
+      });
     }
     if (pathname === "/api/config/vendors/import" && request.method() === "POST") {
+      const previewToken = (await request.allHeaders())["x-prism-preview-token"] ?? "";
       const payload = request.postDataJSON();
+      if (!previewToken) {
+        return fulfillJson({ error: "missing preview token" }, 400);
+      }
+      if (previewTokenBindings.get(previewToken) !== JSON.stringify(payload)) {
+        return fulfillJson({ error: "stale preview token" }, 409);
+      }
+      appliedPreviewTokens.push(previewToken);
       importedPayloads.push(payload);
       vendors = [
         createVendor(1, "openai", "OpenAI Updated", "Updated vendor"),
@@ -150,13 +220,16 @@ async function mockSettingsRoutes(page: Page) {
   }, fixedTimestamp);
 
   return {
+    getAppliedPreviewTokens: () => appliedPreviewTokens,
     getExportRequestCount: () => exportRequestCount,
     getImportedPayloads: () => importedPayloads,
+    getPreviewPayloads: () => previewPayloads,
   };
 }
 
-test("global settings exposes vendor catalog export and previewable import", async ({ page }) => {
+test("global settings exposes vendor catalog export plus an explicit preview before apply", async ({ page }) => {
   const routes = await mockSettingsRoutes(page);
+  const importBundle = buildVendorImportBundle();
 
   await page.goto("/settings");
   await page.getByRole("tab", { name: "Global" }).click();
@@ -172,39 +245,35 @@ test("global settings exposes vendor catalog export and previewable import", asy
   expect(capture).not.toBeNull();
   expect(capture?.download).toBe(`prism-vendor-catalog-v1-${fixedDate}.json`);
 
-  await page.locator('input[name="vendor_catalog_import_file"]').setInputFiles({
+  await page.getByTestId("vendor-catalog-import-file").setInputFiles({
     name: "vendors.json",
     mimeType: "application/json",
-    buffer: Buffer.from(
-      JSON.stringify({
-        version: 1,
-        bundle_kind: "vendor_catalog",
-        vendors: [
-          { key: "openai", name: "OpenAI Updated", description: "Updated vendor", icon_key: "openai", audit_enabled: true, audit_capture_bodies: false },
-          { key: "anthropic", name: "Anthropic", description: "New vendor", icon_key: "anthropic", audit_enabled: true, audit_capture_bodies: false },
-        ],
-      }),
-    ),
+    buffer: Buffer.from(JSON.stringify(importBundle)),
   });
 
+  const applyButton = page.getByTestId("vendor-catalog-apply");
   await expect(page.getByText("Loaded vendors.json: 2 vendor rows.")).toBeVisible();
-  await expect(page.getByText("Preview: 1 vendors to create, 1 vendors to update.")).toBeVisible();
-  await expect(page.getByText("Preview ready for import")).toBeVisible();
-  await expect(page.getByText("Readonly vendors will be skipped.")).toBeVisible();
+  await expect(page.getByText("Run preview to bind a fresh token for the currently loaded vendor bundle before applying it.")).toBeVisible();
+  await expect(applyButton).toBeDisabled();
+  expect(routes.getPreviewPayloads()).toEqual([]);
+  expect(routes.getImportedPayloads()).toEqual([]);
 
-  await page.getByRole("button", { name: "Import Vendor Catalog" }).click();
+  await page.getByTestId("vendor-catalog-preview").click();
+
+  await expect(page.getByText("Preview ready for apply")).toBeVisible();
+  await expect(page.getByText("Apply is bound to the currently loaded bundle: vendors.json.")).toBeVisible();
+  await expect(page.getByText("Mutation scope")).toBeVisible();
+  await expect(page.getByText("Untouched scope")).toBeVisible();
+  await expect(page.getByText("Readonly vendors will be skipped.")).toBeVisible();
+  await expect(applyButton).toBeEnabled();
+
+  await applyButton.click();
+
   await expect(page.getByText("Imported 1 vendors and updated 1 vendors")).toBeVisible();
   await expect(page.getByText("OpenAI Updated")).toBeVisible();
   await expect(page.getByRole("row", { name: /Anthropic anthropic New vendor Edit Delete/i })).toBeVisible();
 
-  expect(routes.getImportedPayloads()).toEqual([
-    {
-      version: 1,
-      bundle_kind: "vendor_catalog",
-      vendors: [
-        { key: "openai", name: "OpenAI Updated", description: "Updated vendor", icon_key: "openai", audit_enabled: true, audit_capture_bodies: false },
-        { key: "anthropic", name: "Anthropic", description: "New vendor", icon_key: "anthropic", audit_enabled: true, audit_capture_bodies: false },
-      ],
-    },
-  ]);
+  expect(routes.getPreviewPayloads()).toEqual([importBundle]);
+  expect(routes.getImportedPayloads()).toEqual([importBundle]);
+  expect(routes.getAppliedPreviewTokens()).toEqual(["vendor-preview-token-1"]);
 });
