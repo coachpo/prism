@@ -28,9 +28,9 @@ Validated again against current repo surfaces on 2026-04-27:
 
 - Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
 - Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
-- `selectedProfile` controls management scope through `X-Profile-Id` on profile-scoped `/api/*` requests.
+- `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, and `/api/realtime/ws`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
-- Global management routes include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, and `/api/realtime/ws`.
 
 ## 1. Sign In And Session Bootstrap
 
@@ -116,8 +116,9 @@ Validated again against current repo surfaces on 2026-04-27:
 
 1. Operators list, search, create, edit, and delete model configs.
 2. Native models manage connections, pricing-template assignment, and attached loadbalance strategy.
-3. Proxy models manage ordered proxy targets instead of direct connections.
-4. Model detail loads connection KPIs, current loadbalance state, loadbalance event history, and manual health-check actions.
+3. Proxy models manage ordered proxy targets instead of direct connections, and both `/models` and `/models/:id/proxy` use the same non-empty ordered same-family native-target contract.
+4. The `/models/:id/proxy` route keeps the page card summary-only; the shared Model Settings dialog is the one authoritative proxy-target editor and save path.
+5. Model detail loads connection KPIs, current loadbalance state, loadbalance event history, and manual health-check actions.
 
 **Backend touchpoints**
 
@@ -184,7 +185,8 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 1. Operators browse request history with server-backed filters.
 2. Exact request investigation opens the detail drawer through `request_id`.
 3. `ingress_request_id` groups all upstream attempts for one incoming proxy request.
-4. Audit payloads load lazily only when the audit tab is opened.
+4. For proxy traffic, the request-log UI keeps the requested proxy `model_id` separate from the resolved native `resolved_target_model_id` so operators can see authoring intent and execution target at the same time.
+5. Audit payloads load lazily only when the audit tab is opened.
 
 **Backend touchpoints**
 
@@ -249,6 +251,9 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is the one config readiness route in this workflow that stays global and does not require `X-Profile-Id`.
 
 ## 8. Runtime Proxy Traffic
+
+Runtime auth follows the latest proxy-key snapshot immediately after auth and proxy-key management writes: rotated, retired, or expired keys stop authorizing new `/v1/*` and `/v1beta/*` requests, while the management UI keeps their historical rows visible.
+
 
 **User entrypoints**
 

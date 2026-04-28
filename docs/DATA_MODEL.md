@@ -701,6 +701,10 @@ Runtime data-plane credentials.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
+Rotation and expiry semantics:
+- `rotated_from_id` preserves predecessor/successor lineage across key rotation instead of mutating one row in place.
+- Expired or retired keys remain as historical rows; runtime enforcement uses `is_active` plus `expires_at`, while management list views keep the rows for attribution and lineage.
+
 ### 2.19 `password_reset_challenges`
 
 Password-reset OTP challenges for the singleton operator account.

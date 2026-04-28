@@ -169,11 +169,15 @@ For Gemini, the `:streamGenerateContent` path is authoritative for stream classi
 Vendor rows are global publisher metadata. Models may keep `vendor_id = null` and `vendor = null`, while runtime compatibility and redirect checks still use the model's required `api_family`, not the vendor row. The frontend owns vendor icon rendering through a locally vendored registry sourced from pinned `cc-switch` presets, and it falls back to a monogram or placeholder only at render time when icon data or vendor metadata is missing or unknown. The Models page still renders each row's `api_family` metadata even when vendor identity is absent.
 
 ### 3.5 Management API Profile Scoping
-- Profile-scoped management routes use explicit `X-Profile-Id` and effective-profile resolution.
-- Profile-scoped config bundle routes now live under `/api/config/profile/*`.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `POST /api/config/profile/import/preview`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
-- Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.
+- Prism keeps one route-class matrix:
+  - Global management routes omit `X-Profile-Id`.
+  - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
+  - Runtime proxy routes (`/v1/*`, `/v1beta/*`) ignore management overrides and always use the active profile.
+- Profile-scoped config bundle routes live under `/api/config/profile/*`, except `POST /api/config/profile/import/preview`, which is global.
+- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
+- Scope-control errors return stable `code` values plus human-readable `detail` text.
+- Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.
 
 The protected frontend shell now boots profile state from `GET /api/profiles/bootstrap`, derives sidebar destinations and breadcrumbs from the route metadata registry in `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
