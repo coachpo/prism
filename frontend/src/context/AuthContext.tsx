@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import type { SessionResponse } from "@/lib/types";
 import {
   createAuthBootstrapLoader,
@@ -13,6 +13,7 @@ import {
   shouldRefreshOnVisibilityChange,
   shouldRunProactiveRefresh,
 } from "./auth/refresh";
+import { AUTH_STATE_BROADCAST_KEY } from "./auth/broadcast";
 import { AuthContext, type AuthContextValue } from "./auth-context";
 
 const loadAuthBootstrapState = createAuthBootstrapLoader({
@@ -65,6 +66,18 @@ export function AuthProvider({
       isMutationInFlight: () => authMutationInFlightRef.current,
       refreshSession: () => api.auth.refresh(),
       requestVersion,
+      resolveRefreshFailure: async (error) => {
+        if (!(error instanceof ApiError) || error.status !== 401) {
+          return null;
+        }
+
+        const status = await api.auth.status();
+        return {
+          auth_enabled: status.auth_enabled,
+          authenticated: false,
+          username: null,
+        };
+      },
     });
   }, [applySessionState]);
 
@@ -142,6 +155,19 @@ export function AuthProvider({
 
   useEffect(() => {
     void runAuthBootstrap(true);
+  }, [runAuthBootstrap]);
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key !== AUTH_STATE_BROADCAST_KEY) {
+        return;
+      }
+
+      void runAuthBootstrap(false);
+    }
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, [runAuthBootstrap]);
 
   const authMutations = useMemo(

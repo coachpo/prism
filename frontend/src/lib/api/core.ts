@@ -1,5 +1,6 @@
 import type { SessionResponse } from "../types";
 import { getStaticMessages } from "@/i18n/staticMessages";
+import { isProfileScopedManagementRoute } from "./profileScope";
 
 const rawApiBase = import.meta.env.VITE_API_BASE;
 const API_BASE =
@@ -58,27 +59,12 @@ const AUTH_REFRESH_EXEMPT_PATHS = new Set([
   "/api/auth/password-reset/confirm",
 ]);
 
-function getRequestPathname(path: string): string {
-  const separatorIndex = path.search(/[?#]/);
-  return separatorIndex === -1 ? path : path.slice(0, separatorIndex);
-}
-
 function shouldAttachProfileHeader(path: string): boolean {
-  const pathname = getRequestPathname(path);
-
-  if (!pathname.startsWith("/api/") || currentProfileId === null) {
+  if (currentProfileId === null) {
     return false;
   }
 
-  if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) {
-    return false;
-  }
-
-  if (pathname === "/api/settings/auth" || pathname.startsWith("/api/settings/auth/")) {
-    return false;
-  }
-
-  return true;
+  return isProfileScopedManagementRoute(path);
 }
 
 function buildHeaders(path: string, init?: RequestInit): Record<string, string> {

@@ -23,12 +23,14 @@ export async function runPassiveSessionRefresh({
   isMutationInFlight,
   refreshSession,
   requestVersion,
+  resolveRefreshFailure,
 }: {
   applySessionState: (session: SessionResponse) => void;
   getAuthStateVersion: () => number;
   isMutationInFlight: () => boolean;
   refreshSession: () => Promise<SessionResponse>;
   requestVersion: number;
+  resolveRefreshFailure?: (error: unknown) => Promise<SessionResponse | null> | SessionResponse | null;
 }): Promise<void> {
   if (isMutationInFlight()) {
     return;
@@ -41,7 +43,16 @@ export async function runPassiveSessionRefresh({
     }
 
     applySessionState(session);
-  } catch {
-    return;
+  } catch (error) {
+    if (!resolveRefreshFailure) {
+      return;
+    }
+
+    const session = await resolveRefreshFailure(error);
+    if (!session || isMutationInFlight() || requestVersion !== getAuthStateVersion()) {
+      return;
+    }
+
+    applySessionState(session);
   }
 }

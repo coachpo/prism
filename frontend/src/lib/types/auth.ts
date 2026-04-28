@@ -76,12 +76,14 @@ export interface ProxyApiKey {
 export interface ProxyApiKeyCreate {
   name: string;
   notes?: string | null;
+  expires_at?: string | null;
 }
 
 export interface ProxyApiKeyUpdate {
   name: string;
   notes: string | null;
   is_active: boolean;
+  expires_at: string | null;
 }
 
 export interface ProxyApiKeyCreateResponse {
