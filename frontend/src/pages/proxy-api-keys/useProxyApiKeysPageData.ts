@@ -4,7 +4,11 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type { AuthSettings, ProxyApiKey, ProxyApiKeyUpdate } from "@/lib/types";
-import { getAuthStatusTone } from "./proxyKeyFormatting";
+import {
+  getAuthStatusTone,
+  normalizeExpiresAtInput,
+  toDateTimeLocalValue,
+} from "./proxyKeyFormatting";
 
 type FormSubmitEvent = Parameters<NonNullable<ComponentProps<"form">["onSubmit"]>>[0];
 
@@ -13,6 +17,7 @@ export function useProxyApiKeysPageData() {
   const [proxyKeys, setProxyKeys] = useState<ProxyApiKey[]>([]);
   const [proxyKeyName, setProxyKeyName] = useState("");
   const [proxyKeyNotes, setProxyKeyNotes] = useState("");
+  const [proxyKeyExpiresAt, setProxyKeyExpiresAt] = useState("");
   const [creatingProxyKey, setCreatingProxyKey] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [rotatingProxyKeyId, setRotatingProxyKeyId] = useState<number | null>(null);
@@ -24,6 +29,7 @@ export function useProxyApiKeysPageData() {
   const [editProxyKeyDialogOpen, setEditProxyKeyDialogOpen] = useState(false);
   const [editingProxyKeyName, setEditingProxyKeyName] = useState("");
   const [editingProxyKeyNotes, setEditingProxyKeyNotes] = useState("");
+  const [editingProxyKeyExpiresAt, setEditingProxyKeyExpiresAt] = useState("");
   const [editingProxyKeyActive, setEditingProxyKeyActive] = useState(false);
   const [savingEditedProxyKeyId, setSavingEditedProxyKeyId] = useState<number | null>(null);
   const [latestGeneratedKeyState, setLatestGeneratedKeyState] = useState<{
@@ -36,6 +42,15 @@ export function useProxyApiKeysPageData() {
     () => [...proxyKeys].sort((left, right) => right.id - left.id),
     [proxyKeys]
   );
+  const proxyKeySuccessorByParentId = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const key of proxyKeys) {
+      if (key.rotated_from_id !== null) {
+        map.set(key.rotated_from_id, key.id);
+      }
+    }
+    return map;
+  }, [proxyKeys]);
   const proxyKeyLimit = authSettings?.proxy_key_limit ?? 100;
   const remainingKeys = authSettings ? Math.max(proxyKeyLimit - proxyKeys.length, 0) : 0;
   const authStatusLabel = authSettings
@@ -121,6 +136,7 @@ export function useProxyApiKeysPageData() {
       const created = await api.settings.auth.proxyKeys.create({
         name: proxyKeyName.trim(),
         notes: proxyKeyNotes.trim() || null,
+        expires_at: normalizeExpiresAtInput(proxyKeyExpiresAt),
       });
       setLatestGeneratedKeyState({
         keyId: created.item.id,
@@ -128,6 +144,7 @@ export function useProxyApiKeysPageData() {
       });
       setProxyKeyName("");
       setProxyKeyNotes("");
+      setProxyKeyExpiresAt("");
       setProxyKeys((current) => [created.item, ...current]);
       toast.success(messages.proxyApiKeysData.created);
     } catch (error) {
@@ -143,12 +160,27 @@ export function useProxyApiKeysPageData() {
     try {
       const rotated = await api.settings.auth.proxyKeys.rotate(keyId);
       setLatestGeneratedKeyState({
-        keyId,
+        keyId: rotated.item.id,
         value: rotated.key,
       });
-      setProxyKeys((current) =>
-        current.map((key) => (key.id === keyId ? rotated.item : key))
-      );
+      setProxyKeys((current) => {
+        const rotationTimestamp = rotated.item.created_at;
+        const withoutSuccessorDuplicates = current.filter((key) => key.id !== rotated.item.id);
+
+        return [
+          rotated.item,
+          ...withoutSuccessorDuplicates.map((key) =>
+            key.id === keyId
+              ? {
+                  ...key,
+                  is_active: false,
+                  expires_at: rotationTimestamp,
+                  updated_at: rotationTimestamp,
+                }
+              : key
+          ),
+        ];
+      });
       toast.success(messages.proxyApiKeysData.rotated);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.proxyApiKeysData.rotateFailed);
@@ -186,6 +218,7 @@ export function useProxyApiKeysPageData() {
     setEditingProxyKey(item);
     setEditingProxyKeyName(item.name);
     setEditingProxyKeyNotes(item.notes ?? "");
+    setEditingProxyKeyExpiresAt(toDateTimeLocalValue(item.expires_at));
     setEditingProxyKeyActive(item.is_active);
     setEditProxyKeyDialogOpen(true);
   };
@@ -208,6 +241,7 @@ export function useProxyApiKeysPageData() {
         name: nextName,
         notes: editingProxyKeyNotes.trim() || null,
         is_active: editingProxyKeyActive,
+        expires_at: normalizeExpiresAtInput(editingProxyKeyExpiresAt),
       };
       const updated = await api.settings.auth.proxyKeys.update(editingProxyKey.id, payload);
       setProxyKeys((current) =>
@@ -216,6 +250,7 @@ export function useProxyApiKeysPageData() {
       setEditingProxyKey(updated);
       setEditingProxyKeyName(updated.name);
       setEditingProxyKeyNotes(updated.notes ?? "");
+      setEditingProxyKeyExpiresAt(toDateTimeLocalValue(updated.expires_at));
       setEditingProxyKeyActive(updated.is_active);
       setEditProxyKeyDialogOpen(false);
       toast.success(messages.proxyApiKeysData.updated);
@@ -280,6 +315,7 @@ export function useProxyApiKeysPageData() {
     editProxyKeyDialogOpen,
     editingProxyKey,
     editingProxyKeyActive,
+    editingProxyKeyExpiresAt,
     editingProxyKeyName,
     editingProxyKeyNotes,
     displayedProxyKeys,
@@ -291,9 +327,11 @@ export function useProxyApiKeysPageData() {
     handleRotateProxyKey,
     latestGeneratedKey,
     pageLoading,
+    proxyKeyExpiresAt,
     proxyKeyLimit,
     proxyKeyName,
     proxyKeyNotes,
+    proxyKeySuccessorByParentId,
     proxyKeys,
     remainingKeys,
     rotatingProxyKeyId,
@@ -301,8 +339,10 @@ export function useProxyApiKeysPageData() {
     setDeleteConfirm: setDeleteConfirmState,
     setDeletingProxyKeyId,
     setEditingProxyKeyActive,
+    setEditingProxyKeyExpiresAt,
     setEditingProxyKeyName,
     setEditingProxyKeyNotes,
+    setProxyKeyExpiresAt,
     setProxyKeyName,
     setProxyKeyNotes,
     startEditingProxyKey,
