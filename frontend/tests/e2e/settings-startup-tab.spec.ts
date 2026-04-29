@@ -227,6 +227,27 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 
+test("invalid settings hashes normalize and tab switches keep the URL in sync", async ({ page }) => {
+  await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#bogus");
+
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("tab", { name: "Global" }).click();
+  await expect(page).toHaveURL(/\/settings#authentication$/);
+  await expect(page.getByRole("tab", { name: "Global" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("tab", { name: "Startup" }).click();
+  await expect(page).toHaveURL(/\/settings#startup$/);
+  await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("tab", { name: "Profile" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
+});
+
 test("client validation reports invalid port and CORS without backend validate", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
