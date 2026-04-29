@@ -1,6 +1,9 @@
 package stats
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type RequestLogListParams struct {
 	ProfileID        int
@@ -87,18 +90,20 @@ type RequestLogDetailSummary struct {
 }
 
 type RequestLogDetailRequest struct {
-	RequestPath             string  `json:"request_path"`
-	IngressRequestID        *string `json:"ingress_request_id"`
-	AttemptNumber           *int    `json:"attempt_number"`
-	ProviderCorrelationID   *string `json:"provider_correlation_id"`
-	ProxyAPIKeyID           *int    `json:"proxy_api_key_id"`
-	ProxyAPIKeyNameSnapshot *string `json:"proxy_api_key_name_snapshot"`
-	CallerUserAgent         *string `json:"caller_user_agent"`
-	UpstreamUserAgent       *string `json:"upstream_user_agent"`
-	CallerClientDisplay     *string `json:"caller_client_display"`
-	UpstreamClientDisplay   *string `json:"upstream_client_display"`
-	UserAgentOverridden     bool    `json:"user_agent_overridden"`
-	ErrorDetail             *string `json:"error_detail"`
+	RequestPath                   string           `json:"request_path"`
+	IngressRequestID              *string          `json:"ingress_request_id"`
+	AttemptNumber                 *int             `json:"attempt_number"`
+	ProviderCorrelationID         *string          `json:"provider_correlation_id"`
+	ProxyAPIKeyID                 *int             `json:"proxy_api_key_id"`
+	ProxyAPIKeyNameSnapshot       *string          `json:"proxy_api_key_name_snapshot"`
+	CallerUserAgent               *string          `json:"caller_user_agent"`
+	UpstreamUserAgent             *string          `json:"upstream_user_agent"`
+	CallerClientDisplay           *string          `json:"caller_client_display"`
+	UpstreamClientDisplay         *string          `json:"upstream_client_display"`
+	UserAgentOverridden           bool             `json:"user_agent_overridden"`
+	ErrorDetail                   *string          `json:"error_detail"`
+	RequestGenerationParams       *json.RawMessage `json:"request_generation_params"`
+	RequestGenerationParamsStatus *string          `json:"request_generation_params_status"`
 }
 
 type RequestLogDetailRouting struct {

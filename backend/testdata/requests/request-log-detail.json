@@ -29,7 +29,19 @@
     "caller_client_display": "Codex",
     "upstream_client_display": "OpenAI SDK",
     "user_agent_overridden": true,
-    "error_detail": null
+    "error_detail": null,
+    "request_generation_params": {
+      "provider": "openai",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_output_tokens": 1024,
+      "max_output_tokens_source": "max_completion_tokens",
+      "reasoning": {
+        "effort": "low",
+        "source_field": "reasoning_effort"
+      }
+    },
+    "request_generation_params_status": "complete"
   },
   "routing": {
     "profile_id": 2,

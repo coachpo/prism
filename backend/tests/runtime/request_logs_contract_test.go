@@ -122,6 +122,7 @@ func TestRequestLogDetailContract(t *testing.T) {
 	seedRequestLogEndpoints(t, harness, profileID)
 	seedRequestLogUserAgentRules(t, harness, profileID)
 	seedFixtureRequestLog(t, harness, profileID)
+	seedSimpleRequestLog(t, harness, profileID, 102, 12, nil, time.Date(2026, 4, 18, 12, 20, 0, 0, time.UTC), false)
 
 	response := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/101", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
@@ -146,6 +147,17 @@ func TestRequestLogDetailContract(t *testing.T) {
 		if _, ok := routing[absent]; ok {
 			t.Fatalf("did not expect routing field %s in detail payload, got %+v", absent, routing)
 		}
+	}
+
+	legacyResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/102", nil, runtimeModelHeader(profileID))
+	assertStatus(t, legacyResponse, http.StatusOK)
+	decodeJSONResponse(t, legacyResponse, &payload)
+	legacyRequest := asMapRuntime(t, payload["request"])
+	if generationParams, ok := legacyRequest["request_generation_params"]; !ok || generationParams != nil {
+		t.Fatalf("expected legacy request.request_generation_params=null, got %+v", legacyRequest)
+	}
+	if generationParamsStatus, ok := legacyRequest["request_generation_params_status"]; !ok || generationParamsStatus != nil {
+		t.Fatalf("expected legacy request.request_generation_params_status=null, got %+v", legacyRequest)
 	}
 
 	missing := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/999999", nil, runtimeModelHeader(profileID))
@@ -1545,6 +1557,9 @@ func seedFixtureRequestLog(t *testing.T, harness *requestLogContractHarness, pro
 	createdAt := time.Date(2026, 4, 18, 12, 34, 56, 0, time.UTC)
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, vendor_id, vendor_key, vendor_name, resolved_target_model_id, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, reasoning_tokens, input_cost_micros, output_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_reasoning, cache_read_input_tokens, cache_creation_input_tokens, cache_read_input_cost_micros, cache_creation_input_cost_micros, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NULL, $24, $25, $26, $27, $28, $29, $30, $31, $32, NULL, NULL, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, NULL, $45, $46, $47, $48, $49, $50, $51, $52)`, 101, profileID, "gpt-4o", "openai", 1, "openai", "OpenAI", "gpt-4o-native", 12, 34, "ingress_req_42", 2, "req_upstream_abc123", "https://api.openai.com", 200, 1234, false, 15, 42, 57, true, true, true, 0, 500, 750, 0, 1250, 1250, "USD", "USD", "$", "1M tokens", "2.500000", "10.000000", "0.000000", 0, 0, 0, 0, "1.250000", "0.000000", 1, "/v1/chat/completions", "Primary production key", createdAt, "codex/1.0", "OpenAI/Python 1.0", 914, 320, false, false); err != nil {
 		t.Fatalf("seed fixture request log: %v", err)
+	}
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET request_generation_params = $1::jsonb, request_generation_params_status = 'complete' WHERE profile_id = $2 AND id = 101`, `{"provider":"openai","temperature":0.7,"top_p":0.9,"max_output_tokens":1024,"max_output_tokens_source":"max_completion_tokens","reasoning":{"effort":"low","source_field":"reasoning_effort"}}`, profileID); err != nil {
+		t.Fatalf("seed fixture request generation params: %v", err)
 	}
 }
 

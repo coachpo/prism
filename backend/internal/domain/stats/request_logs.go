@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -61,6 +62,8 @@ type requestLogDetailRow struct {
 	CallerUserAgent                   *string
 	UpstreamUserAgent                 *string
 	ErrorDetail                       *string
+	RequestGenerationParams           *json.RawMessage
+	RequestGenerationParamsStatus     *string
 	EndpointID                        *int
 	ConnectionID                      *int
 	EndpointBaseURL                   *string
@@ -240,18 +243,20 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			IsStream:                 row.IsStream,
 		},
 		Request: RequestLogDetailRequest{
-			RequestPath:             row.RequestPath,
-			IngressRequestID:        row.IngressRequestID,
-			AttemptNumber:           row.AttemptNumber,
-			ProviderCorrelationID:   row.ProviderCorrelationID,
-			ProxyAPIKeyID:           row.ProxyAPIKeyID,
-			ProxyAPIKeyNameSnapshot: row.ProxyAPIKeyNameSnapshot,
-			CallerUserAgent:         row.CallerUserAgent,
-			UpstreamUserAgent:       row.UpstreamUserAgent,
-			CallerClientDisplay:     callerClientDisplay,
-			UpstreamClientDisplay:   upstreamClientDisplay,
-			UserAgentOverridden:     userAgentOverridden(row.CallerUserAgent, row.UpstreamUserAgent),
-			ErrorDetail:             row.ErrorDetail,
+			RequestPath:                   row.RequestPath,
+			IngressRequestID:              row.IngressRequestID,
+			AttemptNumber:                 row.AttemptNumber,
+			ProviderCorrelationID:         row.ProviderCorrelationID,
+			ProxyAPIKeyID:                 row.ProxyAPIKeyID,
+			ProxyAPIKeyNameSnapshot:       row.ProxyAPIKeyNameSnapshot,
+			CallerUserAgent:               row.CallerUserAgent,
+			UpstreamUserAgent:             row.UpstreamUserAgent,
+			CallerClientDisplay:           callerClientDisplay,
+			UpstreamClientDisplay:         upstreamClientDisplay,
+			UserAgentOverridden:           userAgentOverridden(row.CallerUserAgent, row.UpstreamUserAgent),
+			ErrorDetail:                   row.ErrorDetail,
+			RequestGenerationParams:       row.RequestGenerationParams,
+			RequestGenerationParamsStatus: row.RequestGenerationParamsStatus,
 		},
 		Routing: RequestLogDetailRouting{
 			ProfileID:                   row.ProfileID,
@@ -454,7 +459,7 @@ func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRec
 func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID int, requestID int) (requestLogDetailRow, bool, error) {
 	row := exec.QueryRow(
 		ctx,
-		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, endpoint_id, connection_id, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
+		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, request_generation_params, request_generation_params_status, endpoint_id, connection_id, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
 		 LIMIT 1`,
@@ -530,6 +535,8 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var callerUserAgent sql.NullString
 	var upstreamUserAgent sql.NullString
 	var errorDetail sql.NullString
+	var requestGenerationParams []byte
+	var requestGenerationParamsStatus sql.NullString
 	var endpointID sql.NullInt32
 	var connectionID sql.NullInt32
 	var endpointBaseURL sql.NullString
@@ -564,7 +571,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var pricingSnapshotReasoning sql.NullString
 	var pricingConfigVersionUsed sql.NullInt32
 	item := requestLogDetailRow{}
-	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
+	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &requestGenerationParams, &requestGenerationParamsStatus, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
 		return requestLogDetailRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -582,6 +589,8 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.CallerUserAgent = nullableString(callerUserAgent)
 	item.UpstreamUserAgent = nullableString(upstreamUserAgent)
 	item.ErrorDetail = nullableString(errorDetail)
+	item.RequestGenerationParams = nullableJSONRawMessage(requestGenerationParams)
+	item.RequestGenerationParamsStatus = nullableString(requestGenerationParamsStatus)
 	item.EndpointID = nullableInt32(endpointID)
 	item.ConnectionID = nullableInt32(connectionID)
 	item.EndpointBaseURL = nullableString(endpointBaseURL)
@@ -617,6 +626,14 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.PricingConfigVersionUsed = nullableInt32(pricingConfigVersionUsed)
 	item = normalizeRequestLogDetailSpendState(item)
 	return item, nil
+}
+
+func nullableJSONRawMessage(raw []byte) *json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	message := json.RawMessage(append([]byte(nil), raw...))
+	return &message
 }
 
 func normalizeRequestLogListSpendState(item requestLogListRow) requestLogListRow {
