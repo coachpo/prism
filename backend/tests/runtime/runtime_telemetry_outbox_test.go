@@ -112,6 +112,54 @@ func TestRuntimeProxyKeyUsageDurablyEnqueues(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, restartedHarness.conn, profileID, 1, 1)
 }
 
+func TestRuntimeResponsesProxyKeyAuthAndUsage(t *testing.T) {
+	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{})
+	profileID := harness.activeProfileID(t)
+	proxyAPIKey := harness.enableRuntimeProxyAPIKeyAuth(t)
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "responses-proxy-key-public-" + randomSuffix(),
+		TargetModelID:   "responses-proxy-key-target-" + randomSuffix(),
+		EndpointBaseURL: harness.upstream.baseURL("/responses/proxy-key"),
+		EndpointAPIKey:  "responses-proxy-key-upstream",
+	})
+	payload := map[string]any{
+		"input": "responses proxy key parity",
+		"model": route.PublicModelID,
+	}
+
+	missingKeyResponse := harness.requestJSON(t, http.MethodPost, "/v1/responses", payload, nil)
+	assertStatus(t, missingKeyResponse, http.StatusUnauthorized)
+	assertResponseField(t, missingKeyResponse, "detail", "Proxy API key required")
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected missing Responses proxy key to stop before upstream, got %d upstream requests", got)
+	}
+
+	successResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		payload,
+		map[string]string{"Authorization": "Bearer " + proxyAPIKey},
+	)
+	assertStatus(t, successResponse, http.StatusOK)
+	requests := harness.upstream.requestsSnapshot()
+	if len(requests) != 1 {
+		t.Fatalf("expected valid Responses proxy key request to reach upstream once, got %d upstream requests", len(requests))
+	}
+	if requests[0].Path != "/responses/proxy-key/v1/responses" {
+		t.Fatalf("expected Responses upstream path %q, got %q", "/responses/proxy-key/v1/responses", requests[0].Path)
+	}
+	if requests[0].Headers.Get("Authorization") != "Bearer "+route.EndpointAPIKey {
+		t.Fatalf("expected Responses upstream authorization header, got %q", requests[0].Headers.Get("Authorization"))
+	}
+	if got := requestModelID(t, requests[0].Body); got != route.TargetModelID {
+		t.Fatalf("expected Responses upstream body model %q, got %q", route.TargetModelID, got)
+	}
+	waitForProxyAPIKeyUsageMaterialization(t, harness.conn, 5*time.Second)
+}
+
 func TestRuntimeShutdownDrainsDurableRuntimeSignals(t *testing.T) {
 	shutdownTimeout := time.Second
 	closeResults := make(chan runtimeapi.TelemetryOutboxCloseResult, 1)
