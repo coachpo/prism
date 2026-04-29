@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -39,6 +41,7 @@ const (
 	BootstrapConfigSecretRuntimeSecretEncryptionKey         = "runtime.secretEncryptionKey"
 	BootstrapConfigSecretAuthJWTSigningKey                  = "auth.jwtSigningKey"
 	BootstrapConfigSecretStateTransferBundleKey             = "stateTransfer.bundleEncryptionKey"
+	BootstrapConfigSecretMailSMTPPassword                   = "mail.smtp.password"
 	BootstrapConfigConfirmationServerHostChange             = "server-host-change"
 	BootstrapConfigConfirmationServerPortChange             = "server-port-change"
 	BootstrapConfigConfirmationDatabaseURLChange            = "database-url-change"
@@ -85,6 +88,7 @@ type BootstrapConfigValues struct {
 	Runtime  *BootstrapConfigRuntimeValues  `json:"runtime"`
 	HTTP     *BootstrapConfigHTTPValues     `json:"http"`
 	Auth     *BootstrapConfigAuthValues     `json:"auth"`
+	Mail     *BootstrapConfigMailValues     `json:"mail,omitempty"`
 }
 
 type BootstrapConfigServerValues struct {
@@ -135,6 +139,25 @@ type BootstrapConfigAuthValues struct {
 	AccessCookieName       *string `json:"access_cookie_name"`
 	RefreshCookieName      *string `json:"refresh_cookie_name"`
 	CookieSecure           *bool   `json:"cookie_secure"`
+}
+
+type BootstrapConfigMailValues struct {
+	Enabled *bool                          `json:"enabled"`
+	From    *string                        `json:"from"`
+	ReplyTo *string                        `json:"reply_to"`
+	SMTP    *BootstrapConfigMailSMTPValues `json:"smtp"`
+}
+
+type BootstrapConfigMailSMTPValues struct {
+	Host          *string `json:"host"`
+	Port          *int    `json:"port"`
+	Mode          *string `json:"mode"`
+	EHLOHostname  *string `json:"ehlo_hostname"`
+	Auth          *string `json:"auth"`
+	Username      *string `json:"username"`
+	PasswordFile  *string `json:"password_file"`
+	Timeout       *string `json:"timeout"`
+	TLSServerName *string `json:"tls_server_name"`
 }
 
 type BootstrapConfigSecretMetadata struct {
@@ -201,6 +224,7 @@ type bootstrapConfigDocument struct {
 	Runtime       *bootstrapRuntime       `json:"runtime"`
 	HTTP          *bootstrapHTTP          `json:"http"`
 	Auth          *bootstrapAuth          `json:"auth"`
+	Mail          *bootstrapMail          `json:"mail,omitempty"`
 	StateTransfer *bootstrapStateTransfer `json:"stateTransfer"`
 }
 
@@ -262,6 +286,26 @@ type bootstrapAuth struct {
 	AccessCookieName       *string `json:"accessCookieName"`
 	RefreshCookieName      *string `json:"refreshCookieName"`
 	CookieSecure           *bool   `json:"cookieSecure"`
+}
+
+type bootstrapMail struct {
+	Enabled *bool          `json:"enabled"`
+	From    *string        `json:"from,omitempty"`
+	ReplyTo *string        `json:"replyTo,omitempty"`
+	SMTP    *bootstrapSMTP `json:"smtp,omitempty"`
+}
+
+type bootstrapSMTP struct {
+	Host          *string `json:"host,omitempty"`
+	Port          *int    `json:"port,omitempty"`
+	Mode          *string `json:"mode,omitempty"`
+	EHLOHostname  *string `json:"ehloHostname,omitempty"`
+	Auth          *string `json:"auth,omitempty"`
+	Username      *string `json:"username,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	PasswordFile  *string `json:"passwordFile,omitempty"`
+	Timeout       *string `json:"timeout,omitempty"`
+	TLSServerName *string `json:"tlsServerName,omitempty"`
 }
 
 type bootstrapStateTransfer struct {
@@ -580,16 +624,19 @@ func applyBootstrapConfigValues(document *bootstrapConfigDocument, values *Boots
 		document.Runtime = nil
 		document.HTTP = nil
 		document.Auth = nil
+		document.Mail = nil
 		return
 	}
 	databaseURL := currentBootstrapDatabaseURL(document)
 	runtimeSecret := currentBootstrapRuntimeSecret(document)
 	authJWTSigningKey := currentBootstrapAuthJWTSigningKey(document)
+	mailSMTPPassword := currentBootstrapMailSMTPPassword(document)
 	document.Server = bootstrapServerFromSafeValues(values.Server)
 	document.Database = bootstrapDatabaseFromSafeValues(values.Database, databaseURL)
 	document.Runtime = bootstrapRuntimeFromSafeValues(values.Runtime, runtimeSecret)
 	document.HTTP = bootstrapHTTPFromSafeValues(values.HTTP)
 	document.Auth = bootstrapAuthFromSafeValues(values.Auth, authJWTSigningKey)
+	document.Mail = bootstrapMailFromSafeValues(values.Mail, mailSMTPPassword)
 }
 
 func applyBootstrapConfigSecretUpdates(candidate *bootstrapConfigDocument, current bootstrapConfigDocument, updates map[string]BootstrapConfigSecretUpdate) error {
@@ -709,6 +756,14 @@ func setBootstrapConfigSecret(document *bootstrapConfigDocument, field string, v
 			document.StateTransfer = &bootstrapStateTransfer{}
 		}
 		document.StateTransfer.BundleEncryptionKey = stringPointer(value)
+	case BootstrapConfigSecretMailSMTPPassword:
+		if document.Mail == nil {
+			document.Mail = &bootstrapMail{}
+		}
+		if document.Mail.SMTP == nil {
+			document.Mail.SMTP = &bootstrapSMTP{}
+		}
+		document.Mail.SMTP.Password = stringPointer(value)
 	}
 }
 
@@ -789,6 +844,7 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			RefreshCookieName:      cloneStringPointer(document.Auth.RefreshCookieName),
 			CookieSecure:           cloneBoolPointer(document.Auth.CookieSecure),
 		},
+		Mail: safeBootstrapMailValues(document.Mail),
 	}
 }
 
@@ -798,6 +854,7 @@ func bootstrapConfigSecretMetadata(document bootstrapConfigDocument) map[string]
 		BootstrapConfigSecretRuntimeSecretEncryptionKey: secretMetadata(document.Runtime.SecretEncryptionKey, false, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretAuthJWTSigningKey:          secretMetadata(document.Auth.JWTSigningKey, true, maskConfiguredBootstrapSecret),
 		BootstrapConfigSecretStateTransferBundleKey:     secretMetadata(document.StateTransfer.BundleEncryptionKey, true, maskConfiguredBootstrapSecret),
+		BootstrapConfigSecretMailSMTPPassword:           secretMetadata(bootstrapMailSMTPPassword(document.Mail), true, maskConfiguredBootstrapSecret),
 	}
 }
 
@@ -933,6 +990,36 @@ func bootstrapAuthFromSafeValues(values *BootstrapConfigAuthValues, jwtSigningKe
 	}
 }
 
+func bootstrapMailFromSafeValues(values *BootstrapConfigMailValues, smtpPassword *string) *bootstrapMail {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapMail{
+		Enabled: cloneBoolPointer(values.Enabled),
+		From:    cloneStringPointer(values.From),
+		ReplyTo: cloneStringPointer(values.ReplyTo),
+		SMTP:    bootstrapSMTPFromSafeValues(values.SMTP, smtpPassword),
+	}
+}
+
+func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues, smtpPassword *string) *bootstrapSMTP {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapSMTP{
+		Host:          cloneStringPointer(values.Host),
+		Port:          cloneIntPointer(values.Port),
+		Mode:          cloneStringPointer(values.Mode),
+		EHLOHostname:  cloneStringPointer(values.EHLOHostname),
+		Auth:          cloneStringPointer(values.Auth),
+		Username:      cloneStringPointer(values.Username),
+		Password:      cloneStringPointer(smtpPassword),
+		PasswordFile:  cloneStringPointer(values.PasswordFile),
+		Timeout:       cloneStringPointer(values.Timeout),
+		TLSServerName: cloneStringPointer(values.TLSServerName),
+	}
+}
+
 func currentBootstrapDatabaseURL(document *bootstrapConfigDocument) *string {
 	if document == nil || document.Database == nil {
 		return nil
@@ -954,18 +1041,33 @@ func currentBootstrapAuthJWTSigningKey(document *bootstrapConfigDocument) *strin
 	return cloneStringPointer(document.Auth.JWTSigningKey)
 }
 
+func currentBootstrapMailSMTPPassword(document *bootstrapConfigDocument) *string {
+	if document == nil {
+		return nil
+	}
+	return cloneStringPointer(bootstrapMailSMTPPassword(document.Mail))
+}
+
+func bootstrapMailSMTPPassword(mailConfig *bootstrapMail) *string {
+	if mailConfig == nil || mailConfig.SMTP == nil {
+		return nil
+	}
+	return mailConfig.SMTP.Password
+}
+
 func orderedBootstrapConfigSecretFields() []string {
 	return []string{
 		BootstrapConfigSecretDatabaseURL,
 		BootstrapConfigSecretRuntimeSecretEncryptionKey,
 		BootstrapConfigSecretAuthJWTSigningKey,
 		BootstrapConfigSecretStateTransferBundleKey,
+		BootstrapConfigSecretMailSMTPPassword,
 	}
 }
 
 func isKnownBootstrapConfigSecretField(field string) bool {
 	switch field {
-	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey:
+	case BootstrapConfigSecretDatabaseURL, BootstrapConfigSecretRuntimeSecretEncryptionKey, BootstrapConfigSecretAuthJWTSigningKey, BootstrapConfigSecretStateTransferBundleKey, BootstrapConfigSecretMailSMTPPassword:
 		return true
 	default:
 		return false
@@ -1029,6 +1131,7 @@ func cloneBootstrapConfigDocument(document bootstrapConfigDocument) bootstrapCon
 	clone.Runtime = bootstrapRuntimeFromSafeValues(safeBootstrapRuntimeValues(document.Runtime), currentBootstrapRuntimeSecret(&document))
 	clone.HTTP = bootstrapHTTPFromSafeValues(safeBootstrapHTTPValues(document.HTTP))
 	clone.Auth = bootstrapAuthFromSafeValues(safeBootstrapAuthValues(document.Auth), currentBootstrapAuthJWTSigningKey(&document))
+	clone.Mail = bootstrapMailFromSafeValues(safeBootstrapMailValues(document.Mail), currentBootstrapMailSMTPPassword(&document))
 	if document.StateTransfer != nil {
 		clone.StateTransfer = &bootstrapStateTransfer{BundleEncryptionKey: cloneStringPointer(document.StateTransfer.BundleEncryptionKey)}
 	}
@@ -1107,6 +1210,35 @@ func safeBootstrapAuthValues(auth *bootstrapAuth) *BootstrapConfigAuthValues {
 		AccessCookieName:       cloneStringPointer(auth.AccessCookieName),
 		RefreshCookieName:      cloneStringPointer(auth.RefreshCookieName),
 		CookieSecure:           cloneBoolPointer(auth.CookieSecure),
+	}
+}
+
+func safeBootstrapMailValues(mailConfig *bootstrapMail) *BootstrapConfigMailValues {
+	if mailConfig == nil {
+		return nil
+	}
+	return &BootstrapConfigMailValues{
+		Enabled: cloneBoolPointer(mailConfig.Enabled),
+		From:    cloneStringPointer(mailConfig.From),
+		ReplyTo: cloneStringPointer(mailConfig.ReplyTo),
+		SMTP:    safeBootstrapSMTPValues(mailConfig.SMTP),
+	}
+}
+
+func safeBootstrapSMTPValues(smtp *bootstrapSMTP) *BootstrapConfigMailSMTPValues {
+	if smtp == nil {
+		return nil
+	}
+	return &BootstrapConfigMailSMTPValues{
+		Host:          cloneStringPointer(smtp.Host),
+		Port:          cloneIntPointer(smtp.Port),
+		Mode:          cloneStringPointer(smtp.Mode),
+		EHLOHostname:  cloneStringPointer(smtp.EHLOHostname),
+		Auth:          cloneStringPointer(smtp.Auth),
+		Username:      cloneStringPointer(smtp.Username),
+		PasswordFile:  cloneStringPointer(smtp.PasswordFile),
+		Timeout:       cloneStringPointer(smtp.Timeout),
+		TLSServerName: cloneStringPointer(smtp.TLSServerName),
 	}
 }
 
@@ -1266,6 +1398,11 @@ func (d bootstrapConfigDocument) validateSchema() error {
 	if err := d.Auth.validate(); err != nil {
 		return err
 	}
+	if d.Mail != nil {
+		if err := d.Mail.validate(); err != nil {
+			return err
+		}
+	}
 	return d.StateTransfer.validate()
 }
 
@@ -1404,6 +1541,118 @@ func (a bootstrapAuth) validate() error {
 	return err
 }
 
+func (m bootstrapMail) validate() error {
+	enabled, err := requiredBool("mail.enabled", m.Enabled)
+	if err != nil {
+		return err
+	}
+	if m.From != nil {
+		if _, err := optionalMailAddress("mail.from", m.From); err != nil {
+			return err
+		}
+	}
+	if m.ReplyTo != nil {
+		if _, err := optionalMailAddress("mail.replyTo", m.ReplyTo); err != nil {
+			return err
+		}
+	}
+	if enabled {
+		if _, err := requiredMailAddress("mail.from", m.From); err != nil {
+			return err
+		}
+		if m.SMTP == nil {
+			return missingBootstrapFieldError("mail.smtp")
+		}
+	}
+	if m.SMTP != nil {
+		return m.SMTP.validate(enabled)
+	}
+	return nil
+}
+
+func (s bootstrapSMTP) validate(enabled bool) error {
+	if enabled {
+		if _, err := requiredTrimmedString("mail.smtp.host", s.Host, 1, 255); err != nil {
+			return err
+		}
+		if _, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535); err != nil {
+			return err
+		}
+		if _, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes()); err != nil {
+			return err
+		}
+		if _, err := parseDurationField("mail.smtp.timeout", s.Timeout); err != nil {
+			return err
+		}
+	}
+	if s.Host != nil {
+		if _, err := optionalTrimmedString("mail.smtp.host", s.Host, 255); err != nil {
+			return err
+		}
+	}
+	if s.Port != nil {
+		if _, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535); err != nil {
+			return err
+		}
+	}
+	if s.Mode != nil {
+		if _, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes()); err != nil {
+			return err
+		}
+	}
+	if s.Auth != nil {
+		if _, err := requiredEnumString("mail.smtp.auth", s.Auth, allowedMailSMTPAuthModes()); err != nil {
+			return err
+		}
+	}
+	if s.EHLOHostname != nil {
+		if _, err := optionalTrimmedString("mail.smtp.ehloHostname", s.EHLOHostname, 255); err != nil {
+			return err
+		}
+	}
+	if s.Username != nil {
+		if _, err := optionalTrimmedString("mail.smtp.username", s.Username, 320); err != nil {
+			return err
+		}
+	}
+	if s.PasswordFile != nil {
+		if _, err := optionalTrimmedString("mail.smtp.passwordFile", s.PasswordFile, 0); err != nil {
+			return err
+		}
+	}
+	if s.TLSServerName != nil {
+		if _, err := optionalTrimmedString("mail.smtp.tlsServerName", s.TLSServerName, 255); err != nil {
+			return err
+		}
+	}
+	if s.Timeout != nil {
+		if _, err := parseDurationField("mail.smtp.timeout", s.Timeout); err != nil {
+			return err
+		}
+	}
+	if hasNonEmptyString(s.Password) && hasNonEmptyString(s.PasswordFile) {
+		return fmt.Errorf("bootstrap config fields mail.smtp.password and mail.smtp.passwordFile are mutually exclusive")
+	}
+	if enabled {
+		auth := normalizedMailSMTPAuth(s.Auth)
+		if auth == MailSMTPAuthPlain {
+			if _, err := requiredTrimmedString("mail.smtp.username", s.Username, 1, 320); err != nil {
+				return err
+			}
+			if !hasNonEmptyString(s.Password) && !hasNonEmptyString(s.PasswordFile) {
+				return fmt.Errorf("bootstrap config field mail.smtp.password or mail.smtp.passwordFile is required when mail.smtp.auth is plain")
+			}
+		}
+		mode := normalizedMailSMTPMode(s.Mode)
+		if mode == MailSMTPModePlaintextLocalOnly {
+			if !isLocalSMTPHost(strings.TrimSpace(*s.Host)) {
+				return fmt.Errorf("bootstrap config field mail.smtp.mode plaintext_local_only requires a localhost or loopback host")
+			}
+		}
+	}
+	return nil
+}
+
 func (s bootstrapStateTransfer) validate() error {
 	_, err := requiredTrimmedString("stateTransfer.bundleEncryptionKey", s.BundleEncryptionKey, 1, 0)
 	return err
@@ -1437,6 +1686,9 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 	m3MaxConcurrent, _ := requiredIntMin("database.managementAdmission.m3MaxConcurrent", d.Database.ManagementAdmission.M3MaxConcurrent, 1)
 	if m3MaxConcurrent > m2MaxConcurrent {
 		return fmt.Errorf("bootstrap config field database.managementAdmission.m3MaxConcurrent must be less than or equal to database.managementAdmission.m2MaxConcurrent")
+	}
+	if d.Mail != nil {
+		return d.Mail.validate()
 	}
 	return nil
 }
@@ -1494,6 +1746,10 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	accessCookieName, _ := requiredTrimmedString("auth.accessCookieName", d.Auth.AccessCookieName, 1, 200)
 	refreshCookieName, _ := requiredTrimmedString("auth.refreshCookieName", d.Auth.RefreshCookieName, 1, 200)
 	cookieSecure, _ := requiredBool("auth.cookieSecure", d.Auth.CookieSecure)
+	mailConfig, err := d.Mail.toMailConfig()
+	if err != nil {
+		return Settings{}, err
+	}
 
 	appEnv := EnvironmentProduction
 	if docsEnabled {
@@ -1521,7 +1777,104 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		AuthCookieName:                   accessCookieName,
 		AuthRefreshCookieName:            refreshCookieName,
 		AuthCookieSecure:                 cookieSecure,
+		Mail:                             mailConfig,
 	}, nil
+}
+
+func (m *bootstrapMail) toMailConfig() (MailConfig, error) {
+	if m == nil {
+		return defaultMailConfig(), nil
+	}
+	enabled, err := requiredBool("mail.enabled", m.Enabled)
+	if err != nil {
+		return MailConfig{}, err
+	}
+	result := defaultMailConfig()
+	result.Enabled = enabled
+	if m.From != nil {
+		from, err := optionalMailAddress("mail.from", m.From)
+		if err != nil {
+			return MailConfig{}, err
+		}
+		result.From = from
+	}
+	if enabled {
+		from, err := requiredMailAddress("mail.from", m.From)
+		if err != nil {
+			return MailConfig{}, err
+		}
+		result.From = from
+	}
+	if m.ReplyTo != nil {
+		replyTo, err := optionalMailAddress("mail.replyTo", m.ReplyTo)
+		if err != nil {
+			return MailConfig{}, err
+		}
+		result.ReplyTo = replyTo
+	}
+	if m.SMTP == nil {
+		return result, nil
+	}
+	smtp, err := m.SMTP.toMailSMTPConfig(enabled)
+	if err != nil {
+		return MailConfig{}, err
+	}
+	result.SMTP = smtp
+	return result, nil
+}
+
+func (s bootstrapSMTP) toMailSMTPConfig(enabled bool) (MailSMTPConfig, error) {
+	result := MailSMTPConfig{Timeout: defaultMailSMTPTimeout}
+	if s.Host != nil {
+		result.Host = strings.TrimSpace(*s.Host)
+	}
+	if s.Port != nil {
+		port, err := requiredIntRange("mail.smtp.port", s.Port, 1, 65535)
+		if err != nil {
+			return MailSMTPConfig{}, err
+		}
+		result.Port = port
+	}
+	if s.Mode != nil {
+		mode, err := requiredEnumString("mail.smtp.mode", s.Mode, allowedMailSMTPModes())
+		if err != nil {
+			return MailSMTPConfig{}, err
+		}
+		result.Mode = MailSMTPMode(mode)
+	}
+	if s.EHLOHostname != nil {
+		result.EHLOHostname = strings.TrimSpace(*s.EHLOHostname)
+	}
+	if s.Auth != nil {
+		auth, err := requiredEnumString("mail.smtp.auth", s.Auth, allowedMailSMTPAuthModes())
+		if err != nil {
+			return MailSMTPConfig{}, err
+		}
+		result.Auth = MailSMTPAuth(auth)
+	}
+	if s.Username != nil {
+		result.Username = strings.TrimSpace(*s.Username)
+	}
+	if s.Password != nil {
+		result.Password = strings.TrimSpace(*s.Password)
+	}
+	if s.PasswordFile != nil {
+		result.PasswordFile = strings.TrimSpace(*s.PasswordFile)
+	}
+	if s.Timeout != nil {
+		timeout, err := parseDurationField("mail.smtp.timeout", s.Timeout)
+		if err != nil {
+			return MailSMTPConfig{}, err
+		}
+		result.Timeout = timeout
+	}
+	if s.TLSServerName != nil {
+		result.TLSServerName = strings.TrimSpace(*s.TLSServerName)
+	}
+	if enabled && result.Auth == "" {
+		result.Auth = MailSMTPAuthNone
+	}
+	return result, nil
 }
 
 func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportConfig, error) {
@@ -1641,6 +1994,9 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			RefreshCookieName:      stringPointer(strings.TrimSpace(settings.AuthRefreshCookieName)),
 			CookieSecure:           boolPointer(settings.AuthCookieSecure),
 		},
+		Mail: &bootstrapMail{
+			Enabled: boolPointer(false),
+		},
 		StateTransfer: &bootstrapStateTransfer{
 			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
@@ -1686,6 +2042,81 @@ func requiredEnumString(path string, value *string, allowed []string) (string, e
 		return resolved, nil
 	}
 	return "", fmt.Errorf("bootstrap config field %s must be one of %q", path, allowed)
+}
+
+func optionalTrimmedString(path string, value *string, maxLength int) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if maxLength > 0 && len(trimmed) > maxLength {
+		return "", fmt.Errorf("bootstrap config field %s must be at most %d characters", path, maxLength)
+	}
+	return trimmed, nil
+}
+
+func requiredMailAddress(path string, value *string) (string, error) {
+	resolved, err := requiredTrimmedString(path, value, 1, 320)
+	if err != nil {
+		return "", err
+	}
+	if _, err := mail.ParseAddress(resolved); err != nil {
+		return "", fmt.Errorf("bootstrap config field %s must be a valid email address", path)
+	}
+	return resolved, nil
+}
+
+func optionalMailAddress(path string, value *string) (string, error) {
+	resolved, err := optionalTrimmedString(path, value, 320)
+	if err != nil || resolved == "" {
+		return resolved, err
+	}
+	if _, err := mail.ParseAddress(resolved); err != nil {
+		return "", fmt.Errorf("bootstrap config field %s must be a valid email address", path)
+	}
+	return resolved, nil
+}
+
+func allowedMailSMTPModes() []string {
+	return []string{string(MailSMTPModeStartTLSRequired), string(MailSMTPModeImplicitTLS), string(MailSMTPModePlaintextLocalOnly)}
+}
+
+func allowedMailSMTPAuthModes() []string {
+	return []string{string(MailSMTPAuthNone), string(MailSMTPAuthPlain)}
+}
+
+func normalizedMailSMTPMode(value *string) MailSMTPMode {
+	if value == nil {
+		return ""
+	}
+	return MailSMTPMode(strings.TrimSpace(*value))
+}
+
+func normalizedMailSMTPAuth(value *string) MailSMTPAuth {
+	if value == nil {
+		return MailSMTPAuthNone
+	}
+	return MailSMTPAuth(strings.TrimSpace(*value))
+}
+
+func hasNonEmptyString(value *string) bool {
+	return value != nil && strings.TrimSpace(*value) != ""
+}
+
+func isLocalSMTPHost(host string) bool {
+	trimmed := strings.TrimSpace(host)
+	if trimmed == "" {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSuffix(trimmed, "."))
+	if lower == "localhost" {
+		return true
+	}
+	parsed := net.ParseIP(trimmed)
+	return parsed != nil && parsed.IsLoopback()
 }
 
 func requiredDateTime(path string, value *string) (time.Time, error) {

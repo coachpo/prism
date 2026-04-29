@@ -16,6 +16,7 @@ const (
 	managementTestRuntimeSecret = "runtime-secret-for-management-test"
 	managementTestJWTSecret     = "jwt-secret-for-management-test"
 	managementTestBundleSecret  = "bundle-secret-for-management-test"
+	managementTestSMTPPassword  = "smtp-password-for-management-test"
 )
 
 func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
@@ -65,6 +66,10 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	runtimeSecret := snapshot.Secrets[BootstrapConfigSecretRuntimeSecretEncryptionKey]
 	if !runtimeSecret.Configured || runtimeSecret.Editable || runtimeSecret.Masked != "set" {
 		t.Fatal("expected runtime secret metadata to be configured and read-only")
+	}
+	smtpSecret := snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword]
+	if !smtpSecret.Configured || !smtpSecret.Editable || smtpSecret.Masked != "set" {
+		t.Fatal("expected SMTP password metadata to be editable and masked")
 	}
 }
 
@@ -193,10 +198,12 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	values := cloneManagementValues(t, snapshot.Values)
 	nextDatabaseURL := "postgres://prism:next-password@db.next.internal:5432/prism?sslmode=disable"
 	nextBundleSecret := "replacement-bundle-encryption-key"
+	nextSMTPPassword := "replacement-smtp-password"
 	updates := preserveManagementSecretUpdates()
 	updates[BootstrapConfigSecretDatabaseURL] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(nextDatabaseURL)}
 
 	updates[BootstrapConfigSecretStateTransferBundleKey] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(nextBundleSecret)}
+	updates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer(nextSMTPPassword)}
 	prepared, err := manager.PrepareBootstrapConfigUpdate(path, BootstrapConfigUpdateRequest{
 		ExpectedRevision: snapshot.FileRevision,
 		ExpectedETag:     snapshot.DocumentETag,
@@ -214,7 +221,7 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse secret preserve and replace payload: %v", err)
 	}
-	if settings.DatabaseURL != nextDatabaseURL || settings.ConfigBundleEncryptionKey != nextBundleSecret {
+	if settings.DatabaseURL != nextDatabaseURL || settings.ConfigBundleEncryptionKey != nextBundleSecret || settings.Mail.SMTP.Password != nextSMTPPassword {
 		t.Fatal("expected replace actions to update selected secrets")
 	}
 
@@ -224,6 +231,7 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	safePayload := mustMarshalJSON(t, prepared.Snapshot)
 	assertNoSecretValue(t, safePayload, "replacement database password", "next-password")
 	assertNoSecretValue(t, safePayload, "replacement bundle secret", nextBundleSecret)
+	assertNoSecretValue(t, safePayload, "replacement SMTP password", nextSMTPPassword)
 }
 
 func TestBootstrapConfigManagementRejectsSecretPlaceholdersAndRuntimeReplacement(t *testing.T) {
@@ -279,6 +287,12 @@ func TestBootstrapConfigManagementRejectsSecretPlaceholdersAndRuntimeReplacement
 			name:   "database sensitive query set placeholder",
 			field:  BootstrapConfigSecretDatabaseURL,
 			update: BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer("postgres://prism@db.local/prism?sslpassword=set")},
+		},
+		{
+			name:      "smtp password placeholder",
+			field:     BootstrapConfigSecretMailSMTPPassword,
+			update:    BootstrapConfigSecretUpdate{Action: BootstrapConfigSecretActionReplace, Value: stringPointer("set")},
+			forbidden: managementTestSMTPPassword,
 		},
 		{
 			name:      "runtime replacement",
@@ -445,6 +459,20 @@ func newManagementTestDocument(t *testing.T, createdAt time.Time) bootstrapConfi
 	if err != nil {
 		t.Fatalf("build management test bootstrap document: %v", err)
 	}
+	document.Mail = &bootstrapMail{
+		Enabled: boolPointer(true),
+		From:    stringPointer("Prism <noreply@example.com>"),
+		SMTP: &bootstrapSMTP{
+			Host:          stringPointer("smtp.example.com"),
+			Port:          intPointer(587),
+			Mode:          stringPointer(string(MailSMTPModeStartTLSRequired)),
+			Auth:          stringPointer(string(MailSMTPAuthPlain)),
+			Username:      stringPointer("smtp-user"),
+			Password:      stringPointer(managementTestSMTPPassword),
+			Timeout:       stringPointer("15s"),
+			TLSServerName: stringPointer("smtp.example.com"),
+		},
+	}
 	return document
 }
 
@@ -491,6 +519,7 @@ func assertSafeManagementSnapshot(t *testing.T, payload []byte) {
 	assertNoSecretValue(t, payload, "runtime secret", managementTestRuntimeSecret)
 	assertNoSecretValue(t, payload, "JWT secret", managementTestJWTSecret)
 	assertNoSecretValue(t, payload, "bundle secret", managementTestBundleSecret)
+	assertNoSecretValue(t, payload, "SMTP password", managementTestSMTPPassword)
 }
 
 func assertNoSecretValue(t *testing.T, payload []byte, label string, secret string) {
@@ -533,6 +562,7 @@ func preserveManagementSecretUpdates() map[string]BootstrapConfigSecretUpdate {
 		BootstrapConfigSecretRuntimeSecretEncryptionKey: {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretAuthJWTSigningKey:          {Action: BootstrapConfigSecretActionPreserve},
 		BootstrapConfigSecretStateTransferBundleKey:     {Action: BootstrapConfigSecretActionPreserve},
+		BootstrapConfigSecretMailSMTPPassword:           {Action: BootstrapConfigSecretActionPreserve},
 	}
 }
 

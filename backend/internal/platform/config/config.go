@@ -13,6 +13,10 @@ type RuntimeTelemetryMode string
 
 type RuntimeBufferingMode string
 
+type MailSMTPMode string
+
+type MailSMTPAuth string
+
 const (
 	EnvironmentDevelopment Environment = "development"
 	EnvironmentTest        Environment = "test"
@@ -30,6 +34,17 @@ const (
 )
 
 const (
+	MailSMTPModeStartTLSRequired   MailSMTPMode = "starttls_required"
+	MailSMTPModeImplicitTLS        MailSMTPMode = "implicit_tls"
+	MailSMTPModePlaintextLocalOnly MailSMTPMode = "plaintext_local_only"
+)
+
+const (
+	MailSMTPAuthNone  MailSMTPAuth = "none"
+	MailSMTPAuthPlain MailSMTPAuth = "plain"
+)
+
+const (
 	bootstrapDatabaseURLEnv            = "DATABASE_URL"
 	defaultBootstrapHost               = "0.0.0.0"
 	defaultBootstrapPort               = 18000
@@ -42,6 +57,7 @@ const (
 	defaultAuthResetCodeTTLSeconds     = 600
 	defaultAuthCookieName              = "prism_access_token"
 	defaultAuthRefreshCookieName       = "prism_refresh_token"
+	defaultMailSMTPTimeout             = 15 * time.Second
 )
 
 const (
@@ -80,6 +96,26 @@ type RuntimeTransportConfig struct {
 	ExpectContinueTimeout time.Duration
 }
 
+type MailConfig struct {
+	Enabled bool
+	From    string
+	ReplyTo string
+	SMTP    MailSMTPConfig
+}
+
+type MailSMTPConfig struct {
+	Host          string
+	Port          int
+	Mode          MailSMTPMode
+	EHLOHostname  string
+	Auth          MailSMTPAuth
+	Username      string
+	Password      string
+	PasswordFile  string
+	Timeout       time.Duration
+	TLSServerName string
+}
+
 type Settings struct {
 	Host                             string
 	Port                             int
@@ -101,6 +137,7 @@ type Settings struct {
 	AuthCookieName                   string
 	AuthRefreshCookieName            string
 	AuthCookieSecure                 bool
+	Mail                             MailConfig
 }
 
 func Load() Settings {
@@ -134,7 +171,12 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AuthCookieName:                   defaultAuthCookieName,
 		AuthRefreshCookieName:            defaultAuthRefreshCookieName,
 		AuthCookieSecure:                 false,
+		Mail:                             defaultMailConfig(),
 	}
+}
+
+func defaultMailConfig() MailConfig {
+	return MailConfig{SMTP: MailSMTPConfig{Timeout: defaultMailSMTPTimeout}}
 }
 
 func resolveDatabaseURLFromEnv() string {
