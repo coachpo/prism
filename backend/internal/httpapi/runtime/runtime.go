@@ -168,10 +168,19 @@ type requestPlan struct {
 	ClientHeaders               map[string]string
 	FailoverStatusCodes         []int
 	Strategy                    loadbalance.RuntimeStrategy
+	RequestGenerationParams     requestGenerationParamsSnapshot
+	RequestGenerationSnapshot   func() requestGenerationParamsSnapshot
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
 	return len(plan.Connections) > 1
+}
+
+func (plan requestPlan) RequestGenerationParamsSnapshot() requestGenerationParamsSnapshot {
+	if plan.RequestGenerationSnapshot != nil {
+		return plan.RequestGenerationSnapshot().clone()
+	}
+	return plan.RequestGenerationParams.clone()
 }
 
 type runtimeRequestBodySource struct {
@@ -179,6 +188,7 @@ type runtimeRequestBodySource struct {
 	streamingBody        io.ReadCloser
 	streamingContentSize int64
 	useStreamingBody     bool
+	generationObserver   *geminiGenerationParamsStreamingObserver
 
 	mu       sync.Mutex
 	consumed bool
@@ -196,6 +206,13 @@ func newStreamingRuntimeRequestBodySource(body io.ReadCloser, contentLength int6
 	}
 }
 
+func (source *runtimeRequestBodySource) withGenerationParamsObserver(observer *geminiGenerationParamsStreamingObserver) *runtimeRequestBodySource {
+	if source != nil {
+		source.generationObserver = observer
+	}
+	return source
+}
+
 func (source *runtimeRequestBodySource) Open() (io.ReadCloser, int64, error) {
 	if source == nil {
 		return http.NoBody, 0, nil
@@ -211,6 +228,9 @@ func (source *runtimeRequestBodySource) Open() (io.ReadCloser, int64, error) {
 	source.consumed = true
 	if source.streamingBody == nil {
 		return http.NoBody, 0, nil
+	}
+	if source.generationObserver != nil {
+		return &requestGenerationParamsObservingReadCloser{source: source.streamingBody, observer: source.generationObserver}, source.streamingContentSize, nil
 	}
 	return source.streamingBody, source.streamingContentSize, nil
 }
@@ -318,6 +338,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 	}
 
 	upstreamBody := rawBody
+	requestGenerationParams := extractBufferedRequestGenerationParams(targetModel.APIFamily, request.URL.Path, rawBody)
 	if bodyModelID := extractModelFromBody(rawBody); bodyModelID != "" && bodyModelID != targetModel.ModelID {
 		upstreamBody = rewriteModelInBody(rawBody, targetModel.ModelID)
 	}
@@ -344,6 +365,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		ClientHeaders:               flattenHeaders(request.Header),
 		FailoverStatusCodes:         strategy.FailoverStatusCodes(),
 		Strategy:                    strategy,
+		RequestGenerationParams:     requestGenerationParams,
 	}, nil
 }
 

@@ -216,7 +216,9 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if canStreamIncomingRequestBody(plan, r) {
-			s.handlePlannedProxy(w, r, plan, newStreamingRuntimeRequestBodySource(r.Body, r.ContentLength))
+			observer := newGeminiGenerationParamsStreamingObserver()
+			plan.RequestGenerationSnapshot = observer.Snapshot
+			s.handlePlannedProxy(w, r, plan, newStreamingRuntimeRequestBodySource(r.Body, r.ContentLength).withGenerationParamsObserver(observer))
 			return
 		}
 	}
