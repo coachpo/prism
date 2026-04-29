@@ -79,6 +79,7 @@ function createBootstrapResponse() {
           max_idle_conns_per_host: 10,
           max_conns_per_host: 0,
           idle_conn_timeout: "90s",
+          request_timeout: "60s",
           response_header_timeout: "30s",
           tls_handshake_timeout: "10s",
           expect_continue_timeout: "1s",
@@ -244,6 +245,7 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByRole("textbox", { name: "Database URL" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "JWT signing key" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "SMTP password" })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 
@@ -285,6 +287,25 @@ test("client validation reports invalid port and CORS without backend validate",
   expect(routes.getValidateRequests()).toHaveLength(0);
 });
 
+test("client validation blocks blank request timeout validate and save", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Request timeout" }).fill("");
+  await page.getByRole("button", { name: "Validate" }).click();
+
+  await expect(page.getByRole("row", { name: /runtime\.transport\.request_timeout.*This field is required\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(0);
+
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByRole("row", { name: /runtime\.transport\.request_timeout.*This field is required\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(0);
+  expect(routes.getUpdateRequests()).toHaveLength(0);
+});
+
 test("dangerous port save requires checklist, AlertDialog confirmation, and shows restart-required state", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
@@ -303,9 +324,12 @@ test("dangerous port save requires checklist, AlertDialog confirmation, and show
   await expect(page.getByText("Restart required").first()).toBeVisible();
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(1);
+  expect(routes.getValidateRequests()[0]).toMatchObject({
+    values: { runtime: { transport: { request_timeout: "60s" } } },
+  });
   expect(routes.getUpdateRequests()[0]).toMatchObject({
     confirmations: ["server-port-change"],
-    values: { server: { port: 18001 } },
+    values: { server: { port: 18001 }, runtime: { transport: { request_timeout: "60s" } } },
   });
 });
 
