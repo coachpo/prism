@@ -531,6 +531,16 @@ export interface Messages {
     loadedRevision: string;
     loadFailedTitle: string;
     loadFailedDescription: string;
+    mail: string;
+    mailAndSmtpDescription: string;
+    mailAndSmtpTitle: string;
+    mailEnabled: string;
+    mailEnabledDescription: string;
+    mailFrom: string;
+    mailFromPlaceholder: string;
+    mailFromRequired: string;
+    mailReplyTo: string;
+    mailReplyToPlaceholder: string;
     managementMaxConns: string;
     managementMinIdle: string;
     minIdleMustNotExceedMax: string;
@@ -596,6 +606,40 @@ export interface Messages {
     startupBootstrapConfigTitle: string;
     startupBootstrapConfigDescription: string;
     streaming: string;
+    smtp: string;
+    smtpAuth: string;
+    smtpAuthNone: string;
+    smtpAuthPlain: string;
+    smtpAuthPlaceholder: string;
+    smtpAuthRequired: string;
+    smtpDescription: string;
+    smtpDisabledDescription: string;
+    smtpEhloHostname: string;
+    smtpEhloHostnamePlaceholder: string;
+    smtpHost: string;
+    smtpHostPlaceholder: string;
+    smtpHostRequired: string;
+    smtpMode: string;
+    smtpModeImplicitTls: string;
+    smtpModePlaintextLocalOnly: string;
+    smtpModeRequired: string;
+    smtpModeStarttlsRequired: string;
+    smtpPassword: string;
+    smtpPasswordFile: string;
+    smtpPasswordFileDescription: string;
+    smtpPasswordFilePlaceholder: string;
+    smtpPasswordSourceConflict: string;
+    smtpPasswordSourceRequired: string;
+    smtpPort: string;
+    smtpPortRange: string;
+    smtpTimeout: string;
+    smtpTimeoutPlaceholder: string;
+    smtpTimeoutRequired: string;
+    smtpTlsServerName: string;
+    smtpTlsServerNamePlaceholder: string;
+    smtpUsername: string;
+    smtpUsernamePlaceholder: string;
+    smtpUsernameRequired: string;
     transport: string;
     transportDescription: string;
     transportTitle: string;
@@ -2413,6 +2457,16 @@ export const enMessages: Messages = {
     loadedRevision: "Loaded revision",
     loadFailedTitle: "Startup bootstrap config unavailable",
     loadFailedDescription: "The startup bootstrap config could not be loaded.",
+    mail: "Mail",
+    mailAndSmtpDescription: "Auth email delivery and SMTP settings loaded on the next restart.",
+    mailAndSmtpTitle: "Mail and SMTP",
+    mailEnabled: "Enable auth email delivery",
+    mailEnabledDescription: "When disabled, Prism uses no-op email delivery and does not require SMTP settings.",
+    mailFrom: "Mail sender",
+    mailFromPlaceholder: "Prism <noreply@example.com>",
+    mailFromRequired: "Mail sender is required when mail is enabled.",
+    mailReplyTo: "Reply-to address",
+    mailReplyToPlaceholder: "support@example.com",
     managementMaxConns: "Management max conns",
     managementMinIdle: "Management min idle",
     minIdleMustNotExceedMax: "Minimum idle connections must not exceed max connections.",
@@ -2478,6 +2532,40 @@ export const enMessages: Messages = {
     startupBootstrapConfigTitle: "Startup bootstrap config",
     startupBootstrapConfigDescription: "These settings are loaded when Prism starts. Saving updates config.json; restart Prism for changes to take effect.",
     streaming: "streaming",
+    smtp: "SMTP",
+    smtpAuth: "SMTP auth",
+    smtpAuthNone: "No SMTP auth",
+    smtpAuthPlain: "Plain username and password",
+    smtpAuthPlaceholder: "Select SMTP auth",
+    smtpAuthRequired: "Select a valid SMTP auth mode.",
+    smtpDescription: "Configure the outbound SMTP connection used for password reset and recovery email messages.",
+    smtpDisabledDescription: "Enable mail delivery to edit SMTP connection settings.",
+    smtpEhloHostname: "EHLO hostname",
+    smtpEhloHostnamePlaceholder: "prism.example.com",
+    smtpHost: "SMTP host",
+    smtpHostPlaceholder: "smtp.example.com",
+    smtpHostRequired: "SMTP host is required when mail is enabled.",
+    smtpMode: "SMTP mode",
+    smtpModeImplicitTls: "Implicit TLS",
+    smtpModePlaintextLocalOnly: "Plaintext local only",
+    smtpModeRequired: "Select a valid SMTP mode.",
+    smtpModeStarttlsRequired: "STARTTLS required",
+    smtpPassword: "SMTP password",
+    smtpPasswordFile: "SMTP password file",
+    smtpPasswordFileDescription: "Use a mounted secret file instead of storing an inline SMTP password.",
+    smtpPasswordFilePlaceholder: "/run/secrets/prism-smtp-password",
+    smtpPasswordSourceConflict: "Use either an inline SMTP password replacement or a password file, not both.",
+    smtpPasswordSourceRequired: "Plain SMTP auth requires exactly one password source.",
+    smtpPort: "SMTP port",
+    smtpPortRange: "SMTP port must be an integer from 1 to 65535.",
+    smtpTimeout: "SMTP timeout",
+    smtpTimeoutPlaceholder: "15s",
+    smtpTimeoutRequired: "SMTP timeout is required when mail is enabled.",
+    smtpTlsServerName: "TLS server name",
+    smtpTlsServerNamePlaceholder: "smtp.example.com",
+    smtpUsername: "SMTP username",
+    smtpUsernamePlaceholder: "smtp-user",
+    smtpUsernameRequired: "Plain SMTP auth requires a username.",
     transport: "Transport",
     transportDescription: "Proxy buffering and HTTP transport limits used after restart.",
     transportTitle: "Runtime transport",

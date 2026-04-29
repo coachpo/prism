@@ -123,12 +123,13 @@ function createBootstrapResponse() {
 
 type MockOptions = {
   bootstrapGate?: Promise<void>;
+  bootstrapResponse?: ReturnType<typeof createBootstrapResponse>;
   validateFailure?: { status: number; body: unknown };
 };
 
 async function mockSettingsStartupRoutes(page: Page, options: MockOptions = {}) {
   const profile = createProfile();
-  let bootstrapResponse = createBootstrapResponse();
+  let bootstrapResponse = options.bootstrapResponse ?? createBootstrapResponse();
   const validateRequests: unknown[] = [];
   const updateRequests: unknown[] = [];
 
@@ -244,9 +245,130 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(maskedSmtpPassword)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Database URL" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "JWT signing key" })).toHaveValue("");
-  await expect(page.getByRole("textbox", { name: "SMTP password" })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
+});
+
+test("mail and SMTP startup card renders every safe field", async ({ page }) => {
+  await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+
+  await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).toBeChecked();
+  await expect(page.getByRole("textbox", { name: "Mail sender" })).toHaveValue("Prism <noreply@example.com>");
+  await expect(page.getByRole("textbox", { name: "Reply-to address" })).toHaveValue("support@example.com");
+  await expect(page.getByRole("textbox", { name: "SMTP host" })).toHaveValue("smtp.example.com");
+  await expect(page.getByRole("spinbutton", { name: "SMTP port" })).toHaveValue("587");
+  await expect(page.getByRole("combobox", { name: "SMTP mode" })).toContainText("STARTTLS required");
+  await expect(page.getByRole("textbox", { name: "EHLO hostname" })).toHaveValue("prism.example.com");
+  await expect(page.getByRole("combobox", { name: "SMTP auth" })).toContainText("Plain username and password");
+  await expect(page.getByRole("textbox", { name: "SMTP username" })).toHaveValue("smtp-user");
+  await expect(page.getByRole("textbox", { name: "SMTP password file" })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "SMTP timeout" })).toHaveValue("15s");
+  await expect(page.getByRole("textbox", { name: "TLS server name" })).toHaveValue("smtp.example.com");
+});
+
+test("legacy missing mail hydrates as disabled and saves canonical disabled mail", async ({ page }) => {
+  const legacyResponse = createBootstrapResponse();
+  delete (legacyResponse.values as { mail?: unknown }).mail;
+  const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: legacyResponse });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
+  await expect(page.getByRole("textbox", { name: "SMTP host" })).toBeDisabled();
+
+  await page.getByRole("button", { name: "Save startup config" }).click();
+  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+
+  expect(routes.getValidateRequests()).toHaveLength(1);
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+  expect(routes.getUpdateRequests()[0]).toMatchObject({
+    values: { mail: { enabled: false, from: null, reply_to: null, smtp: null } },
+  });
+});
+
+test("enabled blank mail validates on the client without backend validate", async ({ page }) => {
+  const legacyResponse = createBootstrapResponse();
+  delete (legacyResponse.values as { mail?: unknown }).mail;
+  const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: legacyResponse });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+
+  await page.getByRole("switch", { name: "Enable auth email delivery" }).click();
+  await page.getByRole("button", { name: "Validate" }).click();
+
+  await expect(page.getByRole("row", { name: /mail\.from.*Mail sender is required when mail is enabled\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /mail\.smtp\.host.*SMTP host is required when mail is enabled\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /mail\.smtp\.port.*SMTP port must be an integer from 1 to 65535\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(0);
+  expect(routes.getUpdateRequests()).toHaveLength(0);
+});
+
+test("enabled mail saves password file separately from SMTP password secret updates", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "SMTP password file" }).fill("/run/secrets/prism-smtp-password");
+  await page.getByRole("button", { name: "Save startup config" }).click();
+  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+  const payload = routes.getUpdateRequests()[0] as {
+    values: { mail: { smtp: Record<string, unknown> } };
+    secret_updates: Record<string, { action: string; value?: string }>;
+  };
+  expect(payload.values.mail.smtp.password_file).toBe("/run/secrets/prism-smtp-password");
+  expect(payload.values.mail.smtp).not.toHaveProperty("password");
+  expect(payload.secret_updates["mail.smtp.password"]).toEqual({ action: "preserve" });
+});
+
+test("enabled mail saves inline SMTP password replacement only through secret updates", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "SMTP password", exact: true }).fill("new-smtp-password");
+  await page.getByRole("button", { name: "Save startup config" }).click();
+  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+  const payload = routes.getUpdateRequests()[0] as {
+    values: { mail: { smtp: Record<string, unknown> } };
+    secret_updates: Record<string, { action: string; value?: string }>;
+  };
+  expect(payload.secret_updates["mail.smtp.password"]).toEqual({ action: "replace", value: "new-smtp-password" });
+  expect(payload.values.mail.smtp.password_file).toBeNull();
+  expect(payload.values.mail.smtp).not.toHaveProperty("password");
+});
+
+test("disabling mail after staging SMTP password saves disabled mail without replacement", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Mail and SMTP")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "SMTP password", exact: true }).fill("discarded-smtp-password");
+  await page.getByRole("switch", { name: "Enable auth email delivery" }).click();
+  await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
+  await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Save startup config" }).click();
+  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+  const payload = routes.getUpdateRequests()[0] as {
+    values: { mail: { enabled: boolean; from: unknown; reply_to: unknown; smtp: unknown } };
+    secret_updates: Record<string, { action: string; value?: string }>;
+  };
+  expect(payload.values.mail).toEqual({ enabled: false, from: null, reply_to: null, smtp: null });
+  expect(payload.secret_updates["mail.smtp.password"]).toEqual({ action: "preserve" });
 });
 
 test("invalid settings hashes normalize and tab switches keep the URL in sync", async ({ page }) => {

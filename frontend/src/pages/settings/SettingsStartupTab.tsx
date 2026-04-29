@@ -6,6 +6,7 @@ import {
   FileJson,
   KeyRound,
   Loader2,
+  Mail,
   Network,
   RefreshCw,
   Save,
@@ -53,6 +54,8 @@ import type {
   BootstrapConfigSecretKey,
   BootstrapConfigSecretUpdates,
   BootstrapConfigUpdateRequest,
+  BootstrapConfigMailSMTPValues,
+  BootstrapConfigMailValues,
   BootstrapConfigValues,
 } from "@/lib/types";
 
@@ -90,6 +93,46 @@ const emptySecretInputs = (): SecretInputState => ({
 });
 
 const cloneValues = (values: BootstrapConfigValues): BootstrapConfigValues => structuredClone(values);
+
+function defaultSMTPValues(): BootstrapConfigMailSMTPValues {
+  return {
+    host: null,
+    port: null,
+    mode: "starttls_required",
+    ehlo_hostname: null,
+    auth: "none",
+    username: null,
+    password_file: null,
+    timeout: "15s",
+    tls_server_name: null,
+  };
+}
+
+function defaultDisabledMailValues(): BootstrapConfigMailValues {
+  return {
+    enabled: false,
+    from: null,
+    reply_to: null,
+    smtp: null,
+  };
+}
+
+function normalizeMailValues(mail: BootstrapConfigMailValues | null | undefined): BootstrapConfigMailValues {
+  if (!mail || !mail.enabled) {
+    return defaultDisabledMailValues();
+  }
+  return {
+    ...mail,
+    enabled: true,
+    smtp: mail.smtp ?? defaultSMTPValues(),
+  };
+}
+
+function normalizeBootstrapValues(values: BootstrapConfigValues): BootstrapConfigValues {
+  const nextValues = cloneValues(values);
+  nextValues.mail = normalizeMailValues(nextValues.mail);
+  return nextValues;
+}
 
 function textValue(value: string | null): string {
   return value ?? "";
@@ -143,6 +186,15 @@ function isPositiveInteger(value: number | null): boolean {
 function isNonNegativeInteger(value: number | null): boolean {
   return Number.isInteger(value) && value !== null && value >= 0;
 }
+
+function isValidSMTPMode(value: string | null): boolean {
+  return value === "starttls_required" || value === "implicit_tls" || value === "plaintext_local_only";
+}
+
+function isValidSMTPAuth(value: string | null): boolean {
+  return value === "none" || value === "plain";
+}
+
 function buildPreserveSecretUpdates(): BootstrapConfigSecretUpdates {
   return {
     "database.url": { action: "preserve" },
@@ -345,9 +397,13 @@ export function SettingsStartupTab() {
   const [dangerDialogOpen, setDangerDialogOpen] = useState(false);
 
   const hydrateConfig = useCallback((response: BootstrapConfigResponse) => {
-    setBootstrapConfig(response);
-    setValues(cloneValues(response.values));
-    setCorsOriginsText(formatOrigins(response.values.http.cors_allowed_origins));
+    const normalizedResponse = {
+      ...response,
+      values: normalizeBootstrapValues(response.values),
+    };
+    setBootstrapConfig(normalizedResponse);
+    setValues(cloneValues(normalizedResponse.values));
+    setCorsOriginsText(formatOrigins(normalizedResponse.values.http.cors_allowed_origins));
     setConfirmedTokens([]);
     setValidationRows([]);
     setFieldErrors({});
@@ -426,6 +482,76 @@ export function SettingsStartupTab() {
     });
   }, [updateValues]);
 
+  const setMailEnabled = useCallback((checked: boolean) => {
+    if (!checked) {
+      setSecretInputs((current) => ({ ...current, "mail.smtp.password": "" }));
+    }
+    updateValues((current) => {
+      if (!checked) {
+        return { ...current, mail: defaultDisabledMailValues() };
+      }
+      const currentMail = normalizeMailValues(current.mail);
+      return {
+        ...current,
+        mail: {
+          ...currentMail,
+          enabled: true,
+          smtp: currentMail.smtp ?? defaultSMTPValues(),
+        },
+      };
+    });
+  }, [updateValues]);
+
+  const setMailStringField = useCallback((field: "from" | "reply_to", rawValue: string) => {
+    updateValues((current) => {
+      const currentMail = normalizeMailValues(current.mail);
+      return {
+        ...current,
+        mail: {
+          ...currentMail,
+          [field]: rawValue.trim() || null,
+        },
+      };
+    });
+  }, [updateValues]);
+
+  const setSMTPStringField = useCallback((field: keyof BootstrapConfigMailSMTPValues, rawValue: string) => {
+    updateValues((current) => {
+      const currentMail = normalizeMailValues(current.mail);
+      const currentSMTP = currentMail.smtp ?? defaultSMTPValues();
+      return {
+        ...current,
+        mail: {
+          ...currentMail,
+          enabled: true,
+          smtp: {
+            ...currentSMTP,
+            [field]: rawValue.trim() || null,
+          },
+        },
+      };
+    });
+  }, [updateValues]);
+
+  const setSMTPNumberField = useCallback((field: keyof BootstrapConfigMailSMTPValues, rawValue: string) => {
+    const parsed = parseNullableInteger(rawValue);
+    updateValues((current) => {
+      const currentMail = normalizeMailValues(current.mail);
+      const currentSMTP = currentMail.smtp ?? defaultSMTPValues();
+      return {
+        ...current,
+        mail: {
+          ...currentMail,
+          enabled: true,
+          smtp: {
+            ...currentSMTP,
+            [field]: parsed,
+          },
+        },
+      };
+    });
+  }, [updateValues]);
+
   const handleSecretInputChange = useCallback((secretKey: BootstrapConfigSecretKey, value: string) => {
     if (secretKey === "runtime.secretEncryptionKey") {
       return;
@@ -440,14 +566,19 @@ export function SettingsStartupTab() {
 
   const secretUpdates = useMemo<BootstrapConfigSecretUpdates>(() => {
     const updates = buildPreserveSecretUpdates();
+    const mailEnabled = values ? normalizeMailValues(values.mail).enabled : false;
     for (const secretKey of SECRET_KEYS) {
+      if (secretKey === "mail.smtp.password" && !mailEnabled) {
+        continue;
+      }
       const replacement = secretInputs[secretKey].trim();
-      if (secretKey !== "runtime.secretEncryptionKey" && replacement) {
+      const masked = bootstrapConfig?.secrets[secretKey].masked ?? "";
+      if (secretKey !== "runtime.secretEncryptionKey" && replacement && replacement !== masked) {
         updates[secretKey] = { action: "replace", value: replacement };
       }
     }
     return updates;
-  }, [secretInputs]);
+  }, [bootstrapConfig, secretInputs, values]);
 
   const dangerousConfirmations = useMemo<DangerousConfirmation[]>(() => {
     if (!bootstrapConfig || !values) {
@@ -517,8 +648,53 @@ export function SettingsStartupTab() {
     } else if (origins.some((origin) => !isAbsoluteUrl(origin))) {
       addError("http.cors_allowed_origins", copy.corsOriginsAbsolute);
     }
+    const mailValues = normalizeMailValues(values.mail);
+    if (mailValues.enabled) {
+      const smtpValues = mailValues.smtp ?? defaultSMTPValues();
+      if (!mailValues.from?.trim()) {
+        addError("mail.from", copy.mailFromRequired);
+      }
+      if (!smtpValues.host?.trim()) {
+        addError("mail.smtp.host", copy.smtpHostRequired);
+      }
+      if (!smtpValues.port || smtpValues.port < 1 || smtpValues.port > 65535) {
+        addError("mail.smtp.port", copy.smtpPortRange);
+      }
+      if (!isValidSMTPMode(smtpValues.mode)) {
+        addError("mail.smtp.mode", copy.smtpModeRequired);
+      }
+      if (!smtpValues.timeout?.trim()) {
+        addError("mail.smtp.timeout", copy.smtpTimeoutRequired);
+      }
+      if (!isValidSMTPAuth(smtpValues.auth)) {
+        addError("mail.smtp.auth", copy.smtpAuthRequired);
+      }
+      const smtpPasswordUpdate = secretUpdates["mail.smtp.password"];
+      const stagedInlinePassword = smtpPasswordUpdate.action === "replace";
+      const passwordFileSet = Boolean(smtpValues.password_file?.trim());
+      const preservedInlinePassword = Boolean(
+        bootstrapConfig?.secrets["mail.smtp.password"].configured &&
+        smtpPasswordUpdate.action === "preserve" &&
+        !passwordFileSet,
+      );
+      if (stagedInlinePassword && passwordFileSet) {
+        addError("mail.smtp.password_file", copy.smtpPasswordSourceConflict);
+        addError("mail.smtp.password", copy.smtpPasswordSourceConflict);
+      }
+      if (smtpValues.auth === "plain") {
+        if (!smtpValues.username?.trim()) {
+          addError("mail.smtp.username", copy.smtpUsernameRequired);
+        }
+        const passwordSourceCount = [stagedInlinePassword, passwordFileSet, preservedInlinePassword].filter(Boolean).length;
+        if (passwordSourceCount === 0) {
+          addError("mail.smtp.password", copy.smtpPasswordSourceRequired);
+        } else if (passwordSourceCount > 1) {
+          addError("mail.smtp.password", copy.smtpPasswordSourceConflict);
+        }
+      }
+    }
     return { errors, rows };
-  }, [copy, corsOriginsText, values]);
+  }, [bootstrapConfig, copy, corsOriginsText, secretUpdates, values]);
 
   const validateNumericRelationships = useCallback((errors: FieldErrors, rows: ValidationRow[]) => {
     if (!values) {
@@ -579,7 +755,7 @@ export function SettingsStartupTab() {
     if (!bootstrapConfig || !values) {
       return null;
     }
-    const nextValues = cloneValues(values);
+    const nextValues = normalizeBootstrapValues(values);
     nextValues.http.cors_allowed_origins = parseOrigins(corsOriginsText);
     return {
       expected_revision: bootstrapConfig.file_revision,
@@ -710,6 +886,10 @@ export function SettingsStartupTab() {
   }
 
   const controlsDisabled = saving || validating || !bootstrapConfig.writable;
+  const mailValues = normalizeMailValues(values.mail);
+  const smtpValues = mailValues.smtp ?? defaultSMTPValues();
+  const mailEnabled = Boolean(mailValues.enabled);
+  const smtpControlsDisabled = controlsDisabled || !mailEnabled;
 
   return (
     <div className="flex flex-col gap-6">
@@ -835,12 +1015,11 @@ export function SettingsStartupTab() {
             <CardDescription>{copy.authAndCookiesDescription}</CardDescription>
           </CardHeader>
           <CardContent>
-            <FieldSet disabled={controlsDisabled}>
-              <FieldLegend>{copy.auth}</FieldLegend>
-              <FieldGroup>
-                <SecretReplacementField id="startup-jwt-key" label={copy.jwtSigningKey} secretKey="auth.jwtSigningKey" masked={bootstrapConfig.secrets["auth.jwtSigningKey"].masked} configured={bootstrapConfig.secrets["auth.jwtSigningKey"].configured} editable={bootstrapConfig.secrets["auth.jwtSigningKey"].editable && !controlsDisabled} value={secretInputs["auth.jwtSigningKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
-                <SecretReplacementField id="startup-smtp-password" label="SMTP password" secretKey="mail.smtp.password" masked={bootstrapConfig.secrets["mail.smtp.password"].masked} configured={bootstrapConfig.secrets["mail.smtp.password"].configured} editable={bootstrapConfig.secrets["mail.smtp.password"].editable && !controlsDisabled} value={secretInputs["mail.smtp.password"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
-                <div className="grid gap-4 md:grid-cols-2">
+              <FieldSet disabled={controlsDisabled}>
+                <FieldLegend>{copy.auth}</FieldLegend>
+                <FieldGroup>
+                  <SecretReplacementField id="startup-jwt-key" label={copy.jwtSigningKey} secretKey="auth.jwtSigningKey" masked={bootstrapConfig.secrets["auth.jwtSigningKey"].masked} configured={bootstrapConfig.secrets["auth.jwtSigningKey"].configured} editable={bootstrapConfig.secrets["auth.jwtSigningKey"].editable && !controlsDisabled} value={secretInputs["auth.jwtSigningKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+                  <div className="grid gap-4 md:grid-cols-2">
                   <StartupInputField id="startup-access-ttl" label={copy.accessTokenTtlSeconds} type="number" value={numberValue(values.auth.access_token_ttl_seconds)} error={fieldErrors["auth.access_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.access_token_ttl_seconds", value)} />
                   <StartupInputField id="startup-refresh-ttl" label={copy.refreshTokenTtlSeconds} type="number" value={numberValue(values.auth.refresh_token_ttl_seconds)} error={fieldErrors["auth.refresh_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.refresh_token_ttl_seconds", value)} />
                   <StartupInputField id="startup-reset-ttl" label={copy.resetCodeTtlSeconds} type="number" value={numberValue(values.auth.reset_code_ttl_seconds)} error={fieldErrors["auth.reset_code_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.reset_code_ttl_seconds", value)} />
@@ -851,6 +1030,60 @@ export function SettingsStartupTab() {
                   <FieldContent><FieldLabel htmlFor="startup-cookie-secure">{copy.secureCookies}</FieldLabel><FieldDescription>{copy.secureCookiesDescription}</FieldDescription></FieldContent>
                   <Switch id="startup-cookie-secure" checked={Boolean(values.auth.cookie_secure)} disabled={controlsDisabled} onCheckedChange={(checked) => setBooleanField("auth.cookie_secure", checked)} />
                 </Field>
+              </FieldGroup>
+            </FieldSet>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm"><Mail />{copy.mailAndSmtpTitle}</CardTitle>
+            <CardDescription>{copy.mailAndSmtpDescription}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldSet disabled={controlsDisabled}>
+              <FieldLegend>{copy.mail}</FieldLegend>
+              <FieldGroup>
+                <Field orientation="horizontal" data-disabled={controlsDisabled || undefined}>
+                  <FieldContent><FieldLabel htmlFor="startup-mail-enabled">{copy.mailEnabled}</FieldLabel><FieldDescription>{copy.mailEnabledDescription}</FieldDescription></FieldContent>
+                  <Switch id="startup-mail-enabled" checked={mailEnabled} disabled={controlsDisabled} onCheckedChange={setMailEnabled} />
+                </Field>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <StartupInputField id="startup-mail-from" label={copy.mailFrom} value={textValue(mailValues.from)} placeholder={copy.mailFromPlaceholder} error={fieldErrors["mail.from"]} disabled={smtpControlsDisabled} onChange={(value) => setMailStringField("from", value)} />
+                  <StartupInputField id="startup-mail-reply-to" label={copy.mailReplyTo} value={textValue(mailValues.reply_to)} placeholder={copy.mailReplyToPlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setMailStringField("reply_to", value)} />
+                </div>
+              </FieldGroup>
+            </FieldSet>
+            <Separator className="my-6" />
+            <FieldSet disabled={smtpControlsDisabled}>
+              <FieldLegend>{copy.smtp}</FieldLegend>
+              <FieldDescription>{mailEnabled ? copy.smtpDescription : copy.smtpDisabledDescription}</FieldDescription>
+              <FieldGroup>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <StartupInputField id="startup-smtp-host" label={copy.smtpHost} value={textValue(smtpValues.host)} placeholder={copy.smtpHostPlaceholder} error={fieldErrors["mail.smtp.host"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("host", value)} />
+                  <StartupInputField id="startup-smtp-port" label={copy.smtpPort} type="number" value={numberValue(smtpValues.port)} error={fieldErrors["mail.smtp.port"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPNumberField("port", value)} />
+                  <Field data-invalid={Boolean(fieldErrors["mail.smtp.mode"]) || undefined} data-disabled={smtpControlsDisabled || undefined}>
+                    <FieldLabel htmlFor="startup-smtp-mode">{copy.smtpMode}</FieldLabel>
+                    <Select value={smtpValues.mode ?? ""} disabled={smtpControlsDisabled} onValueChange={(value) => setSMTPStringField("mode", value)}>
+                      <SelectTrigger id="startup-smtp-mode" aria-invalid={Boolean(fieldErrors["mail.smtp.mode"]) || undefined}><SelectValue placeholder={copy.selectMode} /></SelectTrigger>
+                      <SelectContent><SelectGroup><SelectItem value="starttls_required">{copy.smtpModeStarttlsRequired}</SelectItem><SelectItem value="implicit_tls">{copy.smtpModeImplicitTls}</SelectItem><SelectItem value="plaintext_local_only">{copy.smtpModePlaintextLocalOnly}</SelectItem></SelectGroup></SelectContent>
+                    </Select>
+                    <FieldError>{fieldErrors["mail.smtp.mode"]}</FieldError>
+                  </Field>
+                  <StartupInputField id="startup-smtp-ehlo" label={copy.smtpEhloHostname} value={textValue(smtpValues.ehlo_hostname)} placeholder={copy.smtpEhloHostnamePlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("ehlo_hostname", value)} />
+                  <Field data-invalid={Boolean(fieldErrors["mail.smtp.auth"]) || undefined} data-disabled={smtpControlsDisabled || undefined}>
+                    <FieldLabel htmlFor="startup-smtp-auth">{copy.smtpAuth}</FieldLabel>
+                    <Select value={smtpValues.auth ?? ""} disabled={smtpControlsDisabled} onValueChange={(value) => setSMTPStringField("auth", value)}>
+                      <SelectTrigger id="startup-smtp-auth" aria-invalid={Boolean(fieldErrors["mail.smtp.auth"]) || undefined}><SelectValue placeholder={copy.smtpAuthPlaceholder} /></SelectTrigger>
+                      <SelectContent><SelectGroup><SelectItem value="none">{copy.smtpAuthNone}</SelectItem><SelectItem value="plain">{copy.smtpAuthPlain}</SelectItem></SelectGroup></SelectContent>
+                    </Select>
+                    <FieldError>{fieldErrors["mail.smtp.auth"]}</FieldError>
+                  </Field>
+                  <StartupInputField id="startup-smtp-username" label={copy.smtpUsername} value={textValue(smtpValues.username)} placeholder={copy.smtpUsernamePlaceholder} error={fieldErrors["mail.smtp.username"]} disabled={smtpControlsDisabled || smtpValues.auth !== "plain"} onChange={(value) => setSMTPStringField("username", value)} />
+                  <StartupInputField id="startup-smtp-password-file" label={copy.smtpPasswordFile} value={textValue(smtpValues.password_file)} placeholder={copy.smtpPasswordFilePlaceholder} description={copy.smtpPasswordFileDescription} error={fieldErrors["mail.smtp.password_file"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("password_file", value)} />
+                  <StartupInputField id="startup-smtp-timeout" label={copy.smtpTimeout} value={textValue(smtpValues.timeout)} placeholder={copy.smtpTimeoutPlaceholder} error={fieldErrors["mail.smtp.timeout"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("timeout", value)} />
+                  <StartupInputField id="startup-smtp-tls-server-name" label={copy.smtpTlsServerName} value={textValue(smtpValues.tls_server_name)} placeholder={copy.smtpTlsServerNamePlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("tls_server_name", value)} />
+                </div>
+                <SecretReplacementField id="startup-smtp-password" label={copy.smtpPassword} secretKey="mail.smtp.password" masked={bootstrapConfig.secrets["mail.smtp.password"].masked} configured={bootstrapConfig.secrets["mail.smtp.password"].configured} editable={mailEnabled && bootstrapConfig.secrets["mail.smtp.password"].editable && !controlsDisabled} value={secretInputs["mail.smtp.password"]} copy={copy} error={fieldErrors["mail.smtp.password"]} onChange={handleSecretInputChange} onClear={clearSecretInput} />
               </FieldGroup>
             </FieldSet>
           </CardContent>
