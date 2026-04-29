@@ -11534,6 +11534,35 @@
               }
             ],
             "title": "Error Detail"
+          },
+          "request_generation_params": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Generation Params"
+          },
+          "request_generation_params_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "missing",
+                  "malformed",
+                  "incomplete",
+                  "skipped_oversize"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Generation Params Status"
           }
         },
         "type": "object",

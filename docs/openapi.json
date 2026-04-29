@@ -11364,34 +11364,93 @@
           "detail": {
             "type": "object",
             "properties": {
-              "message": {"type": "string", "title": "Message"},
-              "expected_revision": {"type": "integer", "title": "Expected Revision"},
-              "current_revision": {"type": "integer", "title": "Current Revision"},
-              "expected_etag": {"type": "string", "title": "Expected Etag"},
-              "current_etag": {"type": "string", "title": "Current Etag"}
+              "message": {
+                "type": "string",
+                "title": "Message"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "title": "Expected Revision"
+              },
+              "current_revision": {
+                "type": "integer",
+                "title": "Current Revision"
+              },
+              "expected_etag": {
+                "type": "string",
+                "title": "Expected Etag"
+              },
+              "current_etag": {
+                "type": "string",
+                "title": "Current Etag"
+              }
             },
-            "required": ["message", "expected_revision", "current_revision", "expected_etag", "current_etag"],
+            "required": [
+              "message",
+              "expected_revision",
+              "current_revision",
+              "expected_etag",
+              "current_etag"
+            ],
             "title": "BootstrapConfigConflictDetail"
           }
         },
         "type": "object",
-        "required": ["detail"],
+        "required": [
+          "detail"
+        ],
         "title": "BootstrapConfigConflictResponse"
       },
       "BootstrapConfigResponse": {
         "properties": {
-          "config_path": {"type": "string", "title": "Config Path"},
-          "schema_version": {"type": "integer", "title": "Schema Version"},
-          "file_revision": {"type": "integer", "title": "File Revision"},
-          "loaded_revision": {"type": "integer", "title": "Loaded Revision"},
-          "document_etag": {"type": "string", "title": "Document Etag"},
-          "loaded_document_etag": {"type": "string", "title": "Loaded Document Etag"},
-          "created_at": {"type": "string", "format": "date-time", "title": "Created At"},
-          "updated_at": {"type": "string", "format": "date-time", "title": "Updated At"},
-          "restart_required": {"type": "boolean", "title": "Restart Required"},
-          "writable": {"type": "boolean", "title": "Writable"},
-          "values": {"$ref": "#/components/schemas/BootstrapConfigValues"},
-          "secrets": {"$ref": "#/components/schemas/BootstrapConfigSecrets"}
+          "config_path": {
+            "type": "string",
+            "title": "Config Path"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "file_revision": {
+            "type": "integer",
+            "title": "File Revision"
+          },
+          "loaded_revision": {
+            "type": "integer",
+            "title": "Loaded Revision"
+          },
+          "document_etag": {
+            "type": "string",
+            "title": "Document Etag"
+          },
+          "loaded_document_etag": {
+            "type": "string",
+            "title": "Loaded Document Etag"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "restart_required": {
+            "type": "boolean",
+            "title": "Restart Required"
+          },
+          "writable": {
+            "type": "boolean",
+            "title": "Writable"
+          },
+          "values": {
+            "$ref": "#/components/schemas/BootstrapConfigValues"
+          },
+          "secrets": {
+            "$ref": "#/components/schemas/BootstrapConfigSecrets"
+          }
         },
         "type": "object",
         "required": [
@@ -11412,196 +11471,705 @@
       },
       "BootstrapConfigSecretMetadata": {
         "properties": {
-          "configured": {"type": "boolean", "title": "Configured"},
-          "editable": {"type": "boolean", "title": "Editable"},
-          "masked": {"type": "string", "title": "Masked"}
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable"
+          },
+          "masked": {
+            "type": "string",
+            "title": "Masked"
+          }
         },
         "type": "object",
-        "required": ["configured", "editable", "masked"],
+        "required": [
+          "configured",
+          "editable",
+          "masked"
+        ],
         "title": "BootstrapConfigSecretMetadata"
       },
       "BootstrapConfigSecretUpdate": {
         "properties": {
-          "action": {"type": "string", "enum": ["preserve", "replace"], "title": "Action"},
-          "value": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Value"}
+          "action": {
+            "type": "string",
+            "enum": [
+              "preserve",
+              "replace"
+            ],
+            "title": "Action"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
         },
         "type": "object",
-        "required": ["action"],
+        "required": [
+          "action"
+        ],
         "title": "BootstrapConfigSecretUpdate"
       },
       "BootstrapConfigSecrets": {
-        "additionalProperties": {"$ref": "#/components/schemas/BootstrapConfigSecretMetadata"},
+        "additionalProperties": {
+          "$ref": "#/components/schemas/BootstrapConfigSecretMetadata"
+        },
         "type": "object",
         "title": "BootstrapConfigSecrets"
       },
       "BootstrapConfigUpdateRequest": {
         "properties": {
-          "expected_revision": {"type": "integer", "minimum": 1, "title": "Expected Revision"},
-          "expected_etag": {"type": "string", "minLength": 1, "title": "Expected Etag"},
-          "values": {"$ref": "#/components/schemas/BootstrapConfigValues"},
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Expected Revision"
+          },
+          "expected_etag": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Expected Etag"
+          },
+          "values": {
+            "$ref": "#/components/schemas/BootstrapConfigValues"
+          },
           "secret_updates": {
-            "additionalProperties": {"$ref": "#/components/schemas/BootstrapConfigSecretUpdate"},
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BootstrapConfigSecretUpdate"
+            },
             "type": "object",
             "title": "Secret Updates"
           },
           "confirmations": {
-            "items": {"type": "string"},
+            "items": {
+              "type": "string"
+            },
             "type": "array",
             "title": "Confirmations"
           }
         },
         "type": "object",
-        "required": ["expected_revision", "expected_etag", "values", "secret_updates"],
+        "required": [
+          "expected_revision",
+          "expected_etag",
+          "values",
+          "secret_updates"
+        ],
         "title": "BootstrapConfigUpdateRequest"
       },
       "BootstrapConfigValidationErrorResponse": {
         "properties": {
           "detail": {
             "anyOf": [
-              {"type": "string"},
+              {
+                "type": "string"
+              },
               {
                 "type": "object",
                 "properties": {
-                  "message": {"type": "string", "title": "Message"},
-                  "field": {"type": "string", "title": "Field"},
-                  "action": {"type": "string", "title": "Action"},
-                  "reason": {"type": "string", "title": "Reason"},
+                  "message": {
+                    "type": "string",
+                    "title": "Message"
+                  },
+                  "field": {
+                    "type": "string",
+                    "title": "Field"
+                  },
+                  "action": {
+                    "type": "string",
+                    "title": "Action"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "title": "Reason"
+                  },
                   "required_confirmations": {
-                    "items": {"type": "string"},
+                    "items": {
+                      "type": "string"
+                    },
                     "type": "array",
                     "title": "Required Confirmations"
                   }
                 },
-                "required": ["message"]
+                "required": [
+                  "message"
+                ]
               }
             ],
             "title": "Detail"
           }
         },
         "type": "object",
-        "required": ["detail"],
+        "required": [
+          "detail"
+        ],
         "title": "BootstrapConfigValidationErrorResponse"
       },
       "BootstrapConfigValues": {
         "properties": {
-          "server": {"$ref": "#/components/schemas/BootstrapConfigServerValues"},
-          "database": {"$ref": "#/components/schemas/BootstrapConfigDatabaseValues"},
-          "runtime": {"$ref": "#/components/schemas/BootstrapConfigRuntimeValues"},
-          "http": {"$ref": "#/components/schemas/BootstrapConfigHTTPValues"},
-          "auth": {"$ref": "#/components/schemas/BootstrapConfigAuthValues"},
-          "mail": {"anyOf": [{"$ref": "#/components/schemas/BootstrapConfigMailValues"}, {"type": "null"}], "title": "Mail"}
+          "server": {
+            "$ref": "#/components/schemas/BootstrapConfigServerValues"
+          },
+          "database": {
+            "$ref": "#/components/schemas/BootstrapConfigDatabaseValues"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/BootstrapConfigRuntimeValues"
+          },
+          "http": {
+            "$ref": "#/components/schemas/BootstrapConfigHTTPValues"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/BootstrapConfigAuthValues"
+          },
+          "mail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapConfigMailValues"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mail"
+          }
         },
         "type": "object",
-        "required": ["server", "database", "runtime", "http", "auth"],
+        "required": [
+          "server",
+          "database",
+          "runtime",
+          "http",
+          "auth"
+        ],
         "title": "BootstrapConfigValues"
       },
       "BootstrapConfigMailValues": {
         "properties": {
-          "enabled": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "title": "Enabled"},
-          "from": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "From"},
-          "reply_to": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Reply To"},
-          "smtp": {"anyOf": [{"$ref": "#/components/schemas/BootstrapConfigMailSMTPValues"}, {"type": "null"}], "title": "Smtp"}
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To"
+          },
+          "smtp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapConfigMailSMTPValues"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp"
+          }
         },
         "type": "object",
-        "required": ["enabled", "from", "reply_to", "smtp"],
+        "required": [
+          "enabled",
+          "from",
+          "reply_to",
+          "smtp"
+        ],
         "title": "BootstrapConfigMailValues"
       },
       "BootstrapConfigMailSMTPValues": {
         "properties": {
-          "host": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Host"},
-          "port": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Port"},
-          "mode": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Mode"},
-          "ehlo_hostname": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Ehlo Hostname"},
-          "auth": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Auth"},
-          "username": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Username"},
-          "password_file": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Password File"},
-          "timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Timeout"},
-          "tls_server_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Tls Server Name"}
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "ehlo_hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ehlo Hostname"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password File"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "tls_server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tls Server Name"
+          }
         },
         "type": "object",
-        "required": ["host", "port", "mode", "ehlo_hostname", "auth", "username", "password_file", "timeout", "tls_server_name"],
+        "required": [
+          "host",
+          "port",
+          "mode",
+          "ehlo_hostname",
+          "auth",
+          "username",
+          "password_file",
+          "timeout",
+          "tls_server_name"
+        ],
         "title": "BootstrapConfigMailSMTPValues"
       },
       "BootstrapConfigServerValues": {
         "properties": {
-          "host": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Host"},
-          "port": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Port"},
-          "docs_enabled": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "title": "Docs Enabled"}
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "docs_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docs Enabled"
+          }
         },
         "type": "object",
-        "required": ["host", "port", "docs_enabled"],
+        "required": [
+          "host",
+          "port",
+          "docs_enabled"
+        ],
         "title": "BootstrapConfigServerValues"
       },
       "BootstrapConfigDatabaseValues": {
         "properties": {
-          "runtime_pool": {"$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"},
-          "management_pool": {"$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"},
-          "management_admission": {"$ref": "#/components/schemas/BootstrapConfigManagementAdmissionValues"}
+          "runtime_pool": {
+            "$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"
+          },
+          "management_pool": {
+            "$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"
+          },
+          "management_admission": {
+            "$ref": "#/components/schemas/BootstrapConfigManagementAdmissionValues"
+          }
         },
         "type": "object",
-        "required": ["runtime_pool", "management_pool", "management_admission"],
+        "required": [
+          "runtime_pool",
+          "management_pool",
+          "management_admission"
+        ],
         "title": "BootstrapConfigDatabaseValues"
       },
       "BootstrapConfigDatabasePoolValues": {
         "properties": {
-          "max_conns": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Conns"},
-          "min_idle_conns": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Min Idle Conns"}
+          "max_conns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Conns"
+          },
+          "min_idle_conns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Idle Conns"
+          }
         },
         "type": "object",
-        "required": ["max_conns", "min_idle_conns"],
+        "required": [
+          "max_conns",
+          "min_idle_conns"
+        ],
         "title": "BootstrapConfigDatabasePoolValues"
       },
       "BootstrapConfigManagementAdmissionValues": {
         "properties": {
-          "m2_max_concurrent": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "M2 Max Concurrent"},
-          "m3_max_concurrent": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "M3 Max Concurrent"}
+          "m2_max_concurrent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "M2 Max Concurrent"
+          },
+          "m3_max_concurrent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "M3 Max Concurrent"
+          }
         },
         "type": "object",
-        "required": ["m2_max_concurrent", "m3_max_concurrent"],
+        "required": [
+          "m2_max_concurrent",
+          "m3_max_concurrent"
+        ],
         "title": "BootstrapConfigManagementAdmissionValues"
       },
       "BootstrapConfigRuntimeValues": {
         "properties": {
-          "buffering_mode": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Buffering Mode"},
-          "transport": {"$ref": "#/components/schemas/BootstrapConfigRuntimeTransportValues"}
+          "buffering_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buffering Mode"
+          },
+          "transport": {
+            "$ref": "#/components/schemas/BootstrapConfigRuntimeTransportValues"
+          }
         },
         "type": "object",
-        "required": ["buffering_mode", "transport"],
+        "required": [
+          "buffering_mode",
+          "transport"
+        ],
         "title": "BootstrapConfigRuntimeValues"
       },
       "BootstrapConfigRuntimeTransportValues": {
         "properties": {
-          "max_idle_conns": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Idle Conns"},
-          "max_idle_conns_per_host": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Idle Conns Per Host"},
-          "max_conns_per_host": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Max Conns Per Host"},
-          "idle_conn_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Idle Conn Timeout"},
-          "response_header_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Response Header Timeout"},
-          "tls_handshake_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Tls Handshake Timeout"},
-          "expect_continue_timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Expect Continue Timeout"}
+          "max_idle_conns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Idle Conns"
+          },
+          "max_idle_conns_per_host": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Idle Conns Per Host"
+          },
+          "max_conns_per_host": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Conns Per Host"
+          },
+          "idle_conn_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Conn Timeout"
+          },
+          "response_header_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Header Timeout"
+          },
+          "tls_handshake_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tls Handshake Timeout"
+          },
+          "expect_continue_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expect Continue Timeout"
+          }
         },
         "type": "object",
-        "required": ["max_idle_conns", "max_idle_conns_per_host", "max_conns_per_host", "idle_conn_timeout", "response_header_timeout", "tls_handshake_timeout", "expect_continue_timeout"],
+        "required": [
+          "max_idle_conns",
+          "max_idle_conns_per_host",
+          "max_conns_per_host",
+          "idle_conn_timeout",
+          "response_header_timeout",
+          "tls_handshake_timeout",
+          "expect_continue_timeout"
+        ],
         "title": "BootstrapConfigRuntimeTransportValues"
       },
       "BootstrapConfigHTTPValues": {
         "properties": {
-          "cors_allowed_origins": {"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}], "title": "Cors Allowed Origins"}
+          "cors_allowed_origins": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cors Allowed Origins"
+          }
         },
         "type": "object",
-        "required": ["cors_allowed_origins"],
+        "required": [
+          "cors_allowed_origins"
+        ],
         "title": "BootstrapConfigHTTPValues"
       },
       "BootstrapConfigAuthValues": {
         "properties": {
-          "access_token_ttl_seconds": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Access Token Ttl Seconds"},
-          "refresh_token_ttl_seconds": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Refresh Token Ttl Seconds"},
-          "reset_code_ttl_seconds": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Reset Code Ttl Seconds"},
-          "access_cookie_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Access Cookie Name"},
-          "refresh_cookie_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Refresh Cookie Name"},
-          "cookie_secure": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "title": "Cookie Secure"}
+          "access_token_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token Ttl Seconds"
+          },
+          "refresh_token_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token Ttl Seconds"
+          },
+          "reset_code_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Code Ttl Seconds"
+          },
+          "access_cookie_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Cookie Name"
+          },
+          "refresh_cookie_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Cookie Name"
+          },
+          "cookie_secure": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookie Secure"
+          }
         },
         "type": "object",
-        "required": ["access_token_ttl_seconds", "refresh_token_ttl_seconds", "reset_code_ttl_seconds", "access_cookie_name", "refresh_cookie_name", "cookie_secure"],
+        "required": [
+          "access_token_ttl_seconds",
+          "refresh_token_ttl_seconds",
+          "reset_code_ttl_seconds",
+          "access_cookie_name",
+          "refresh_cookie_name",
+          "cookie_secure"
+        ],
         "title": "BootstrapConfigAuthValues"
       },
       "ProfileCreate": {
@@ -12306,6 +12874,35 @@
               }
             ],
             "title": "Error Detail"
+          },
+          "request_generation_params": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Generation Params"
+          },
+          "request_generation_params_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "missing",
+                  "malformed",
+                  "incomplete",
+                  "skipped_oversize"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Generation Params Status"
           }
         },
         "type": "object",
