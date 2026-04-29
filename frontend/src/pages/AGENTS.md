@@ -13,7 +13,7 @@
 - Observability: `DashboardPage.tsx`, dashboard analytics content, `RequestLogsPage.tsx`
 - Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `ProxyModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is also where dual-family strategy selection and assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
-- Settings shell: `SettingsPage.tsx` with `settings/sections/` and `settings/costing/`
+- Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/` and `settings/costing/`
 
 ## WHERE TO LOOK
 - Mounted route list, public auth split, and protected shell boundary: `../App.tsx`
