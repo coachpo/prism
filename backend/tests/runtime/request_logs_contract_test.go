@@ -306,6 +306,70 @@ func TestRuntimeAuditLogCapturesBodiesThroughTelemetryOutbox(t *testing.T) {
 	}
 }
 
+func TestRuntimeResponsesAuditLogCapturesNonStreamingBodies(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable responses audit capture for runtime vendor: %v", err)
+	}
+	suffix := randomSuffix()
+	publicModelID := "audit-responses-public-" + suffix
+	targetModelID := "audit-responses-target-" + suffix
+	responseID := "resp_audit_responses_" + suffix
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     responseID,
+		"object": "response",
+		"model":  targetModelID,
+		"output": []map[string]any{{
+			"id":   "msg_audit_responses_" + suffix,
+			"type": "message",
+			"role": "assistant",
+			"content": []map[string]any{{
+				"type": "output_text",
+				"text": "persist non-streaming responses audit row",
+			}},
+		}},
+		"usage": map[string]any{"input_tokens": 19, "output_tokens": 23, "total_tokens": 42},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: upstream.baseURL("/audit-responses-capture-bodies"),
+		EndpointAPIKey:  "runtime-audit-responses-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to responses audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "persist non-streaming responses audit row"}, nil)
+	assertStatus(t, response, http.StatusOK)
+	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 19, 23, 42)
+	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, route.PublicModelID, route.TargetModelID)
+
+	var requestBody sql.NullString
+	var requestBodyStored bool
+	var responseBody sql.NullString
+	var responseBodyStored bool
+	var isStream bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, request_body_stored, response_body, response_body_stored, is_stream, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &requestBodyStored, &responseBody, &responseBodyStored, &isStream, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load materialized non-streaming responses audit log: %v", err)
+	}
+	if !requestBody.Valid || !requestBodyStored || !responseBody.Valid || !responseBodyStored || isStream || !auditCaptureBodiesAtRequest {
+		t.Fatalf("expected non-streaming responses audit row with stored request/response bodies and is_stream=false, got request=%+v requestStored=%v response=%+v responseStored=%v isStream=%v capture=%v", requestBody, requestBodyStored, responseBody, responseBodyStored, isStream, auditCaptureBodiesAtRequest)
+	}
+	if !strings.Contains(requestBody.String, route.TargetModelID) {
+		t.Fatalf("expected stored responses audit request body to reflect rewritten upstream target model %q, got %q", route.TargetModelID, requestBody.String)
+	}
+	if !strings.Contains(responseBody.String, responseID) || !strings.Contains(responseBody.String, `"usage"`) {
+		t.Fatalf("expected stored responses audit response body to preserve upstream JSON payload and root usage, got %q", responseBody.String)
+	}
+}
+
 func TestRuntimeStreamingAuditLogDoesNotClaimStoredResponseBody(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
