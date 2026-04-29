@@ -51,9 +51,9 @@ export function MetricCard({ label, value, detail, icon, trend, className, onCli
               )}
             </div>
             {detail && (
-              <p data-slot="metric-detail" className="text-xs text-muted-foreground">
+              <div data-slot="metric-detail" className="text-xs text-muted-foreground">
                 {detail}
-              </p>
+              </div>
             )}
           </div>
           {icon && (

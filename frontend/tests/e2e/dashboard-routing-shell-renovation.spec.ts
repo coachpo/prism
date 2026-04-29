@@ -407,6 +407,13 @@ async function mockDashboardRoutes(page: Page) {
 
 test.describe("dashboard routing shell renovation", () => {
   test("keeps the routing shell chrome and model-node activation behavior", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        consoleErrors.push(message.text());
+      }
+    });
+
     await mockDashboardRoutes(page);
 
     await page.goto("/dashboard?tab=overview");
@@ -424,6 +431,12 @@ test.describe("dashboard routing shell renovation", () => {
     await expect(routingCard.getByText("Degraded")).toBeVisible();
     await expect(routingCard.getByText("Failing")).toBeVisible();
     await expect(routingCard.getByText("No data")).toBeVisible();
+    expect(
+      consoleErrors.filter(
+        (message) =>
+          message.includes("cannot be a descendant") || message.includes("cannot contain a nested")
+      )
+    ).toEqual([]);
     await expect(routingCard.getByText("Endpoint A")).toBeVisible();
     await expect(routingCard.getByText("Model A")).toBeVisible();
 
