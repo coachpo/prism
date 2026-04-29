@@ -43,6 +43,18 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		}
 	})
 
+	t.Run("missing request timeout fails", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		delete(payload["runtime"].(map[string]any)["transport"].(map[string]any), "requestTimeout")
+		_, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err == nil {
+			t.Fatal("expected missing request timeout to fail")
+		}
+		if !strings.Contains(err.Error(), "runtime.transport.requestTimeout is required") {
+			t.Fatalf("expected missing request timeout error, got %v", err)
+		}
+	})
+
 	t.Run("unknown field fails", func(t *testing.T) {
 		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
 		payload["unexpected"] = true
@@ -145,6 +157,34 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["idleConnTimeout"] = "not-a-duration"
 			},
 			wantErr: "runtime.transport.idleConnTimeout must parse as a Go duration",
+		},
+		{
+			name: "invalid request timeout string",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "not-a-duration"
+			},
+			wantErr: "runtime.transport.requestTimeout must parse as a Go duration",
+		},
+		{
+			name: "empty request timeout string",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "   "
+			},
+			wantErr: "runtime.transport.requestTimeout must be at least 1 characters",
+		},
+		{
+			name: "zero request timeout",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "0s"
+			},
+			wantErr: "runtime.transport.requestTimeout must be greater than zero",
+		},
+		{
+			name: "negative request timeout",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "-1s"
+			},
+			wantErr: "runtime.transport.requestTimeout must be greater than zero",
 		},
 		{
 			name: "runtime pool min idle exceeds max",
@@ -267,6 +307,18 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("custom positive request timeout maps to settings", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "17s"
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse custom request timeout: %v", err)
+		}
+		if got := settings.RuntimeTransport().RequestTimeout; got != 17*time.Second {
+			t.Fatalf("expected custom request timeout 17s, got %v", got)
+		}
+	})
 }
 
 func TestBootstrapConfigPlaintextMapping(t *testing.T) {
@@ -325,7 +377,7 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 8 || transport.MaxConnsPerHost != 0 {
 			t.Fatalf("unexpected runtime transport pool settings: %+v", transport)
 		}
-		if transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
+		if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 			t.Fatalf("unexpected runtime transport timeouts: %+v", transport)
 		}
 		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 12 || got.MinIdleConns != 0 {
