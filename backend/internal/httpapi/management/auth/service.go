@@ -62,11 +62,13 @@ type authSubjectContextKey struct{}
 
 type noopMailer struct{}
 
-func (noopMailer) SendEmailVerificationOTP(context.Context, string, string) error {
+func (noopMailer) SendEmailVerificationOTP(_ context.Context, recipient string, otpCode string) error {
+	slog.Warn("no mailer configured; email verification OTP not delivered", "recipient", recipient, "otp_code", otpCode)
 	return nil
 }
 
-func (noopMailer) SendPasswordResetEmail(context.Context, string, string) error {
+func (noopMailer) SendPasswordResetEmail(_ context.Context, recipient string, otpCode string) error {
+	slog.Warn("no mailer configured; password reset OTP not delivered", "recipient", recipient, "otp_code", otpCode)
 	return nil
 }
 
