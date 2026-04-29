@@ -24,13 +24,14 @@ func TestBootstrapConfigSchema(t *testing.T) {
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 
 	t.Run("valid fixture loads", func(t *testing.T) {
-		settings, err := manager.Load(bootstrapFixturePath(t, "bootstrap-valid-v1.json"))
+		snapshot, settings, err := manager.LoadBootstrapConfigDocument(bootstrapFixturePath(t, "bootstrap-valid-v1.json"))
 		if err != nil {
 			t.Fatalf("load valid bootstrap fixture: %v", err)
 		}
 		if settings.Mail.Enabled {
 			t.Fatal("expected legacy bootstrap fixture without mail block to load with mail disabled")
 		}
+		assertContractDisabledSafeMailValues(t, snapshot.Values.Mail)
 	})
 
 	t.Run("missing required schema field fails", func(t *testing.T) {
@@ -407,6 +408,18 @@ func TestBootstrapConfigMailMapping(t *testing.T) {
 		}
 	})
 
+	t.Run("disabled mail block does not require smtp fields", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["mail"] = map[string]any{"enabled": false, "smtp": map[string]any{}}
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse disabled mail block with empty smtp: %v", err)
+		}
+		if settings.Mail.Enabled {
+			t.Fatal("expected disabled mail with empty smtp to stay disabled")
+		}
+	})
+
 	t.Run("enabled smtp mail maps to settings", func(t *testing.T) {
 		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
 		payload["mail"] = validBootstrapMailPayload()
@@ -478,6 +491,16 @@ func mustMarshalBootstrapFixture(t *testing.T, payload map[string]any) []byte {
 		t.Fatalf("marshal bootstrap fixture: %v", err)
 	}
 	return raw
+}
+
+func assertContractDisabledSafeMailValues(t *testing.T, values *config.BootstrapConfigMailValues) {
+	t.Helper()
+	if values == nil || values.Enabled == nil || *values.Enabled {
+		t.Fatalf("expected explicit disabled safe mail values, got %+v", values)
+	}
+	if values.From != nil || values.ReplyTo != nil || values.SMTP != nil {
+		t.Fatalf("expected legacy no-mail safe values to omit from/reply_to/smtp, got %+v", values)
+	}
 }
 
 func validBootstrapMailPayload() map[string]any {

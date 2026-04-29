@@ -342,6 +342,7 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 		}
 	}
 	assertBootstrapTopLevelKeys(t, raw)
+	assertSeededBootstrapMailDocument(t, raw)
 
 	var seeded bootstrapSeededFile
 	if err := json.Unmarshal(raw, &seeded); err != nil {
@@ -388,6 +389,32 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	}
 	if seeded.StateTransfer.BundleEncryptionKey != bootstrapFixtureBundleKey {
 		t.Fatalf("unexpected seeded bundle key payload: %q", seeded.StateTransfer.BundleEncryptionKey)
+	}
+}
+
+func assertSeededBootstrapMailDocument(t *testing.T, raw []byte) {
+	t.Helper()
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode seeded bootstrap top-level JSON: %v", err)
+	}
+	mailRaw, ok := payload["mail"]
+	if !ok {
+		t.Fatal("expected seeded bootstrap config to include top-level mail")
+	}
+	var mailPayload map[string]json.RawMessage
+	if err := json.Unmarshal(mailRaw, &mailPayload); err != nil {
+		t.Fatalf("decode seeded bootstrap mail JSON: %v", err)
+	}
+	if len(mailPayload) != 1 {
+		t.Fatalf("expected seeded bootstrap mail to contain only enabled, got %v", keysFromPayload(mailPayload))
+	}
+	var enabled bool
+	if err := json.Unmarshal(mailPayload["enabled"], &enabled); err != nil {
+		t.Fatalf("decode seeded bootstrap mail enabled value: %v", err)
+	}
+	if enabled {
+		t.Fatal("expected seeded bootstrap mail.enabled to be false")
 	}
 }
 

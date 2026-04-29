@@ -667,6 +667,9 @@ func applyBootstrapConfigSecretUpdates(candidate *bootstrapConfigDocument, curre
 			if field == BootstrapConfigSecretRuntimeSecretEncryptionKey {
 				return &BootstrapConfigSecretOperationError{Field: field, Action: update.Action, Reason: "runtime secret encryption key is preserve-only in v1"}
 			}
+			if field == BootstrapConfigSecretMailSMTPPassword && !bootstrapMailEnabled(candidate.Mail) {
+				continue
+			}
 			value, err := replacementBootstrapSecretValue(field, update.Value, current)
 			if err != nil {
 				return err
@@ -995,8 +998,8 @@ func bootstrapAuthFromSafeValues(values *BootstrapConfigAuthValues, jwtSigningKe
 }
 
 func bootstrapMailFromSafeValues(values *BootstrapConfigMailValues, smtpPassword *string) *bootstrapMail {
-	if values == nil {
-		return nil
+	if values == nil || values.Enabled == nil || !*values.Enabled {
+		return canonicalDisabledBootstrapMailDocument()
 	}
 	return &bootstrapMail{
 		Enabled: cloneBoolPointer(values.Enabled),
@@ -1010,6 +1013,10 @@ func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues, smtpPass
 	if values == nil {
 		return nil
 	}
+	preservedPassword := cloneStringPointer(smtpPassword)
+	if hasNonEmptyString(values.PasswordFile) {
+		preservedPassword = nil
+	}
 	return &bootstrapSMTP{
 		Host:          cloneStringPointer(values.Host),
 		Port:          cloneIntPointer(values.Port),
@@ -1017,7 +1024,7 @@ func bootstrapSMTPFromSafeValues(values *BootstrapConfigMailSMTPValues, smtpPass
 		EHLOHostname:  cloneStringPointer(values.EHLOHostname),
 		Auth:          cloneStringPointer(values.Auth),
 		Username:      cloneStringPointer(values.Username),
-		Password:      cloneStringPointer(smtpPassword),
+		Password:      preservedPassword,
 		PasswordFile:  cloneStringPointer(values.PasswordFile),
 		Timeout:       cloneStringPointer(values.Timeout),
 		TLSServerName: cloneStringPointer(values.TLSServerName),
@@ -1057,6 +1064,10 @@ func bootstrapMailSMTPPassword(mailConfig *bootstrapMail) *string {
 		return nil
 	}
 	return mailConfig.SMTP.Password
+}
+
+func bootstrapMailEnabled(mailConfig *bootstrapMail) bool {
+	return mailConfig != nil && mailConfig.Enabled != nil && *mailConfig.Enabled
 }
 
 func orderedBootstrapConfigSecretFields() []string {
@@ -1220,7 +1231,7 @@ func safeBootstrapAuthValues(auth *bootstrapAuth) *BootstrapConfigAuthValues {
 
 func safeBootstrapMailValues(mailConfig *bootstrapMail) *BootstrapConfigMailValues {
 	if mailConfig == nil {
-		return nil
+		return canonicalDisabledBootstrapMailValues()
 	}
 	return &BootstrapConfigMailValues{
 		Enabled: cloneBoolPointer(mailConfig.Enabled),
@@ -1228,6 +1239,14 @@ func safeBootstrapMailValues(mailConfig *bootstrapMail) *BootstrapConfigMailValu
 		ReplyTo: cloneStringPointer(mailConfig.ReplyTo),
 		SMTP:    safeBootstrapSMTPValues(mailConfig.SMTP),
 	}
+}
+
+func canonicalDisabledBootstrapMailValues() *BootstrapConfigMailValues {
+	return &BootstrapConfigMailValues{Enabled: boolPointer(false)}
+}
+
+func canonicalDisabledBootstrapMailDocument() *bootstrapMail {
+	return &bootstrapMail{Enabled: boolPointer(false)}
 }
 
 func safeBootstrapSMTPValues(smtp *bootstrapSMTP) *BootstrapConfigMailSMTPValues {

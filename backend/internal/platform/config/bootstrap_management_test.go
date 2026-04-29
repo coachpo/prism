@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,181 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	smtpSecret := snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword]
 	if !smtpSecret.Configured || !smtpSecret.Editable || smtpSecret.Masked != "set" {
 		t.Fatal("expected SMTP password metadata to be editable and masked")
+	}
+}
+
+func TestBootstrapConfigManagementLoadCanonicalizesOmittedMailToDisabledSafeValues(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	document := newManagementTestDocument(t, createdAt)
+	document.Mail = nil
+	path, originalPayload := writeManagementTestDocument(t, document)
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{})
+
+	snapshot, settings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load legacy bootstrap config management snapshot: %v", err)
+	}
+	if settings.Mail.Enabled {
+		t.Fatalf("expected omitted mail to resolve to disabled settings, got %+v", settings.Mail)
+	}
+	assertDisabledSafeMailValues(t, snapshot.Values.Mail)
+	assertSafeManagementSnapshot(t, mustMarshalJSON(t, snapshot))
+	smtpSecret := snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword]
+	if smtpSecret.Configured || !smtpSecret.Editable || smtpSecret.Masked != "" {
+		t.Fatalf("expected omitted SMTP password metadata to stay unconfigured and editable, got %+v", smtpSecret)
+	}
+
+	rawAfterLoad, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read legacy bootstrap config after snapshot load: %v", err)
+	}
+	if !bytes.Equal(rawAfterLoad, originalPayload) {
+		t.Fatal("expected read-only snapshot load to leave omitted-mail source file unchanged")
+	}
+}
+
+func TestBootstrapConfigManagementUpdatePersistsCanonicalDisabledMail(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 4, 28, 13, 45, 0, 0, time.UTC)
+	tests := []struct {
+		name            string
+		omitCurrentMail bool
+		mutate          func(t *testing.T, values *BootstrapConfigValues)
+		forbiddenSecret string
+	}{
+		{
+			name:            "omitted mail safe value from legacy config",
+			omitCurrentMail: true,
+			mutate: func(t *testing.T, values *BootstrapConfigValues) {
+				t.Helper()
+				values.Mail = nil
+			},
+		},
+		{
+			name:            "null mail safe value from legacy config",
+			omitCurrentMail: true,
+			mutate: func(t *testing.T, values *BootstrapConfigValues) {
+				t.Helper()
+				*values = managementValuesWithNullMail(t, *values)
+			},
+		},
+		{
+			name: "explicit disabled mail drops smtp payload",
+			mutate: func(t *testing.T, values *BootstrapConfigValues) {
+				t.Helper()
+				values.Mail = &BootstrapConfigMailValues{
+					Enabled: boolPointer(false),
+					From:    stringPointer("Prism <noreply@example.com>"),
+					ReplyTo: stringPointer("support@example.com"),
+					SMTP: &BootstrapConfigMailSMTPValues{
+						Host:         stringPointer("smtp.example.com"),
+						Port:         intPointer(587),
+						Mode:         stringPointer(string(MailSMTPModeStartTLSRequired)),
+						Auth:         stringPointer(string(MailSMTPAuthPlain)),
+						Username:     stringPointer("smtp-user"),
+						PasswordFile: stringPointer("/run/secrets/prism-smtp-password"),
+					},
+				}
+			},
+			forbiddenSecret: managementTestSMTPPassword,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			document := newManagementTestDocument(t, createdAt)
+			if testCase.omitCurrentMail {
+				document.Mail = nil
+			}
+			path, _ := writeManagementTestDocument(t, document)
+			manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{
+				TimeNow: func() time.Time { return updatedAt },
+			})
+			snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+			if err != nil {
+				t.Fatalf("load snapshot before disabled mail update: %v", err)
+			}
+			request := managementRequestForSnapshot(t, snapshot)
+			values := cloneManagementValues(t, snapshot.Values)
+			testCase.mutate(t, &values)
+			request.Values = &values
+
+			prepared, err := manager.PrepareBootstrapConfigUpdate(path, request)
+			if err != nil {
+				t.Fatalf("prepare disabled mail update: %v", err)
+			}
+			if prepared.Noop {
+				t.Fatal("expected disabled mail canonicalization update to be effective")
+			}
+			if prepared.Snapshot.FileRevision != snapshot.FileRevision+1 || prepared.Snapshot.UpdatedAt != updatedAt.Format(time.RFC3339) {
+				t.Fatal("expected disabled mail update to increment revision and refresh updatedAt")
+			}
+			assertDisabledSafeMailValues(t, prepared.Snapshot.Values.Mail)
+			assertSafeManagementSnapshot(t, mustMarshalJSON(t, prepared.Snapshot))
+			assertCanonicalDisabledMailPayload(t, prepared.Payload)
+			assertNoSecretValue(t, prepared.Payload, "disabled SMTP password", testCase.forbiddenSecret)
+
+			settings, err := manager.Parse(prepared.Payload)
+			if err != nil {
+				t.Fatalf("parse disabled mail update payload: %v", err)
+			}
+			if settings.Mail.Enabled {
+				t.Fatalf("expected prepared disabled mail settings, got %+v", settings.Mail)
+			}
+			if _, err := manager.WriteBootstrapConfigUpdate(path, prepared); err != nil {
+				t.Fatalf("write disabled mail update: %v", err)
+			}
+			written, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read written disabled mail update: %v", err)
+			}
+			assertCanonicalDisabledMailPayload(t, written)
+			assertNoSecretValue(t, written, "written disabled SMTP password", testCase.forbiddenSecret)
+		})
+	}
+}
+
+func TestBootstrapConfigManagementDisabledMailIgnoresSMTPPasswordReplacement(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 4, 28, 16, 20, 0, 0, time.UTC)
+	path, _ := writeManagementTestDocument(t, newManagementTestDocument(t, createdAt))
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return updatedAt },
+	})
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load snapshot before disabled mail SMTP replacement: %v", err)
+	}
+	request := managementRequestForSnapshot(t, snapshot)
+	values := cloneManagementValues(t, snapshot.Values)
+	values.Mail = &BootstrapConfigMailValues{Enabled: boolPointer(false)}
+	request.Values = &values
+	stagedSMTPPassword := "disabled-mail-staged-smtp-password"
+	request.SecretUpdates[BootstrapConfigSecretMailSMTPPassword] = BootstrapConfigSecretUpdate{
+		Action: BootstrapConfigSecretActionReplace,
+		Value:  stringPointer(stagedSMTPPassword),
+	}
+
+	prepared, err := manager.PrepareBootstrapConfigUpdate(path, request)
+	if err != nil {
+		t.Fatalf("prepare disabled mail with staged SMTP password replacement: %v", err)
+	}
+	if prepared.Noop {
+		t.Fatal("expected disabled mail update to be effective")
+	}
+	assertDisabledSafeMailValues(t, prepared.Snapshot.Values.Mail)
+	assertCanonicalDisabledMailPayload(t, prepared.Payload)
+	assertNoSecretValue(t, prepared.Payload, "old SMTP password", managementTestSMTPPassword)
+	assertNoSecretValue(t, prepared.Payload, "staged SMTP password", stagedSMTPPassword)
+	if prepared.Snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword].Configured {
+		t.Fatalf("expected disabled mail snapshot to leave SMTP password unconfigured, got %+v", prepared.Snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword])
+	}
+	settings, err := manager.Parse(prepared.Payload)
+	if err != nil {
+		t.Fatalf("parse disabled mail with staged SMTP password replacement payload: %v", err)
+	}
+	if settings.Mail.Enabled || settings.Mail.SMTP.Password != "" || settings.Mail.SMTP.PasswordFile != "" {
+		t.Fatalf("expected canonical disabled mail without SMTP secrets, got %+v", settings.Mail)
 	}
 }
 
@@ -242,6 +418,70 @@ func TestBootstrapConfigManagementSecretPreserveAndReplace(t *testing.T) {
 	assertNoSecretValue(t, safePayload, "replacement database password", "next-password")
 	assertNoSecretValue(t, safePayload, "replacement bundle secret", nextBundleSecret)
 	assertNoSecretValue(t, safePayload, "replacement SMTP password", nextSMTPPassword)
+}
+
+func TestBootstrapConfigManagementSMTPPasswordFileDropsPreservedInlinePassword(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 4, 28, 15, 15, 0, 0, time.UTC)
+	path, _ := writeManagementTestDocument(t, newManagementTestDocument(t, createdAt))
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return updatedAt },
+	})
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load snapshot before SMTP password file switch: %v", err)
+	}
+
+	request := managementRequestForSnapshot(t, snapshot)
+	values := cloneManagementValues(t, snapshot.Values)
+	values.Mail.SMTP.PasswordFile = stringPointer("/run/secrets/prism-smtp-password")
+	request.Values = &values
+
+	prepared, err := manager.PrepareBootstrapConfigUpdate(path, request)
+	if err != nil {
+		t.Fatalf("prepare SMTP password file switch: %v", err)
+	}
+	if prepared.Noop {
+		t.Fatal("expected password file switch to be effective")
+	}
+	assertNoSecretValue(t, prepared.Payload, "old SMTP password", managementTestSMTPPassword)
+	assertSafeManagementSnapshot(t, mustMarshalJSON(t, prepared.Snapshot))
+	settings, err := manager.Parse(prepared.Payload)
+	if err != nil {
+		t.Fatalf("parse SMTP password file switch payload: %v", err)
+	}
+	if settings.Mail.SMTP.Password != "" {
+		t.Fatal("expected password file switch to drop the preserved inline SMTP password")
+	}
+	if settings.Mail.SMTP.PasswordFile != "/run/secrets/prism-smtp-password" {
+		t.Fatalf("expected SMTP password file to be configured, got %q", settings.Mail.SMTP.PasswordFile)
+	}
+	if prepared.Snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword].Configured {
+		t.Fatalf("expected safe snapshot to mark inline SMTP password unconfigured after password file switch, got %+v", prepared.Snapshot.Secrets[BootstrapConfigSecretMailSMTPPassword])
+	}
+}
+
+func TestBootstrapConfigManagementSMTPPasswordPreserveWithoutPasswordFile(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	path, _ := writeManagementTestDocument(t, newManagementTestDocument(t, createdAt))
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{})
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load snapshot before SMTP password preserve: %v", err)
+	}
+
+	prepared, err := manager.PrepareBootstrapConfigUpdate(path, managementRequestForSnapshot(t, snapshot))
+	if err != nil {
+		t.Fatalf("prepare SMTP password preserve update: %v", err)
+	}
+	settings, err := manager.Parse(prepared.Payload)
+	if err != nil {
+		t.Fatalf("parse SMTP password preserve payload: %v", err)
+	}
+	if settings.Mail.SMTP.Password != managementTestSMTPPassword || settings.Mail.SMTP.PasswordFile != "" {
+		t.Fatalf("expected preserved inline SMTP password without password file, got %+v", settings.Mail.SMTP)
+	}
+	assertSafeManagementSnapshot(t, mustMarshalJSON(t, prepared.Snapshot))
 }
 
 func TestBootstrapConfigManagementRejectsSecretPlaceholdersAndRuntimeReplacement(t *testing.T) {
@@ -586,6 +826,57 @@ func cloneManagementValues(t *testing.T, values BootstrapConfigValues) Bootstrap
 	return clone
 }
 
+func managementValuesWithNullMail(t *testing.T, values BootstrapConfigValues) BootstrapConfigValues {
+	t.Helper()
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(mustMarshalJSON(t, values), &payload); err != nil {
+		t.Fatalf("decode management values for null mail clone: %v", err)
+	}
+	payload["mail"] = json.RawMessage("null")
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal management values with null mail: %v", err)
+	}
+	var clone BootstrapConfigValues
+	if err := json.Unmarshal(encoded, &clone); err != nil {
+		t.Fatalf("unmarshal management values with null mail: %v", err)
+	}
+	return clone
+}
+
+func assertDisabledSafeMailValues(t *testing.T, values *BootstrapConfigMailValues) {
+	t.Helper()
+	if values == nil || values.Enabled == nil || *values.Enabled {
+		t.Fatalf("expected explicit disabled safe mail values, got %+v", values)
+	}
+	if values.From != nil || values.ReplyTo != nil || values.SMTP != nil {
+		t.Fatalf("expected disabled safe mail values to omit from/reply_to/smtp, got %+v", values)
+	}
+}
+
+func assertCanonicalDisabledMailPayload(t *testing.T, payload []byte) {
+	t.Helper()
+	var document struct {
+		Mail map[string]json.RawMessage `json:"mail"`
+	}
+	if err := json.Unmarshal(payload, &document); err != nil {
+		t.Fatalf("decode disabled mail payload: %v", err)
+	}
+	if document.Mail == nil {
+		t.Fatal("expected canonical payload to include mail")
+	}
+	if len(document.Mail) != 1 {
+		t.Fatalf("expected canonical disabled mail payload to contain only enabled, got keys %v", keysFromRawMessageMap(document.Mail))
+	}
+	var enabled bool
+	if err := json.Unmarshal(document.Mail["enabled"], &enabled); err != nil {
+		t.Fatalf("decode canonical disabled mail enabled value: %v", err)
+	}
+	if enabled {
+		t.Fatalf("expected canonical disabled mail payload, got %s", payload)
+	}
+}
+
 func managementRequestForSnapshot(t *testing.T, snapshot BootstrapConfigSnapshot) BootstrapConfigUpdateRequest {
 	t.Helper()
 	values := cloneManagementValues(t, snapshot.Values)
@@ -614,4 +905,13 @@ func containsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+func keysFromRawMessageMap(payload map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
