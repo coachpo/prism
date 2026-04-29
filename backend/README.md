@@ -58,6 +58,37 @@ go build ./cmd/prism-backend
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - Bootstrap writes are durable only for the next start, and Prism must be restarted to apply listener, database, auth, or transport changes.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
+- Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
+- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` in the bootstrap file, then restart the backend. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
+- SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.
+- Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is local or loopback only, and auth over non-local plaintext is forbidden.
+- `mail.smtp.auth` accepts `none` or `plain`. `plain` requires `username` plus exactly one of `password` or `passwordFile`; `passwordFile` is preferred for deployed secrets.
+- `mail.smtp.password` is secret-managed by the bootstrap API as `mail.smtp.password`. Safe responses return only metadata, and updates must use preserve or replace secret actions.
+- Roll back real delivery by removing `mail` or setting `mail.enabled=false`, then restart the backend.
+- Local and automated tests use fake or no-op SMTP only. Do not use external SMTP credentials in regression tests.
+
+Enabled SMTP bootstrap example:
+
+```json
+{
+  "mail": {
+    "enabled": true,
+    "from": "Prism <noreply@example.com>",
+    "replyTo": "support@example.com",
+    "smtp": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "mode": "starttls_required",
+      "ehloHostname": "prism.example.com",
+      "auth": "plain",
+      "username": "smtp-user",
+      "passwordFile": "/run/secrets/prism-smtp-password",
+      "timeout": "15s",
+      "tlsServerName": "smtp.example.com"
+    }
+  }
+}
+```
 
 ## Database and docs artifacts
 - Schema migrations are Go-managed and applied from `migrations/` at startup.

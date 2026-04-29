@@ -162,6 +162,41 @@ The Startup tab at `/settings#startup` manages that plaintext file directly. GET
 
 That bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
 
+Auth email delivery is disabled by default. Existing bootstrap files with no `mail` block still start and use no-op delivery with no SMTP network activity. Seeded local configs include the explicit disabled shape:
+
+```json
+{
+  "mail": {
+    "enabled": false
+  }
+}
+```
+
+To send password-reset and recovery-email verification messages, set `mail.enabled=true`, provide `mail.from`, and add SMTP settings. Prism validates enabled SMTP at startup, so missing or invalid enabled settings fail startup instead of falling back to no-op delivery. Supported SMTP modes are `starttls_required`, `implicit_tls`, and `plaintext_local_only`; `plaintext_local_only` is accepted only for localhost or loopback hosts, and auth over non-local plaintext is forbidden.
+
+```json
+{
+  "mail": {
+    "enabled": true,
+    "from": "Prism <noreply@example.com>",
+    "replyTo": "support@example.com",
+    "smtp": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "mode": "starttls_required",
+      "ehloHostname": "prism.example.com",
+      "auth": "plain",
+      "username": "smtp-user",
+      "passwordFile": "/run/secrets/prism-smtp-password",
+      "timeout": "15s",
+      "tlsServerName": "smtp.example.com"
+    }
+  }
+}
+```
+
+`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. If you store `mail.smtp.password` in the bootstrap file, the safe bootstrap API never returns the plaintext value; it reports secret metadata only and updates it through preserve or replace secret actions. SMTP changes apply after restart. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart Prism.
+
 Other configuration notes:
 
 - `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `5432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`

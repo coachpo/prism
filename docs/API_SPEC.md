@@ -45,6 +45,12 @@ Response `200` returns safe metadata only. Raw secret values never appear in the
       "host": "127.0.0.1",
       "port": 18000,
       "docs_enabled": true
+    },
+    "mail": {
+      "enabled": false,
+      "from": null,
+      "reply_to": null,
+      "smtp": null
     }
   },
   "secrets": {
@@ -57,10 +63,44 @@ Response `200` returns safe metadata only. Raw secret values never appear in the
       "configured": true,
       "editable": false,
       "masked": "preserve-only"
+    },
+    "mail.smtp.password": {
+      "configured": false,
+      "editable": true,
+      "masked": ""
     }
   }
 }
 ```
+
+The underlying `config.json` file may include an optional top-level `mail` block. Missing `mail` and `mail.enabled=false` both mean disabled no-op auth email delivery with no SMTP network activity. Seeded configs use `{ "mail": { "enabled": false } }`.
+
+Enabled SMTP startup config uses camelCase JSON field names in the file:
+
+```json
+{
+  "mail": {
+    "enabled": true,
+    "from": "Prism <noreply@example.com>",
+    "replyTo": "support@example.com",
+    "smtp": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "mode": "starttls_required",
+      "ehloHostname": "prism.example.com",
+      "auth": "plain",
+      "username": "smtp-user",
+      "passwordFile": "/run/secrets/prism-smtp-password",
+      "timeout": "15s",
+      "tlsServerName": "smtp.example.com"
+    }
+  }
+}
+```
+
+Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is valid only for localhost or loopback SMTP hosts, and auth over non-local plaintext is forbidden. `mail.smtp.auth` accepts `none` or `plain`; `plain` requires `mail.smtp.username` plus exactly one of `mail.smtp.password` or `mail.smtp.passwordFile`. `mail.smtp.timeout` must parse as a Go duration such as `15s`.
+
+Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
 
 #### Validate Bootstrap Config
 ```
@@ -82,6 +122,21 @@ A successful write returns the same safe response shape as GET, with `restart_re
 - `state-transfer-bundle-encryption-key-change`
 
 `runtime.secretEncryptionKey` is preserve-only in v1.
+
+`mail.smtp.password` is editable through the same secret update map:
+
+```json
+{
+  "secret_updates": {
+    "mail.smtp.password": {
+      "action": "replace",
+      "value": "new-smtp-password"
+    }
+  }
+}
+```
+
+Bootstrap writes apply on the next Prism start. Removing `mail` or setting `mail.enabled=false` disables real delivery after restart. If `mail.enabled=true` and SMTP config is incomplete or invalid, validation and startup fail with redacted errors rather than silently using no-op delivery.
 
 ### 1.1 Profiles
 #### List Profiles
@@ -1004,6 +1059,8 @@ Lifecycle contract:
 ```
 POST /api/settings/auth/email-verification/request
 ```
+
+When auth email delivery is disabled, this workflow remains no-op-compatible. When SMTP is enabled, delivery uses the configured transport. Recovery-email verification send failures return a generic error and roll back the pending email state.
 
 #### Confirm Email Verification
 ```
