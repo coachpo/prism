@@ -8,12 +8,20 @@ function getProxyKeyMessages() {
 
 export function getAuthStatusTone(authSettings: AuthSettings | null) {
   if (!authSettings) {
-    return "border-slate-300/70 bg-slate-100/80 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200";
+    return "border-muted-foreground/25 bg-muted text-muted-foreground";
   }
 
   return authSettings.auth_enabled
-    ? "border-emerald-300/60 bg-emerald-100/70 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-    : "border-amber-300/60 bg-amber-100/70 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
+    ? "border-success/25 bg-success/10 text-success"
+    : "border-warning/25 bg-warning/10 text-warning";
+}
+
+export function getProxyKeyUsagePercent(used: number, limit: number) {
+  if (limit <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.round((used / limit) * 100), 100);
 }
 
 export function toDateTimeLocalValue(value: string | null) {
@@ -79,18 +87,18 @@ export function getProxyKeyLifecycleTone(
   successorId: number | null,
 ) {
   if (successorId !== null) {
-    return "border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-400";
+    return "border-primary/25 bg-primary/10 text-primary";
   }
   if (isProxyKeyExpired(item.expires_at)) {
-    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-400";
+    return "border-warning/25 bg-warning/10 text-warning";
   }
   if (!item.is_active) {
-    return "border-slate-300/70 bg-slate-100/80 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200";
+    return "border-muted-foreground/25 bg-muted text-muted-foreground";
   }
 
   return authEnabled
-    ? "border-emerald-300/60 bg-emerald-100/70 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-    : "border-sky-300/70 bg-sky-100/80 text-sky-900 dark:border-sky-900/80 dark:bg-sky-950/30 dark:text-sky-200";
+    ? "border-success/25 bg-success/10 text-success"
+    : "border-info/25 bg-info/10 text-info";
 }
 
 export function getProxyKeyLineageLabel(item: ProxyApiKey, successorId: number | null) {
