@@ -6,24 +6,26 @@
 ## STRUCTURE
 ```
 proxy-api-keys/
-├── ProxyKeyCreateCard.tsx        # Create form and latest-generated-key display
-├── ProxyKeysListCard.tsx         # Existing key list with actions
-├── ProxyKeyRow.tsx               # Individual key row presentation
-├── ProxyKeyStatusCallout.tsx     # Auth-enabled guidance and warnings
-├── EditProxyKeyDialog.tsx        # Edit name, note, and active-state flow
-├── DeleteProxyKeyDialog.tsx      # Delete confirmation flow
-├── ProxyApiKeysPageSkeleton.tsx  # Loading state
-├── proxyKeyFormatting.ts         # Auth-status tone helpers
+├── ProxyKeyDeleteAlertDialog.tsx # Destructive delete confirmation and delete-impact warnings
+├── ProxyKeyDetailSheet.tsx       # Sheet-based metadata, notes, expiry, and active-state edit flow
+├── ProxyKeyEnforcementPanel.tsx  # Auth enforcement state and proxy-key quota rail
+├── ProxyKeyIssuePanel.tsx        # Field-based credential issuance form
+├── ProxyKeyLedgerCard.tsx        # Issued-key ledger, lifecycle labels, lineage, and row actions
+├── ProxyKeySecretReveal.tsx      # One-time create/rotate secret reveal and copy action
+├── ProxyApiKeysPageSkeleton.tsx  # Key Vault Console loading structure
+├── proxyKeyFormatting.ts         # Auth-status tone, lifecycle, date, and quota helpers
 └── useProxyApiKeysPageData.ts    # Parallel bootstrap, create, edit, rotate, delete, and badge state
 ```
 
 ## WHERE TO LOOK
 
 - Parallel bootstrap of auth settings and current keys: `useProxyApiKeysPageData.ts`
-- Create and rotate flows with one-time secret handling: `useProxyApiKeysPageData.ts`, `ProxyKeyCreateCard.tsx`
-- Edit dialog flow for stored metadata and active state: `EditProxyKeyDialog.tsx`, `ProxyKeysListCard.tsx`, `useProxyApiKeysPageData.ts`
-- Delete confirmations and list patching: `DeleteProxyKeyDialog.tsx`, `useProxyApiKeysPageData.ts`
-- Auth-status badge tone and callout copy: `proxyKeyFormatting.ts`, `ProxyKeyStatusCallout.tsx`
+- Key Vault Console composition and responsive zone order: `../ProxyApiKeysPage.tsx`
+- Create and rotate flows with one-time secret handling: `useProxyApiKeysPageData.ts`, `ProxyKeyIssuePanel.tsx`, `ProxyKeySecretReveal.tsx`
+- Auth enforcement and quota display: `ProxyKeyEnforcementPanel.tsx`, `proxyKeyFormatting.ts`
+- Edit flow for stored metadata, notes, expiry, and active state: `ProxyKeyDetailSheet.tsx`, `useProxyApiKeysPageData.ts`
+- Delete confirmations, auth-enabled warning, successor warning, and list patching: `ProxyKeyDeleteAlertDialog.tsx`, `useProxyApiKeysPageData.ts`
+- Auth-status badge tone, ledger lifecycle copy, and lineage labels: `proxyKeyFormatting.ts`, `ProxyKeyLedgerCard.tsx`
 
 ## CONVENTIONS
 
