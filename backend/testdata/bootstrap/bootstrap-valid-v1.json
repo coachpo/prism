@@ -32,6 +32,7 @@
       "maxIdleConns": 100,
       "maxIdleConnsPerHost": 8,
       "maxConnsPerHost": 0,
+      "requestTimeout": "60s",
       "idleConnTimeout": "1m30s",
       "responseHeaderTimeout": "0s",
       "tlsHandshakeTimeout": "10s",
