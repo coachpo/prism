@@ -114,6 +114,8 @@ frontend/
 
 ## 3. Request Flow
 
+Prism is proxy-first. It forwards the supported provider-native generation routes it owns and is not a full OpenAI API emulator.
+
 ### 3.1 Proxy Request (Non-Streaming, Native Model)
 
 ```
@@ -160,9 +162,11 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 
 | Vendor                | Proxy Path                                    | Upstream Path                                      | Auth Header                                          |
 | --------------------- | --------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| OpenAI                | `POST /v1/chat/completions`                   | `{base_url}/v1/chat/completions`                   | `Authorization: Bearer {key}`                        |
+| OpenAI                | `POST /v1/chat/completions`, `POST /v1/responses` | `{base_url}/v1/chat/completions`, `{base_url}/v1/responses` | `Authorization: Bearer {key}`                        |
 | Anthropic             | `POST /v1/messages`                           | `{base_url}/v1/messages`                           | `x-api-key: {key}` + `anthropic-version: 2023-06-01` |
 | Gemini                | `POST /v1beta/models/{model}:generateContent` / `POST /v1beta/models/{model}:streamGenerateContent` | `{base_url}/v1beta/models/{model}:generateContent` / `{base_url}/v1beta/models/{model}:streamGenerateContent` | `Authorization: Bearer {key}`                        |
+
+OpenAI runtime support is limited to generation proxying for `POST /v1/chat/completions` and `POST /v1/responses`. Stored Responses object lifecycle APIs, including retrieve, list, delete, cancel, and compact routes, are outside Prism's supported contract.
 
 Note: Gemini requests use native `/v1beta/models/{model}:...` paths only. When a Gemini proxy model resolves to a different native model ID, the proxy rewrites the model ID segment in the URL path to the resolved native target model ID before forwarding upstream.
 For Gemini, the `:streamGenerateContent` path is authoritative for stream classification even when the request body omits `stream: true`.

@@ -1327,7 +1327,11 @@ Prism accepts api-family-native runtime paths only:
 - Anthropic clients use base URL `<prism-host>`
 - Gemini clients use base URL `<prism-host>`
 
-### 2.1 OpenAI-Compatible Chat Completions
+Runtime proxy contract note: supported OpenAI generation proxy routes are `POST /v1/chat/completions` and `POST /v1/responses`. Prism forwards these routes through the active profile and does not try to emulate the full OpenAI API. Stored-object, list, retrieve, delete, cancel, and compact APIs are outside Prism's supported contract.
+
+### 2.1 OpenAI Generation Proxy
+
+#### Chat Completions
 ```
 POST /v1/chat/completions
 ```
@@ -1344,6 +1348,20 @@ Request (standard OpenAI format):
 }
 ```
 Response: Proxied directly from the upstream API family. Format matches that family's native response.
+
+#### Responses
+```
+POST /v1/responses
+```
+Request (OpenAI Responses generation format):
+```json
+{
+  "model": "gpt-4o",
+  "input": "Hello!",
+  "stream": false
+}
+```
+Response: Proxied directly from the upstream OpenAI-compatible endpoint.
 
 ### 2.2 Anthropic-Compatible Messages
 ```

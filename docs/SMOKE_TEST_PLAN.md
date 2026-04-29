@@ -137,6 +137,7 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/connections/{id}/owner` | B21B, M03 |
 | `POST /api/connections/{id}/health-check` | D01-D06 |
 | `POST /v1/chat/completions` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
+| `POST /v1/responses` | C01, C03, C04, C06-C14, E08, E10, L08-L10, M11-M13, M21 |
 | `POST /v1/messages` | C02, C04, E08, E10, L08-L10, M11-M13, M21 |
 | `GET /api/stats/requests` | E01-E04, M14 |
 | `GET /api/stats/endpoints/{endpoint_id}/models` | E16, M14 |

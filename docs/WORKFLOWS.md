@@ -289,6 +289,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 **Backend touchpoints**
 
 - `POST /v1/chat/completions`
+- `POST /v1/responses`
 - `POST /v1/messages`
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
