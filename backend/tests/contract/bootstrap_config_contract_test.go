@@ -24,8 +24,12 @@ func TestBootstrapConfigSchema(t *testing.T) {
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 
 	t.Run("valid fixture loads", func(t *testing.T) {
-		if _, err := manager.Load(bootstrapFixturePath(t, "bootstrap-valid-v1.json")); err != nil {
+		settings, err := manager.Load(bootstrapFixturePath(t, "bootstrap-valid-v1.json"))
+		if err != nil {
 			t.Fatalf("load valid bootstrap fixture: %v", err)
+		}
+		if settings.Mail.Enabled {
+			t.Fatal("expected legacy bootstrap fixture without mail block to load with mail disabled")
 		}
 	})
 
@@ -156,6 +160,95 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 			},
 			wantErr: "database.managementAdmission.m3MaxConcurrent must be less than or equal to database.managementAdmission.m2MaxConcurrent",
 		},
+		{
+			name: "enabled mail requires from address",
+			mutate: func(payload map[string]any) {
+				payload["mail"] = map[string]any{"enabled": true, "smtp": validBootstrapMailSMTPPayload()}
+			},
+			wantErr: "mail.from is required",
+		},
+		{
+			name: "enabled mail requires smtp host",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				delete(mailPayload["smtp"].(map[string]any), "host")
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.host is required",
+		},
+		{
+			name: "enabled mail rejects invalid port",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				mailPayload["smtp"].(map[string]any)["port"] = 70000
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.port must be between 1 and 65535",
+		},
+		{
+			name: "enabled mail rejects invalid mode",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				mailPayload["smtp"].(map[string]any)["mode"] = "opportunistic"
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.mode must be one of",
+		},
+		{
+			name: "enabled mail rejects invalid timeout",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				mailPayload["smtp"].(map[string]any)["timeout"] = "slow"
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.timeout must parse as a Go duration",
+		},
+		{
+			name: "enabled mail rejects invalid auth mode",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				mailPayload["smtp"].(map[string]any)["auth"] = "login"
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.auth must be one of",
+		},
+		{
+			name: "enabled mail plain auth requires username",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				delete(mailPayload["smtp"].(map[string]any), "username")
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.username is required",
+		},
+		{
+			name: "enabled mail plain auth requires password source",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				delete(mailPayload["smtp"].(map[string]any), "password")
+				delete(mailPayload["smtp"].(map[string]any), "passwordFile")
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.password or mail.smtp.passwordFile is required when mail.smtp.auth is plain",
+		},
+		{
+			name: "enabled mail rejects plaintext remote host",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				mailPayload["smtp"].(map[string]any)["mode"] = "plaintext_local_only"
+				payload["mail"] = mailPayload
+			},
+			wantErr: "plaintext_local_only requires a localhost or loopback host",
+		},
+		{
+			name: "enabled mail rejects conflicting password sources",
+			mutate: func(payload map[string]any) {
+				mailPayload := validBootstrapMailPayload()
+				mailPayload["smtp"].(map[string]any)["passwordFile"] = "/run/secrets/smtp-password"
+				payload["mail"] = mailPayload
+			},
+			wantErr: "mail.smtp.password and mail.smtp.passwordFile are mutually exclusive",
+		},
 	}
 
 	for _, testCase := range tests {
@@ -168,6 +261,9 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), testCase.wantErr) {
 				t.Fatalf("expected error containing %q, got %v", testCase.wantErr, err)
+			}
+			if strings.Contains(err.Error(), "smtp-secret") {
+				t.Fatalf("validation error exposed SMTP password: %v", err)
 			}
 		})
 	}
@@ -244,6 +340,58 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 	})
 }
 
+func TestBootstrapConfigMailMapping(t *testing.T) {
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+
+	t.Run("disabled mail block is valid without smtp transport", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["mail"] = map[string]any{"enabled": false}
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse disabled mail block: %v", err)
+		}
+		if settings.Mail.Enabled {
+			t.Fatal("expected explicit disabled mail to stay disabled")
+		}
+	})
+
+	t.Run("enabled smtp mail maps to settings", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["mail"] = validBootstrapMailPayload()
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse enabled mail block: %v", err)
+		}
+		if !settings.Mail.Enabled || settings.Mail.From != "Prism <noreply@example.com>" || settings.Mail.SMTP.Host != "smtp.example.com" {
+			t.Fatalf("unexpected mail settings: %+v", settings.Mail)
+		}
+		if settings.Mail.SMTP.Password != "smtp-secret" || settings.Mail.SMTP.Timeout != 15*time.Second {
+			t.Fatalf("unexpected smtp secret or timeout mapping: %+v", settings.Mail.SMTP)
+		}
+	})
+
+	t.Run("enabled smtp mail supports auth none without credentials", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		mailPayload := validBootstrapMailPayload()
+		smtpPayload := mailPayload["smtp"].(map[string]any)
+		smtpPayload["auth"] = "none"
+		delete(smtpPayload, "username")
+		delete(smtpPayload, "password")
+		delete(smtpPayload, "passwordFile")
+		payload["mail"] = mailPayload
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse enabled mail block with auth none: %v", err)
+		}
+		if !settings.Mail.Enabled || settings.Mail.SMTP.Auth != config.MailSMTPAuthNone {
+			t.Fatalf("expected enabled auth=none mail settings, got %+v", settings.Mail)
+		}
+		if settings.Mail.SMTP.Username != "" || settings.Mail.SMTP.Password != "" || settings.Mail.SMTP.PasswordFile != "" {
+			t.Fatalf("expected auth=none to omit credentials, got %+v", settings.Mail.SMTP)
+		}
+	})
+}
+
 func bootstrapFixturePath(t *testing.T, fileName string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -278,4 +426,27 @@ func mustMarshalBootstrapFixture(t *testing.T, payload map[string]any) []byte {
 		t.Fatalf("marshal bootstrap fixture: %v", err)
 	}
 	return raw
+}
+
+func validBootstrapMailPayload() map[string]any {
+	return map[string]any{
+		"enabled": true,
+		"from":    "Prism <noreply@example.com>",
+		"replyTo": "support@example.com",
+		"smtp":    validBootstrapMailSMTPPayload(),
+	}
+}
+
+func validBootstrapMailSMTPPayload() map[string]any {
+	return map[string]any{
+		"host":          "smtp.example.com",
+		"port":          587,
+		"mode":          "starttls_required",
+		"ehloHostname":  "prism.example.com",
+		"auth":          "plain",
+		"username":      "smtp-user",
+		"password":      "smtp-secret",
+		"timeout":       "15s",
+		"tlsServerName": "smtp.example.com",
+	}
 }

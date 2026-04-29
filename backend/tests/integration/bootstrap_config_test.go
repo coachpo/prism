@@ -74,6 +74,9 @@ type bootstrapSeededFile struct {
 		RefreshCookieName      string `json:"refreshCookieName"`
 		CookieSecure           bool   `json:"cookieSecure"`
 	} `json:"auth"`
+	Mail struct {
+		Enabled bool `json:"enabled"`
+	} `json:"mail"`
 	StateTransfer struct {
 		BundleEncryptionKey string `json:"bundleEncryptionKey"`
 	} `json:"stateTransfer"`
@@ -292,6 +295,9 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.AuthCookieName != "prism_access_token" || settings.AuthRefreshCookieName != "prism_refresh_token" || settings.AuthCookieSecure {
 		t.Fatalf("unexpected seeded auth cookies: %+v", settings)
 	}
+	if settings.Mail.Enabled {
+		t.Fatalf("expected seeded mail to be disabled by default: %+v", settings.Mail)
+	}
 }
 
 func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wantDatabaseURL string) {
@@ -348,6 +354,9 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Auth.AccessCookieName != "prism_access_token" || seeded.Auth.RefreshCookieName != "prism_refresh_token" || seeded.Auth.CookieSecure {
 		t.Fatalf("unexpected seeded auth payload: %+v", seeded.Auth)
 	}
+	if seeded.Mail.Enabled {
+		t.Fatalf("expected seeded mail payload to be disabled: %+v", seeded.Mail)
+	}
 	if seeded.StateTransfer.BundleEncryptionKey != bootstrapFixtureBundleKey {
 		t.Fatalf("unexpected seeded bundle key payload: %q", seeded.StateTransfer.BundleEncryptionKey)
 	}
@@ -366,7 +375,7 @@ func assertBootstrapTopLevelKeys(t *testing.T, raw []byte) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatalf("decode bootstrap top-level JSON: %v", err)
 	}
-	required := []string{"meta", "server", "database", "runtime", "http", "auth", "stateTransfer"}
+	required := []string{"meta", "server", "database", "runtime", "http", "auth", "mail", "stateTransfer"}
 	if len(payload) != len(required) {
 		t.Fatalf("expected seeded bootstrap config top-level keys %v, got %v", required, keysFromPayload(payload))
 	}
