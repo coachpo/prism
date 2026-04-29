@@ -11488,11 +11488,39 @@
           "database": {"$ref": "#/components/schemas/BootstrapConfigDatabaseValues"},
           "runtime": {"$ref": "#/components/schemas/BootstrapConfigRuntimeValues"},
           "http": {"$ref": "#/components/schemas/BootstrapConfigHTTPValues"},
-          "auth": {"$ref": "#/components/schemas/BootstrapConfigAuthValues"}
+          "auth": {"$ref": "#/components/schemas/BootstrapConfigAuthValues"},
+          "mail": {"anyOf": [{"$ref": "#/components/schemas/BootstrapConfigMailValues"}, {"type": "null"}], "title": "Mail"}
         },
         "type": "object",
         "required": ["server", "database", "runtime", "http", "auth"],
         "title": "BootstrapConfigValues"
+      },
+      "BootstrapConfigMailValues": {
+        "properties": {
+          "enabled": {"anyOf": [{"type": "boolean"}, {"type": "null"}], "title": "Enabled"},
+          "from": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "From"},
+          "reply_to": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Reply To"},
+          "smtp": {"anyOf": [{"$ref": "#/components/schemas/BootstrapConfigMailSMTPValues"}, {"type": "null"}], "title": "Smtp"}
+        },
+        "type": "object",
+        "required": ["enabled", "from", "reply_to", "smtp"],
+        "title": "BootstrapConfigMailValues"
+      },
+      "BootstrapConfigMailSMTPValues": {
+        "properties": {
+          "host": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Host"},
+          "port": {"anyOf": [{"type": "integer"}, {"type": "null"}], "title": "Port"},
+          "mode": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Mode"},
+          "ehlo_hostname": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Ehlo Hostname"},
+          "auth": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Auth"},
+          "username": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Username"},
+          "password_file": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Password File"},
+          "timeout": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Timeout"},
+          "tls_server_name": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Tls Server Name"}
+        },
+        "type": "object",
+        "required": ["host", "port", "mode", "ehlo_hostname", "auth", "username", "password_file", "timeout", "tls_server_name"],
+        "title": "BootstrapConfigMailSMTPValues"
       },
       "BootstrapConfigServerValues": {
         "properties": {
