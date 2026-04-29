@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 func TestModelResolutionAndRewriteHelpers(t *testing.T) {
@@ -79,6 +81,19 @@ func TestRequestWantsStreamUsesGeminiStreamingPath(t *testing.T) {
 	}
 	if !requestWantsStream([]byte(`{"stream":true}`), "/v1/chat/completions") {
 		t.Fatal("expected explicit stream body flag to remain streaming for generic routes")
+	}
+}
+
+func TestNewRuntimeHTTPClientUsesConfiguredRequestTimeout(t *testing.T) {
+	settings := config.Settings{
+		RuntimeTransportConfig: config.RuntimeTransportConfig{
+			RequestTimeout: 17 * time.Second,
+		},
+	}
+
+	client := newRuntimeHTTPClient(settings)
+	if client.Timeout != 17*time.Second {
+		t.Fatalf("expected runtime HTTP client timeout 17s, got %v", client.Timeout)
 	}
 }
 

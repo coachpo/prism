@@ -101,7 +101,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 func newRuntimeHTTPClient(settings config.Settings) *http.Client {
 	transportConfig := settings.RuntimeTransport()
 	return &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: transportConfig.RequestTimeout,
 		Transport: &http.Transport{
 			DisableCompression:    true,
 			MaxIdleConns:          transportConfig.MaxIdleConns,
