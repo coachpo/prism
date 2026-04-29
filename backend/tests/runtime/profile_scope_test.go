@@ -223,6 +223,76 @@ func TestRuntimeIgnoresXProfileId(t *testing.T) {
 	}
 }
 
+func TestRuntimeResponsesIgnoresXProfileId(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	activeProfileID := harness.activeProfileID(t)
+	inactiveProfileID := harness.createProfile(t, "Runtime Responses Ignore Override")
+	suffix := randomSuffix()
+	publicModelID := "runtime-responses-ignore-" + suffix
+	activeRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       activeProfileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   "runtime-responses-active-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/responses-active"),
+		EndpointAPIKey:  "responses-active-upstream-key",
+	})
+	inactiveRoute := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       inactiveProfileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   "runtime-responses-inactive-target-" + suffix,
+		EndpointBaseURL: harness.upstream.baseURL("/responses-inactive"),
+		EndpointAPIKey:  "responses-inactive-upstream-key",
+	})
+
+	runtimePayload := map[string]any{
+		"input": "ignore override",
+		"model": publicModelID,
+	}
+	harness.upstream.clear()
+	firstResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		runtimePayload,
+		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", inactiveProfileID)},
+	)
+	assertStatus(t, firstResponse, http.StatusOK)
+	firstRequest := harness.upstream.lastRequest(t)
+	if firstRequest.Path != "/responses-active/v1/responses" {
+		t.Fatalf("expected first responses upstream path to use active profile route, got %s", firstRequest.Path)
+	}
+	if firstRequest.Headers.Get("Authorization") != "Bearer "+activeRoute.EndpointAPIKey {
+		t.Fatalf("expected first responses upstream authorization header, got %q", firstRequest.Headers.Get("Authorization"))
+	}
+	if requestModelID(t, firstRequest.Body) != activeRoute.TargetModelID {
+		t.Fatalf("expected first responses upstream body model %q, got %q", activeRoute.TargetModelID, requestModelID(t, firstRequest.Body))
+	}
+
+	harness.activateProfile(t, inactiveProfileID, activeProfileID)
+	harness.upstream.clear()
+
+	secondResponse := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/responses",
+		runtimePayload,
+		map[string]string{"X-Profile-Id": fmt.Sprintf("%d", activeProfileID)},
+	)
+	assertStatus(t, secondResponse, http.StatusOK)
+	secondRequest := harness.upstream.lastRequest(t)
+	if secondRequest.Path != "/responses-inactive/v1/responses" {
+		t.Fatalf("expected second responses upstream path to follow new active profile, got %s", secondRequest.Path)
+	}
+	if secondRequest.Headers.Get("Authorization") != "Bearer "+inactiveRoute.EndpointAPIKey {
+		t.Fatalf("expected second responses upstream authorization header, got %q", secondRequest.Headers.Get("Authorization"))
+	}
+	if requestModelID(t, secondRequest.Body) != inactiveRoute.TargetModelID {
+		t.Fatalf("expected second responses upstream body model %q, got %q", inactiveRoute.TargetModelID, requestModelID(t, secondRequest.Body))
+	}
+}
+
 func TestRuntimeV1BetaIgnoresXProfileId(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	activeProfileID := harness.activeProfileID(t)
