@@ -122,6 +122,7 @@ type BootstrapConfigRuntimeTransportValues struct {
 	MaxIdleConns          *int    `json:"max_idle_conns"`
 	MaxIdleConnsPerHost   *int    `json:"max_idle_conns_per_host"`
 	MaxConnsPerHost       *int    `json:"max_conns_per_host"`
+	RequestTimeout        *string `json:"request_timeout"`
 	IdleConnTimeout       *string `json:"idle_conn_timeout"`
 	ResponseHeaderTimeout *string `json:"response_header_timeout"`
 	TLSHandshakeTimeout   *string `json:"tls_handshake_timeout"`
@@ -268,6 +269,7 @@ type bootstrapRuntimeTransport struct {
 	MaxIdleConns          *int    `json:"maxIdleConns"`
 	MaxIdleConnsPerHost   *int    `json:"maxIdleConnsPerHost"`
 	MaxConnsPerHost       *int    `json:"maxConnsPerHost"`
+	RequestTimeout        *string `json:"requestTimeout"`
 	IdleConnTimeout       *string `json:"idleConnTimeout"`
 	ResponseHeaderTimeout *string `json:"responseHeaderTimeout"`
 	TLSHandshakeTimeout   *string `json:"tlsHandshakeTimeout"`
@@ -827,6 +829,7 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 				MaxIdleConns:          cloneIntPointer(document.Runtime.Transport.MaxIdleConns),
 				MaxIdleConnsPerHost:   cloneIntPointer(document.Runtime.Transport.MaxIdleConnsPerHost),
 				MaxConnsPerHost:       cloneIntPointer(document.Runtime.Transport.MaxConnsPerHost),
+				RequestTimeout:        cloneStringPointer(document.Runtime.Transport.RequestTimeout),
 				IdleConnTimeout:       cloneStringPointer(document.Runtime.Transport.IdleConnTimeout),
 				ResponseHeaderTimeout: cloneStringPointer(document.Runtime.Transport.ResponseHeaderTimeout),
 				TLSHandshakeTimeout:   cloneStringPointer(document.Runtime.Transport.TLSHandshakeTimeout),
@@ -961,6 +964,7 @@ func bootstrapRuntimeTransportFromSafeValues(values *BootstrapConfigRuntimeTrans
 		MaxIdleConns:          cloneIntPointer(values.MaxIdleConns),
 		MaxIdleConnsPerHost:   cloneIntPointer(values.MaxIdleConnsPerHost),
 		MaxConnsPerHost:       cloneIntPointer(values.MaxConnsPerHost),
+		RequestTimeout:        cloneStringPointer(values.RequestTimeout),
 		IdleConnTimeout:       cloneStringPointer(values.IdleConnTimeout),
 		ResponseHeaderTimeout: cloneStringPointer(values.ResponseHeaderTimeout),
 		TLSHandshakeTimeout:   cloneStringPointer(values.TLSHandshakeTimeout),
@@ -1185,6 +1189,7 @@ func safeBootstrapRuntimeTransportValues(transport *bootstrapRuntimeTransport) *
 		MaxIdleConns:          cloneIntPointer(transport.MaxIdleConns),
 		MaxIdleConnsPerHost:   cloneIntPointer(transport.MaxIdleConnsPerHost),
 		MaxConnsPerHost:       cloneIntPointer(transport.MaxConnsPerHost),
+		RequestTimeout:        cloneStringPointer(transport.RequestTimeout),
 		IdleConnTimeout:       cloneStringPointer(transport.IdleConnTimeout),
 		ResponseHeaderTimeout: cloneStringPointer(transport.ResponseHeaderTimeout),
 		TLSHandshakeTimeout:   cloneStringPointer(transport.TLSHandshakeTimeout),
@@ -1498,6 +1503,9 @@ func (t bootstrapRuntimeTransport) validate() error {
 	if _, err := requiredIntMin("runtime.transport.maxConnsPerHost", t.MaxConnsPerHost, 0); err != nil {
 		return err
 	}
+	if _, err := requiredTrimmedString("runtime.transport.requestTimeout", t.RequestTimeout, 1, 0); err != nil {
+		return err
+	}
 	if _, err := requiredTrimmedString("runtime.transport.idleConnTimeout", t.IdleConnTimeout, 1, 0); err != nil {
 		return err
 	}
@@ -1663,6 +1671,7 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 		path  string
 		value *string
 	}{
+		{path: "runtime.transport.requestTimeout", value: d.Runtime.Transport.RequestTimeout},
 		{path: "runtime.transport.idleConnTimeout", value: d.Runtime.Transport.IdleConnTimeout},
 		{path: "runtime.transport.responseHeaderTimeout", value: d.Runtime.Transport.ResponseHeaderTimeout},
 		{path: "runtime.transport.tlsHandshakeTimeout", value: d.Runtime.Transport.TLSHandshakeTimeout},
@@ -1890,6 +1899,13 @@ func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportC
 	if err != nil {
 		return RuntimeTransportConfig{}, err
 	}
+	requestTimeout, err := parseDurationField("runtime.transport.requestTimeout", t.RequestTimeout)
+	if err != nil {
+		return RuntimeTransportConfig{}, err
+	}
+	if requestTimeout <= 0 {
+		return RuntimeTransportConfig{}, fmt.Errorf("bootstrap config field runtime.transport.requestTimeout must be greater than zero")
+	}
 	idleConnTimeout, err := parseDurationField("runtime.transport.idleConnTimeout", t.IdleConnTimeout)
 	if err != nil {
 		return RuntimeTransportConfig{}, err
@@ -1910,6 +1926,7 @@ func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportC
 		MaxIdleConns:          maxIdleConns,
 		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
 		MaxConnsPerHost:       maxConnsPerHost,
+		RequestTimeout:        requestTimeout,
 		IdleConnTimeout:       idleConnTimeout,
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		TLSHandshakeTimeout:   tlsHandshakeTimeout,
@@ -1976,6 +1993,7 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 				MaxIdleConns:          intPointer(runtimeTransport.MaxIdleConns),
 				MaxIdleConnsPerHost:   intPointer(runtimeTransport.MaxIdleConnsPerHost),
 				MaxConnsPerHost:       intPointer(runtimeTransport.MaxConnsPerHost),
+				RequestTimeout:        stringPointer(bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)),
 				IdleConnTimeout:       stringPointer(runtimeTransport.IdleConnTimeout.String()),
 				ResponseHeaderTimeout: stringPointer(runtimeTransport.ResponseHeaderTimeout.String()),
 				TLSHandshakeTimeout:   stringPointer(runtimeTransport.TLSHandshakeTimeout.String()),
@@ -2001,6 +2019,13 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
 	}, nil
+}
+
+func bootstrapRequestTimeoutString(timeout time.Duration) string {
+	if timeout == defaultRuntimeTransportRequestTimeout {
+		return "60s"
+	}
+	return timeout.String()
 }
 
 func intPointer(value int) *int {

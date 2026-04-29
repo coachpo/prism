@@ -70,6 +70,7 @@ const (
 	defaultRuntimeTransportMaxIdleConns                = 100
 	defaultRuntimeTransportMaxIdleConnsPerHost         = 8
 	defaultRuntimeTransportMaxConnsPerHost             = 0
+	defaultRuntimeTransportRequestTimeout              = 60 * time.Second
 	defaultRuntimeTransportIdleConnTimeout             = 90 * time.Second
 	defaultRuntimeTransportResponseHeaderTimeout       = 0
 	defaultRuntimeTransportTLSHandshakeTimeout         = 10 * time.Second
@@ -90,6 +91,7 @@ type RuntimeTransportConfig struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
 	MaxConnsPerHost       int
+	RequestTimeout        time.Duration
 	IdleConnTimeout       time.Duration
 	ResponseHeaderTimeout time.Duration
 	TLSHandshakeTimeout   time.Duration
@@ -245,6 +247,7 @@ func defaultRuntimeTransportConfig() RuntimeTransportConfig {
 		MaxIdleConns:          defaultRuntimeTransportMaxIdleConns,
 		MaxIdleConnsPerHost:   defaultRuntimeTransportMaxIdleConnsPerHost,
 		MaxConnsPerHost:       defaultRuntimeTransportMaxConnsPerHost,
+		RequestTimeout:        defaultRuntimeTransportRequestTimeout,
 		IdleConnTimeout:       defaultRuntimeTransportIdleConnTimeout,
 		ResponseHeaderTimeout: defaultRuntimeTransportResponseHeaderTimeout,
 		TLSHandshakeTimeout:   defaultRuntimeTransportTLSHandshakeTimeout,
@@ -282,6 +285,9 @@ func normalizeRuntimeTransportConfig(candidate RuntimeTransportConfig, defaults 
 	}
 	if normalized.MaxIdleConns < normalized.MaxIdleConnsPerHost {
 		normalized.MaxIdleConns = normalized.MaxIdleConnsPerHost
+	}
+	if normalized.RequestTimeout <= 0 {
+		normalized.RequestTimeout = defaults.RequestTimeout
 	}
 	if normalized.IdleConnTimeout <= 0 {
 		normalized.IdleConnTimeout = defaults.IdleConnTimeout
