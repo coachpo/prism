@@ -26,6 +26,7 @@ import (
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformemail "github.com/coachpo/prism/backend/internal/platform/email"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
@@ -50,9 +51,11 @@ type contractHarness struct {
 }
 
 type captureMailer struct {
-	mu                sync.Mutex
-	emailVerification []sentOTP
-	passwordReset     []sentOTP
+	mu                     sync.Mutex
+	emailVerification      []sentOTP
+	emailVerificationError error
+	passwordReset          []sentOTP
+	passwordResetError     error
 }
 
 type sentOTP struct {
@@ -348,6 +351,20 @@ func TestPasswordReset(t *testing.T) {
 	)
 	assertStatus(t, loginResponse, http.StatusOK)
 
+	nonMatchingRequest := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/auth/password-reset/request",
+		map[string]any{"username_or_email": "missing-reset@example.com"},
+		nil,
+	)
+	assertStatus(t, nonMatchingRequest, http.StatusOK)
+	assertSuccessPayload(t, nonMatchingRequest)
+	if sends := harness.mailer.passwordResetSends(); len(sends) != 0 {
+		t.Fatalf("expected password reset request for non-matching identifier not to send mail, got %+v", sends)
+	}
+
 	requestResponse := harness.requestJSON(
 		t,
 		harness.client,
@@ -358,6 +375,17 @@ func TestPasswordReset(t *testing.T) {
 	)
 	assertStatus(t, requestResponse, http.StatusOK)
 	assertSuccessPayload(t, requestResponse)
+	passwordResetSends := harness.mailer.passwordResetSends()
+	if len(passwordResetSends) != 1 {
+		t.Fatalf("expected exactly one password reset email, got %+v", passwordResetSends)
+	}
+	passwordResetSend := passwordResetSends[0]
+	if passwordResetSend.Recipient != "reset@example.com" {
+		t.Fatalf("expected password reset email recipient reset@example.com, got %+v", passwordResetSend)
+	}
+	if passwordResetSend.OTPCode == "" {
+		t.Fatal("expected password reset email to include an OTP")
+	}
 	otpCode := harness.mailer.lastPasswordResetOTP(t)
 	challenge := loadLatestPasswordResetChallenge(t, harness)
 	if challenge.ConsumedAt != nil {
@@ -427,6 +455,52 @@ func TestPasswordReset(t *testing.T) {
 	assertStatus(t, newPasswordLogin, http.StatusOK)
 }
 
+func TestPasswordResetMailerFailurePreservesSuccessResponse(t *testing.T) {
+	mailer := &captureMailer{passwordResetError: fmt.Errorf("password reset mailer failed")}
+	harness := newContractHarnessWithMailer(t, mailer)
+	seedVerifiedAuthSettings(t, harness, "reset-failure-admin", "reset-failure-password-123", "reset-failure@example.com")
+
+	requestResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/auth/password-reset/request",
+		map[string]any{"username_or_email": "reset-failure@example.com"},
+		nil,
+	)
+	assertStatus(t, requestResponse, http.StatusOK)
+	assertSuccessPayload(t, requestResponse)
+	passwordResetSends := mailer.passwordResetSends()
+	if len(passwordResetSends) != 1 {
+		t.Fatalf("expected password reset mailer to be invoked once despite send failure, got %+v", passwordResetSends)
+	}
+	passwordResetSend := passwordResetSends[0]
+	if passwordResetSend.Recipient != "reset-failure@example.com" {
+		t.Fatalf("expected password reset failure recipient reset-failure@example.com, got %+v", passwordResetSend)
+	}
+	if passwordResetSend.OTPCode == "" {
+		t.Fatal("expected password reset failure path to generate an OTP")
+	}
+	challenge := loadLatestPasswordResetChallenge(t, harness)
+	if challenge.OTPHash == "" {
+		t.Fatal("expected password reset challenge to be stored even when send fails")
+	}
+
+	nonMatchingResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/auth/password-reset/request",
+		map[string]any{"username_or_email": "unknown-reset-failure@example.com"},
+		nil,
+	)
+	assertStatus(t, nonMatchingResponse, http.StatusOK)
+	assertSuccessPayload(t, nonMatchingResponse)
+	if got := len(mailer.passwordResetSends()); got != 1 {
+		t.Fatalf("expected non-matching password reset identifier not to send mail, got %d sends", got)
+	}
+}
+
 func TestEmailVerification(t *testing.T) {
 	harness := newContractHarness(t)
 
@@ -462,7 +536,18 @@ func TestEmailVerification(t *testing.T) {
 	)
 	assertStatus(t, verificationRequest, http.StatusOK)
 	assertEmailVerificationPayload(t, verificationRequest, stringPtr("email-admin@example.com"), nil)
-	otpCode := harness.mailer.lastEmailVerificationOTP(t)
+	emailVerificationSends := harness.mailer.emailVerificationSends()
+	if len(emailVerificationSends) != 1 {
+		t.Fatalf("expected exactly one email verification email, got %+v", emailVerificationSends)
+	}
+	emailVerificationSend := emailVerificationSends[0]
+	if emailVerificationSend.Recipient != "email-admin@example.com" {
+		t.Fatalf("expected email verification recipient email-admin@example.com, got %+v", emailVerificationSend)
+	}
+	if emailVerificationSend.OTPCode == "" {
+		t.Fatal("expected email verification email to include an OTP")
+	}
+	otpCode := emailVerificationSend.OTPCode
 
 	pendingSettingsResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/auth", nil, nil)
 	assertStatus(t, pendingSettingsResponse, http.StatusOK)
@@ -500,6 +585,71 @@ func TestEmailVerification(t *testing.T) {
 	decodeJSONResponse(t, enableResponse, &enabledPayload)
 	if enabledPayload["auth_enabled"] != true || enabledPayload["username"] != "email-admin" || enabledPayload["email"] != "email-admin@example.com" || enabledPayload["has_password"] != true {
 		t.Fatalf("expected enabled auth settings payload, got %+v", enabledPayload)
+	}
+}
+
+func TestRecoveryEmailVerificationDisabledMailerIsNoopCompatible(t *testing.T) {
+	harness := newContractHarnessWithMailer(t, platformemail.DisabledMailer{})
+
+	verificationRequest := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/settings/auth/email-verification/request",
+		map[string]any{"email": "disabled-mailer@example.com"},
+		nil,
+	)
+	assertStatus(t, verificationRequest, http.StatusOK)
+	assertEmailVerificationPayload(t, verificationRequest, stringPtr("disabled-mailer@example.com"), nil)
+	settings := loadAppAuthSettings(t, harness)
+	if settings.PendingEmail == nil || *settings.PendingEmail != "disabled-mailer@example.com" {
+		t.Fatalf("expected disabled mailer to leave recovery email verification pending, got %+v", settings)
+	}
+
+	seedVerifiedAuthSettings(t, harness, "disabled-reset-admin", "disabled-reset-password-123", "disabled-reset@example.com")
+	resetRequest := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/auth/password-reset/request",
+		map[string]any{"username_or_email": "disabled-reset-admin"},
+		nil,
+	)
+	assertStatus(t, resetRequest, http.StatusOK)
+	assertSuccessPayload(t, resetRequest)
+	challenge := loadLatestPasswordResetChallenge(t, harness)
+	if challenge.OTPHash == "" {
+		t.Fatal("expected disabled mailer password reset request to store a challenge")
+	}
+}
+
+func TestEmailVerificationMailerFailureReturnsError(t *testing.T) {
+	mailer := &captureMailer{emailVerificationError: fmt.Errorf("email verification mailer failed")}
+	harness := newContractHarnessWithMailer(t, mailer)
+
+	verificationRequest := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/settings/auth/email-verification/request",
+		map[string]any{"email": "verification-failure@example.com"},
+		nil,
+	)
+	assertErrorResponse(t, verificationRequest, http.StatusInternalServerError, "Internal server error")
+	emailVerificationSends := mailer.emailVerificationSends()
+	if len(emailVerificationSends) != 1 {
+		t.Fatalf("expected email verification mailer to be invoked once before surfacing send failure, got %+v", emailVerificationSends)
+	}
+	emailVerificationSend := emailVerificationSends[0]
+	if emailVerificationSend.Recipient != "verification-failure@example.com" {
+		t.Fatalf("expected email verification failure recipient verification-failure@example.com, got %+v", emailVerificationSend)
+	}
+	if emailVerificationSend.OTPCode == "" {
+		t.Fatal("expected email verification failure path to generate an OTP")
+	}
+	settings := loadAppAuthSettings(t, harness)
+	if settings.PendingEmail != nil {
+		t.Fatalf("expected email verification send failure to roll back pending email, got %+v", settings)
 	}
 }
 
@@ -800,6 +950,15 @@ func (h testPostgresHarness) connectionString(databaseName string) string {
 
 func newContractHarness(t *testing.T) *contractHarness {
 	t.Helper()
+	return newContractHarnessWithMailer(t, &captureMailer{})
+}
+
+func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer) *contractHarness {
+	t.Helper()
+	if authMailer == nil {
+		authMailer = &captureMailer{}
+	}
+	capturedMailer, _ := authMailer.(*captureMailer)
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
 	databaseName := "contract_" + randomSuffix()
@@ -843,9 +1002,8 @@ func newContractHarness(t *testing.T) *contractHarness {
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap published runtime snapshot: %v", err)
 	}
-	mailer := &captureMailer{}
 	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
-	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, Mailer: mailer, RuntimeCache: runtimeAuthCache})
+	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, Mailer: authMailer, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		t.Fatalf("build auth service: %v", err)
 	}
@@ -867,7 +1025,7 @@ func newContractHarness(t *testing.T) *contractHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: mailer, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: capturedMailer, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, url: server.URL}
 }
 
 func (h *contractHarness) refreshRuntimeSnapshot(t *testing.T, request runtimeapi.RefreshRequest) {
@@ -929,14 +1087,32 @@ func (m *captureMailer) SendEmailVerificationOTP(_ context.Context, recipient st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emailVerification = append(m.emailVerification, sentOTP{Recipient: recipient, OTPCode: otpCode})
-	return nil
+	return m.emailVerificationError
 }
 
 func (m *captureMailer) SendPasswordResetEmail(_ context.Context, recipient string, otpCode string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.passwordReset = append(m.passwordReset, sentOTP{Recipient: recipient, OTPCode: otpCode})
-	return nil
+	return m.passwordResetError
+}
+
+func (m *captureMailer) emailVerificationSends() []sentOTP {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]sentOTP(nil), m.emailVerification...)
+}
+
+func (m *captureMailer) passwordResetSends() []sentOTP {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]sentOTP(nil), m.passwordReset...)
 }
 
 func (m *captureMailer) lastEmailVerificationOTP(t *testing.T) string {
