@@ -17,6 +17,10 @@ func TestModelResolutionAndRewriteHelpers(t *testing.T) {
 	if got, err := resolveModelID(rawBody, "/v1/chat/completions"); err != nil || got != "gpt-4o" {
 		t.Fatalf("expected body model id, got model=%q err=%v", got, err)
 	}
+	responsesBody := []byte(`{"model":"gpt-4o","input":"hello"}`)
+	if got, err := resolveModelID(responsesBody, "/v1/responses"); err != nil || got != "gpt-4o" {
+		t.Fatalf("expected Responses body model id, got model=%q err=%v", got, err)
+	}
 	if got, err := resolveModelID(nil, "/v1beta/models/gemini-2.5-pro:generateContent"); err != nil || got != "gemini-2.5-pro" {
 		t.Fatalf("expected path model id, got model=%q err=%v", got, err)
 	}
@@ -34,11 +38,17 @@ func TestModelResolutionAndRewriteHelpers(t *testing.T) {
 	if _, err := resolveModelID([]byte(`{"messages":[]}`), "/v1/chat/completions"); err == nil {
 		t.Fatal("expected missing model id to fail")
 	}
+	if _, err := resolveModelID([]byte(`{"input":"hello"}`), "/v1/responses"); err == nil {
+		t.Fatal("expected missing Responses model id to fail")
+	}
 }
 
 func TestValidatePathCompatibilityAndHeaderHelpers(t *testing.T) {
 	if err := validatePathCompatibility("openai", "/v1/chat/completions"); err != nil {
 		t.Fatalf("expected OpenAI generic path to be valid, got %v", err)
+	}
+	if err := validatePathCompatibility("openai", "/v1/responses"); err != nil {
+		t.Fatalf("expected OpenAI Responses path to be valid, got %v", err)
 	}
 	if err := validatePathCompatibility("anthropic", "/v1/messages"); err != nil {
 		t.Fatalf("expected Anthropic messages path to be valid, got %v", err)
@@ -51,6 +61,10 @@ func TestValidatePathCompatibilityAndHeaderHelpers(t *testing.T) {
 	var domainErr *domainError
 	if !errors.As(err, &domainErr) || domainErr.StatusCode != http.StatusBadRequest || !strings.Contains(domainErr.Detail, "incompatible") {
 		t.Fatalf("expected incompatibility domain error, got %v", err)
+	}
+	err = validatePathCompatibility("anthropic", "/v1/responses")
+	if !errors.As(err, &domainErr) || domainErr.StatusCode != http.StatusBadRequest || !strings.Contains(domainErr.Detail, "api_family 'anthropic'") {
+		t.Fatalf("expected Anthropic Responses incompatibility domain error, got %v", err)
 	}
 
 	if got, ok := normalizeHeaderValue("  keep  "); !ok || got != "keep" {
