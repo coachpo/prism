@@ -119,6 +119,39 @@ func TestRuntimeStreamingFirstUsageExtraction(t *testing.T) {
 			wantTotal:     20,
 		},
 		{
+			name:      "OpenAIResponses",
+			apiFamily: "openai",
+			requestPath: func(string) string {
+				return "/v1/responses"
+			},
+			requestBody: func(publicModelID string) any {
+				return map[string]any{
+					"model": publicModelID,
+					"input": "phase-3 streaming-first responses usage",
+				}
+			},
+			responseBody: map[string]any{
+				"id":     "resp_phase3_streaming_first_openai_responses",
+				"object": "response",
+				"model":  "phase3-streaming-first-responses-target",
+				"output": []map[string]any{{
+					"id":   "msg_phase3_streaming_first_openai_responses",
+					"type": "message",
+					"role": "assistant",
+					"content": []map[string]any{{
+						"type": "output_text",
+						"text": strings.Repeat("phase3-openai-responses-usage-", 2048),
+					}},
+				}},
+				"usage": map[string]any{"input_tokens": 19, "output_tokens": 23, "total_tokens": 42},
+			},
+			responseField: "id",
+			responseValue: "resp_phase3_streaming_first_openai_responses",
+			wantInput:     19,
+			wantOutput:    23,
+			wantTotal:     42,
+		},
+		{
 			name:      "Anthropic",
 			apiFamily: "anthropic",
 			requestPath: func(string) string {
