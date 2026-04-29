@@ -209,10 +209,11 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 **Frontend flow**
 
-1. Settings splits into a Profile tab and a Global tab.
+1. Settings splits into Profile, Global, and Startup tabs.
 2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions.
 3. Global settings cover operator authentication and shared vendor management.
-4. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
+4. The Startup tab owns plaintext bootstrap config management under `/settings#startup`.
+5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
 The configuration-operations flow is explicit in both lanes:
 - profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
