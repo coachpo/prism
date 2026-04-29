@@ -85,7 +85,7 @@ docker run -d \
   ghcr.io/coachpo/prism-frontend:latest
 ```
 
-Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting.
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting. Existing bootstrap `config.json` files must include `runtime.transport.requestTimeout` before starting this upgraded backend; set it to `"60s"` to preserve the prior whole-request upstream timeout behavior.
 
 The frontend image defaults to same-origin API calls. In production, put frontend and backend behind a reverse proxy and route `/` to frontend, and `/api`, `/v1`, and `/v1beta` to backend.
 
@@ -161,6 +161,8 @@ Plaintext bootstrap startup uses a single steady-state external input:
 The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, PUT applies explicit preserve or replace secret actions with expected revision and etag checks, and dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
 
 That bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
+
+Breaking migration note: existing plaintext bootstrap files must add `runtime.transport.requestTimeout`, usually `"60s"`, before restart. Missing `runtime.transport.requestTimeout` fails startup validation by design.
 
 Auth email delivery is disabled by default. Existing bootstrap files with no `mail` block still start and use no-op delivery with no SMTP network activity. Seeded local configs include the explicit disabled shape:
 

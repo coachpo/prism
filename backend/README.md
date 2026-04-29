@@ -58,6 +58,7 @@ go build ./cmd/prism-backend
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - Bootstrap writes are durable only for the next start, and Prism must be restarted to apply listener, database, auth, or transport changes.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
+- Raw bootstrap files require `runtime.transport.requestTimeout` as a Go duration string. Set it to `"60s"` to keep the prior whole-request upstream timeout behavior. Missing `runtime.transport.requestTimeout` fails startup validation by design.
 - Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
 - To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` in the bootstrap file, then restart the backend. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
 - SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.

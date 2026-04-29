@@ -167,6 +167,8 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 Note: Gemini requests use native `/v1beta/models/{model}:...` paths only. When a Gemini proxy model resolves to a different native model ID, the proxy rewrites the model ID segment in the URL path to the resolved native target model ID before forwarding upstream.
 For Gemini, the `:streamGenerateContent` path is authoritative for stream classification even when the request body omits `stream: true`.
 
+Runtime upstream requests use the shared transport from startup bootstrap config. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls. Existing bootstrap files must include this field; `"60s"` keeps the prior timeout behavior, and a missing value fails startup validation by design.
+
 Vendor rows are global publisher metadata. Models may keep `vendor_id = null` and `vendor = null`, while runtime compatibility and redirect checks still use the model's required `api_family`, not the vendor row. The frontend owns vendor icon rendering through a locally vendored registry sourced from pinned `cc-switch` presets, and it falls back to a monogram or placeholder only at render time when icon data or vendor metadata is missing or unknown. The Models page still renders each row's `api_family` metadata even when vendor identity is absent.
 
 ### 3.5 Management API Profile Scoping

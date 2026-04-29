@@ -12012,6 +12012,17 @@
             ],
             "title": "Max Conns Per Host"
           },
+          "request_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout"
+          },
           "idle_conn_timeout": {
             "anyOf": [
               {
@@ -12062,6 +12073,7 @@
           "max_idle_conns",
           "max_idle_conns_per_host",
           "max_conns_per_host",
+          "request_timeout",
           "idle_conn_timeout",
           "response_header_timeout",
           "tls_handshake_timeout",

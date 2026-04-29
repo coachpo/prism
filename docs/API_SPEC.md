@@ -27,7 +27,7 @@ The startup bootstrap contract is a plaintext `config.json` management surface. 
 GET /api/config/bootstrap
 ```
 
-Response `200` returns safe metadata only. Raw secret values never appear in the payload.
+Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case for runtime transport fields, so the raw `runtime.transport.requestTimeout` file setting appears as `runtime.transport.request_timeout` in API payloads.
 ```json
 {
   "config_path": "config.json",
@@ -45,6 +45,19 @@ Response `200` returns safe metadata only. Raw secret values never appear in the
       "host": "127.0.0.1",
       "port": 18000,
       "docs_enabled": true
+    },
+    "runtime": {
+      "buffering_mode": "buffered",
+      "transport": {
+        "max_idle_conns": 100,
+        "max_idle_conns_per_host": 8,
+        "max_conns_per_host": 0,
+        "request_timeout": "60s",
+        "idle_conn_timeout": "1m30s",
+        "response_header_timeout": "0s",
+        "tls_handshake_timeout": "10s",
+        "expect_continue_timeout": "1s"
+      }
     },
     "mail": {
       "enabled": false,
@@ -73,7 +86,25 @@ Response `200` returns safe metadata only. Raw secret values never appear in the
 }
 ```
 
-The underlying `config.json` file may include an optional top-level `mail` block. Missing `mail` and `mail.enabled=false` both mean disabled no-op auth email delivery with no SMTP network activity. Seeded configs use `{ "mail": { "enabled": false } }`.
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` as a Go duration string. Existing plaintext bootstrap files need a breaking migration before restart: add `runtime.transport.requestTimeout`, usually `"60s"`, to keep the prior whole-request upstream timeout behavior. Missing `runtime.transport.requestTimeout` fails validation and startup by design.
+
+Raw runtime transport startup config uses camelCase JSON field names in the file:
+
+```json
+{
+  "runtime": {
+    "transport": {
+      "requestTimeout": "60s",
+      "idleConnTimeout": "1m30s",
+      "responseHeaderTimeout": "30s",
+      "tlsHandshakeTimeout": "10s",
+      "expectContinueTimeout": "1s"
+    }
+  }
+}
+```
+
+The underlying `config.json` file may also include an optional top-level `mail` block. Missing `mail` and `mail.enabled=false` both mean disabled no-op auth email delivery with no SMTP network activity. Seeded configs use `{ "mail": { "enabled": false } }`.
 
 Enabled SMTP startup config uses camelCase JSON field names in the file:
 
@@ -100,7 +131,7 @@ Enabled SMTP startup config uses camelCase JSON field names in the file:
 
 Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is valid only for localhost or loopback SMTP hosts, and auth over non-local plaintext is forbidden. `mail.smtp.auth` accepts `none` or `plain`; `plain` requires `mail.smtp.username` plus exactly one of `mail.smtp.password` or `mail.smtp.passwordFile`. `mail.smtp.timeout` must parse as a Go duration such as `15s`.
 
-Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
+Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as runtime `request_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
 
 #### Validate Bootstrap Config
 ```
