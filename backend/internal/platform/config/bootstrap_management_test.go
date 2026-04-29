@@ -47,9 +47,15 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	if snapshot.Values.Database == nil || snapshot.Values.Database.RuntimePool == nil || snapshot.Values.Auth == nil {
 		t.Fatal("expected safe values to include editable sections")
 	}
+	if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.Transport == nil || snapshot.Values.Runtime.Transport.RequestTimeout == nil || *snapshot.Values.Runtime.Transport.RequestTimeout != "60s" {
+		t.Fatalf("expected safe runtime transport request_timeout to be exposed, got %+v", snapshot.Values.Runtime)
+	}
 
 	encoded := mustMarshalJSON(t, snapshot)
 	assertSafeManagementSnapshot(t, encoded)
+	if !bytes.Contains(encoded, []byte(`"request_timeout":"60s"`)) {
+		t.Fatal("expected safe management snapshot to include request_timeout")
+	}
 	databaseSecret := snapshot.Secrets[BootstrapConfigSecretDatabaseURL]
 	if !databaseSecret.Configured || !databaseSecret.Editable {
 		t.Fatal("expected editable configured database secret metadata")
@@ -134,6 +140,7 @@ func TestBootstrapConfigManagementPrepareUpdateIncrementsMetaAndWritesAtomically
 	}
 	values := cloneManagementValues(t, snapshot.Values)
 	values.Auth.AccessTokenTTLSeconds = intPointer(1200)
+	values.Runtime.Transport.RequestTimeout = stringPointer("17s")
 	rotatedJWTSecret := "rotated-jwt-signing-key"
 	updates := preserveManagementSecretUpdates()
 	updates[BootstrapConfigSecretAuthJWTSigningKey] = BootstrapConfigSecretUpdate{
@@ -168,8 +175,11 @@ func TestBootstrapConfigManagementPrepareUpdateIncrementsMetaAndWritesAtomically
 	if err != nil {
 		t.Fatalf("parse prepared management payload: %v", err)
 	}
-	if settings.AuthAccessTokenTTLSeconds != 1200 || settings.AuthJWTSecret != rotatedJWTSecret {
-		t.Fatal("expected prepared payload to include auth changes")
+	if settings.AuthAccessTokenTTLSeconds != 1200 || settings.AuthJWTSecret != rotatedJWTSecret || settings.RuntimeTransport().RequestTimeout != 17*time.Second {
+		t.Fatal("expected prepared payload to include auth and runtime transport changes")
+	}
+	if prepared.Snapshot.Values.Runtime == nil || prepared.Snapshot.Values.Runtime.Transport == nil || prepared.Snapshot.Values.Runtime.Transport.RequestTimeout == nil || *prepared.Snapshot.Values.Runtime.Transport.RequestTimeout != "17s" {
+		t.Fatal("expected prepared safe snapshot to preserve request_timeout")
 	}
 	if _, err := manager.WriteBootstrapConfigUpdate(path, prepared); err != nil {
 		t.Fatalf("write prepared management update: %v", err)
@@ -179,7 +189,7 @@ func TestBootstrapConfigManagementPrepareUpdateIncrementsMetaAndWritesAtomically
 		t.Fatalf("load written management update: %v", err)
 	}
 
-	if loadedSettings.AuthJWTSecret != rotatedJWTSecret || loadedSettings.AuthAccessTokenTTLSeconds != 1200 {
+	if loadedSettings.AuthJWTSecret != rotatedJWTSecret || loadedSettings.AuthAccessTokenTTLSeconds != 1200 || loadedSettings.RuntimeTransport().RequestTimeout != 17*time.Second {
 		t.Fatal("expected atomic write helper to persist prepared payload")
 	}
 }
@@ -385,13 +395,44 @@ func TestBootstrapConfigManagementRejectsInvalidSafeValuesAndPreservesStrictPars
 		t.Fatalf("load snapshot before validation checks: %v", err)
 	}
 
-	invalidDuration := managementRequestForSnapshot(t, snapshot)
-	values := cloneManagementValues(t, snapshot.Values)
-	values.Runtime.Transport.IdleConnTimeout = stringPointer("not-a-duration")
-	invalidDuration.Values = &values
-	_, err = manager.PrepareBootstrapConfigUpdate(path, invalidDuration)
-	if err == nil || !strings.Contains(err.Error(), "runtime.transport.idleConnTimeout must parse as a Go duration") {
-		t.Fatalf("expected duration validation error, got %v", err)
+	tests := []struct {
+		name    string
+		mutate  func(BootstrapConfigValues)
+		wantErr string
+	}{
+		{
+			name: "invalid idle connection timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.Transport.IdleConnTimeout = stringPointer("not-a-duration")
+			},
+			wantErr: "runtime.transport.idleConnTimeout must parse as a Go duration",
+		},
+		{
+			name: "invalid request timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.Transport.RequestTimeout = stringPointer("not-a-duration")
+			},
+			wantErr: "runtime.transport.requestTimeout must parse as a Go duration",
+		},
+		{
+			name: "zero request timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.Transport.RequestTimeout = stringPointer("0s")
+			},
+			wantErr: "runtime.transport.requestTimeout must be greater than zero",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			request := managementRequestForSnapshot(t, snapshot)
+			values := cloneManagementValues(t, snapshot.Values)
+			testCase.mutate(values)
+			request.Values = &values
+			_, err := manager.PrepareBootstrapConfigUpdate(path, request)
+			if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
+				t.Fatalf("expected validation error containing %q, got %v", testCase.wantErr, err)
+			}
+		})
 	}
 
 	var payload map[string]any

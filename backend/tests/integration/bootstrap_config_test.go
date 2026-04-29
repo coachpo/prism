@@ -56,6 +56,7 @@ type bootstrapSeededFile struct {
 			MaxIdleConns          int    `json:"maxIdleConns"`
 			MaxIdleConnsPerHost   int    `json:"maxIdleConnsPerHost"`
 			MaxConnsPerHost       int    `json:"maxConnsPerHost"`
+			RequestTimeout        string `json:"requestTimeout"`
 			IdleConnTimeout       string `json:"idleConnTimeout"`
 			ResponseHeaderTimeout string `json:"responseHeaderTimeout"`
 			TLSHandshakeTimeout   string `json:"tlsHandshakeTimeout"`
@@ -232,6 +233,34 @@ func TestBootstrapConfigFileWinsWhenPresent(t *testing.T) {
 	}
 }
 
+func TestExistingBootstrapConfigMissingRequestTimeoutFails(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	var payload map[string]any
+	if err := json.Unmarshal(loadIntegrationBootstrapFixtureBytes(t, "bootstrap-valid-v1.json"), &payload); err != nil {
+		t.Fatalf("decode valid bootstrap fixture: %v", err)
+	}
+	delete(payload["runtime"].(map[string]any)["transport"].(map[string]any), "requestTimeout")
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal bootstrap fixture without request timeout: %v", err)
+	}
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatalf("write bootstrap fixture without request timeout: %v", err)
+	}
+	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: configPath,
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	_, err = manager.LoadOrSeedFromEnv()
+	if err == nil {
+		t.Fatal("expected existing config without requestTimeout to fail")
+	}
+	if !strings.Contains(err.Error(), "runtime.transport.requestTimeout is required") {
+		t.Fatalf("expected missing request timeout validation error, got %v", err)
+	}
+}
+
 func TestEncryptedBootstrapConfigFileFailsFast(t *testing.T) {
 	setBootstrapSeedEnv(t, map[string]string{
 		config.BootstrapConfigPathEnv: integrationBootstrapFixturePath(t, "bootstrap-unsupported-encrypted-v1.json"),
@@ -274,7 +303,7 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 8 || transport.MaxConnsPerHost != 0 {
 		t.Fatalf("unexpected seeded runtime transport pool: %+v", transport)
 	}
-	if transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
+	if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 		t.Fatalf("unexpected seeded runtime transport timeouts: %+v", transport)
 	}
 	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 4 || got.MinIdleConns != 1 {
@@ -342,7 +371,7 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Runtime.Transport.MaxIdleConns != 100 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 8 || seeded.Runtime.Transport.MaxConnsPerHost != 0 {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)
 	}
-	if seeded.Runtime.Transport.IdleConnTimeout != "1m30s" || seeded.Runtime.Transport.ResponseHeaderTimeout != "0s" || seeded.Runtime.Transport.TLSHandshakeTimeout != "10s" || seeded.Runtime.Transport.ExpectContinueTimeout != "1s" {
+	if seeded.Runtime.Transport.RequestTimeout != "60s" || seeded.Runtime.Transport.IdleConnTimeout != "1m30s" || seeded.Runtime.Transport.ResponseHeaderTimeout != "0s" || seeded.Runtime.Transport.TLSHandshakeTimeout != "10s" || seeded.Runtime.Transport.ExpectContinueTimeout != "1s" {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)
 	}
 	if len(seeded.HTTP.CORSAllowedOrigins) != 2 || seeded.HTTP.CORSAllowedOrigins[0] != "http://localhost:15173" || seeded.HTTP.CORSAllowedOrigins[1] != "http://127.0.0.1:15173" {
