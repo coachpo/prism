@@ -41,6 +41,7 @@ export interface BootstrapConfigRuntimeTransportValues {
   max_idle_conns_per_host: number | null;
   max_conns_per_host: number | null;
   idle_conn_timeout: string | null;
+  request_timeout: string | null;
   response_header_timeout: string | null;
   tls_handshake_timeout: string | null;
   expect_continue_timeout: string | null;

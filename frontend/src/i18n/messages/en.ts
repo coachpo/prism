@@ -554,6 +554,7 @@ export interface Messages {
     readOnly: string;
     refreshCookieName: string;
     refreshTokenTtlSeconds: string;
+    requestTimeout: string;
     responseHeaderTimeout: string;
     replacementDisabled: string;
     replaceOnSave: string;
@@ -2435,6 +2436,7 @@ export const enMessages: Messages = {
     readOnly: "Read-only",
     refreshCookieName: "Refresh cookie name",
     refreshTokenTtlSeconds: "Refresh token TTL seconds",
+    requestTimeout: "Request timeout",
     responseHeaderTimeout: "Response header timeout",
     replacementDisabled: "Replacement disabled",
     replaceOnSave: "Replace on save",

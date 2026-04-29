@@ -562,6 +562,7 @@ export const zhCNMessages: Messages = {
     readOnly: "只读",
     refreshCookieName: "刷新 Cookie 名称",
     refreshTokenTtlSeconds: "刷新令牌 TTL 秒数",
+    requestTimeout: "请求超时",
     responseHeaderTimeout: "响应头超时",
     replacementDisabled: "替换已禁用",
     replaceOnSave: "保存时替换",

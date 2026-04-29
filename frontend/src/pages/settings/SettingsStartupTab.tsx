@@ -567,6 +567,7 @@ export function SettingsStartupTab() {
       }
     };
     checkRequiredString("runtime.transport.idle_conn_timeout", values.runtime.transport.idle_conn_timeout);
+    checkRequiredString("runtime.transport.request_timeout", values.runtime.transport.request_timeout);
     checkRequiredString("runtime.transport.response_header_timeout", values.runtime.transport.response_header_timeout);
     checkRequiredString("runtime.transport.tls_handshake_timeout", values.runtime.transport.tls_handshake_timeout);
     checkRequiredString("runtime.transport.expect_continue_timeout", values.runtime.transport.expect_continue_timeout);
@@ -819,6 +820,7 @@ export function SettingsStartupTab() {
                   <StartupInputField id="startup-max-idle-per-host" label={copy.maxIdlePerHost} type="number" value={numberValue(values.runtime.transport.max_idle_conns_per_host)} error={fieldErrors["runtime.transport.max_idle_conns_per_host"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_idle_conns_per_host", value)} />
                   <StartupInputField id="startup-max-conns-per-host" label={copy.maxConnsPerHost} type="number" value={numberValue(values.runtime.transport.max_conns_per_host)} error={fieldErrors["runtime.transport.max_conns_per_host"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_conns_per_host", value)} />
                   <StartupInputField id="startup-idle-timeout" label={copy.idleConnTimeout} value={textValue(values.runtime.transport.idle_conn_timeout)} error={fieldErrors["runtime.transport.idle_conn_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.idle_conn_timeout", value)} />
+                  <StartupInputField id="startup-request-timeout" label={copy.requestTimeout} value={textValue(values.runtime.transport.request_timeout)} error={fieldErrors["runtime.transport.request_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.request_timeout", value)} />
                   <StartupInputField id="startup-response-header-timeout" label={copy.responseHeaderTimeout} value={textValue(values.runtime.transport.response_header_timeout)} error={fieldErrors["runtime.transport.response_header_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.response_header_timeout", value)} />
                   <StartupInputField id="startup-tls-timeout" label={copy.tlsHandshakeTimeout} value={textValue(values.runtime.transport.tls_handshake_timeout)} error={fieldErrors["runtime.transport.tls_handshake_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.tls_handshake_timeout", value)} />
                   <StartupInputField id="startup-expect-timeout" label={copy.expectContinueTimeout} value={textValue(values.runtime.transport.expect_continue_timeout)} error={fieldErrors["runtime.transport.expect_continue_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.expect_continue_timeout", value)} />
