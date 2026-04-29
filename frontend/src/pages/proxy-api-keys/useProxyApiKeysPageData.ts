@@ -22,11 +22,11 @@ export function useProxyApiKeysPageData() {
   const [pageLoading, setPageLoading] = useState(true);
   const [rotatingProxyKeyId, setRotatingProxyKeyId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ProxyApiKey | null>(null);
-  const [deleteProxyKeyDialogOpen, setDeleteProxyKeyDialogOpen] = useState(false);
+  const [deleteProxyKeyAlertOpen, setDeleteProxyKeyAlertOpen] = useState(false);
   const [displayedDeleteConfirm, setDisplayedDeleteConfirm] = useState<ProxyApiKey | null>(null);
   const [deletingProxyKeyId, setDeletingProxyKeyId] = useState<number | null>(null);
   const [editingProxyKey, setEditingProxyKey] = useState<ProxyApiKey | null>(null);
-  const [editProxyKeyDialogOpen, setEditProxyKeyDialogOpen] = useState(false);
+  const [editProxyKeySheetOpen, setEditProxyKeySheetOpen] = useState(false);
   const [editingProxyKeyName, setEditingProxyKeyName] = useState("");
   const [editingProxyKeyNotes, setEditingProxyKeyNotes] = useState("");
   const [editingProxyKeyExpiresAt, setEditingProxyKeyExpiresAt] = useState("");
@@ -204,7 +204,7 @@ export function useProxyApiKeysPageData() {
       if (latestGeneratedKeyState?.keyId === deletingKey.id) {
         setLatestGeneratedKeyState(null);
       }
-      setDeleteProxyKeyDialogOpen(false);
+      setDeleteProxyKeyAlertOpen(false);
       setDeleteConfirm(null);
       toast.success(messages.proxyApiKeysData.deleted);
     } catch (error) {
@@ -220,7 +220,7 @@ export function useProxyApiKeysPageData() {
     setEditingProxyKeyNotes(item.notes ?? "");
     setEditingProxyKeyExpiresAt(toDateTimeLocalValue(item.expires_at));
     setEditingProxyKeyActive(item.is_active);
-    setEditProxyKeyDialogOpen(true);
+    setEditProxyKeySheetOpen(true);
   };
 
   async function handleSaveEditedProxyKey() {
@@ -252,7 +252,7 @@ export function useProxyApiKeysPageData() {
       setEditingProxyKeyNotes(updated.notes ?? "");
       setEditingProxyKeyExpiresAt(toDateTimeLocalValue(updated.expires_at));
       setEditingProxyKeyActive(updated.is_active);
-      setEditProxyKeyDialogOpen(false);
+      setEditProxyKeySheetOpen(false);
       toast.success(messages.proxyApiKeysData.updated);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.proxyApiKeysData.updateFailed);
@@ -273,21 +273,21 @@ export function useProxyApiKeysPageData() {
 
   const handleDeleteDialogOpenChange = (open: boolean) => {
     if (!open && deletingProxyKeyId === null) {
-      setDeleteProxyKeyDialogOpen(false);
+      setDeleteProxyKeyAlertOpen(false);
       setDeleteConfirm(null);
       return;
     }
 
-    setDeleteProxyKeyDialogOpen(open);
+    setDeleteProxyKeyAlertOpen(open);
   };
 
   const handleEditDialogOpenChange = (open: boolean) => {
     if (!open && savingEditedProxyKeyId === null) {
-      setEditProxyKeyDialogOpen(false);
+      setEditProxyKeySheetOpen(false);
       return;
     }
 
-    setEditProxyKeyDialogOpen(open);
+    setEditProxyKeySheetOpen(open);
   };
 
   const setDeleteConfirmState = (item: ProxyApiKey | null) => {
@@ -295,11 +295,11 @@ export function useProxyApiKeysPageData() {
 
     if (item) {
       setDisplayedDeleteConfirm(item);
-      setDeleteProxyKeyDialogOpen(true);
+      setDeleteProxyKeyAlertOpen(true);
       return;
     }
 
-    setDeleteProxyKeyDialogOpen(false);
+    setDeleteProxyKeyAlertOpen(false);
   };
 
   return {
@@ -309,10 +309,10 @@ export function useProxyApiKeysPageData() {
     createDisabled,
     creatingProxyKey,
     deleteConfirm,
-    deleteProxyKeyDialogOpen,
+    deleteProxyKeyAlertOpen,
     deletingProxyKeyId,
     displayedDeleteConfirm,
-    editProxyKeyDialogOpen,
+    editProxyKeySheetOpen,
     editingProxyKey,
     editingProxyKeyActive,
     editingProxyKeyExpiresAt,

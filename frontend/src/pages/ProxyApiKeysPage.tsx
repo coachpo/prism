@@ -1,12 +1,13 @@
 import { PageHeader } from "@/components/PageHeader";
-import { useLocale } from "@/i18n/useLocale";
 import { Badge } from "@/components/ui/badge";
-import { DeleteProxyKeyDialog } from "./proxy-api-keys/DeleteProxyKeyDialog";
-import { EditProxyKeyDialog } from "./proxy-api-keys/EditProxyKeyDialog";
+import { useLocale } from "@/i18n/useLocale";
+import { ProxyKeyDeleteAlertDialog } from "./proxy-api-keys/ProxyKeyDeleteAlertDialog";
+import { ProxyKeyDetailSheet } from "./proxy-api-keys/ProxyKeyDetailSheet";
+import { ProxyKeyEnforcementPanel } from "./proxy-api-keys/ProxyKeyEnforcementPanel";
+import { ProxyKeyIssuePanel } from "./proxy-api-keys/ProxyKeyIssuePanel";
+import { ProxyKeyLedgerCard } from "./proxy-api-keys/ProxyKeyLedgerCard";
 import { ProxyApiKeysPageSkeleton } from "./proxy-api-keys/ProxyApiKeysPageSkeleton";
-import { ProxyKeyCreateCard } from "./proxy-api-keys/ProxyKeyCreateCard";
-import { ProxyKeysListCard } from "./proxy-api-keys/ProxyKeysListCard";
-import { ProxyKeyStatusCallout } from "./proxy-api-keys/ProxyKeyStatusCallout";
+import { ProxyKeySecretReveal } from "./proxy-api-keys/ProxyKeySecretReveal";
 import { useProxyApiKeysPageData } from "./proxy-api-keys/useProxyApiKeysPageData";
 
 export function ProxyApiKeysPage() {
@@ -24,7 +25,7 @@ export function ProxyApiKeysPage() {
     : null;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title={copy.title} description={copy.description}>
         <Badge variant="outline" className={data.authStatusTone}>
           {authStatusLabel}
@@ -34,27 +35,36 @@ export function ProxyApiKeysPage() {
       {data.pageLoading ? (
         <ProxyApiKeysPageSkeleton />
       ) : (
-        <>
-          <ProxyKeyCreateCard
-            authAvailable={Boolean(data.authSettings)}
-            createDisabled={data.createDisabled}
-            creatingProxyKey={data.creatingProxyKey}
-            handleCreateSubmit={data.handleCreateSubmit}
-            latestGeneratedKey={data.latestGeneratedKey}
-            proxyKeyExpiresAt={data.proxyKeyExpiresAt}
-            proxyKeyLimit={data.proxyKeyLimit}
-            proxyKeyName={data.proxyKeyName}
-            proxyKeyNotes={data.proxyKeyNotes}
-            proxyKeysUsed={data.proxyKeys.length}
-            remainingKeys={data.remainingKeys}
-            setProxyKeyExpiresAt={data.setProxyKeyExpiresAt}
-            setProxyKeyName={data.setProxyKeyName}
-            setProxyKeyNotes={data.setProxyKeyNotes}
-          />
+        <div className="flex flex-col gap-6">
+          <ProxyKeySecretReveal latestGeneratedKey={data.latestGeneratedKey} />
 
-          <ProxyKeyStatusCallout authEnabled={authEnabled} />
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <ProxyKeyIssuePanel
+              authAvailable={Boolean(data.authSettings)}
+              createDisabled={data.createDisabled}
+              creatingProxyKey={data.creatingProxyKey}
+              handleCreateSubmit={data.handleCreateSubmit}
+              proxyKeyExpiresAt={data.proxyKeyExpiresAt}
+              proxyKeyLimit={data.proxyKeyLimit}
+              proxyKeyName={data.proxyKeyName}
+              proxyKeyNotes={data.proxyKeyNotes}
+              proxyKeysUsed={data.proxyKeys.length}
+              remainingKeys={data.remainingKeys}
+              setProxyKeyExpiresAt={data.setProxyKeyExpiresAt}
+              setProxyKeyName={data.setProxyKeyName}
+              setProxyKeyNotes={data.setProxyKeyNotes}
+            />
 
-          <ProxyKeysListCard
+            <ProxyKeyEnforcementPanel
+              authEnabled={authEnabled}
+              authSettings={data.authSettings}
+              proxyKeyLimit={data.proxyKeyLimit}
+              proxyKeysUsed={data.proxyKeys.length}
+              remainingKeys={data.remainingKeys}
+            />
+          </div>
+
+          <ProxyKeyLedgerCard
             authEnabled={authEnabled}
             deletingProxyKeyId={data.deletingProxyKeyId}
             displayedProxyKeys={data.displayedProxyKeys}
@@ -66,11 +76,11 @@ export function ProxyApiKeysPage() {
             proxyKeySuccessorByParentId={data.proxyKeySuccessorByParentId}
             rotatingProxyKeyId={data.rotatingProxyKeyId}
           />
-        </>
+        </div>
       )}
 
-      <EditProxyKeyDialog
-        open={data.editProxyKeyDialogOpen}
+      <ProxyKeyDetailSheet
+        open={data.editProxyKeySheetOpen}
         proxyKeyActive={data.editingProxyKeyActive}
         proxyKeyExpiresAt={data.editingProxyKeyExpiresAt}
         proxyKeyName={data.editingProxyKeyName}
@@ -84,9 +94,9 @@ export function ProxyApiKeysPage() {
         setProxyKeyNotes={data.setEditingProxyKeyNotes}
       />
 
-      <DeleteProxyKeyDialog
+      <ProxyKeyDeleteAlertDialog
         authEnabled={authEnabled}
-        open={data.deleteProxyKeyDialogOpen}
+        open={data.deleteProxyKeyAlertOpen}
         deleteConfirm={data.deleteConfirm}
         displayedDeleteConfirm={data.displayedDeleteConfirm}
         deletingProxyKeyId={data.deletingProxyKeyId}
