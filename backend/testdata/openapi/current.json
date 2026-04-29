@@ -764,6 +764,7 @@
         "operationId": "create_model_api_models_post",
         "requestBody": {
           "required": true,
+          "description": "Native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`. Proxy models provide a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`, and omit `loadbalance_strategy_id`.",
           "content": {
             "application/json": {
               "schema": {
@@ -913,6 +914,7 @@
         ],
         "requestBody": {
           "required": true,
+          "description": "Model updates keep the same routing contract as create: native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`, while proxy models provide a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0` and omit `loadbalance_strategy_id`.",
           "content": {
             "application/json": {
               "schema": {
@@ -3825,6 +3827,70 @@
         ]
       }
     },
+    "/api/config/profile/export/with-secrets": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Export Profile Config With Secrets",
+        "operationId": "export_profile_config_with_secrets_api_config_profile_export_with_secrets_post",
+        "parameters": [
+          {
+            "name": "X-Prism-Dangerous-Confirm",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "profile-export",
+              "title": "X-Prism-Dangerous-Confirm"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigExportResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dangerous Confirm Missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config/profile/import/preview": {
       "post": {
         "tags": [
@@ -3863,7 +3929,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XProfileIdRequired"
+          }
+        ]
       }
     },
     "/api/config/profile/import": {
@@ -3894,6 +3965,42 @@
               }
             }
           },
+          "400": {
+            "description": "Preview Token Missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Preview Token Mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -3906,6 +4013,15 @@
           }
         },
         "parameters": [
+          {
+            "name": "X-Prism-Preview-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Prism-Preview-Token"
+            }
+          },
           {
             "$ref": "#/components/parameters/XProfileIdRequired"
           }
@@ -3971,7 +4087,8 @@
               }
             }
           }
-        }
+        },
+        "parameters": []
       }
     },
     "/api/config/vendors/import": {
@@ -4002,6 +4119,42 @@
               }
             }
           },
+          "400": {
+            "description": "Preview Token Missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Preview Token Mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -4012,7 +4165,18 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-Prism-Preview-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Prism-Preview-Token"
+            }
+          }
+        ]
       }
     },
     "/api/config/header-blocklist-rules": {
@@ -4639,6 +4803,127 @@
             "$ref": "#/components/parameters/XProfileIdRequired"
           }
         ]
+      }
+    },
+    "/api/config/bootstrap": {
+      "get": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Get Bootstrap Config",
+        "operationId": "get_bootstrap_config_api_config_bootstrap_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Put Bootstrap Config",
+        "operationId": "put_bootstrap_config_api_config_bootstrap_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/bootstrap/validate": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Validate Bootstrap Config",
+        "operationId": "validate_bootstrap_config_api_config_bootstrap_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigConflictResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapConfigValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/settings/auth": {
@@ -6342,6 +6627,13 @@
             "type": "array",
             "title": "Header Blocklist Rules"
           },
+          "user_agent_client_rules": {
+            "items": {
+              "$ref": "#/components/schemas/UserAgentClientRuleExport"
+            },
+            "type": "array",
+            "title": "User Agent Client Rules"
+          },
           "secret_payload": {
             "$ref": "#/components/schemas/ConfigSecretPayload"
           }
@@ -6402,6 +6694,26 @@
             "type": "array",
             "title": "Vendor Resolutions"
           },
+          "replacement_scope": {
+            "$ref": "#/components/schemas/ProfileImportReplacementScope"
+          },
+          "untouched_scope": {
+            "$ref": "#/components/schemas/ProfileImportUntouchedScope"
+          },
+          "vendor_summary": {
+            "$ref": "#/components/schemas/ProfileImportVendorSummary"
+          },
+          "secret_summary": {
+            "$ref": "#/components/schemas/ProfileImportSecretSummary"
+          },
+          "preview_token": {
+            "type": "string",
+            "title": "Preview Token"
+          },
+          "bundle_fingerprint": {
+            "type": "string",
+            "title": "Bundle Fingerprint"
+          },
           "secret_key_id": {
             "type": "string",
             "title": "Secret Key Id"
@@ -6436,9 +6748,137 @@
           "strategies_imported",
           "models_imported",
           "connections_imported",
+          "replacement_scope",
+          "untouched_scope",
+          "vendor_summary",
+          "secret_summary",
+          "preview_token",
+          "bundle_fingerprint",
           "secret_key_id"
         ],
         "title": "ConfigImportPreviewResponse"
+      },
+      "ProfileImportReplacementScope": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "endpoints": {
+            "type": "integer",
+            "title": "Endpoints"
+          },
+          "pricing_templates": {
+            "type": "integer",
+            "title": "Pricing Templates"
+          },
+          "loadbalance_strategies": {
+            "type": "integer",
+            "title": "Loadbalance Strategies"
+          },
+          "models": {
+            "type": "integer",
+            "title": "Models"
+          },
+          "connections": {
+            "type": "integer",
+            "title": "Connections"
+          },
+          "header_blocklist_rules": {
+            "type": "integer",
+            "title": "Header Blocklist Rules"
+          },
+          "user_agent_client_rules": {
+            "type": "integer",
+            "title": "User Agent Client Rules"
+          },
+          "profile_settings": {
+            "type": "boolean",
+            "title": "Profile Settings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "endpoints",
+          "pricing_templates",
+          "loadbalance_strategies",
+          "models",
+          "connections",
+          "header_blocklist_rules",
+          "user_agent_client_rules",
+          "profile_settings"
+        ],
+        "title": "ProfileImportReplacementScope"
+      },
+      "ProfileImportUntouchedScope": {
+        "properties": {
+          "other_profiles": {
+            "type": "boolean",
+            "title": "Other Profiles"
+          },
+          "existing_global_vendor_metadata": {
+            "type": "boolean",
+            "title": "Existing Global Vendor Metadata"
+          },
+          "request_logs": {
+            "type": "boolean",
+            "title": "Request Logs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "other_profiles",
+          "existing_global_vendor_metadata",
+          "request_logs"
+        ],
+        "title": "ProfileImportUntouchedScope"
+      },
+      "ProfileImportVendorSummary": {
+        "properties": {
+          "create_count": {
+            "type": "integer",
+            "title": "Create Count"
+          },
+          "reuse_count": {
+            "type": "integer",
+            "title": "Reuse Count"
+          },
+          "warning_count": {
+            "type": "integer",
+            "title": "Warning Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "create_count",
+          "reuse_count",
+          "warning_count"
+        ],
+        "title": "ProfileImportVendorSummary"
+      },
+      "ProfileImportSecretSummary": {
+        "properties": {
+          "endpoint_secret_refs": {
+            "type": "integer",
+            "title": "Endpoint Secret Refs"
+          },
+          "secret_payload_entries": {
+            "type": "integer",
+            "title": "Secret Payload Entries"
+          },
+          "decryptable_secret_refs": {
+            "type": "integer",
+            "title": "Decryptable Secret Refs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "endpoint_secret_refs",
+          "secret_payload_entries",
+          "decryptable_secret_refs"
+        ],
+        "title": "ProfileImportSecretSummary"
       },
       "ConfigImportRequest": {
         "properties": {
@@ -6517,6 +6957,13 @@
             },
             "type": "array",
             "title": "Header Blocklist Rules"
+          },
+          "user_agent_client_rules": {
+            "items": {
+              "$ref": "#/components/schemas/UserAgentClientRuleExport"
+            },
+            "type": "array",
+            "title": "User Agent Client Rules"
           },
           "secret_payload": {
             "$ref": "#/components/schemas/ConfigSecretPayload"
@@ -7271,6 +7718,20 @@
             "type": "integer",
             "title": "Update Count"
           },
+          "mutation_scope": {
+            "$ref": "#/components/schemas/VendorCatalogImportMutationScope"
+          },
+          "untouched_scope": {
+            "$ref": "#/components/schemas/VendorCatalogImportUntouchedScope"
+          },
+          "preview_token": {
+            "type": "string",
+            "title": "Preview Token"
+          },
+          "bundle_fingerprint": {
+            "type": "string",
+            "title": "Bundle Fingerprint"
+          },
           "blocking_errors": {
             "items": {
               "type": "string"
@@ -7290,9 +7751,64 @@
         "required": [
           "ready",
           "create_count",
-          "update_count"
+          "update_count",
+          "mutation_scope",
+          "untouched_scope",
+          "preview_token",
+          "bundle_fingerprint"
         ],
         "title": "ConfigVendorCatalogImportPreviewResponse"
+      },
+      "VendorCatalogImportMutationScope": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "create_count": {
+            "type": "integer",
+            "title": "Create Count"
+          },
+          "update_count": {
+            "type": "integer",
+            "title": "Update Count"
+          },
+          "unchanged_count": {
+            "type": "integer",
+            "title": "Unchanged Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "create_count",
+          "update_count",
+          "unchanged_count"
+        ],
+        "title": "VendorCatalogImportMutationScope"
+      },
+      "VendorCatalogImportUntouchedScope": {
+        "properties": {
+          "profiles": {
+            "type": "boolean",
+            "title": "Profiles"
+          },
+          "profile_scoped_config": {
+            "type": "boolean",
+            "title": "Profile Scoped Config"
+          },
+          "request_logs": {
+            "type": "boolean",
+            "title": "Request Logs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profiles",
+          "profile_scoped_config",
+          "request_logs"
+        ],
+        "title": "VendorCatalogImportUntouchedScope"
       },
       "ConfigVendorCatalogImportRequest": {
         "properties": {
@@ -9764,6 +10280,7 @@
         "title": "LoginRequest"
       },
       "ModelConfigCreate": {
+        "description": "Create a native or proxy model. Proxy models require a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`; native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`.",
         "properties": {
           "vendor_id": {
             "anyOf": [
@@ -9807,6 +10324,7 @@
               "proxy"
             ],
             "title": "Model Type",
+            "description": "Choose `native` for directly routed models or `proxy` for ordered proxy routing through native targets.",
             "default": "native"
           },
           "proxy_targets": {
@@ -9814,7 +10332,8 @@
               "$ref": "#/components/schemas/ProxyTargetReference"
             },
             "type": "array",
-            "title": "Proxy Targets"
+            "title": "Proxy Targets",
+            "description": "Proxy-only ordered routing list. Required and non-empty when `model_type` is `proxy`. Every entry must reference a unique native target in the same profile and same `api_family`, with contiguous `position` values starting at `0`. Omit or send an empty list for native models."
           },
           "loadbalance_strategy_id": {
             "anyOf": [
@@ -9825,7 +10344,8 @@
                 "type": "null"
               }
             ],
-            "title": "Loadbalance Strategy Id"
+            "title": "Loadbalance Strategy Id",
+            "description": "Native-only routing strategy. Required for native models and omitted or null for proxy models."
           },
           "is_enabled": {
             "type": "boolean",
@@ -10121,6 +10641,7 @@
         "title": "ModelConfigResponse"
       },
       "ModelConfigUpdate": {
+        "description": "Update a native or proxy model. Proxy updates keep the same strict authoring contract as create: a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`; native updates omit or empty `proxy_targets` and provide `loadbalance_strategy_id`.",
         "properties": {
           "vendor_id": {
             "anyOf": [
@@ -10184,7 +10705,8 @@
                 "type": "null"
               }
             ],
-            "title": "Model Type"
+            "title": "Model Type",
+            "description": "When provided, `proxy` uses ordered proxy routing and `native` uses direct routed connections plus a loadbalance strategy."
           },
           "proxy_targets": {
             "anyOf": [
@@ -10198,7 +10720,8 @@
                 "type": "null"
               }
             ],
-            "title": "Proxy Targets"
+            "title": "Proxy Targets",
+            "description": "Proxy-only ordered routing list. When `model_type` is `proxy`, send the full non-empty ordered list of unique native same-profile, same-`api_family` targets with contiguous `position` values starting at `0`. Omit, null, or empty the field for native models."
           },
           "loadbalance_strategy_id": {
             "anyOf": [
@@ -10209,7 +10732,8 @@
                 "type": "null"
               }
             ],
-            "title": "Loadbalance Strategy Id"
+            "title": "Loadbalance Strategy Id",
+            "description": "Native-only routing strategy. Provide it for native models and omit or null it for proxy models."
           },
           "is_enabled": {
             "anyOf": [
@@ -10835,6 +11359,831 @@
         ],
         "title": "ProfileBootstrapResponse"
       },
+      "BootstrapConfigConflictResponse": {
+        "properties": {
+          "detail": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string",
+                "title": "Message"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "title": "Expected Revision"
+              },
+              "current_revision": {
+                "type": "integer",
+                "title": "Current Revision"
+              },
+              "expected_etag": {
+                "type": "string",
+                "title": "Expected Etag"
+              },
+              "current_etag": {
+                "type": "string",
+                "title": "Current Etag"
+              }
+            },
+            "required": [
+              "message",
+              "expected_revision",
+              "current_revision",
+              "expected_etag",
+              "current_etag"
+            ],
+            "title": "BootstrapConfigConflictDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "BootstrapConfigConflictResponse"
+      },
+      "BootstrapConfigResponse": {
+        "properties": {
+          "config_path": {
+            "type": "string",
+            "title": "Config Path"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "file_revision": {
+            "type": "integer",
+            "title": "File Revision"
+          },
+          "loaded_revision": {
+            "type": "integer",
+            "title": "Loaded Revision"
+          },
+          "document_etag": {
+            "type": "string",
+            "title": "Document Etag"
+          },
+          "loaded_document_etag": {
+            "type": "string",
+            "title": "Loaded Document Etag"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "restart_required": {
+            "type": "boolean",
+            "title": "Restart Required"
+          },
+          "writable": {
+            "type": "boolean",
+            "title": "Writable"
+          },
+          "values": {
+            "$ref": "#/components/schemas/BootstrapConfigValues"
+          },
+          "secrets": {
+            "$ref": "#/components/schemas/BootstrapConfigSecrets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config_path",
+          "schema_version",
+          "file_revision",
+          "loaded_revision",
+          "document_etag",
+          "loaded_document_etag",
+          "created_at",
+          "updated_at",
+          "restart_required",
+          "writable",
+          "values",
+          "secrets"
+        ],
+        "title": "BootstrapConfigResponse"
+      },
+      "BootstrapConfigSecretMetadata": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable"
+          },
+          "masked": {
+            "type": "string",
+            "title": "Masked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "editable",
+          "masked"
+        ],
+        "title": "BootstrapConfigSecretMetadata"
+      },
+      "BootstrapConfigSecretUpdate": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "preserve",
+              "replace"
+            ],
+            "title": "Action"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "BootstrapConfigSecretUpdate"
+      },
+      "BootstrapConfigSecrets": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/BootstrapConfigSecretMetadata"
+        },
+        "type": "object",
+        "title": "BootstrapConfigSecrets"
+      },
+      "BootstrapConfigUpdateRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "title": "Expected Revision"
+          },
+          "expected_etag": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Expected Etag"
+          },
+          "values": {
+            "$ref": "#/components/schemas/BootstrapConfigValues"
+          },
+          "secret_updates": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BootstrapConfigSecretUpdate"
+            },
+            "type": "object",
+            "title": "Secret Updates"
+          },
+          "confirmations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Confirmations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "expected_etag",
+          "values",
+          "secret_updates"
+        ],
+        "title": "BootstrapConfigUpdateRequest"
+      },
+      "BootstrapConfigValidationErrorResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "title": "Message"
+                  },
+                  "field": {
+                    "type": "string",
+                    "title": "Field"
+                  },
+                  "action": {
+                    "type": "string",
+                    "title": "Action"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "title": "Reason"
+                  },
+                  "required_confirmations": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Required Confirmations"
+                  }
+                },
+                "required": [
+                  "message"
+                ]
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "BootstrapConfigValidationErrorResponse"
+      },
+      "BootstrapConfigValues": {
+        "properties": {
+          "server": {
+            "$ref": "#/components/schemas/BootstrapConfigServerValues"
+          },
+          "database": {
+            "$ref": "#/components/schemas/BootstrapConfigDatabaseValues"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/BootstrapConfigRuntimeValues"
+          },
+          "http": {
+            "$ref": "#/components/schemas/BootstrapConfigHTTPValues"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/BootstrapConfigAuthValues"
+          },
+          "mail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapConfigMailValues"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "server",
+          "database",
+          "runtime",
+          "http",
+          "auth"
+        ],
+        "title": "BootstrapConfigValues"
+      },
+      "BootstrapConfigMailValues": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To"
+          },
+          "smtp": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapConfigMailSMTPValues"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "from",
+          "reply_to",
+          "smtp"
+        ],
+        "title": "BootstrapConfigMailValues"
+      },
+      "BootstrapConfigMailSMTPValues": {
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "ehlo_hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ehlo Hostname"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password File"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout"
+          },
+          "tls_server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tls Server Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "mode",
+          "ehlo_hostname",
+          "auth",
+          "username",
+          "password_file",
+          "timeout",
+          "tls_server_name"
+        ],
+        "title": "BootstrapConfigMailSMTPValues"
+      },
+      "BootstrapConfigServerValues": {
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "docs_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docs Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "docs_enabled"
+        ],
+        "title": "BootstrapConfigServerValues"
+      },
+      "BootstrapConfigDatabaseValues": {
+        "properties": {
+          "runtime_pool": {
+            "$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"
+          },
+          "management_pool": {
+            "$ref": "#/components/schemas/BootstrapConfigDatabasePoolValues"
+          },
+          "management_admission": {
+            "$ref": "#/components/schemas/BootstrapConfigManagementAdmissionValues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runtime_pool",
+          "management_pool",
+          "management_admission"
+        ],
+        "title": "BootstrapConfigDatabaseValues"
+      },
+      "BootstrapConfigDatabasePoolValues": {
+        "properties": {
+          "max_conns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Conns"
+          },
+          "min_idle_conns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Idle Conns"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_conns",
+          "min_idle_conns"
+        ],
+        "title": "BootstrapConfigDatabasePoolValues"
+      },
+      "BootstrapConfigManagementAdmissionValues": {
+        "properties": {
+          "m2_max_concurrent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "M2 Max Concurrent"
+          },
+          "m3_max_concurrent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "M3 Max Concurrent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "m2_max_concurrent",
+          "m3_max_concurrent"
+        ],
+        "title": "BootstrapConfigManagementAdmissionValues"
+      },
+      "BootstrapConfigRuntimeValues": {
+        "properties": {
+          "buffering_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buffering Mode"
+          },
+          "transport": {
+            "$ref": "#/components/schemas/BootstrapConfigRuntimeTransportValues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buffering_mode",
+          "transport"
+        ],
+        "title": "BootstrapConfigRuntimeValues"
+      },
+      "BootstrapConfigRuntimeTransportValues": {
+        "properties": {
+          "max_idle_conns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Idle Conns"
+          },
+          "max_idle_conns_per_host": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Idle Conns Per Host"
+          },
+          "max_conns_per_host": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Conns Per Host"
+          },
+          "request_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout"
+          },
+          "idle_conn_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Conn Timeout"
+          },
+          "response_header_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Header Timeout"
+          },
+          "tls_handshake_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tls Handshake Timeout"
+          },
+          "expect_continue_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expect Continue Timeout"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_idle_conns",
+          "max_idle_conns_per_host",
+          "max_conns_per_host",
+          "request_timeout",
+          "idle_conn_timeout",
+          "response_header_timeout",
+          "tls_handshake_timeout",
+          "expect_continue_timeout"
+        ],
+        "title": "BootstrapConfigRuntimeTransportValues"
+      },
+      "BootstrapConfigHTTPValues": {
+        "properties": {
+          "cors_allowed_origins": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cors Allowed Origins"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cors_allowed_origins"
+        ],
+        "title": "BootstrapConfigHTTPValues"
+      },
+      "BootstrapConfigAuthValues": {
+        "properties": {
+          "access_token_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token Ttl Seconds"
+          },
+          "refresh_token_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token Ttl Seconds"
+          },
+          "reset_code_ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Code Ttl Seconds"
+          },
+          "access_cookie_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Cookie Name"
+          },
+          "refresh_cookie_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Cookie Name"
+          },
+          "cookie_secure": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookie Secure"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token_ttl_seconds",
+          "refresh_token_ttl_seconds",
+          "reset_code_ttl_seconds",
+          "access_cookie_name",
+          "refresh_cookie_name",
+          "cookie_secure"
+        ],
+        "title": "BootstrapConfigAuthValues"
+      },
       "ProfileCreate": {
         "properties": {
           "name": {
@@ -11175,15 +12524,18 @@
         "title": "ProxyApiKeyUpdate"
       },
       "ProxyTargetReference": {
+        "description": "One ordered proxy target entry. `target_model_id` must point to a native model in the same profile and same `api_family` as the proxy model, and the full list must stay contiguous from `position` `0..n-1`.",
         "properties": {
           "target_model_id": {
             "type": "string",
-            "title": "Target Model Id"
+            "title": "Target Model Id",
+            "description": "Target native model identifier. Proxy-to-proxy chaining and cross-family targets are rejected."
           },
           "position": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Position"
+            "title": "Position",
+            "description": "Zero-based priority within the ordered proxy target list."
           }
         },
         "type": "object",
@@ -11686,7 +13038,8 @@
           },
           "model_id": {
             "type": "string",
-            "title": "Model Id"
+            "title": "Model Id",
+            "description": "Requested model identifier from the incoming runtime request. For proxy traffic this stays on the proxy model that the caller asked for."
           },
           "model_label": {
             "type": "string",
@@ -11701,7 +13054,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Id"
+            "title": "Resolved Target Model Id",
+            "description": "Resolved native target chosen for execution when proxy routing is involved. Null when the requested model executed directly."
           },
           "resolved_target_model_label": {
             "anyOf": [
@@ -11712,7 +13066,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Label"
+            "title": "Resolved Target Model Label",
+            "description": "Display label for the resolved native target when it differs from the requested model."
           },
           "is_proxy_origin": {
             "type": "boolean",
@@ -11944,24 +13299,6 @@
         ],
         "title": "RequestLogListEndpointOptionResponse"
       },
-      "RequestLogListModelOptionResponse": {
-        "properties": {
-          "model_id": {
-            "type": "string",
-            "title": "Model Id"
-          },
-          "model_label": {
-            "type": "string",
-            "title": "Model Label"
-          }
-        },
-        "type": "object",
-        "required": [
-          "model_id",
-          "model_label"
-        ],
-        "title": "RequestLogListModelOptionResponse"
-      },
       "RequestLogListFilterOptionsResponse": {
         "properties": {
           "endpoints": {
@@ -11999,7 +13336,8 @@
           },
           "model_id": {
             "type": "string",
-            "title": "Model Id"
+            "title": "Model Id",
+            "description": "Requested model identifier from the incoming runtime request. For proxy traffic this stays on the proxy model that the caller asked for."
           },
           "model_label": {
             "type": "string",
@@ -12014,7 +13352,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Id"
+            "title": "Resolved Target Model Id",
+            "description": "Resolved native target chosen for execution when proxy routing is involved. Null when the requested model executed directly."
           },
           "resolved_target_model_label": {
             "anyOf": [
@@ -12025,7 +13364,8 @@
                 "type": "null"
               }
             ],
-            "title": "Resolved Target Model Label"
+            "title": "Resolved Target Model Label",
+            "description": "Display label for the resolved native target when it differs from the requested model."
           },
           "is_proxy_origin": {
             "type": "boolean",
@@ -14134,6 +15474,24 @@
         },
         "type": "object",
         "title": "VendorUpdate"
+      },
+      "RequestLogListModelOptionResponse": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "model_label": {
+            "type": "string",
+            "title": "Model Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "model_label"
+        ],
+        "title": "RequestLogListModelOptionResponse"
       },
       "ScopeControlError": {
         "type": "object",
