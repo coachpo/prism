@@ -1,13 +1,16 @@
 package platformhttp
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/email"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -30,7 +33,6 @@ func TestClassifyManagementRoute(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -58,7 +60,6 @@ func TestManagementAdmissionControllerFastFailsLowerPriorityRoutes(t *testing.T)
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			controller := newManagementAdmissionController(config.Settings{ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: testCase.m2Budget, M3MaxConcurrent: testCase.m3Budget}})
 
@@ -152,7 +153,6 @@ func TestClassifyRuntimeCacheInvalidation(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -165,5 +165,107 @@ func TestClassifyRuntimeCacheInvalidation(t *testing.T) {
 				t.Fatalf("classifyRuntimeCacheInvalidation(%q, %q) = %+v, want %+v", testCase.method, testCase.path, got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestNewAuthMailerMissingAndDisabledMailUseNoopCompatibleMailer(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		settings config.Settings
+	}{
+		{name: "missing mail config", settings: config.Settings{}},
+		{name: "disabled mail ignores stale smtp fields", settings: config.Settings{Mail: config.MailConfig{
+			Enabled: false,
+			From:    "not an address",
+			SMTP: config.MailSMTPConfig{
+				Host:     "192.0.2.1",
+				Port:     587,
+				Mode:     config.MailSMTPModeStartTLSRequired,
+				Auth:     config.MailSMTPAuthPlain,
+				Username: "smtp-user",
+				Password: "disabled-smtp-password",
+				Timeout:  0,
+			},
+		}}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			mailer, err := newAuthMailer(testCase.settings)
+			if err != nil {
+				t.Fatalf("create auth mailer: %v", err)
+			}
+			if _, ok := mailer.(email.DisabledMailer); !ok {
+				t.Fatalf("expected disabled auth mailer, got %T", mailer)
+			}
+			if err := mailer.SendEmailVerificationOTP(context.Background(), "operator@example.com", "123456"); err != nil {
+				t.Fatalf("disabled verification send returned error: %v", err)
+			}
+			if err := mailer.SendPasswordResetEmail(context.Background(), "operator@example.com", "654321"); err != nil {
+				t.Fatalf("disabled password reset send returned error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewAuthMailerEnabledSMTPConstructsWithoutDialing(t *testing.T) {
+	t.Parallel()
+
+	mailer, err := newAuthMailer(config.Settings{Mail: validSMTPMailConfig()})
+	if err != nil {
+		t.Fatalf("create auth mailer: %v", err)
+	}
+	if _, ok := mailer.(*email.SMTPMailer); !ok {
+		t.Fatalf("expected SMTP auth mailer, got %T", mailer)
+	}
+}
+
+func TestNewAuthMailerEnabledSMTPConstructionErrorIsRedacted(t *testing.T) {
+	t.Parallel()
+
+	mailConfig := validSMTPMailConfig()
+	mailConfig.SMTP.Auth = config.MailSMTPAuthPlain
+	mailConfig.SMTP.Username = "smtp-user"
+	mailConfig.SMTP.Password = "super-secret-smtp-password"
+	mailConfig.SMTP.Timeout = 0
+
+	_, err := newAuthMailer(config.Settings{Mail: mailConfig})
+	if err == nil {
+		t.Fatal("expected invalid enabled SMTP settings to fail auth mailer construction")
+	}
+	errorText := err.Error()
+	if !strings.Contains(errorText, "create auth mailer") {
+		t.Fatalf("expected startup context in error, got %q", errorText)
+	}
+	for _, forbidden := range []string{
+		"super-secret-smtp-password",
+		"123456",
+		"https://prism.example/reset?token=reset-secret",
+		"Use this code to reset your Prism password",
+	} {
+		if strings.Contains(errorText, forbidden) {
+			t.Fatalf("expected auth mailer error to redact %q, got %q", forbidden, errorText)
+		}
+	}
+}
+
+func validSMTPMailConfig() config.MailConfig {
+	return config.MailConfig{
+		Enabled: true,
+		From:    "Prism <noreply@example.com>",
+		ReplyTo: "Support <support@example.com>",
+		SMTP: config.MailSMTPConfig{
+			Host:          "127.0.0.1",
+			Port:          2525,
+			Mode:          config.MailSMTPModePlaintextLocalOnly,
+			EHLOHostname:  "prism.test",
+			Auth:          config.MailSMTPAuthNone,
+			Timeout:       2 * time.Second,
+			TLSServerName: "localhost",
+		},
 	}
 }

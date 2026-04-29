@@ -33,6 +33,7 @@ import (
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/email"
 	"github.com/coachpo/prism/backend/internal/platform/version"
 )
 
@@ -326,14 +327,20 @@ func NewServer(settings config.Settings, options ServerOptions) (*http.Server, e
 			return nil, err
 		}
 
-		managementAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: managementPool})
+		authMailer, mailerErr := newAuthMailer(settings)
+		if mailerErr != nil {
+			closeAll()
+			return nil, mailerErr
+		}
+
+		managementAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: managementPool, Mailer: authMailer})
 		if authErr != nil {
 			closeAll()
 			return nil, authErr
 		}
 		registerShutdown(managementAuthService.Close)
 
-		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: runtimeExecutionPool, RuntimeCache: runtimeAuthCache})
+		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: runtimeExecutionPool, Mailer: authMailer, RuntimeCache: runtimeAuthCache})
 		if authErr != nil {
 			closeAll()
 			return nil, authErr
@@ -474,6 +481,14 @@ func NewServer(settings config.Settings, options ServerOptions) (*http.Server, e
 		server.RegisterOnShutdown(closeAll)
 	}
 	return server, nil
+}
+
+func newAuthMailer(settings config.Settings) (managementauth.Mailer, error) {
+	mailer, _, err := email.NewMailer(settings.Mail)
+	if err != nil {
+		return nil, fmt.Errorf("create auth mailer: %w", err)
+	}
+	return mailer, nil
 }
 
 func newDatabasePool(databaseURL string, budget config.DatabasePoolBudget, lane string) (*pgxpool.Pool, error) {
