@@ -33,12 +33,13 @@ func TestBaselineFreshApply(t *testing.T) {
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected empty database to apply baseline, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] {
+	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
+	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 }
 
 func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
@@ -93,7 +94,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 		t.Fatalf("expected noop run to report no versions, got %v", secondResult.Versions)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"})
 }
 
 func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
@@ -131,13 +132,14 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy request_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
+	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"})
 	assertRequestLogAuditEnabledRows(t, testContext, conn, []bool{false, true, false})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
+	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 }
 
 func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
@@ -177,10 +179,10 @@ func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *te
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy audit_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000005_audit_log_request_time_provenance"}; len(got) != len(want) || got[0] != want[0] {
+	if got, want := result.Versions, []string{"000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"}; len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry"})
 
 	rows, err := conn.Query(testContext, `SELECT audit_capture_bodies_at_request FROM request_logs ORDER BY id ASC`)
 	if err != nil {
@@ -393,6 +395,34 @@ func assertRequestLogAuditEnabledColumnContract(t *testing.T, ctx context.Contex
 	}
 	if !strings.Contains(strings.ToLower(columnDefault), "false") {
 		t.Fatalf("expected request_logs.audit_enabled_at_request default to contain false, got %q", columnDefault)
+	}
+}
+
+func assertRequestLogGenerationParamsColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'request_logs' AND column_name = ANY($1::text[]) ORDER BY column_name ASC`, []string{"request_generation_params", "request_generation_params_status"})
+	if err != nil {
+		t.Fatalf("load request_logs generation params column contract: %v", err)
+	}
+	defer rows.Close()
+	got := map[string][2]string{}
+	for rows.Next() {
+		var name string
+		var dataType string
+		var nullable string
+		if err := rows.Scan(&name, &dataType, &nullable); err != nil {
+			t.Fatalf("scan request_logs generation params column contract: %v", err)
+		}
+		got[name] = [2]string{dataType, nullable}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate request_logs generation params column contract: %v", err)
+	}
+	if got["request_generation_params"] != [2]string{"jsonb", "YES"} {
+		t.Fatalf("expected request_generation_params nullable jsonb, got %+v", got["request_generation_params"])
+	}
+	if got["request_generation_params_status"] != [2]string{"character varying", "YES"} {
+		t.Fatalf("expected request_generation_params_status nullable varchar, got %+v", got["request_generation_params_status"])
 	}
 }
 

@@ -170,6 +170,8 @@ type requestLogInsert struct {
 	TTFTMS                            *int
 	AuditEnabledAtRequest             bool
 	AuditCaptureBodiesAtRequest       bool
+	RequestGenerationParams           *requestGenerationParams
+	RequestGenerationParamsStatus     *string
 }
 
 type usageEventInsert struct {
@@ -300,6 +302,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	}
 	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
 	callerUserAgent := trimmedStringPointer(request.UserAgent())
+	requestGenerationSnapshot := plan.RequestGenerationParamsSnapshot()
 	isStream := plan.IsStreamingRequest
 	attempts := result.Attempts
 	if len(attempts) == 0 {
@@ -319,6 +322,8 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	requestLogs := make([]requestLogInsert, 0, len(attempts))
 	auditLogs := make([]auditLogInsert, 0, len(attempts))
 	for index, attempt := range attempts {
+		attemptGenerationSnapshot := requestGenerationSnapshot.clone()
+		requestGenerationParamsStatus := trimmedStringPointer(attemptGenerationSnapshot.Status)
 		attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299
 		attemptBillableFlag, attemptPricedFlag, attemptUnpricedReason := billingState(attemptSuccess)
 		attemptCreatedAt := attempt.CompletedAt
@@ -330,40 +335,42 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 			attemptResponseTimeMS = responseTimeMS
 		}
 		requestLog := requestLogInsert{
-			ProfileID:                   plan.ProfileID,
-			ModelID:                     plan.RequestedModelID,
-			ResolvedTargetModelID:       plan.ResolvedTargetModelID,
-			APIFamily:                   plan.APIFamily,
-			VendorID:                    plan.RequestedVendorID,
-			VendorKey:                   plan.RequestedVendorKey,
-			VendorName:                  plan.RequestedVendorName,
-			EndpointID:                  attempt.Connection.Endpoint.ID,
-			ConnectionID:                attempt.Connection.ID,
-			ProxyAPIKeyID:               proxyKeyIDPointer(proxyKey),
-			ProxyAPIKeyNameSnapshot:     proxyKeyNamePointer(proxyKey),
-			IngressRequestID:            ingressRequestID,
-			AttemptNumber:               index + 1,
-			ProviderCorrelationID:       headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
-			EndpointBaseURL:             attempt.Connection.Endpoint.BaseURL,
-			EndpointDescription:         attempt.Connection.Endpoint.Name,
-			StatusCode:                  attempt.StatusCode,
-			ResponseTimeMS:              attemptResponseTimeMS,
-			IsStream:                    isStream,
-			SuccessFlag:                 attemptSuccess,
-			BillableFlag:                attemptBillableFlag,
-			PricedFlag:                  attemptPricedFlag,
-			UnpricedReason:              attemptUnpricedReason,
-			ReportCurrencyCode:          reportCurrencyCode,
-			ReportCurrencySymbol:        reportCurrencySymbol,
-			RequestPath:                 request.URL.Path,
-			ErrorDetail:                 nil,
-			CreatedAt:                   attemptCreatedAt,
-			CallerUserAgent:             callerUserAgent,
-			UpstreamUserAgent:           headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
-			CompletionDurationMS:        nil,
-			TTFTMS:                      nil,
-			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
-			AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
+			ProfileID:                     plan.ProfileID,
+			ModelID:                       plan.RequestedModelID,
+			ResolvedTargetModelID:         plan.ResolvedTargetModelID,
+			APIFamily:                     plan.APIFamily,
+			VendorID:                      plan.RequestedVendorID,
+			VendorKey:                     plan.RequestedVendorKey,
+			VendorName:                    plan.RequestedVendorName,
+			EndpointID:                    attempt.Connection.Endpoint.ID,
+			ConnectionID:                  attempt.Connection.ID,
+			ProxyAPIKeyID:                 proxyKeyIDPointer(proxyKey),
+			ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(proxyKey),
+			IngressRequestID:              ingressRequestID,
+			AttemptNumber:                 index + 1,
+			ProviderCorrelationID:         headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
+			EndpointBaseURL:               attempt.Connection.Endpoint.BaseURL,
+			EndpointDescription:           attempt.Connection.Endpoint.Name,
+			StatusCode:                    attempt.StatusCode,
+			ResponseTimeMS:                attemptResponseTimeMS,
+			IsStream:                      isStream,
+			SuccessFlag:                   attemptSuccess,
+			BillableFlag:                  attemptBillableFlag,
+			PricedFlag:                    attemptPricedFlag,
+			UnpricedReason:                attemptUnpricedReason,
+			ReportCurrencyCode:            reportCurrencyCode,
+			ReportCurrencySymbol:          reportCurrencySymbol,
+			RequestPath:                   request.URL.Path,
+			ErrorDetail:                   nil,
+			CreatedAt:                     attemptCreatedAt,
+			CallerUserAgent:               callerUserAgent,
+			UpstreamUserAgent:             headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
+			CompletionDurationMS:          nil,
+			TTFTMS:                        nil,
+			AuditEnabledAtRequest:         plan.AuditEnabledAtRequest,
+			AuditCaptureBodiesAtRequest:   plan.AuditCaptureBodiesAtRequest,
+			RequestGenerationParams:       attemptGenerationSnapshot.Params,
+			RequestGenerationParamsStatus: requestGenerationParamsStatus,
 		}
 		if index == len(attempts)-1 {
 			requestLog.InputTokens = usage.InputTokens
@@ -596,7 +603,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 	for _, requestLog := range requestLogs {
 		err := tx.QueryRow(
 			ctx,
-			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57) RETURNING id`,
+			`INSERT INTO request_logs (profile_id, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, request_path, error_detail, endpoint_description, created_at, caller_user_agent, upstream_user_agent, completion_duration_ms, ttft_ms, audit_enabled_at_request, audit_capture_bodies_at_request, request_generation_params, request_generation_params_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59) RETURNING id`,
 			requestLog.ProfileID,
 			requestLog.ModelID,
 			nullableStringArg(requestLog.ResolvedTargetModelID),
@@ -654,6 +661,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			nullableIntArg(requestLog.TTFTMS),
 			requestLog.AuditEnabledAtRequest,
 			requestLog.AuditCaptureBodiesAtRequest,
+			nullableJSONArg(requestLog.RequestGenerationParams),
+			nullableStringArg(requestLog.RequestGenerationParamsStatus),
 		).Scan(&requestLogID)
 		if err != nil {
 			return 0, fmt.Errorf("insert request log: %w", err)
@@ -895,6 +904,13 @@ func intPointerFromAny(value any) *int {
 	case float64:
 		resolved := int(typed)
 		return &resolved
+	case json.Number:
+		value, err := typed.Int64()
+		if err != nil {
+			return nil
+		}
+		resolved := int(value)
+		return &resolved
 	case int:
 		resolved := typed
 		return &resolved
@@ -947,6 +963,17 @@ func nullableBoolArg(value *bool) any {
 		return nil
 	}
 	return *value
+}
+
+func nullableJSONArg(value any) any {
+	if value == nil {
+		return nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return string(raw)
 }
 
 func intPtr(value int) *int {
