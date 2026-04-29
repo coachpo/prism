@@ -1406,6 +1406,10 @@ export interface Messages {
     deleteProxyApiKey: string;
     deleteProxyApiKeyDescription: (name: string, prefix: string) => string;
     deleteProxyKeyAria: (name: string) => string;
+    deleteSuccessorWarningDescription: (id: number) => string;
+    deleteSuccessorWarningTitle: string;
+    deleteTrafficWarningDescription: string;
+    deleteTrafficWarningTitle: string;
     description: string;
     disabled: string;
     editDescription: string;
@@ -1431,6 +1435,7 @@ export interface Messages {
     newSecretDescription: string;
     noInternalNote: string;
     noProxyKeysCreated: string;
+    noProxyKeysDescription: string;
     notes: string;
     notesPlaceholder: string;
     operation: string;
@@ -3339,6 +3344,10 @@ export const enMessages: Messages = {
     deleteProxyApiKey: "Delete Proxy API Key",
     deleteProxyApiKeyDescription: (name, prefix) => `Delete the key "${name}"? Requests using this secret will stop working immediately. Confirm the prefix ${prefix} before continuing.`,
     deleteProxyKeyAria: (name) => `Delete proxy key ${name}`,
+    deleteSuccessorWarningDescription: (id) => `This key has already rotated to successor #${id}. Deleting it removes the historical parent record only.`,
+    deleteSuccessorWarningTitle: "Rotation lineage warning",
+    deleteTrafficWarningDescription: "Authentication is enabled, so clients using this credential will lose proxy access as soon as deletion succeeds.",
+    deleteTrafficWarningTitle: "Live proxy traffic may be interrupted",
     description:
       "Manage machine credentials used by upstream clients to access the Prism proxy. Applies to all profiles.",
     disabled: "Disabled",
@@ -3365,6 +3374,7 @@ export const enMessages: Messages = {
     newSecretDescription: "This full key is shown once. Store it before leaving the page.",
     noInternalNote: "No internal note.",
     noProxyKeysCreated: "No proxy keys created yet.",
+    noProxyKeysDescription: "Issue the first client credential to start enforcing proxy access through the vault console.",
     notes: "Notes",
     notesPlaceholder: "Used by the main website",
     operation: "Operation",
