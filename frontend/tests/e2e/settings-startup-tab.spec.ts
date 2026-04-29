@@ -5,6 +5,7 @@ const maskedDatabaseUrl = "postgres://prism:***@db.local/prism?sslpassword=***";
 const maskedRuntimeKey = "runtime-secret-********";
 const maskedJwtKey = "jwt-signing-********";
 const maskedBundleKey = "bundle-key-********";
+const maskedSmtpPassword = "smtp-password-********";
 const forbiddenSecretSentinel = "should-never-render-secret-sentinel";
 
 function createProfile() {
@@ -92,12 +93,29 @@ function createBootstrapResponse() {
         refresh_cookie_name: "prism_refresh",
         cookie_secure: false,
       },
+      mail: {
+        enabled: true,
+        from: "Prism <noreply@example.com>",
+        reply_to: "support@example.com",
+        smtp: {
+          host: "smtp.example.com",
+          port: 587,
+          mode: "starttls_required",
+          ehlo_hostname: "prism.example.com",
+          auth: "plain",
+          username: "smtp-user",
+          password_file: null,
+          timeout: "15s",
+          tls_server_name: "smtp.example.com",
+        },
+      },
     },
     secrets: {
       "database.url": { configured: true, editable: true, masked: maskedDatabaseUrl },
       "runtime.secretEncryptionKey": { configured: true, editable: false, masked: maskedRuntimeKey },
       "auth.jwtSigningKey": { configured: true, editable: true, masked: maskedJwtKey },
       "stateTransfer.bundleEncryptionKey": { configured: true, editable: true, masked: maskedBundleKey },
+      "mail.smtp.password": { configured: true, editable: true, masked: maskedSmtpPassword },
     },
   };
 }
@@ -222,8 +240,10 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
   await expect(page.getByText(maskedJwtKey)).toBeVisible();
   await expect(page.getByText(maskedBundleKey)).toBeVisible();
+  await expect(page.getByText(maskedSmtpPassword)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Database URL" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "JWT signing key" })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "SMTP password" })).toHaveValue("");
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 

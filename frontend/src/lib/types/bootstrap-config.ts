@@ -2,7 +2,8 @@ export type BootstrapConfigSecretKey =
   | "database.url"
   | "runtime.secretEncryptionKey"
   | "auth.jwtSigningKey"
-  | "stateTransfer.bundleEncryptionKey";
+  | "stateTransfer.bundleEncryptionKey"
+  | "mail.smtp.password";
 
 export type BootstrapConfigSecretAction = "preserve" | "replace";
 
@@ -63,12 +64,32 @@ export interface BootstrapConfigAuthValues {
   cookie_secure: boolean | null;
 }
 
+export interface BootstrapConfigMailSMTPValues {
+  host: string | null;
+  port: number | null;
+  mode: string | null;
+  ehlo_hostname: string | null;
+  auth: string | null;
+  username: string | null;
+  password_file: string | null;
+  timeout: string | null;
+  tls_server_name: string | null;
+}
+
+export interface BootstrapConfigMailValues {
+  enabled: boolean | null;
+  from: string | null;
+  reply_to: string | null;
+  smtp: BootstrapConfigMailSMTPValues | null;
+}
+
 export interface BootstrapConfigValues {
   server: BootstrapConfigServerValues;
   database: BootstrapConfigDatabaseValues;
   runtime: BootstrapConfigRuntimeValues;
   http: BootstrapConfigHTTPValues;
   auth: BootstrapConfigAuthValues;
+  mail?: BootstrapConfigMailValues | null;
 }
 
 export interface BootstrapConfigSecretMetadata {

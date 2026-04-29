@@ -61,6 +61,7 @@ const SECRET_KEYS: BootstrapConfigSecretKey[] = [
   "runtime.secretEncryptionKey",
   "auth.jwtSigningKey",
   "stateTransfer.bundleEncryptionKey",
+  "mail.smtp.password",
 ];
 
 type ValidationStatus = "success" | "warning" | "error";
@@ -85,6 +86,7 @@ const emptySecretInputs = (): SecretInputState => ({
   "runtime.secretEncryptionKey": "",
   "auth.jwtSigningKey": "",
   "stateTransfer.bundleEncryptionKey": "",
+  "mail.smtp.password": "",
 });
 
 const cloneValues = (values: BootstrapConfigValues): BootstrapConfigValues => structuredClone(values);
@@ -147,6 +149,7 @@ function buildPreserveSecretUpdates(): BootstrapConfigSecretUpdates {
     "runtime.secretEncryptionKey": { action: "preserve" },
     "auth.jwtSigningKey": { action: "preserve" },
     "stateTransfer.bundleEncryptionKey": { action: "preserve" },
+    "mail.smtp.password": { action: "preserve" },
   };
 }
 
@@ -834,6 +837,7 @@ export function SettingsStartupTab() {
               <FieldLegend>{copy.auth}</FieldLegend>
               <FieldGroup>
                 <SecretReplacementField id="startup-jwt-key" label={copy.jwtSigningKey} secretKey="auth.jwtSigningKey" masked={bootstrapConfig.secrets["auth.jwtSigningKey"].masked} configured={bootstrapConfig.secrets["auth.jwtSigningKey"].configured} editable={bootstrapConfig.secrets["auth.jwtSigningKey"].editable && !controlsDisabled} value={secretInputs["auth.jwtSigningKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+                <SecretReplacementField id="startup-smtp-password" label="SMTP password" secretKey="mail.smtp.password" masked={bootstrapConfig.secrets["mail.smtp.password"].masked} configured={bootstrapConfig.secrets["mail.smtp.password"].configured} editable={bootstrapConfig.secrets["mail.smtp.password"].editable && !controlsDisabled} value={secretInputs["mail.smtp.password"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
                 <div className="grid gap-4 md:grid-cols-2">
                   <StartupInputField id="startup-access-ttl" label={copy.accessTokenTtlSeconds} type="number" value={numberValue(values.auth.access_token_ttl_seconds)} error={fieldErrors["auth.access_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.access_token_ttl_seconds", value)} />
                   <StartupInputField id="startup-refresh-ttl" label={copy.refreshTokenTtlSeconds} type="number" value={numberValue(values.auth.refresh_token_ttl_seconds)} error={fieldErrors["auth.refresh_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.refresh_token_ttl_seconds", value)} />
