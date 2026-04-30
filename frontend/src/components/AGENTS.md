@@ -1,7 +1,7 @@
 # FRONTEND COMPONENTS KNOWLEDGE BASE
 
 ## OVERVIEW
-`src/components/` holds Prism's shared shell chrome and reusable UI. The dense shell-state cluster lives under `layout/app-layout/`, while this parent owns the shared widgets and design-system leaves that multiple routes or shell surfaces reuse.
+`src/components/` holds Prism's shared shell chrome and reusable UI. The dense shell-state cluster lives under `layout/app-layout/`, while this parent owns shared widgets and design-system leaves that compose checked-in shadcn/ui primitives without taking over route state.
 
 ## STRUCTURE
 ```text
@@ -34,6 +34,7 @@ components/
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
 - Shared statistics rendering: `statistics/TopSpendingCard.tsx`, `statistics/TokenMetricCell.tsx`
 - Design-system primitives and local wrappers: `ui/`
+- shadcn registry source of truth for `ui/`: `../../components.json`, `../index.css`
 
 ## CHILD DOCS
 - `layout/app-layout/AGENTS.md`: mounted shell chrome, profile switcher, profile dialogs, mismatch footer, user footer, and visible version-label ownership.
@@ -47,7 +48,8 @@ components/
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
 - Keep locale and theme controls in the shared preference widgets instead of duplicating them in auth pages or shell headers.
 - Keep shared websocket-health presentation in `WebSocketStatusIndicator.tsx` rather than rebuilding connection badges in pages.
-- Reuse `ui/` primitives before adding one-off markup.
+- Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
+- Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
 - Keep the leaf docs in `ui/` for primitive-level wrappers, and keep this parent focused on the shared widgets above them.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
