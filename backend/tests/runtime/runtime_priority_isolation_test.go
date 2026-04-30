@@ -244,7 +244,11 @@ func newRuntimeStatsHarnessWithOptions(t *testing.T, options runtimeStatsHarness
 	t.Cleanup(runtimePool.Close)
 	runtimeTelemetryPool := newRuntimePriorityPool(t, settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime telemetry")
 	t.Cleanup(runtimeTelemetryPool.Close)
-	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
+	runtimeFeedbackPool := newRuntimePriorityPool(t, settings.DatabaseURL, config.DefaultPostgresPoolsBudget().RuntimeFeedback, "runtime feedback")
+	t.Cleanup(runtimeFeedbackPool.Close)
+	cacheRefreshPool := newRuntimePriorityPool(t, settings.DatabaseURL, config.DefaultPostgresPoolsBudget().CacheRefresh, "cache refresh")
+	t.Cleanup(cacheRefreshPool.Close)
+	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: cacheRefreshPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap runtime priority published runtime snapshot: %v", err)
 	}
@@ -271,7 +275,7 @@ func newRuntimeStatsHarnessWithOptions(t *testing.T, options runtimeStatsHarness
 		t.Fatalf("build runtime priority stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimePool, TelemetryPool: runtimeTelemetryPool, Cache: runtimeCache, RuntimeState: runtimeState})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimePool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build runtime priority runtime service: %v", err)
 	}
@@ -338,7 +342,7 @@ func (h *runtimeStatsHarness) seedStatsPressureHistory(t *testing.T, profileID i
 	route := realtimeView.seedRealtimeDashboardRoute(t, profileID, suffix)
 	idBase := -200000 - int(time.Now().UnixNano()%10000)
 	createdAtBase := time.Now().UTC()
-	for index := 0; index < 6; index++ {
+	for index := range 6 {
 		realtimeView.insertDashboardActivity(t, route, profileID, idBase-index, idBase-100-index, createdAtBase.Add(-time.Duration(index+1)*time.Minute))
 	}
 }

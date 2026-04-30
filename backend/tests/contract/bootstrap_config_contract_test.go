@@ -142,7 +142,7 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected invalid semantic fixture to fail")
 		}
-		if !strings.Contains(err.Error(), "database.managementPool.minIdleConns must be less than or equal to database.managementPool.maxConns") {
+		if !strings.Contains(err.Error(), "lane=management min_idle_conns must be less than or equal to max_conns") {
 			t.Fatalf("expected management pool imbalance error, got %v", err)
 		}
 	})
@@ -188,11 +188,11 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 			wantErr: "runtime.transport.requestTimeout must be greater than zero",
 		},
 		{
-			name: "runtime pool min idle exceeds max",
+			name: "runtime execution pool min idle exceeds max",
 			mutate: func(payload map[string]any) {
-				payload["database"].(map[string]any)["runtimePool"].(map[string]any)["minIdleConns"] = 7
+				payload["database"].(map[string]any)["pools"].(map[string]any)["runtimeExecution"].(map[string]any)["minIdleConns"] = 15
 			},
-			wantErr: "database.runtimePool.minIdleConns must be less than or equal to database.runtimePool.maxConns",
+			wantErr: "lane=runtime_execution min_idle_conns must be less than or equal to max_conns",
 		},
 		{
 			name: "management admission m3 exceeds m2",
@@ -381,10 +381,13 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 			t.Fatalf("unexpected runtime transport timeouts: %+v", transport)
 		}
-		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 12 || got.MinIdleConns != 0 {
+		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 6 || got.MinIdleConns != 0 {
 			t.Fatalf("unexpected management database budget: %+v", got)
 		}
-		if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 10 || got.M3MaxConcurrent != 6 {
+		if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 14 || got.MinIdleConns != 1 {
+			t.Fatalf("unexpected runtime execution database budget: %+v", got)
+		}
+		if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 5 || got.M3MaxConcurrent != 5 {
 			t.Fatalf("unexpected management admission budget: %+v", got)
 		}
 		if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
