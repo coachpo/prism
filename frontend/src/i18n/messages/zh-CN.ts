@@ -1605,6 +1605,7 @@ export const zhCNMessages: Messages = {
     overview: "概览",
     pricedOnly: "仅已定价",
     reasoning: "推理",
+    reasoningEffort: "推理强度",
     refreshRequestLogs: "刷新请求日志",
     requestId: "请求 ID",
     requestTitle: (id) => `请求 #${id}`,

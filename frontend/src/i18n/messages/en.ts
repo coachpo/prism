@@ -1592,6 +1592,7 @@ export interface Messages {
     overview: string;
     pricedOnly: string;
     reasoning: string;
+    reasoningEffort: string;
     refreshRequestLogs: string;
     requestId: string;
     requestTitle: (id: number | string) => string;
@@ -3562,6 +3563,7 @@ export const enMessages: Messages = {
     overview: "Overview",
     pricedOnly: "Priced only",
     reasoning: "Reasoning",
+    reasoningEffort: "Reasoning effort",
     refreshRequestLogs: "Refresh request logs",
     requestId: "Request ID",
     requestTitle: (id) => `Request #${id}`,
