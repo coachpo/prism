@@ -54,6 +54,8 @@ import type {
   BootstrapConfigSecretKey,
   BootstrapConfigSecretUpdates,
   BootstrapConfigUpdateRequest,
+  BootstrapConfigDatabasePoolValues,
+  BootstrapConfigDatabasePoolsValues,
   BootstrapConfigMailSMTPValues,
   BootstrapConfigMailValues,
   BootstrapConfigValues,
@@ -71,6 +73,7 @@ type ValidationStatus = "success" | "warning" | "error";
 type SecretInputState = Record<BootstrapConfigSecretKey, string>;
 type FieldErrors = Record<string, string>;
 type SettingsStartupCopy = Messages["settingsStartup"];
+type PostgresPoolLane = Exclude<keyof BootstrapConfigDatabasePoolsValues, "total_max_conns">;
 
 interface ValidationRow {
   field: string;
@@ -92,7 +95,65 @@ const emptySecretInputs = (): SecretInputState => ({
   "mail.smtp.password": "",
 });
 
+const DEFAULT_POSTGRES_POOLS: BootstrapConfigDatabasePoolsValues = {
+  total_max_conns: 42,
+  management: { max_conns: 6, min_idle_conns: 0 },
+  runtime_execution: { max_conns: 14, min_idle_conns: 1 },
+  runtime_telemetry: { max_conns: 7, min_idle_conns: 0 },
+  runtime_feedback: { max_conns: 3, min_idle_conns: 0 },
+  realtime: { max_conns: 4, min_idle_conns: 0 },
+  cache_refresh: { max_conns: 4, min_idle_conns: 0 },
+  background_jobs: { max_conns: 4, min_idle_conns: 0 },
+};
+
+const POSTGRES_POOL_LANES: PostgresPoolLane[] = [
+  "runtime_execution",
+  "runtime_telemetry",
+  "runtime_feedback",
+  "management",
+  "realtime",
+  "cache_refresh",
+  "background_jobs",
+];
+
+const POSTGRES_POOL_LABEL_KEYS = {
+  runtime_execution: "postgresLaneRuntimeExecution",
+  runtime_telemetry: "postgresLaneRuntimeTelemetry",
+  runtime_feedback: "postgresLaneRuntimeFeedback",
+  management: "postgresLaneManagement",
+  realtime: "postgresLaneRealtime",
+  cache_refresh: "postgresLaneCacheRefresh",
+  background_jobs: "postgresLaneBackgroundJobs",
+} satisfies Record<PostgresPoolLane, keyof SettingsStartupCopy>;
+
 const cloneValues = (values: BootstrapConfigValues): BootstrapConfigValues => structuredClone(values);
+
+function normalizePoolValues(
+  pool: BootstrapConfigDatabasePoolValues | null | undefined,
+  defaults: BootstrapConfigDatabasePoolValues,
+): BootstrapConfigDatabasePoolValues {
+  if (!pool) {
+    return { ...defaults };
+  }
+  return {
+    max_conns: pool.max_conns === undefined ? defaults.max_conns : pool.max_conns,
+    min_idle_conns: pool.min_idle_conns === undefined ? defaults.min_idle_conns : pool.min_idle_conns,
+  };
+}
+
+function normalizePostgresPools(values: BootstrapConfigValues): BootstrapConfigDatabasePoolsValues {
+  const pools = values.database.pools;
+  return {
+    total_max_conns: pools?.total_max_conns === undefined ? DEFAULT_POSTGRES_POOLS.total_max_conns : pools.total_max_conns,
+    management: normalizePoolValues(pools?.management ?? values.database.management_pool, DEFAULT_POSTGRES_POOLS.management),
+    runtime_execution: normalizePoolValues(pools?.runtime_execution ?? values.database.runtime_pool, DEFAULT_POSTGRES_POOLS.runtime_execution),
+    runtime_telemetry: normalizePoolValues(pools?.runtime_telemetry, DEFAULT_POSTGRES_POOLS.runtime_telemetry),
+    runtime_feedback: normalizePoolValues(pools?.runtime_feedback, DEFAULT_POSTGRES_POOLS.runtime_feedback),
+    realtime: normalizePoolValues(pools?.realtime, DEFAULT_POSTGRES_POOLS.realtime),
+    cache_refresh: normalizePoolValues(pools?.cache_refresh, DEFAULT_POSTGRES_POOLS.cache_refresh),
+    background_jobs: normalizePoolValues(pools?.background_jobs, DEFAULT_POSTGRES_POOLS.background_jobs),
+  };
+}
 
 function defaultSMTPValues(): BootstrapConfigMailSMTPValues {
   return {
@@ -130,6 +191,10 @@ function normalizeMailValues(mail: BootstrapConfigMailValues | null | undefined)
 
 function normalizeBootstrapValues(values: BootstrapConfigValues): BootstrapConfigValues {
   const nextValues = cloneValues(values);
+  nextValues.database = {
+    pools: normalizePostgresPools(nextValues),
+    management_admission: nextValues.database.management_admission,
+  };
   nextValues.mail = normalizeMailValues(nextValues.mail);
   return nextValues;
 }
@@ -248,6 +313,10 @@ function getValidationStatusLabel(status: ValidationStatus, copy: SettingsStartu
     return copy.validationStatusWarning;
   }
   return copy.validationStatusSuccess;
+}
+
+function getPostgresPoolLaneLabel(copy: SettingsStartupCopy, lane: PostgresPoolLane): string {
+  return copy[POSTGRES_POOL_LABEL_KEYS[lane]] as string;
 }
 
 function LoadingSkeleton() {
@@ -712,10 +781,16 @@ export function SettingsStartupTab() {
         rows.push({ field, message: copy.useZeroOrPositiveInteger, status: "error" });
       }
     };
-    checkPositive("database.runtime_pool.max_conns", values.database.runtime_pool.max_conns);
-    checkNonNegative("database.runtime_pool.min_idle_conns", values.database.runtime_pool.min_idle_conns);
-    checkPositive("database.management_pool.max_conns", values.database.management_pool.max_conns);
-    checkNonNegative("database.management_pool.min_idle_conns", values.database.management_pool.min_idle_conns);
+    checkPositive("database.pools.total_max_conns", values.database.pools.total_max_conns);
+    for (const lane of POSTGRES_POOL_LANES) {
+      const pool = values.database.pools[lane];
+      checkPositive(`database.pools.${lane}.max_conns`, pool.max_conns);
+      checkNonNegative(`database.pools.${lane}.min_idle_conns`, pool.min_idle_conns);
+      if ((pool.min_idle_conns ?? 0) > (pool.max_conns ?? 0)) {
+        errors[`database.pools.${lane}.min_idle_conns`] = copy.minIdleMustNotExceedMax;
+        rows.push({ field: `database.pools.${lane}`, message: copy.minIdleMustNotExceedMax, status: "error" });
+      }
+    }
     checkPositive("database.management_admission.m2_max_concurrent", values.database.management_admission.m2_max_concurrent);
     checkPositive("database.management_admission.m3_max_concurrent", values.database.management_admission.m3_max_concurrent);
     checkPositive("runtime.transport.max_idle_conns", values.runtime.transport.max_idle_conns);
@@ -727,14 +802,6 @@ export function SettingsStartupTab() {
     if ((values.database.management_admission.m3_max_concurrent ?? 0) > (values.database.management_admission.m2_max_concurrent ?? 0)) {
       errors["database.management_admission.m3_max_concurrent"] = copy.m3ConcurrencyLimit;
       rows.push({ field: "database.management_admission", message: copy.m3ConcurrencyLimit, status: "error" });
-    }
-    if ((values.database.runtime_pool.min_idle_conns ?? 0) > (values.database.runtime_pool.max_conns ?? 0)) {
-      errors["database.runtime_pool.min_idle_conns"] = copy.minIdleMustNotExceedMax;
-      rows.push({ field: "database.runtime_pool", message: copy.minIdleMustNotExceedMax, status: "error" });
-    }
-    if ((values.database.management_pool.min_idle_conns ?? 0) > (values.database.management_pool.max_conns ?? 0)) {
-      errors["database.management_pool.min_idle_conns"] = copy.minIdleMustNotExceedMax;
-      rows.push({ field: "database.management_pool", message: copy.minIdleMustNotExceedMax, status: "error" });
     }
     const checkRequiredString = (field: string, value: string | null) => {
       if (!value?.trim()) {
@@ -967,11 +1034,17 @@ export function SettingsStartupTab() {
               <FieldLegend>{copy.database}</FieldLegend>
               <FieldGroup>
                 <SecretReplacementField id="startup-database-url" label={copy.databaseUrl} secretKey="database.url" masked={bootstrapConfig.secrets["database.url"].masked} configured={bootstrapConfig.secrets["database.url"].configured} editable={bootstrapConfig.secrets["database.url"].editable && !controlsDisabled} value={secretInputs["database.url"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+                <StartupInputField id="startup-postgres-total-max-conns" label={copy.postgresTotalMaxConns} type="number" value={numberValue(values.database.pools.total_max_conns)} error={fieldErrors["database.pools.total_max_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.pools.total_max_conns", value)} />
                 <div className="grid gap-4 md:grid-cols-2">
-                  <StartupInputField id="startup-runtime-max-conns" label={copy.runtimeMaxConns} type="number" value={numberValue(values.database.runtime_pool.max_conns)} error={fieldErrors["database.runtime_pool.max_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.runtime_pool.max_conns", value)} />
-                  <StartupInputField id="startup-runtime-min-idle" label={copy.runtimeMinIdle} type="number" value={numberValue(values.database.runtime_pool.min_idle_conns)} error={fieldErrors["database.runtime_pool.min_idle_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.runtime_pool.min_idle_conns", value)} />
-                  <StartupInputField id="startup-management-max-conns" label={copy.managementMaxConns} type="number" value={numberValue(values.database.management_pool.max_conns)} error={fieldErrors["database.management_pool.max_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_pool.max_conns", value)} />
-                  <StartupInputField id="startup-management-min-idle" label={copy.managementMinIdle} type="number" value={numberValue(values.database.management_pool.min_idle_conns)} error={fieldErrors["database.management_pool.min_idle_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_pool.min_idle_conns", value)} />
+                  {POSTGRES_POOL_LANES.map((lane) => {
+                    const label = getPostgresPoolLaneLabel(copy, lane);
+                    return (
+                      <div key={lane} className="contents">
+                        <StartupInputField id={`startup-${lane}-max-conns`} label={copy.postgresLaneMaxConns(label)} type="number" value={numberValue(values.database.pools[lane].max_conns)} error={fieldErrors[`database.pools.${lane}.max_conns`]} disabled={controlsDisabled} onChange={(value) => setNumberField(`database.pools.${lane}.max_conns`, value)} />
+                        <StartupInputField id={`startup-${lane}-min-idle`} label={copy.postgresLaneMinIdle(label)} type="number" value={numberValue(values.database.pools[lane].min_idle_conns)} error={fieldErrors[`database.pools.${lane}.min_idle_conns`]} disabled={controlsDisabled} onChange={(value) => setNumberField(`database.pools.${lane}.min_idle_conns`, value)} />
+                      </div>
+                    );
+                  })}
                   <StartupInputField id="startup-m2-concurrent" label={copy.m2MaxConcurrent} type="number" value={numberValue(values.database.management_admission.m2_max_concurrent)} error={fieldErrors["database.management_admission.m2_max_concurrent"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_admission.m2_max_concurrent", value)} />
                   <StartupInputField id="startup-m3-concurrent" label={copy.m3MaxConcurrent} type="number" value={numberValue(values.database.management_admission.m3_max_concurrent)} error={fieldErrors["database.management_admission.m3_max_concurrent"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_admission.m3_max_concurrent", value)} />
                 </div>

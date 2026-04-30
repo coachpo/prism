@@ -68,8 +68,16 @@ function createBootstrapResponse() {
     values: {
       server: { host: "127.0.0.1", port: 18000, docs_enabled: true },
       database: {
-        runtime_pool: { max_conns: 20, min_idle_conns: 2 },
-        management_pool: { max_conns: 10, min_idle_conns: 1 },
+        pools: {
+          total_max_conns: 42,
+          management: { max_conns: 6, min_idle_conns: 0 },
+          runtime_execution: { max_conns: 14, min_idle_conns: 1 },
+          runtime_telemetry: { max_conns: 7, min_idle_conns: 0 },
+          runtime_feedback: { max_conns: 3, min_idle_conns: 0 },
+          realtime: { max_conns: 4, min_idle_conns: 0 },
+          cache_refresh: { max_conns: 4, min_idle_conns: 0 },
+          background_jobs: { max_conns: 4, min_idle_conns: 0 },
+        },
         management_admission: { m2_max_concurrent: 8, m3_max_concurrent: 4 },
       },
       runtime: {
@@ -248,6 +256,38 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
+});
+
+test("missing PostgreSQL pool lanes hydrate defaults and save canonical pools", async ({ page }) => {
+  const response = createBootstrapResponse();
+  const pools = response.values.database.pools as Partial<typeof response.values.database.pools>;
+  delete pools.runtime_feedback;
+  delete pools.cache_refresh;
+  const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: response });
+
+  await page.goto("/settings#startup");
+
+  await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("spinbutton", { name: "Runtime feedback max conns" })).toHaveValue("3");
+  await expect(page.getByRole("spinbutton", { name: "Runtime feedback min idle" })).toHaveValue("0");
+  await expect(page.getByRole("spinbutton", { name: "Cache refresh max conns" })).toHaveValue("4");
+  await expect(page.getByRole("spinbutton", { name: "Cache refresh min idle" })).toHaveValue("0");
+
+  await page.getByRole("button", { name: "Save startup config" }).click();
+  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+
+  expect(routes.getValidateRequests()).toHaveLength(1);
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+  expect(routes.getUpdateRequests()[0]).toMatchObject({
+    values: {
+      database: {
+        pools: {
+          runtime_feedback: { max_conns: 3, min_idle_conns: 0 },
+          cache_refresh: { max_conns: 4, min_idle_conns: 0 },
+        },
+      },
+    },
+  });
 });
 
 test("mail and SMTP startup card renders every safe field", async ({ page }) => {

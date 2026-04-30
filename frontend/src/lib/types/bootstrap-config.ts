@@ -25,15 +25,27 @@ export interface BootstrapConfigDatabasePoolValues {
   min_idle_conns: number | null;
 }
 
+export interface BootstrapConfigDatabasePoolsValues {
+  total_max_conns: number | null;
+  management: BootstrapConfigDatabasePoolValues;
+  runtime_execution: BootstrapConfigDatabasePoolValues;
+  runtime_telemetry: BootstrapConfigDatabasePoolValues;
+  runtime_feedback: BootstrapConfigDatabasePoolValues;
+  realtime: BootstrapConfigDatabasePoolValues;
+  cache_refresh: BootstrapConfigDatabasePoolValues;
+  background_jobs: BootstrapConfigDatabasePoolValues;
+}
+
 export interface BootstrapConfigManagementAdmissionValues {
   m2_max_concurrent: number | null;
   m3_max_concurrent: number | null;
 }
 
 export interface BootstrapConfigDatabaseValues {
-  runtime_pool: BootstrapConfigDatabasePoolValues;
-  management_pool: BootstrapConfigDatabasePoolValues;
+  pools: BootstrapConfigDatabasePoolsValues;
   management_admission: BootstrapConfigManagementAdmissionValues;
+  runtime_pool?: BootstrapConfigDatabasePoolValues;
+  management_pool?: BootstrapConfigDatabasePoolValues;
 }
 
 export interface BootstrapConfigRuntimeTransportValues {

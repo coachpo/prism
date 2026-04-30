@@ -558,6 +558,16 @@ export interface Messages {
     notConfigured: string;
     notRecorded: string;
     portChangeLabel: string;
+    postgresLaneBackgroundJobs: string;
+    postgresLaneCacheRefresh: string;
+    postgresLaneManagement: string;
+    postgresLaneMaxConns: (lane: string) => string;
+    postgresLaneMinIdle: (lane: string) => string;
+    postgresLaneRealtime: string;
+    postgresLaneRuntimeExecution: string;
+    postgresLaneRuntimeFeedback: string;
+    postgresLaneRuntimeTelemetry: string;
+    postgresTotalMaxConns: string;
     preserve: string;
     preserveOnly: string;
     preserveOnlyInThisVersion: string;
@@ -2484,6 +2494,16 @@ export const enMessages: Messages = {
     notConfigured: "not configured",
     notRecorded: "Not recorded",
     portChangeLabel: "Server port changes the management and proxy port after restart",
+    postgresLaneBackgroundJobs: "Background jobs",
+    postgresLaneCacheRefresh: "Cache refresh",
+    postgresLaneManagement: "Management",
+    postgresLaneMaxConns: (lane) => `${lane} max conns`,
+    postgresLaneMinIdle: (lane) => `${lane} min idle`,
+    postgresLaneRealtime: "Realtime",
+    postgresLaneRuntimeExecution: "Runtime execution",
+    postgresLaneRuntimeFeedback: "Runtime feedback",
+    postgresLaneRuntimeTelemetry: "Runtime telemetry",
+    postgresTotalMaxConns: "PostgreSQL total max conns",
     preserve: "Preserve",
     preserveOnly: "Preserve only",
     preserveOnlyInThisVersion: "Preserve-only in this version.",
