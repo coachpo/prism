@@ -19,6 +19,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -26,6 +27,7 @@ type Options struct {
 	Pool               *pgxpool.Pool
 	Now                func() time.Time
 	DashboardSnapshots *statsdomain.DashboardAggregateStore
+	SideEffects        *managementsideeffects.Dispatcher
 }
 
 type Service struct {
@@ -34,6 +36,7 @@ type Service struct {
 	now                func() time.Time
 	allowedOrigins     map[string]struct{}
 	dashboardSnapshots *statsdomain.DashboardAggregateStore
+	sideEffects        *managementsideeffects.Dispatcher
 }
 
 type modelMetricsBatchRequest struct {
@@ -46,15 +49,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	pool := options.Pool
 	ownsPool := false
 	if pool == nil {
-		if strings.TrimSpace(settings.DatabaseURL) == "" {
-			return nil, fmt.Errorf("database URL is required")
-		}
-		createdPool, err := pgxpool.New(context.Background(), settings.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("create stats database pool: %w", err)
-		}
-		pool = createdPool
-		ownsPool = true
+		return nil, fmt.Errorf("stats database pool is required")
 	}
 	now := options.Now
 	if now == nil {
@@ -68,7 +63,11 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	if dashboardSnapshots == nil {
 		dashboardSnapshots = statsdomain.NewDashboardAggregateStore()
 	}
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins, dashboardSnapshots: dashboardSnapshots}, nil
+	service := &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins, dashboardSnapshots: dashboardSnapshots, sideEffects: options.SideEffects}
+	if service.sideEffects != nil {
+		service.sideEffects.RegisterHandler(managementsideeffects.EventDashboardSnapshotInvalidate, service.handleDashboardSnapshotInvalidation)
+	}
+	return service, nil
 }
 
 func (s *Service) Close() {
@@ -104,6 +103,18 @@ func (s *Service) invalidateDashboardAggregateSnapshot(profileID int) {
 		return
 	}
 	s.dashboardSnapshots.InvalidateProfile(profileID)
+}
+
+func (s *Service) handleDashboardSnapshotInvalidation(_ context.Context, event managementsideeffects.Event) error {
+	var payload managementsideeffects.DashboardSnapshotInvalidatePayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return managementsideeffects.PermanentError{Err: fmt.Errorf("decode dashboard snapshot invalidation payload: %w", err)}
+	}
+	if payload.ProfileID <= 0 {
+		return managementsideeffects.PermanentError{Err: fmt.Errorf("dashboard snapshot invalidation profile_id required")}
+	}
+	s.invalidateDashboardAggregateSnapshot(payload.ProfileID)
+	return nil
 }
 
 func matchesDashboardSummarySnapshotRequest(params statsdomain.StatsSummaryParams, referenceNow time.Time) bool {
@@ -157,6 +168,7 @@ func absDuration(value time.Duration) time.Duration {
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/stats", func(router chi.Router) {
+		router.Get("/dashboard", s.handleDashboardStats)
 		router.Get("/requests", s.handleListRequestLogs)
 		router.Delete("/requests", s.handleDeleteRequestLogs)
 		router.Get("/requests/{request_id}", s.handleGetRequestLog)
@@ -169,6 +181,25 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Get("/endpoints/{endpoint_id}/models", s.handleEndpointModelStatistics)
 		router.Delete("/statistics", s.handleDeleteStatistics)
 	})
+}
+
+func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
+	profile, err := s.resolveEffectiveProfile(r.Context(), r)
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	window := strings.TrimSpace(r.URL.Query().Get("window"))
+	if window == "" {
+		writeStructuredError(w, r, s.allowedOrigins, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "stats_window_unsupported", Detail: "Dashboard stats window is required."})
+		return
+	}
+	response, err := statsdomain.LoadDashboardStats(r.Context(), s.pool, profile.ID, window, s.nowUTC())
+	if err != nil {
+		writeDomainError(w, r, s.allowedOrigins, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
@@ -447,7 +478,7 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 }
 
 func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request) {
-	profileID, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
+	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return 0, err
@@ -472,18 +503,21 @@ func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request
 		if err := statsdomain.DeleteRequestLogs(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
 			return 0, err
 		}
+		if err := s.enqueueDashboardInvalidation(r.Context(), tx, "request_logs.delete", profile.ID); err != nil {
+			return 0, err
+		}
 		return profile.ID, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	s.invalidateDashboardAggregateSnapshot(profileID)
+	managementsideeffects.AfterCommit(context.Background(), s.wakeSideEffectDispatcher)
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
 }
 
 func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request) {
-	profileID, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
+	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
 		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
 		if err != nil {
 			return 0, err
@@ -508,14 +542,41 @@ func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request)
 		if err := statsdomain.DeleteStatistics(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
 			return 0, err
 		}
+		if err := s.enqueueDashboardInvalidation(r.Context(), tx, "statistics.delete", profile.ID); err != nil {
+			return 0, err
+		}
 		return profile.ID, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	s.invalidateDashboardAggregateSnapshot(profileID)
+	managementsideeffects.AfterCommit(context.Background(), s.wakeSideEffectDispatcher)
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
+}
+
+func (s *Service) enqueueDashboardInvalidation(ctx context.Context, tx pgx.Tx, operation string, profileID int) error {
+	if s == nil || s.sideEffects == nil || profileID <= 0 {
+		return nil
+	}
+	operationID := fmt.Sprintf("stats.%s.profile.%d.%d", operation, profileID, s.nowUTC().UnixNano())
+	intent := managementsideeffects.Intent{
+		OperationID:   operationID,
+		EventType:     managementsideeffects.EventDashboardSnapshotInvalidate,
+		AggregateType: "profile",
+		AggregateID:   strconv.Itoa(profileID),
+		DedupeKey:     operationID,
+		Payload:       managementsideeffects.DashboardSnapshotInvalidatePayload{ProfileID: profileID},
+	}
+	_, err := managementsideeffects.InsertTx(ctx, tx, intent)
+	return err
+}
+
+func (s *Service) wakeSideEffectDispatcher(ctx context.Context) error {
+	if s == nil || s.sideEffects == nil {
+		return nil
+	}
+	return s.sideEffects.Wake(ctx)
 }
 
 func loadRequestLogRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
@@ -712,6 +773,10 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map
 	}
 	var statsErr *statsdomain.HTTPError
 	if errors.As(err, &statsErr) {
+		if statsErr.Code != "" {
+			writeStructuredError(w, r, allowedOrigins, statsErr)
+			return
+		}
 		writeError(w, r, allowedOrigins, statsErr.StatusCode, statsErr.Detail)
 		return
 	}
@@ -719,6 +784,20 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
+	writeCORSHeaders(w, r, allowedOrigins)
+	writeJSON(w, statusCode, map[string]string{"detail": detail})
+}
+
+func writeStructuredError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err *statsdomain.HTTPError) {
+	writeCORSHeaders(w, r, allowedOrigins)
+	payload := map[string]any{"error": map[string]any{"code": err.Code, "message": err.Detail}}
+	if len(err.Details) > 0 {
+		payload["error"].(map[string]any)["details"] = err.Details
+	}
+	writeJSON(w, err.StatusCode, payload)
+}
+
+func writeCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin != "" {
 		if _, ok := allowedOrigins[origin]; ok {
@@ -727,7 +806,6 @@ func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[strin
 			w.Header().Set("Vary", "Origin")
 		}
 	}
-	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
