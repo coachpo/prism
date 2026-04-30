@@ -112,6 +112,24 @@ frontend/
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
+### 2.4 Priority Enforcement And Operator-Facing Failure Modes
+
+Prism assigns trusted backend priority metadata before work touches shared resources. Runtime proxy traffic is `proxy`, management routes are `management` with an explicit `M1`, `M2`, or `M3` tier, and scheduler-owned workers are `background` with a declared subclass, budget, coalescing policy, retry policy, and drain policy. Missing or unclassified production resource access is a release blocker and is rejected by `cmd/prism-priority-check --strict --format=json ./...`.
+
+PostgreSQL capacity is split into finite named lanes: `runtime_execution`, `runtime_telemetry`, `runtime_feedback`, `management`, `realtime`, `cache_refresh`, and `background_jobs`. Operators should treat lane saturation by owner: proxy execution pressure is separate from management UI pressure, telemetry drain pressure, lossy feedback drain pressure, realtime fanout, cache refresh, and generic background jobs. Background or management saturation must not consume protected proxy capacity.
+
+Management overload is reported as typed admission failure with retry metadata. Lower-priority M3 reporting and maintenance routes shed before M2 and M1 management work, and proxy traffic remains isolated from management/background saturation. When overload appears, retry after the advertised delay rather than increasing client concurrency.
+
+Scheduler lag means background workers are queued, coalesced, delayed, retried, or dropped according to their worker policy. Lag can delay dashboard fanout, telemetry materialization, email delivery, management side-effect dispatch, cache warming, and proxy-key usage flushing, but it must not make request-path handlers borrow direct goroutines, direct DB handles, or unmanaged timers.
+
+Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, or permanent-failure state depending on the store. Email provider failures retry and eventually dead-letter without exposing OTPs or SMTP credentials. Management side-effect dispatch failures retry or become visibly permanent failures without rolling back the already committed primary management mutation.
+
+Runtime telemetry and runtime feedback have different loss semantics. Accepted runtime activity intents are required-durable background work until the telemetry outbox transaction commits, terminal validation fails, or shutdown prevents completion. Runtime feedback is intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
+
+Audit and statistics reads are bounded. Raw audit lists require backend-enforced time windows and keyset cursors, dashboard stats read materialized rollups, and broad deletes run as durable management jobs. Operators may see audit or stat freshness lag while background rollups or delete jobs catch up; Prism does not fall back to unbounded live aggregation to hide that lag.
+
+Runtime cache correctness is generation-based. Management mutations advance durable runtime-cache generations in the same transaction as the primary state change, runtime reads validate generation vectors and refresh or fail closed when stale, and post-response cache warming is non-authoritative. Cache generation lag may delay warm snapshots, but auth-sensitive runtime reads reject stale or unverifiable snapshots instead of accepting old state.
+
 ## 3. Request Flow
 
 Prism is proxy-first. It forwards the supported provider-native generation routes it owns and is not a full OpenAI API emulator.
@@ -503,11 +521,11 @@ The audit detail view is a right-side sheet with tabs for:
 
 Flexible bulk deletion of historical `request_logs`, `audit_logs`, and `loadbalance_events` to manage database growth. The Settings UI offers 7-day, 30-day, 90-day, and delete-all actions per data type, while the API still accepts any integer `older_than_days >= 1`.
 
-### 9.2 Deletion Flow
+### 9.2 Request Log and Loadbalance Deletion Flow
 
 ```
 User → Settings Page → "Data Management" section
-  → Selects data type (Request Logs, Audit Logs, or Loadbalance Events)
+  → Selects data type (Request Logs or Loadbalance Events)
   → Selects action (preset: 7/30/90 days or delete all)
   → Clicks "Delete" button → Confirmation dialog
   -> DELETE /api/stats/requests?older_than_days=7 with explicit `X-Profile-Id`
@@ -520,7 +538,26 @@ User → Settings Page → "Data Management" section
 
 The UI uses a single action builder pattern: select data type → select action → execute.
 
-Same flow applies to audit logs and loadbalance events via their matching delete endpoints.
+Loadbalance event deletion follows the same immediate acceptance pattern through its matching delete endpoint.
+
+### 9.2A Audit Delete Job Flow
+
+Audit log deletion uses durable management jobs instead of deleting rows inside the request. The compatibility query-form endpoint `DELETE /api/audit/logs` creates an audit-delete job for legacy callers, while new clients can create the same job with the JSON endpoint `POST /api/audit/logs/delete-jobs` and an explicit `Idempotency-Key` plus reason.
+
+```
+User → Settings Page → "Data Management" section
+  → Selects Audit Logs
+  → Selects action (preset: 7/30/90 days, before timestamp, or delete all)
+  → Clicks "Delete" button → Confirmation dialog
+  -> DELETE /api/audit/logs?older_than_days=7 with explicit `X-Profile-Id`
+     or POST /api/audit/logs/delete-jobs with JSON scope
+  → Returns 202 with { job_id, state, status_url }
+  → Sets Location to the same job status URL
+  → Background worker deletes matching audit rows in chunks
+  → Operator can observe or cancel the job through management job APIs
+```
+
+Audit delete job status is visible through `GET /api/management/jobs` and `GET /api/management/jobs/{job_id}`. Operators can request cancellation through `POST /api/management/jobs/{job_id}/cancel`, which returns `202` with the job object when the job is in scope.
 
 ### 9.3 Independence
 

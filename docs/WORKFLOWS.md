@@ -296,6 +296,27 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 
 These routes are implemented in `backend/internal/httpapi/runtime/runtime.go` plus the related helpers under `backend/internal/httpapi/runtime/`, and they are intentionally excluded from the management-only OpenAPI document.
 
+## 9. Priority Operations Runbook
+
+Use the strict backend checker as the release gate before shipping priority-sensitive backend changes:
+
+```bash
+cd backend && go run ./cmd/prism-priority-check --strict --format=json ./...
+```
+
+The expected pass signal is exit code `0` with `"violations": []` and summary counts for classified routes, resources, jobs, and enabled static checks. Any `direct-db`, `unmanaged-goroutine`, `direct-email`, `direct-telemetry-export`, `direct-cache-mutation`, `unregistered-background-work`, or `unclassified-side-effect` violation is a release blocker.
+
+Operational triage by symptom:
+
+- Lane budget pressure: identify the labeled DB lane first. `runtime_execution` protects proxy work; `management`, `realtime`, `cache_refresh`, `runtime_telemetry`, `runtime_feedback`, and `background_jobs` have separate budgets and should be remediated at their owning workload instead of increasing unrelated pools.
+- Overload or `Retry-After`: honor the retry delay and reduce client concurrency. M3 reporting and maintenance routes are expected to shed before M2/M1 management work, and management/background pressure should not affect proxy execution capacity.
+- Scheduler lag: expect delayed, coalesced, retried, or dropped background work according to worker policy. Do not add ad hoc goroutines or timers; register new recurring, retrying, or delayed work with the scheduler.
+- Outbox failures: inspect the relevant durable store state. Email outbox retries or dead-letters delivery without leaking OTPs or SMTP credentials; management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.
+- Runtime telemetry loss: accepted runtime activity intents should drain to the telemetry outbox unless terminal validation or forced shutdown prevents completion. Treat lost accepted telemetry as a durability incident.
+- Runtime feedback loss: feedback is best effort and may drop on queue full, invalid event, closed pipeline, or store failure. Drops should be accounted for, but they must not delay or fail proxy responses.
+- Audit or stat lag: raw audit reads remain bounded by time window and keyset cursor, dashboard stats come from materialized rollups, and broad deletes run as durable management jobs. Freshness lag is visible; Prism does not hide it with unbounded live aggregation.
+- Cache generation lag: management mutations advance durable runtime-cache generations before commit. Cache warming may lag, but runtime reads compare generation vectors and refresh or fail closed for stale, missing, or unverifiable auth-sensitive snapshots.
+
 ## Cross-References
 
 - Product scope: `docs/PRD.md`
