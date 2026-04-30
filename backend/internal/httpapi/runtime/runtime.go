@@ -8,17 +8,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
-	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
 var (
@@ -45,6 +47,14 @@ var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
 		AuthPrefix:   "Bearer ",
 		ExtraHeaders: map[string]string{},
 	},
+}
+
+type runtimeFeedbackStore struct {
+	pool *pgxpool.Pool
+}
+
+func newRuntimeFeedbackStore(pool *pgxpool.Pool) *runtimeFeedbackStore {
+	return &runtimeFeedbackStore{pool: pool}
 }
 
 var hopByHopHeaders = map[string]struct{}{
@@ -300,14 +310,9 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 	if s.cache == nil {
 		return requestPlan{}, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable)
 	}
-	publishedSnapshot, err := s.cache.requirePublishedSnapshot()
+	activeProfile, snapshot, err := s.cache.LoadFreshActiveRuntimePlan(ctx)
 	if err != nil {
 		return requestPlan{}, runtimeSnapshotDomainError(err)
-	}
-	activeProfile := publishedSnapshot.ActiveProfile
-	snapshot, ok := publishedSnapshot.PlanningByProfileID[activeProfile.ID]
-	if !ok || snapshot == nil {
-		return requestPlan{}, runtimeSnapshotDomainError(fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID))
 	}
 
 	requestedModel, found := snapshot.ModelsByID[requestedModelID]
@@ -372,6 +377,9 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 func runtimeSnapshotDomainError(err error) error {
 	if errors.Is(err, ErrPublishedRuntimeSnapshotUnavailable) {
 		return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: "Runtime snapshot is unavailable. Retry later."}
+	}
+	if errors.Is(err, ErrRuntimeSnapshotRefreshRequired) {
+		return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: "Runtime snapshot refresh is required. Retry later."}
 	}
 	return err
 }
@@ -464,10 +472,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 	hedgeUsed := false
 	maxAttempts := len(plan.Connections)
 	if strings.EqualFold(strings.TrimSpace(plan.Strategy.StrategyType), "adaptive") {
-		maxAttempts = minInt(maxAttempts, hedgePolicy.MaxAdditionalAttempts+1)
-		if maxAttempts < 1 {
-			maxAttempts = 1
-		}
+		maxAttempts = max(minInt(maxAttempts, hedgePolicy.MaxAdditionalAttempts+1), 1)
 	}
 
 	for index := 0; index < len(plan.Connections); index++ {
@@ -493,10 +498,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			if hedged.Winner != nil {
 				winner := hedged.Winner
 				if winner.Response.StatusCode >= 200 && winner.Response.StatusCode <= 299 && winner.Launched {
-					if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, winner.Connection, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt); feedbackErr != nil {
-						_ = winner.Response.Body.Close()
-						return executionResult{}, feedbackErr
-					}
+					s.recordRuntimeSuccess(plan.ProfileID, winner.Connection, plan.Strategy, winner.Attempt.ResponseTimeMS, winner.Attempt.CompletedAt)
 				}
 				return executionResult{Response: winner.Response, Connection: winner.Connection, RequestHeaders: winner.RequestHeaders, AttemptCount: launchedAttempts, Attempts: attempts}, nil
 			}
@@ -509,9 +511,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			return executionResult{}, outcome.FatalError
 		}
 		if outcome.ProbeEligibleRecord != nil {
-			if recordErr := s.recordRuntimeProbeEligible(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC()); recordErr != nil {
-				return executionResult{}, recordErr
-			}
+			s.recordRuntimeProbeEligible(plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC())
 		}
 		if outcome.Skipped {
 			continue
@@ -528,17 +528,12 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 		if outcome.Err != nil {
 			lastError = outcome.Err.Error()
 			if outcome.Launched && !outcome.SuppressTransportFeedback {
-				if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
-					return executionResult{}, feedbackErr
-				}
+				s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
 			}
 			continue
 		}
 		if outcome.FailoverEligible && outcome.Launched {
-			if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
-				_ = outcome.Response.Body.Close()
-				return executionResult{}, feedbackErr
-			}
+			s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
 		}
 		if outcome.FailoverEligible && index < len(plan.Connections)-1 && launchedAttempts < maxAttempts {
 			lastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
@@ -546,10 +541,7 @@ func (s *Service) executeRequest(ctx context.Context, method string, plan reques
 			continue
 		}
 		if outcome.Response.StatusCode >= 200 && outcome.Response.StatusCode <= 299 && outcome.Launched {
-			if feedbackErr := s.recordRuntimeSuccess(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt); feedbackErr != nil {
-				_ = outcome.Response.Body.Close()
-				return executionResult{}, feedbackErr
-			}
+			s.recordRuntimeSuccess(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.ResponseTimeMS, outcome.Attempt.CompletedAt)
 		}
 		return executionResult{Response: outcome.Response, Connection: outcome.Connection, RequestHeaders: outcome.RequestHeaders, AttemptCount: launchedAttempts, Attempts: attempts}, nil
 	}
@@ -635,9 +627,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 				return hedgedExecutionResult{}, outcome.FatalError
 			}
 			if outcome.ProbeEligibleRecord != nil {
-				if recordErr := s.recordRuntimeProbeEligible(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC()); recordErr != nil {
-					return hedgedExecutionResult{}, recordErr
-				}
+				s.recordRuntimeProbeEligible(plan.ProfileID, outcome.Connection, plan.Strategy, *outcome.ProbeEligibleRecord, s.nowUTC())
 			}
 			if outcome.Skipped {
 				continue
@@ -665,9 +655,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 				}
 				if !outcome.SuppressTransportFeedback {
 					result.LastError = outcome.Err.Error()
-					if feedbackErr := s.recordRuntimeTransportFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
-						return hedgedExecutionResult{}, feedbackErr
-					}
+					s.recordRuntimeTransportFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
 				}
 				continue
 			}
@@ -676,10 +664,7 @@ func (s *Service) executeHedgedRequest(ctx context.Context, method string, plan 
 					nonWinningAttempts = append(nonWinningAttempts, outcome.Attempt)
 				}
 				result.LastError = fmt.Sprintf("Upstream returned %d", outcome.Response.StatusCode)
-				if feedbackErr := s.recordRuntimeFailoverHTTPFailure(ctx, plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt); feedbackErr != nil {
-					_ = outcome.Response.Body.Close()
-					return hedgedExecutionResult{}, feedbackErr
-				}
+				s.recordRuntimeFailoverHTTPFailure(plan.ProfileID, outcome.Connection, plan.Strategy, outcome.Attempt.CompletedAt)
 				_ = outcome.Response.Body.Close()
 				continue
 			}
@@ -769,62 +754,38 @@ func (s *Service) isHedgeLoserCancellation(ctx context.Context, err error) bool 
 	return err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(ctx), errHedgeLoserCanceled)
 }
 
-func (s *Service) recordRuntimeProbeEligible(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, state loadbalance.RuntimeConnectionState, observedAt time.Time) error {
-	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.InsertRuntimeProbeEligibleEvent(feedbackCtx, tx, profileID, connection.ID, state, strategy, observedAt)
-	})
-	if err != nil {
-		return fmt.Errorf("persist runtime probe-eligible feedback: %w", err)
+func (s *Service) recordRuntimeProbeEligible(profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, state loadbalance.RuntimeConnectionState, observedAt time.Time) {
+	if s == nil || s.feedbackPipeline == nil {
+		return
 	}
-	return nil
+	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackProbeEligible, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, State: state, ObservedAt: observedAt})
 }
 
-func (s *Service) recordRuntimeSuccess(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) error {
+func (s *Service) recordRuntimeSuccess(profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, responseTimeMS int, completedAt time.Time) {
+	if s == nil || s.feedbackPipeline == nil {
+		return
+	}
 	transition := s.runtimeState.RecordRuntimeSuccess(profileID, connection.ModelConfigID, connection.ID, strategy, responseTimeMS, completedAt)
 	if !transition.RecoveryEventEligible {
-		return nil
+		return
 	}
-	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.InsertRuntimeRecoveryEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, completedAt)
-	})
-	if err != nil {
-		return fmt.Errorf("persist runtime success feedback: %w", err)
-	}
-	return nil
+	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackSuccessRecovery, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, Transition: transition, CompletedAt: completedAt, ResponseTimeMS: responseTimeMS})
 }
 
-func (s *Service) recordRuntimeFailoverHTTPFailure(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+func (s *Service) recordRuntimeFailoverHTTPFailure(profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) {
+	if s == nil || s.feedbackPipeline == nil {
+		return
+	}
 	transition := s.runtimeState.RecordRuntimeFailoverHTTPFailure(profileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
-	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.InsertRuntimeFailureEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, "transient_http", completedAt)
-	})
-	if err != nil {
-		return fmt.Errorf("persist runtime failure feedback: %w", err)
-	}
-	return nil
+	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackFailoverHTTP, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, Transition: transition, FailureKind: "transient_http", CompletedAt: completedAt})
 }
 
-func (s *Service) recordRuntimeTransportFailure(ctx context.Context, profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) error {
+func (s *Service) recordRuntimeTransportFailure(profileID int, connection runtimeConnection, strategy loadbalance.RuntimeStrategy, completedAt time.Time) {
+	if s == nil || s.feedbackPipeline == nil {
+		return
+	}
 	transition := s.runtimeState.RecordRuntimeTransportFailure(profileID, connection.ModelConfigID, connection.ID, strategy, completedAt)
-	feedbackCtx, cancel := runtimeFeedbackContext(ctx)
-	defer cancel()
-	_, err := pgxutil.InTxValue(feedbackCtx, s.executionPool, "runtime", func(tx pgx.Tx) (bool, error) {
-		return true, loadbalance.InsertRuntimeFailureEvent(feedbackCtx, tx, profileID, connection.ID, transition, strategy, "connect_error", completedAt)
-	})
-	if err != nil {
-		return fmt.Errorf("persist runtime transport failure feedback: %w", err)
-	}
-	return nil
-}
-
-func runtimeFeedbackContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackTransportFailure, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, Transition: transition, FailureKind: "connect_error", CompletedAt: completedAt})
 }
 
 func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource) (*http.Response, bool, error) {
@@ -883,9 +844,7 @@ func (s *Service) buildUpstreamHeaders(connection runtimeConnection, apiFamily s
 	}
 	headers = sanitizeHeaders(headers, rules)
 	headers[compiledAuth.AuthHeader] = compiledAuth.AuthValue
-	for key, value := range compiledAuth.ExtraHeaders {
-		headers[key] = value
-	}
+	maps.Copy(headers, compiledAuth.ExtraHeaders)
 	for key, rawValue := range connection.CustomHeaders {
 		if _, protected := proxyControlledHeaders[strings.ToLower(strings.TrimSpace(key))]; protected {
 			continue
@@ -954,9 +913,7 @@ func cloneStringMap(source map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	cloned := make(map[string]string, len(source))
-	for key, value := range source {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, source)
 	return cloned
 }
 
@@ -1092,12 +1049,7 @@ func validatePathCompatibility(apiFamily string, requestPath string) error {
 }
 
 func shouldFailover(statusCode int, failoverStatusCodes []int) bool {
-	for _, candidate := range failoverStatusCodes {
-		if statusCode == candidate {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(failoverStatusCodes, statusCode)
 }
 
 func copyResponseHeaders(target http.Header, source http.Header) {

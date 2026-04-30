@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -26,19 +27,23 @@ type DashboardUpdatePublisher interface {
 type Options struct {
 	ExecutionPool    *pgxpool.Pool
 	TelemetryPool    *pgxpool.Pool
+	FeedbackPool     *pgxpool.Pool
 	HTTPClient       *http.Client
 	Now              func() time.Time
 	DashboardUpdates DashboardUpdatePublisher
 	Cache            *SharedCache
 	RuntimeState     *loadbalancedomain.LocalRuntimeStateStore
 	TelemetryOutbox  TelemetryOutboxOptions
+	FeedbackPipeline RuntimeFeedbackPipelineOptions
+	SideEffects      RuntimeSideEffectOptions
+	Scheduler        *background.Scheduler
 }
 
 type Service struct {
 	executionPool       *pgxpool.Pool
-	ownsExecutionPool   bool
 	telemetryPool       *pgxpool.Pool
-	ownsTelemetryPool   bool
+	feedbackPool        *pgxpool.Pool
+	feedbackStore       *runtimeFeedbackStore
 	httpClient          *http.Client
 	ownsHTTPClient      bool
 	now                 func() time.Time
@@ -48,6 +53,9 @@ type Service struct {
 	cache               *SharedCache
 	runtimeState        *loadbalancedomain.LocalRuntimeStateStore
 	telemetryOutbox     *runtimeTelemetryOutbox
+	feedbackPipeline    *runtimeFeedbackPipeline
+	runtimeSideEffects  *RuntimeSideEffectManager
+	ownedScheduler      *background.Scheduler
 }
 
 type domainError struct {
@@ -60,7 +68,7 @@ func (err *domainError) Error() string {
 }
 
 func NewService(settings config.Settings, options Options) (*Service, error) {
-	executionPool, ownsExecutionPool, telemetryPool, ownsTelemetryPool, err := resolveRuntimeServicePools(settings, options)
+	executionPool, telemetryPool, feedbackPool, err := resolveRuntimeServicePools(settings, options)
 	if err != nil {
 		return nil, err
 	}
@@ -80,11 +88,15 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		runtimeState = loadbalancedomain.NewLocalRuntimeStateStore()
 	}
 
+	scheduler := options.Scheduler
+	if scheduler == nil {
+		scheduler = background.NewScheduler(background.Config{})
+	}
 	service := &Service{
 		executionPool:       executionPool,
-		ownsExecutionPool:   ownsExecutionPool,
 		telemetryPool:       telemetryPool,
-		ownsTelemetryPool:   ownsTelemetryPool,
+		feedbackPool:        feedbackPool,
+		feedbackStore:       newRuntimeFeedbackStore(feedbackPool),
 		httpClient:          client,
 		ownsHTTPClient:      ownsHTTPClient,
 		now:                 now,
@@ -94,8 +106,41 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		cache:               options.Cache,
 		runtimeState:        runtimeState,
 	}
-	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, options.TelemetryOutbox)
+	telemetryOptions := options.TelemetryOutbox
+	telemetryOptions.Scheduler = scheduler
+	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, telemetryOptions)
+	service.feedbackPipeline = newRuntimeFeedbackPipeline(service.feedbackStore, service.runtimeState, options.FeedbackPipeline)
+	service.runtimeSideEffects = NewRuntimeSideEffectManager(service.telemetryOutbox, options.SideEffects)
+	if options.Scheduler == nil {
+		if err := service.RegisterBackgroundWorkers(scheduler); err != nil {
+			return nil, err
+		}
+		if err := scheduler.Start(context.Background()); err != nil {
+			return nil, err
+		}
+		service.ownedScheduler = scheduler
+	}
 	return service, nil
+}
+
+func (s *Service) RegisterBackgroundWorkers(scheduler *background.Scheduler) error {
+	if s == nil {
+		return nil
+	}
+	if s.feedbackPipeline != nil {
+		if err := s.feedbackPipeline.RegisterBackgroundWorker(scheduler); err != nil {
+			return err
+		}
+	}
+	if s.runtimeSideEffects != nil {
+		if err := s.runtimeSideEffects.RegisterBackgroundWorker(scheduler); err != nil {
+			return err
+		}
+	}
+	if s.telemetryOutbox != nil {
+		return s.telemetryOutbox.RegisterBackgroundWorker(scheduler)
+	}
+	return nil
 }
 
 func newRuntimeHTTPClient(settings config.Settings) *http.Client {
@@ -119,22 +164,30 @@ func (s *Service) Close() {
 	if s == nil {
 		return
 	}
+	if s.runtimeSideEffects != nil {
+		result := s.runtimeSideEffects.Close()
+		if result.TimedOut || result.ForcedAbandoned > 0 {
+			slog.Warn("runtime side effects close timed out", "elapsed", result.Elapsed, "pending", result.Pending, "forced_abandoned", result.ForcedAbandoned)
+		}
+	}
 	if s.telemetryOutbox != nil {
 		result := s.telemetryOutbox.Close()
 		if result.TimedOut {
 			slog.Warn("runtime telemetry outbox close timed out", "elapsed", result.Elapsed, "pending_rows", result.PendingRows, "inflight", result.Inflight)
 		}
 	}
+	if s.feedbackPipeline != nil {
+		s.feedbackPipeline.Close()
+	}
+	if s.ownedScheduler != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.ownedScheduler.Stop(ctx, time.Now().Add(5*time.Second))
+	}
 	if s.ownsHTTPClient && s.httpClient != nil {
 		if closer, ok := s.httpClient.Transport.(interface{ CloseIdleConnections() }); ok {
 			closer.CloseIdleConnections()
 		}
-	}
-	if s.ownsTelemetryPool && s.telemetryPool != nil {
-		s.telemetryPool.Close()
-	}
-	if s.ownsExecutionPool && s.executionPool != nil {
-		s.executionPool.Close()
 	}
 }
 
@@ -153,52 +206,30 @@ func (s *Service) RuntimeState() *loadbalancedomain.LocalRuntimeStateStore {
 	return s.runtimeState
 }
 
-func resolveRuntimeServicePools(settings config.Settings, options Options) (*pgxpool.Pool, bool, *pgxpool.Pool, bool, error) {
+func resolveRuntimeServicePools(settings config.Settings, options Options) (*pgxpool.Pool, *pgxpool.Pool, *pgxpool.Pool, error) {
+	_ = settings
 	executionPool := options.ExecutionPool
 	telemetryPool := options.TelemetryPool
-	if executionPool != nil && telemetryPool != nil && executionPool == telemetryPool {
-		return nil, false, nil, false, fmt.Errorf("runtime execution and telemetry pools must be distinct")
-	}
-	if strings.TrimSpace(settings.DatabaseURL) == "" && (executionPool == nil || telemetryPool == nil) {
-		return nil, false, nil, false, fmt.Errorf("database URL is required")
-	}
-	budget := settings.RuntimeDatabaseBudget()
-	ownsExecutionPool := false
+	feedbackPool := options.FeedbackPool
 	if executionPool == nil {
-		createdExecutionPool, err := newRuntimeServicePool(settings.DatabaseURL, budget, "execution")
-		if err != nil {
-			return nil, false, nil, false, err
-		}
-		executionPool = createdExecutionPool
-		ownsExecutionPool = true
+		return nil, nil, nil, fmt.Errorf("runtime execution pool is required")
 	}
-	ownsTelemetryPool := false
 	if telemetryPool == nil {
-		createdTelemetryPool, err := newRuntimeServicePool(settings.DatabaseURL, budget, "telemetry")
-		if err != nil {
-			if ownsExecutionPool && executionPool != nil {
-				executionPool.Close()
-			}
-			return nil, false, nil, false, err
-		}
-		telemetryPool = createdTelemetryPool
-		ownsTelemetryPool = true
+		return nil, nil, nil, fmt.Errorf("runtime telemetry pool is required")
 	}
-	return executionPool, ownsExecutionPool, telemetryPool, ownsTelemetryPool, nil
-}
-
-func newRuntimeServicePool(databaseURL string, budget config.DatabasePoolBudget, lane string) (*pgxpool.Pool, error) {
-	parsedConfig, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse runtime %s database pool config: %w", lane, err)
+	if feedbackPool == nil {
+		return nil, nil, nil, fmt.Errorf("runtime feedback pool is required")
 	}
-	parsedConfig.MaxConns = budget.MaxConns
-	parsedConfig.MinIdleConns = budget.MinIdleConns
-	pool, err := pgxpool.NewWithConfig(context.Background(), parsedConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create runtime %s database pool: %w", lane, err)
+	if executionPool == telemetryPool {
+		return nil, nil, nil, fmt.Errorf("runtime execution and telemetry pools must be distinct")
 	}
-	return pool, nil
+	if executionPool == feedbackPool {
+		return nil, nil, nil, fmt.Errorf("runtime execution and feedback pools must be distinct")
+	}
+	if telemetryPool == feedbackPool {
+		return nil, nil, nil, fmt.Errorf("runtime telemetry and feedback pools must be distinct")
+	}
+	return executionPool, telemetryPool, feedbackPool, nil
 }
 
 func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
