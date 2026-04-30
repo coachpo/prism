@@ -1,7 +1,6 @@
 package loadbalance
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -45,15 +44,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	pool := options.Pool
 	ownsPool := false
 	if pool == nil {
-		if strings.TrimSpace(settings.DatabaseURL) == "" {
-			return nil, fmt.Errorf("database URL is required")
-		}
-		createdPool, err := pgxpool.New(context.Background(), settings.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("create loadbalance database pool: %w", err)
-		}
-		pool = createdPool
-		ownsPool = true
+		return nil, fmt.Errorf("loadbalance database pool is required")
 	}
 
 	now := options.Now
