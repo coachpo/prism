@@ -448,7 +448,8 @@ func (parser *geminiGenerationParamsStreamingParser) finishString() {
 		}
 		value = unquoted
 	}
-	if parser.stringRole == geminiJSONStringKey {
+	switch parser.stringRole {
+	case geminiJSONStringKey:
 		if len(parser.stack) == 0 || parser.stack[len(parser.stack)-1].kind != '{' {
 			parser.malformed = true
 			return
@@ -456,7 +457,7 @@ func (parser *geminiGenerationParamsStreamingParser) finishString() {
 		frame := &parser.stack[len(parser.stack)-1]
 		frame.pendingKey = value
 		frame.expectingKey = false
-	} else if parser.stringRole == geminiJSONStringScalar {
+	case geminiJSONStringScalar:
 		parser.applyGeminiScalar(parser.stringPath, value)
 		parser.consumePendingValueKey()
 	}
