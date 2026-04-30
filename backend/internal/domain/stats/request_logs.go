@@ -32,6 +32,7 @@ type requestLogListRow struct {
 	TotalCostUserCurrencyMicros *int64
 	PricedFlag                  *bool
 	UnpricedReason              *string
+	ReasoningEffort             *string
 	ReportCurrencySymbol        *string
 	CallerUserAgent             *string
 	UpstreamUserAgent           *string
@@ -136,7 +137,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	}
 	rows, err := exec.Query(
 		ctx,
-		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
+		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
 		 FROM request_logs
 		 WHERE `+whereClause+`
 		 ORDER BY created_at DESC, id DESC
@@ -179,6 +180,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			TotalCostUserCurrencyMicros: item.TotalCostUserCurrencyMicros,
 			PricedFlag:                  item.PricedFlag,
 			UnpricedReason:              item.UnpricedReason,
+			ReasoningEffort:             item.ReasoningEffort,
 			ReportCurrencySymbol:        item.ReportCurrencySymbol,
 			CallerClientDisplay:         classifyUserAgentDisplay(item.CallerUserAgent, rules),
 			UpstreamClientDisplay:       classifyUserAgentDisplay(item.UpstreamUserAgent, rules),
@@ -490,12 +492,13 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var totalCostUserCurrencyMicros sql.NullInt64
 	var pricedFlag sql.NullBool
 	var unpricedReason sql.NullString
+	var reasoningEffort sql.NullString
 	var reportCurrencySymbol sql.NullString
 	var callerUserAgent sql.NullString
 	var upstreamUserAgent sql.NullString
 	var endpointBaseURL sql.NullString
 	item := requestLogListRow{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &endpointID, &connectionID, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricedFlag, &unpricedReason, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &endpointID, &connectionID, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricedFlag, &unpricedReason, &reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
 		return requestLogListRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -512,6 +515,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.TotalCostUserCurrencyMicros = nullableInt64(totalCostUserCurrencyMicros)
 	item.PricedFlag = nullableBool(pricedFlag)
 	item.UnpricedReason = nullableString(unpricedReason)
+	item.ReasoningEffort = nullableString(reasoningEffort)
 	item.ReportCurrencySymbol = nullableString(reportCurrencySymbol)
 	item.CallerUserAgent = nullableString(callerUserAgent)
 	item.UpstreamUserAgent = nullableString(upstreamUserAgent)

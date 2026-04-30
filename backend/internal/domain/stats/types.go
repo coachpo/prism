@@ -56,6 +56,7 @@ type RequestLogListItem struct {
 	TotalCostUserCurrencyMicros *int64    `json:"total_cost_user_currency_micros"`
 	PricedFlag                  *bool     `json:"priced_flag"`
 	UnpricedReason              *string   `json:"unpriced_reason"`
+	ReasoningEffort             *string   `json:"reasoning_effort"`
 	ReportCurrencySymbol        *string   `json:"report_currency_symbol"`
 	CallerClientDisplay         *string   `json:"caller_client_display"`
 	UpstreamClientDisplay       *string   `json:"upstream_client_display"`
