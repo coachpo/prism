@@ -27,6 +27,7 @@ import (
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformemail "github.com/coachpo/prism/backend/internal/platform/email"
+	platformemailoutbox "github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
@@ -43,6 +44,7 @@ type contractHarness struct {
 	conn           *pgx.Conn
 	dsn            string
 	mailer         *captureMailer
+	emailOutbox    *platformemailoutbox.Store
 	server         *httptest.Server
 	service        *managementauth.Service
 	runtimeService *runtimeapi.Service
@@ -362,7 +364,7 @@ func TestPasswordReset(t *testing.T) {
 	assertStatus(t, nonMatchingRequest, http.StatusOK)
 	assertSuccessPayload(t, nonMatchingRequest)
 	if sends := harness.mailer.passwordResetSends(); len(sends) != 0 {
-		t.Fatalf("expected password reset request for non-matching identifier not to send mail, got %+v", sends)
+		t.Fatalf("expected password reset request for non-matching identifier not to deliver mail, got %+v", sends)
 	}
 
 	requestResponse := harness.requestJSON(
@@ -375,6 +377,7 @@ func TestPasswordReset(t *testing.T) {
 	)
 	assertStatus(t, requestResponse, http.StatusOK)
 	assertSuccessPayload(t, requestResponse)
+	harness.processEmailOutbox(t)
 	passwordResetSends := harness.mailer.passwordResetSends()
 	if len(passwordResetSends) != 1 {
 		t.Fatalf("expected exactly one password reset email, got %+v", passwordResetSends)
@@ -470,6 +473,10 @@ func TestPasswordResetMailerFailurePreservesSuccessResponse(t *testing.T) {
 	)
 	assertStatus(t, requestResponse, http.StatusOK)
 	assertSuccessPayload(t, requestResponse)
+	if got := len(mailer.passwordResetSends()); got != 0 {
+		t.Fatalf("expected password reset request path not to invoke mailer directly, got %d sends", got)
+	}
+	harness.processEmailOutbox(t)
 	passwordResetSends := mailer.passwordResetSends()
 	if len(passwordResetSends) != 1 {
 		t.Fatalf("expected password reset mailer to be invoked once despite send failure, got %+v", passwordResetSends)
@@ -536,6 +543,7 @@ func TestEmailVerification(t *testing.T) {
 	)
 	assertStatus(t, verificationRequest, http.StatusOK)
 	assertEmailVerificationPayload(t, verificationRequest, stringPtr("email-admin@example.com"), nil)
+	harness.processEmailOutbox(t)
 	emailVerificationSends := harness.mailer.emailVerificationSends()
 	if len(emailVerificationSends) != 1 {
 		t.Fatalf("expected exactly one email verification email, got %+v", emailVerificationSends)
@@ -635,10 +643,15 @@ func TestEmailVerificationMailerFailureReturnsError(t *testing.T) {
 		map[string]any{"email": "verification-failure@example.com"},
 		nil,
 	)
-	assertErrorResponse(t, verificationRequest, http.StatusInternalServerError, "Internal server error")
+	assertStatus(t, verificationRequest, http.StatusOK)
+	assertEmailVerificationPayload(t, verificationRequest, stringPtr("verification-failure@example.com"), nil)
+	if got := len(mailer.emailVerificationSends()); got != 0 {
+		t.Fatalf("expected email verification request path not to invoke mailer directly, got %d sends", got)
+	}
+	harness.processEmailOutbox(t)
 	emailVerificationSends := mailer.emailVerificationSends()
 	if len(emailVerificationSends) != 1 {
-		t.Fatalf("expected email verification mailer to be invoked once before surfacing send failure, got %+v", emailVerificationSends)
+		t.Fatalf("expected email verification worker to invoke mailer once after commit, got %+v", emailVerificationSends)
 	}
 	emailVerificationSend := emailVerificationSends[0]
 	if emailVerificationSend.Recipient != "verification-failure@example.com" {
@@ -648,8 +661,12 @@ func TestEmailVerificationMailerFailureReturnsError(t *testing.T) {
 		t.Fatal("expected email verification failure path to generate an OTP")
 	}
 	settings := loadAppAuthSettings(t, harness)
-	if settings.PendingEmail != nil {
-		t.Fatalf("expected email verification send failure to roll back pending email, got %+v", settings)
+	if settings.PendingEmail == nil || *settings.PendingEmail != "verification-failure@example.com" {
+		t.Fatalf("expected email verification request to commit pending email despite worker failure, got %+v", settings)
+	}
+	status, attempts := loadEmailOutboxStatus(t, harness, "email_verification_otp")
+	if status != "queued" || attempts != 1 {
+		t.Fatalf("expected worker failure to leave retryable outbox row, got status=%s attempts=%d", status, attempts)
 	}
 }
 
@@ -1003,7 +1020,8 @@ func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer
 		t.Fatalf("bootstrap published runtime snapshot: %v", err)
 	}
 	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
-	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, Mailer: authMailer, RuntimeCache: runtimeAuthCache})
+	emailOutbox := platformemailoutbox.NewStore(platformemailoutbox.Options{Pool: pool, Mailer: authMailer, SecretEncryptionKey: settings.SecretEncryptionKey, WorkerID: "contract-test"})
+	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, EmailOutbox: emailOutbox, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		t.Fatalf("build auth service: %v", err)
 	}
@@ -1025,7 +1043,19 @@ func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: capturedMailer, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: capturedMailer, emailOutbox: emailOutbox, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, url: server.URL}
+}
+
+func (h *contractHarness) processEmailOutbox(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if h == nil || h.emailOutbox == nil {
+		t.Fatal("email outbox is required")
+	}
+	if err := h.emailOutbox.ProcessDue(ctx); err != nil {
+		t.Fatalf("process email outbox: %v", err)
+	}
 }
 
 func (h *contractHarness) refreshRuntimeSnapshot(t *testing.T, request runtimeapi.RefreshRequest) {
@@ -1139,6 +1169,7 @@ func enableVerifiedAuth(t *testing.T, harness *contractHarness, username string,
 	t.Helper()
 	verificationRequest := harness.requestJSON(t, harness.client, http.MethodPost, "/api/settings/auth/email-verification/request", map[string]any{"email": email}, nil)
 	assertStatus(t, verificationRequest, http.StatusOK)
+	harness.processEmailOutbox(t)
 	verificationConfirm := harness.requestJSON(t, harness.client, http.MethodPost, "/api/settings/auth/email-verification/confirm", map[string]any{"otp_code": harness.mailer.lastEmailVerificationOTP(t)}, nil)
 	assertStatus(t, verificationConfirm, http.StatusOK)
 	enableResponse := harness.requestJSON(t, harness.client, http.MethodPut, "/api/settings/auth", map[string]any{"auth_enabled": true, "username": username, "password": password}, nil)
@@ -1220,6 +1251,16 @@ func loadLatestPasswordResetChallenge(t *testing.T, harness *contractHarness) pa
 	}
 	snapshot.ConsumedAt = consumedAt.ptr()
 	return snapshot
+}
+
+func loadEmailOutboxStatus(t *testing.T, harness *contractHarness, kind string) (string, int) {
+	t.Helper()
+	var status string
+	var attempts int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT status, attempt_count FROM email_outbox WHERE kind = $1 ORDER BY created_at DESC LIMIT 1`, kind).Scan(&status, &attempts); err != nil {
+		t.Fatalf("query latest email outbox row: %v", err)
+	}
+	return status, attempts
 }
 
 func loadAppAuthSettings(t *testing.T, harness *contractHarness) appAuthSnapshot {

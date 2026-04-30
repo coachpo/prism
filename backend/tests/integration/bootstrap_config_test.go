@@ -35,15 +35,17 @@ type bootstrapSeededFile struct {
 		DocsEnabled bool   `json:"docsEnabled"`
 	} `json:"server"`
 	Database struct {
-		URL         string `json:"url"`
-		RuntimePool struct {
-			MaxConns     int `json:"maxConns"`
-			MinIdleConns int `json:"minIdleConns"`
-		} `json:"runtimePool"`
-		ManagementPool struct {
-			MaxConns     int `json:"maxConns"`
-			MinIdleConns int `json:"minIdleConns"`
-		} `json:"managementPool"`
+		URL   string `json:"url"`
+		Pools struct {
+			TotalMaxConns    int                   `json:"totalMaxConns"`
+			Management       bootstrapSeededDBPool `json:"management"`
+			RuntimeExecution bootstrapSeededDBPool `json:"runtimeExecution"`
+			RuntimeTelemetry bootstrapSeededDBPool `json:"runtimeTelemetry"`
+			RuntimeFeedback  bootstrapSeededDBPool `json:"runtimeFeedback"`
+			Realtime         bootstrapSeededDBPool `json:"realtime"`
+			CacheRefresh     bootstrapSeededDBPool `json:"cacheRefresh"`
+			BackgroundJobs   bootstrapSeededDBPool `json:"backgroundJobs"`
+		} `json:"pools"`
 		ManagementAdmission struct {
 			M2MaxConcurrent int `json:"m2MaxConcurrent"`
 			M3MaxConcurrent int `json:"m3MaxConcurrent"`
@@ -81,6 +83,11 @@ type bootstrapSeededFile struct {
 	StateTransfer struct {
 		BundleEncryptionKey string `json:"bundleEncryptionKey"`
 	} `json:"stateTransfer"`
+}
+
+type bootstrapSeededDBPool struct {
+	MaxConns     int `json:"maxConns"`
+	MinIdleConns int `json:"minIdleConns"`
 }
 
 func TestBootstrapConfigFileIsSeededFromCanonicalDefaults(t *testing.T) {
@@ -306,13 +313,13 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 		t.Fatalf("unexpected seeded runtime transport timeouts: %+v", transport)
 	}
-	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 4 || got.MinIdleConns != 1 {
+	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 14 || got.MinIdleConns != 1 {
 		t.Fatalf("unexpected seeded runtime DB budget: %+v", got)
 	}
-	if got := settings.ManagementDatabaseBudget(); got.MaxConns != 12 || got.MinIdleConns != 0 {
+	if got := settings.ManagementDatabaseBudget(); got.MaxConns != 6 || got.MinIdleConns != 0 {
 		t.Fatalf("unexpected seeded management DB budget: %+v", got)
 	}
-	if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 10 || got.M3MaxConcurrent != 6 {
+	if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 5 || got.M3MaxConcurrent != 5 {
 		t.Fatalf("unexpected seeded management admission budget: %+v", got)
 	}
 	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
@@ -357,13 +364,10 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Database.URL != wantDatabaseURL {
 		t.Fatalf("unexpected seeded database URL: %q", seeded.Database.URL)
 	}
-	if seeded.Database.RuntimePool.MaxConns != 4 || seeded.Database.RuntimePool.MinIdleConns != 1 {
-		t.Fatalf("unexpected seeded runtime DB payload: %+v", seeded.Database.RuntimePool)
+	if seeded.Database.Pools.TotalMaxConns != 42 || seeded.Database.Pools.Management.MaxConns != 6 || seeded.Database.Pools.RuntimeExecution.MaxConns != 14 || seeded.Database.Pools.RuntimeTelemetry.MaxConns != 7 || seeded.Database.Pools.RuntimeFeedback.MaxConns != 3 || seeded.Database.Pools.Realtime.MaxConns != 4 || seeded.Database.Pools.CacheRefresh.MaxConns != 4 || seeded.Database.Pools.BackgroundJobs.MaxConns != 4 {
+		t.Fatalf("unexpected seeded database pools payload: %+v", seeded.Database.Pools)
 	}
-	if seeded.Database.ManagementPool.MaxConns != 12 || seeded.Database.ManagementPool.MinIdleConns != 0 {
-		t.Fatalf("unexpected seeded management DB payload: %+v", seeded.Database.ManagementPool)
-	}
-	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 10 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 6 {
+	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 5 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 5 {
 		t.Fatalf("unexpected seeded admission payload: %+v", seeded.Database.ManagementAdmission)
 	}
 	if seeded.Runtime.BufferingMode != "buffered" || seeded.Runtime.SecretEncryptionKey != bootstrapFixtureSecretKey {
