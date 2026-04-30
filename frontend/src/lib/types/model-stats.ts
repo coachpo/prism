@@ -175,6 +175,7 @@ export interface RequestLogListItem {
   status_code: number;
   response_time_ms: number;
   is_stream: boolean;
+  reasoning_effort: string | null;
   output_tokens: number | null;
   total_tokens: number | null;
   total_cost_user_currency_micros: number | null;
