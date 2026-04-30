@@ -261,12 +261,12 @@ func newFakeSMTPServer(t *testing.T, options fakeSMTPOptions) *fakeSMTPServer {
 	}
 	host, portText, err := net.SplitHostPort(listener.Addr().String())
 	if err != nil {
-		listener.Close()
+		_ = listener.Close()
 		t.Fatalf("split fake SMTP listener address: %v", err)
 	}
 	var port int
 	if _, err := fmt.Sscanf(portText, "%d", &port); err != nil {
-		listener.Close()
+		_ = listener.Close()
 		t.Fatalf("parse fake SMTP listener port: %v", err)
 	}
 	server := &fakeSMTPServer{
@@ -283,7 +283,7 @@ func newFakeSMTPServer(t *testing.T, options fakeSMTPOptions) *fakeSMTPServer {
 }
 
 func (s *fakeSMTPServer) Close() {
-	s.listener.Close()
+	_ = s.listener.Close()
 	s.closeTrackedConnections()
 	<-s.done
 }
@@ -414,7 +414,7 @@ func (s *fakeSMTPServer) trackConn(conn net.Conn) {
 }
 
 func (s *fakeSMTPServer) untrackConn(conn net.Conn) {
-	conn.Close()
+	_ = conn.Close()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.conns, conn)
@@ -424,7 +424,7 @@ func (s *fakeSMTPServer) closeTrackedConnections() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for conn := range s.conns {
-		conn.Close()
+		_ = conn.Close()
 	}
 }
 
@@ -487,9 +487,9 @@ func readSMTPData(reader *bufio.Reader) (string, error) {
 }
 
 func writeSMTPLine(writer *bufio.Writer, line string) {
-	writer.WriteString(line)
-	writer.WriteString("\r\n")
-	writer.Flush()
+	_, _ = writer.WriteString(line)
+	_, _ = writer.WriteString("\r\n")
+	_ = writer.Flush()
 }
 
 func extractSMTPPath(line string) string {

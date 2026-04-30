@@ -170,7 +170,7 @@ func (m *SMTPMailer) sendSMTP(ctx context.Context, recipient string, message []b
 	if err != nil {
 		return fmt.Errorf("connect SMTP server: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := conn.SetDeadline(time.Now().Add(m.timeout)); err != nil {
 		return fmt.Errorf("set SMTP deadline: %w", err)
 	}
@@ -179,7 +179,7 @@ func (m *SMTPMailer) sendSMTP(ctx context.Context, recipient string, message []b
 	go func() {
 		select {
 		case <-ctx.Done():
-			conn.Close()
+			_ = conn.Close()
 		case <-done:
 		}
 	}()
@@ -189,7 +189,7 @@ func (m *SMTPMailer) sendSMTP(ctx context.Context, recipient string, message []b
 	if err != nil {
 		return fmt.Errorf("create SMTP client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if m.ehloName != "" {
 		if err := client.Hello(m.ehloName); err != nil {
@@ -222,7 +222,7 @@ func (m *SMTPMailer) sendSMTP(ctx context.Context, recipient string, message []b
 		return fmt.Errorf("open SMTP DATA writer: %w", err)
 	}
 	if _, err := writer.Write(message); err != nil {
-		writer.Close()
+		_ = writer.Close()
 		return fmt.Errorf("write SMTP message: %w", err)
 	}
 	if err := writer.Close(); err != nil {
