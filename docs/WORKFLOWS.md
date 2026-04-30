@@ -298,13 +298,13 @@ These routes are implemented in `backend/internal/httpapi/runtime/runtime.go` pl
 
 ## 9. Priority Operations Runbook
 
-Use the strict backend checker as the release gate before shipping priority-sensitive backend changes:
+Before shipping priority-sensitive backend changes, run the standard priority regression tests from the backend tree:
 
 ```bash
-cd backend && go run ./cmd/prism-priority-check --strict --format=json ./...
+cd backend && go test ./tests/priority/...
 ```
 
-The expected pass signal is exit code `0` with `"violations": []` and summary counts for classified routes, resources, jobs, and enabled static checks. Any `direct-db`, `unmanaged-goroutine`, `direct-email`, `direct-telemetry-export`, `direct-cache-mutation`, `unregistered-background-work`, or `unclassified-side-effect` violation is a release blocker.
+The expected pass signal is exit code `0`. Failures should be treated as regressions in the priority classification, admission, scheduler, or lane-isolation behavior covered by the checked-in backend suite.
 
 Operational triage by symptom:
 

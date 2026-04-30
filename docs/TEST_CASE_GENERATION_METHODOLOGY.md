@@ -98,7 +98,7 @@ Always include invalid or conflicting inputs for:
 
 ## 5. Generation Workflow
 
-### Step 1: Build the inventory
+### Step 1: Map the live surfaces
 
 Enumerate routes, APIs, realtime paths, and major state owners from the source-of-truth files.
 
