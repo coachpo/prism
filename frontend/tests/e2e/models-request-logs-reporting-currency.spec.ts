@@ -128,6 +128,7 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     total_cost_user_currency_micros: 750000,
     priced_flag: true,
     unpriced_reason: null,
+    reasoning_effort: "low",
     report_currency_symbol: "$",
     ...overrides,
   };
@@ -243,6 +244,7 @@ function createRequestLogItems() {
       output_tokens: 50,
       total_tokens: 90,
       total_cost_user_currency_micros: 500000,
+      reasoning_effort: null,
       report_currency_symbol: null,
     }),
     createRequestLogItem({
@@ -487,27 +489,40 @@ test.describe("models and request logs reporting currency", () => {
 
     await page.goto("/request-logs");
 
+    const payloadSymbolReasoning = page
+      .getByRole("button")
+      .filter({ hasText: "Payload symbol row" })
+      .locator(":scope > div")
+      .nth(8);
+    const canonicalFallbackReasoning = page
+      .getByRole("button")
+      .filter({ hasText: "Canonical fallback row" })
+      .locator(":scope > div")
+      .nth(8);
     const payloadSymbolSpend = page
       .getByRole("button")
       .filter({ hasText: "Payload symbol row" })
       .locator(":scope > div")
-      .nth(10);
+      .nth(11);
     const canonicalFallbackSpend = page
       .getByRole("button")
       .filter({ hasText: "Canonical fallback row" })
       .locator(":scope > div")
-      .nth(10);
+      .nth(11);
     const zeroSpend = page
       .getByRole("button")
       .filter({ hasText: "Zero spend row" })
       .locator(":scope > div")
-      .nth(10);
+      .nth(11);
     const unpricedSpend = page
       .getByRole("button")
       .filter({ hasText: "Unpriced row" })
       .locator(":scope > div")
-      .nth(10);
+      .nth(11);
 
+    await expect(page.getByText("Reasoning effort")).toBeVisible();
+    await expect(payloadSymbolReasoning).toContainText("low");
+    await expect(canonicalFallbackReasoning).toContainText("—");
     await expect(payloadSymbolSpend).toContainText("$0.75");
     await expect(canonicalFallbackSpend).toContainText("€0.50 EUR");
     await expect(canonicalFallbackSpend).not.toContainText("$0.50");

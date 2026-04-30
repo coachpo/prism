@@ -227,6 +227,17 @@ export function getColumns(): ColumnDef[] {
       render: (row) => <div className="min-w-0">{renderClientCell(row)}</div>,
     },
     {
+      key: "reasoning_effort",
+      label: messages.reasoningEffort,
+      width: 132,
+      grow: 0,
+      render: (row) => (
+        <span className="block truncate text-xs text-muted-foreground">
+          {row.reasoning_effort ?? "—"}
+        </span>
+      ),
+    },
+    {
       key: "vendor_api_family",
       label: `${staticMessages.common.vendor} / API`,
       width: 170,
