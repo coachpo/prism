@@ -12,13 +12,36 @@
   },
   "database": {
     "url": "postgres://prism:prism@localhost:5432/prism?sslmode=disable",
-    "runtimePool": {
-      "maxConns": 4,
-      "minIdleConns": 1
-    },
-    "managementPool": {
-      "maxConns": 12,
-      "minIdleConns": 0
+    "pools": {
+      "totalMaxConns": 42,
+      "management": {
+        "maxConns": 6,
+        "minIdleConns": 0
+      },
+      "runtimeExecution": {
+        "maxConns": 14,
+        "minIdleConns": 1
+      },
+      "runtimeTelemetry": {
+        "maxConns": 7,
+        "minIdleConns": 0
+      },
+      "runtimeFeedback": {
+        "maxConns": 3,
+        "minIdleConns": 0
+      },
+      "realtime": {
+        "maxConns": 4,
+        "minIdleConns": 0
+      },
+      "cacheRefresh": {
+        "maxConns": 4,
+        "minIdleConns": 0
+      },
+      "backgroundJobs": {
+        "maxConns": 4,
+        "minIdleConns": 0
+      }
     },
     "managementAdmission": {
       "m2MaxConcurrent": 10,
