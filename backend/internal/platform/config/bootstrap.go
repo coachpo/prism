@@ -98,9 +98,19 @@ type BootstrapConfigServerValues struct {
 }
 
 type BootstrapConfigDatabaseValues struct {
-	RuntimePool         *BootstrapConfigDatabasePoolValues        `json:"runtime_pool"`
-	ManagementPool      *BootstrapConfigDatabasePoolValues        `json:"management_pool"`
+	Pools               *BootstrapConfigDatabasePoolsValues       `json:"pools"`
 	ManagementAdmission *BootstrapConfigManagementAdmissionValues `json:"management_admission"`
+}
+
+type BootstrapConfigDatabasePoolsValues struct {
+	TotalMaxConns    *int                               `json:"total_max_conns"`
+	Management       *BootstrapConfigDatabasePoolValues `json:"management"`
+	RuntimeExecution *BootstrapConfigDatabasePoolValues `json:"runtime_execution"`
+	RuntimeTelemetry *BootstrapConfigDatabasePoolValues `json:"runtime_telemetry"`
+	RuntimeFeedback  *BootstrapConfigDatabasePoolValues `json:"runtime_feedback"`
+	Realtime         *BootstrapConfigDatabasePoolValues `json:"realtime"`
+	CacheRefresh     *BootstrapConfigDatabasePoolValues `json:"cache_refresh"`
+	BackgroundJobs   *BootstrapConfigDatabasePoolValues `json:"background_jobs"`
 }
 
 type BootstrapConfigDatabasePoolValues struct {
@@ -244,9 +254,19 @@ type bootstrapServer struct {
 
 type bootstrapDatabase struct {
 	URL                 *string                       `json:"url"`
-	RuntimePool         *bootstrapDatabasePool        `json:"runtimePool"`
-	ManagementPool      *bootstrapDatabasePool        `json:"managementPool"`
+	Pools               *bootstrapDatabasePools       `json:"pools"`
 	ManagementAdmission *bootstrapManagementAdmission `json:"managementAdmission"`
+}
+
+type bootstrapDatabasePools struct {
+	TotalMaxConns    *int                   `json:"totalMaxConns"`
+	Management       *bootstrapDatabasePool `json:"management"`
+	RuntimeExecution *bootstrapDatabasePool `json:"runtimeExecution"`
+	RuntimeTelemetry *bootstrapDatabasePool `json:"runtimeTelemetry"`
+	RuntimeFeedback  *bootstrapDatabasePool `json:"runtimeFeedback"`
+	Realtime         *bootstrapDatabasePool `json:"realtime"`
+	CacheRefresh     *bootstrapDatabasePool `json:"cacheRefresh"`
+	BackgroundJobs   *bootstrapDatabasePool `json:"backgroundJobs"`
 }
 
 type bootstrapDatabasePool struct {
@@ -813,14 +833,7 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 			DocsEnabled: cloneBoolPointer(document.Server.DocsEnabled),
 		},
 		Database: &BootstrapConfigDatabaseValues{
-			RuntimePool: &BootstrapConfigDatabasePoolValues{
-				MaxConns:     cloneIntPointer(document.Database.RuntimePool.MaxConns),
-				MinIdleConns: cloneIntPointer(document.Database.RuntimePool.MinIdleConns),
-			},
-			ManagementPool: &BootstrapConfigDatabasePoolValues{
-				MaxConns:     cloneIntPointer(document.Database.ManagementPool.MaxConns),
-				MinIdleConns: cloneIntPointer(document.Database.ManagementPool.MinIdleConns),
-			},
+			Pools: safeBootstrapDatabasePoolsValues(document.Database.Pools),
 			ManagementAdmission: &BootstrapConfigManagementAdmissionValues{
 				M2MaxConcurrent: cloneIntPointer(document.Database.ManagementAdmission.M2MaxConcurrent),
 				M3MaxConcurrent: cloneIntPointer(document.Database.ManagementAdmission.M3MaxConcurrent),
@@ -928,9 +941,24 @@ func bootstrapDatabaseFromSafeValues(values *BootstrapConfigDatabaseValues, data
 	}
 	return &bootstrapDatabase{
 		URL:                 cloneStringPointer(databaseURL),
-		RuntimePool:         bootstrapDatabasePoolFromSafeValues(values.RuntimePool),
-		ManagementPool:      bootstrapDatabasePoolFromSafeValues(values.ManagementPool),
+		Pools:               bootstrapDatabasePoolsFromSafeValues(values.Pools),
 		ManagementAdmission: bootstrapManagementAdmissionFromSafeValues(values.ManagementAdmission),
+	}
+}
+
+func bootstrapDatabasePoolsFromSafeValues(values *BootstrapConfigDatabasePoolsValues) *bootstrapDatabasePools {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapDatabasePools{
+		TotalMaxConns:    cloneIntPointer(values.TotalMaxConns),
+		Management:       bootstrapDatabasePoolFromSafeValues(values.Management),
+		RuntimeExecution: bootstrapDatabasePoolFromSafeValues(values.RuntimeExecution),
+		RuntimeTelemetry: bootstrapDatabasePoolFromSafeValues(values.RuntimeTelemetry),
+		RuntimeFeedback:  bootstrapDatabasePoolFromSafeValues(values.RuntimeFeedback),
+		Realtime:         bootstrapDatabasePoolFromSafeValues(values.Realtime),
+		CacheRefresh:     bootstrapDatabasePoolFromSafeValues(values.CacheRefresh),
+		BackgroundJobs:   bootstrapDatabasePoolFromSafeValues(values.BackgroundJobs),
 	}
 }
 
@@ -1165,9 +1193,24 @@ func safeBootstrapDatabaseValues(database *bootstrapDatabase) *BootstrapConfigDa
 		return nil
 	}
 	return &BootstrapConfigDatabaseValues{
-		RuntimePool:         safeBootstrapDatabasePoolValues(database.RuntimePool),
-		ManagementPool:      safeBootstrapDatabasePoolValues(database.ManagementPool),
+		Pools:               safeBootstrapDatabasePoolsValues(database.Pools),
 		ManagementAdmission: safeBootstrapManagementAdmissionValues(database.ManagementAdmission),
+	}
+}
+
+func safeBootstrapDatabasePoolsValues(pools *bootstrapDatabasePools) *BootstrapConfigDatabasePoolsValues {
+	if pools == nil {
+		return nil
+	}
+	return &BootstrapConfigDatabasePoolsValues{
+		TotalMaxConns:    cloneIntPointer(pools.TotalMaxConns),
+		Management:       safeBootstrapDatabasePoolValues(pools.Management),
+		RuntimeExecution: safeBootstrapDatabasePoolValues(pools.RuntimeExecution),
+		RuntimeTelemetry: safeBootstrapDatabasePoolValues(pools.RuntimeTelemetry),
+		RuntimeFeedback:  safeBootstrapDatabasePoolValues(pools.RuntimeFeedback),
+		Realtime:         safeBootstrapDatabasePoolValues(pools.Realtime),
+		CacheRefresh:     safeBootstrapDatabasePoolValues(pools.CacheRefresh),
+		BackgroundJobs:   safeBootstrapDatabasePoolValues(pools.BackgroundJobs),
 	}
 }
 
@@ -1461,19 +1504,13 @@ func (d bootstrapDatabase) validate() error {
 	if _, err := requiredTrimmedString("database.url", d.URL, 1, 0); err != nil {
 		return err
 	}
-	if d.RuntimePool == nil {
-		return missingBootstrapFieldError("database.runtimePool")
-	}
-	if d.ManagementPool == nil {
-		return missingBootstrapFieldError("database.managementPool")
+	if d.Pools == nil {
+		return fmt.Errorf("invalid postgres pool config: pools are required")
 	}
 	if d.ManagementAdmission == nil {
 		return missingBootstrapFieldError("database.managementAdmission")
 	}
-	if err := d.RuntimePool.validate("database.runtimePool"); err != nil {
-		return err
-	}
-	if err := d.ManagementPool.validate("database.managementPool"); err != nil {
+	if _, err := d.Pools.toPostgresPoolsBudget(); err != nil {
 		return err
 	}
 	return d.ManagementAdmission.validate()
@@ -1487,6 +1524,87 @@ func (p bootstrapDatabasePool) validate(path string) error {
 		return err
 	}
 	return nil
+}
+
+func (p bootstrapDatabasePool) toDatabasePoolBudget(path string) (DatabasePoolBudget, error) {
+	maxConns, err := requiredIntRange(path+".maxConns", p.MaxConns, 1, math.MaxInt32)
+	if err != nil {
+		return DatabasePoolBudget{}, err
+	}
+	minIdleConns, err := requiredIntRange(path+".minIdleConns", p.MinIdleConns, 0, math.MaxInt32)
+	if err != nil {
+		return DatabasePoolBudget{}, err
+	}
+	return DatabasePoolBudget{MaxConns: int32(maxConns), MinIdleConns: int32(minIdleConns)}, nil
+}
+
+func (p *bootstrapDatabasePools) toPostgresPoolsBudget() (PostgresPoolsBudget, error) {
+	if p == nil {
+		return PostgresPoolsBudget{}, fmt.Errorf("invalid postgres pool config: pools are required")
+	}
+	totalMaxConns, err := requiredIntRange("database.pools.totalMaxConns", p.TotalMaxConns, 1, math.MaxInt32)
+	if err != nil {
+		return PostgresPoolsBudget{}, fmt.Errorf("invalid postgres pool config: total_max_conns must be greater than zero")
+	}
+	lanePool := func(lane PostgresPoolLane, pool *bootstrapDatabasePool) (DatabasePoolBudget, error) {
+		if pool == nil {
+			return DatabasePoolBudget{}, fmt.Errorf("invalid postgres pool config: lane=%s is required", lane)
+		}
+		budget, err := pool.toDatabasePoolBudget("database.pools." + bootstrapDatabasePoolPath(lane))
+		if err != nil {
+			if strings.Contains(err.Error(), ".maxConns") {
+				return DatabasePoolBudget{}, fmt.Errorf("invalid postgres pool config: lane=%s max_conns must be greater than zero", lane)
+			}
+			if strings.Contains(err.Error(), ".minIdleConns") {
+				return DatabasePoolBudget{}, fmt.Errorf("invalid postgres pool config: lane=%s min_idle_conns must be greater than or equal to zero", lane)
+			}
+			return DatabasePoolBudget{}, err
+		}
+		return budget, nil
+	}
+	budget := PostgresPoolsBudget{TotalMaxConns: int32(totalMaxConns)}
+	if budget.Management, err = lanePool(PostgresLaneManagement, p.Management); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if budget.RuntimeExecution, err = lanePool(PostgresLaneRuntimeExecution, p.RuntimeExecution); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if budget.RuntimeTelemetry, err = lanePool(PostgresLaneRuntimeTelemetry, p.RuntimeTelemetry); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if budget.RuntimeFeedback, err = lanePool(PostgresLaneRuntimeFeedback, p.RuntimeFeedback); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if budget.Realtime, err = lanePool(PostgresLaneRealtime, p.Realtime); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if budget.CacheRefresh, err = lanePool(PostgresLaneCacheRefresh, p.CacheRefresh); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if budget.BackgroundJobs, err = lanePool(PostgresLaneBackgroundJobs, p.BackgroundJobs); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	if err := budget.Validate(); err != nil {
+		return PostgresPoolsBudget{}, err
+	}
+	return budget, nil
+}
+
+func bootstrapDatabasePoolPath(lane PostgresPoolLane) string {
+	switch lane {
+	case PostgresLaneRuntimeExecution:
+		return "runtimeExecution"
+	case PostgresLaneRuntimeTelemetry:
+		return "runtimeTelemetry"
+	case PostgresLaneRuntimeFeedback:
+		return "runtimeFeedback"
+	case PostgresLaneCacheRefresh:
+		return "cacheRefresh"
+	case PostgresLaneBackgroundJobs:
+		return "backgroundJobs"
+	default:
+		return string(lane)
+	}
 }
 
 func (a bootstrapManagementAdmission) validate() error {
@@ -1700,15 +1818,8 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 			return err
 		}
 	}
-	runtimeMaxConns, _ := requiredIntRange("database.runtimePool.maxConns", d.Database.RuntimePool.MaxConns, 1, math.MaxInt32)
-	runtimeMinIdleConns, _ := requiredIntRange("database.runtimePool.minIdleConns", d.Database.RuntimePool.MinIdleConns, 0, math.MaxInt32)
-	if runtimeMinIdleConns > runtimeMaxConns {
-		return fmt.Errorf("bootstrap config field database.runtimePool.minIdleConns must be less than or equal to database.runtimePool.maxConns")
-	}
-	managementMaxConns, _ := requiredIntRange("database.managementPool.maxConns", d.Database.ManagementPool.MaxConns, 1, math.MaxInt32)
-	managementMinIdleConns, _ := requiredIntRange("database.managementPool.minIdleConns", d.Database.ManagementPool.MinIdleConns, 0, math.MaxInt32)
-	if managementMinIdleConns > managementMaxConns {
-		return fmt.Errorf("bootstrap config field database.managementPool.minIdleConns must be less than or equal to database.managementPool.maxConns")
+	if _, err := d.Database.Pools.toPostgresPoolsBudget(); err != nil {
+		return err
 	}
 	m2MaxConcurrent, _ := requiredIntMin("database.managementAdmission.m2MaxConcurrent", d.Database.ManagementAdmission.M2MaxConcurrent, 1)
 	m3MaxConcurrent, _ := requiredIntMin("database.managementAdmission.m3MaxConcurrent", d.Database.ManagementAdmission.M3MaxConcurrent, 1)
@@ -1750,10 +1861,10 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	runtimeMaxConns, _ := requiredIntRange("database.runtimePool.maxConns", d.Database.RuntimePool.MaxConns, 1, math.MaxInt32)
-	runtimeMinIdleConns, _ := requiredIntRange("database.runtimePool.minIdleConns", d.Database.RuntimePool.MinIdleConns, 0, math.MaxInt32)
-	managementMaxConns, _ := requiredIntRange("database.managementPool.maxConns", d.Database.ManagementPool.MaxConns, 1, math.MaxInt32)
-	managementMinIdleConns, _ := requiredIntRange("database.managementPool.minIdleConns", d.Database.ManagementPool.MinIdleConns, 0, math.MaxInt32)
+	postgresPoolsBudget, err := d.Database.Pools.toPostgresPoolsBudget()
+	if err != nil {
+		return Settings{}, err
+	}
 	m2MaxConcurrent, _ := requiredIntMin("database.managementAdmission.m2MaxConcurrent", d.Database.ManagementAdmission.M2MaxConcurrent, 1)
 	m3MaxConcurrent, _ := requiredIntMin("database.managementAdmission.m3MaxConcurrent", d.Database.ManagementAdmission.M3MaxConcurrent, 1)
 	corsAllowedOrigins, err := requiredAbsoluteURIs("http.corsAllowedOrigins", d.HTTP.CORSAllowedOrigins)
@@ -1792,8 +1903,9 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		RuntimeBufferingMode:             RuntimeBufferingMode(runtimeBufferingMode),
 		RuntimeTransportConfig:           runtimeTransport,
-		RuntimeDatabasePoolBudget:        DatabasePoolBudget{MaxConns: int32(runtimeMaxConns), MinIdleConns: int32(runtimeMinIdleConns)},
-		ManagementDatabasePoolBudget:     DatabasePoolBudget{MaxConns: int32(managementMaxConns), MinIdleConns: int32(managementMinIdleConns)},
+		PostgresPoolsBudget:              postgresPoolsBudget,
+		RuntimeDatabasePoolBudget:        postgresPoolsBudget.RuntimeExecution,
+		ManagementDatabasePoolBudget:     postgresPoolsBudget.Management,
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: int64(m2MaxConcurrent), M3MaxConcurrent: int64(m3MaxConcurrent)},
 		SecretEncryptionKey:              runtimeSecretEncryptionKey,
 		ConfigBundleEncryptionKey:        bundleEncryptionKey,
@@ -1954,8 +2066,7 @@ func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportC
 }
 
 func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapConfigDocument, error) {
-	runtimeDatabaseBudget := settings.RuntimeDatabaseBudget()
-	managementDatabaseBudget := settings.ManagementDatabaseBudget()
+	postgresPoolsBudget := settings.PostgresPoolsBudgetOrDefault()
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
 	runtimeTransport := settings.RuntimeTransport()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
@@ -1992,13 +2103,15 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 		},
 		Database: &bootstrapDatabase{
 			URL: stringPointer(databaseURL),
-			RuntimePool: &bootstrapDatabasePool{
-				MaxConns:     intPointer(int(runtimeDatabaseBudget.MaxConns)),
-				MinIdleConns: intPointer(int(runtimeDatabaseBudget.MinIdleConns)),
-			},
-			ManagementPool: &bootstrapDatabasePool{
-				MaxConns:     intPointer(int(managementDatabaseBudget.MaxConns)),
-				MinIdleConns: intPointer(int(managementDatabaseBudget.MinIdleConns)),
+			Pools: &bootstrapDatabasePools{
+				TotalMaxConns:    intPointer(int(postgresPoolsBudget.TotalMaxConns)),
+				Management:       bootstrapDatabasePoolFromBudget(postgresPoolsBudget.Management),
+				RuntimeExecution: bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeExecution),
+				RuntimeTelemetry: bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeTelemetry),
+				RuntimeFeedback:  bootstrapDatabasePoolFromBudget(postgresPoolsBudget.RuntimeFeedback),
+				Realtime:         bootstrapDatabasePoolFromBudget(postgresPoolsBudget.Realtime),
+				CacheRefresh:     bootstrapDatabasePoolFromBudget(postgresPoolsBudget.CacheRefresh),
+				BackgroundJobs:   bootstrapDatabasePoolFromBudget(postgresPoolsBudget.BackgroundJobs),
 			},
 			ManagementAdmission: &bootstrapManagementAdmission{
 				M2MaxConcurrent: intPointer(int(managementAdmissionBudget.M2MaxConcurrent)),
@@ -2038,6 +2151,10 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			BundleEncryptionKey: stringPointer(bundleEncryptionKey),
 		},
 	}, nil
+}
+
+func bootstrapDatabasePoolFromBudget(budget DatabasePoolBudget) *bootstrapDatabasePool {
+	return &bootstrapDatabasePool{MaxConns: intPointer(int(budget.MaxConns)), MinIdleConns: intPointer(int(budget.MinIdleConns))}
 }
 
 func bootstrapRequestTimeoutString(timeout time.Duration) string {

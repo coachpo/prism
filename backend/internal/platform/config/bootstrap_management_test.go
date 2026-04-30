@@ -45,7 +45,7 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	if !strings.HasPrefix(snapshot.DocumentETag, "sha256:") {
 		t.Fatal("expected canonical sha256 etag")
 	}
-	if snapshot.Values.Database == nil || snapshot.Values.Database.RuntimePool == nil || snapshot.Values.Auth == nil {
+	if snapshot.Values.Database == nil || snapshot.Values.Database.Pools == nil || snapshot.Values.Database.Pools.RuntimeExecution == nil || snapshot.Values.Auth == nil {
 		t.Fatal("expected safe values to include editable sections")
 	}
 	if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.Transport == nil || snapshot.Values.Runtime.Transport.RequestTimeout == nil || *snapshot.Values.Runtime.Transport.RequestTimeout != "60s" {

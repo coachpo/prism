@@ -61,10 +61,21 @@ const (
 )
 
 const (
-	defaultRuntimeDatabaseMaxConns               int32 = 4
-	defaultRuntimeDatabaseMinIdleConns           int32 = 1
-	defaultManagementDatabaseMaxConns            int32 = 12
+	defaultPostgresTotalMaxConns                 int32 = 42
+	defaultManagementDatabaseMaxConns            int32 = 6
 	defaultManagementDatabaseMinIdleConns        int32 = 0
+	defaultRuntimeExecutionDatabaseMaxConns      int32 = 14
+	defaultRuntimeExecutionDatabaseMinIdleConns  int32 = 1
+	defaultRuntimeTelemetryDatabaseMaxConns      int32 = 7
+	defaultRuntimeTelemetryDatabaseMinIdleConns  int32 = 0
+	defaultRuntimeFeedbackDatabaseMaxConns       int32 = 3
+	defaultRuntimeFeedbackDatabaseMinIdleConns   int32 = 0
+	defaultRealtimeDatabaseMaxConns              int32 = 4
+	defaultRealtimeDatabaseMinIdleConns          int32 = 0
+	defaultCacheRefreshDatabaseMaxConns          int32 = 4
+	defaultCacheRefreshDatabaseMinIdleConns      int32 = 0
+	defaultBackgroundJobsDatabaseMaxConns        int32 = 4
+	defaultBackgroundJobsDatabaseMinIdleConns    int32 = 0
 	defaultManagementM2MaxConcurrent             int64 = 10
 	defaultManagementM3MaxConcurrent             int64 = 6
 	defaultRuntimeTransportMaxIdleConns                = 100
@@ -80,6 +91,29 @@ const (
 type DatabasePoolBudget struct {
 	MaxConns     int32
 	MinIdleConns int32
+}
+
+type PostgresPoolLane string
+
+const (
+	PostgresLaneRuntimeExecution PostgresPoolLane = "runtime_execution"
+	PostgresLaneRuntimeTelemetry PostgresPoolLane = "runtime_telemetry"
+	PostgresLaneRuntimeFeedback  PostgresPoolLane = "runtime_feedback"
+	PostgresLaneManagement       PostgresPoolLane = "management"
+	PostgresLaneRealtime         PostgresPoolLane = "realtime"
+	PostgresLaneCacheRefresh     PostgresPoolLane = "cache_refresh"
+	PostgresLaneBackgroundJobs   PostgresPoolLane = "background_jobs"
+)
+
+type PostgresPoolsBudget struct {
+	TotalMaxConns    int32
+	Management       DatabasePoolBudget
+	RuntimeExecution DatabasePoolBudget
+	RuntimeTelemetry DatabasePoolBudget
+	RuntimeFeedback  DatabasePoolBudget
+	Realtime         DatabasePoolBudget
+	CacheRefresh     DatabasePoolBudget
+	BackgroundJobs   DatabasePoolBudget
 }
 
 type ManagementAdmissionBudget struct {
@@ -126,6 +160,7 @@ type Settings struct {
 	RuntimeTelemetryMode             RuntimeTelemetryMode
 	RuntimeBufferingMode             RuntimeBufferingMode
 	RuntimeTransportConfig           RuntimeTransportConfig
+	PostgresPoolsBudget              PostgresPoolsBudget
 	RuntimeDatabasePoolBudget        DatabasePoolBudget
 	ManagementDatabasePoolBudget     DatabasePoolBudget
 	ManagementAdmissionControlBudget ManagementAdmissionBudget
@@ -160,8 +195,9 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		RuntimeBufferingMode:             RuntimeBufferingModeBuffered,
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
-		RuntimeDatabasePoolBudget:        DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns},
-		ManagementDatabasePoolBudget:     DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns},
+		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),
+		RuntimeDatabasePoolBudget:        defaultRuntimeExecutionDatabasePoolBudget(),
+		ManagementDatabasePoolBudget:     defaultManagementDatabasePoolBudget(),
 		ManagementAdmissionControlBudget: ManagementAdmissionBudget{M2MaxConcurrent: defaultManagementM2MaxConcurrent, M3MaxConcurrent: defaultManagementM3MaxConcurrent},
 		SecretEncryptionKey:              defaultSeedSecretEncryptionKey,
 		ConfigBundleEncryptionKey:        defaultSeedSecretEncryptionKey,
@@ -179,6 +215,27 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 
 func defaultMailConfig() MailConfig {
 	return MailConfig{SMTP: MailSMTPConfig{Timeout: defaultMailSMTPTimeout}}
+}
+
+func DefaultPostgresPoolsBudget() PostgresPoolsBudget {
+	return PostgresPoolsBudget{
+		TotalMaxConns:    defaultPostgresTotalMaxConns,
+		Management:       defaultManagementDatabasePoolBudget(),
+		RuntimeExecution: defaultRuntimeExecutionDatabasePoolBudget(),
+		RuntimeTelemetry: DatabasePoolBudget{MaxConns: defaultRuntimeTelemetryDatabaseMaxConns, MinIdleConns: defaultRuntimeTelemetryDatabaseMinIdleConns},
+		RuntimeFeedback:  DatabasePoolBudget{MaxConns: defaultRuntimeFeedbackDatabaseMaxConns, MinIdleConns: defaultRuntimeFeedbackDatabaseMinIdleConns},
+		Realtime:         DatabasePoolBudget{MaxConns: defaultRealtimeDatabaseMaxConns, MinIdleConns: defaultRealtimeDatabaseMinIdleConns},
+		CacheRefresh:     DatabasePoolBudget{MaxConns: defaultCacheRefreshDatabaseMaxConns, MinIdleConns: defaultCacheRefreshDatabaseMinIdleConns},
+		BackgroundJobs:   DatabasePoolBudget{MaxConns: defaultBackgroundJobsDatabaseMaxConns, MinIdleConns: defaultBackgroundJobsDatabaseMinIdleConns},
+	}
+}
+
+func defaultManagementDatabasePoolBudget() DatabasePoolBudget {
+	return DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns}
+}
+
+func defaultRuntimeExecutionDatabasePoolBudget() DatabasePoolBudget {
+	return DatabasePoolBudget{MaxConns: defaultRuntimeExecutionDatabaseMaxConns, MinIdleConns: defaultRuntimeExecutionDatabaseMinIdleConns}
 }
 
 func resolveDatabaseURLFromEnv() string {
@@ -206,17 +263,25 @@ func (s Settings) Address() string {
 }
 
 func (s Settings) RuntimeDatabaseBudget() DatabasePoolBudget {
-	return normalizeDatabasePoolBudget(
-		s.RuntimeDatabasePoolBudget,
-		DatabasePoolBudget{MaxConns: defaultRuntimeDatabaseMaxConns, MinIdleConns: defaultRuntimeDatabaseMinIdleConns},
-	)
+	return s.PostgresPoolsBudgetOrDefault().RuntimeExecution
 }
 
 func (s Settings) ManagementDatabaseBudget() DatabasePoolBudget {
-	return normalizeDatabasePoolBudget(
-		s.ManagementDatabasePoolBudget,
-		DatabasePoolBudget{MaxConns: defaultManagementDatabaseMaxConns, MinIdleConns: defaultManagementDatabaseMinIdleConns},
-	)
+	return s.PostgresPoolsBudgetOrDefault().Management
+}
+
+func (s Settings) PostgresPoolsBudgetOrDefault() PostgresPoolsBudget {
+	budget := s.PostgresPoolsBudget
+	if budget.isZero() {
+		budget = DefaultPostgresPoolsBudget()
+		if s.ManagementDatabasePoolBudget.MaxConns > 0 || s.ManagementDatabasePoolBudget.MinIdleConns > 0 {
+			budget.Management = normalizeDatabasePoolBudget(s.ManagementDatabasePoolBudget, defaultManagementDatabasePoolBudget())
+		}
+		if s.RuntimeDatabasePoolBudget.MaxConns > 0 || s.RuntimeDatabasePoolBudget.MinIdleConns > 0 {
+			budget.RuntimeExecution = normalizeDatabasePoolBudget(s.RuntimeDatabasePoolBudget, defaultRuntimeExecutionDatabasePoolBudget())
+		}
+	}
+	return normalizePostgresPoolsBudget(budget)
 }
 
 func (s Settings) ManagementAdmissionBudget() ManagementAdmissionBudget {
@@ -267,6 +332,62 @@ func normalizeDatabasePoolBudget(candidate DatabasePoolBudget, defaults Database
 		normalized.MinIdleConns = normalized.MaxConns
 	}
 	return normalized
+}
+
+func normalizePostgresPoolsBudget(candidate PostgresPoolsBudget) PostgresPoolsBudget {
+	defaults := DefaultPostgresPoolsBudget()
+	normalized := candidate
+	if normalized.TotalMaxConns <= 0 {
+		normalized.TotalMaxConns = defaults.TotalMaxConns
+	}
+	normalized.Management = normalizeDatabasePoolBudget(normalized.Management, defaults.Management)
+	normalized.RuntimeExecution = normalizeDatabasePoolBudget(normalized.RuntimeExecution, defaults.RuntimeExecution)
+	normalized.RuntimeTelemetry = normalizeDatabasePoolBudget(normalized.RuntimeTelemetry, defaults.RuntimeTelemetry)
+	normalized.RuntimeFeedback = normalizeDatabasePoolBudget(normalized.RuntimeFeedback, defaults.RuntimeFeedback)
+	normalized.Realtime = normalizeDatabasePoolBudget(normalized.Realtime, defaults.Realtime)
+	normalized.CacheRefresh = normalizeDatabasePoolBudget(normalized.CacheRefresh, defaults.CacheRefresh)
+	normalized.BackgroundJobs = normalizeDatabasePoolBudget(normalized.BackgroundJobs, defaults.BackgroundJobs)
+	return normalized
+}
+
+func (b PostgresPoolsBudget) isZero() bool {
+	return b.TotalMaxConns == 0 && b.Management == (DatabasePoolBudget{}) && b.RuntimeExecution == (DatabasePoolBudget{}) && b.RuntimeTelemetry == (DatabasePoolBudget{}) && b.RuntimeFeedback == (DatabasePoolBudget{}) && b.Realtime == (DatabasePoolBudget{}) && b.CacheRefresh == (DatabasePoolBudget{}) && b.BackgroundJobs == (DatabasePoolBudget{})
+}
+
+func (b PostgresPoolsBudget) SumMaxConns() int64 {
+	return int64(b.Management.MaxConns) + int64(b.RuntimeExecution.MaxConns) + int64(b.RuntimeTelemetry.MaxConns) + int64(b.RuntimeFeedback.MaxConns) + int64(b.Realtime.MaxConns) + int64(b.CacheRefresh.MaxConns) + int64(b.BackgroundJobs.MaxConns)
+}
+
+func (b PostgresPoolsBudget) Validate() error {
+	if b.TotalMaxConns <= 0 {
+		return fmt.Errorf("invalid postgres pool config: total_max_conns must be greater than zero")
+	}
+	for _, laneBudget := range []struct {
+		lane   PostgresPoolLane
+		budget DatabasePoolBudget
+	}{
+		{PostgresLaneManagement, b.Management},
+		{PostgresLaneRuntimeExecution, b.RuntimeExecution},
+		{PostgresLaneRuntimeTelemetry, b.RuntimeTelemetry},
+		{PostgresLaneRuntimeFeedback, b.RuntimeFeedback},
+		{PostgresLaneRealtime, b.Realtime},
+		{PostgresLaneCacheRefresh, b.CacheRefresh},
+		{PostgresLaneBackgroundJobs, b.BackgroundJobs},
+	} {
+		if laneBudget.budget.MaxConns <= 0 {
+			return fmt.Errorf("invalid postgres pool config: lane=%s max_conns must be greater than zero", laneBudget.lane)
+		}
+		if laneBudget.budget.MinIdleConns < 0 {
+			return fmt.Errorf("invalid postgres pool config: lane=%s min_idle_conns must be greater than or equal to zero", laneBudget.lane)
+		}
+		if laneBudget.budget.MinIdleConns > laneBudget.budget.MaxConns {
+			return fmt.Errorf("invalid postgres pool config: lane=%s min_idle_conns must be less than or equal to max_conns", laneBudget.lane)
+		}
+	}
+	if laneSum := b.SumMaxConns(); laneSum > int64(b.TotalMaxConns) {
+		return fmt.Errorf("postgres pool budget exceeded: total_max_conns=%d lane_sum=%d", b.TotalMaxConns, laneSum)
+	}
+	return nil
 }
 
 func normalizeRuntimeTransportConfig(candidate RuntimeTransportConfig, defaults RuntimeTransportConfig) RuntimeTransportConfig {
