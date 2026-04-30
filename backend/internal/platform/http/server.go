@@ -5,14 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	pathpkg "path"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/sync/semaphore"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
@@ -32,8 +29,14 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/admission"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
 	"github.com/coachpo/prism/backend/internal/platform/email"
+	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
+	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
+	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
 	"github.com/coachpo/prism/backend/internal/platform/version"
 )
 
@@ -55,6 +58,7 @@ type Dependencies struct {
 	RuntimeService         *runtimeapi.Service
 	RuntimeCache           *runtimeapi.SharedCache
 	RuntimeState           *loadbalancedomain.LocalRuntimeStateStore
+	DatabasePools          *platformdb.DatabasePools
 	SettingsService        *managementsettings.Service
 	StatsService           *managementstats.Service
 	VendorsService         *managementvendors.Service
@@ -76,189 +80,6 @@ type healthResponse struct {
 	Liveness  string `json:"liveness"`
 	Readiness string `json:"readiness"`
 	Startup   string `json:"startup"`
-}
-
-type managementRouteClass int
-
-const (
-	managementRouteClassBypass managementRouteClass = iota
-	managementRouteClassM1
-	managementRouteClassM2
-	managementRouteClassM3
-)
-
-type managementRouteRule struct {
-	method  string
-	pattern string
-	class   managementRouteClass
-}
-
-var managementRouteRules = []managementRouteRule{
-	{method: http.MethodGet, pattern: "/auth/status", class: managementRouteClassM1},
-	{method: http.MethodGet, pattern: "/auth/public-bootstrap", class: managementRouteClassM1},
-	{method: http.MethodPost, pattern: "/auth/login", class: managementRouteClassM1},
-	{method: http.MethodPost, pattern: "/auth/logout", class: managementRouteClassM1},
-	{method: http.MethodPost, pattern: "/auth/refresh", class: managementRouteClassM1},
-	{method: http.MethodGet, pattern: "/auth/session", class: managementRouteClassM1},
-	{method: http.MethodPost, pattern: "/auth/password-reset/request", class: managementRouteClassM1},
-	{method: http.MethodPost, pattern: "/auth/password-reset/confirm", class: managementRouteClassM1},
-	{method: http.MethodGet, pattern: "/profiles/bootstrap", class: managementRouteClassM1},
-	{method: http.MethodGet, pattern: "/profiles/active", class: managementRouteClassM1},
-	{method: http.MethodPost, pattern: "/profiles/{profile_id}/activate", class: managementRouteClassM1},
-	{method: http.MethodGet, pattern: "/realtime/ws", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/requests", class: managementRouteClassM3},
-	{method: http.MethodDelete, pattern: "/stats/requests", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/requests/{request_id}", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/summary", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/stats/models/metrics", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/connection-success-rates", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/throughput", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/spending", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/usage-snapshot", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/stats/endpoints/{endpoint_id}/models", class: managementRouteClassM3},
-	{method: http.MethodDelete, pattern: "/stats/statistics", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/audit/logs", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/audit/logs/{log_id}", class: managementRouteClassM3},
-	{method: http.MethodDelete, pattern: "/audit/logs", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/loadbalance/current-state", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/loadbalance/events", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/loadbalance/events/{event_id}", class: managementRouteClassM3},
-	{method: http.MethodDelete, pattern: "/loadbalance/events", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/config/bootstrap", class: managementRouteClassM2},
-	{method: http.MethodPost, pattern: "/config/bootstrap/validate", class: managementRouteClassM2},
-	{method: http.MethodPut, pattern: "/config/bootstrap", class: managementRouteClassM2},
-	{method: http.MethodGet, pattern: "/config/profile/export", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/config/profile/import/preview", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/config/profile/import", class: managementRouteClassM3},
-	{method: http.MethodGet, pattern: "/config/vendors/export", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/config/vendors/import/preview", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/config/vendors/import", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/models/connections/batch", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/models/{model_config_id}/connections/health-check-preview", class: managementRouteClassM3},
-	{method: http.MethodPost, pattern: "/connections/{connection_id}/health-check", class: managementRouteClassM3},
-}
-
-type managementAdmissionController struct {
-	m2             *semaphore.Weighted
-	m3             *semaphore.Weighted
-	overloadStatus int
-}
-
-func newManagementAdmissionController(settings config.Settings) *managementAdmissionController {
-	budget := settings.ManagementAdmissionBudget()
-	return &managementAdmissionController{
-		m2:             semaphore.NewWeighted(budget.M2MaxConcurrent),
-		m3:             semaphore.NewWeighted(budget.M3MaxConcurrent),
-		overloadStatus: http.StatusServiceUnavailable,
-	}
-}
-
-func (c *managementAdmissionController) Middleware(next http.Handler) http.Handler {
-	if c == nil {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch classifyManagementRoute(r.Method, r.URL.Path) {
-		case managementRouteClassBypass, managementRouteClassM1:
-			next.ServeHTTP(w, r)
-			return
-		case managementRouteClassM2:
-			if !c.m2.TryAcquire(1) {
-				c.writeOverload(w)
-				return
-			}
-			defer c.m2.Release(1)
-		case managementRouteClassM3:
-			if !c.m2.TryAcquire(1) {
-				c.writeOverload(w)
-				return
-			}
-			if !c.m3.TryAcquire(1) {
-				c.m2.Release(1)
-				c.writeOverload(w)
-				return
-			}
-			defer c.m3.Release(1)
-			defer c.m2.Release(1)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (c *managementAdmissionController) writeOverload(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Retry-After", "1")
-	w.WriteHeader(c.overloadStatus)
-	_ = json.NewEncoder(w).Encode(map[string]string{"detail": "Management route temporarily overloaded. Retry later."})
-}
-
-func classifyManagementRoute(method string, rawPath string) managementRouteClass {
-	normalizedMethod := strings.ToUpper(strings.TrimSpace(method))
-	if normalizedMethod == http.MethodHead {
-		normalizedMethod = http.MethodGet
-	}
-	if normalizedMethod == "" || normalizedMethod == http.MethodOptions {
-		return managementRouteClassBypass
-	}
-
-	normalizedPath := normalizeManagementRoutePath(rawPath)
-	if normalizedPath == "" || normalizedPath == "/" {
-		return managementRouteClassBypass
-	}
-
-	for _, rule := range managementRouteRules {
-		if rule.matches(normalizedMethod, normalizedPath) {
-			return rule.class
-		}
-	}
-	return managementRouteClassM2
-}
-
-func normalizeManagementRoutePath(rawPath string) string {
-	trimmed := strings.TrimSpace(rawPath)
-	if trimmed == "" {
-		return ""
-	}
-	cleaned := pathpkg.Clean("/" + strings.TrimPrefix(trimmed, "/"))
-	if cleaned == "/api" {
-		return "/"
-	}
-	if strings.HasPrefix(cleaned, "/api/") {
-		return strings.TrimPrefix(cleaned, "/api")
-	}
-	return cleaned
-}
-
-func (r managementRouteRule) matches(method string, path string) bool {
-	if r.method != method {
-		return false
-	}
-	patternSegments := managementRouteSegments(normalizeManagementRoutePath(r.pattern))
-	pathSegments := managementRouteSegments(path)
-	if len(patternSegments) != len(pathSegments) {
-		return false
-	}
-	for idx := range patternSegments {
-		segment := patternSegments[idx]
-		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
-			if pathSegments[idx] == "" {
-				return false
-			}
-			continue
-		}
-		if segment != pathSegments[idx] {
-			return false
-		}
-	}
-	return true
-}
-
-func managementRouteSegments(path string) []string {
-	trimmed := strings.TrimPrefix(strings.TrimSpace(path), "/")
-	if trimmed == "" {
-		return nil
-	}
-	return strings.Split(trimmed, "/")
 }
 
 func NewServer(settings config.Settings, options ServerOptions) (*http.Server, error) {
@@ -299,27 +120,25 @@ func NewServer(settings config.Settings, options ServerOptions) (*http.Server, e
 	}
 
 	if strings.TrimSpace(settings.DatabaseURL) != "" {
-		managementPool, poolErr := newDatabasePool(settings.DatabaseURL, settings.ManagementDatabaseBudget(), "management")
+		databasePools, poolErr := platformdb.OpenDatabasePools(context.Background(), settings.DatabaseURL, settings.PostgresPoolsBudgetOrDefault())
 		if poolErr != nil {
 			return nil, poolErr
 		}
-		registerShutdown(managementPool.Close)
+		registerShutdown(databasePools.Close)
+		deps.DatabasePools = databasePools
 
-		runtimeExecutionPool, poolErr := newDatabasePool(settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime execution")
-		if poolErr != nil {
-			closeAll()
-			return nil, poolErr
-		}
-		registerShutdown(runtimeExecutionPool.Close)
+		managementPool := databasePools.Management.Raw()
+		runtimeExecutionPool := databasePools.RuntimeExecution.Raw()
+		runtimeTelemetryPool := databasePools.RuntimeTelemetry.Raw()
+		runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()
+		realtimePool := databasePools.Realtime.Raw()
+		cacheRefreshPool := databasePools.CacheRefresh.Raw()
+		backgroundJobsPool := databasePools.BackgroundJobs.Raw()
+		backgroundScheduler := background.NewScheduler(background.Config{})
+		managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
+		managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
 
-		runtimeTelemetryPool, poolErr := newDatabasePool(settings.DatabaseURL, settings.RuntimeDatabaseBudget(), "runtime telemetry")
-		if poolErr != nil {
-			closeAll()
-			return nil, poolErr
-		}
-		registerShutdown(runtimeTelemetryPool.Close)
-
-		runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
+		runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: cacheRefreshPool, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
 		runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
 		runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimePlanningCache)
 		if err := runtimePlanningCache.Bootstrap(context.Background()); err != nil {
@@ -332,15 +151,16 @@ func NewServer(settings config.Settings, options ServerOptions) (*http.Server, e
 			closeAll()
 			return nil, mailerErr
 		}
+		emailOutbox := outbox.NewStore(outbox.Options{Pool: backgroundJobsPool, Mailer: authMailer, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
 
-		managementAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: managementPool, Mailer: authMailer})
+		managementAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, EmailOutbox: emailOutbox, Scheduler: backgroundScheduler})
 		if authErr != nil {
 			closeAll()
 			return nil, authErr
 		}
 		registerShutdown(managementAuthService.Close)
 
-		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: runtimeExecutionPool, Mailer: authMailer, RuntimeCache: runtimeAuthCache})
+		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{Pool: runtimeExecutionPool, RuntimeCache: runtimeAuthCache})
 		if authErr != nil {
 			closeAll()
 			return nil, authErr
@@ -398,14 +218,14 @@ func NewServer(settings config.Settings, options ServerOptions) (*http.Server, e
 		}
 		registerShutdown(loadbalanceService.Close)
 
-		auditService, auditErr := managementaudit.NewService(settings, managementaudit.Options{Pool: managementPool})
+		auditService, auditErr := managementaudit.NewService(settings, managementaudit.Options{Pool: managementPool, Jobs: managementJobs})
 		if auditErr != nil {
 			closeAll()
 			return nil, auditErr
 		}
 		registerShutdown(auditService.Close)
 
-		statsService, statsErr := managementstats.NewService(settings, managementstats.Options{Pool: managementPool, DashboardSnapshots: dashboardSnapshots})
+		statsService, statsErr := managementstats.NewService(settings, managementstats.Options{Pool: managementPool, DashboardSnapshots: dashboardSnapshots, SideEffects: managementSideEffects})
 		if statsErr != nil {
 			closeAll()
 			return nil, statsErr
@@ -426,26 +246,47 @@ func NewServer(settings config.Settings, options ServerOptions) (*http.Server, e
 		}
 		registerShutdown(configBundleService.Close)
 
-		// Realtime stays on the management pool in Phase 2.2 because it is mounted under
-		// /api and currently serves dashboard management traffic rather than the protected
-		// runtime hot path.
-		realtimeService, realtimeErr := realtimeapi.NewService(settings, realtimeapi.Options{Pool: managementPool, AuthService: managementAuthService, DashboardSnapshots: dashboardSnapshots})
+		realtimeService, realtimeErr := realtimeapi.NewService(settings, realtimeapi.Options{RealtimePool: realtimePool, AuthService: managementAuthService, DashboardSnapshots: dashboardSnapshots})
 		if realtimeErr != nil {
 			closeAll()
 			return nil, realtimeErr
 		}
 		registerShutdown(realtimeService.Close)
 
-		asyncDashboardPublisher := realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{})
+		asyncDashboardPublisher := realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{Scheduler: backgroundScheduler})
 		realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
 		registerShutdown(asyncDashboardPublisher.Close)
 
-		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState})
+		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler})
 		if runtimeErr != nil {
 			closeAll()
 			return nil, runtimeErr
 		}
 		registerShutdown(runtimeService.Close)
+
+		for _, register := range []func(*background.Scheduler) error{
+			runtimePlanningCache.RegisterBackgroundWorker,
+			managementAuthService.RegisterBackgroundWorkers,
+			emailOutbox.RegisterBackgroundWorker,
+			managementJobs.RegisterBackgroundWorker,
+			managementSideEffects.RegisterBackgroundWorker,
+			asyncDashboardPublisher.RegisterBackgroundWorker,
+			runtimeService.RegisterBackgroundWorkers,
+		} {
+			if err := register(backgroundScheduler); err != nil {
+				closeAll()
+				return nil, err
+			}
+		}
+		if err := backgroundScheduler.Start(context.Background()); err != nil {
+			closeAll()
+			return nil, err
+		}
+		registerShutdown(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = backgroundScheduler.Stop(ctx, time.Now().Add(5*time.Second))
+		})
 
 		deps.AuditService = auditService
 		deps.AuthService = managementAuthService
@@ -491,20 +332,6 @@ func newAuthMailer(settings config.Settings) (managementauth.Mailer, error) {
 	return mailer, nil
 }
 
-func newDatabasePool(databaseURL string, budget config.DatabasePoolBudget, lane string) (*pgxpool.Pool, error) {
-	parsedConfig, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s database pool config: %w", lane, err)
-	}
-	parsedConfig.MaxConns = budget.MaxConns
-	parsedConfig.MinIdleConns = budget.MinIdleConns
-	pool, err := pgxpool.NewWithConfig(context.Background(), parsedConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create %s database pool: %w", lane, err)
-	}
-	return pool, nil
-}
-
 func NewHandler(settings config.Settings) (http.Handler, error) {
 	loadedVersion, err := version.Load()
 	if err != nil {
@@ -544,24 +371,28 @@ func NewHandlerWithDependencies(settings config.Settings, deps Dependencies) (ht
 	router.Use(middleware.Recoverer)
 	router.Use(corsMiddleware(allowedOrigins))
 
+	admissionController := newHTTPAdmissionController(settings)
 	router.Group(func(management chi.Router) {
-		mountManagementBranch(management, settings, deps)
+		mountManagementBranch(management, settings, deps, admissionController)
 	})
 	router.Group(func(runtime chi.Router) {
-		mountRuntimeBranch(runtime, deps)
+		mountRuntimeBranch(runtime, settings, deps, admissionController)
 	})
 
 	return router, nil
 }
 
-func mountManagementBranch(router chi.Router, settings config.Settings, deps Dependencies) {
+func mountManagementBranch(router chi.Router, settings config.Settings, deps Dependencies, admissionController *admission.Controller) {
 	router.Get("/health", healthHandler(deps.Version))
+	if deps.DatabasePools != nil {
+		router.Get("/metrics", platformdb.MetricsHandler(deps.DatabasePools))
+	}
 
 	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.StatsService, deps.VendorsService)
 	if deps.AuthService != nil {
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
-	managementHandler = newManagementAdmissionController(settings).Middleware(managementHandler)
+	managementHandler = (&managementAdmissionController{controller: admissionController}).Middleware(managementHandler)
 	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState).Middleware(managementHandler)
 	router.Mount("/api", managementHandler)
 
@@ -572,7 +403,7 @@ func mountManagementBranch(router chi.Router, settings config.Settings, deps Dep
 	}
 }
 
-func mountRuntimeBranch(router chi.Router, deps Dependencies) {
+func mountRuntimeBranch(router chi.Router, settings config.Settings, deps Dependencies, admissionController *admission.Controller) {
 	runtimeAuthService := deps.RuntimeAuthService
 	if runtimeAuthService == nil {
 		runtimeAuthService = deps.AuthService
@@ -583,6 +414,7 @@ func mountRuntimeBranch(router chi.Router, deps Dependencies) {
 		if runtimeAuthService != nil {
 			runtimeHandler = runtimeAuthService.RuntimeMiddleware(runtimeHandler)
 		}
+		runtimeHandler = proxyAdmissionMiddleware(admissionController, settings.RuntimeTransport().RequestTimeout, runtimeHandler)
 		router.Handle("/v1", runtimeHandler)
 		router.Handle("/v1/*", runtimeHandler)
 		router.Handle("/v1beta", runtimeHandler)
@@ -590,8 +422,9 @@ func mountRuntimeBranch(router chi.Router, deps Dependencies) {
 		return
 	}
 	if runtimeAuthService != nil {
-		router.Mount("/v1", runtimeAuthService.RuntimeMiddleware(runtimeAuthService.RuntimeProbeRouter()))
-		router.Mount("/v1beta", runtimeAuthService.RuntimeMiddleware(runtimeAuthService.RuntimeProbeRouter()))
+		runtimeProbeHandler := proxyAdmissionMiddleware(admissionController, settings.RuntimeTransport().RequestTimeout, runtimeAuthService.RuntimeMiddleware(runtimeAuthService.RuntimeProbeRouter()))
+		router.Mount("/v1", runtimeProbeHandler)
+		router.Mount("/v1beta", runtimeProbeHandler)
 	}
 }
 
