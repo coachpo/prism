@@ -182,7 +182,7 @@ func openTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatalf("connect admin database: %v", err)
 	}
-	defer admin.Close(ctx)
+	defer func() { _ = admin.Close(ctx) }()
 	if _, err := admin.Exec(ctx, `CREATE DATABASE `+quoteIdentifier(databaseName)); err != nil {
 		t.Fatalf("create database: %v", err)
 	}
