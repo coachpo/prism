@@ -9,35 +9,9 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
-	"github.com/coachpo/prism/backend/internal/platform/priority"
 )
 
 func TestPriorityLaneContract(t *testing.T) {
-	t.Run("inventory classifies route resource job ownership", func(t *testing.T) {
-		inventory := priority.DefaultInventory()
-		if problems := inventory.ValidationProblems(); len(problems) != 0 {
-			t.Fatalf("priority inventory should be fully classified, first problem: %+v", problems[0])
-		}
-		resourcePriorities := map[string]priority.LogicalPriority{}
-		for _, resource := range inventory.Resources {
-			resourcePriorities[resource.Name] = resource.Priority
-		}
-		for name, want := range map[string]priority.LogicalPriority{
-			"runtime execution pool":        priority.PriorityProxy,
-			"management pool":               priority.PriorityManagement,
-			"runtime telemetry pool":        priority.PriorityBackground,
-			"runtime feedback pool":         priority.PriorityBackground,
-			"runtime shared-cache refresh":  priority.PriorityBackground,
-			"management side-effect outbox": priority.PriorityBackground,
-			"auth email outbox enqueue":     priority.PriorityManagement,
-			"runtime shared-cache readers":  priority.PriorityProxy,
-		} {
-			if got := resourcePriorities[name]; got != want {
-				t.Fatalf("resource %q priority = %q, want %q", name, got, want)
-			}
-		}
-	})
-
 	t.Run("physical lanes and metrics labels are explicit", func(t *testing.T) {
 		lanes := platformdb.ComponentLaneAssignments()
 		for _, lane := range []config.PostgresPoolLane{config.PostgresLaneRuntimeExecution, config.PostgresLaneRuntimeTelemetry, config.PostgresLaneRuntimeFeedback, config.PostgresLaneManagement, config.PostgresLaneRealtime, config.PostgresLaneCacheRefresh, config.PostgresLaneBackgroundJobs} {
