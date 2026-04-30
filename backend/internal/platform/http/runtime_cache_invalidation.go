@@ -2,15 +2,17 @@ package platformhttp
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -32,8 +34,6 @@ type statusCapturingResponseWriter struct {
 	statusCode int
 }
 
-const immediateRuntimeCacheRefreshTimeout = 30 * time.Second
-
 func newRuntimeCacheInvalidationMiddleware(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) *runtimeCacheInvalidationMiddleware {
 	if planningCache == nil && authService == nil && runtimeState == nil {
 		return nil
@@ -51,13 +51,22 @@ func (m *runtimeCacheInvalidationMiddleware) Middleware(next http.Handler) http.
 			next.ServeHTTP(w, r)
 			return
 		}
+		action := classifyRuntimeCacheInvalidation(normalizedMethod, r.URL.Path, r.Header)
+		if action.hasWork() {
+			bumps := runtimeapi.RuntimeGenerationBumpsForRefresh(action.refreshRequest(), normalizedMethod+" "+normalizeManagementRoutePath(r.URL.Path))
+			if len(bumps) > 0 {
+				ctx := pgxutil.WithBeforeCommitHook(r.Context(), func(ctx context.Context, tx pgx.Tx) error {
+					return runtimeapi.AdvanceRuntimeCacheGenerations(ctx, tx, bumps)
+				})
+				r = r.WithContext(ctx)
+			}
+		}
 		writer := &statusCapturingResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(writer, r)
 		if !isSuccessfulManagementMutation(normalizedMethod, writer.statusCode) {
 			return
 		}
-		action := classifyRuntimeCacheInvalidation(normalizedMethod, r.URL.Path, r.Header)
-		action.apply(m.planningCache, m.authService, m.runtimeState)
+		action.apply(m.planningCache, m.runtimeState)
 	})
 }
 
@@ -127,29 +136,12 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 	return action
 }
 
-func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) {
-	request := runtimeapi.RefreshRequest{
-		Auth:               a.auth,
-		ActiveProfile:      a.activeProfile,
-		PlanningAll:        a.planningAll,
-		PlanningProfileIDs: append([]int(nil), a.planningIDs...),
-	}
+func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, runtimeState *loadbalancedomain.LocalRuntimeStateStore) {
+	request := a.refreshRequest()
 	if planningCache != nil {
 		if request.HasWork() {
-			if request.Auth {
-				ctx, cancel := context.WithTimeout(context.Background(), immediateRuntimeCacheRefreshTimeout)
-				err := planningCache.RefreshNow(ctx, request)
-				cancel()
-				if err != nil {
-					slog.Error("failed to publish runtime auth snapshot immediately", "error", err, "active_profile", request.ActiveProfile, "planning_all", request.PlanningAll, "planning_profile_ids", request.PlanningProfileIDs)
-					planningCache.ScheduleRefresh(request)
-				}
-			} else {
-				planningCache.ScheduleRefresh(request)
-			}
+			planningCache.ScheduleRefresh(request)
 		}
-	} else if a.auth && authService != nil {
-		authService.InvalidateRuntimeCache()
 	}
 	if runtimeState == nil {
 		return
@@ -163,14 +155,25 @@ func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCa
 	}
 }
 
+func (a runtimeCacheInvalidationAction) refreshRequest() runtimeapi.RefreshRequest {
+	return runtimeapi.RefreshRequest{
+		Auth:               a.auth,
+		ActiveProfile:      a.activeProfile,
+		PlanningAll:        a.planningAll,
+		PlanningProfileIDs: append([]int(nil), a.planningIDs...),
+	}
+}
+
+func (a runtimeCacheInvalidationAction) hasWork() bool {
+	return a.refreshRequest().HasWork()
+}
+
 func (a *runtimeCacheInvalidationAction) addPlanningProfile(profileID int) {
 	if profileID <= 0 {
 		return
 	}
-	for _, existing := range a.planningIDs {
-		if existing == profileID {
-			return
-		}
+	if slices.Contains(a.planningIDs, profileID) {
+		return
 	}
 	a.planningIDs = append(a.planningIDs, profileID)
 }

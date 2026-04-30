@@ -11,6 +11,17 @@ type Beginner interface {
 	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
 }
 
+type beforeCommitHookContextKey struct{}
+
+type BeforeCommitHook func(context.Context, pgx.Tx) error
+
+func WithBeforeCommitHook(ctx context.Context, hook BeforeCommitHook) context.Context {
+	if hook == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, beforeCommitHookContextKey{}, hook)
+}
+
 func InTx(ctx context.Context, beginner Beginner, label string, fn func(pgx.Tx) error) error {
 	_, err := InTxValue(ctx, beginner, label, func(tx pgx.Tx) (struct{}, error) {
 		return struct{}{}, fn(tx)
@@ -30,6 +41,11 @@ func InTxValue[T any](ctx context.Context, beginner Beginner, label string, fn f
 	value, err := fn(tx)
 	if err != nil {
 		return zero, err
+	}
+	if hook, ok := ctx.Value(beforeCommitHookContextKey{}).(BeforeCommitHook); ok && hook != nil {
+		if err := hook(ctx, tx); err != nil {
+			return zero, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return zero, fmt.Errorf("commit %s transaction: %w", label, err)

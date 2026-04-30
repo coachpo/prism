@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -16,10 +17,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 var ErrPublishedRuntimeSnapshotUnavailable = errors.New("published runtime snapshot unavailable")
+var ErrRuntimeSnapshotRefreshRequired = errors.New("runtime snapshot refresh required")
 
 const defaultSharedCacheRefreshTimeout = 30 * time.Second
 
@@ -35,6 +38,7 @@ type SharedCacheOptions struct {
 	SecretEncryptionKey string
 	Now                 func() time.Time
 	BeforePublish       func(RefreshRequest) error
+	Scheduler           *background.Scheduler
 }
 
 type SharedCache struct {
@@ -45,9 +49,9 @@ type SharedCache struct {
 
 	published atomic.Pointer[publishedRuntimeSnapshot]
 
-	schedulerMu   sync.Mutex
-	pending       RefreshRequest
-	workerRunning bool
+	schedulerMu sync.Mutex
+	pending     RefreshRequest
+	scheduler   *background.Scheduler
 
 	refreshMu sync.Mutex
 }
@@ -66,6 +70,7 @@ type RuntimeProxyKeyRecord struct {
 type publishedRuntimeSnapshot struct {
 	Generation          uint64
 	PublishedAt         time.Time
+	GenerationVector    RuntimeGenerationVector
 	ActiveProfile       profiledomain.Profile
 	PlanningByProfileID map[int]*planningSnapshot
 	Auth                publishedRuntimeAuthSnapshot
@@ -103,9 +108,33 @@ func (c *SharedCache) Configure(options SharedCacheOptions) {
 	if options.BeforePublish != nil {
 		c.beforePublish = options.BeforePublish
 	}
+	if options.Scheduler != nil {
+		c.scheduler = options.Scheduler
+	}
 	if c.now == nil {
 		c.now = time.Now
 	}
+}
+
+func (c *SharedCache) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
+	if c == nil || scheduler == nil {
+		return nil
+	}
+	c.scheduler = scheduler
+	return scheduler.Register(background.WorkerSpec{
+		Name:             background.WorkerName("runtime_shared_cache_refresh"),
+		Priority:         background.PriorityNormalBackground,
+		MaxPriority:      background.PriorityNormalBackground,
+		QueueLimit:       64,
+		ConcurrencyLimit: 1,
+		DrainPolicy:      background.DrainFinishRunning,
+		CoalescePolicy:   background.CoalesceMerge,
+		RetryPolicy:      &background.RetryPolicy{MaxAttempts: 3, Delay: 250 * time.Millisecond},
+		Timeout:          defaultSharedCacheRefreshTimeout,
+		Merge: func(existing any, incoming any) any {
+			return mergeRefreshRequests(refreshRequestPayload(existing), refreshRequestPayload(incoming))
+		},
+	}, c.handleScheduledRefresh)
 }
 
 func (c *SharedCache) Bootstrap(ctx context.Context) error {
@@ -131,6 +160,9 @@ func (c *SharedCache) RefreshNow(ctx context.Context, request RefreshRequest) er
 	defer c.refreshMu.Unlock()
 
 	next, err := c.buildPublishedSnapshot(ctx, request)
+	if errors.Is(err, ErrRuntimeSnapshotGenerationChanged) {
+		next, err = c.buildPublishedSnapshot(ctx, request)
+	}
 	if err != nil {
 		return err
 	}
@@ -153,14 +185,20 @@ func (c *SharedCache) ScheduleRefresh(request RefreshRequest) {
 	}
 	c.schedulerMu.Lock()
 	c.pending = mergeRefreshRequests(c.pending, request)
-	if c.workerRunning {
+	pending := c.pending
+	c.schedulerMu.Unlock()
+	if c.scheduler == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultSharedCacheRefreshTimeout)
+		defer cancel()
+		if err := c.RefreshNow(ctx, pending); err != nil {
+			slog.Error("failed to refresh published runtime snapshot", "error", err)
+		}
+		c.schedulerMu.Lock()
+		c.pending = RefreshRequest{}
 		c.schedulerMu.Unlock()
 		return
 	}
-	c.workerRunning = true
-	c.schedulerMu.Unlock()
-
-	go c.runRefreshWorker()
+	_ = c.scheduler.Submit(context.Background(), background.JobRequest{Worker: background.WorkerName("runtime_shared_cache_refresh"), Payload: pending, CoalesceKey: "runtime_shared_cache_refresh"})
 }
 
 func (c *SharedCache) InvalidateActiveProfile() {
@@ -199,6 +237,20 @@ func (c *SharedCache) LoadPublishedActiveProfile() (profiledomain.Profile, error
 	return cloneProfile(snapshot.ActiveProfile), nil
 }
 
+func (c *SharedCache) LoadFreshActiveRuntimePlan(ctx context.Context) (profiledomain.Profile, *planningSnapshot, error) {
+	var zero profiledomain.Profile
+	snapshot, err := c.requireFreshPublishedSnapshot(ctx, RefreshRequest{ActiveProfile: true, PlanningAll: true})
+	if err != nil {
+		return zero, nil, err
+	}
+	activeProfile := cloneProfile(snapshot.ActiveProfile)
+	planning, ok := snapshot.PlanningByProfileID[activeProfile.ID]
+	if !ok || planning == nil {
+		return zero, nil, fmt.Errorf("%w: planning snapshot missing for profile %d", ErrPublishedRuntimeSnapshotUnavailable, activeProfile.ID)
+	}
+	return activeProfile, planning, nil
+}
+
 func (c *SharedCache) LoadPublishedPlanningSnapshot(profileID int) (*planningSnapshot, error) {
 	snapshot, err := c.requirePublishedSnapshot()
 	if err != nil {
@@ -219,8 +271,28 @@ func (c *SharedCache) LoadRuntimeAuthSettings() (RuntimeAuthSettingsSnapshot, er
 	return snapshot.Auth.Settings, nil
 }
 
+func (c *SharedCache) LoadFreshRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSettingsSnapshot, error) {
+	snapshot, err := c.requireFreshPublishedSnapshot(ctx, RefreshRequest{Auth: true})
+	if err != nil {
+		return RuntimeAuthSettingsSnapshot{}, err
+	}
+	return snapshot.Auth.Settings, nil
+}
+
 func (c *SharedCache) LoadRuntimeProxyKeyRecord(keyPrefix string) (RuntimeProxyKeyRecord, bool, error) {
 	snapshot, err := c.requirePublishedSnapshot()
+	if err != nil {
+		return RuntimeProxyKeyRecord{}, false, err
+	}
+	record, ok := snapshot.Auth.ProxyKeysByPrefix[keyPrefix]
+	if !ok {
+		return RuntimeProxyKeyRecord{}, false, nil
+	}
+	return cloneRuntimeProxyKeyRecord(record), true, nil
+}
+
+func (c *SharedCache) LoadFreshRuntimeProxyKeyRecord(ctx context.Context, keyPrefix string) (RuntimeProxyKeyRecord, bool, error) {
+	snapshot, err := c.requireFreshPublishedSnapshot(ctx, RefreshRequest{Auth: true})
 	if err != nil {
 		return RuntimeProxyKeyRecord{}, false, err
 	}
@@ -242,46 +314,53 @@ func (c *SharedCache) requirePublishedSnapshot() (*publishedRuntimeSnapshot, err
 	return snapshot, nil
 }
 
-func (c *SharedCache) runRefreshWorker() {
-	for {
-		c.schedulerMu.Lock()
-		request := c.pending.normalized()
-		c.pending = RefreshRequest{}
-		c.schedulerMu.Unlock()
-
-		if request.isEmpty() {
-			c.schedulerMu.Lock()
-			if c.pending.isEmpty() {
-				c.workerRunning = false
-				c.schedulerMu.Unlock()
-				return
-			}
-			c.schedulerMu.Unlock()
-			continue
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), defaultSharedCacheRefreshTimeout)
-		err := c.RefreshNow(ctx, request)
-		cancel()
-		if err != nil {
-			slog.Error(
-				"failed to refresh published runtime snapshot",
-				"error", err,
-				"auth", request.Auth,
-				"active_profile", request.ActiveProfile,
-				"planning_all", request.PlanningAll,
-				"planning_profile_ids", request.PlanningProfileIDs,
-			)
-		}
-
-		c.schedulerMu.Lock()
-		if c.pending.isEmpty() {
-			c.workerRunning = false
-			c.schedulerMu.Unlock()
-			return
-		}
-		c.schedulerMu.Unlock()
+func (c *SharedCache) requireFreshPublishedSnapshot(ctx context.Context, refresh RefreshRequest) (*publishedRuntimeSnapshot, error) {
+	if c == nil {
+		return nil, ErrPublishedRuntimeSnapshotUnavailable
 	}
+	currentVector, err := c.readCurrentGenerationVector(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPublishedRuntimeSnapshotUnavailable, err)
+	}
+	snapshot := c.published.Load()
+	if snapshot != nil && runtimeGenerationVectorsEqual(snapshot.GenerationVector, currentVector, DefaultRuntimeGenerationScopes()) {
+		return snapshot, nil
+	}
+	if err := c.RefreshNow(ctx, refresh); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrRuntimeSnapshotRefreshRequired, err)
+	}
+	refreshed := c.published.Load()
+	if refreshed == nil {
+		return nil, ErrPublishedRuntimeSnapshotUnavailable
+	}
+	currentVector, err = c.readCurrentGenerationVector(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPublishedRuntimeSnapshotUnavailable, err)
+	}
+	if !runtimeGenerationVectorsEqual(refreshed.GenerationVector, currentVector, DefaultRuntimeGenerationScopes()) {
+		return nil, ErrRuntimeSnapshotRefreshRequired
+	}
+	return refreshed, nil
+}
+
+func (c *SharedCache) handleScheduledRefresh(ctx context.Context, job background.Job) background.JobResult {
+	c.schedulerMu.Lock()
+	request := mergeRefreshRequests(c.pending, refreshRequestPayload(job.Payload))
+	c.pending = RefreshRequest{}
+	c.schedulerMu.Unlock()
+	if request.isEmpty() {
+		return background.JobResult{Status: background.JobSucceeded}
+	}
+	if err := c.RefreshNow(ctx, request); err != nil {
+		slog.Error("failed to refresh published runtime snapshot", "error", err, "auth", request.Auth, "active_profile", request.ActiveProfile, "planning_all", request.PlanningAll, "planning_profile_ids", request.PlanningProfileIDs)
+		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
+	}
+	return background.JobResult{Status: background.JobSucceeded}
+}
+
+func refreshRequestPayload(payload any) RefreshRequest {
+	request, _ := payload.(RefreshRequest)
+	return request.normalized()
 }
 
 func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request RefreshRequest) (*publishedRuntimeSnapshot, error) {
@@ -294,8 +373,15 @@ func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request Refres
 		if current == nil {
 			request = mergeRefreshRequests(request, RefreshRequest{Auth: true, ActiveProfile: true, PlanningAll: true})
 		}
+		if !request.isEmpty() {
+			request = RefreshRequest{Auth: true, ActiveProfile: true, PlanningAll: true}
+		}
+		beforeVector, err := ReadRuntimeGenerationVector(ctx, tx, DefaultRuntimeGenerationScopes())
+		if err != nil {
+			return nil, err
+		}
 
-		next := &publishedRuntimeSnapshot{PublishedAt: c.nowUTC()}
+		next := &publishedRuntimeSnapshot{PublishedAt: c.nowUTC(), GenerationVector: cloneRuntimeGenerationVector(beforeVector)}
 		if current != nil {
 			next.Generation = current.Generation + 1
 		} else {
@@ -365,7 +451,24 @@ func (c *SharedCache) buildPublishedSnapshot(ctx context.Context, request Refres
 		}
 		next.Auth = authSnapshot
 
+		afterVector, err := ReadRuntimeGenerationVector(ctx, tx, DefaultRuntimeGenerationScopes())
+		if err != nil {
+			return nil, err
+		}
+		if !runtimeGenerationVectorsEqual(beforeVector, afterVector, DefaultRuntimeGenerationScopes()) {
+			return nil, ErrRuntimeSnapshotGenerationChanged
+		}
+		next.GenerationVector = cloneRuntimeGenerationVector(afterVector)
 		return next, nil
+	})
+}
+
+func (c *SharedCache) readCurrentGenerationVector(ctx context.Context) (RuntimeGenerationVector, error) {
+	if c == nil || c.refreshPool == nil {
+		return nil, fmt.Errorf("published runtime snapshot refresh pool is not configured")
+	}
+	return pgxutil.InTxValue(ctx, c.refreshPool, "runtime_generation_read", func(tx pgx.Tx) (RuntimeGenerationVector, error) {
+		return ReadRuntimeGenerationVector(ctx, tx, DefaultRuntimeGenerationScopes())
 	})
 }
 
@@ -509,9 +612,7 @@ func copyPublishedPlanningSnapshots(snapshot *publishedRuntimeSnapshot) map[int]
 		return nil
 	}
 	cloned := make(map[int]*planningSnapshot, len(snapshot.PlanningByProfileID))
-	for profileID, planning := range snapshot.PlanningByProfileID {
-		cloned[profileID] = planning
-	}
+	maps.Copy(cloned, snapshot.PlanningByProfileID)
 	return cloned
 }
 
