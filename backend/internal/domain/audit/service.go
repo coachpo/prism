@@ -2,7 +2,12 @@ package audit
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +19,8 @@ import (
 type HTTPError struct {
 	StatusCode int
 	Detail     string
+	Code       string
+	Details    map[string]any
 }
 
 func (err *HTTPError) Error() string {
@@ -37,7 +44,23 @@ type ListParams struct {
 	FromTime     *time.Time
 	ToTime       *time.Time
 	Limit        int
-	Offset       int
+	Cursor       string
+	Sort         string
+}
+
+type ListWindow struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
+type listCursor struct {
+	Version       int       `json:"v"`
+	LastCreatedAt time.Time `json:"last_created_at"`
+	LastID        int       `json:"last_id"`
+	From          time.Time `json:"from"`
+	To            time.Time `json:"to"`
+	Sort          string    `json:"sort"`
+	FiltersHash   string    `json:"filters_hash"`
 }
 
 type DeleteParams struct {
@@ -99,28 +122,52 @@ type AuditLogDetail struct {
 }
 
 type AuditLogListResponse struct {
-	Items  []AuditLogListItem `json:"items"`
-	Total  int                `json:"total"`
-	Limit  int                `json:"limit"`
-	Offset int                `json:"offset"`
+	Items      []AuditLogListItem `json:"items"`
+	NextCursor *string            `json:"next_cursor"`
+	HasMore    bool               `json:"has_more"`
+	Window     ListWindow         `json:"window"`
+	Limit      int                `json:"limit"`
+	Sort       string             `json:"sort"`
 }
+
+const defaultCursorSigningKey = "prism-management-audit-cursor-v1"
 
 func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (AuditLogListResponse, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 50
 	}
-	offset := params.Offset
-	if offset < 0 {
-		offset = 0
+	sortOrder := strings.TrimSpace(strings.ToLower(params.Sort))
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+	if sortOrder != "desc" {
+		return AuditLogListResponse{}, &HTTPError{StatusCode: 400, Code: "audit_sort_unsupported", Detail: "Only descending audit sort is supported."}
+	}
+	if params.FromTime == nil || params.ToTime == nil {
+		return AuditLogListResponse{}, &HTTPError{StatusCode: 400, Code: "audit_window_required", Detail: "Audit list requires from and to query parameters."}
+	}
+	fromTime := params.FromTime.UTC()
+	toTime := params.ToTime.UTC()
+	cursorFiltersHash := auditListFiltersHash(params)
+	var decodedCursor *listCursor
+	if strings.TrimSpace(params.Cursor) != "" {
+		cursor, err := decodeListCursor(params.Cursor)
+		if err != nil {
+			return AuditLogListResponse{}, &HTTPError{StatusCode: 400, Code: "audit_cursor_invalid", Detail: "Audit cursor is invalid."}
+		}
+		if cursor.Version != 1 || !cursor.From.Equal(fromTime) || !cursor.To.Equal(toTime) || cursor.Sort != sortOrder || cursor.FiltersHash != cursorFiltersHash {
+			return AuditLogListResponse{}, &HTTPError{StatusCode: 400, Code: "audit_cursor_scope_mismatch", Detail: "Audit cursor does not match the requested window, sort, or filters."}
+		}
+		decodedCursor = &cursor
 	}
 	whereClause, args := buildListWhere(params)
 	visibleWhereClause := whereClause + ` AND ` + auditLogReadVisibilityClause("audit_logs")
-	var total int
-	if err := exec.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs WHERE `+visibleWhereClause, args...).Scan(&total); err != nil {
-		return AuditLogListResponse{}, fmt.Errorf("count audit logs for profile %d: %w", params.ProfileID, err)
+	if decodedCursor != nil {
+		args = append(args, decodedCursor.LastCreatedAt.UTC(), decodedCursor.LastID)
+		visibleWhereClause += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
 	}
-	rows, err := exec.Query(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1)+` OFFSET $`+fmt.Sprintf("%d", len(args)+2), append(append(args, limit), offset)...)
+	rows, err := exec.Query(ctx, `SELECT id, request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at FROM audit_logs WHERE `+visibleWhereClause+` ORDER BY created_at DESC, id DESC LIMIT $`+fmt.Sprintf("%d", len(args)+1), append(args, limit+1)...)
 	if err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("query audit logs for profile %d: %w", params.ProfileID, err)
 	}
@@ -136,7 +183,20 @@ func ListLogs(ctx context.Context, exec queryExecutor, params ListParams) (Audit
 	if err := rows.Err(); err != nil {
 		return AuditLogListResponse{}, fmt.Errorf("iterate audit logs for profile %d: %w", params.ProfileID, err)
 	}
-	return AuditLogListResponse{Items: items, Total: total, Limit: limit, Offset: offset}, nil
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	var nextCursor *string
+	if hasMore && len(items) > 0 {
+		last := items[len(items)-1]
+		encoded, err := encodeListCursor(listCursor{Version: 1, LastCreatedAt: last.CreatedAt.UTC(), LastID: last.ID, From: fromTime, To: toTime, Sort: sortOrder, FiltersHash: cursorFiltersHash})
+		if err != nil {
+			return AuditLogListResponse{}, err
+		}
+		nextCursor = &encoded
+	}
+	return AuditLogListResponse{Items: items, NextCursor: nextCursor, HasMore: hasMore, Window: ListWindow{From: fromTime, To: toTime}, Limit: limit, Sort: sortOrder}, nil
 }
 
 func GetLog(ctx context.Context, exec queryExecutor, profileID int, logID int) (*AuditLogDetail, error) {
@@ -227,9 +287,74 @@ func buildListWhere(params ListParams) (string, []any) {
 	}
 	if params.ToTime != nil {
 		args = append(args, params.ToTime.UTC())
-		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("created_at < $%d", len(args)))
 	}
 	return strings.Join(clauses, " AND "), args
+}
+
+func auditListFiltersHash(params ListParams) string {
+	normalized := map[string]any{
+		"profile_id": params.ProfileID,
+	}
+	if params.RequestLogID != nil {
+		normalized["request_log_id"] = *params.RequestLogID
+	}
+	if params.VendorID != nil {
+		normalized["vendor_id"] = *params.VendorID
+	}
+	if params.ModelID != nil {
+		normalized["model_id"] = strings.TrimSpace(*params.ModelID)
+	}
+	if params.StatusCode != nil {
+		normalized["status_code"] = *params.StatusCode
+	}
+	if params.EndpointID != nil {
+		normalized["endpoint_id"] = *params.EndpointID
+	}
+	if params.ConnectionID != nil {
+		normalized["connection_id"] = *params.ConnectionID
+	}
+	raw, _ := json.Marshal(normalized)
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
+}
+
+func encodeListCursor(cursor listCursor) (string, error) {
+	raw, err := json.Marshal(cursor)
+	if err != nil {
+		return "", fmt.Errorf("encode audit cursor: %w", err)
+	}
+	signature := signListCursor(raw)
+	return base64.RawURLEncoding.EncodeToString(raw) + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func decodeListCursor(encoded string) (listCursor, error) {
+	parts := strings.Split(encoded, ".")
+	if len(parts) != 2 {
+		return listCursor{}, fmt.Errorf("invalid audit cursor")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return listCursor{}, err
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return listCursor{}, err
+	}
+	if !hmac.Equal(signature, signListCursor(raw)) {
+		return listCursor{}, fmt.Errorf("invalid audit cursor signature")
+	}
+	var cursor listCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return listCursor{}, err
+	}
+	return cursor, nil
+}
+
+func signListCursor(raw []byte) []byte {
+	mac := hmac.New(sha256.New, []byte(defaultCursorSigningKey))
+	_, _ = mac.Write(raw)
+	return mac.Sum(nil)
 }
 
 func auditLogReadVisibilityClause(tableName string) string {
