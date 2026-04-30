@@ -33,7 +33,7 @@ var supportedRealtimeChannels = map[string]struct{}{
 }
 
 type Options struct {
-	Pool               *pgxpool.Pool
+	RealtimePool       *pgxpool.Pool
 	AuthService        *managementauth.Service
 	Now                func() time.Time
 	DashboardSnapshots *statsdomain.DashboardAggregateStore
@@ -45,7 +45,6 @@ type pendingDashboardUpdatePublisher interface {
 
 type Service struct {
 	pool                    *pgxpool.Pool
-	ownsPool                bool
 	authService             *managementauth.Service
 	accessCookieName        string
 	allowedOrigins          map[string]struct{}
@@ -65,23 +64,11 @@ type inboundMessage struct {
 }
 
 func NewService(settings config.Settings, options Options) (*Service, error) {
-	pool := options.Pool
-	ownsPool := false
+	pool := options.RealtimePool
 	if pool == nil {
-		if strings.TrimSpace(settings.DatabaseURL) == "" {
-			return nil, fmt.Errorf("database URL is required")
-		}
-		createdPool, err := pgxpool.New(context.Background(), settings.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("create realtime database pool: %w", err)
-		}
-		pool = createdPool
-		ownsPool = true
+		return nil, fmt.Errorf("realtime database pool is required")
 	}
 	if options.AuthService == nil {
-		if ownsPool {
-			pool.Close()
-		}
 		return nil, fmt.Errorf("auth service is required")
 	}
 	now := options.Now
@@ -98,7 +85,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	}
 	service := &Service{
 		pool:                pool,
-		ownsPool:            ownsPool,
 		authService:         options.AuthService,
 		accessCookieName:    settings.AuthCookieName,
 		allowedOrigins:      allowedOrigins,
@@ -112,9 +98,6 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 }
 
 func (s *Service) Close() {
-	if s != nil && s.ownsPool && s.pool != nil {
-		s.pool.Close()
-	}
 }
 
 func (s *Service) SetAsyncDashboardPublisher(publisher *AsyncDashboardPublisher) {

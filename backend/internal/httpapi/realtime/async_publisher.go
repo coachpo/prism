@@ -2,8 +2,11 @@ package realtime
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
 type DashboardPublishTarget interface {
@@ -17,6 +20,7 @@ type AsyncDashboardPublisherOptions struct {
 	WorkerCount     int
 	PublishTimeout  time.Duration
 	ShutdownTimeout time.Duration
+	Scheduler       *background.Scheduler
 }
 
 type AsyncDashboardPublisherSnapshot struct {
@@ -34,14 +38,11 @@ type AsyncDashboardPublisherSnapshot struct {
 
 type AsyncDashboardPublisher struct {
 	target             DashboardPublishTarget
-	queue              chan int
 	publishTimeout     time.Duration
 	shutdownTimeout    time.Duration
 	maxTrackedProfiles int
-	ctx                context.Context
-	cancel             context.CancelFunc
-	done               chan struct{}
-	wg                 sync.WaitGroup
+	scheduler          *background.Scheduler
+	ownsScheduler      bool
 	mu                 sync.Mutex
 	states             map[int]*asyncDashboardProfileState
 	closed             bool
@@ -64,27 +65,39 @@ func NewAsyncDashboardPublisher(target DashboardPublishTarget, options AsyncDash
 		return nil
 	}
 	normalized := normalizeAsyncDashboardPublisherOptions(options)
-	ctx, cancel := context.WithCancel(context.Background())
 	publisher := &AsyncDashboardPublisher{
 		target:             target,
-		queue:              make(chan int, normalized.QueueCapacity),
 		publishTimeout:     normalized.PublishTimeout,
 		shutdownTimeout:    normalized.ShutdownTimeout,
 		maxTrackedProfiles: normalized.QueueCapacity + normalized.WorkerCount,
-		ctx:                ctx,
-		cancel:             cancel,
-		done:               make(chan struct{}),
+		scheduler:          normalized.Scheduler,
 		states:             map[int]*asyncDashboardProfileState{},
 	}
-	publisher.wg.Add(normalized.WorkerCount)
-	for worker := 0; worker < normalized.WorkerCount; worker++ {
-		go publisher.worker()
+	if publisher.scheduler == nil {
+		publisher.scheduler = background.NewScheduler(background.Config{})
+		publisher.ownsScheduler = true
+		_ = publisher.RegisterBackgroundWorker(publisher.scheduler)
+		_ = publisher.scheduler.Start(context.Background())
 	}
-	go func() {
-		publisher.wg.Wait()
-		close(publisher.done)
-	}()
 	return publisher
+}
+
+func (p *AsyncDashboardPublisher) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
+	if p == nil || scheduler == nil {
+		return nil
+	}
+	p.scheduler = scheduler
+	return scheduler.Register(background.WorkerSpec{
+		Name:             background.WorkerName("async_dashboard_publisher"),
+		Priority:         background.PriorityHighBackground,
+		MaxPriority:      background.PriorityHighBackground,
+		QueueLimit:       p.maxTrackedProfiles,
+		ConcurrencyLimit: 1,
+		DrainPolicy:      background.DrainFinishRunning,
+		CoalescePolicy:   background.CoalesceLatestWins,
+		RetryPolicy:      &background.RetryPolicy{MaxAttempts: 2, Delay: 100 * time.Millisecond},
+		Timeout:          p.publishTimeout,
+	}, p.handleScheduledPublish)
 }
 
 func (p *AsyncDashboardPublisher) PublishDashboardUpdate(_ context.Context, requestLogID int, profileID int) (bool, error) {
@@ -120,10 +133,10 @@ func (p *AsyncDashboardPublisher) Close() {
 	}
 	p.closed = true
 	p.mu.Unlock()
-	p.cancel()
-	select {
-	case <-p.done:
-	case <-time.After(p.shutdownTimeout):
+	if p.ownsScheduler && p.scheduler != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), p.shutdownTimeout)
+		_ = p.scheduler.Stop(ctx, time.Now().Add(p.shutdownTimeout))
+		cancel()
 	}
 }
 
@@ -179,10 +192,7 @@ func (p *AsyncDashboardPublisher) enqueue(profileID int, requestLogID int) bool 
 	p.markBusyLocked(now)
 	p.mu.Unlock()
 
-	select {
-	case p.queue <- profileID:
-		return true
-	default:
+	if p.scheduler == nil {
 		p.mu.Lock()
 		if current, ok := p.states[profileID]; ok && current == state {
 			delete(p.states, profileID)
@@ -192,6 +202,8 @@ func (p *AsyncDashboardPublisher) enqueue(profileID int, requestLogID int) bool 
 		p.mu.Unlock()
 		return false
 	}
+	result := p.scheduler.Submit(context.Background(), background.JobRequest{Worker: background.WorkerName("async_dashboard_publisher"), Payload: profileID, CoalesceKey: dashboardCoalesceKey(profileID)})
+	return result.Status == background.SubmitAccepted || result.Status == background.SubmitCoalesced
 }
 
 func (p *AsyncDashboardPublisher) hasPending(profileID int) bool {
@@ -201,26 +213,23 @@ func (p *AsyncDashboardPublisher) hasPending(profileID int) bool {
 	return ok
 }
 
-func (p *AsyncDashboardPublisher) worker() {
-	defer p.wg.Done()
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case profileID := <-p.queue:
-			requestedRequestLogID, ok := p.beginPublish(profileID)
-			if !ok {
-				continue
-			}
-			publishCtx, cancel := context.WithTimeout(p.ctx, p.publishTimeout)
-			publishedRequestLogID, _, _ := p.target.PublishLatestDashboardUpdate(publishCtx, profileID)
-			cancel()
-			if publishedRequestLogID <= 0 {
-				publishedRequestLogID = requestedRequestLogID
-			}
-			p.finishPublish(profileID, publishedRequestLogID)
-		}
+func (p *AsyncDashboardPublisher) handleScheduledPublish(ctx context.Context, job background.Job) background.JobResult {
+	profileID, _ := job.Payload.(int)
+	requestedRequestLogID, ok := p.beginPublish(profileID)
+	if !ok {
+		return background.JobResult{Status: background.JobSucceeded}
 	}
+	publishCtx, cancel := context.WithTimeout(ctx, p.publishTimeout)
+	publishedRequestLogID, _, err := p.target.PublishLatestDashboardUpdate(publishCtx, profileID)
+	cancel()
+	if publishedRequestLogID <= 0 {
+		publishedRequestLogID = requestedRequestLogID
+	}
+	p.finishPublish(profileID, publishedRequestLogID)
+	if err != nil {
+		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
+	}
+	return background.JobResult{Status: background.JobSucceeded}
 }
 
 func (p *AsyncDashboardPublisher) beginPublish(profileID int) (int, bool) {
@@ -253,9 +262,7 @@ func (p *AsyncDashboardPublisher) finishPublish(profileID int, publishedRequestL
 	state.queued = true
 	p.mu.Unlock()
 
-	select {
-	case p.queue <- profileID:
-	default:
+	if p.scheduler == nil || p.scheduler.Submit(context.Background(), background.JobRequest{Worker: background.WorkerName("async_dashboard_publisher"), Payload: profileID, CoalesceKey: dashboardCoalesceKey(profileID)}).Status == background.SubmitRejectedBackpressure {
 		p.mu.Lock()
 		if current, ok := p.states[profileID]; ok && current == state {
 			delete(p.states, profileID)
@@ -264,6 +271,10 @@ func (p *AsyncDashboardPublisher) finishPublish(profileID int, publishedRequestL
 		}
 		p.mu.Unlock()
 	}
+}
+
+func dashboardCoalesceKey(profileID int) string {
+	return "dashboard-profile:" + strconv.Itoa(profileID)
 }
 
 func (p *AsyncDashboardPublisher) markBusyLocked(now time.Time) {
