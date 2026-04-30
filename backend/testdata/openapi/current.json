@@ -13506,6 +13506,17 @@
             ],
             "title": "Total Cost User Currency Micros"
           },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
           "report_currency_symbol": {
             "anyOf": [
               {
