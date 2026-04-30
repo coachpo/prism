@@ -202,6 +202,24 @@ export interface RequestLogDetailSummary {
   is_stream: boolean;
 }
 
+export interface RequestGenerationParamsReasoning {
+  effort?: string | null;
+  mode?: string | null;
+  budget_tokens?: number | null;
+  include_thoughts?: boolean | null;
+  source_field?: string | null;
+}
+
+export interface RequestGenerationParams {
+  provider?: string | null;
+  temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  max_output_tokens?: number | null;
+  max_output_tokens_source?: string | null;
+  reasoning?: RequestGenerationParamsReasoning | null;
+}
+
 export interface RequestLogDetailRequest {
   request_path: string;
   ingress_request_id: string | null;
@@ -214,6 +232,8 @@ export interface RequestLogDetailRequest {
   caller_client_display: string | null;
   upstream_client_display: string | null;
   user_agent_overridden: boolean;
+  request_generation_params: RequestGenerationParams | null;
+  request_generation_params_status: string | null;
   error_detail: string | null;
 }
 

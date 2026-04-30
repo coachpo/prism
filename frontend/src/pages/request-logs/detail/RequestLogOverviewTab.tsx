@@ -115,6 +115,7 @@ export function RequestLogOverviewTab({
   const resolvedTargetLabel = summary.resolved_target_model_label;
   const formattedErrorDetail = requestInfo.error_detail ? formatErrorDetail(requestInfo.error_detail) : null;
   const hasFormattedErrorDetail = formattedErrorDetail !== null && formattedErrorDetail !== requestInfo.error_detail;
+  const requestReasoningEffort = requestInfo.request_generation_params?.reasoning?.effort ?? null;
   const apiFamily = summary.api_family;
   const callerClientPrimaryValue = getClientPrimaryValue(
     requestInfo.caller_client_display,
@@ -346,6 +347,11 @@ export function RequestLogOverviewTab({
               <DetailRow label={messages.requestLogs.stream}>
                 {summary.is_stream ? <TypeBadge label={messages.requestLogs.streaming} intent="blue" /> : messages.requestLogs.no}
               </DetailRow>
+              {requestReasoningEffort ? (
+                <DetailRow label={messages.requestLogs.reasoningEffort}>
+                  <span className="font-mono">{requestReasoningEffort}</span>
+                </DetailRow>
+              ) : null}
             </div>
 
             <div className="space-y-1 border-t border-border/60 pt-3">
