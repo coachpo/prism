@@ -202,22 +202,15 @@ func TestRuntimeRefreshFailureKeepsLastGoodSnapshot(t *testing.T) {
 	}
 
 	harness.upstream.clear()
-	failedResponse, failedObserved := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
+	failedResponse, _ := harness.captureJSONRequest(t, http.MethodPost, "/v1/chat/completions", map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": "phase-1 refresh failure fallback"}},
 		"model":    route.PublicModelID,
 	}, map[string]string{blockedHeaderName: "still-present-after-failure", allowedHeaderName: "still-allowed"})
-	if failedResponse.StatusCode != http.StatusOK {
-		t.Fatalf("expected runtime request to keep serving last good snapshot after refresh failure, got %d with body %s", failedResponse.StatusCode, readResponseBody(t, failedResponse))
+	if failedResponse.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected stale runtime request to reject after refresh failure, got %d with body %s", failedResponse.StatusCode, readResponseBody(t, failedResponse))
 	}
-	failedObserved.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	failedObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
-
-	request := harness.upstream.lastRequest(t)
-	if request.Headers.Get(blockedHeaderName) != "still-present-after-failure" {
-		t.Fatalf("expected failed refresh to retain last good snapshot header state, got %q", request.Headers.Get(blockedHeaderName))
-	}
-	if request.Headers.Get(allowedHeaderName) != "still-allowed" {
-		t.Fatalf("expected allowed header %s to survive failed refresh, got %q", allowedHeaderName, request.Headers.Get(allowedHeaderName))
+	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
+		t.Fatalf("expected stale runtime request to stop before upstream after refresh failure, got %d upstream requests", got)
 	}
 }
 

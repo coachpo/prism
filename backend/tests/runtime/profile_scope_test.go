@@ -2073,6 +2073,11 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("create runtime telemetry pgx pool: %v", err)
 	}
 	tb.Cleanup(telemetryPool.Close)
+	feedbackPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		tb.Fatalf("create runtime feedback pgx pool: %v", err)
+	}
+	tb.Cleanup(feedbackPool.Close)
 
 	runtimeOptions := harnessConfig.RuntimeOptions
 	runtimeCache := runtimeOptions.Cache
@@ -2086,6 +2091,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 	}
 	runtimeOptions.ExecutionPool = pool
 	runtimeOptions.TelemetryPool = telemetryPool
+	runtimeOptions.FeedbackPool = feedbackPool
 	runtimeOptions.Cache = runtimeCache
 
 	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool})
@@ -2974,6 +2980,28 @@ func loadRuntimeState(t *testing.T, harness *runtimeHarness, profileID int, conn
 }
 
 func loadLoadbalanceEvents(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) []persistedLoadbalanceEvent {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var last []persistedLoadbalanceEvent
+	stableReads := 0
+	for {
+		last = queryLoadbalanceEvents(t, conn, profileID, connectionID)
+		if len(last) > 0 {
+			stableReads++
+			if stableReads >= 3 {
+				return last
+			}
+		} else {
+			stableReads = 0
+		}
+		if time.Now().After(deadline) {
+			return last
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func queryLoadbalanceEvents(t *testing.T, conn *pgx.Conn, profileID int, connectionID int) []persistedLoadbalanceEvent {
 	t.Helper()
 	rows, err := conn.Query(
 		context.Background(),

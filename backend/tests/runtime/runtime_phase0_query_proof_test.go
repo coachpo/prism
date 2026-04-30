@@ -128,6 +128,10 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 	tb.Cleanup(runtimePool.Close)
 	runtimeTelemetryPool := newRuntimePhase0Pool(tb, settings.DatabaseURL, settings.RuntimeDatabaseBudget(), nil)
 	tb.Cleanup(runtimeTelemetryPool.Close)
+	runtimeFeedbackPool := newRuntimePhase0Pool(tb, settings.DatabaseURL, config.DefaultPostgresPoolsBudget().RuntimeFeedback, nil)
+	tb.Cleanup(runtimeFeedbackPool.Close)
+	cacheRefreshPool := newRuntimePhase0Pool(tb, settings.DatabaseURL, config.DefaultPostgresPoolsBudget().CacheRefresh, nil)
+	tb.Cleanup(cacheRefreshPool.Close)
 
 	managementAuthService, err := managementauth.NewService(settings, managementauth.Options{Pool: managementPool})
 	if err != nil {
@@ -137,9 +141,9 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 
 	runtimePlanningCache := options.RuntimeOptions.Cache
 	if runtimePlanningCache == nil {
-		runtimePlanningCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
+		runtimePlanningCache = runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: cacheRefreshPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	} else {
-		runtimePlanningCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: managementPool, SecretEncryptionKey: settings.SecretEncryptionKey})
+		runtimePlanningCache.Configure(runtimeapi.SharedCacheOptions{RefreshPool: cacheRefreshPool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	}
 	if err := runtimePlanningCache.Bootstrap(testContext); err != nil {
 		tb.Fatalf("bootstrap phase-0 published runtime snapshot: %v", err)
@@ -174,6 +178,7 @@ func newRuntimePhase0HarnessForDatabaseWithOptions(tb testing.TB, databaseName s
 	runtimeOptions := options.RuntimeOptions
 	runtimeOptions.ExecutionPool = runtimePool
 	runtimeOptions.TelemetryPool = runtimeTelemetryPool
+	runtimeOptions.FeedbackPool = runtimeFeedbackPool
 	runtimeOptions.Cache = runtimePlanningCache
 
 	runtimeService, err := runtimeapi.NewService(settings, runtimeOptions)
@@ -414,7 +419,7 @@ func (h *runtimePhase0Harness) seedStatsPressureHistory(t *testing.T, profileID 
 	route := realtimeView.seedRealtimeDashboardRoute(t, profileID, suffix)
 	idBase := -300000 - int(time.Now().UnixNano()%10000)
 	createdAtBase := time.Now().UTC()
-	for index := 0; index < 6; index++ {
+	for index := range 6 {
 		realtimeView.insertDashboardActivity(t, route, profileID, idBase-index, idBase-100-index, createdAtBase.Add(-time.Duration(index+1)*time.Minute))
 	}
 }
@@ -449,7 +454,6 @@ func TestRuntimeHotPathStillTouchesRuntimeStateTables(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			harness := newRuntimePhase0Harness(t)
 			profileID := harness.activeProfileID(t)
@@ -541,7 +545,6 @@ func TestRuntimeHotPathStillTouchesProxyKeyUsageWrite(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			harness := newRuntimePhase0Harness(t)
 			profileID := harness.activeProfileID(t)

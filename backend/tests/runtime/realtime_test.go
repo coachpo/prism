@@ -407,6 +407,11 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("create S16 runtime telemetry pgx pool: %v", err)
 	}
 	t.Cleanup(telemetryPool.Close)
+	feedbackPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		t.Fatalf("create S16 runtime feedback pgx pool: %v", err)
+	}
+	t.Cleanup(feedbackPool.Close)
 	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap S16 published runtime snapshot: %v", err)
@@ -429,12 +434,12 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("build S16 stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	realtimeService, err := realtimeapi.NewService(settings, realtimeapi.Options{Pool: pool, AuthService: authService, Now: func() time.Time { return fixedNow }, DashboardSnapshots: dashboardSnapshots})
+	realtimeService, err := realtimeapi.NewService(settings, realtimeapi.Options{RealtimePool: pool, AuthService: authService, Now: func() time.Time { return fixedNow }, DashboardSnapshots: dashboardSnapshots})
 	if err != nil {
 		t.Fatalf("build S16 realtime service: %v", err)
 	}
 	t.Cleanup(realtimeService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService, Cache: runtimeCache, RuntimeState: runtimeState})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build S16 runtime service: %v", err)
 	}
