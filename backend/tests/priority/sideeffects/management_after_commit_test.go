@@ -12,6 +12,8 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
 )
 
+type managementAfterCommitContextKey string
+
 func TestManagementAfterCommitSemantics(t *testing.T) {
 	t.Run("rollback suppresses after commit work", func(t *testing.T) {
 		backendRoot := backendRoot(t)
@@ -27,7 +29,7 @@ func TestManagementAfterCommitSemantics(t *testing.T) {
 	})
 
 	t.Run("side effect failure does not fail committed primary state", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), "key", "value")
+		ctx := context.WithValue(context.Background(), managementAfterCommitContextKey("key"), "value")
 		var calls []string
 		managementsideeffects.AfterCommit(ctx,
 			func(got context.Context) error {
