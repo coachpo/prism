@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1448,7 +1449,9 @@ func TestAuditLogsRejectDisabledRequestSnapshot(t *testing.T) {
 	seedSimpleRequestLog(t, harness, profileID, 104, 12, nil, time.Date(2026, 4, 18, 12, 50, 0, 0, time.UTC), false)
 	seedRuntimeAuditLog(t, harness, 804, profileID, 104, time.Date(2026, 4, 18, 12, 55, 0, 0, time.UTC))
 
-	response := harness.requestJSON(t, http.MethodGet, "/api/audit/logs?request_log_id=104&limit=20", nil, runtimeModelHeader(profileID))
+	from := url.QueryEscape(time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC).Format(time.RFC3339))
+	to := url.QueryEscape(time.Date(2026, 4, 18, 13, 0, 0, 0, time.UTC).Format(time.RFC3339))
+	response := harness.requestJSON(t, http.MethodGet, "/api/audit/logs?from="+from+"&to="+to+"&request_log_id=104&limit=20", nil, runtimeModelHeader(profileID))
 	assertStatus(t, response, http.StatusConflict)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)

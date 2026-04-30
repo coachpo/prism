@@ -399,6 +399,11 @@ func newRuntimeDashboardHarness(t *testing.T, publisher runtimeapi.DashboardUpda
 		t.Fatalf("create runtime dashboard telemetry pgx pool: %v", err)
 	}
 	t.Cleanup(telemetryPool.Close)
+	feedbackPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		t.Fatalf("create runtime dashboard feedback pgx pool: %v", err)
+	}
+	t.Cleanup(feedbackPool.Close)
 	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap runtime dashboard published runtime snapshot: %v", err)
@@ -416,7 +421,7 @@ func newRuntimeDashboardHarness(t *testing.T, publisher runtimeapi.DashboardUpda
 		t.Fatalf("build runtime dashboard profiles service: %v", err)
 	}
 	t.Cleanup(profilesService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, DashboardUpdates: publisher, Cache: runtimeCache, RuntimeState: runtimeState})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, DashboardUpdates: publisher, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build runtime dashboard runtime service: %v", err)
 	}

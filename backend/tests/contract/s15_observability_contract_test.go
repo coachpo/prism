@@ -7,6 +7,10 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +29,21 @@ import (
 )
 
 var fixedS15Now = time.Date(2026, time.April, 19, 12, 0, 0, 0, time.UTC)
+
+func s15AuditWindowQuery() string {
+	values := url.Values{}
+	values.Set("from", fixedS15Now.Add(-24*time.Hour).Format(time.RFC3339))
+	values.Set("to", fixedS15Now.Add(time.Minute).Format(time.RFC3339))
+	return values.Encode()
+}
+
+func assertErrorCode(t *testing.T, payload map[string]any, want string) {
+	t.Helper()
+	errorPayload := asMap(t, payload["error"])
+	if errorPayload["code"] != want {
+		t.Fatalf("expected error code %q, got %+v", want, payload)
+	}
+}
 
 func TestUsageSnapshot(t *testing.T) {
 	harness := newS15ContractHarness(t)
@@ -127,6 +146,94 @@ func TestStatsSummary(t *testing.T) {
 	groups := payload["groups"].([]any)
 	if len(groups) != 2 || asMap(t, groups[0])["key"] != "openai" || asMap(t, groups[1])["key"] != "anthropic" {
 		t.Fatalf("expected api-family groups in response, got %+v", payload)
+	}
+}
+
+func TestManagementDashboardStatsRequiresSupportedWindow(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	assertErrorCode(t, payload, "stats_window_unsupported")
+
+	unsupported := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=all", nil, modelHeader(profileID))
+	assertStatus(t, unsupported, http.StatusBadRequest)
+}
+
+func TestManagementDashboardStatsFreshnessShape(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertDashboardStatRollup(t, harness, profileID, "24h", "request_count", 3, fixedS15Now)
+	insertDashboardStatRollup(t, harness, profileID, "24h", "error_count", 1, fixedS15Now)
+	insertDashboardStatRollup(t, harness, profileID, "24h", "audit_event_count", 2, fixedS15Now)
+	insertDashboardStatRollup(t, harness, profileID, "24h", "active_profiles", 1, fixedS15Now)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if payload["window"] != "24h" || payload["generated_at"] == nil || payload["covers"] == nil || payload["freshness"] == nil {
+		t.Fatalf("expected freshness dashboard stats shape, got %+v", payload)
+	}
+	metrics := asMap(t, payload["metrics"])
+	if jsonInt(t, metrics["request_count"]) != 3 || jsonInt(t, metrics["error_count"]) != 1 || jsonInt(t, metrics["audit_event_count"]) != 2 {
+		t.Fatalf("expected rollup metrics only, got %+v", metrics)
+	}
+}
+
+func TestManagementMetricsExposed(t *testing.T) {
+	serverSource := s15ReadBackendSource(t, "internal/platform/http/server.go")
+	dbSource := s15ReadBackendSource(t, "internal/platform/db/pools.go")
+	if !strings.Contains(serverSource, `router.Get("/metrics", platformdb.MetricsHandler(deps.DatabasePools))`) || !strings.Contains(serverSource, "deps.DatabasePools != nil") {
+		t.Fatalf("expected server to expose /metrics when database pools are configured")
+	}
+	for _, metric := range []string{"prism_db_pool_acquired_connections", "prism_db_pool_max_connections", "prism_db_pool_acquire_timeout_count"} {
+		if !strings.Contains(dbSource, metric) {
+			t.Fatalf("expected DB metrics handler to expose %s", metric)
+		}
+	}
+}
+
+func TestManagementJobListContract(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	firstJobID := createS15AuditDeleteJob(t, harness, profileID, "list-one")
+	secondJobID := createS15AuditDeleteJob(t, harness, profileID, "list-two")
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/management/jobs", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	items, ok := payload["items"].([]any)
+	if !ok || len(items) < 2 || payload["has_more"] != false {
+		t.Fatalf("expected management job list items and has_more=false, got %+v", payload)
+	}
+	seen := map[string]bool{}
+	for _, raw := range items {
+		item := asMap(t, raw)
+		seen[item["id"].(string)] = item["type"] == "audit_delete" && item["progress"] != nil && item["requested_at"] != nil
+	}
+	if !seen[firstJobID] || !seen[secondJobID] {
+		t.Fatalf("expected job list to include created audit delete jobs, got %+v", payload)
+	}
+}
+
+func TestManagementHealthReportsStatsLag(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	staleHighWaterMark := fixedS15Now.Add(-10 * time.Minute)
+	insertDashboardStatRollup(t, harness, profileID, "24h", "request_count", 5, staleHighWaterMark)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	freshness := asMap(t, payload["freshness"])
+	if jsonInt(t, freshness["lag_seconds"]) < 600 || freshness["stale"] != true || jsonInt(t, freshness["stale_after_seconds"]) != 120 {
+		t.Fatalf("expected dashboard health freshness to report stale stats lag, got %+v", payload)
 	}
 }
 
@@ -311,7 +418,7 @@ func TestAuditLogs(t *testing.T) {
 	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 702, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-6*time.Minute), true)
 	insertAuditLog(t, harness, auditLogSeed{ID: 802, ProfileID: profileID, RequestLogID: intPtr(702), ModelID: "audit-model", RequestHeaders: `{"authorization":"Bearer [REDACTED]"}`, ResponseStatus: 200, AuditEnabledAtRequest: true, AuditCaptureBodiesAtRequest: false, CreatedAt: fixedS15Now.Add(-4 * time.Minute)})
 
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?request_log_id=700&limit=20", nil, modelHeader(profileID))
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&request_log_id=700&limit=20", nil, modelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusConflict)
 	var listPayload map[string]any
 	decodeJSONResponse(t, listResponse, &listPayload)
@@ -327,12 +434,12 @@ func TestAuditLogs(t *testing.T) {
 		t.Fatalf("expected disabled request snapshot to reject audit detail, got %+v", detailPayload)
 	}
 
-	visibleListResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	visibleListResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=20", nil, modelHeader(profileID))
 	assertStatus(t, visibleListResponse, http.StatusOK)
 	var visibleListPayload map[string]any
 	decodeJSONResponse(t, visibleListResponse, &visibleListPayload)
 	items := visibleListPayload["items"].([]any)
-	if jsonInt(t, visibleListPayload["total"]) != 2 || len(items) != 2 {
+	if visibleListPayload["has_more"] != false || visibleListPayload["next_cursor"] != nil || len(items) != 2 {
 		t.Fatalf("expected audit list to show only enabled rows, got %+v", visibleListPayload)
 	}
 	if jsonInt(t, asMap(t, items[0])["id"]) != 802 || jsonInt(t, asMap(t, items[1])["id"]) != 801 {
@@ -373,11 +480,65 @@ func TestAuditDelete(t *testing.T) {
 	assertStatus(t, retentionResponse, http.StatusOK)
 
 	response := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/audit/logs", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusAccepted)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if payload["job_id"] == nil || payload["state"] != "queued" || s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 2 {
+		t.Fatalf("expected retention-policy audit delete to enqueue async job without inline delete, got %+v", payload)
+	}
+}
+
+func TestManagementAuditDeleteJobCreateContract(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	before := fixedS15Now.Add(-time.Hour).Format(time.RFC3339)
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", map[string]any{"scope": map[string]any{"before": before}, "reason": "retention cleanup"}, withHeader(modelHeader(profileID), "Idempotency-Key", "audit-delete-create"))
+	assertStatus(t, response, http.StatusAccepted)
+	if response.Header.Get("Location") == "" {
+		t.Fatal("expected delete job create to set Location header")
+	}
+}
+
+func TestManagementJobStatusContract(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	jobID := createS15AuditDeleteJob(t, harness, profileID, "status")
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/management/jobs/"+jobID, nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected retention-policy audit delete to remove only old rows, got %+v", payload)
+	if payload["id"] != jobID || payload["type"] != "audit_delete" || payload["progress"] == nil {
+		t.Fatalf("expected job status contract, got %+v", payload)
+	}
+}
+
+func TestManagementJobCancelContract(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	jobID := createS15AuditDeleteJob(t, harness, profileID, "cancel")
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/management/jobs/"+jobID+"/cancel", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusAccepted)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	if payload["state"] != "cancelled" && payload["state"] != "cancel_requested" {
+		t.Fatalf("expected cancelled job state, got %+v", payload)
+	}
+}
+
+func TestManagementAuditDeleteJobIdempotency(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	body := map[string]any{"scope": map[string]any{"before": fixedS15Now.Format(time.RFC3339)}, "reason": "retention cleanup"}
+	first := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", body, withHeader(modelHeader(profileID), "Idempotency-Key", "idem-delete"))
+	second := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", body, withHeader(modelHeader(profileID), "Idempotency-Key", "idem-delete"))
+	assertStatus(t, first, http.StatusAccepted)
+	assertStatus(t, second, http.StatusAccepted)
+	var firstPayload map[string]any
+	var secondPayload map[string]any
+	decodeJSONResponse(t, first, &firstPayload)
+	decodeJSONResponse(t, second, &secondPayload)
+	if firstPayload["job_id"] != secondPayload["job_id"] {
+		t.Fatalf("expected idempotent create to return same job, got %+v and %+v", firstPayload, secondPayload)
 	}
 }
 
@@ -389,11 +550,11 @@ func TestRequestLogDeletionDoesNotWidenAuditVisibility(t *testing.T) {
 	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 711, profileID, "audit-model", "openai", 12, 91, 200, 100, 0, 0, 0, fixedS15Now.Add(-10*time.Minute), true)
 	insertAuditLog(t, harness, auditLogSeed{ID: 811, ProfileID: profileID, RequestLogID: intPtr(711), ModelID: "audit-model", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-9 * time.Minute)})
 
-	beforeDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	beforeDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=20", nil, modelHeader(profileID))
 	assertStatus(t, beforeDelete, http.StatusOK)
 	var beforeDeletePayload map[string]any
 	decodeJSONResponse(t, beforeDelete, &beforeDeletePayload)
-	if jsonInt(t, beforeDeletePayload["total"]) != 1 || jsonInt(t, asMap(t, beforeDeletePayload["items"].([]any)[0])["id"]) != 811 {
+	if len(beforeDeletePayload["items"].([]any)) != 1 || jsonInt(t, asMap(t, beforeDeletePayload["items"].([]any)[0])["id"]) != 811 {
 		t.Fatalf("expected only enabled audit row visible before request-log deletion, got %+v", beforeDeletePayload)
 	}
 
@@ -411,13 +572,79 @@ func TestRequestLogDeletionDoesNotWidenAuditVisibility(t *testing.T) {
 		t.Fatalf("expected request-log delete to orphan both audit rows by nulling request_log_id")
 	}
 
-	afterDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	afterDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=20", nil, modelHeader(profileID))
 	assertStatus(t, afterDelete, http.StatusOK)
 	var afterDeletePayload map[string]any
 	decodeJSONResponse(t, afterDelete, &afterDeletePayload)
-	if jsonInt(t, afterDeletePayload["total"]) != 1 || jsonInt(t, asMap(t, afterDeletePayload["items"].([]any)[0])["id"]) != 811 {
+	if len(afterDeletePayload["items"].([]any)) != 1 || jsonInt(t, asMap(t, afterDeletePayload["items"].([]any)[0])["id"]) != 811 {
 		t.Fatalf("expected request-log deletion to keep orphan visibility frozen instead of widening it, got %+v", afterDeletePayload)
 	}
+}
+
+func TestManagementAuditListRequiresWindow(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?limit=20", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	assertErrorCode(t, payload, "audit_window_required")
+}
+
+func TestManagementAuditListRejectsOversizedWindow(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	from := fixedS15Now.Add(-8 * 24 * time.Hour).Format(time.RFC3339)
+	to := fixedS15Now.Format(time.RFC3339)
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?from="+from+"&to="+to, nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	assertErrorCode(t, payload, "audit_window_too_large")
+}
+
+func TestManagementAuditRejectsUnsupportedFilters(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&actor_id=operator", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusBadRequest)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	assertErrorCode(t, payload, "audit_filter_unsupported")
+}
+
+func TestManagementAuditCursorIntegrity(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertAuditLog(t, harness, auditLogSeed{ID: 820, ProfileID: profileID, ModelID: "audit-cursor", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-3 * time.Minute)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 821, ProfileID: profileID, ModelID: "audit-cursor", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-2 * time.Minute)})
+
+	firstResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=1", nil, modelHeader(profileID))
+	assertStatus(t, firstResponse, http.StatusOK)
+	var firstPayload map[string]any
+	decodeJSONResponse(t, firstResponse, &firstPayload)
+	if firstPayload["has_more"] != true || firstPayload["next_cursor"] == nil {
+		t.Fatalf("expected first audit cursor page to include next_cursor, got %+v", firstPayload)
+	}
+
+	cursor := firstPayload["next_cursor"].(string)
+	secondResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=1&cursor="+cursor, nil, modelHeader(profileID))
+	assertStatus(t, secondResponse, http.StatusOK)
+	var secondPayload map[string]any
+	decodeJSONResponse(t, secondResponse, &secondPayload)
+	if jsonInt(t, asMap(t, secondPayload["items"].([]any)[0])["id"]) != 820 {
+		t.Fatalf("expected keyset cursor page to continue after newest row, got %+v", secondPayload)
+	}
+
+	tamperedCursor := cursor[:len(cursor)-1] + "x"
+	tamperedResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=1&cursor="+tamperedCursor, nil, modelHeader(profileID))
+	assertStatus(t, tamperedResponse, http.StatusBadRequest)
+	var tamperedPayload map[string]any
+	decodeJSONResponse(t, tamperedResponse, &tamperedPayload)
+	assertErrorCode(t, tamperedPayload, "audit_cursor_invalid")
 }
 
 func TestLoadbalanceCurrentState(t *testing.T) {
@@ -648,10 +875,7 @@ func TestLoadbalanceCurrentStateReflectsRuntimeOpenedTransition(t *testing.T) {
 		t.Fatalf("expected winning current-state payload to reflect recovered counting state, got %+v", secondaryItem)
 	}
 
-	eventsResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events?model_id=%s&limit=20&offset=0", targetModelID), nil, modelHeader(profileID))
-	assertStatus(t, eventsResponse, http.StatusOK)
-	var eventsPayload map[string]any
-	decodeJSONResponse(t, eventsResponse, &eventsPayload)
+	eventsPayload := requestS15LoadbalanceEventsUntil(t, harness, profileID, fmt.Sprintf("/api/loadbalance/events?model_id=%s&limit=20&offset=0", targetModelID), primaryConnectionID, "")
 	openedEvent := s15LoadbalanceEventByConnectionID(t, eventsPayload, primaryConnectionID)
 	if openedEvent["event_type"] != "opened" || openedEvent["failure_kind"] != "transient_http" || asMap(t, openedEvent["summary"])["event"] != "Connection opened its circuit" || asMap(t, openedEvent["summary"])["cooldown"] != "60 seconds" {
 		t.Fatalf("expected opened event payload to reflect runtime failure semantics, got %+v", openedEvent)
@@ -732,10 +956,7 @@ func TestLoadbalanceEventsReflectRuntimeRecoveredTransition(t *testing.T) {
 	}, nil)
 	assertStatus(t, runtimeResponse, http.StatusOK)
 
-	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/loadbalance/events?model_id=%s&limit=20&offset=0", targetModelID), nil, modelHeader(profileID))
-	assertStatus(t, listResponse, http.StatusOK)
-	var listPayload map[string]any
-	decodeJSONResponse(t, listResponse, &listPayload)
+	listPayload := requestS15LoadbalanceEventsUntil(t, harness, profileID, fmt.Sprintf("/api/loadbalance/events?model_id=%s&limit=20&offset=0", targetModelID), connectionID, "recovered")
 	probeEligibleEvent := s15LoadbalanceEventByConnectionIDAndType(t, listPayload, connectionID, "probe_eligible")
 	if probeEligibleEvent["failure_kind"] != "transient_http" || asMap(t, probeEligibleEvent["summary"])["event"] != "Connection became probe eligible" || !strings.Contains(asMap(t, probeEligibleEvent["summary"])["cooldown"].(string), "open interval completed") {
 		t.Fatalf("expected probe_eligible event payload to reflect runtime probe semantics, got %+v", probeEligibleEvent)
@@ -778,6 +999,11 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("create runtime telemetry pgx pool: %v", err)
 	}
 	t.Cleanup(telemetryPool.Close)
+	feedbackPool, err := pgxpool.New(testContext, settings.DatabaseURL)
+	if err != nil {
+		t.Fatalf("create runtime feedback pgx pool: %v", err)
+	}
+	t.Cleanup(feedbackPool.Close)
 	runtimeCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: pool, SecretEncryptionKey: settings.SecretEncryptionKey})
 	if err := runtimeCache.Bootstrap(testContext); err != nil {
 		t.Fatalf("bootstrap published runtime snapshot: %v", err)
@@ -803,7 +1029,7 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("build stats service: %v", err)
 	}
 	t.Cleanup(statsService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, Now: func() time.Time { return fixedS15Now }, Cache: runtimeCache, RuntimeState: runtimeState})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, Now: func() time.Time { return fixedS15Now }, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build runtime service: %v", err)
 	}
@@ -1070,6 +1296,55 @@ func s15LoadbalanceEventByConnectionIDAndType(t *testing.T, payload map[string]a
 	return nil
 }
 
+func requestS15LoadbalanceEventsUntil(t *testing.T, harness *contractHarness, profileID int, path string, connectionID int, eventType string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	var payload map[string]any
+	for {
+		response := harness.requestJSON(t, harness.client, http.MethodGet, path, nil, modelHeader(profileID))
+		assertStatus(t, response, http.StatusOK)
+		decodeJSONResponse(t, response, &payload)
+		if s15PayloadHasLoadbalanceEvent(payload, connectionID, eventType) {
+			return payload
+		}
+		if time.Now().After(deadline) {
+			return payload
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func s15PayloadHasLoadbalanceEvent(payload map[string]any, connectionID int, eventType string) bool {
+	items, ok := payload["items"].([]any)
+	if !ok {
+		return false
+	}
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if intFromJSONNumber(item["connection_id"]) != connectionID {
+			continue
+		}
+		if eventType == "" || item["event_type"] == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func intFromJSONNumber(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	default:
+		return 0
+	}
+}
+
 func insertContractProxyAPIKey(t *testing.T, harness *contractHarness, name string) int {
 	t.Helper()
 	var keyID int
@@ -1086,6 +1361,54 @@ func s15CountRows(t *testing.T, harness *contractHarness, query string, args ...
 		t.Fatalf("count rows with %q: %v", query, err)
 	}
 	return count
+}
+
+func s15ReadBackendSource(t *testing.T, relative string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(s15BackendRoot(t), relative))
+	if err != nil {
+		t.Fatalf("read backend source %s: %v", relative, err)
+	}
+	return string(raw)
+}
+
+func s15BackendRoot(t *testing.T) string {
+	t.Helper()
+	_, filename, _, ok := goruntime.Caller(0)
+	if !ok {
+		t.Fatal("resolve caller")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+}
+
+func withHeader(headers map[string]string, key string, value string) map[string]string {
+	merged := make(map[string]string, len(headers)+1)
+	for existingKey, existingValue := range headers {
+		merged[existingKey] = existingValue
+	}
+	merged[key] = value
+	return merged
+}
+
+func insertDashboardStatRollup(t *testing.T, harness *contractHarness, profileID int, window string, metric string, value int, highWaterMark time.Time) {
+	t.Helper()
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO management_stat_buckets (bucket_start, bucket_size, metric, dimension_key, dimension_value, value, source_high_water_mark, generated_at) VALUES ($1, $2, $3, 'profile_id', $4, $5, $6, $7)`, fixedS15Now.Add(-24*time.Hour).Truncate(time.Hour), window, metric, fmt.Sprintf("%d", profileID), value, highWaterMark.UTC(), fixedS15Now.UTC()); err != nil {
+		t.Fatalf("insert dashboard stat rollup %s: %v", metric, err)
+	}
+}
+
+func createS15AuditDeleteJob(t *testing.T, harness *contractHarness, profileID int, suffix string) string {
+	t.Helper()
+	body := map[string]any{"scope": map[string]any{"before": fixedS15Now.Format(time.RFC3339)}, "reason": "retention cleanup"}
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", body, withHeader(modelHeader(profileID), "Idempotency-Key", "audit-delete-"+suffix))
+	assertStatus(t, response, http.StatusAccepted)
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	jobID, ok := payload["job_id"].(string)
+	if !ok || jobID == "" {
+		t.Fatalf("expected delete job id, got %+v", payload)
+	}
+	return jobID
 }
 
 func nullableTestInt64(value *int64) any {
