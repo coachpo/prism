@@ -1570,6 +1570,7 @@ Response `200`:
       "total_cost_user_currency_micros": 1250,
       "priced_flag": true,
       "unpriced_reason": null,
+      "reasoning_effort": "low",
       "report_currency_symbol": "$",
       "caller_client_display": "Codex",
       "upstream_client_display": "OpenAI SDK",
