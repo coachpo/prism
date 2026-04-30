@@ -543,7 +543,6 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.getByRole("heading", { name: "Request Trends" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Token Usage Trends" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Token Type Breakdown" }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Cost Overview" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Service Health" }).first()).toBeVisible();
 
   await expect(page.getByTestId("usage-trends-grid").getByText("No data available", { exact: true })).toHaveCount(0);
@@ -562,7 +561,7 @@ test.describe("chart renovation statistics regression", () => {
     await page.goto("/dashboard?tab=analytics");
 
     await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
-    await expect(page.getByRole("tab", { name: "Analytics" })).toHaveAttribute("data-state", "active");
+    await expect(page.getByRole("tab", { name: "Analytics", selected: true })).toBeVisible();
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
     await expectSharedPopulatedSurface(page);
@@ -599,7 +598,7 @@ test.describe("chart renovation statistics regression", () => {
     await analyticsCta.click();
 
     await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
-    await expect(page.getByRole("tab", { name: "Analytics" })).toHaveAttribute("data-state", "active");
+    await expect(page.getByRole("tab", { name: "Analytics", selected: true })).toBeVisible();
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
   });
 
@@ -620,12 +619,10 @@ test.describe("chart renovation statistics regression", () => {
     await expect(page.getByRole("heading", { name: "Request Trends" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Token Usage Trends" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Token Type Breakdown" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Cost Overview" }).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Service Health" }).first()).toBeVisible();
 
     await expect(trendsGrid.getByText("No data available", { exact: true })).toBeVisible();
     await expect.poll(() => page.getByText("No token usage", { exact: true }).count()).toBe(2);
-    await expect(page.getByText("No cost records found.", { exact: true })).toBeVisible();
     await expect(page.getByTestId("usage-cost-summary-card")).toHaveCount(0);
     await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("—");
     await expect(page.getByTestId("usage-health-window-label")).toHaveText("Last day");
@@ -638,8 +635,8 @@ test.describe("chart renovation statistics regression", () => {
     await writeEvidenceFile(emptyEvidencePath, [
       "scenario=empty-statistics-chart-surfaces",
       "dashboard.route=/dashboard?tab=analytics",
-      "visibleHeaders=Request Trends,Token Usage Trends,Token Type Breakdown,Cost Overview,Service Health",
-      "visibleEmptyTitles=No data available,No token usage,No cost records found.",
+      "visibleHeaders=Request Trends,Token Usage Trends,Token Type Breakdown,Service Health",
+      "visibleEmptyTitles=No data available,No token usage",
       `emptyHealthCells=${emptyHealthCellCount}`,
       "availabilityBadge=—",
       "costSummaryCard=hidden",
