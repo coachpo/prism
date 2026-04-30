@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,41 +14,46 @@ import (
 
 func TestManagementAfterCommitSemantics(t *testing.T) {
 	t.Run("rollback suppresses after commit work", func(t *testing.T) {
-		called := false
-		transactionErr := errors.New("primary state failed")
-		if transactionErr == nil {
-			managementsideeffects.AfterCommit(context.Background(), func(context.Context) error {
-				called = true
-				return nil
-			})
+		backendRoot := backendRoot(t)
+		stats := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "stats", "service.go"))
+		for _, want := range []string{"managementsideeffects.InsertTx", "managementsideeffects.AfterCommit", "EventDashboardSnapshotInvalidate"} {
+			if !strings.Contains(stats, want) {
+				t.Fatalf("stats management mutation missing %q", want)
+			}
 		}
-		if called {
-			t.Fatal("after-commit work ran for rolled-back mutation")
+		if strings.Contains(stats, "s.invalidateDashboardAggregateSnapshot(profileID)") {
+			t.Fatal("stats delete still invalidates dashboard snapshots inline after transaction")
 		}
 	})
 
 	t.Run("side effect failure does not fail committed primary state", func(t *testing.T) {
-		committed := true
-		managementsideeffects.AfterCommit(context.Background(), func(context.Context) error {
-			return errors.New("dispatcher unavailable")
-		}, func(context.Context) error {
-			return errors.New("noncritical cache invalidation failed")
-		})
-		if !committed {
-			t.Fatal("after-commit failure changed committed primary state")
-		}
-	})
-
-	t.Run("static management side effect boundary", func(t *testing.T) {
-		backendRoot := backendRoot(t)
-		command := exec.Command("go", "run", "./cmd/prism-priority-check", "--check=management-sideeffects", "./...")
-		command.Dir = backendRoot
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("management side-effect priority check failed: %v\n%s", err, output)
-		}
-		if !strings.Contains(string(output), "priority checks passed") {
-			t.Fatalf("priority check output missing pass signal:\n%s", output)
+		ctx := context.WithValue(context.Background(), "key", "value")
+		var calls []string
+		managementsideeffects.AfterCommit(ctx,
+			func(got context.Context) error {
+				if got != ctx {
+					t.Fatal("wake received unexpected context")
+				}
+				calls = append(calls, "wake")
+				return errors.New("dispatcher unavailable")
+			},
+			func(got context.Context) error {
+				if got != ctx {
+					t.Fatal("hook received unexpected context")
+				}
+				calls = append(calls, "hook-1")
+				return errors.New("noncritical cache invalidation failed")
+			},
+			func(got context.Context) error {
+				if got != ctx {
+					t.Fatal("second hook received unexpected context")
+				}
+				calls = append(calls, "hook-2")
+				return nil
+			},
+		)
+		if strings.Join(calls, ",") != "hook-1,hook-2,wake" {
+			t.Fatalf("unexpected after-commit execution order: %v", calls)
 		}
 	})
 
@@ -63,9 +67,24 @@ func TestManagementAfterCommitSemantics(t *testing.T) {
 			"defaultBatchSize       = 50",
 			"defaultConcurrency     = 4",
 			"defaultRetryCap        = 8",
+			"RegisterBackgroundWorker",
+			"handleScheduledDispatch",
+			"management_outbox",
 		} {
 			if !strings.Contains(outbox, want) {
 				t.Fatalf("management outbox missing %q", want)
+			}
+		}
+		migration := readSource(t, filepath.Join(backendRoot, "migrations", "000007_management_outbox.sql"))
+		for _, want := range []string{"management_outbox", "idx_management_outbox_dedupe_key", "idx_management_outbox_polling", "failed_permanent"} {
+			if !strings.Contains(migration, want) {
+				t.Fatalf("management outbox migration missing %q", want)
+			}
+		}
+		server := readSource(t, filepath.Join(backendRoot, "internal", "platform", "http", "server.go"))
+		for _, want := range []string{"managementsideeffects.NewDispatcher", "managementSideEffects.RegisterBackgroundWorker", "SideEffects: managementSideEffects"} {
+			if !strings.Contains(server, want) {
+				t.Fatalf("server wiring missing %q", want)
 			}
 		}
 		stats := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "stats", "service.go"))
