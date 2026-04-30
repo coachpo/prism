@@ -261,14 +261,12 @@ type runtimeTelemetryEnvelope struct {
 }
 
 func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) {
-	if s == nil || s.telemetryOutbox == nil {
+	if s == nil || s.runtimeSideEffects == nil {
 		return
 	}
 	envelope := s.buildRuntimeTelemetryEnvelope(plan, result, request, startedAt, responseCapture)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.telemetryOutbox.Enqueue(ctx, envelope); err != nil {
-		slog.Error("failed to durably enqueue runtime telemetry", "error", err, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
+	if submit := s.runtimeSideEffects.SubmitRuntimeActivity(RuntimeActivityIntent{Envelope: envelope}); submit.Status != RuntimeSideEffectAccepted {
+		slog.Error("failed to accept runtime activity telemetry intent", "reason", submit.Reason, "profile_id", envelope.UsageEvent.ProfileID, "ingress_request_id", envelope.UsageEvent.IngressRequestID)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
 const (
@@ -27,6 +28,7 @@ type TelemetryOutboxOptions struct {
 	ShutdownTimeout time.Duration
 	WakeupBuffer    int
 	Hooks           *TelemetryOutboxHooks
+	Scheduler       *background.Scheduler
 }
 
 type TelemetryOutboxCloseResult struct {
@@ -51,10 +53,8 @@ type runtimeTelemetryOutbox struct {
 	shutdownTimeout  time.Duration
 	hooks            TelemetryOutboxHooks
 	wake             chan struct{}
-	ctx              context.Context
-	cancel           context.CancelFunc
-	done             chan struct{}
-	wg               sync.WaitGroup
+	scheduler        *background.Scheduler
+	ownsScheduler    bool
 	closeOnce        sync.Once
 	mu               sync.Mutex
 	closed           bool
@@ -84,7 +84,6 @@ func (state runtimeTelemetryDrainState) drained() bool {
 
 func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
 	normalized := normalizeTelemetryOutboxOptions(options)
-	ctx, cancel := context.WithCancel(context.Background())
 	outbox := &runtimeTelemetryOutbox{
 		telemetryPool:    telemetryPool,
 		now:              now,
@@ -93,20 +92,35 @@ func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time
 		shutdownTimeout:  normalized.ShutdownTimeout,
 		hooks:            normalized.hooks(),
 		wake:             make(chan struct{}, normalized.WakeupBuffer),
-		ctx:              ctx,
-		cancel:           cancel,
-		done:             make(chan struct{}),
+		scheduler:        normalized.Scheduler,
 	}
-	outbox.wg.Add(normalized.WorkerCount)
-	for worker := 0; worker < normalized.WorkerCount; worker++ {
-		go outbox.worker()
+	if outbox.scheduler == nil {
+		outbox.scheduler = background.NewScheduler(background.Config{})
+		outbox.ownsScheduler = true
+		_ = outbox.RegisterBackgroundWorker(outbox.scheduler)
+		_ = outbox.scheduler.Start(context.Background())
 	}
-	go func() {
-		outbox.wg.Wait()
-		close(outbox.done)
-	}()
 	outbox.signal()
 	return outbox
+}
+
+func (o *runtimeTelemetryOutbox) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
+	if o == nil || scheduler == nil {
+		return nil
+	}
+	o.scheduler = scheduler
+	return scheduler.Register(background.WorkerSpec{
+		Name:             background.WorkerName("runtime_telemetry_outbox"),
+		Priority:         background.PriorityLowBackground,
+		MaxPriority:      background.PriorityLowBackground,
+		QueueLimit:       128,
+		ConcurrencyLimit: 1,
+		DrainPolicy:      background.DrainBestEffort,
+		CoalescePolicy:   background.CoalesceDropNew,
+		RetryPolicy:      &background.RetryPolicy{MaxAttempts: 3, Delay: o.pollInterval},
+		PeriodicTrigger:  &background.PeriodicTrigger{Interval: o.pollInterval},
+		Timeout:          o.shutdownTimeout,
+	}, o.handleScheduledTelemetry)
 }
 
 func (o *runtimeTelemetryOutbox) Enqueue(ctx context.Context, envelope runtimeTelemetryEnvelope) error {
@@ -162,14 +176,10 @@ func (o *runtimeTelemetryOutbox) Close() TelemetryOutboxCloseResult {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		o.cancel()
-		remaining := time.Until(deadline)
-		if remaining < 0 {
-			remaining = 0
-		}
-		select {
-		case <-o.done:
-		case <-time.After(remaining):
+		if o.scheduler != nil && o.ownsScheduler {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Until(deadline))
+			_ = o.scheduler.Stop(ctx, deadline)
+			cancel()
 		}
 		if state, err := o.drainState(); err == nil {
 			result.Drained = state.drained()
@@ -190,33 +200,15 @@ func (o *runtimeTelemetryOutbox) Close() TelemetryOutboxCloseResult {
 	return o.closeResult
 }
 
-func (o *runtimeTelemetryOutbox) worker() {
-	defer o.wg.Done()
-	timer := time.NewTimer(0)
-	defer timer.Stop()
+func (o *runtimeTelemetryOutbox) handleScheduledTelemetry(ctx context.Context, _ background.Job) background.JobResult {
 	for {
-		select {
-		case <-o.ctx.Done():
-			return
-		case <-o.wake:
-		case <-timer.C:
+		processed, err := o.processNext(ctx)
+		if err != nil {
+			return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 		}
-		for {
-			processed, err := o.processNext(o.ctx)
-			if err != nil {
-				break
-			}
-			if !processed {
-				break
-			}
+		if !processed {
+			return background.JobResult{Status: background.JobSucceeded}
 		}
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(o.pollInterval)
 	}
 }
 
@@ -285,6 +277,9 @@ func (o *runtimeTelemetryOutbox) enqueueError() error {
 }
 
 func (o *runtimeTelemetryOutbox) signal() {
+	if o.scheduler != nil {
+		_ = o.scheduler.Submit(context.Background(), background.JobRequest{Worker: background.WorkerName("runtime_telemetry_outbox"), CoalesceKey: "runtime_telemetry_outbox"})
+	}
 	select {
 	case o.wake <- struct{}{}:
 	default:
