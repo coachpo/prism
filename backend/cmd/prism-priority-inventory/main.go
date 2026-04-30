@@ -25,6 +25,10 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer) error {
+	return runWithInventory(args, stdout, priority.DefaultInventory())
+}
+
+func runWithInventory(args []string, stdout io.Writer, inventory priority.Inventory) error {
 	options, err := parseOptions(args)
 	if err != nil {
 		return err
@@ -36,10 +40,9 @@ func run(args []string, stdout io.Writer) error {
 		return fmt.Errorf("unsupported format %q: only markdown is supported", options.format)
 	}
 
-	inventory := priority.DefaultInventory()
 	if options.failOnUnclassified {
-		if count := inventory.UnclassifiedCount(); count > 0 {
-			return fmt.Errorf("inventory contains %d unclassified entries", count)
+		if err := priority.ValidateInventory(inventory); err != nil {
+			return err
 		}
 	}
 	return priority.WriteMarkdownInventory(stdout, inventory)
