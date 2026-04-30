@@ -1448,11 +1448,47 @@ The health contract is not version only. It is the operator-facing target for ba
 
 Stats APIs are profile-scoped and require `X-Profile-Id`.
 
+### 4.0 Dashboard Stats
+```
+GET /api/stats/dashboard
+```
+This is the bounded management dashboard freshness contract. It reads materialized rollups from `management_stat_buckets`; the request path doesn't fall back to live `request_logs` or `audit_logs` aggregation when rollups are missing or stale.
+
+Query parameters:
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `window` | string | required | Supported windows: `1h`, `24h`, `7d`, `30d` |
+
+Response `200`:
+```json
+{
+  "window": "24h",
+  "generated_at": "2026-04-19T12:00:00Z",
+  "covers": {
+    "from": "2026-04-18T12:00:00Z",
+    "to": "2026-04-19T13:00:00Z"
+  },
+  "freshness": {
+    "lag_seconds": 30,
+    "stale": false,
+    "stale_after_seconds": 120
+  },
+  "metrics": {
+    "request_count": 42,
+    "error_count": 3,
+    "audit_event_count": 18,
+    "active_profiles": 1
+  }
+}
+```
+
+If no matching rollup rows exist, the endpoint still returns the supported response shape with zero metrics and `freshness.stale=true`. Unsupported or missing `window` returns `400` with error code `stats_window_unsupported`.
+
 ### 4.1 Usage Snapshot
 ```
 GET /api/stats/usage-snapshot
 ```
-This is the live dashboard analytics contract. It returns the unified usage snapshot used by `/dashboard?tab=analytics` after the request-events surface was removed, leaving aggregate summary, endpoint, model, and proxy-key statistics only.
+This is the analytics snapshot contract used by `/dashboard?tab=analytics`. It returns aggregate summary, endpoint, model, and proxy-key statistics only.
 
 Query parameters:
 | Parameter | Type | Default | Description |
@@ -1461,7 +1497,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is still aggregated from persisted usage-event rows, and dashboard analytics stays focused on aggregate views. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is aggregated from persisted usage-event rows, while `/api/stats/dashboard` is the separate materialized rollup freshness contract for dashboard management cards. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -1887,18 +1923,19 @@ GET /api/audit/logs
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `request_log_id` | integer | — | Filter audit rows linked to one request log |
-| `vendor_id` | integer | — | Filter by vendor ID |
-| `model_id` | string | — | Filter by model ID |
-| `status_code` | integer | — | Filter by response status code |
-| `endpoint_id` | integer | — | Filter by endpoint ID |
-| `connection_id` | integer | — | Filter by connection ID |
-| `from_time` | datetime | — | Start of time range (ISO 8601) |
-| `to_time` | datetime | — | End of time range (ISO 8601) |
+| `request_log_id` | integer | none | Filter audit rows linked to one request log |
+| `vendor_id` | integer | none | Filter by vendor ID |
+| `model_id` | string | none | Filter by model ID |
+| `status_code` | integer | none | Filter by response status code |
+| `endpoint_id` | integer | none | Filter by endpoint ID |
+| `connection_id` | integer | none | Filter by connection ID |
+| `from` | datetime | required | Inclusive start of bounded time range (RFC 3339) |
+| `to` | datetime | required | Exclusive end of bounded time range (RFC 3339) |
 | `limit` | integer | 50 | Max results (1-200) |
-| `offset` | integer | 0 | Pagination offset |
+| `cursor` | string | none | Opaque keyset cursor returned as `next_cursor` |
+| `sort` | string | `desc` | Only `desc` is supported |
 
-The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row.
+The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row. The `from` and `to` window is required and may not exceed 7 days. The legacy aliases `from_time` and `to_time` are accepted by the handler, but new clients should send `from` and `to`. Unsupported query keys return `400` with `audit_filter_unsupported`.
 
 Response `200`:
 ```json
@@ -1924,15 +1961,20 @@ Response `200`:
       "created_at": "2025-01-15T10:30:00Z"
     }
   ],
-  "total": 150,
+  "next_cursor": "eyJ2IjoxLCJsYXN0X2NyZWF0ZWRfYXQiOiIyMDI1LTAxLTE1VDEwOjMwOjAwWiIsImxhc3RfaWQiOjF9.signature",
+  "has_more": true,
+  "window": {
+    "from": "2025-01-15T00:00:00Z",
+    "to": "2025-01-16T00:00:00Z"
+  },
   "limit": 50,
-  "offset": 0
+  "sort": "desc"
 }
 ```
 
 The list API returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail API for full content.
 If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. Streaming responses never store `response_body`, so a streaming row may still have request metadata with a null response body. Rows whose `request_log_id` is `null` are orphaned audit rows from deleted request logs, and they remain visible in the audit APIs.
-Rows are ordered by `created_at DESC`.
+Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
 
 ### 5.2 Get Audit Log Detail
 ```
@@ -1968,31 +2010,97 @@ If vendor body capture is disabled, both `request_body` and `response_body` are 
 
 Response `404`: Audit log not found.
 
-### 5.3 Delete Audit Logs (Batch)
+### 5.3 Create Audit Delete Job (Query Form)
 ```
 DELETE /api/audit/logs
 ```
 Query parameters:
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `before` | datetime | — | Delete logs created before this time (ISO 8601). |
-| `older_than_days` | integer | — | Delete logs older than N days. Must be ≥ 1. |
+| `before` | datetime | none | Delete logs created before this time (ISO 8601). |
+| `older_than_days` | integer | none | Delete logs older than N days. Must be >= 1. |
 | `delete_all` | boolean | false | Delete all audit logs. |
 
-Exactly one of `before`, `older_than_days`, or `delete_all=true` must be provided. If multiple are provided or none are provided, returns `400`.
+This compatibility endpoint creates an asynchronous durable management job instead of deleting rows inside the request. If no explicit scope is supplied, Prism uses the selected profile's `audit_logs_retention_days` setting when configured. Otherwise, provide `before`, `older_than_days`, or `delete_all=true`. When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`.
 
-When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`. Cleanup is scheduled immediately after the response and runs in the background with a fresh async DB session.
+If `Idempotency-Key` is omitted on this query-form endpoint, the server derives a stable legacy key from profile and scope so repeated requests for the same scope return the same job. New clients that need an explicit reason and idempotency key should use `POST /api/audit/logs/delete-jobs`.
 
-Response `200`:
+Response `202`:
 ```json
 {
-  "accepted": true
+  "job_id": "job_0123456789abcdef01234567",
+  "state": "queued",
+  "status_url": "/api/management/jobs/job_0123456789abcdef01234567"
 }
 ```
 
-The response acknowledges that cleanup was scheduled; it does not include a final row count.
+The response sets `Location` to the same job status URL. The delete job runs in background chunks, tracks progress, and may finish after the response.
 
-Response `400`: Missing or conflicting parameters.
+Response `400`: Missing scope with no retention policy, invalid scope, or invalid query values.
+
+### 5.3A Create Audit Delete Job (JSON Form)
+```
+POST /api/audit/logs/delete-jobs
+```
+Headers:
+| Header | Required | Description |
+|---|---|---|
+| `Idempotency-Key` | yes | Stable client key for this delete request |
+
+Request:
+```json
+{
+  "reason": "operator retention cleanup",
+  "scope": {
+    "before": "2025-01-01T00:00:00Z"
+  }
+}
+```
+
+Use either `scope.before` or `scope.delete_all=true`. A non-empty `reason` is required.
+
+Response `202`: Same payload and `Location` header as `DELETE /api/audit/logs`.
+
+### 5.3B Management Job Status and Cancel
+```
+GET /api/management/jobs
+GET /api/management/jobs/{job_id}
+POST /api/management/jobs/{job_id}/cancel
+```
+
+`GET /api/management/jobs` returns recent profile-scoped jobs:
+```json
+{
+  "items": [
+    {
+      "id": "job_0123456789abcdef01234567",
+      "type": "audit_delete",
+      "state": "queued",
+      "requested_by": "profile:2",
+      "requested_at": "2026-04-19T12:00:00Z",
+      "started_at": null,
+      "finished_at": null,
+      "scope": { "before": "2025-01-01T00:00:00Z" },
+      "reason": "operator retention cleanup",
+      "progress": {
+        "rows_matched_estimate": 0,
+        "rows_deleted": 0,
+        "batches_completed": 0,
+        "last_cursor": ""
+      },
+      "attempt_count": 0,
+      "last_heartbeat_at": null,
+      "cancel_requested": false,
+      "error_code": null,
+      "error_message": null
+    }
+  ],
+  "has_more": false,
+  "next_cursor": null
+}
+```
+
+`GET /api/management/jobs/{job_id}` returns the same job object. `POST /api/management/jobs/{job_id}/cancel` marks an in-scope job for cancellation and returns `202` with the job object. Unknown or out-of-scope jobs return `404`.
 
 ### 5.4 Redaction Rules
 

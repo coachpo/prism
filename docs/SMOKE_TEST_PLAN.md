@@ -142,6 +142,7 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/stats/requests` | E01-E04, M14 |
 | `GET /api/stats/endpoints/{endpoint_id}/models` | E16, M14 |
 | `GET /api/stats/summary` | E05-E06, M14 |
+| `GET /api/stats/dashboard` | E14, M14 |
 | `POST /api/stats/models/metrics` | E13, M14 |
 | `GET /api/stats/connection-success-rates` | E07 |
 | `GET /api/stats/throughput` | E15, M14 |
@@ -151,6 +152,10 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/audit/logs` | F10, F12, M15 |
 | `GET /api/audit/logs/{id}` | F11, M15 |
 | `DELETE /api/audit/logs` | F13, G04-G05, M15 |
+| `POST /api/audit/logs/delete-jobs` | F13, G04-G05, M15 |
+| `GET /api/management/jobs` | F13, G04-G05, M15 |
+| `GET /api/management/jobs/{job_id}` | F13, G04-G05, M15 |
+| `POST /api/management/jobs/{job_id}/cancel` | F13, G04-G05, M15 |
 | `GET /api/loadbalance/current-state` | G18, M14 |
 | `POST /api/loadbalance/current-state/{connection_id}/reset` | G19, M14 |
 | `GET /api/loadbalance/events` | G16, M14 |
@@ -287,6 +292,7 @@ Prepare seed state through API (not manual DB edits):
 | E11 | P1 | Streaming without usage fields | Token fields null |
 | E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
 | E13 | P0 | Model metrics batch API | Returns metrics for multiple models |
+| E14 | P0 | Dashboard materialized stats API | Requires supported `window`, returns `generated_at`, `covers`, `freshness`, and rollup `metrics`; stale or missing buckets report freshness lag without live aggregation fallback |
 | E15 | P1 | Throughput API | Returns aggregate RPM metrics plus time buckets for the selected scope |
 | E16 | P0 | Endpoint model statistics API | Returns per-model counts, success rates, TTFT percentiles, token totals, and cost for the selected endpoint scope |
 
@@ -303,10 +309,10 @@ Prepare seed state through API (not manual DB edits):
 | F07 | P1 | Redaction by name pattern | Values redacted |
 | F08 | P1 | Non-sensitive headers | Preserved |
 | F09 | P0 | 64KB truncation | `[TRUNCATED]` appended |
-| F10 | P0 | Audit list API | `request_body_preview` max 200 chars, ordered desc |
+| F10 | P0 | Audit list API | Requires bounded `from`/`to` window, caps windows at 7 days, returns `request_body_preview` max 200 chars, and orders by `(created_at DESC, id DESC)` |
 | F11 | P0 | Audit detail API | Full row returned; unknown id is `404` |
-| F12 | P0 | Audit filters/pagination | Correct subsets and totals |
-| F13 | P0 | Audit delete validation | `400` |
+| F12 | P0 | Audit filters/pagination | Correct subsets, keyset `next_cursor`, `has_more`, and no audit `offset` or `total` response contract |
+| F13 | P0 | Audit delete job validation | `202` creates an async job with `job_id`, `state`, `status_url`, and `Location`; invalid body, scope, reason, or idempotency returns `400` |
 | F14 | P1 | Audit non-interference on write failure | Proxy response unaffected |
 | F15 | P0 | Orphan audit row visibility | Audit rows with null `request_log_id` remain visible in audit APIs and keep request-time provenance |
 
@@ -317,17 +323,17 @@ Prepare seed state through API (not manual DB edits):
 | G01 | P0 | Stats delete with missing mode | `400` |
 | G02 | P0 | Stats delete with preset days | `200`, returns `{ accepted: true }`, cutoff semantics |
 | G03 | P0 | Delete request logs with linked audit rows | Audit rows remain, `request_log_id` becomes null |
-| G04 | P0 | Audit delete with `older_than_days` | Correct deletion |
-| G05 | P1 | Audit delete with `before` timestamp | Correct deletion; request logs unaffected |
+| G04 | P0 | Audit delete job with `older_than_days` | Job is accepted, processes asynchronously, reports progress, and deletes matching audit rows only |
+| G05 | P1 | Audit delete job with `before` timestamp | Job is accepted, processes asynchronously, and leaves request logs unaffected |
 | G06 | P0 | Stats delete with custom day value | `200`, returns `{ accepted: true }` |
 | G07 | P0 | Stats delete rejects invalid day values | `422` |
 | G08 | P0 | Stats delete rejects conflicting modes | `400` |
 | G09 | P0 | Stats delete all mode | Deletes entire `request_logs` table |
-| G10 | P0 | Audit delete with custom day value | `200`, returns `{ accepted: true }` |
+| G10 | P0 | Audit delete with custom day value | `202`, returns `{ job_id, state, status_url }` and a `Location` header |
 | G13 | P0 | Loadbalance delete with custom day value | `200`, returns `{ accepted: true }` |
 | G14 | P0 | Loadbalance delete all mode | `200`, returns `{ accepted: true }` |
 | G15 | P0 | Loadbalance delete rejects conflicting modes | `400` |
-| G11 | P0 | Audit delete all mode | Deletes entire `audit_logs` table |
+| G11 | P0 | Audit delete all mode | Async job deletes the selected profile's audit rows |
 | G12 | P0 | Audit delete rejects multiple active modes | `400` |
 | G16 | P0 | List loadbalance events | Returns events for a model |
 | G17 | P0 | Get loadbalance event detail | Returns full event metadata |
