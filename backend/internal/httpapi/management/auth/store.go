@@ -530,7 +530,7 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 		}
 		updatedRow.AuthEnabled = true
 		updatedRow.Username = toNullString(username)
-		if settingsRow.AuthEnabled && username != nil && stringValue(settingsRow.Username) != *username {
+		if settingsRow.AuthEnabled && stringValue(settingsRow.Username) != *username {
 			updatedRow.TokenVersion++
 			revokeSessions = true
 		}
@@ -669,21 +669,23 @@ func (s *Service) confirmEmailVerification(ctx context.Context, tx pgx.Tx, setti
 	return updatedRow, nil
 }
 
-func (s *Service) createPasswordResetChallenge(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, requestedIP string) (string, error) {
+func (s *Service) createPasswordResetChallenge(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, requestedIP string) (string, int, time.Time, error) {
 	otpCode, err := generateOTPCode()
 	if err != nil {
-		return "", err
+		return "", 0, time.Time{}, err
 	}
 	now := s.nowUTC()
+	expiresAt := now.Add(s.resetCodeTTL)
 	if _, err := tx.Exec(
 		ctx,
 		`UPDATE password_reset_challenges SET consumed_at = $2 WHERE auth_subject_id = $1 AND consumed_at IS NULL`,
 		settingsRow.ID,
 		now,
 	); err != nil {
-		return "", fmt.Errorf("revoke existing password reset challenges: %w", err)
+		return "", 0, time.Time{}, fmt.Errorf("revoke existing password reset challenges: %w", err)
 	}
-	if _, err := tx.Exec(
+	var challengeID int
+	if err := tx.QueryRow(
 		ctx,
 		`INSERT INTO password_reset_challenges (
 			auth_subject_id,
@@ -693,18 +695,19 @@ func (s *Service) createPasswordResetChallenge(ctx context.Context, tx pgx.Tx, s
 			attempt_count,
 			requested_ip,
 			created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id`,
 		settingsRow.ID,
 		hashOpaqueToken(otpCode),
-		now.Add(s.resetCodeTTL),
+		expiresAt,
 		nil,
 		0,
 		nullableTrimmedString(requestedIP),
 		now,
-	); err != nil {
-		return "", fmt.Errorf("insert password reset challenge: %w", err)
+	).Scan(&challengeID); err != nil {
+		return "", 0, time.Time{}, fmt.Errorf("insert password reset challenge: %w", err)
 	}
-	return otpCode, nil
+	return otpCode, challengeID, expiresAt, nil
 }
 
 func (s *Service) loadLatestPasswordResetChallenge(ctx context.Context, exec queryExecutor, authSubjectID int) (passwordResetChallengeRow, error) {
@@ -850,7 +853,7 @@ func (s *Service) createProxyAPIKey(ctx context.Context, tx pgx.Tx, name string,
 	if count >= proxyKeyLimit {
 		return "", proxyAPIKeyRow{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Maximum %d proxy API keys reached", proxyKeyLimit)}
 	}
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		rawKey, keyPrefix, lastFour, keyHash, err := buildProxyAPIKey()
 		if err != nil {
 			return "", proxyAPIKeyRow{}, err
@@ -975,7 +978,7 @@ func (s *Service) rotateProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) (
 	); err != nil {
 		return "", proxyAPIKeyRow{}, fmt.Errorf("expire rotated proxy api key: %w", err)
 	}
-	for attempt := 0; attempt < 5; attempt++ {
+	for range 5 {
 		rawKey, keyPrefix, lastFour, keyHash, err := buildProxyAPIKey()
 		if err != nil {
 			return "", proxyAPIKeyRow{}, err
@@ -1035,11 +1038,11 @@ func (s *Service) deleteProxyAPIKey(ctx context.Context, tx pgx.Tx, keyID int) e
 	return nil
 }
 
-func (s *Service) verifyProxyAPIKey(_ context.Context, rawKey string) (*proxyAPIKeyRow, error) {
+func (s *Service) verifyProxyAPIKey(ctx context.Context, rawKey string) (*proxyAPIKeyRow, error) {
 	if s.runtimeCache == nil {
 		return nil, runtimeSnapshotUnavailableError()
 	}
-	decision, err := s.runtimeCache.LoadRuntimeProxyKeyDecision(s.nowUTC(), rawKey)
+	decision, err := s.runtimeCache.LoadFreshRuntimeProxyKeyDecision(ctx, s.nowUTC(), rawKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1056,10 +1059,7 @@ func RecordProxyAPIKeyUsageTx(ctx context.Context, tx pgx.Tx, keyID int, lastUse
 func (s *Service) recordProxyAPIKeyUsage(ctx context.Context, keyID int, lastUsedAt time.Time, lastUsedIP string) error {
 	execPool := s.proxyKeyUsagePool
 	if execPool == nil {
-		execPool = s.pool
-	}
-	if execPool == nil {
-		return fmt.Errorf("record proxy api key usage: database pool unavailable")
+		return fmt.Errorf("record proxy api key usage: background jobs pool unavailable")
 	}
 	if err := proxykeyusage.RecordWithExecutor(ctx, execPool, keyID, lastUsedAt, lastUsedIP); err != nil {
 		return fmt.Errorf("record proxy api key usage: %w", err)
@@ -1112,8 +1112,7 @@ func (s *Service) serializeProxyAPIKey(row proxyAPIKeyRow) proxyAPIKeyResponse {
 }
 
 func isUniqueConstraintError(err error, constraintName string) bool {
-	var pgError *pgconn.PgError
-	if errors.As(err, &pgError) {
+	if pgError := new(pgconn.PgError); errors.As(err, &pgError) {
 		return pgError.ConstraintName == constraintName || pgError.Code == "23505"
 	}
 	return strings.Contains(err.Error(), constraintName)

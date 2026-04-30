@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
@@ -326,21 +328,18 @@ func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Requ
 	identifier := strings.TrimSpace(requestBody.UsernameOrEmail)
 	result, err := pgxutil.InTxValue(r.Context(), s.pool, "auth", func(tx pgx.Tx) (struct {
 		SettingsRow appAuthSettingsRow
-		OTPCode     string
 		ShouldSend  bool
 	}, error) {
 		settingsRow, loadErr := s.loadOrCreateAppAuthSettings(r.Context(), tx)
 		if loadErr != nil {
 			return struct {
 				SettingsRow appAuthSettingsRow
-				OTPCode     string
 				ShouldSend  bool
 			}{}, fmt.Errorf("load auth settings: %w", loadErr)
 		}
 		if !settingsRow.AuthEnabled || !settingsRow.Email.Valid || identifier == "" {
 			return struct {
 				SettingsRow appAuthSettingsRow
-				OTPCode     string
 				ShouldSend  bool
 			}{SettingsRow: settingsRow}, nil
 		}
@@ -352,33 +351,43 @@ func (s *Service) handlePasswordResetRequest(w http.ResponseWriter, r *http.Requ
 		if _, ok := allowedIdentifiers[identifier]; !ok {
 			return struct {
 				SettingsRow appAuthSettingsRow
-				OTPCode     string
 				ShouldSend  bool
 			}{SettingsRow: settingsRow}, nil
 		}
-		otpCode, createErr := s.createPasswordResetChallenge(r.Context(), tx, settingsRow, requestIP(r))
+		otpCode, challengeID, expiresAt, createErr := s.createPasswordResetChallenge(r.Context(), tx, settingsRow, requestIP(r))
 		if createErr != nil {
 			return struct {
 				SettingsRow appAuthSettingsRow
-				OTPCode     string
 				ShouldSend  bool
 			}{}, createErr
 		}
+		if enqueueErr := s.enqueueAuthEmail(r.Context(), tx, outbox.Job{
+			Kind:           outbox.KindPasswordReset,
+			RecipientEmail: settingsRow.Email.String,
+			Template:       outbox.TemplatePasswordReset,
+			Secret:         otpCode,
+			IdempotencyKey: fmt.Sprintf("password_reset:%d:%d", settingsRow.ID, challengeID),
+			Payload: map[string]any{
+				"auth_subject_id": settingsRow.ID,
+				"challenge_id":    challengeID,
+				"expires_at":      expiresAt.UTC().Format(time.RFC3339),
+			},
+		}); enqueueErr != nil {
+			return struct {
+				SettingsRow appAuthSettingsRow
+				ShouldSend  bool
+			}{}, enqueueErr
+		}
 		return struct {
 			SettingsRow appAuthSettingsRow
-			OTPCode     string
 			ShouldSend  bool
-		}{SettingsRow: settingsRow, OTPCode: otpCode, ShouldSend: true}, nil
+		}{SettingsRow: settingsRow, ShouldSend: true}, nil
 	})
 	if err != nil {
 		writeDomainError(w, r, s.allowedOrigins, err)
 		return
 	}
-	if result.ShouldSend {
-		if sendErr := s.mailer.SendPasswordResetEmail(r.Context(), result.SettingsRow.Email.String, result.OTPCode); sendErr != nil {
-			slog.Error("failed to send password reset email", "error", sendErr, "auth_subject_id", result.SettingsRow.ID)
-		}
-	}
+	_ = result
 	writeJSON(w, http.StatusOK, successResponse{Success: true})
 }
 
@@ -453,8 +462,18 @@ func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.
 		if beginErr != nil {
 			return beginErr
 		}
-		if sendErr := s.mailer.SendEmailVerificationOTP(r.Context(), email, otpCode); sendErr != nil {
-			return fmt.Errorf("send email verification code: %w", sendErr)
+		if enqueueErr := s.enqueueAuthEmail(r.Context(), tx, outbox.Job{
+			Kind:           outbox.KindEmailVerificationOTP,
+			RecipientEmail: email,
+			Template:       outbox.TemplateEmailVerificationOTP,
+			Secret:         otpCode,
+			IdempotencyKey: fmt.Sprintf("email_verification_otp:%d:%d", currentRow.ID, currentRow.EmailVerificationExpiresAt.Time.UnixNano()),
+			Payload: map[string]any{
+				"auth_subject_id": currentRow.ID,
+				"expires_at":      currentRow.EmailVerificationExpiresAt.Time.UTC().Format(time.RFC3339),
+			},
+		}); enqueueErr != nil {
+			return enqueueErr
 		}
 		updatedRow = currentRow
 		return nil
@@ -464,6 +483,16 @@ func (s *Service) handleEmailVerificationRequest(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, s.buildEmailVerificationResponse(updatedRow))
+}
+
+func (s *Service) enqueueAuthEmail(ctx context.Context, tx pgx.Tx, job outbox.Job) error {
+	if s == nil || s.emailOutbox == nil {
+		return fmt.Errorf("email outbox unavailable")
+	}
+	if _, err := s.emailOutbox.EnqueueTx(ctx, tx, job); err != nil {
+		return fmt.Errorf("enqueue auth email outbox job: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) handleEmailVerificationConfirm(w http.ResponseWriter, r *http.Request) {
@@ -609,8 +638,7 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 }
 
 func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
-	var authErr *domainError
-	if errors.As(err, &authErr) {
+	if authErr, ok := errors.AsType[*domainError](err); ok {
 		writeError(w, r, allowedOrigins, authErr.StatusCode, authErr.Detail)
 		return
 	}

@@ -3,9 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,8 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
-	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 )
 
 type Mailer interface {
@@ -24,16 +23,18 @@ type Mailer interface {
 
 type Options struct {
 	Mailer            Mailer
+	EmailOutbox       *outbox.Store
 	Now               func() time.Time
 	Pool              *pgxpool.Pool
 	ProxyKeyUsagePool *pgxpool.Pool
 	RuntimeCache      *RuntimeCache
+	Scheduler         *background.Scheduler
 }
 
 type Service struct {
 	pool                   *pgxpool.Pool
 	ownsPool               bool
-	mailer                 Mailer
+	emailOutbox            *outbox.Store
 	now                    func() time.Time
 	authJWTSecret          string
 	accessTokenTTL         time.Duration
@@ -46,7 +47,6 @@ type Service struct {
 	proxyKeyPreviewSize    int
 	runtimeCache           *RuntimeCache
 	proxyKeyUsagePool      *pgxpool.Pool
-	ownsProxyKeyUsagePool  bool
 	proxyKeyUsageWriter    *proxyAPIKeyUsageWriter
 	authSettingsSnapshotMu sync.RWMutex
 	authSettingsSnapshot   *AppAuthSettingsSnapshot
@@ -60,42 +60,16 @@ type authSubject struct {
 
 type authSubjectContextKey struct{}
 
-type noopMailer struct{}
-
-func (noopMailer) SendEmailVerificationOTP(_ context.Context, recipient string, otpCode string) error {
-	slog.Warn("no mailer configured; email verification OTP not delivered", "recipient", recipient, "otp_code", otpCode)
-	return nil
-}
-
-func (noopMailer) SendPasswordResetEmail(_ context.Context, recipient string, otpCode string) error {
-	slog.Warn("no mailer configured; password reset OTP not delivered", "recipient", recipient, "otp_code", otpCode)
-	return nil
-}
-
 func NewService(settings config.Settings, options Options) (*Service, error) {
 	pool := options.Pool
 	ownsPool := false
 	if pool == nil {
-		if strings.TrimSpace(settings.DatabaseURL) == "" {
-			return nil, fmt.Errorf("database URL is required")
-		}
-
-		createdPool, err := pgxpool.New(context.Background(), settings.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("create auth database pool: %w", err)
-		}
-		pool = createdPool
-		ownsPool = true
+		return nil, fmt.Errorf("auth database pool is required")
 	}
 
 	now := options.Now
 	if now == nil {
 		now = time.Now
-	}
-
-	mailer := options.Mailer
-	if mailer == nil {
-		mailer = noopMailer{}
 	}
 
 	allowedOrigins := map[string]struct{}{}
@@ -104,41 +78,35 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	}
 
 	proxyKeyUsagePool := options.ProxyKeyUsagePool
-	ownsProxyKeyUsagePool := false
-	if options.RuntimeCache == nil && proxyKeyUsagePool == nil && strings.TrimSpace(settings.DatabaseURL) != "" {
-		createdProxyKeyUsagePool, err := newProxyKeyUsagePool(settings.DatabaseURL)
-		if err != nil {
-			if ownsPool && pool != nil {
-				pool.Close()
-			}
-			return nil, fmt.Errorf("create proxy api key usage pool: %w", err)
-		}
-		proxyKeyUsagePool = createdProxyKeyUsagePool
-		ownsProxyKeyUsagePool = true
-	}
 
 	service := &Service{
-		pool:                  pool,
-		ownsPool:              ownsPool,
-		mailer:                mailer,
-		now:                   now,
-		authJWTSecret:         settings.AuthJWTSecret,
-		accessTokenTTL:        time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
-		refreshTokenTTL:       time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
-		resetCodeTTL:          time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
-		accessCookieName:      settings.AuthCookieName,
-		refreshCookieName:     settings.AuthRefreshCookieName,
-		cookieSecure:          settings.AuthCookieSecure,
-		allowedOrigins:        allowedOrigins,
-		proxyKeyPreviewSize:   4,
-		runtimeCache:          options.RuntimeCache,
-		proxyKeyUsagePool:     proxyKeyUsagePool,
-		ownsProxyKeyUsagePool: ownsProxyKeyUsagePool,
+		pool:                pool,
+		ownsPool:            ownsPool,
+		emailOutbox:         options.EmailOutbox,
+		now:                 now,
+		authJWTSecret:       settings.AuthJWTSecret,
+		accessTokenTTL:      time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
+		refreshTokenTTL:     time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
+		resetCodeTTL:        time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
+		accessCookieName:    settings.AuthCookieName,
+		refreshCookieName:   settings.AuthRefreshCookieName,
+		cookieSecure:        settings.AuthCookieSecure,
+		allowedOrigins:      allowedOrigins,
+		proxyKeyPreviewSize: 4,
+		runtimeCache:        options.RuntimeCache,
+		proxyKeyUsagePool:   proxyKeyUsagePool,
 	}
 	if proxyKeyUsagePool != nil {
-		service.proxyKeyUsageWriter = newProxyAPIKeyUsageWriter(service.recordProxyAPIKeyUsage)
+		service.proxyKeyUsageWriter = newProxyAPIKeyUsageWriter(service.recordProxyAPIKeyUsage, options.Scheduler)
 	}
 	return service, nil
+}
+
+func (s *Service) RegisterBackgroundWorkers(scheduler *background.Scheduler) error {
+	if s == nil || s.proxyKeyUsageWriter == nil {
+		return nil
+	}
+	return s.proxyKeyUsageWriter.RegisterBackgroundWorker(scheduler)
 }
 
 func (s *Service) Close() {
@@ -147,9 +115,6 @@ func (s *Service) Close() {
 	}
 	if s.proxyKeyUsageWriter != nil {
 		s.proxyKeyUsageWriter.Close()
-	}
-	if s.ownsProxyKeyUsagePool && s.proxyKeyUsagePool != nil {
-		s.proxyKeyUsagePool.Close()
 	}
 	if s.ownsPool && s.pool != nil {
 		s.pool.Close()
@@ -190,24 +155,17 @@ func (s *Service) invalidateAppAuthSettingsSnapshot() {
 	s.authSettingsSnapshot = nil
 }
 
-func (s *Service) loadRuntimeAuthSettings(_ context.Context) (RuntimeAuthSettingsSnapshot, error) {
+func (s *Service) loadRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSettingsSnapshot, error) {
 	if s.runtimeCache == nil {
 		return RuntimeAuthSettingsSnapshot{}, runtimeSnapshotUnavailableError()
 	}
-	return s.runtimeCache.LoadRuntimeAuthSettings()
+	return s.runtimeCache.LoadFreshRuntimeAuthSettings(ctx)
 }
 
 func (s *Service) InvalidateRuntimeCache() {
 	if s == nil || s.runtimeCache == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	err := s.runtimeCache.RefreshNow(ctx, runtimeapi.RefreshRequest{Auth: true})
-	if err == nil {
-		return
-	}
-	slog.Error("failed to publish runtime auth snapshot immediately", "error", err)
 	s.runtimeCache.Invalidate()
 }
 
