@@ -398,10 +398,7 @@ func (m BootstrapConfigManager) LoadBootstrapConfigDocument(path string) (Bootst
 
 func BuildBootstrapConfigResponse(snapshot BootstrapConfigSnapshot, loadedRevision int, loadedDocumentETag string, writable bool) BootstrapConfigResponse {
 	loadedETag := strings.TrimSpace(loadedDocumentETag)
-	restartRequired := false
-	if loadedRevision > 0 && loadedRevision != snapshot.FileRevision {
-		restartRequired = true
-	}
+	restartRequired := loadedRevision > 0 && loadedRevision != snapshot.FileRevision
 	if loadedETag != "" && loadedETag != snapshot.DocumentETag {
 		restartRequired = true
 	}
@@ -1514,16 +1511,6 @@ func (d bootstrapDatabase) validate() error {
 		return err
 	}
 	return d.ManagementAdmission.validate()
-}
-
-func (p bootstrapDatabasePool) validate(path string) error {
-	if _, err := requiredIntRange(path+".maxConns", p.MaxConns, 1, math.MaxInt32); err != nil {
-		return err
-	}
-	if _, err := requiredIntRange(path+".minIdleConns", p.MinIdleConns, 0, math.MaxInt32); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (p bootstrapDatabasePool) toDatabasePoolBudget(path string) (DatabasePoolBudget, error) {
