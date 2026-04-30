@@ -74,10 +74,14 @@ func (c *RuntimeCache) ScheduleRefresh(request runtimeapi.RefreshRequest) {
 }
 
 func (c *RuntimeCache) LoadRuntimeAuthSettings() (RuntimeAuthSettingsSnapshot, error) {
+	return c.LoadFreshRuntimeAuthSettings(context.Background())
+}
+
+func (c *RuntimeCache) LoadFreshRuntimeAuthSettings(ctx context.Context) (RuntimeAuthSettingsSnapshot, error) {
 	if c == nil || c.shared == nil {
 		return RuntimeAuthSettingsSnapshot{}, runtimeapi.ErrPublishedRuntimeSnapshotUnavailable
 	}
-	snapshot, err := c.shared.LoadRuntimeAuthSettings()
+	snapshot, err := c.shared.LoadFreshRuntimeAuthSettings(ctx)
 	if err != nil {
 		return RuntimeAuthSettingsSnapshot{}, err
 	}
@@ -85,6 +89,10 @@ func (c *RuntimeCache) LoadRuntimeAuthSettings() (RuntimeAuthSettingsSnapshot, e
 }
 
 func (c *RuntimeCache) LoadRuntimeProxyKeyDecision(now time.Time, rawKey string) (RuntimeProxyKeyDecision, error) {
+	return c.LoadFreshRuntimeProxyKeyDecision(context.Background(), now, rawKey)
+}
+
+func (c *RuntimeCache) LoadFreshRuntimeProxyKeyDecision(ctx context.Context, now time.Time, rawKey string) (RuntimeProxyKeyDecision, error) {
 	if c == nil || c.shared == nil {
 		return RuntimeProxyKeyDecision{}, runtimeapi.ErrPublishedRuntimeSnapshotUnavailable
 	}
@@ -92,7 +100,7 @@ func (c *RuntimeCache) LoadRuntimeProxyKeyDecision(now time.Time, rawKey string)
 	if err != nil {
 		return RuntimeProxyKeyDecision{}, nil
 	}
-	record, ok, err := c.shared.LoadRuntimeProxyKeyRecord(keyPrefix)
+	record, ok, err := c.shared.LoadFreshRuntimeProxyKeyRecord(ctx, keyPrefix)
 	if err != nil {
 		return RuntimeProxyKeyDecision{}, err
 	}
@@ -118,5 +126,5 @@ func runtimeSnapshotUnavailableError() error {
 }
 
 func isPublishedSnapshotUnavailable(err error) bool {
-	return errors.Is(err, runtimeapi.ErrPublishedRuntimeSnapshotUnavailable)
+	return errors.Is(err, runtimeapi.ErrPublishedRuntimeSnapshotUnavailable) || errors.Is(err, runtimeapi.ErrRuntimeSnapshotRefreshRequired)
 }

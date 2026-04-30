@@ -8,14 +8,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
 const (
 	defaultProxyKeyUsageFlushInterval   = 500 * time.Millisecond
 	defaultProxyKeyUsageShutdownTimeout = 3 * time.Second
 	defaultProxyKeyUsageWriteTimeout    = 5 * time.Second
-	proxyKeyUsageBackgroundPoolMaxConns = 1
 )
 
 type proxyAPIKeyUsageUpdate struct {
@@ -30,46 +29,52 @@ type proxyAPIKeyUsageWriter struct {
 	flushInterval   time.Duration
 	shutdownTimeout time.Duration
 	writeTimeout    time.Duration
-	ctx             context.Context
-	cancel          context.CancelFunc
-	done            chan struct{}
+	scheduler       *background.Scheduler
+	ownsScheduler   bool
 
 	mu      sync.Mutex
 	pending map[int]proxyAPIKeyUsageUpdate
 	closed  bool
 }
 
-func newProxyKeyUsagePool(databaseURL string) (*pgxpool.Pool, error) {
-	parsedConfig, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse proxy api key usage pool config: %w", err)
-	}
-	parsedConfig.MaxConns = proxyKeyUsageBackgroundPoolMaxConns
-	parsedConfig.MinConns = 0
-	pool, err := pgxpool.NewWithConfig(context.Background(), parsedConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create proxy api key usage pool: %w", err)
-	}
-	return pool, nil
-}
-
-func newProxyAPIKeyUsageWriter(write func(context.Context, int, time.Time, string) error) *proxyAPIKeyUsageWriter {
+func newProxyAPIKeyUsageWriter(write func(context.Context, int, time.Time, string) error, scheduler *background.Scheduler) *proxyAPIKeyUsageWriter {
 	if write == nil {
 		return nil
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	writer := &proxyAPIKeyUsageWriter{
 		write:           write,
 		flushInterval:   defaultProxyKeyUsageFlushInterval,
 		shutdownTimeout: defaultProxyKeyUsageShutdownTimeout,
 		writeTimeout:    defaultProxyKeyUsageWriteTimeout,
-		ctx:             ctx,
-		cancel:          cancel,
-		done:            make(chan struct{}),
+		scheduler:       scheduler,
 		pending:         map[int]proxyAPIKeyUsageUpdate{},
 	}
-	go writer.run()
+	if writer.scheduler == nil {
+		writer.scheduler = background.NewScheduler(background.Config{})
+		writer.ownsScheduler = true
+		_ = writer.RegisterBackgroundWorker(writer.scheduler)
+		_ = writer.scheduler.Start(context.Background())
+	}
 	return writer
+}
+
+func (w *proxyAPIKeyUsageWriter) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
+	if w == nil || scheduler == nil {
+		return nil
+	}
+	w.scheduler = scheduler
+	return scheduler.Register(background.WorkerSpec{
+		Name:             background.WorkerName("proxy_key_usage_writer"),
+		Priority:         background.PriorityNormalBackground,
+		MaxPriority:      background.PriorityNormalBackground,
+		QueueLimit:       256,
+		ConcurrencyLimit: 1,
+		DrainPolicy:      background.DrainFlush,
+		CoalescePolicy:   background.CoalesceDropNew,
+		RetryPolicy:      &background.RetryPolicy{MaxAttempts: 3, Delay: w.flushInterval},
+		PeriodicTrigger:  &background.PeriodicTrigger{Interval: w.flushInterval},
+		Timeout:          w.writeTimeout,
+	}, w.handleScheduledFlush)
 }
 
 func (w *proxyAPIKeyUsageWriter) Enqueue(keyID int, lastUsedAt time.Time, lastUsedIP string) error {
@@ -91,6 +96,9 @@ func (w *proxyAPIKeyUsageWriter) Enqueue(keyID int, lastUsedAt time.Time, lastUs
 		}
 	}
 	w.pending[keyID] = update
+	if w.scheduler != nil {
+		_ = w.scheduler.Submit(context.Background(), background.JobRequest{Worker: background.WorkerName("proxy_key_usage_writer"), CoalesceKey: "proxy_key_usage_writer"})
+	}
 	return nil
 }
 
@@ -101,42 +109,43 @@ func (w *proxyAPIKeyUsageWriter) Close() {
 	w.mu.Lock()
 	w.closed = true
 	w.mu.Unlock()
-	w.cancel()
-	select {
-	case <-w.done:
-	case <-time.After(w.shutdownTimeout + time.Second):
+	if w.ownsScheduler && w.scheduler != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), w.shutdownTimeout)
+		_ = w.scheduler.Stop(ctx, time.Now().Add(w.shutdownTimeout))
+		cancel()
+	} else {
+		w.flushPending(w.shutdownTimeout)
 	}
 }
 
-func (w *proxyAPIKeyUsageWriter) run() {
-	defer close(w.done)
-	ticker := time.NewTicker(w.flushInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-w.ctx.Done():
-			w.flushPending(w.shutdownTimeout)
-			return
-		case <-ticker.C:
-			w.flushPending(w.writeTimeout)
-		}
+func (w *proxyAPIKeyUsageWriter) handleScheduledFlush(ctx context.Context, _ background.Job) background.JobResult {
+	if err := w.flushPendingContext(ctx); err != nil {
+		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	return background.JobResult{Status: background.JobSucceeded}
 }
 
 func (w *proxyAPIKeyUsageWriter) flushPending(timeout time.Duration) {
-	updates := w.drainPending()
-	if len(updates) == 0 {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	if err := w.flushPendingContext(ctx); err != nil {
+		slog.Error("failed to flush proxy api key usage updates", "error", err)
+	}
+}
+
+func (w *proxyAPIKeyUsageWriter) flushPendingContext(ctx context.Context) error {
+	updates := w.drainPending()
+	if len(updates) == 0 {
+		return nil
+	}
 	for _, update := range updates {
 		if err := w.write(ctx, update.KeyID, update.LastUsedAt, update.LastUsedIP); err != nil {
 			w.requeue(updates)
 			slog.Error("failed to flush proxy api key usage updates", "error", err, "pending_keys", len(updates))
-			return
+			return err
 		}
 	}
+	return nil
 }
 
 func (w *proxyAPIKeyUsageWriter) drainPending() []proxyAPIKeyUsageUpdate {
