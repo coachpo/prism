@@ -174,7 +174,7 @@ export function UsageTrendChart({
             <AreaChart
               accessibilityLayer
               data={chartData}
-              margin={{ bottom: 0, left: 12, right: 12, top: 8 }}
+              margin={{ bottom: 4, left: 12, right: 16, top: 16 }}
             >
               <defs>
                 {chartSeries.map((item) => {
@@ -235,7 +235,7 @@ export function UsageTrendChart({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={item.isPrimary ? 2.5 : 2}
-                  type="natural"
+                  type="monotone"
                 />
               ))}
             </AreaChart>
