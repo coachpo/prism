@@ -10,8 +10,8 @@ interface UsageHealthHeatmapProps {
   intervalMinutes: number;
 }
 
-const HEATMAP_ROW_COUNT = 12;
-const HEATMAP_COLUMN_COUNT = 56;
+const HEATMAP_ROW_COUNT = 7;
+const HEATMAP_COLUMN_COUNT = 96;
 const HEATMAP_CELL_COUNT = HEATMAP_ROW_COUNT * HEATMAP_COLUMN_COUNT;
 const BUCKET_LABEL_FORMAT_OPTIONS = {
   day: "numeric",
@@ -87,13 +87,13 @@ export function UsageHealthHeatmap({ cells, intervalMinutes }: UsageHealthHeatma
                             />
                           </TooltipTrigger>
                           <TooltipContent
-                            className="rounded-xl border border-border/70 bg-popover/95 px-3 py-2 shadow-md backdrop-blur-sm"
+                            className="rounded-lg border border-border/70 bg-popover/95 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm"
                             data-testid="usage-health-tooltip"
                             side="top"
-                            sideOffset={6}
+                            sideOffset={4}
                           >
-                            <div className="flex flex-col gap-1.5">
-                              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                            <div className="flex flex-col gap-1">
+                              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                                 {cell.rangeLabel}
                               </p>
                               <p className="font-medium text-foreground">{statusLabels[cell.bucket.status]}</p>
@@ -101,9 +101,7 @@ export function UsageHealthHeatmap({ cells, intervalMinutes }: UsageHealthHeatma
                                 {formatAvailabilityLine(cell.bucket, formatNumber, messages.statistics.availability)}
                               </p>
                               <p>
-                                {messages.statistics.requests} {formatNumber(cell.bucket.request_count)}
-                              </p>
-                              <p>
+                                {messages.statistics.requests} {formatNumber(cell.bucket.request_count)} · {" "}
                                 {messages.statistics.successfulCount(formatNumber(cell.bucket.success_count))} · {" "}
                                 {messages.statistics.failedCount(formatNumber(cell.bucket.failed_count))}
                               </p>
@@ -175,7 +173,7 @@ function buildHeatmapRows({
 
   return Array.from({ length: HEATMAP_ROW_COUNT }, (_, rowIndex) =>
     Array.from({ length: HEATMAP_COLUMN_COUNT }, (_, columnIndex) => {
-      const bucket = orderedCells[columnIndex * HEATMAP_ROW_COUNT + rowIndex];
+      const bucket = orderedCells[rowIndex * HEATMAP_COLUMN_COUNT + columnIndex];
 
       return {
         bucket,
