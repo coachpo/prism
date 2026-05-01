@@ -48,7 +48,7 @@ function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
 
 type Params = {
   fetchDashboardData: (args?: { forceRefresh?: boolean; silent?: boolean }) => Promise<void>;
-  latestDashboardRequestIdRef: React.MutableRefObject<number>;
+  latestDashboardRequestIdRef: React.RefObject<number>;
   selectedProfileId: number | null;
   setApiFamilyStats: React.Dispatch<React.SetStateAction<StatsSummary | null>>;
   setRecentRequests: React.Dispatch<React.SetStateAction<RequestLogListItem[]>>;

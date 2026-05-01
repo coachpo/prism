@@ -15,22 +15,22 @@ import { buildRoutingDiagramData, type RoutingDiagramData } from "./routingDiagr
 import { getEmptyRoutingDiagramData } from "./dashboardDataUtils";
 
 type Params = {
-  latestDashboardRequestIdRef: React.MutableRefObject<number>;
+  latestDashboardRequestIdRef: React.RefObject<number>;
   revision: number;
   selectedProfileId: number | null;
 };
 
 interface DashboardBootstrapResult {
   modelsData: ModelConfigListItem[];
-  apiFamilyStatsData: StatsSummary;
-  requestsData: RequestLogListResponse;
+  apiFamilyStatsData: StatsSummary | null;
+  requestsData: RequestLogListResponse | null;
   routingResult: {
     data: RoutingDiagramData;
     error: string | null;
   };
-  spendingData: SpendingReportResponse;
-  statsData: StatsSummary;
-  throughputData: ThroughputStatsResponse;
+  spendingData: SpendingReportResponse | null;
+  statsData: StatsSummary | null;
+  throughputData: ThroughputStatsResponse | null;
 }
 
 let dashboardBootstrapPromise:
@@ -47,6 +47,15 @@ function buildDashboardBootstrapKey(revision: number, selectedProfileId: number 
 function toNonEmptyArray<T>(items: T[]): NonEmptyArray<T> | null {
   const [first, ...rest] = items;
   return first === undefined ? null : [first, ...rest];
+}
+
+async function loadOptionalDashboardData<T>(label: string, promise: Promise<T>): Promise<T | null> {
+  try {
+    return await promise;
+  } catch (error) {
+    console.warn(`Failed to fetch dashboard ${label}`, error);
+    return null;
+  }
 }
 
 async function loadDashboardBootstrapData(
@@ -69,11 +78,20 @@ async function loadDashboardBootstrapData(
 
   const loadPromise = Promise.all([
     modelsPromise,
-    api.stats.summary({ from_time: from24h }),
-    api.stats.summary({ from_time: from24h, group_by: "api_family" }),
-    api.stats.spending({ preset: "last_30_days", top_n: 5 }),
-    api.stats.throughput({ from_time: from24h, to_time: to24h }),
-    api.stats.requests({ limit: 12 }),
+    loadOptionalDashboardData("summary", api.stats.summary({ from_time: from24h })),
+    loadOptionalDashboardData(
+      "API family summary",
+      api.stats.summary({ from_time: from24h, group_by: "api_family" }),
+    ),
+    loadOptionalDashboardData(
+      "spending summary",
+      api.stats.spending({ preset: "last_30_days", top_n: 5 }),
+    ),
+    loadOptionalDashboardData(
+      "throughput",
+      api.stats.throughput({ from_time: from24h, to_time: to24h }),
+    ),
+    loadOptionalDashboardData("recent requests", api.stats.requests({ limit: 12 })),
     (async () => {
       try {
         const modelsData = await modelsPromise;
@@ -208,22 +226,37 @@ export function useDashboardBootstrapData({
           return;
         }
 
-        const latestFetchedRequestId = requestsData.items.reduce(
-          (maxId, request) => Math.max(maxId, request.id),
-          0,
-        );
+        setModels(modelsData);
 
-        if (latestFetchedRequestId < latestDashboardRequestIdRef.current) {
-          return;
+        let latestFetchedRequestId: number | null = null;
+
+        if (requestsData) {
+          latestFetchedRequestId = requestsData.items.reduce(
+            (maxId, request) => Math.max(maxId, request.id),
+            0,
+          );
+
+          if (latestFetchedRequestId < latestDashboardRequestIdRef.current) {
+            return;
+          }
         }
 
-        setModels(modelsData);
-        setStats(statsData);
-        setApiFamilyStats(apiFamilyStatsData);
-        setSpending(spendingData);
-        setThroughput(throughputData);
-        setRecentRequests(requestsData.items);
-        latestDashboardRequestIdRef.current = latestFetchedRequestId;
+        if (statsData) {
+          setStats(statsData);
+        }
+        if (apiFamilyStatsData) {
+          setApiFamilyStats(apiFamilyStatsData);
+        }
+        if (spendingData) {
+          setSpending(spendingData);
+        }
+        if (throughputData) {
+          setThroughput(throughputData);
+        }
+        if (requestsData) {
+          setRecentRequests(requestsData.items);
+          latestDashboardRequestIdRef.current = latestFetchedRequestId ?? 0;
+        }
         setRoutingDiagramData(routingResult.data);
         setRoutingDiagramError(routingResult.error);
       } catch (error) {

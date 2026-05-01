@@ -39,6 +39,57 @@ function createModelListItem() {
   };
 }
 
+function createDashboardModelListItem(
+  id: number,
+  modelId: string,
+  strategy: ReturnType<typeof createLegacyStrategy> | ReturnType<typeof createAdaptiveStrategy> | null,
+) {
+  return {
+    ...createModelListItem(),
+    id,
+    model_id: modelId,
+    display_name: modelId,
+    connection_count: 0,
+    active_connection_count: 0,
+    loadbalance_strategy_id: strategy?.id ?? null,
+    loadbalance_strategy: strategy,
+  };
+}
+
+function createLegacyStrategy() {
+  return {
+    id: 11,
+    name: "Legacy routing",
+    strategy_type: "legacy" as const,
+    legacy_strategy_type: "round-robin" as const,
+    auto_recovery: { mode: "disabled" as const },
+  };
+}
+
+function createAdaptiveStrategy() {
+  return {
+    id: 12,
+    name: "Adaptive routing",
+    strategy_type: "adaptive" as const,
+    routing_policy: {
+      kind: "adaptive" as const,
+      routing_objective: "maximize_availability" as const,
+      hedge: { enabled: false, delay_ms: 250, max_additional_attempts: 1 },
+      circuit_breaker: {
+        failure_status_codes: [429, 500, 502, 503, 504],
+        base_open_seconds: 30,
+        failure_threshold: 3,
+        backoff_multiplier: 2,
+        max_open_seconds: 300,
+        ban_mode: "off" as const,
+        max_open_strikes_before_ban: 0,
+        ban_duration_seconds: 0,
+      },
+      admission: { respect_qps_limit: true, respect_in_flight_limits: true },
+    },
+  };
+}
+
 function createConnection() {
   return {
     id: 501,
@@ -206,9 +257,13 @@ function createRequestLogsResponse() {
   };
 }
 
-async function mockDashboardRoutes(page: Page) {
+async function mockDashboardRoutes(
+  page: Page,
+  options: { failOptionalDashboardStats?: boolean; modelListItems?: ReturnType<typeof createDashboardModelListItem>[] } = {},
+) {
   const profiles = [createProfile(1, "Red Team", true)];
   const modelListItem = createModelListItem();
+  const modelListItems = options.modelListItems ?? [modelListItem];
   const modelDetail = createModelDetail();
   const connection = createConnection();
   const requestLogDetail = createRequestLogDetail();
@@ -228,6 +283,8 @@ async function mockDashboardRoutes(page: Page) {
         contentType: "application/json",
         body: JSON.stringify(body),
       });
+    const fulfillOverloaded = () =>
+      fulfillJson({ detail: "Management route temporarily overloaded. Retry later." }, 503);
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
@@ -239,6 +296,10 @@ async function mockDashboardRoutes(page: Page) {
         active_profile: profiles[0],
         profile_limits: { max_profiles: 5 },
       });
+    }
+
+    if (pathname === "/api/stats/summary" && options.failOptionalDashboardStats && searchParams.get("group_by") === "api_family") {
+      return fulfillOverloaded();
     }
 
     if (pathname === "/api/stats/summary") {
@@ -272,6 +333,10 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/stats/spending") {
+      if (options.failOptionalDashboardStats && searchParams.get("group_by") !== "model_endpoint") {
+        return fulfillOverloaded();
+      }
+
       if (searchParams.get("group_by") === "model_endpoint") {
         return fulfillJson({
           summary: {
@@ -331,6 +396,10 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/stats/throughput") {
+      if (options.failOptionalDashboardStats) {
+        return fulfillOverloaded();
+      }
+
       return fulfillJson({
         average_rpm: 1.2,
         peak_rpm: 2,
@@ -372,7 +441,7 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/models") {
-      return fulfillJson([modelListItem]);
+      return fulfillJson(modelListItems);
     }
 
     if (pathname === "/api/models/101") {
@@ -445,6 +514,27 @@ test.describe("dashboard routing shell renovation", () => {
 
     await routingCard.getByText("Model A").click();
     await expect(page).toHaveURL(/\/models\/101$/);
+  });
+
+  test("keeps strategy counts when optional dashboard stats are overloaded", async ({ page }) => {
+    const legacyStrategy = createLegacyStrategy();
+    const adaptiveStrategy = createAdaptiveStrategy();
+
+    await mockDashboardRoutes(page, {
+      failOptionalDashboardStats: true,
+      modelListItems: [
+        createDashboardModelListItem(101, "legacy-model", legacyStrategy),
+        createDashboardModelListItem(102, "adaptive-model", adaptiveStrategy),
+        createDashboardModelListItem(103, "unassigned-model", null),
+      ],
+    });
+
+    await page.goto("/dashboard?tab=overview");
+
+    await expect(page.getByText("Routing strategy mix")).toBeVisible();
+    await expect(page.getByText("Legacy strategy 1")).toBeVisible();
+    await expect(page.getByText("Adaptive strategy 1")).toBeVisible();
+    await expect(page.getByText("Strategy not configured 1")).toBeVisible();
   });
 
   test("opens exact request investigation from recent activity", async ({ page }) => {
