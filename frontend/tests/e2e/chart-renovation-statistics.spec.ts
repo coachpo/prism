@@ -561,7 +561,9 @@ test.describe("chart renovation statistics regression", () => {
     await page.goto("/dashboard?tab=analytics");
 
     await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
-    await expect(page.getByRole("tab", { name: "Analytics", selected: true })).toBeVisible();
+    const analyticsTab = page.getByRole("tab", { name: "Analytics" });
+    await expect(analyticsTab).toBeVisible();
+    await expect(analyticsTab).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText(/Dashboard|仪表盘/);
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
     await expectSharedPopulatedSurface(page);
@@ -598,7 +600,9 @@ test.describe("chart renovation statistics regression", () => {
     await analyticsCta.click();
 
     await expect(page).toHaveURL(/\/dashboard\?tab=analytics$/);
-    await expect(page.getByRole("tab", { name: "Analytics", selected: true })).toBeVisible();
+    const analyticsTab = page.getByRole("tab", { name: "Analytics" });
+    await expect(analyticsTab).toBeVisible();
+    await expect(analyticsTab).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({ timeout: 15000 });
   });
 
