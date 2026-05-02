@@ -79,19 +79,19 @@ var healthCheckAuthConfigs = map[string]apiFamilyAuthConfig{
 func (s *Service) handleConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	value, err, _ := s.persistedHealthChecks.Do(fmt.Sprintf("connection:%d", connectionID), func() (any, error) {
 		return s.runPersistedConnectionHealthCheck(r.Context(), r, connectionID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, ok := value.(healthCheckResponse)
 	if !ok {
-		writeDomainError(w, r, s.allowedOrigins, fmt.Errorf("unexpected connection health result type"))
+		writeDomainError(w, r, s.corsSnapshot(), fmt.Errorf("unexpected connection health result type"))
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -130,29 +130,29 @@ func (s *Service) runPersistedConnectionHealthCheck(ctx context.Context, r *http
 func (s *Service) handlePreviewConnectionHealthCheck(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody connectionCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if requestBody.Priority.Set {
-		writeError(w, r, s.allowedOrigins, http.StatusUnprocessableEntity, "priority is not allowed on create")
+		writeError(w, r, s.corsSnapshot(), http.StatusUnprocessableEntity, "priority is not allowed on create")
 		return
 	}
 	probeInput, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (connectionHealthProbeInput, error) {
 		return s.loadPreviewConnectionHealthProbeInput(r.Context(), tx, r, modelConfigID, requestBody)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	result, err := s.probeConnectionHealth(r.Context(), probeInput)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, connectionHealthCheckPreviewResponse{

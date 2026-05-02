@@ -49,7 +49,7 @@ func (s *Service) handleListPricingTemplates(w http.ResponseWriter, r *http.Requ
 		return listPricingTemplates(r.Context(), tx, profile.ID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -58,7 +58,7 @@ func (s *Service) handleListPricingTemplates(w http.ResponseWriter, r *http.Requ
 func (s *Service) handleGetPricingTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateResponse, error) {
@@ -76,7 +76,7 @@ func (s *Service) handleGetPricingTemplate(w http.ResponseWriter, r *http.Reques
 		return item, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -85,7 +85,7 @@ func (s *Service) handleGetPricingTemplate(w http.ResponseWriter, r *http.Reques
 func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Request) {
 	var requestBody pricingTemplateCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateResponse, error) {
@@ -111,7 +111,7 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 		return insertPricingTemplate(r.Context(), tx, item)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -120,12 +120,12 @@ func (s *Service) handleCreatePricingTemplate(w http.ResponseWriter, r *http.Req
 func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody pricingTemplateUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateResponse, error) {
@@ -166,7 +166,7 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 		return updated, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -175,7 +175,7 @@ func (s *Service) handleUpdatePricingTemplate(w http.ResponseWriter, r *http.Req
 func (s *Service) handleDeletePricingTemplate(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (deletedResponse, error) {
@@ -217,7 +217,7 @@ func (s *Service) handleDeletePricingTemplate(w http.ResponseWriter, r *http.Req
 		return deletedResponse{Deleted: true}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

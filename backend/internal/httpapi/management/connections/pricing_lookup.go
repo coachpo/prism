@@ -10,7 +10,7 @@ import (
 func (s *Service) handleListPricingTemplateConnections(w http.ResponseWriter, r *http.Request) {
 	templateID, err := routeInt(r, "template_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "connection", func(tx pgx.Tx) (pricingTemplateConnectionsResponse, error) {
@@ -48,7 +48,7 @@ func (s *Service) handleListPricingTemplateConnections(w http.ResponseWriter, r 
 		return pricingTemplateConnectionsResponse{TemplateID: templateID, Items: items}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
