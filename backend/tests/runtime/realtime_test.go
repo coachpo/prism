@@ -212,6 +212,38 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	if !message.RequestLog.IsProxyOrigin {
 		t.Fatalf("expected realtime request_log.is_proxy_origin=true, got %+v", message.RequestLog)
 	}
+	var requestLogPayload map[string]any
+	rawRequestLogPayload, err := json.Marshal(message.RequestLog)
+	if err != nil {
+		t.Fatalf("marshal realtime request_log payload: %v", err)
+	}
+	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
+		t.Fatalf("decode realtime request_log payload: %v", err)
+	}
+	if _, ok := requestLogPayload["stream_error_detail"]; ok {
+		t.Fatalf("did not expect realtime request_log to expose stream_error_detail, got %+v", requestLogPayload)
+	}
+
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET is_stream = FALSE, stream_outcome = 'upstream_read_error', stream_error_kind = 'upstream_read_failed', stream_error_detail = 'upstream socket closed' WHERE id = $1 AND profile_id = $2`, requestLogID, profileID); err != nil {
+		t.Fatalf("mark realtime request log with actual stream outcome: %v", err)
+	}
+	message, err = harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
+	if err != nil {
+		t.Fatalf("build dashboard update payload with actual stream outcome: %v", err)
+	}
+	if message.RequestLog.IsStream || message.RequestLog.StreamOutcome != "upstream_read_error" || message.RequestLog.StreamErrorKind == nil || *message.RequestLog.StreamErrorKind != "upstream_read_failed" {
+		t.Fatalf("expected realtime request_log to preserve non-not_streaming stream outcome even when is_stream is false, got %+v", message.RequestLog)
+	}
+	rawRequestLogPayload, err = json.Marshal(message.RequestLog)
+	if err != nil {
+		t.Fatalf("marshal realtime actual-stream request_log payload: %v", err)
+	}
+	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
+		t.Fatalf("decode realtime actual-stream request_log payload: %v", err)
+	}
+	if _, ok := requestLogPayload["stream_error_detail"]; ok {
+		t.Fatalf("did not expect realtime actual-stream request_log to expose stream_error_detail, got %+v", requestLogPayload)
+	}
 }
 
 func TestDashboardUpdateDelivery(t *testing.T) {

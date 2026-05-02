@@ -170,6 +170,8 @@ func loadRequestLogEntry(ctx context.Context, tx pgx.Tx, requestLogID int, profi
 		return RequestLogEntry{}, fmt.Errorf("decode request log %d: %w", requestLogID, err)
 	}
 	entry.CreatedAt = entry.CreatedAt.UTC()
+	entry.StreamOutcome = normalizeRequestLogStreamOutcome(entry.StreamOutcome, entry.IsStream, entry.CompletionDurationMS)
+	entry.StreamErrorKind = normalizeOptionalString(entry.StreamErrorKind)
 	enrichedEntry, err := enrichRequestLogEntry(ctx, tx, entry)
 	if err != nil {
 		return RequestLogEntry{}, err
@@ -402,6 +404,20 @@ func resolveRequestLogIsProxyOrigin(currentModelsByID map[string]requestLogModel
 	}
 	currentModel, ok := currentModelsByID[trimmedModelID]
 	return ok && currentModel.ModelType == "proxy"
+}
+
+func normalizeRequestLogStreamOutcome(value string, isStream bool, completionDurationMS *int) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed != "" {
+		return trimmed
+	}
+	if !isStream {
+		return "not_streaming"
+	}
+	if completionDurationMS != nil {
+		return "completed"
+	}
+	return "unknown"
 }
 
 func normalizeOptionalString(value *string) *string {

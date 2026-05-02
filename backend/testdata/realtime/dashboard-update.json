@@ -25,6 +25,8 @@
     "ttft_ms": 320,
     "completion_duration_ms": 914,
     "is_stream": false,
+    "stream_outcome": "not_streaming",
+    "stream_error_kind": null,
     "input_tokens": 15,
     "output_tokens": 42,
     "total_tokens": 57,

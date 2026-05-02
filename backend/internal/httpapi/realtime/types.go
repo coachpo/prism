@@ -31,6 +31,8 @@ type RequestLogEntry struct {
 	TTFTMS                            *int      `json:"ttft_ms"`
 	CompletionDurationMS              *int      `json:"completion_duration_ms"`
 	IsStream                          bool      `json:"is_stream"`
+	StreamOutcome                     string    `json:"stream_outcome"`
+	StreamErrorKind                   *string   `json:"stream_error_kind"`
 	InputTokens                       *int      `json:"input_tokens"`
 	OutputTokens                      *int      `json:"output_tokens"`
 	TotalTokens                       *int      `json:"total_tokens"`
