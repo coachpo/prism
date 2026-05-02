@@ -1023,6 +1023,7 @@ export interface Messages {
     missingPriceData: string;
     missingTokenUsage: string;
     per1mTokens: string;
+    streamUsageUnavailable: string;
     pricingDisabled: string;
   };
   settingsBilling: {
@@ -1643,7 +1644,16 @@ export interface Messages {
     specialTokens: string;
     status: string;
     stream: string;
+    streamCompleted: string;
+    streamEndedWithoutTerminal: string;
+    streamErrorDetail: string;
+    streamInterruptedClient: string;
+    streamInterruptedUpstream: string;
+    streamProviderIncomplete: string;
     streaming: string;
+    streamStatus: string;
+    streamUnknown: string;
+    streamUsageUnavailable: string;
     technicalInspection: string;
     tokens: string;
     requestDetails: string;
@@ -3010,6 +3020,7 @@ export const enMessages: Messages = {
     missingPriceData: "Missing price data",
     missingTokenUsage: "Missing token usage",
     per1mTokens: "Per 1M tokens",
+    streamUsageUnavailable: "Usage unavailable",
     pricingDisabled: "Pricing disabled",
   },
   settingsBilling: {
@@ -3639,7 +3650,16 @@ export const enMessages: Messages = {
     specialTokens: "Special tokens",
     status: "Status",
     stream: "Stream",
+    streamCompleted: "Completed stream",
+    streamEndedWithoutTerminal: "Stream ended before completion event",
+    streamErrorDetail: "Stream error detail",
+    streamInterruptedClient: "Stream interrupted - client disconnected",
+    streamInterruptedUpstream: "Stream interrupted - upstream read failed",
+    streamProviderIncomplete: "Provider incomplete stream",
     streaming: "Streaming",
+    streamStatus: "Stream status",
+    streamUnknown: "Historical stream state unknown",
+    streamUsageUnavailable: "Usage unavailable",
     technicalInspection: "Technical inspection",
     requestDetails: "Request details",
     requestedModel: "Requested model",
