@@ -14,6 +14,7 @@ import (
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -38,7 +39,7 @@ func (s *Service) handleListStrategies(w http.ResponseWriter, r *http.Request) {
 		return items, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -47,7 +48,7 @@ func (s *Service) handleListStrategies(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 	strategyID, err := routeInt(r, "strategy_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
@@ -65,7 +66,7 @@ func (s *Service) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 		return strategyResponseFromRow(row)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -74,12 +75,12 @@ func (s *Service) handleGetStrategy(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 	requestBody, err := decodeStrategyRequest(r)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	persisted, err := canonicalizeStrategyRequest(requestBody)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
@@ -104,7 +105,7 @@ func (s *Service) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 		return strategyResponseFromRow(created)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -113,17 +114,17 @@ func (s *Service) handleCreateStrategy(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 	strategyID, err := routeInt(r, "strategy_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	requestBody, err := decodeStrategyRequest(r)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	persisted, err := canonicalizeStrategyRequest(requestBody)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalanceStrategyResponse, error) {
@@ -159,7 +160,7 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 		return after, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -168,7 +169,7 @@ func (s *Service) handleUpdateStrategy(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
 	strategyID, err := routeInt(r, "strategy_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (deletedResponse, error) {
@@ -192,7 +193,7 @@ func (s *Service) handleDeleteStrategy(w http.ResponseWriter, r *http.Request) {
 		return deletedResponse{Deleted: true}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -271,7 +272,7 @@ func (s *Service) handleCreateStrategyDefaults(w http.ResponseWriter, r *http.Re
 		return loadbalanceStrategyDefaultsResponse{Items: items, CreatedCount: len(createdNames), CreatedNames: createdNames, ExistingNames: existingNames}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -294,34 +295,27 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var loadbalanceErr *domainError
 	if errors.As(err, &loadbalanceErr) {
-		writeError(w, r, allowedOrigins, loadbalanceErr.StatusCode, loadbalanceErr.Detail)
+		writeError(w, r, corsSnapshot, loadbalanceErr.StatusCode, loadbalanceErr.Detail)
 		return
 	}
 	var loadbalanceDomainErr *loadbalancedomain.HTTPError
 	if errors.As(err, &loadbalanceDomainErr) {
-		writeError(w, r, allowedOrigins, loadbalanceDomainErr.StatusCode, loadbalanceDomainErr.Detail)
+		writeError(w, r, corsSnapshot, loadbalanceDomainErr.StatusCode, loadbalanceDomainErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail any) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]any{"detail": detail})
 }
 

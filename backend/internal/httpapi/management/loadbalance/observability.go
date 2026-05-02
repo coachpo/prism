@@ -18,7 +18,7 @@ import (
 func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := parseRequiredPositiveIntQuery(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.CurrentStateListResponse, error) {
@@ -29,7 +29,7 @@ func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request)
 		return loadbalancedomain.ListCurrentState(r.Context(), tx, s.runtimeState, profile.ID, modelConfigID, s.nowUTC())
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -38,7 +38,7 @@ func (s *Service) handleListCurrentState(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request) {
 	connectionID, err := routeInt(r, "connection_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.CurrentStateResetResponse, error) {
@@ -49,7 +49,7 @@ func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request
 		return loadbalancedomain.ResetCurrentState(r.Context(), tx, s.runtimeState, profile.ID, connectionID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -58,17 +58,17 @@ func (s *Service) handleResetCurrentState(w http.ResponseWriter, r *http.Request
 func (s *Service) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	modelID := strings.TrimSpace(r.URL.Query().Get("model_id"))
 	if modelID == "" {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "model_id is required")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "model_id is required")
 		return
 	}
 	limit, err := parsePositiveIntQueryWithDefault(r, "limit", 50)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	offset, err := parseNonNegativeIntQueryWithDefault(r, "offset", 0)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (loadbalancedomain.EventListResponse, error) {
@@ -79,7 +79,7 @@ func (s *Service) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		return loadbalancedomain.ListEvents(r.Context(), tx, profile.ID, modelID, limit, offset)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -88,7 +88,7 @@ func (s *Service) handleListEvents(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID, err := routeInt64(r, "event_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (*loadbalancedomain.EventDetail, error) {
@@ -99,11 +99,11 @@ func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 		return loadbalancedomain.GetEvent(r.Context(), tx, profile.ID, eventID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	if response == nil {
-		writeError(w, r, s.allowedOrigins, http.StatusNotFound, "Loadbalance event not found")
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Loadbalance event not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -130,7 +130,7 @@ func (s *Service) handleDeleteEvents(w http.ResponseWriter, r *http.Request) {
 		return struct{}{}, loadbalancedomain.DeleteEvents(r.Context(), tx, loadbalancedomain.DeleteParams{ProfileID: profile.ID, Before: before, OlderThanDays: olderThanDays, DeleteAll: deleteAll, ReferenceNow: s.nowUTC()})
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
