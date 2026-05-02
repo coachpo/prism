@@ -56,16 +56,19 @@ go build ./cmd/prism-backend
 - `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000` and the local PostgreSQL DSN on host port `5432`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file still resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
-- Bootstrap writes are durable only for the next start, and Prism must be restarted to apply listener, database, auth, or transport changes.
+- Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
+- Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits.
+- Restart-required fields include listener host and port, docs enablement, database URL and pool budgets, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
+- External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
 - Raw bootstrap files require `runtime.transport.requestTimeout` as a Go duration string. Set it to `"60s"` to keep the prior whole-request upstream timeout behavior. Missing `runtime.transport.requestTimeout` fails startup validation by design.
 - Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
-- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` in the bootstrap file, then restart the backend. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
+- To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` through the Startup tab or API PUT. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
 - SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.
 - Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is local or loopback only, and auth over non-local plaintext is forbidden.
 - `mail.smtp.auth` accepts `none` or `plain`. `plain` requires `username` plus exactly one of `password` or `passwordFile`; `passwordFile` is preferred for deployed secrets.
 - `mail.smtp.password` is secret-managed by the bootstrap API as `mail.smtp.password`. Safe responses return only metadata, and updates must use preserve or replace secret actions.
-- Roll back real delivery by removing `mail` or setting `mail.enabled=false`, then restart the backend.
+- Roll back real delivery by removing `mail` or setting `mail.enabled=false` through the Startup tab or API PUT. Direct external file edits take effect only after restart unless they are later published through the API.
 - Local and automated tests use fake or no-op SMTP only. Do not use external SMTP credentials in regression tests.
 
 Enabled SMTP bootstrap example:

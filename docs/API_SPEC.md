@@ -20,7 +20,7 @@ Local `./start.sh` base URL: `http://localhost:18000`
 
 ### 1.0 Bootstrap Config
 
-The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, it does not hot-reload the running process, and file writes only apply on the next Prism start.
+The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, and it has no compatibility mode for older bootstrap shapes. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields are durable for the next Prism start.
 
 #### Get Bootstrap Config
 ```
@@ -28,6 +28,8 @@ GET /api/config/bootstrap
 ```
 
 Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case for runtime transport fields, so the raw `runtime.transport.requestTimeout` file setting appears as `runtime.transport.request_timeout` in API payloads.
+
+GET is a read of the managed file plus the live applied baseline. Current responses always include `apply_capabilities`. They include `apply_result` only when file values differ from the live applied baseline, such as after a failed hot apply or an external file edit that changes a hot field. Current no-drift responses omit `planned_changes` and `apply_result`. `restart_required` is true only when the file contains restart-required drift from the live baseline. External edits to `config.json` are not watched automatically; operators must use the Startup tab or API PUT to publish hot-eligible file edits into the running process.
 ```json
 {
   "config_path": "config.json",
@@ -40,6 +42,18 @@ Response `200` returns safe metadata only. Raw secret values never appear in the
   "updated_at": "2026-04-28T00:00:00Z",
   "restart_required": false,
   "writable": true,
+  "apply_capabilities": {
+    "http.cors_allowed_origins": { "mode": "hot_apply" },
+    "runtime.transport.request_timeout": { "mode": "hot_apply" },
+    "server.port": {
+      "mode": "restart_required",
+      "confirmation_token": "server-port-change"
+    },
+    "database.url": {
+      "mode": "restart_required",
+      "confirmation_token": "database-url-change"
+    }
+  },
   "values": {
     "server": {
       "host": "127.0.0.1",
@@ -133,24 +147,30 @@ Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `
 
 Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as runtime `request_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
 
+The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.buffering_mode`, `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`.
+
+Restart-required fields are listener and docs fields `server.host`, `server.port`, and `server.docs_enabled`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, docs, database URL, pool budgets, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
+
 #### Validate Bootstrap Config
 ```
 POST /api/config/bootstrap/validate
 ```
 
-Request bodies follow the same shape as PUT, including required non-zero `expected_revision`, required non-empty `expected_etag`, `values`, `secret_updates`, and optional `confirmations`. Validation checks secret actions, confirmation requirements, and exact revision/etag concurrency before any file write.
+Request bodies follow the same shape as PUT, including required non-zero `expected_revision`, required non-empty `expected_etag`, `values`, `secret_updates`, and optional `confirmations`. Validation checks secret actions, confirmation requirements, field classification, and exact revision/etag concurrency before any file write. It returns the safe response shape with `apply_capabilities` plus `planned_changes`, where `changed_fields[]` contains each changed field and its `mode`. Validate does not write `config.json`, does not publish hot settings, and does not alter the live applied baseline.
 
 #### Update Bootstrap Config
 ```
 PUT /api/config/bootstrap
 ```
 
-A successful write returns the same safe response shape as GET, with `restart_required` set when the stored startup file changed. Updates require both the non-zero `expected_revision` and non-empty `expected_etag` to match the current file metadata, secret fields use explicit `preserve` or `replace` actions, redacted placeholders are not persisted, and dangerous changes require confirmation tokens for:
+PUT prepares and validates the requested file, validates hot runtime resources before writing, writes `config.json`, then publishes changed hot fields. A successful write returns the same safe response shape as GET, with `apply_capabilities` and `apply_result`. Updates require both the non-zero `expected_revision` and non-empty `expected_etag` to match the current file metadata, secret fields use explicit `preserve` or `replace` actions, redacted placeholders are not persisted, and dangerous changes require confirmation tokens for:
 - `server-host-change`
 - `server-port-change`
 - `database-url-change`
 - `auth-jwt-signing-key-change`
 - `state-transfer-bundle-encryption-key-change`
+
+`apply_result.applied_now_fields[]` lists hot fields published to the running process during this PUT. `restart_required_fields[]` lists changed structural fields that remain file-durable until restart. `pending_hot_apply_fields[]` lists hot fields written to the file but not yet applied to the live baseline. `failed_hot_apply_fields[]` lists hot fields whose publish step failed. `unchanged_fields[]` lists registered fields that did not change. Top-level `restart_required` is true when restart-required fields differ from the live applied baseline.
 
 `runtime.secretEncryptionKey` is preserve-only in v1.
 
@@ -167,7 +187,7 @@ A successful write returns the same safe response shape as GET, with `restart_re
 }
 ```
 
-Bootstrap writes apply on the next Prism start. Removing `mail` or setting `mail.enabled=false` disables real delivery after restart. If `mail.enabled=true` and SMTP config is incomplete or invalid, validation and startup fail with redacted errors rather than silently using no-op delivery.
+If hot publish fails after the file write, the response is HTTP `500` and still uses the bootstrap response shape with top-level `apply_result` plus `detail.message = "Failed to apply bootstrap config"` and `detail.failed_hot_apply_fields[]`. The file remains written. Failed hot fields stay pending against the live applied baseline, so a later GET shows `apply_result.pending_hot_apply_fields[]` and a later PUT can retry the publish. Removing `mail` or setting `mail.enabled=false` disables real delivery immediately when hot apply succeeds, or after restart if the change is still pending. If `mail.enabled=true` and SMTP config is incomplete or invalid, validation and startup fail with redacted errors rather than silently using no-op delivery.
 
 ### 1.1 Profiles
 #### List Profiles

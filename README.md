@@ -20,7 +20,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **Request telemetry**: latency, token usage, success rates, and error patterns
 - **Audit logging**: optional request/response body capture with header redaction
 - **Success-rate badges**: connection health based on recent request data
-- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup` for next-restart writes, with masked secret metadata and explicit confirmation for dangerous changes
+- **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, masked secret metadata, and explicit confirmation for dangerous structural changes
 - **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
 
 ### Architecture
@@ -158,9 +158,9 @@ Plaintext bootstrap startup uses a single steady-state external input:
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
 - `DATABASE_URL` is optional and defaults to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`
 
-The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, PUT applies explicit preserve or replace secret actions with expected revision and etag checks, and dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
+The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, field-level apply capabilities, and pending apply state only when the file differs from the live applied baseline. PUT applies explicit preserve or replace secret actions with expected revision and etag checks, writes the file, and immediately publishes eligible hot fields. Dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
 
-That bootstrap file owns startup values directly. If an encrypted bootstrap file is still present, replace it before booting.
+That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits. Listener host and port, docs enablement, database URL and pool budgets, runtime secret encryption key, JWT signing key, and bundle key changes still require restart. If an encrypted bootstrap file is still present, replace it before booting.
 
 Breaking migration note: existing plaintext bootstrap files must add `runtime.transport.requestTimeout`, usually `"60s"`, before restart. Missing `runtime.transport.requestTimeout` fails startup validation by design.
 
@@ -197,7 +197,7 @@ To send password-reset and recovery-email verification messages, set `mail.enabl
 }
 ```
 
-`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. If you store `mail.smtp.password` in the bootstrap file, the safe bootstrap API never returns the plaintext value; it reports secret metadata only and updates it through preserve or replace secret actions. SMTP changes apply after restart. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart Prism.
+`mail.smtp.auth` may be `none` or `plain`. When it is `plain`, set `username` plus exactly one password source: `mail.smtp.password` or `mail.smtp.passwordFile`. Prefer `passwordFile` for deployed systems. If you store `mail.smtp.password` in the bootstrap file, the safe bootstrap API never returns the plaintext value; it reports secret metadata only and updates it through preserve or replace secret actions. SMTP changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT; direct external file edits are not watched automatically.
 
 Other configuration notes:
 
@@ -209,7 +209,7 @@ Other configuration notes:
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying `/api`, `/v1`, and `/v1beta` to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using the fixed local backend port and local PostgreSQL DSN. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using the fixed local backend port and local PostgreSQL DSN. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin (`/api`, `/v1`, `/v1beta`). Local `./start.sh full` keeps browser traffic same-origin through the launcher origin and Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

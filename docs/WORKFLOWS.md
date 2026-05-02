@@ -217,7 +217,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` keep the backward-compatible no-op delivery path, so existing deployments keep starting without SMTP and do not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
 
-The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes need a backend restart. To roll back delivery, remove `mail` or set `mail.enabled=false`, then restart.
+The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Direct external `config.json` edits are not watched automatically. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
 
 The configuration-operations flow is explicit in both lanes:
 - profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
