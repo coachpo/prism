@@ -49,6 +49,9 @@ import type {
 } from "../types";
 import { buildQuery, request } from "./core";
 
+type RequestLogAuditParams = Required<Pick<AuditLogParams, "from_time" | "to_time">>
+  & Pick<AuditLogParams, "limit">;
+
 function buildStatsQuery(params?: StatsRequestParams) {
   return buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
 }
@@ -235,7 +238,7 @@ export const audit = {
     const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
     return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
   },
-  listForRequestLog: (requestLogId: number, params?: Omit<AuditLogParams, "request_log_id">) => {
+  listForRequestLog: (requestLogId: number, params: RequestLogAuditParams) => {
     const query = buildQuery({ ...params, request_log_id: requestLogId } as Record<string, string | number | boolean | null | undefined>);
     return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
   },
