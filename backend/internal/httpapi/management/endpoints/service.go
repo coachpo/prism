@@ -8,18 +8,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
 
 type Options struct {
-	Pool *pgxpool.Pool
-	Now  func() time.Time
+	CORSOriginProvider platformcors.OriginProvider
+	Pool               *pgxpool.Pool
+	Now                func() time.Time
 }
 
 type Service struct {
 	pool                *pgxpool.Pool
 	ownsPool            bool
 	now                 func() time.Time
-	allowedOrigins      map[string]struct{}
+	corsOriginProvider  platformcors.OriginProvider
 	secretEncryptionKey string
 }
 
@@ -47,16 +49,16 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now = time.Now
 	}
 
-	allowedOrigins := map[string]struct{}{}
-	for _, origin := range settings.CORSAllowedOriginsList() {
-		allowedOrigins[origin] = struct{}{}
+	corsOriginProvider := options.CORSOriginProvider
+	if corsOriginProvider == nil {
+		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
 	return &Service{
 		pool:                pool,
 		ownsPool:            ownsPool,
 		now:                 now,
-		allowedOrigins:      allowedOrigins,
+		corsOriginProvider:  corsOriginProvider,
 		secretEncryptionKey: settings.SecretEncryptionKey,
 	}, nil
 }
@@ -69,6 +71,13 @@ func (s *Service) Close() {
 
 func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
+}
+
+func (s *Service) corsSnapshot() platformcors.Snapshot {
+	if s == nil || s.corsOriginProvider == nil {
+		return platformcors.Snapshot{}
+	}
+	return s.corsOriginProvider.CORSSnapshot()
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {

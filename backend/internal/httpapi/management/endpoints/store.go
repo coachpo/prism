@@ -239,4 +239,3 @@ func intPtr(value int) *int {
 	resolved := value
 	return &resolved
 }
-
