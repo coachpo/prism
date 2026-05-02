@@ -16,6 +16,7 @@ import (
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
 
 const (
@@ -35,6 +36,7 @@ var supportedRealtimeChannels = map[string]struct{}{
 type Options struct {
 	RealtimePool       *pgxpool.Pool
 	AuthService        *managementauth.Service
+	CORSOriginProvider platformcors.OriginProvider
 	Now                func() time.Time
 	DashboardSnapshots *statsdomain.DashboardAggregateStore
 }
@@ -46,8 +48,7 @@ type pendingDashboardUpdatePublisher interface {
 type Service struct {
 	pool                    *pgxpool.Pool
 	authService             *managementauth.Service
-	accessCookieName        string
-	allowedOrigins          map[string]struct{}
+	corsOriginProvider      platformcors.OriginProvider
 	manager                 *ConnectionManager
 	latestMu                sync.Mutex
 	latestRequestLogIDs     map[int]int
@@ -75,9 +76,9 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	allowedOrigins := map[string]struct{}{}
-	for _, origin := range settings.CORSAllowedOriginsList() {
-		allowedOrigins[origin] = struct{}{}
+	corsOriginProvider := options.CORSOriginProvider
+	if corsOriginProvider == nil {
+		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 	dashboardSnapshots := options.DashboardSnapshots
 	if dashboardSnapshots == nil {
@@ -86,8 +87,7 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	service := &Service{
 		pool:                pool,
 		authService:         options.AuthService,
-		accessCookieName:    settings.AuthCookieName,
-		allowedOrigins:      allowedOrigins,
+		corsOriginProvider:  corsOriginProvider,
 		manager:             NewConnectionManager(defaultRealtimeWriteTimeout),
 		latestRequestLogIDs: map[int]int{},
 		now:                 now,
@@ -107,6 +107,13 @@ func (s *Service) SetAsyncDashboardPublisher(publisher *AsyncDashboardPublisher)
 	s.pendingDashboardUpdates = publisher
 }
 
+func (s *Service) corsSnapshot() platformcors.Snapshot {
+	if s == nil || s.corsOriginProvider == nil {
+		return platformcors.Snapshot{}
+	}
+	return s.corsOriginProvider.CORSSnapshot()
+}
+
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/realtime", func(router chi.Router) {
 		router.Get("/ws", s.handleWebSocket)
@@ -114,12 +121,12 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 }
 
 func (s *Service) checkOrigin(request *http.Request) bool {
+	corsSnapshot := s.corsSnapshot()
 	origin := strings.TrimSpace(request.Header.Get("Origin"))
 	if origin == "" {
 		return true
 	}
-	_, ok := s.allowedOrigins[origin]
-	if ok {
+	if corsSnapshot.AllowsOrigin(origin) {
 		return true
 	}
 	originURL, err := url.Parse(origin)
@@ -161,7 +168,7 @@ func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authState, err := s.authService.ResolveRealtimeAuthState(r.Context(), s.accessTokenFromRequest(r))
+	authState, err := s.authService.ResolveRealtimeAuthState(r.Context(), s.authService.AccessTokenFromRequest(r))
 	if err != nil {
 		connection.closeWithCode(websocket.CloseInternalServerErr)
 		return
@@ -247,14 +254,6 @@ func (s *Service) publishPendingDashboardUpdate(ctx context.Context, profileID i
 		return s.pendingDashboardUpdates.PublishPendingDashboardUpdate(ctx, profileID)
 	}
 	return s.PublishPendingDashboardUpdate(ctx, profileID)
-}
-
-func (s *Service) accessTokenFromRequest(r *http.Request) string {
-	cookie, err := r.Cookie(s.accessCookieName)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(cookie.Value)
 }
 
 func (s *Service) profileExists(ctx context.Context, profileID int) (bool, error) {
