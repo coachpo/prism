@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/vendordomain"
 )
 
@@ -28,7 +29,7 @@ func (s *Service) handleListVendors(w http.ResponseWriter, r *http.Request) {
 		return response, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -37,12 +38,12 @@ func (s *Service) handleListVendors(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleCreateVendor(w http.ResponseWriter, r *http.Request) {
 	var requestBody vendorCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	normalizeCreateRequest(&requestBody)
 	if vendordomain.IsReadonlyVendorKey(requestBody.Key) {
-		writeReadonlyVendorError(w, r, s.allowedOrigins, requestBody.Key)
+		writeReadonlyVendorError(w, r, s.corsSnapshot(), requestBody.Key)
 		return
 	}
 
@@ -57,7 +58,7 @@ func (s *Service) handleCreateVendor(w http.ResponseWriter, r *http.Request) {
 		return vendorResponseFromRecord(record), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -66,7 +67,7 @@ func (s *Service) handleCreateVendor(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleGetVendor(w http.ResponseWriter, r *http.Request) {
 	vendorID, err := routeInt(r, "vendor_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) (vendorResponse, error) {
@@ -80,7 +81,7 @@ func (s *Service) handleGetVendor(w http.ResponseWriter, r *http.Request) {
 		return vendorResponseFromRecord(record), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -89,7 +90,7 @@ func (s *Service) handleGetVendor(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleListVendorModels(w http.ResponseWriter, r *http.Request) {
 	vendorID, err := routeInt(r, "vendor_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) ([]vendorModelUsageItem, error) {
@@ -101,7 +102,7 @@ func (s *Service) handleListVendorModels(w http.ResponseWriter, r *http.Request)
 		return listVendorModelUsage(r.Context(), tx, vendorID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -110,12 +111,12 @@ func (s *Service) handleListVendorModels(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleUpdateVendor(w http.ResponseWriter, r *http.Request) {
 	vendorID, err := routeInt(r, "vendor_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody vendorUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	normalizeUpdateRequest(&requestBody)
@@ -171,7 +172,7 @@ func (s *Service) handleUpdateVendor(w http.ResponseWriter, r *http.Request) {
 		return vendorResponseFromRecord(updatedRecord), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -180,7 +181,7 @@ func (s *Service) handleUpdateVendor(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleDeleteVendor(w http.ResponseWriter, r *http.Request) {
 	vendorID, err := routeInt(r, "vendor_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	if _, err := pgxutil.InTxValue(r.Context(), s.pool, "vendor", func(tx pgx.Tx) (struct{}, error) {
@@ -199,7 +200,7 @@ func (s *Service) handleDeleteVendor(w http.ResponseWriter, r *http.Request) {
 		}
 		return struct{}{}, nil
 	}); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -256,8 +257,8 @@ func readonlyVendorError(vendorKey string) error {
 	return &domainError{StatusCode: http.StatusForbidden, Detail: fmt.Sprintf("Vendor '%s' is readonly and cannot be modified here", label)}
 }
 
-func writeReadonlyVendorError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, vendorKey string) {
-	writeError(w, r, allowedOrigins, http.StatusForbidden, readonlyVendorError(vendorKey).Error())
+func writeReadonlyVendorError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, vendorKey string) {
+	writeError(w, r, corsSnapshot, http.StatusForbidden, readonlyVendorError(vendorKey).Error())
 }
 
 func decodeJSONBody(request *http.Request, target any) error {
@@ -271,24 +272,17 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var vendorErr *domainError
 	if errors.As(err, &vendorErr) {
-		writeError(w, r, allowedOrigins, vendorErr.StatusCode, vendorErr.Detail)
+		writeError(w, r, corsSnapshot, vendorErr.StatusCode, vendorErr.Detail)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
 
