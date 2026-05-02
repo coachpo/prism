@@ -33,11 +33,11 @@ func TestBaselineFreshApply(t *testing.T) {
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected empty database to apply baseline, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] || got[7] != want[7] || got[8] != want[8] || got[9] != want[9] {
+	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] || got[7] != want[7] || got[8] != want[8] || got[9] != want[9] || got[10] != want[10] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
@@ -95,7 +95,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 		t.Fatalf("expected noop run to report no versions, got %v", secondResult.Versions)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
 }
 
 func TestRuntimeCacheGenerationMigration(t *testing.T) {
@@ -115,6 +115,53 @@ func TestRuntimeCacheGenerationMigration(t *testing.T) {
 		t.Fatalf("expected runtime cache generation migration to apply, got %q", result.Outcome)
 	}
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
+}
+
+func TestStreamOutcomeTelemetryMigrationBackfillsAndEnforcesContracts(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "stream_outcome_telemetry_migration")
+	defer func() { _ = conn.Close(testContext) }()
+
+	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+		t.Fatalf("create prism migration history table: %v", err)
+	}
+	for _, version := range []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"} {
+		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, version); err != nil {
+			t.Fatalf("seed prism migration history %s: %v", version, err)
+		}
+	}
+	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, ingress_request_id character varying(36), attempt_number integer, is_stream boolean NOT NULL, completion_duration_ms integer, ttft_ms integer)`); err != nil {
+		t.Fatalf("create stream telemetry legacy request_logs table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `CREATE TABLE usage_request_events (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, ingress_request_id character varying(36) NOT NULL, attempt_count integer NOT NULL, completion_duration_ms integer)`); err != nil {
+		t.Fatalf("create stream telemetry legacy usage_request_events table: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (profile_id, ingress_request_id, attempt_number, is_stream, completion_duration_ms, ttft_ms) VALUES (1, 'req-nonstream', 1, FALSE, NULL, NULL), (1, 'req-completed', 1, TRUE, 250, 40), (1, 'req-unknown', 2, TRUE, NULL, 35)`); err != nil {
+		t.Fatalf("seed stream telemetry legacy request_logs rows: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO usage_request_events (profile_id, ingress_request_id, attempt_count, completion_duration_ms) VALUES (1, 'req-nonstream', 1, NULL), (1, 'req-completed', 1, NULL), (1, 'req-unknown', 2, NULL), (1, 'req-usage-completed', 1, 90), (1, 'req-usage-unknown', 1, NULL)`); err != nil {
+		t.Fatalf("seed stream telemetry legacy usage_request_events rows: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run stream outcome telemetry migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected stream outcome telemetry migration to apply, got %q", result.Outcome)
+	}
+	if got, want := result.Versions, []string{"000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("expected applied versions %v, got %v", want, got)
+	}
+
+	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
+	assertRequestLogStreamOutcomeRows(t, testContext, conn, map[string]string{"req-nonstream": "not_streaming", "req-completed": "completed", "req-unknown": "unknown"})
+	assertUsageEventStreamOutcomeRows(t, testContext, conn, map[string]string{"req-nonstream": "not_streaming", "req-completed": "completed", "req-unknown": "unknown", "req-usage-completed": "completed", "req-usage-unknown": "unknown"})
+	assertStreamOutcomeTelemetryDefaults(t, testContext, conn)
 }
 
 func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
@@ -152,11 +199,11 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy request_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] || got[7] != want[7] || got[8] != want[8] {
+	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] || got[7] != want[7] || got[8] != want[8] || got[9] != want[9] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
 	assertRequestLogAuditEnabledRows(t, testContext, conn, []bool{false, true, false})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
@@ -199,10 +246,10 @@ func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *te
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy audit_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] {
+	if got, want := result.Versions, []string{"000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] {
 		t.Fatalf("expected applied versions %v, got %v", want, got)
 	}
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"})
+	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
 
 	rows, err := conn.Query(testContext, `SELECT audit_capture_bodies_at_request FROM request_logs ORDER BY id ASC`)
 	if err != nil {
@@ -490,6 +537,167 @@ func assertRuntimeCacheGenerationContract(t *testing.T, ctx context.Context, con
 	}
 	if strings.TrimSpace(constraintName) == "" {
 		t.Fatal("expected runtime_cache_generations primary key")
+	}
+}
+
+type streamTelemetryColumnContract struct {
+	dataType      string
+	maxLength     int
+	isNullable    string
+	columnDefault string
+}
+
+func assertStreamOutcomeTelemetryColumnContracts(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT table_name, column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable, COALESCE(column_default, '')
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = ANY($1::text[])
+		  AND column_name = ANY($2::text[])
+		ORDER BY table_name ASC, column_name ASC`, []string{"request_logs", "usage_request_events"}, []string{"stream_outcome", "stream_error_kind", "stream_error_detail"})
+	if err != nil {
+		t.Fatalf("load stream telemetry column contracts: %v", err)
+	}
+	defer rows.Close()
+
+	contracts := map[string]streamTelemetryColumnContract{}
+	for rows.Next() {
+		var tableName string
+		var columnName string
+		var contract streamTelemetryColumnContract
+		if err := rows.Scan(&tableName, &columnName, &contract.dataType, &contract.maxLength, &contract.isNullable, &contract.columnDefault); err != nil {
+			t.Fatalf("scan stream telemetry column contract: %v", err)
+		}
+		contracts[tableName+"."+columnName] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate stream telemetry column contracts: %v", err)
+	}
+
+	assertStreamTelemetryColumn(t, contracts, "request_logs.stream_outcome", "character varying", 50, "NO", "not_streaming")
+	assertStreamTelemetryColumn(t, contracts, "request_logs.stream_error_kind", "character varying", 50, "YES", "")
+	assertStreamTelemetryColumn(t, contracts, "request_logs.stream_error_detail", "text", 0, "YES", "")
+	assertStreamTelemetryColumn(t, contracts, "usage_request_events.stream_outcome", "character varying", 50, "NO", "not_streaming")
+	assertStreamTelemetryColumn(t, contracts, "usage_request_events.stream_error_kind", "character varying", 50, "YES", "")
+	if _, exists := contracts["usage_request_events.stream_error_detail"]; exists {
+		t.Fatal("expected usage_request_events.stream_error_detail to remain absent")
+	}
+}
+
+func assertStreamTelemetryColumn(t *testing.T, contracts map[string]streamTelemetryColumnContract, key string, dataType string, maxLength int, isNullable string, defaultContains string) {
+	t.Helper()
+	contract, ok := contracts[key]
+	if !ok {
+		t.Fatalf("expected stream telemetry column %s to exist", key)
+	}
+	if contract.dataType != dataType || contract.maxLength != maxLength || contract.isNullable != isNullable {
+		t.Fatalf("expected %s contract type=%q length=%d nullable=%q, got %+v", key, dataType, maxLength, isNullable, contract)
+	}
+	if defaultContains == "" {
+		if contract.columnDefault != "" {
+			t.Fatalf("expected %s to have no default, got %q", key, contract.columnDefault)
+		}
+		return
+	}
+	if !strings.Contains(strings.ToLower(contract.columnDefault), strings.ToLower(defaultContains)) {
+		t.Fatalf("expected %s default to contain %q, got %q", key, defaultContains, contract.columnDefault)
+	}
+}
+
+func assertRequestLogStreamOutcomeRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `SELECT ingress_request_id, stream_outcome, stream_error_kind IS NULL, stream_error_detail IS NULL FROM request_logs ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query request_logs stream telemetry rows: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]struct {
+		outcome    string
+		kindNull   bool
+		detailNull bool
+	}{}
+	for rows.Next() {
+		var ingressRequestID string
+		var row struct {
+			outcome    string
+			kindNull   bool
+			detailNull bool
+		}
+		if err := rows.Scan(&ingressRequestID, &row.outcome, &row.kindNull, &row.detailNull); err != nil {
+			t.Fatalf("scan request_logs stream telemetry row: %v", err)
+		}
+		got[ingressRequestID] = row
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate request_logs stream telemetry rows: %v", err)
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("expected request_logs stream telemetry rows %v, got %+v", expected, got)
+	}
+	for ingressRequestID, wantOutcome := range expected {
+		row, ok := got[ingressRequestID]
+		if !ok || row.outcome != wantOutcome || !row.kindNull || !row.detailNull {
+			t.Fatalf("expected request_logs stream row %s outcome=%q with null error fields, got %+v", ingressRequestID, wantOutcome, row)
+		}
+	}
+}
+
+func assertUsageEventStreamOutcomeRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `SELECT ingress_request_id, stream_outcome, stream_error_kind IS NULL FROM usage_request_events ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query usage_request_events stream telemetry rows: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]struct {
+		outcome  string
+		kindNull bool
+	}{}
+	for rows.Next() {
+		var ingressRequestID string
+		var row struct {
+			outcome  string
+			kindNull bool
+		}
+		if err := rows.Scan(&ingressRequestID, &row.outcome, &row.kindNull); err != nil {
+			t.Fatalf("scan usage_request_events stream telemetry row: %v", err)
+		}
+		got[ingressRequestID] = row
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate usage_request_events stream telemetry rows: %v", err)
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("expected usage_request_events stream telemetry rows %v, got %+v", expected, got)
+	}
+	for ingressRequestID, wantOutcome := range expected {
+		row, ok := got[ingressRequestID]
+		if !ok || row.outcome != wantOutcome || !row.kindNull {
+			t.Fatalf("expected usage_request_events stream row %s outcome=%q with null error kind, got %+v", ingressRequestID, wantOutcome, row)
+		}
+	}
+}
+
+func assertStreamOutcomeTelemetryDefaults(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	var requestLogOutcome string
+	var requestLogKindNull bool
+	var requestLogDetailNull bool
+	if err := conn.QueryRow(ctx, `INSERT INTO request_logs (profile_id, ingress_request_id, attempt_number, is_stream) VALUES (2, 'req-default', 1, FALSE) RETURNING stream_outcome, stream_error_kind IS NULL, stream_error_detail IS NULL`).Scan(&requestLogOutcome, &requestLogKindNull, &requestLogDetailNull); err != nil {
+		t.Fatalf("insert request_logs stream telemetry default row: %v", err)
+	}
+	if requestLogOutcome != "not_streaming" || !requestLogKindNull || !requestLogDetailNull {
+		t.Fatalf("expected request_logs stream telemetry defaults not_streaming/null/null, got outcome=%q kind_null=%v detail_null=%v", requestLogOutcome, requestLogKindNull, requestLogDetailNull)
+	}
+
+	var usageOutcome string
+	var usageKindNull bool
+	if err := conn.QueryRow(ctx, `INSERT INTO usage_request_events (profile_id, ingress_request_id, attempt_count) VALUES (2, 'usage-default', 1) RETURNING stream_outcome, stream_error_kind IS NULL`).Scan(&usageOutcome, &usageKindNull); err != nil {
+		t.Fatalf("insert usage_request_events stream telemetry default row: %v", err)
+	}
+	if usageOutcome != "not_streaming" || !usageKindNull {
+		t.Fatalf("expected usage_request_events stream telemetry defaults not_streaming/null, got outcome=%q kind_null=%v", usageOutcome, usageKindNull)
 	}
 }
 
