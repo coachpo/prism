@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -95,6 +97,321 @@ func TestRequestWantsStreamUsesGeminiStreamingPath(t *testing.T) {
 	}
 	if !requestWantsStream([]byte(`{"stream":true}`), "/v1/chat/completions") {
 		t.Fatal("expected explicit stream body flag to remain streaming for generic routes")
+	}
+}
+
+func TestClassifySSEStreamOutcome(t *testing.T) {
+	writeErr := errors.New("client write failed")
+	upstreamErr := errors.New("upstream read failed")
+	canceledContext, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name        string
+		ctx         context.Context
+		terminal    sseTerminalSignal
+		upstreamErr error
+		writeErr    error
+		wantOutcome string
+		wantKind    *string
+	}{
+		{name: "client write failure", terminal: sseTerminalSignalNone, writeErr: writeErr, wantOutcome: runtimeStreamOutcomeClientDisconnected, wantKind: stringPtr(runtimeStreamErrorKindClientWriteFailed)},
+		{name: "client write failure beats canceled context", ctx: canceledContext, terminal: sseTerminalSignalCompleted, upstreamErr: upstreamErr, writeErr: writeErr, wantOutcome: runtimeStreamOutcomeClientDisconnected, wantKind: stringPtr(runtimeStreamErrorKindClientWriteFailed)},
+		{name: "request context canceled", ctx: canceledContext, terminal: sseTerminalSignalNone, wantOutcome: runtimeStreamOutcomeClientDisconnected, wantKind: stringPtr(runtimeStreamErrorKindRequestContextCanceled)},
+		{name: "canceled context beats completed", ctx: canceledContext, terminal: sseTerminalSignalCompleted, wantOutcome: runtimeStreamOutcomeClientDisconnected, wantKind: stringPtr(runtimeStreamErrorKindRequestContextCanceled)},
+		{name: "canceled context beats provider incomplete", ctx: canceledContext, terminal: sseTerminalSignalProviderIncomplete, wantOutcome: runtimeStreamOutcomeClientDisconnected, wantKind: stringPtr(runtimeStreamErrorKindRequestContextCanceled)},
+		{name: "upstream read error", terminal: sseTerminalSignalNone, upstreamErr: upstreamErr, wantOutcome: runtimeStreamOutcomeUpstreamReadError, wantKind: stringPtr(runtimeStreamErrorKindUpstreamReadFailed)},
+		{name: "upstream read error beats completed", terminal: sseTerminalSignalCompleted, upstreamErr: upstreamErr, wantOutcome: runtimeStreamOutcomeUpstreamReadError, wantKind: stringPtr(runtimeStreamErrorKindUpstreamReadFailed)},
+		{name: "upstream read error beats provider incomplete", terminal: sseTerminalSignalProviderIncomplete, upstreamErr: upstreamErr, wantOutcome: runtimeStreamOutcomeUpstreamReadError, wantKind: stringPtr(runtimeStreamErrorKindUpstreamReadFailed)},
+		{name: "completed", terminal: sseTerminalSignalCompleted, wantOutcome: runtimeStreamOutcomeCompleted},
+		{name: "provider incomplete", terminal: sseTerminalSignalProviderIncomplete, wantOutcome: runtimeStreamOutcomeProviderIncomplete},
+		{name: "missing terminal", terminal: sseTerminalSignalNone, wantOutcome: runtimeStreamOutcomeUpstreamEndedWithoutTerminal, wantKind: stringPtr(runtimeStreamErrorKindMissingTerminalEvent)},
+		{name: "eof without terminal", terminal: sseTerminalSignalNone, upstreamErr: io.EOF, wantOutcome: runtimeStreamOutcomeUpstreamEndedWithoutTerminal, wantKind: stringPtr(runtimeStreamErrorKindMissingTerminalEvent)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifySSEStreamOutcome(test.ctx, test.terminal, test.upstreamErr, test.writeErr)
+			if got.outcome != test.wantOutcome {
+				t.Fatalf("expected outcome %q, got %+v", test.wantOutcome, got)
+			}
+			if !reflect.DeepEqual(got.kind, test.wantKind) {
+				t.Fatalf("expected error kind %+v, got %+v", test.wantKind, got.kind)
+			}
+		})
+	}
+}
+
+func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
+	writeFailure := errors.New("write failed\nwith\tcontrol")
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), failingWriter{err: writeFailure}, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), time.Now)
+	if !errors.Is(err, writeFailure) {
+		t.Fatalf("expected write failure, got %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeClientDisconnected || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindClientWriteFailed || capture.StreamErrorDetail == nil || *capture.StreamErrorDetail != "write failed with control" {
+		t.Fatalf("expected sanitized client-disconnected capture, got %+v", capture)
+	}
+
+	readFailure := errors.New("upstream read failed")
+	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), err: readFailure}, time.Now)
+	if !errors.Is(err, readFailure) {
+		t.Fatalf("expected upstream read failure, got %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeUpstreamReadError || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindUpstreamReadFailed || capture.StreamErrorDetail == nil || *capture.StreamErrorDetail != "upstream read failed" {
+		t.Fatalf("expected upstream read error capture, got %+v", capture)
+	}
+}
+
+func TestProxyEventStreamClassifiesEOFWithoutTerminal(t *testing.T) {
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n"), time.Now)
+	if err != nil {
+		t.Fatalf("proxy SSE without terminal: %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeUpstreamEndedWithoutTerminal || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindMissingTerminalEvent || capture.StreamErrorDetail != nil || capture.CompletedAt != nil || capture.Usage.hasValues() {
+		t.Fatalf("expected missing-terminal EOF capture without usage, got %+v", capture)
+	}
+}
+
+func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t *testing.T) {
+	terminalStream := "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n"
+
+	canceledContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var forwarded bytes.Buffer
+	cancelingWriter := cancelOnBlankLineWriter{dst: &forwarded, cancel: cancel}
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(canceledContext, cancelingWriter, strings.NewReader(terminalStream), time.Now)
+	if err != nil {
+		t.Fatalf("proxy SSE with canceled context after terminal: %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeClientDisconnected || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindRequestContextCanceled || capture.CompletedAt == nil {
+		t.Fatalf("expected context cancellation to outrank terminal while preserving completion timing, got %+v", capture)
+	}
+
+	readFailure := errors.New("upstream read failed after terminal")
+	forwarded.Reset()
+	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte(terminalStream), err: readFailure}, time.Now)
+	if !errors.Is(err, readFailure) {
+		t.Fatalf("expected upstream read failure, got %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeUpstreamReadError || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindUpstreamReadFailed || capture.CompletedAt == nil {
+		t.Fatalf("expected upstream read error to outrank terminal while preserving completion timing, got %+v", capture)
+	}
+}
+
+func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
+
+	t.Run("completed without usage", func(t *testing.T) {
+		stream := "data: {\"id\":\"chatcmpl-done\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n" +
+			"data:   [DONE]  \n\n"
+		var forwarded bytes.Buffer
+		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now)
+		if err != nil {
+			t.Fatalf("proxy SSE with [DONE]: %v", err)
+		}
+		if forwarded.String() != stream {
+			t.Fatalf("expected SSE stream to pass through unchanged, got %q", forwarded.String())
+		}
+		if capture.StreamOutcome != runtimeStreamOutcomeCompleted || capture.CompletedAt == nil || capture.StreamErrorKind != nil || capture.StreamErrorDetail != nil || capture.Usage.hasValues() {
+			t.Fatalf("expected completed [DONE] capture without usage, got %+v", capture)
+		}
+
+		pricing := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
+		if pricing.UnpricedReason == nil || *pricing.UnpricedReason != runtimeUnpricedReasonMissingUsage {
+			t.Fatalf("expected completed [DONE] stream without usage to keep missing-token reason, got %+v", pricing)
+		}
+	})
+
+	t.Run("other non JSON remains missing terminal", func(t *testing.T) {
+		var forwarded bytes.Buffer
+		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("data: not-json\n\n"), time.Now)
+		if err != nil {
+			t.Fatalf("proxy SSE with non-JSON payload: %v", err)
+		}
+		if capture.StreamOutcome != runtimeStreamOutcomeUpstreamEndedWithoutTerminal || capture.StreamErrorKind == nil || *capture.StreamErrorKind != runtimeStreamErrorKindMissingTerminalEvent || capture.CompletedAt != nil {
+			t.Fatalf("expected non-[DONE] non-JSON payload to remain missing terminal, got %+v", capture)
+		}
+	})
+}
+
+func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
+	stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":13,\"total_tokens\":20}}\n\n" +
+		"data: [DONE]\n\n"
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now)
+	if err != nil {
+		t.Fatalf("proxy SSE with usage and [DONE]: %v", err)
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted || capture.CompletedAt == nil || capture.StreamErrorKind != nil || capture.StreamErrorDetail != nil {
+		t.Fatalf("expected usage stream ending with [DONE] to complete, got %+v", capture)
+	}
+	inputTokens := 7
+	outputTokens := 13
+	totalTokens := 20
+	wantUsage := responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens}
+	if !reflect.DeepEqual(capture.Usage, wantUsage) {
+		t.Fatalf("expected usage before [DONE] to be preserved: want %+v got %+v", wantUsage, capture.Usage)
+	}
+
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+	pricing := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
+	if !pricing.Billable || !pricing.Priced || pricing.UnpricedReason != nil {
+		t.Fatalf("expected observed usage before [DONE] to price normally, got %+v", pricing)
+	}
+}
+
+func TestStreamPayloadTerminalSignalRecognizesJSONTerminals(t *testing.T) {
+	tests := []struct {
+		name  string
+		event string
+		body  map[string]any
+		want  sseTerminalSignal
+	}{
+		{name: "openai responses completed event", event: "response.completed", body: map[string]any{"type": "response.created"}, want: sseTerminalSignalCompleted},
+		{name: "openai responses completed type", body: map[string]any{"type": "response.completed"}, want: sseTerminalSignalCompleted},
+		{name: "openai responses incomplete type", body: map[string]any{"type": "response.incomplete"}, want: sseTerminalSignalProviderIncomplete},
+		{name: "anthropic stop event", event: "message_stop", body: map[string]any{}, want: sseTerminalSignalCompleted},
+		{name: "anthropic stop type", body: map[string]any{"type": "message_stop"}, want: sseTerminalSignalCompleted},
+		{name: "gemini usage metadata", body: map[string]any{"usageMetadata": map[string]any{"promptTokenCount": float64(1)}}, want: sseTerminalSignalCompleted},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := payloadTerminalSignal(test.event, test.body); got != test.want {
+				t.Fatalf("expected terminal signal %d, got %d", test.want, got)
+			}
+		})
+	}
+}
+
+func TestSanitizedStreamErrorDetailNormalizesRedactsAndTruncates(t *testing.T) {
+	detail := sanitizedStreamErrorDetail(errors.New("  first\nsecond\tthird  "))
+	if detail == nil || *detail != "first second third" {
+		t.Fatalf("expected whitespace-normalized detail, got %+v", detail)
+	}
+
+	redacted := sanitizedStreamErrorDetail(errors.New("upstream read failed; Authorization: Bearer secret-token-123; x-api-key=abc123; body={\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}; Cookie: session=abc"))
+	if redacted == nil {
+		t.Fatal("expected redacted stream error detail")
+	}
+	if strings.Contains(*redacted, "secret-token-123") || strings.Contains(*redacted, "abc123") || strings.Contains(*redacted, "hello") || strings.Contains(*redacted, "session=abc") || strings.Contains(strings.ToLower(*redacted), "authorization:") || strings.Contains(strings.ToLower(*redacted), "cookie:") {
+		t.Fatalf("expected secret-bearing fragments to be redacted, got %q", *redacted)
+	}
+	if !strings.Contains(*redacted, "upstream read failed") {
+		t.Fatalf("expected useful operator detail to survive, got %q", *redacted)
+	}
+
+	longDetail := sanitizedStreamErrorDetail(errors.New(strings.Repeat("x", runtimeStreamErrorDetailMaxLength+20)))
+	if longDetail == nil || len(*longDetail) != runtimeStreamErrorDetailMaxLength {
+		t.Fatalf("expected truncated stream error detail, got length %d", len(*longDetail))
+	}
+}
+
+func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedStreams(t *testing.T) {
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
+	inputTokens := 7
+	outputTokens := 13
+
+	priced := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens}, runtimeStreamOutcomeCompleted)
+	if !priced.Billable || !priced.Priced || priced.UnpricedReason != nil || priced.TotalCostUserCurrencyMicros == nil || *priced.TotalCostUserCurrencyMicros != 79 {
+		t.Fatalf("expected completed stream with observed usage to price normally, got %+v", priced)
+	}
+
+	tests := []struct {
+		name       string
+		outcome    string
+		wantReason string
+	}{
+		{name: "completed", outcome: runtimeStreamOutcomeCompleted, wantReason: runtimeUnpricedReasonMissingUsage},
+		{name: "not streaming", outcome: runtimeStreamOutcomeNotStreaming, wantReason: runtimeUnpricedReasonMissingUsage},
+		{name: "provider incomplete", outcome: runtimeStreamOutcomeProviderIncomplete, wantReason: runtimeUnpricedReasonStreamUsageUnavailable},
+		{name: "client disconnected", outcome: runtimeStreamOutcomeClientDisconnected, wantReason: runtimeUnpricedReasonStreamUsageUnavailable},
+		{name: "upstream read error", outcome: runtimeStreamOutcomeUpstreamReadError, wantReason: runtimeUnpricedReasonStreamUsageUnavailable},
+		{name: "missing terminal", outcome: runtimeStreamOutcomeUpstreamEndedWithoutTerminal, wantReason: runtimeUnpricedReasonStreamUsageUnavailable},
+		{name: "unknown", outcome: runtimeStreamOutcomeUnknown, wantReason: runtimeUnpricedReasonStreamUsageUnavailable},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, responseUsage{}, test.outcome)
+			if got.UnpricedReason == nil || *got.UnpricedReason != test.wantReason {
+				t.Fatalf("expected missing usage with outcome %q to use %q, got %+v", test.outcome, test.wantReason, got)
+			}
+		})
+	}
+}
+
+func TestBuildRuntimePricingResultPrioritizesPriceDataBeforeMissingUsage(t *testing.T) {
+	validPricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+
+	tests := []struct {
+		name                    string
+		reportCurrencySnapshot  runtimeReportCurrencySnapshot
+		pricingTemplateSnapshot *runtimePricingTemplateSnapshot
+		endpointFXSnapshot      *runtimeEndpointFXSnapshot
+		streamOutcome           string
+		wantReason              string
+	}{
+		{
+			name:                   "pricing disabled beats interrupted missing usage",
+			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+			streamOutcome:          runtimeStreamOutcomeUpstreamReadError,
+			wantReason:             runtimeUnpricedReasonPricingOff,
+		},
+		{
+			name:                   "invalid input price beats interrupted missing usage",
+			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+				PricingUnit:         runtimePricingUnitPerMillion,
+				PricingCurrencyCode: "USD",
+				InputPrice:          "not-a-decimal",
+				OutputPrice:         "5",
+				Version:             1,
+			},
+			streamOutcome: runtimeStreamOutcomeUpstreamReadError,
+			wantReason:    runtimeUnpricedReasonMissingData,
+		},
+		{
+			name:                   "invalid output price beats completed missing usage",
+			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
+				PricingUnit:         runtimePricingUnitPerMillion,
+				PricingCurrencyCode: "USD",
+				InputPrice:          "2",
+				OutputPrice:         "not-a-decimal",
+				Version:             1,
+			},
+			streamOutcome: runtimeStreamOutcomeCompleted,
+			wantReason:    runtimeUnpricedReasonMissingData,
+		},
+		{
+			name:                    "missing fx beats interrupted missing usage",
+			reportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "EUR", Symbol: "EUR"},
+			pricingTemplateSnapshot: validPricingTemplateSnapshot,
+			streamOutcome:           runtimeStreamOutcomeUpstreamEndedWithoutTerminal,
+			wantReason:              runtimeUnpricedReasonMissingData,
+		},
+		{
+			name:                    "invalid fx beats completed missing usage",
+			reportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "EUR", Symbol: "EUR"},
+			pricingTemplateSnapshot: validPricingTemplateSnapshot,
+			endpointFXSnapshot:      &runtimeEndpointFXSnapshot{FXRate: "not-a-decimal"},
+			streamOutcome:           runtimeStreamOutcomeCompleted,
+			wantReason:              runtimeUnpricedReasonMissingData,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := buildRuntimePricingResult(test.reportCurrencySnapshot, test.pricingTemplateSnapshot, test.endpointFXSnapshot, responseUsage{}, test.streamOutcome)
+			if got.UnpricedReason == nil || *got.UnpricedReason != test.wantReason {
+				t.Fatalf("expected reason %q, got %+v", test.wantReason, got)
+			}
+		})
 	}
 }
 
@@ -274,7 +591,7 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, test.usage)
+			got := buildRuntimePricingResult(reportCurrencySnapshot, pricingTemplateSnapshot, nil, test.usage, runtimeStreamOutcomeCompleted)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("expected pricing result %+v, got %+v", test.want, got)
 			}
@@ -300,7 +617,7 @@ func TestBuildRuntimePricingResultAllowsMissingOptionalPriceWhenDimensionIsUnuse
 		OutputTokens:    &outputTokens,
 		TotalTokens:     &totalTokens,
 		ReasoningTokens: &zero,
-	})
+	}, runtimeStreamOutcomeCompleted)
 
 	want := runtimePricingResult{
 		Billable:                     true,
@@ -345,7 +662,7 @@ func TestBuildRuntimePricingResultMarksMissingOptionalPriceDataUnpricedWhenDimen
 		OutputTokens:    &outputTokens,
 		TotalTokens:     &totalTokens,
 		ReasoningTokens: &reasoningTokens,
-	})
+	}, runtimeStreamOutcomeCompleted)
 
 	want := runtimePricingResult{
 		Billable:       true,
@@ -355,6 +672,43 @@ func TestBuildRuntimePricingResultMarksMissingOptionalPriceDataUnpricedWhenDimen
 		t.Fatalf("expected missing used optional dimension to degrade pricing: want %+v got %+v", want, got)
 	}
 }
+
+type failingWriter struct {
+	err error
+}
+
+func (writer failingWriter) Write([]byte) (int, error) {
+	return 0, writer.err
+}
+
+type cancelOnBlankLineWriter struct {
+	dst    io.Writer
+	cancel context.CancelFunc
+}
+
+func (writer cancelOnBlankLineWriter) Write(payload []byte) (int, error) {
+	n, err := writer.dst.Write(payload)
+	if err == nil && len(bytes.TrimSpace(payload)) == 0 {
+		writer.cancel()
+	}
+	return n, err
+}
+
+type errorAfterReader struct {
+	payload []byte
+	err     error
+	sent    bool
+}
+
+func (reader *errorAfterReader) Read(payload []byte) (int, error) {
+	if reader.sent {
+		return 0, reader.err
+	}
+	reader.sent = true
+	return copy(payload, reader.payload), reader.err
+}
+
+var _ io.Reader = (*errorAfterReader)(nil)
 
 type mutableRuntimeProxyConfigProvider struct {
 	snapshot RuntimeProxyConfigSnapshot

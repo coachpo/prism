@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -347,7 +348,10 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	if strings.Contains(contentType, "text/event-stream") {
-		responseCapture, _ = proxyEventStreamAndCaptureCompletedResponse(proxyWriter, execution.Response.Body, s.nowUTC)
+		responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(r.Context(), proxyWriter, execution.Response.Body, s.nowUTC)
+		if streamErr != nil {
+			slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+		}
 		proxyWriter.Commit()
 		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 		return
@@ -420,12 +424,31 @@ func (writer *runtimeDeferredCommitWriter) Committed() bool {
 	return writer.committed
 }
 
+const (
+	runtimeStreamOutcomeNotStreaming                 = "not_streaming"
+	runtimeStreamOutcomeCompleted                    = "completed"
+	runtimeStreamOutcomeProviderIncomplete           = "provider_incomplete"
+	runtimeStreamOutcomeClientDisconnected           = "client_disconnected"
+	runtimeStreamOutcomeUpstreamReadError            = "upstream_read_error"
+	runtimeStreamOutcomeUpstreamEndedWithoutTerminal = "upstream_ended_without_terminal"
+	runtimeStreamOutcomeUnknown                      = "unknown"
+
+	runtimeStreamErrorKindClientWriteFailed      = "client_write_failed"
+	runtimeStreamErrorKindRequestContextCanceled = "request_context_canceled"
+	runtimeStreamErrorKindUpstreamReadFailed     = "upstream_read_failed"
+	runtimeStreamErrorKindMissingTerminalEvent   = "missing_terminal_event"
+	runtimeStreamErrorDetailMaxLength            = 512
+)
+
 type runtimeResponseCapture struct {
 	Body                     []byte
 	AuditBody                []byte
 	Usage                    responseUsage
 	FirstMeaningfulPayloadAt *time.Time
 	CompletedAt              *time.Time
+	StreamOutcome            string
+	StreamErrorKind          *string
+	StreamErrorDetail        *string
 }
 
 func (capture runtimeResponseCapture) extractedUsage() responseUsage {
@@ -444,7 +467,7 @@ func proxyNonEventResponseAndCaptureUsage(dst io.Writer, src io.Reader, contentT
 		}
 		_, err := io.Copy(io.MultiWriter(writers...), src)
 		completedAt := now()
-		capture := runtimeResponseCapture{CompletedAt: &completedAt}
+		capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
 		if captureAuditBody {
 			capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
 		}
@@ -487,9 +510,10 @@ func (capture *streamedResponseUsageCapture) Write(payload []byte) (int, error) 
 func (capture *streamedResponseUsageCapture) runtimeResponseCapture(completedAt time.Time, captureAuditBody bool, auditBody []byte) runtimeResponseCapture {
 	usage := capture.parser.extractedUsage()
 	responseCapture := runtimeResponseCapture{
-		Body:        buildUsageBodyFromResponseUsage(usage),
-		Usage:       usage,
-		CompletedAt: &completedAt,
+		Body:          buildUsageBodyFromResponseUsage(usage),
+		Usage:         usage,
+		CompletedAt:   &completedAt,
+		StreamOutcome: runtimeStreamOutcomeNotStreaming,
 	}
 	if captureAuditBody {
 		responseCapture.AuditBody = append([]byte(nil), auditBody...)
@@ -794,7 +818,7 @@ func isJSONWhitespace(value byte) bool {
 	}
 }
 
-func proxyEventStreamAndCaptureCompletedResponse(dst io.Writer, src io.Reader, now func() time.Time) (runtimeResponseCapture, error) {
+func proxyEventStreamAndCaptureCompletedResponse(ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time) (runtimeResponseCapture, error) {
 	reader := bufio.NewReader(src)
 	capture := sseCompletedResponseCapture{}
 
@@ -804,7 +828,7 @@ func proxyEventStreamAndCaptureCompletedResponse(dst io.Writer, src io.Reader, n
 			capture.consumeLine(line, now())
 			if _, writeErr := dst.Write(line); writeErr != nil {
 				capture.finishEvent(now())
-				return capture.runtimeResponseCapture(), writeErr
+				return capture.runtimeResponseCapture(classifySSEStreamOutcome(ctx, capture.terminalSignal, nil, writeErr)), writeErr
 			}
 		}
 		if err == nil {
@@ -812,10 +836,24 @@ func proxyEventStreamAndCaptureCompletedResponse(dst io.Writer, src io.Reader, n
 		}
 		capture.finishEvent(now())
 		if errors.Is(err, io.EOF) {
-			return capture.runtimeResponseCapture(), nil
+			return capture.runtimeResponseCapture(classifySSEStreamOutcome(ctx, capture.terminalSignal, nil, nil)), nil
 		}
-		return capture.runtimeResponseCapture(), err
+		return capture.runtimeResponseCapture(classifySSEStreamOutcome(ctx, capture.terminalSignal, err, nil)), err
 	}
+}
+
+type sseTerminalSignal uint8
+
+const (
+	sseTerminalSignalNone sseTerminalSignal = iota
+	sseTerminalSignalCompleted
+	sseTerminalSignalProviderIncomplete
+)
+
+type sseStreamClassification struct {
+	outcome string
+	kind    *string
+	detail  *string
 }
 
 type sseCompletedResponseCapture struct {
@@ -825,15 +863,74 @@ type sseCompletedResponseCapture struct {
 	usage             responseUsage
 	firstPayloadAt    *time.Time
 	completedAt       *time.Time
+	terminalSignal    sseTerminalSignal
 }
 
-func (capture *sseCompletedResponseCapture) runtimeResponseCapture() runtimeResponseCapture {
+func (capture *sseCompletedResponseCapture) runtimeResponseCapture(classification sseStreamClassification) runtimeResponseCapture {
+	outcome := strings.TrimSpace(classification.outcome)
+	if outcome == "" {
+		outcome = runtimeStreamOutcomeUnknown
+	}
 	return runtimeResponseCapture{
 		Body:                     capture.completedResponse,
 		Usage:                    capture.usage,
 		FirstMeaningfulPayloadAt: capture.firstPayloadAt,
 		CompletedAt:              capture.completedAt,
+		StreamOutcome:            outcome,
+		StreamErrorKind:          classification.kind,
+		StreamErrorDetail:        classification.detail,
 	}
+}
+
+func classifySSEStreamOutcome(ctx context.Context, terminal sseTerminalSignal, upstreamErr error, writeErr error) sseStreamClassification {
+	if writeErr != nil {
+		return sseStreamClassification{outcome: runtimeStreamOutcomeClientDisconnected, kind: stringPtr(runtimeStreamErrorKindClientWriteFailed), detail: sanitizedStreamErrorDetail(writeErr)}
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return sseStreamClassification{outcome: runtimeStreamOutcomeClientDisconnected, kind: stringPtr(runtimeStreamErrorKindRequestContextCanceled), detail: sanitizedStreamErrorDetail(ctx.Err())}
+	}
+	if upstreamErr != nil && !errors.Is(upstreamErr, io.EOF) {
+		return sseStreamClassification{outcome: runtimeStreamOutcomeUpstreamReadError, kind: stringPtr(runtimeStreamErrorKindUpstreamReadFailed), detail: sanitizedStreamErrorDetail(upstreamErr)}
+	}
+	switch terminal {
+	case sseTerminalSignalProviderIncomplete:
+		return sseStreamClassification{outcome: runtimeStreamOutcomeProviderIncomplete}
+	case sseTerminalSignalCompleted:
+		return sseStreamClassification{outcome: runtimeStreamOutcomeCompleted}
+	case sseTerminalSignalNone:
+		return sseStreamClassification{outcome: runtimeStreamOutcomeUpstreamEndedWithoutTerminal, kind: stringPtr(runtimeStreamErrorKindMissingTerminalEvent)}
+	default:
+		return sseStreamClassification{outcome: runtimeStreamOutcomeUnknown}
+	}
+}
+
+var runtimeStreamErrorAuthorizationBearerPattern = regexp.MustCompile(`(?i)\b(authorization|proxy-authorization)\b\s*[:=]\s*Bearer\s+[A-Za-z0-9._~+/=-]+`)
+var runtimeStreamErrorSensitiveFragmentPattern = regexp.MustCompile(`(?i)\b(x-api-key|api[-_ ]?key|api[-_ ]?token|token|secret|password|cookie)\b\s*[:=]\s*("[^"]*"|'[^']*'|\S+)`)
+var runtimeStreamErrorBearerPattern = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
+var runtimeStreamErrorJSONObjectPattern = regexp.MustCompile(`\{[^{}]{0,200}\}`)
+var runtimeStreamErrorJSONArrayPattern = regexp.MustCompile(`\[[^\[\]]{0,200}\]`)
+
+func sanitizedStreamErrorDetail(err error) *string {
+	if err == nil {
+		return nil
+	}
+	detail := strings.Join(strings.Fields(err.Error()), " ")
+	if detail == "" {
+		return nil
+	}
+	detail = runtimeStreamErrorAuthorizationBearerPattern.ReplaceAllString(detail, "$1=[REDACTED]")
+	detail = runtimeStreamErrorSensitiveFragmentPattern.ReplaceAllString(detail, "$1=[REDACTED]")
+	detail = runtimeStreamErrorBearerPattern.ReplaceAllString(detail, "Bearer [REDACTED]")
+	detail = runtimeStreamErrorJSONObjectPattern.ReplaceAllString(detail, "[REDACTED]")
+	detail = runtimeStreamErrorJSONArrayPattern.ReplaceAllString(detail, "[REDACTED]")
+	detail = strings.TrimSpace(strings.Join(strings.Fields(detail), " "))
+	if detail == "" {
+		return nil
+	}
+	if len(detail) > runtimeStreamErrorDetailMaxLength {
+		detail = detail[:runtimeStreamErrorDetailMaxLength]
+	}
+	return &detail
 }
 
 func (capture *sseCompletedResponseCapture) consumeLine(line []byte, observedAt time.Time) {
@@ -860,6 +957,13 @@ func (capture *sseCompletedResponseCapture) finishEvent(observedAt time.Time) {
 }
 
 func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, observedAt time.Time) {
+	if strings.TrimSpace(string(payloadBytes)) == "[DONE]" {
+		completedAt := observedAt
+		capture.completedAt = &completedAt
+		capture.terminalSignal = sseTerminalSignalCompleted
+		return
+	}
+
 	var payload map[string]any
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		return
@@ -868,9 +972,10 @@ func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, 
 		firstPayloadAt := observedAt
 		capture.firstPayloadAt = &firstPayloadAt
 	}
-	if payloadSignalsTerminalCompletion(capture.currentEvent, payload) {
+	if terminalSignal := payloadTerminalSignal(capture.currentEvent, payload); terminalSignal != sseTerminalSignalNone {
 		completedAt := observedAt
 		capture.completedAt = &completedAt
+		capture.terminalSignal = terminalSignal
 	}
 	if usagePayload, ok := responseUsagePayload(payload); ok {
 		capture.usage.mergeStandardUsagePayload(usagePayload)
@@ -924,18 +1029,25 @@ func payloadContainsMeaningfulValue(value any) bool {
 	return false
 }
 
-func payloadSignalsTerminalCompletion(event string, payload map[string]any) bool {
-	if event == "response.completed" || event == "message_stop" {
-		return true
+func payloadTerminalSignal(event string, payload map[string]any) sseTerminalSignal {
+	if event == "response.incomplete" {
+		return sseTerminalSignalProviderIncomplete
 	}
-	if payloadType, _ := payload["type"].(string); payloadType == "response.completed" || payloadType == "message_stop" {
-		return true
+	if event == "response.completed" || event == "message_stop" {
+		return sseTerminalSignalCompleted
+	}
+	if payloadType, _ := payload["type"].(string); payloadType == "response.incomplete" {
+		return sseTerminalSignalProviderIncomplete
+	} else if payloadType == "response.completed" || payloadType == "message_stop" {
+		return sseTerminalSignalCompleted
 	}
 	if done, _ := payload["done"].(bool); done {
-		return true
+		return sseTerminalSignalCompleted
 	}
-	_, hasGeminiUsage := payload["usageMetadata"].(map[string]any)
-	return hasGeminiUsage
+	if _, hasGeminiUsage := payload["usageMetadata"].(map[string]any); hasGeminiUsage {
+		return sseTerminalSignalCompleted
+	}
+	return sseTerminalSignalNone
 }
 
 func stringValue(value any) string {

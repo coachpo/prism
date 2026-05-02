@@ -6,12 +6,13 @@ import (
 )
 
 const (
-	runtimePricingUnitPerMillion      = "PER_1M"
-	runtimeFXSourceEndpointSpecific   = "ENDPOINT_SPECIFIC"
-	runtimeFXSourceDefaultOneToOne    = "DEFAULT_1_TO_1"
-	runtimeUnpricedReasonPricingOff   = "PRICING_DISABLED"
-	runtimeUnpricedReasonMissingData  = "MISSING_PRICE_DATA"
-	runtimeUnpricedReasonMissingUsage = "MISSING_TOKEN_USAGE"
+	runtimePricingUnitPerMillion                = "PER_1M"
+	runtimeFXSourceEndpointSpecific             = "ENDPOINT_SPECIFIC"
+	runtimeFXSourceDefaultOneToOne              = "DEFAULT_1_TO_1"
+	runtimeUnpricedReasonPricingOff             = "PRICING_DISABLED"
+	runtimeUnpricedReasonMissingData            = "MISSING_PRICE_DATA"
+	runtimeUnpricedReasonMissingUsage           = "MISSING_TOKEN_USAGE"
+	runtimeUnpricedReasonStreamUsageUnavailable = "STREAM_USAGE_UNAVAILABLE"
 )
 
 type runtimePricingResult struct {
@@ -39,7 +40,7 @@ type runtimePricingResult struct {
 	PricingConfigVersionUsed          *int
 }
 
-func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot, usage responseUsage) runtimePricingResult {
+func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot, usage responseUsage, streamOutcome string) runtimePricingResult {
 	result := runtimePricingResult{Billable: true}
 	if pricingTemplateSnapshot == nil {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonPricingOff)
@@ -51,14 +52,23 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
 	}
-	if usage.InputTokens == nil || usage.OutputTokens == nil {
-		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
-		return result
-	}
 
 	fxRate, fxSource, ok := resolveRuntimeFXRate(reportCurrencySnapshot, pricingTemplateSnapshot, endpointFXSnapshot)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+		return result
+	}
+	if !runtimeRequiredPriceAvailable(pricingTemplateSnapshot.InputPrice) || !runtimeRequiredPriceAvailable(pricingTemplateSnapshot.OutputPrice) {
+		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
+		return result
+	}
+
+	if usage.InputTokens == nil || usage.OutputTokens == nil {
+		if runtimeStreamOutcomeMakesUsageUnavailable(streamOutcome) {
+			result.UnpricedReason = stringPtr(runtimeUnpricedReasonStreamUsageUnavailable)
+			return result
+		}
+		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
 		return result
 	}
 
@@ -118,6 +128,15 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 	return result
 }
 
+func runtimeStreamOutcomeMakesUsageUnavailable(outcome string) bool {
+	switch strings.TrimSpace(outcome) {
+	case runtimeStreamOutcomeProviderIncomplete, runtimeStreamOutcomeClientDisconnected, runtimeStreamOutcomeUpstreamReadError, runtimeStreamOutcomeUpstreamEndedWithoutTerminal, runtimeStreamOutcomeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 func resolveRuntimeFXRate(reportCurrencySnapshot runtimeReportCurrencySnapshot, pricingTemplateSnapshot *runtimePricingTemplateSnapshot, endpointFXSnapshot *runtimeEndpointFXSnapshot) (string, string, bool) {
 	reportCurrencyCode := strings.TrimSpace(reportCurrencySnapshot.Code)
 	pricingCurrencyCode := strings.TrimSpace(pricingTemplateSnapshot.PricingCurrencyCode)
@@ -135,6 +154,11 @@ func resolveRuntimeFXRate(reportCurrencySnapshot runtimeReportCurrencySnapshot, 
 		return "", "", false
 	}
 	return fxRate, runtimeFXSourceEndpointSpecific, true
+}
+
+func runtimeRequiredPriceAvailable(price string) bool {
+	_, ok := parseRuntimeDecimalRat(price)
+	return ok
 }
 
 func runtimePriceComponentMicros(tokens *int, price string) (int64, bool) {
