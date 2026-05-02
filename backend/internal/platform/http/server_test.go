@@ -2,6 +2,7 @@ package platformhttp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -24,9 +25,12 @@ import (
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
+	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
 	"github.com/coachpo/prism/backend/internal/platform/email"
 	"github.com/coachpo/prism/backend/internal/platform/priority"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
@@ -326,6 +330,68 @@ func TestProxyAdmissionAttachesServerSideWorkload(t *testing.T) {
 	}
 }
 
+func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
+	t.Parallel()
+
+	openAPIDocument, err := openapi.Load()
+	if err != nil {
+		t.Fatalf("load OpenAPI document: %v", err)
+	}
+	settings := config.Settings{
+		Host:                             "127.0.0.1",
+		Port:                             18000,
+		AppEnv:                           config.EnvironmentDevelopment,
+		RuntimeTransportConfig:           config.RuntimeTransportConfig{RequestTimeout: time.Second},
+		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 4},
+		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1},
+	}
+	handler, err := NewHandlerWithDependencies(settings, Dependencies{
+		Version:                "route-assembly-test",
+		OpenAPI:                openAPIDocument,
+		DatabasePools:          &platformdb.DatabasePools{},
+		AuthService:            &managementauth.Service{},
+		BootstrapConfigService: &managementbootstrapconfig.Service{},
+		ProfilesService:        &managementprofiles.Service{},
+		RealtimeService:        &realtimeapi.Service{},
+		RuntimeService:         &runtimeapi.Service{},
+	})
+	if err != nil {
+		t.Fatalf("create handler: %v", err)
+	}
+	router, ok := handler.(*chi.Mux)
+	if !ok {
+		t.Fatalf("expected handler to be chi mux, got %T", handler)
+	}
+
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/health"},
+		{method: http.MethodGet, path: "/metrics"},
+		{method: http.MethodGet, path: "/openapi.json"},
+		{method: http.MethodGet, path: "/docs"},
+		{method: http.MethodGet, path: "/redoc"},
+		{method: http.MethodGet, path: "/api/auth/status"},
+		{method: http.MethodGet, path: "/api/profiles/active"},
+		{method: http.MethodGet, path: "/api/config/bootstrap"},
+		{method: http.MethodGet, path: "/api/realtime/ws"},
+		{method: http.MethodPost, path: "/v1/chat/completions"},
+		{method: http.MethodPost, path: "/v1/messages"},
+		{method: http.MethodPost, path: "/v1beta/models/gemini-pro:generateContent"},
+	} {
+		assertRouteMounted(t, router, route.method, route.path)
+	}
+}
+
+func assertRouteMounted(t *testing.T, router *chi.Mux, method string, path string) {
+	t.Helper()
+	routeContext := chi.NewRouteContext()
+	if !router.Match(routeContext, method, path) {
+		t.Fatalf("expected route %s %s to be mounted", method, path)
+	}
+}
+
 func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +474,14 @@ func TestClassifyRuntimeCacheInvalidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newAuthMailer(settings config.Settings) (managementauth.Mailer, error) {
+	mailer, _, err := email.NewMailer(settings.Mail)
+	if err != nil {
+		return nil, fmt.Errorf("create auth mailer: %w", err)
+	}
+	return mailer, nil
 }
 
 func TestNewAuthMailerMissingAndDisabledMailUseNoopCompatibleMailer(t *testing.T) {

@@ -1,7 +1,6 @@
 package platformhttp
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
-	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementaudit "github.com/coachpo/prism/backend/internal/httpapi/management/audit"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementbootstrapconfig "github.com/coachpo/prism/backend/internal/httpapi/management/bootstrapconfig"
@@ -30,14 +28,9 @@ import (
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
-	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
-	"github.com/coachpo/prism/backend/internal/platform/email"
-	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
-	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
-	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
 	"github.com/coachpo/prism/backend/internal/platform/version"
 )
 
@@ -69,6 +62,7 @@ type Dependencies struct {
 
 type ServerOptions struct {
 	BootstrapConfig BootstrapConfigOptions
+	Dependencies    Dependencies
 }
 
 type BootstrapConfigOptions struct {
@@ -86,255 +80,59 @@ type healthResponse struct {
 }
 
 func NewServer(settings config.Settings, options ServerOptions) (*http.Server, error) {
-	loadedVersion, err := version.Load()
+	deps, err := completeDependencies(settings, options)
 	if err != nil {
 		return nil, err
 	}
-
-	hotBootstrapConfigRuntime, err := NewHotBootstrapConfigRuntime(settings)
+	handler, err := NewHandlerWithDependencies(settings, deps)
 	if err != nil {
 		return nil, err
 	}
+	return &http.Server{
+		Addr:              settings.Address(),
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}, nil
+}
 
-	deps := Dependencies{Version: loadedVersion, HotBootstrapConfigRuntime: hotBootstrapConfigRuntime, CORSOriginProvider: hotBootstrapConfigRuntime}
-	if strings.TrimSpace(options.BootstrapConfig.ConfigPath) != "" {
+func completeDependencies(settings config.Settings, options ServerOptions) (Dependencies, error) {
+	deps := options.Dependencies
+	var err error
+	if deps.Version == "" {
+		deps.Version, err = version.Load()
+		if err != nil {
+			return Dependencies{}, err
+		}
+	}
+	if deps.HotBootstrapConfigRuntime == nil {
+		deps.HotBootstrapConfigRuntime, err = NewHotBootstrapConfigRuntime(settings)
+		if err != nil {
+			return Dependencies{}, err
+		}
+	}
+	if deps.CORSOriginProvider == nil && deps.HotBootstrapConfigRuntime != nil {
+		deps.CORSOriginProvider = deps.HotBootstrapConfigRuntime
+	}
+	if deps.BootstrapConfigService == nil && strings.TrimSpace(options.BootstrapConfig.ConfigPath) != "" {
 		bootstrapConfigService, bootstrapErr := managementbootstrapconfig.NewService(settings, managementbootstrapconfig.Options{
 			ConfigPath:         options.BootstrapConfig.ConfigPath,
 			LoadedRevision:     options.BootstrapConfig.LoadedRevision,
 			LoadedDocumentETag: options.BootstrapConfig.LoadedDocumentETag,
-			CORSOriginProvider: hotBootstrapConfigRuntime,
-			HotApplyRuntime:    hotBootstrapConfigRuntime,
+			CORSOriginProvider: deps.CORSOriginProvider,
+			HotApplyRuntime:    deps.HotBootstrapConfigRuntime,
 		})
 		if bootstrapErr != nil {
-			return nil, bootstrapErr
+			return Dependencies{}, bootstrapErr
 		}
 		deps.BootstrapConfigService = bootstrapConfigService
 	}
-	if settings.DocsEnabled() {
+	if settings.DocsEnabled() && deps.OpenAPI == nil {
 		deps.OpenAPI, err = openapi.Load()
 		if err != nil {
-			return nil, err
+			return Dependencies{}, err
 		}
 	}
-
-	shutdownFns := []func(){}
-	registerShutdown := func(closeFn func()) {
-		if closeFn != nil {
-			shutdownFns = append(shutdownFns, closeFn)
-		}
-	}
-	closeAll := func() {
-		for i := len(shutdownFns) - 1; i >= 0; i-- {
-			shutdownFns[i]()
-		}
-	}
-
-	if strings.TrimSpace(settings.DatabaseURL) != "" {
-		databasePools, poolErr := platformdb.OpenDatabasePools(context.Background(), settings.DatabaseURL, settings.PostgresPoolsBudgetOrDefault())
-		if poolErr != nil {
-			return nil, poolErr
-		}
-		registerShutdown(databasePools.Close)
-		deps.DatabasePools = databasePools
-
-		managementPool := databasePools.Management.Raw()
-		runtimeExecutionPool := databasePools.RuntimeExecution.Raw()
-		runtimeTelemetryPool := databasePools.RuntimeTelemetry.Raw()
-		runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()
-		realtimePool := databasePools.Realtime.Raw()
-		cacheRefreshPool := databasePools.CacheRefresh.Raw()
-		backgroundJobsPool := databasePools.BackgroundJobs.Raw()
-		backgroundScheduler := background.NewScheduler(background.Config{})
-		managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
-		managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
-
-		runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: cacheRefreshPool, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
-		runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
-		runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimePlanningCache)
-		if err := runtimePlanningCache.Bootstrap(context.Background()); err != nil {
-			closeAll()
-			return nil, err
-		}
-
-		emailOutbox := outbox.NewStore(outbox.Options{Pool: backgroundJobsPool, MailerProvider: hotBootstrapConfigRuntime, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
-
-		managementAuthService, authErr := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: hotBootstrapConfigRuntime, AuthRuntimeConfigProvider: hotBootstrapConfigRuntime, Pool: managementPool, ProxyKeyUsagePool: backgroundJobsPool, EmailOutbox: emailOutbox, Scheduler: backgroundScheduler})
-		if authErr != nil {
-			closeAll()
-			return nil, authErr
-		}
-		registerShutdown(managementAuthService.Close)
-
-		runtimeAuthService, authErr := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: hotBootstrapConfigRuntime, AuthRuntimeConfigProvider: hotBootstrapConfigRuntime, Pool: runtimeExecutionPool, RuntimeCache: runtimeAuthCache})
-		if authErr != nil {
-			closeAll()
-			return nil, authErr
-		}
-		registerShutdown(runtimeAuthService.Close)
-
-		dashboardSnapshots := statsdomain.NewDashboardAggregateStore()
-
-		profileService, profileErr := managementprofiles.NewService(settings, managementprofiles.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if profileErr != nil {
-			closeAll()
-			return nil, profileErr
-		}
-		registerShutdown(profileService.Close)
-
-		vendorService, vendorErr := managementvendors.NewService(settings, managementvendors.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if vendorErr != nil {
-			closeAll()
-			return nil, vendorErr
-		}
-		registerShutdown(vendorService.Close)
-
-		modelsService, modelsErr := managementmodels.NewService(settings, managementmodels.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if modelsErr != nil {
-			closeAll()
-			return nil, modelsErr
-		}
-		registerShutdown(modelsService.Close)
-
-		endpointsService, endpointsErr := managementendpoints.NewService(settings, managementendpoints.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if endpointsErr != nil {
-			closeAll()
-			return nil, endpointsErr
-		}
-		registerShutdown(endpointsService.Close)
-
-		connectionsService, connectionsErr := managementconnections.NewService(settings, managementconnections.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if connectionsErr != nil {
-			closeAll()
-			return nil, connectionsErr
-		}
-		registerShutdown(connectionsService.Close)
-
-		settingsService, settingsErr := managementsettings.NewService(settings, managementsettings.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if settingsErr != nil {
-			closeAll()
-			return nil, settingsErr
-		}
-		registerShutdown(settingsService.Close)
-
-		loadbalanceService, loadbalanceErr := managementloadbalance.NewService(settings, managementloadbalance.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool, RuntimeState: runtimeState})
-		if loadbalanceErr != nil {
-			closeAll()
-			return nil, loadbalanceErr
-		}
-		registerShutdown(loadbalanceService.Close)
-
-		auditService, auditErr := managementaudit.NewService(settings, managementaudit.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool, Jobs: managementJobs})
-		if auditErr != nil {
-			closeAll()
-			return nil, auditErr
-		}
-		registerShutdown(auditService.Close)
-
-		statsService, statsErr := managementstats.NewService(settings, managementstats.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool, DashboardSnapshots: dashboardSnapshots, SideEffects: managementSideEffects})
-		if statsErr != nil {
-			closeAll()
-			return nil, statsErr
-		}
-		registerShutdown(statsService.Close)
-
-		configRulesService, configRulesErr := managementconfigrules.NewService(settings, managementconfigrules.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if configRulesErr != nil {
-			closeAll()
-			return nil, configRulesErr
-		}
-		registerShutdown(configRulesService.Close)
-
-		configBundleService, configBundleErr := managementconfigbundle.NewService(settings, managementconfigbundle.Options{CORSOriginProvider: hotBootstrapConfigRuntime, Pool: managementPool})
-		if configBundleErr != nil {
-			closeAll()
-			return nil, configBundleErr
-		}
-		registerShutdown(configBundleService.Close)
-
-		realtimeService, realtimeErr := realtimeapi.NewService(settings, realtimeapi.Options{CORSOriginProvider: hotBootstrapConfigRuntime, RealtimePool: realtimePool, AuthService: managementAuthService, DashboardSnapshots: dashboardSnapshots})
-		if realtimeErr != nil {
-			closeAll()
-			return nil, realtimeErr
-		}
-		registerShutdown(realtimeService.Close)
-
-		asyncDashboardPublisher := realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{Scheduler: backgroundScheduler})
-		realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
-		registerShutdown(asyncDashboardPublisher.Close)
-
-		runtimeService, runtimeErr := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: hotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler})
-		if runtimeErr != nil {
-			closeAll()
-			return nil, runtimeErr
-		}
-		registerShutdown(runtimeService.Close)
-
-		for _, register := range []func(*background.Scheduler) error{
-			runtimePlanningCache.RegisterBackgroundWorker,
-			managementAuthService.RegisterBackgroundWorkers,
-			emailOutbox.RegisterBackgroundWorker,
-			managementJobs.RegisterBackgroundWorker,
-			managementSideEffects.RegisterBackgroundWorker,
-			asyncDashboardPublisher.RegisterBackgroundWorker,
-			runtimeService.RegisterBackgroundWorkers,
-		} {
-			if err := register(backgroundScheduler); err != nil {
-				closeAll()
-				return nil, err
-			}
-		}
-		if err := backgroundScheduler.Start(context.Background()); err != nil {
-			closeAll()
-			return nil, err
-		}
-		registerShutdown(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = backgroundScheduler.Stop(ctx, time.Now().Add(5*time.Second))
-		})
-
-		deps.AuditService = auditService
-		deps.AuthService = managementAuthService
-		deps.RuntimeAuthService = runtimeAuthService
-		deps.ConfigBundleService = configBundleService
-		deps.ConfigRulesService = configRulesService
-		deps.ConnectionsService = connectionsService
-		deps.EndpointsService = endpointsService
-		deps.LoadbalanceService = loadbalanceService
-		deps.ModelsService = modelsService
-		deps.ProfilesService = profileService
-		deps.RealtimeService = realtimeService
-		deps.RuntimeService = runtimeService
-		deps.RuntimeCache = runtimePlanningCache
-		deps.RuntimeState = runtimeState
-		deps.SettingsService = settingsService
-		deps.StatsService = statsService
-		deps.VendorsService = vendorService
-	}
-
-	handler, err := NewHandlerWithDependencies(settings, deps)
-	if err != nil {
-		closeAll()
-		return nil, err
-	}
-
-	server := &http.Server{
-		Addr:              settings.Address(),
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	if len(shutdownFns) > 0 {
-		server.RegisterOnShutdown(closeAll)
-	}
-	return server, nil
-}
-
-func newAuthMailer(settings config.Settings) (managementauth.Mailer, error) {
-	mailer, _, err := email.NewMailer(settings.Mail)
-	if err != nil {
-		return nil, fmt.Errorf("create auth mailer: %w", err)
-	}
-	return mailer, nil
+	return deps, nil
 }
 
 func NewHandler(settings config.Settings) (http.Handler, error) {
