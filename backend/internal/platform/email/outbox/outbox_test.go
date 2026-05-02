@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/platform/background"
+	platformemail "github.com/coachpo/prism/backend/internal/platform/email"
 )
 
 var testHarness postgresHarness
@@ -30,6 +31,11 @@ type fakeMailer struct {
 	mu   sync.Mutex
 	sent []string
 	err  error
+}
+
+type fakeMailerProvider struct {
+	mu     sync.Mutex
+	mailer Mailer
 }
 
 func TestMain(m *testing.M) {
@@ -97,6 +103,31 @@ func TestWorkerSendsQueuedJob(t *testing.T) {
 	assertStatus(t, ctx, pool, "send-ok", "sent", 0)
 	if got := mailer.count(); got != 1 {
 		t.Fatalf("expected one send, got %d", got)
+	}
+}
+
+func TestWorkerUsesCurrentMailerProviderSnapshot(t *testing.T) {
+	ctx, pool := openTestPool(t)
+	firstMailer := &fakeMailer{}
+	secondMailer := &fakeMailer{}
+	provider := &fakeMailerProvider{mailer: firstMailer}
+	store := NewStore(Options{Pool: pool, MailerProvider: provider, SecretEncryptionKey: "test-secret"})
+	enqueueTestJob(t, ctx, store, "provider-first", "111111")
+	store.handleScheduledSend(ctx, zeroJob())
+	assertStatus(t, ctx, pool, "provider-first", "sent", 0)
+	if got := firstMailer.count(); got != 1 {
+		t.Fatalf("expected first provider mailer to send once, got %d", got)
+	}
+
+	provider.publish(secondMailer)
+	enqueueTestJob(t, ctx, store, "provider-second", "222222")
+	store.handleScheduledSend(ctx, zeroJob())
+	assertStatus(t, ctx, pool, "provider-second", "sent", 0)
+	if got := secondMailer.count(); got != 1 {
+		t.Fatalf("expected second provider mailer to send once, got %d", got)
+	}
+	if got := firstMailer.count(); got != 1 {
+		t.Fatalf("expected first provider mailer not to be reused, got %d", got)
 	}
 }
 
@@ -237,6 +268,18 @@ func (m *fakeMailer) SendPasswordResetEmail(ctx context.Context, recipient strin
 }
 
 func (m *fakeMailer) count() int { m.mu.Lock(); defer m.mu.Unlock(); return len(m.sent) }
+
+func (p *fakeMailerProvider) Mailer() platformemail.Mailer {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.mailer
+}
+
+func (p *fakeMailerProvider) publish(mailer Mailer) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.mailer = mailer
+}
 
 func zeroJob() background.Job { return background.Job{} }
 

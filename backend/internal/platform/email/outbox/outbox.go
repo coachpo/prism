@@ -50,9 +50,14 @@ type Mailer interface {
 	SendPasswordResetEmail(context.Context, string, string) error
 }
 
+type MailerProvider interface {
+	Mailer() email.Mailer
+}
+
 type Store struct {
 	pool                *pgxpool.Pool
 	mailer              Mailer
+	mailerProvider      MailerProvider
 	secretEncryptionKey string
 	scheduler           *background.Scheduler
 	workerID            string
@@ -65,6 +70,7 @@ type Store struct {
 type Options struct {
 	Pool                *pgxpool.Pool
 	Mailer              Mailer
+	MailerProvider      MailerProvider
 	SecretEncryptionKey string
 	Scheduler           *background.Scheduler
 	WorkerID            string
@@ -127,7 +133,7 @@ func NewStore(options Options) *Store {
 	if workerID == "" {
 		workerID = defaultWorkerID()
 	}
-	return &Store{pool: options.Pool, mailer: mailer, secretEncryptionKey: strings.TrimSpace(options.SecretEncryptionKey), scheduler: options.Scheduler, workerID: workerID, now: now, batchSize: defaultBatchSize, maxAttempts: defaultMaxAttempts, leaseDuration: defaultLeaseDuration}
+	return &Store{pool: options.Pool, mailer: mailer, mailerProvider: options.MailerProvider, secretEncryptionKey: strings.TrimSpace(options.SecretEncryptionKey), scheduler: options.Scheduler, workerID: workerID, now: now, batchSize: defaultBatchSize, maxAttempts: defaultMaxAttempts, leaseDuration: defaultLeaseDuration}
 }
 
 func (s *Store) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
@@ -297,14 +303,30 @@ func (s *Store) processRow(ctx context.Context, row Row) {
 }
 
 func (s *Store) send(ctx context.Context, row Row, secret string) error {
+	mailer := s.currentMailer()
 	switch row.Template {
 	case TemplateEmailVerificationOTP:
-		return s.mailer.SendEmailVerificationOTP(ctx, row.RecipientEmail, secret)
+		return mailer.SendEmailVerificationOTP(ctx, row.RecipientEmail, secret)
 	case TemplatePasswordReset:
-		return s.mailer.SendPasswordResetEmail(ctx, row.RecipientEmail, secret)
+		return mailer.SendPasswordResetEmail(ctx, row.RecipientEmail, secret)
 	default:
 		return PermanentError{Err: fmt.Errorf("unknown email template")}
 	}
+}
+
+func (s *Store) currentMailer() Mailer {
+	if s == nil {
+		return email.DisabledMailer{}
+	}
+	if s.mailerProvider != nil {
+		if mailer := s.mailerProvider.Mailer(); mailer != nil {
+			return mailer
+		}
+	}
+	if s.mailer != nil {
+		return s.mailer
+	}
+	return email.DisabledMailer{}
 }
 
 func (s *Store) finalizeSuccess(ctx context.Context, id string) {
