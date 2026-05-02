@@ -3044,34 +3044,22 @@
           {
             "name": "from_time",
             "in": "query",
-            "required": false,
+            "required": true,
+            "description": "Required inclusive start of the bounded audit window. Request-log lookups must send an explicit window; the backend has no fallback window.",
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "string",
+              "format": "date-time",
               "title": "From Time"
             }
           },
           {
             "name": "to_time",
             "in": "query",
-            "required": false,
+            "required": true,
+            "description": "Required exclusive end of the bounded audit window. The request-log detail frontend derives this with from_time from request-log created_at.",
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "string",
+              "format": "date-time",
               "title": "To Time"
             }
           },
@@ -13148,6 +13136,48 @@
           "is_stream": {
             "type": "boolean",
             "title": "Is Stream"
+          },
+          "stream_outcome": {
+            "type": "string",
+            "enum": [
+              "not_streaming",
+              "completed",
+              "provider_incomplete",
+              "client_disconnected",
+              "upstream_read_error",
+              "upstream_ended_without_terminal",
+              "unknown"
+            ],
+            "title": "Stream Outcome"
+          },
+          "stream_error_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "client_write_failed",
+                  "request_context_canceled",
+                  "upstream_read_failed",
+                  "missing_terminal_event"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Error Kind"
+          },
+          "stream_error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Error Detail",
+            "description": "Sanitized request-log-detail-only diagnostic text for stream failures. Not included in list or realtime payloads."
           }
         },
         "type": "object",
@@ -13161,7 +13191,10 @@
           "api_family",
           "status_code",
           "response_time_ms",
-          "is_stream"
+          "is_stream",
+          "stream_outcome",
+          "stream_error_kind",
+          "stream_error_detail"
         ],
         "title": "RequestLogDetailSummaryResponse"
       },
@@ -13242,7 +13275,8 @@
                 "type": "null"
               }
             ],
-            "title": "Unpriced Reason"
+            "title": "Unpriced Reason",
+            "description": "When present, distinguishes pricing and usage gaps. STREAM_USAGE_UNAVAILABLE is separate from MISSING_TOKEN_USAGE and Prism does not estimate missing tokens or cost."
           },
           "cache_read_input_tokens": {
             "anyOf": [
@@ -13473,6 +13507,36 @@
             "type": "boolean",
             "title": "Is Stream"
           },
+          "stream_outcome": {
+            "type": "string",
+            "enum": [
+              "not_streaming",
+              "completed",
+              "provider_incomplete",
+              "client_disconnected",
+              "upstream_read_error",
+              "upstream_ended_without_terminal",
+              "unknown"
+            ],
+            "title": "Stream Outcome"
+          },
+          "stream_error_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "client_write_failed",
+                  "request_context_canceled",
+                  "upstream_read_failed",
+                  "missing_terminal_event"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Error Kind"
+          },
           "output_tokens": {
             "anyOf": [
               {
@@ -13570,6 +13634,8 @@
           "status_code",
           "response_time_ms",
           "is_stream",
+          "stream_outcome",
+          "stream_error_kind",
           "user_agent_overridden"
         ],
         "title": "RequestLogListItemResponse"
