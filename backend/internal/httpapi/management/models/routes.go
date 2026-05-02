@@ -15,6 +15,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -47,7 +48,7 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 		return response, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -56,7 +57,7 @@ func (s *Service) handleListModels(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
@@ -82,7 +83,7 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 		return buildModelDetailResponse(record, vendors, strategies, proxyTargets, connections), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -91,12 +92,12 @@ func (s *Service) handleGetModel(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 	var requestBody modelCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	normalizeCreateRequest(&requestBody)
 	if err := validateCreateRequest(requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
@@ -140,7 +141,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 		return buildModelDetailResponse(created, vendors, strategies, proxyTargets, []connectionResponse{}), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -149,17 +150,17 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody modelUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	normalizeUpdateRequest(&requestBody)
 	if err := validateUpdateRequest(requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (modelConfigResponse, error) {
@@ -279,7 +280,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		return buildModelDetailResponse(updated, vendors, strategies, proxyTargets, connections), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -288,7 +289,7 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	modelConfigID, err := routeInt(r, "model_config_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (deletedResponse, error) {
@@ -318,7 +319,7 @@ func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return deletedResponse{Deleted: true}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -327,7 +328,7 @@ func (s *Service) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) ([]modelConfigListResponse, error) {
@@ -354,7 +355,7 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 		return response, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -363,7 +364,7 @@ func (s *Service) handleModelsByEndpoint(w http.ResponseWriter, r *http.Request)
 func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request) {
 	var requestBody endpointModelsBatchRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "model", func(tx pgx.Tx) (endpointModelsBatchResponse, error) {
@@ -398,7 +399,7 @@ func (s *Service) handleModelsByEndpoints(w http.ResponseWriter, r *http.Request
 		return endpointModelsBatchResponse{Items: items}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -710,29 +711,22 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var modelErr *domainError
 	if errors.As(err, &modelErr) {
-		writeError(w, r, allowedOrigins, modelErr.StatusCode, modelErr.Detail)
+		writeError(w, r, corsSnapshot, modelErr.StatusCode, modelErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
 
