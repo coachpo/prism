@@ -14,6 +14,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -22,7 +23,7 @@ var headerTokenRE = regexp.MustCompile(`^[a-z0-9][a-z0-9\-]*$`)
 func (s *Service) handleListHeaderBlocklistRules(w http.ResponseWriter, r *http.Request) {
 	includeDisabled, err := parseBooleanQuery(r, "include_disabled", true)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) ([]headerBlocklistRuleResponse, error) {
@@ -41,7 +42,7 @@ func (s *Service) handleListHeaderBlocklistRules(w http.ResponseWriter, r *http.
 		return response, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -50,7 +51,7 @@ func (s *Service) handleListHeaderBlocklistRules(w http.ResponseWriter, r *http.
 func (s *Service) handleGetHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
@@ -68,7 +69,7 @@ func (s *Service) handleGetHeaderBlocklistRule(w http.ResponseWriter, r *http.Re
 		return headerBlocklistRuleResponse(row), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -77,11 +78,11 @@ func (s *Service) handleGetHeaderBlocklistRule(w http.ResponseWriter, r *http.Re
 func (s *Service) handleCreateHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	var requestBody headerBlocklistRuleCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateHeaderBlocklistCreate(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
@@ -103,7 +104,7 @@ func (s *Service) handleCreateHeaderBlocklistRule(w http.ResponseWriter, r *http
 		return headerBlocklistRuleResponse(created), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -112,16 +113,16 @@ func (s *Service) handleCreateHeaderBlocklistRule(w http.ResponseWriter, r *http
 func (s *Service) handleUpdateHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody headerBlocklistRuleUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateHeaderBlocklistUpdate(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (headerBlocklistRuleResponse, error) {
@@ -182,7 +183,7 @@ func (s *Service) handleUpdateHeaderBlocklistRule(w http.ResponseWriter, r *http
 		return headerBlocklistRuleResponse(updated), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -191,7 +192,7 @@ func (s *Service) handleUpdateHeaderBlocklistRule(w http.ResponseWriter, r *http
 func (s *Service) handleDeleteHeaderBlocklistRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (deletedResponse, error) {
@@ -215,7 +216,7 @@ func (s *Service) handleDeleteHeaderBlocklistRule(w http.ResponseWriter, r *http
 		return deletedResponse{Deleted: true}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -224,7 +225,7 @@ func (s *Service) handleDeleteHeaderBlocklistRule(w http.ResponseWriter, r *http
 func (s *Service) handleListUserAgentClientRules(w http.ResponseWriter, r *http.Request) {
 	includeDisabled, err := parseBooleanQuery(r, "include_disabled", true)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) ([]userAgentClientRuleResponse, error) {
@@ -243,7 +244,7 @@ func (s *Service) handleListUserAgentClientRules(w http.ResponseWriter, r *http.
 		return response, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -252,7 +253,7 @@ func (s *Service) handleListUserAgentClientRules(w http.ResponseWriter, r *http.
 func (s *Service) handleGetUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
@@ -270,7 +271,7 @@ func (s *Service) handleGetUserAgentClientRule(w http.ResponseWriter, r *http.Re
 		return userAgentClientRuleResponse(row), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -279,11 +280,11 @@ func (s *Service) handleGetUserAgentClientRule(w http.ResponseWriter, r *http.Re
 func (s *Service) handleCreateUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	var requestBody userAgentClientRuleCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateUserAgentCreate(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
@@ -298,7 +299,7 @@ func (s *Service) handleCreateUserAgentClientRule(w http.ResponseWriter, r *http
 		return userAgentClientRuleResponse(created), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -307,16 +308,16 @@ func (s *Service) handleCreateUserAgentClientRule(w http.ResponseWriter, r *http
 func (s *Service) handleUpdateUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody userAgentClientRuleUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateUserAgentUpdate(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (userAgentClientRuleResponse, error) {
@@ -361,7 +362,7 @@ func (s *Service) handleUpdateUserAgentClientRule(w http.ResponseWriter, r *http
 		return userAgentClientRuleResponse(updated), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -370,7 +371,7 @@ func (s *Service) handleUpdateUserAgentClientRule(w http.ResponseWriter, r *http
 func (s *Service) handleDeleteUserAgentClientRule(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := routeInt(r, "rule_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "config rules", func(tx pgx.Tx) (deletedResponse, error) {
@@ -394,7 +395,7 @@ func (s *Service) handleDeleteUserAgentClientRule(w http.ResponseWriter, r *http
 		return deletedResponse{Deleted: true}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -490,29 +491,22 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var configErr *domainError
 	if errors.As(err, &configErr) {
-		writeError(w, r, allowedOrigins, configErr.StatusCode, configErr.Detail)
+		writeError(w, r, corsSnapshot, configErr.StatusCode, configErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail any) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]any{"detail": detail})
 }
 
