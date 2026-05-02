@@ -145,6 +145,7 @@ request_logs (immutable attribution)
   ingress_request_id, attempt_number, provider_correlation_id
   connection_id, endpoint_base_url, endpoint_description
   status_code, response_time_ms, is_stream
+  stream_outcome, stream_error_kind, stream_error_detail
   usage token fields
   costing snapshot fields
   request_path, error_detail
@@ -158,6 +159,7 @@ usage_request_events (immutable usage attribution)
   endpoint_id, connection_id
   proxy_api_key_id, proxy_api_key_name_snapshot
   status_code, success_flag
+  stream_outcome, stream_error_kind
   usage token fields
   costing snapshot fields
   created_at
@@ -509,6 +511,9 @@ Telemetry rows for every proxy attempt with immutable profile attribution captur
 | status_code | INTEGER | NOT NULL | Upstream status code |
 | response_time_ms | INTEGER | NOT NULL | Latency in ms |
 | is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
+| stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Stream classification: `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown` |
+| stream_error_kind | VARCHAR(50) | NULLABLE | Stream diagnostic kind: `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event` |
+| stream_error_detail | TEXT | NULLABLE | Sanitized request-log-detail-only diagnostic text for stream failures |
 | usage + costing snapshot fields | mixed | NULLABLE | Token/cost telemetry and pricing snapshots |
 | request_path | VARCHAR(500) | NOT NULL | Requested route path |
 | error_detail | TEXT | NULLABLE | Error details for failed attempts |
@@ -519,6 +524,8 @@ Request-log semantics:
 - `ingress_request_id` groups the rows created by one incoming runtime request.
 - `attempt_number` preserves retry/failover ordering within that group.
 - For proxy traffic, `model_id` stays the requested proxy identifier while `resolved_target_model_id` records the chosen native target for that attempt.
+- `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
+- Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 
 ### 2.11 `usage_request_events` (immutable usage attribution)
 
@@ -539,6 +546,8 @@ Usage-event rows are the finalized source for the unified statistics snapshot.
 | attempt_count | INTEGER | NOT NULL | Number of upstream attempts that contributed to the finalized event |
 | status_code | INTEGER | NOT NULL | HTTP status code |
 | success_flag | BOOLEAN | NOT NULL | Success indicator |
+| stream_outcome | VARCHAR(50) | NOT NULL, DEFAULT `not_streaming` | Finalized stream classification copied from the contributing request-log attempt |
+| stream_error_kind | VARCHAR(50) | NULLABLE | Finalized stream diagnostic kind without detail text |
 | usage + costing snapshot fields | mixed | NULLABLE | Token and cost telemetry snapshots |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
 
@@ -546,6 +555,7 @@ Usage-event semantics:
 - One row captures the finalized usage event that feeds the statistics snapshot.
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
+- Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
 
 ### 2.12 `audit_logs` (immutable profile attribution)
 
