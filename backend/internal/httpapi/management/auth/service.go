@@ -13,6 +13,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 )
 
@@ -22,34 +23,32 @@ type Mailer interface {
 }
 
 type Options struct {
-	Mailer            Mailer
-	EmailOutbox       *outbox.Store
-	Now               func() time.Time
-	Pool              *pgxpool.Pool
-	ProxyKeyUsagePool *pgxpool.Pool
-	RuntimeCache      *RuntimeCache
-	Scheduler         *background.Scheduler
+	CORSOriginProvider        platformcors.OriginProvider
+	AuthRuntimeConfigProvider RuntimeAuthConfigProvider
+	Mailer                    Mailer
+	EmailOutbox               *outbox.Store
+	Now                       func() time.Time
+	Pool                      *pgxpool.Pool
+	ProxyKeyUsagePool         *pgxpool.Pool
+	RuntimeCache              *RuntimeCache
+	Scheduler                 *background.Scheduler
 }
 
 type Service struct {
-	pool                   *pgxpool.Pool
-	ownsPool               bool
-	emailOutbox            *outbox.Store
-	now                    func() time.Time
-	authJWTSecret          string
-	accessTokenTTL         time.Duration
-	refreshTokenTTL        time.Duration
-	resetCodeTTL           time.Duration
-	accessCookieName       string
-	refreshCookieName      string
-	cookieSecure           bool
-	allowedOrigins         map[string]struct{}
-	proxyKeyPreviewSize    int
-	runtimeCache           *RuntimeCache
-	proxyKeyUsagePool      *pgxpool.Pool
-	proxyKeyUsageWriter    *proxyAPIKeyUsageWriter
-	authSettingsSnapshotMu sync.RWMutex
-	authSettingsSnapshot   *AppAuthSettingsSnapshot
+	pool                      *pgxpool.Pool
+	ownsPool                  bool
+	emailOutbox               *outbox.Store
+	now                       func() time.Time
+	authJWTSecret             string
+	staticAuthRuntimeConfig   RuntimeAuthConfigSnapshot
+	authRuntimeConfigProvider RuntimeAuthConfigProvider
+	corsOriginProvider        platformcors.OriginProvider
+	proxyKeyPreviewSize       int
+	runtimeCache              *RuntimeCache
+	proxyKeyUsagePool         *pgxpool.Pool
+	proxyKeyUsageWriter       *proxyAPIKeyUsageWriter
+	authSettingsSnapshotMu    sync.RWMutex
+	authSettingsSnapshot      *AppAuthSettingsSnapshot
 }
 
 type authSubject struct {
@@ -72,29 +71,25 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now = time.Now
 	}
 
-	allowedOrigins := map[string]struct{}{}
-	for _, origin := range settings.CORSAllowedOriginsList() {
-		allowedOrigins[origin] = struct{}{}
+	corsOriginProvider := options.CORSOriginProvider
+	if corsOriginProvider == nil {
+		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
 	proxyKeyUsagePool := options.ProxyKeyUsagePool
 
 	service := &Service{
-		pool:                pool,
-		ownsPool:            ownsPool,
-		emailOutbox:         options.EmailOutbox,
-		now:                 now,
-		authJWTSecret:       settings.AuthJWTSecret,
-		accessTokenTTL:      time.Duration(settings.AuthAccessTokenTTLSeconds) * time.Second,
-		refreshTokenTTL:     time.Duration(settings.AuthRefreshTokenTTLSeconds) * time.Second,
-		resetCodeTTL:        time.Duration(settings.AuthResetCodeTTLSeconds) * time.Second,
-		accessCookieName:    settings.AuthCookieName,
-		refreshCookieName:   settings.AuthRefreshCookieName,
-		cookieSecure:        settings.AuthCookieSecure,
-		allowedOrigins:      allowedOrigins,
-		proxyKeyPreviewSize: 4,
-		runtimeCache:        options.RuntimeCache,
-		proxyKeyUsagePool:   proxyKeyUsagePool,
+		pool:                      pool,
+		ownsPool:                  ownsPool,
+		emailOutbox:               options.EmailOutbox,
+		now:                       now,
+		authJWTSecret:             settings.AuthJWTSecret,
+		staticAuthRuntimeConfig:   runtimeAuthConfigSnapshotFromSettings(settings),
+		authRuntimeConfigProvider: options.AuthRuntimeConfigProvider,
+		corsOriginProvider:        corsOriginProvider,
+		proxyKeyPreviewSize:       4,
+		runtimeCache:              options.RuntimeCache,
+		proxyKeyUsagePool:         proxyKeyUsagePool,
 	}
 	if proxyKeyUsagePool != nil {
 		service.proxyKeyUsageWriter = newProxyAPIKeyUsageWriter(service.recordProxyAPIKeyUsage, options.Scheduler)
@@ -207,6 +202,13 @@ func (s *Service) ManagementMiddleware(next http.Handler) http.Handler {
 
 func (s *Service) RuntimeMiddleware(next http.Handler) http.Handler {
 	return s.runtimeMiddleware(next)
+}
+
+func (s *Service) corsSnapshot() platformcors.Snapshot {
+	if s == nil || s.corsOriginProvider == nil {
+		return platformcors.Snapshot{}
+	}
+	return s.corsOriginProvider.CORSSnapshot()
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {

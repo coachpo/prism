@@ -7,6 +7,7 @@ import (
 
 func (s *Service) setAuthCookies(
 	w http.ResponseWriter,
+	authConfig RuntimeAuthConfigSnapshot,
 	accessToken string,
 	refreshToken string,
 	refreshExpiresAt time.Time,
@@ -14,22 +15,22 @@ func (s *Service) setAuthCookies(
 ) {
 	now := s.nowUTC()
 	accessCookie := &http.Cookie{
-		Name:     s.accessCookieName,
+		Name:     authConfig.AccessCookieName,
 		Value:    accessToken,
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
+		Secure:   authConfig.CookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	}
-	if maxAge := duration.accessCookieMaxAge(s.accessTokenTTL); maxAge > 0 {
+	if maxAge := duration.accessCookieMaxAge(authConfig.AccessTokenTTL); maxAge > 0 {
 		accessCookie.MaxAge = maxAge
 	}
 
 	refreshCookie := &http.Cookie{
-		Name:     s.refreshCookieName,
+		Name:     authConfig.RefreshCookieName,
 		Value:    refreshToken,
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
+		Secure:   authConfig.CookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 	}
@@ -41,23 +42,23 @@ func (s *Service) setAuthCookies(
 	http.SetCookie(w, refreshCookie)
 }
 
-func (s *Service) clearAuthCookies(w http.ResponseWriter) {
+func (s *Service) clearAuthCookies(w http.ResponseWriter, authConfig RuntimeAuthConfigSnapshot) {
 	expiresAt := time.Unix(0, 0).UTC()
 	http.SetCookie(w, &http.Cookie{
-		Name:     s.accessCookieName,
+		Name:     authConfig.AccessCookieName,
 		Value:    "",
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
+		Secure:   authConfig.CookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   -1,
 		Expires:  expiresAt,
 	})
 	http.SetCookie(w, &http.Cookie{
-		Name:     s.refreshCookieName,
+		Name:     authConfig.RefreshCookieName,
 		Value:    "",
 		HttpOnly: true,
-		Secure:   s.cookieSecure,
+		Secure:   authConfig.CookieSecure,
 		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   -1,

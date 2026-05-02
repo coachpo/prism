@@ -3,7 +3,10 @@ package contract_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -49,6 +52,7 @@ type contractHarness struct {
 	service        *managementauth.Service
 	runtimeService *runtimeapi.Service
 	runtimeCache   *runtimeapi.SharedCache
+	hotRuntime     *platformhttp.HotBootstrapConfigRuntime
 	url            string
 }
 
@@ -221,6 +225,70 @@ func TestAuthLoginRefreshLogout(t *testing.T) {
 		if token.RevokedAt == nil {
 			t.Fatalf("expected refresh token %d to be revoked after logout", token.ID)
 		}
+	}
+}
+
+func TestAuthHotBootstrapRuntimeConfigAppliesToNewOperations(t *testing.T) {
+	harness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, harness, "hot-admin", "hot-password-123", "hot@example.com")
+
+	updated := contractAuthSettings()
+	updated.AuthJWTSecret = "hot-published-jwt-secret"
+	updated.AuthAccessTokenTTLSeconds = 37
+	updated.AuthRefreshTokenTTLSeconds = 43
+	updated.AuthResetCodeTTLSeconds = 47
+	updated.AuthCookieName = "hot_access_token"
+	updated.AuthRefreshCookieName = "hot_refresh_token"
+	updated.AuthCookieSecure = true
+	retired, err := harness.hotRuntime.Publish(updated)
+	if err != nil {
+		t.Fatalf("publish hot auth runtime config: %v", err)
+	}
+	retired.CloseIdleConnections()
+
+	loginResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/auth/login",
+		map[string]any{
+			"username":         "hot-admin",
+			"password":         "hot-password-123",
+			"session_duration": "session",
+		},
+		nil,
+	)
+	assertStatus(t, loginResponse, http.StatusOK)
+	accessCookie := responseCookie(t, loginResponse, "hot_access_token")
+	refreshCookie := responseCookie(t, loginResponse, "hot_refresh_token")
+	if !accessCookie.Secure || !refreshCookie.Secure {
+		t.Fatalf("expected hot cookie secure flag, got access=%v refresh=%v", accessCookie.Secure, refreshCookie.Secure)
+	}
+	assertNoResponseCookie(t, loginResponse, "prism_access_token")
+	assertNoResponseCookie(t, loginResponse, "prism_refresh_token")
+	claims := decodeAccessTokenClaims(t, accessCookie.Value)
+	if got := int(claims["exp"].(float64) - claims["iat"].(float64)); got != 37 {
+		t.Fatalf("expected hot access token TTL 37s, got %ds", got)
+	}
+	assertJWTSignature(t, accessCookie.Value, "contract-jwt-secret", true)
+	assertJWTSignature(t, accessCookie.Value, "hot-published-jwt-secret", false)
+
+	var refreshTTL int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT ROUND(EXTRACT(EPOCH FROM expires_at - created_at))::int FROM refresh_tokens ORDER BY id DESC LIMIT 1`).Scan(&refreshTTL); err != nil {
+		t.Fatalf("query hot refresh token TTL: %v", err)
+	}
+	if refreshTTL != 43 {
+		t.Fatalf("expected hot refresh token TTL 43s, got %ds", refreshTTL)
+	}
+
+	verificationResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/settings/auth/email-verification/request", map[string]any{"email": "hot-next@example.com"}, nil)
+	assertStatus(t, verificationResponse, http.StatusOK)
+	var resetTTL int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT ROUND(EXTRACT(EPOCH FROM email_verification_expires_at - updated_at))::int FROM app_auth_settings WHERE singleton_key = 'app'`).Scan(&resetTTL); err != nil {
+		t.Fatalf("query hot reset code TTL: %v", err)
+	}
+	if resetTTL != 47 {
+		t.Fatalf("expected hot reset code TTL 47s, got %ds", resetTTL)
 	}
 }
 
@@ -970,6 +1038,23 @@ func newContractHarness(t *testing.T) *contractHarness {
 	return newContractHarnessWithMailer(t, &captureMailer{})
 }
 
+func contractAuthSettings() config.Settings {
+	return config.Settings{
+		Host:                       "127.0.0.1",
+		Port:                       8000,
+		AppEnv:                     config.EnvironmentProduction,
+		SecretEncryptionKey:        "contract-secret",
+		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
+		AuthJWTSecret:              "contract-jwt-secret",
+		AuthAccessTokenTTLSeconds:  900,
+		AuthRefreshTokenTTLSeconds: 604800,
+		AuthResetCodeTTLSeconds:    600,
+		AuthCookieName:             "prism_access_token",
+		AuthRefreshCookieName:      "prism_refresh_token",
+		AuthCookieSecure:           false,
+	}
+}
+
 func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer) *contractHarness {
 	t.Helper()
 	if authMailer == nil {
@@ -995,21 +1080,8 @@ func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer
 		t.Fatalf("run startup service: %v", err)
 	}
 
-	settings := config.Settings{
-		Host:                       "127.0.0.1",
-		Port:                       8000,
-		AppEnv:                     config.EnvironmentProduction,
-		DatabaseURL:                sharedPostgresHarness.connectionString(databaseName),
-		SecretEncryptionKey:        "contract-secret",
-		CORSAllowedOrigins:         "http://localhost:5173,http://127.0.0.1:5173",
-		AuthJWTSecret:              "contract-jwt-secret",
-		AuthAccessTokenTTLSeconds:  900,
-		AuthRefreshTokenTTLSeconds: 604800,
-		AuthResetCodeTTLSeconds:    600,
-		AuthCookieName:             "prism_access_token",
-		AuthRefreshCookieName:      "prism_refresh_token",
-		AuthCookieSecure:           false,
-	}
+	settings := contractAuthSettings()
+	settings.DatabaseURL = sharedPostgresHarness.connectionString(databaseName)
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
 		t.Fatalf("create pgx pool: %v", err)
@@ -1020,17 +1092,22 @@ func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer
 		t.Fatalf("bootstrap published runtime snapshot: %v", err)
 	}
 	runtimeAuthCache := managementauth.NewRuntimeCacheFromShared(runtimeCache)
+	hotRuntime, err := platformhttp.NewHotBootstrapConfigRuntime(settings)
+	if err != nil {
+		t.Fatalf("build hot bootstrap runtime: %v", err)
+	}
 	emailOutbox := platformemailoutbox.NewStore(platformemailoutbox.Options{Pool: pool, Mailer: authMailer, SecretEncryptionKey: settings.SecretEncryptionKey, WorkerID: "contract-test"})
-	authService, err := managementauth.NewService(settings, managementauth.Options{Pool: pool, EmailOutbox: emailOutbox, RuntimeCache: runtimeAuthCache})
+	authService, err := managementauth.NewService(settings, managementauth.Options{CORSOriginProvider: hotRuntime, AuthRuntimeConfigProvider: hotRuntime, Pool: pool, EmailOutbox: emailOutbox, RuntimeCache: runtimeAuthCache})
 	if err != nil {
 		t.Fatalf("build auth service: %v", err)
 	}
 	t.Cleanup(authService.Close)
 	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{
-		Version:            "contract-test",
-		AuthService:        authService,
-		RuntimeAuthService: authService,
-		RuntimeCache:       runtimeCache,
+		Version:                   "contract-test",
+		AuthService:               authService,
+		RuntimeAuthService:        authService,
+		RuntimeCache:              runtimeCache,
+		HotBootstrapConfigRuntime: hotRuntime,
 	})
 	if err != nil {
 		t.Fatalf("build handler: %v", err)
@@ -1043,7 +1120,7 @@ func newContractHarnessWithMailer(t *testing.T, authMailer managementauth.Mailer
 	}
 	client := server.Client()
 	client.Jar = jar
-	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: capturedMailer, emailOutbox: emailOutbox, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, url: server.URL}
+	return &contractHarness{client: client, conn: conn, dsn: settings.DatabaseURL, mailer: capturedMailer, emailOutbox: emailOutbox, server: server, service: authService, runtimeService: nil, runtimeCache: runtimeCache, hotRuntime: hotRuntime, url: server.URL}
 }
 
 func (h *contractHarness) processEmailOutbox(t *testing.T) {
@@ -1481,12 +1558,58 @@ func assertOptionalString(t *testing.T, actual any, expected *string, field stri
 
 func assertCookiePresent(t *testing.T, response *http.Response, name string) {
 	t.Helper()
+	_ = responseCookie(t, response, name)
+}
+
+func responseCookie(t *testing.T, response *http.Response, name string) *http.Cookie {
+	t.Helper()
 	for _, cookie := range response.Cookies() {
 		if cookie.Name == name {
-			return
+			return cookie
 		}
 	}
 	t.Fatalf("expected response to set cookie %q", name)
+	return nil
+}
+
+func assertNoResponseCookie(t *testing.T, response *http.Response, name string) {
+	t.Helper()
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == name {
+			t.Fatalf("expected response not to set cookie %q", name)
+		}
+	}
+}
+
+func decodeAccessTokenClaims(t *testing.T, token string) map[string]any {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected JWT token with 3 parts, got %q", token)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode JWT payload: %v", err)
+	}
+	claims := map[string]any{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		t.Fatalf("unmarshal JWT claims: %v", err)
+	}
+	return claims
+}
+
+func assertJWTSignature(t *testing.T, token string, secret string, wantValid bool) {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected JWT token with 3 parts, got %q", token)
+	}
+	signer := hmac.New(sha256.New, []byte(secret))
+	_, _ = signer.Write([]byte(parts[0] + "." + parts[1]))
+	got := hmac.Equal([]byte(base64.RawURLEncoding.EncodeToString(signer.Sum(nil))), []byte(parts[2]))
+	if got != wantValid {
+		t.Fatalf("expected JWT signature validity for secret %q to be %v, got %v", secret, wantValid, got)
+	}
 }
 
 func cookieValue(t *testing.T, client *http.Client, rawURL string, name string) string {

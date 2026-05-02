@@ -211,7 +211,7 @@ func scanAppAuthSettings(scanner interface{ Scan(...any) error }) (appAuthSettin
 	return row, nil
 }
 
-func (s *Service) authenticateUser(ctx context.Context, tx pgx.Tx, username string, password string, duration sessionDuration, userAgent string, ipAddress string) (sessionBundle, error) {
+func (s *Service) authenticateUser(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, username string, password string, duration sessionDuration, userAgent string, ipAddress string) (sessionBundle, error) {
 	settingsRow, err := s.loadOrCreateAppAuthSettings(ctx, tx)
 	if err != nil {
 		return sessionBundle{}, fmt.Errorf("load auth settings: %w", err)
@@ -222,18 +222,18 @@ func (s *Service) authenticateUser(ctx context.Context, tx pgx.Tx, username stri
 	if !settingsRow.Username.Valid || !settingsRow.PasswordHash.Valid || settingsRow.Username.String != username || !verifyPassword(password, settingsRow.PasswordHash.String) {
 		return sessionBundle{}, &domainError{StatusCode: 401, Detail: "Invalid credentials"}
 	}
-	return s.createSessionForSettingsRow(ctx, tx, settingsRow, duration, userAgent, ipAddress, nil)
+	return s.createSessionForSettingsRow(ctx, tx, authConfig, settingsRow, duration, userAgent, ipAddress, nil)
 }
 
-func (s *Service) createSessionForSettingsRow(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, duration sessionDuration, userAgent string, ipAddress string, refreshExpiry *time.Time) (sessionBundle, error) {
+func (s *Service) createSessionForSettingsRow(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, duration sessionDuration, userAgent string, ipAddress string, refreshExpiry *time.Time) (sessionBundle, error) {
 	now := s.nowUTC()
 	var expiresAt time.Time
 	if refreshExpiry != nil {
 		expiresAt = refreshExpiry.UTC()
 	} else {
-		expiresAt = duration.refreshExpiry(now, s.refreshTokenTTL)
+		expiresAt = duration.refreshExpiry(now, authConfig.RefreshTokenTTL)
 	}
-	accessToken, err := createAccessToken(now, s.accessTokenTTL, s.authJWTSecret, settingsRow.ID, stringValue(settingsRow.Username), settingsRow.TokenVersion)
+	accessToken, err := createAccessToken(now, authConfig.AccessTokenTTL, s.authJWTSecret, settingsRow.ID, stringValue(settingsRow.Username), settingsRow.TokenVersion)
 	if err != nil {
 		return sessionBundle{}, err
 	}
@@ -331,7 +331,7 @@ func (s *Service) loadRefreshTokenByHash(ctx context.Context, exec queryExecutor
 	return row, nil
 }
 
-func (s *Service) rotateRefreshToken(ctx context.Context, tx pgx.Tx, rawRefreshToken string, userAgent string, ipAddress string) (sessionBundle, error) {
+func (s *Service) rotateRefreshToken(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, rawRefreshToken string, userAgent string, ipAddress string) (sessionBundle, error) {
 	refreshRow, err := s.loadRefreshTokenByHash(ctx, tx, hashOpaqueToken(rawRefreshToken))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -371,12 +371,12 @@ func (s *Service) rotateRefreshToken(ctx context.Context, tx pgx.Tx, rawRefreshT
 	); err != nil {
 		return sessionBundle{}, fmt.Errorf("revoke rotated refresh token: %w", err)
 	}
-	return s.createRotatedSession(ctx, tx, settingsRow, duration, userAgent, ipAddress, refreshRow.ID, refreshRow.ExpiresAt)
+	return s.createRotatedSession(ctx, tx, authConfig, settingsRow, duration, userAgent, ipAddress, refreshRow.ID, refreshRow.ExpiresAt)
 }
 
-func (s *Service) createRotatedSession(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, duration sessionDuration, userAgent string, ipAddress string, rotatedFromID int, refreshExpiry time.Time) (sessionBundle, error) {
+func (s *Service) createRotatedSession(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, duration sessionDuration, userAgent string, ipAddress string, rotatedFromID int, refreshExpiry time.Time) (sessionBundle, error) {
 	now := s.nowUTC()
-	accessToken, err := createAccessToken(now, s.accessTokenTTL, s.authJWTSecret, settingsRow.ID, stringValue(settingsRow.Username), settingsRow.TokenVersion)
+	accessToken, err := createAccessToken(now, authConfig.AccessTokenTTL, s.authJWTSecret, settingsRow.ID, stringValue(settingsRow.Username), settingsRow.TokenVersion)
 	if err != nil {
 		return sessionBundle{}, err
 	}
@@ -591,13 +591,13 @@ func (s *Service) updateAuthSettings(ctx context.Context, tx pgx.Tx, settingsRow
 	return authSettingsMutationResult{Row: row, SessionInvalidated: settingsRow.AuthEnabled && revokeSessions}, nil
 }
 
-func (s *Service) beginEmailVerification(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, email string) (appAuthSettingsRow, string, error) {
+func (s *Service) beginEmailVerification(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, email string) (appAuthSettingsRow, string, error) {
 	otpCode, err := generateOTPCode()
 	if err != nil {
 		return appAuthSettingsRow{}, "", err
 	}
 	now := s.nowUTC()
-	expiresAt := now.Add(s.resetCodeTTL)
+	expiresAt := now.Add(authConfig.ResetCodeTTL)
 	scanner := tx.QueryRow(
 		ctx,
 		`UPDATE app_auth_settings
@@ -669,13 +669,13 @@ func (s *Service) confirmEmailVerification(ctx context.Context, tx pgx.Tx, setti
 	return updatedRow, nil
 }
 
-func (s *Service) createPasswordResetChallenge(ctx context.Context, tx pgx.Tx, settingsRow appAuthSettingsRow, requestedIP string) (string, int, time.Time, error) {
+func (s *Service) createPasswordResetChallenge(ctx context.Context, tx pgx.Tx, authConfig RuntimeAuthConfigSnapshot, settingsRow appAuthSettingsRow, requestedIP string) (string, int, time.Time, error) {
 	otpCode, err := generateOTPCode()
 	if err != nil {
 		return "", 0, time.Time{}, err
 	}
 	now := s.nowUTC()
-	expiresAt := now.Add(s.resetCodeTTL)
+	expiresAt := now.Add(authConfig.ResetCodeTTL)
 	if _, err := tx.Exec(
 		ctx,
 		`UPDATE password_reset_challenges SET consumed_at = $2 WHERE auth_subject_id = $1 AND consumed_at IS NULL`,
