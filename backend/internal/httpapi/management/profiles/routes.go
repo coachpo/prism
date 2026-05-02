@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -34,7 +35,7 @@ func (s *Service) handleListProfiles(w http.ResponseWriter, r *http.Request) {
 		return result, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -49,7 +50,7 @@ func (s *Service) handleGetActiveProfile(w http.ResponseWriter, r *http.Request)
 		return profileResponseFromDomain(profile), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -77,7 +78,7 @@ func (s *Service) handleGetBootstrap(w http.ResponseWriter, r *http.Request) {
 		}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -86,7 +87,7 @@ func (s *Service) handleGetBootstrap(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileCreateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -122,7 +123,7 @@ func (s *Service) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return profileResponseFromDomain(createdProfile), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, response)
@@ -131,12 +132,12 @@ func (s *Service) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	profileID, err := routeInt(r, "profile_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody profileUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -180,7 +181,7 @@ func (s *Service) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return profileResponseFromDomain(updatedProfile), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -189,12 +190,12 @@ func (s *Service) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleActivateProfile(w http.ResponseWriter, r *http.Request) {
 	profileID, err := routeInt(r, "profile_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	var requestBody profileActivateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -250,7 +251,7 @@ func (s *Service) handleActivateProfile(w http.ResponseWriter, r *http.Request) 
 		return profileResponseFromDomain(targetProfile), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -259,7 +260,7 @@ func (s *Service) handleActivateProfile(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	profileID, err := routeInt(r, "profile_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -283,7 +284,7 @@ func (s *Service) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		return deletedResponse{Deleted: true}, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -292,7 +293,7 @@ func (s *Service) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 	modelID, err := runtimeModelID(r)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	resolution, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (bool, error) {
@@ -303,14 +304,14 @@ func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 		return profiledomain.ModelExists(r.Context(), tx, activeProfile.ID, modelID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	if !resolution {
-		writeError(w, r, s.allowedOrigins, http.StatusNotFound, "Model not found in active profile")
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Model not found in active profile")
 		return
 	}
-	writeError(w, r, s.allowedOrigins, http.StatusNotImplemented, "Runtime proxy not implemented in S6")
+	writeError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Runtime proxy not implemented in S6")
 }
 
 func insertProfile(ctx context.Context, tx pgx.Tx, requestBody profileCreateRequest, now time.Time) (profiledomain.Profile, error) {
@@ -487,29 +488,22 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var profileErr *domainError
 	if errors.As(err, &profileErr) {
-		writeError(w, r, allowedOrigins, profileErr.StatusCode, profileErr.Detail)
+		writeError(w, r, corsSnapshot, profileErr.StatusCode, profileErr.Detail)
 		return
 	}
 	var httpErr *profiledomain.HTTPError
 	if errors.As(err, &httpErr) {
-		writeError(w, r, allowedOrigins, httpErr.StatusCode, httpErr.Detail)
+		writeError(w, r, corsSnapshot, httpErr.StatusCode, httpErr.Detail)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
 
