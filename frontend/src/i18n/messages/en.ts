@@ -481,6 +481,8 @@ export interface Messages {
     auth: string;
     authAndCookiesDescription: string;
     authAndCookiesTitle: string;
+    appliedNowMessage: string;
+    appliesImmediately: string;
     backendValidationFailed: string;
     backendValidationPassed: string;
     bootstrapConfigValidated: string;
@@ -517,12 +519,17 @@ export interface Messages {
     failedToLoad: string;
     failedToSave: string;
     failedToValidate: string;
+    failedApplyToast: string;
+    failedHotApplyMessage: string;
+    fieldRequiresConfirmation: (field: string) => string;
     field: string;
     fileRevision: string;
     fileStatusDescription: string;
     fileStatusTitle: string;
     fixClientErrorsBeforeBackendValidation: string;
     hostChangeLabel: string;
+    hotApplyChangesStaged: (count: number) => string;
+    hotApplyFailed: string;
     idleConnTimeout: string;
     jwtSigningKey: string;
     jwtSigningKeyChangeLabel: string;
@@ -548,6 +555,8 @@ export interface Messages {
     maxIdleConns: string;
     maxIdlePerHost: string;
     message: string;
+    mixedChangesStaged: (hotCount: number, restartCount: number) => string;
+    mixedEffects: string;
     m2MaxConcurrent: string;
     m3ConcurrencyLimit: string;
     m3MaxConcurrent: string;
@@ -557,6 +566,10 @@ export interface Messages {
     noValidationRunYet: string;
     notConfigured: string;
     notRecorded: string;
+    pendingHotApply: string;
+    pendingHotApplyMessage: string;
+    plannedHotApplyMessage: string;
+    plannedRestartRequiredMessage: string;
     portChangeLabel: string;
     postgresLaneBackgroundJobs: string;
     postgresLaneCacheRefresh: string;
@@ -582,6 +595,8 @@ export interface Messages {
     resetCodeTtlSeconds: string;
     restartRequired: string;
     restartRequiredDescription: string;
+    restartChangesStaged: (count: number) => string;
+    restartRequiredSaveMessage: string;
     retry: string;
     reviewAndSaveDescription: string;
     reviewAndSaveTitle: string;
@@ -591,8 +606,17 @@ export interface Messages {
     safeValuesChanged: string;
     saveAndRequireRestart: string;
     saveDangerousChangesCancel: string;
+    saveFailedApplyMessage: string;
+    saveFailedPartialMessage: string;
+    saveHotAppliedMessage: string;
+    saveMixedApplyMessage: string;
+    savePendingHotApplyMessage: string;
     saveRestartRequiredMessage: string;
     savedRestartRequiredToast: string;
+    savedHotAppliedToast: string;
+    savedMixedApplyToast: string;
+    savedPartialApplyToast: string;
+    savedPendingHotApplyToast: string;
     alreadyUpToDateToast: string;
     saveStartupConfig: string;
     schemaVersion: string;
@@ -654,6 +678,7 @@ export interface Messages {
     transportDescription: string;
     transportTitle: string;
     tlsHandshakeTimeout: string;
+    unchangedFieldsMessage: (count: number) => string;
     updated: string;
     usePositiveInteger: string;
     useRequiredValue: string;
@@ -2416,8 +2441,10 @@ export const enMessages: Messages = {
     accessCookieName: "Access cookie name",
     accessTokenTtlSeconds: "Access token TTL seconds",
     auth: "Auth",
-    authAndCookiesDescription: "JWT signing metadata, token TTLs, and cookie startup settings.",
+    authAndCookiesDescription: "JWT signing metadata, token TTLs, and cookie settings. Eligible TTL and cookie fields apply immediately.",
     authAndCookiesTitle: "Auth and cookies",
+    appliedNowMessage: "Applied immediately to the running process.",
+    appliesImmediately: "Applies immediately",
     backendValidationFailed: "Backend validation failed",
     backendValidationPassed: "Backend validation passed. No file was written.",
     bootstrapConfigValidated: "Startup bootstrap config validated",
@@ -2437,7 +2464,7 @@ export const enMessages: Messages = {
     corsOriginsRequired: "At least one CORS origin is required.",
     corsOriginsUnique: "CORS origins must be unique.",
     currentSecretMetadata: (value) => `Current metadata: ${value}.`,
-    dangerDialogDescription: "These edits will be written to config.json for the next Prism restart. The running process will not hot-reload them.",
+    dangerDialogDescription: "These edits will be written to config.json. Eligible fields apply immediately; structural fields require the next Prism restart.",
     dangerDialogTitle: "Save dangerous startup changes?",
     dangerousChangesStaged: "Dangerous changes staged",
     dangerousChecklistDescription: "Required only for listener, database URL, JWT signing key, and bundle encryption-key changes.",
@@ -2454,12 +2481,17 @@ export const enMessages: Messages = {
     failedToLoad: "Failed to load startup bootstrap config",
     failedToSave: "Failed to save startup bootstrap config",
     failedToValidate: "Startup bootstrap validation failed",
+    failedApplyToast: "Startup bootstrap config saved, but hot apply failed.",
+    failedHotApplyMessage: "Hot apply failed; the file was saved and remains pending retry.",
+    fieldRequiresConfirmation: (field) => `${field} requires confirmation before save`,
     field: "Field",
     fileRevision: "File revision",
     fileStatusDescription: "Concurrency metadata for the selected PRISM_CONFIG_PATH file.",
     fileStatusTitle: "File status",
     fixClientErrorsBeforeBackendValidation: "Fix client-side validation errors before backend validation.",
     hostChangeLabel: "Server host changes where Prism listens after restart",
+    hotApplyChangesStaged: (count) => `${count} immediate ${count === 1 ? "change" : "changes"} staged`,
+    hotApplyFailed: "Hot apply failed",
     idleConnTimeout: "Idle conn timeout",
     jwtSigningKey: "JWT signing key",
     jwtSigningKeyChangeLabel: "JWT signing key replacement can invalidate operator sessions after restart",
@@ -2469,7 +2501,7 @@ export const enMessages: Messages = {
     loadFailedTitle: "Startup bootstrap config unavailable",
     loadFailedDescription: "The startup bootstrap config could not be loaded.",
     mail: "Mail",
-    mailAndSmtpDescription: "Auth email delivery and SMTP settings loaded on the next restart.",
+    mailAndSmtpDescription: "Auth email delivery and SMTP settings apply immediately when hot publish succeeds.",
     mailAndSmtpTitle: "Mail and SMTP",
     mailEnabled: "Enable auth email delivery",
     mailEnabledDescription: "When disabled, Prism uses no-op email delivery and does not require SMTP settings.",
@@ -2485,6 +2517,8 @@ export const enMessages: Messages = {
     maxIdleConns: "Max idle conns",
     maxIdlePerHost: "Max idle per host",
     message: "Message",
+    mixedChangesStaged: (hotCount, restartCount) => `${hotCount} immediate and ${restartCount} restart ${restartCount === 1 ? "change" : "changes"} staged`,
+    mixedEffects: "Mixed effects",
     m2MaxConcurrent: "M2 max concurrent",
     m3ConcurrencyLimit: "M3 concurrency must not exceed M2 concurrency.",
     m3MaxConcurrent: "M3 max concurrent",
@@ -2494,6 +2528,10 @@ export const enMessages: Messages = {
     noValidationRunYet: "No validation run yet.",
     notConfigured: "not configured",
     notRecorded: "Not recorded",
+    pendingHotApply: "Pending hot apply",
+    pendingHotApplyMessage: "Saved and pending hot apply.",
+    plannedHotApplyMessage: "Will apply immediately after save.",
+    plannedRestartRequiredMessage: "Will be written for the next restart.",
     portChangeLabel: "Server port changes the management and proxy port after restart",
     postgresLaneBackgroundJobs: "Background jobs",
     postgresLaneCacheRefresh: "Cache refresh",
@@ -2518,9 +2556,11 @@ export const enMessages: Messages = {
     requiredConfirmations: (tokens) => ` Required confirmations: ${tokens}.`,
     resetCodeTtlSeconds: "Reset code TTL seconds",
     restartRequired: "Restart required",
-    restartRequiredDescription: "The config file differs from the settings loaded by the running process. Restart Prism to apply these startup settings.",
+    restartRequiredDescription: "The config file has structural settings that are waiting for a Prism restart.",
+    restartChangesStaged: (count) => `${count} restart ${count === 1 ? "change" : "changes"} staged`,
+    restartRequiredSaveMessage: "Saved for the next Prism restart.",
     retry: "Retry",
-    reviewAndSaveDescription: "Validate edits, confirm dangerous next-startup changes, then write config.json.",
+    reviewAndSaveDescription: "Validate edits, confirm dangerous structural changes, then write config.json.",
     reviewAndSaveTitle: "Review and save",
     runtimeMaxConns: "Runtime max conns",
     runtimeMinIdle: "Runtime min idle",
@@ -2528,18 +2568,27 @@ export const enMessages: Messages = {
     safeValuesChanged: "Safe values changed",
     saveAndRequireRestart: "Save and require restart",
     saveDangerousChangesCancel: "Cancel",
-    saveRestartRequiredMessage: "Saved to config.json. Restart Prism for changes to take effect.",
+    saveFailedApplyMessage: "Saved to config.json, but hot apply failed.",
+    saveFailedPartialMessage: "Saved to config.json. Some immediate changes applied, but at least one hot apply failed.",
+    saveHotAppliedMessage: "Saved to config.json and applied immediately.",
+    saveMixedApplyMessage: "Saved to config.json. Eligible settings applied immediately; structural settings require restart.",
+    savePendingHotApplyMessage: "Saved to config.json and queued for hot apply.",
+    saveRestartRequiredMessage: "Saved to config.json. Structural settings require restart.",
     savedRestartRequiredToast: "Startup bootstrap config saved. Restart required.",
+    savedHotAppliedToast: "Startup bootstrap config saved and applied immediately.",
+    savedMixedApplyToast: "Startup bootstrap config saved. Immediate settings applied; restart-required settings are pending.",
+    savedPartialApplyToast: "Startup bootstrap config saved with partial hot-apply failure.",
+    savedPendingHotApplyToast: "Startup bootstrap config saved and queued for hot apply.",
     alreadyUpToDateToast: "Startup bootstrap config already up to date.",
     saveStartupConfig: "Save startup config",
     schemaVersion: "Schema version",
     secretReplacementCount: (count) => `${count} secret replacement${count === 1 ? "" : "s"} staged`,
     secureCookies: "Secure cookies",
-    secureCookiesDescription: "Send auth cookies only over HTTPS after restart.",
+    secureCookiesDescription: "Send auth cookies only over HTTPS after hot apply succeeds.",
     secrets: "Secrets",
     selectMode: "Select mode",
     server: "Server",
-    serverAndBrowserAccessDescription: "Listener, docs, and browser CORS settings for next startup.",
+    serverAndBrowserAccessDescription: "Listener and docs settings require restart; browser CORS origins apply immediately.",
     serverAndBrowserAccessTitle: "Server and browser access",
     serverHost: "Server host",
     serverHostRequired: "Server host is required.",
@@ -2551,7 +2600,7 @@ export const enMessages: Messages = {
     stateTransferTitle: "State transfer",
     status: "Status",
     startupBootstrapConfigTitle: "Startup bootstrap config",
-    startupBootstrapConfigDescription: "These settings are loaded when Prism starts. Saving updates config.json; restart Prism for changes to take effect.",
+    startupBootstrapConfigDescription: "Eligible settings apply immediately after save; structural settings are written to config.json and require a Prism restart.",
     streaming: "streaming",
     smtp: "SMTP",
     smtpAuth: "SMTP auth",
@@ -2588,9 +2637,10 @@ export const enMessages: Messages = {
     smtpUsernamePlaceholder: "smtp-user",
     smtpUsernameRequired: "Plain SMTP auth requires a username.",
     transport: "Transport",
-    transportDescription: "Proxy buffering and HTTP transport limits used after restart.",
+    transportDescription: "Proxy buffering and HTTP transport limits apply to future requests after hot publish succeeds.",
     transportTitle: "Runtime transport",
     tlsHandshakeTimeout: "TLS handshake timeout",
+    unchangedFieldsMessage: (count) => `${count} unchanged ${count === 1 ? "field" : "fields"} omitted from effect changes.`,
     updated: "Updated",
     usePositiveInteger: "Use a positive integer.",
     useRequiredValue: "This field is required.",

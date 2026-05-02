@@ -125,6 +125,32 @@ export type BootstrapConfigSecretUpdates = Record<
   BootstrapConfigSecretUpdate
 >;
 
+
+export type BootstrapConfigApplyMode = "hot_apply" | "restart_required";
+
+export interface BootstrapConfigFieldCapability {
+  mode: BootstrapConfigApplyMode;
+  confirmation_token?: BootstrapConfigConfirmationToken | string;
+}
+
+export interface BootstrapConfigFieldChange {
+  field: string;
+  mode: BootstrapConfigApplyMode;
+}
+
+export interface BootstrapConfigPlannedChanges {
+  changed_fields: BootstrapConfigFieldChange[];
+  restart_required: boolean;
+}
+
+export interface BootstrapConfigApplyResult {
+  applied_now_fields: string[];
+  restart_required_fields: string[];
+  unchanged_fields: string[];
+  pending_hot_apply_fields: string[];
+  failed_hot_apply_fields: string[];
+}
+
 export interface BootstrapConfigResponse {
   config_path: string;
   schema_version: number;
@@ -136,6 +162,9 @@ export interface BootstrapConfigResponse {
   updated_at: string;
   restart_required: boolean;
   writable: boolean;
+  apply_capabilities: Record<string, BootstrapConfigFieldCapability>;
+  planned_changes?: BootstrapConfigPlannedChanges;
+  apply_result?: BootstrapConfigApplyResult;
   values: BootstrapConfigValues;
   secrets: BootstrapConfigSecrets;
 }

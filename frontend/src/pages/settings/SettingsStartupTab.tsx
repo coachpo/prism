@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -49,7 +50,12 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api } from "@/lib/api";
 import type {
+  BootstrapConfigApplyMode,
+  BootstrapConfigApplyResult,
   BootstrapConfigConfirmationToken,
+  BootstrapConfigFieldCapability,
+  BootstrapConfigFieldChange,
+  BootstrapConfigPlannedChanges,
   BootstrapConfigResponse,
   BootstrapConfigSecretKey,
   BootstrapConfigSecretUpdates,
@@ -125,6 +131,124 @@ const POSTGRES_POOL_LABEL_KEYS = {
   cache_refresh: "postgresLaneCacheRefresh",
   background_jobs: "postgresLaneBackgroundJobs",
 } satisfies Record<PostgresPoolLane, keyof SettingsStartupCopy>;
+
+
+type FieldLabelResolver = (copy: SettingsStartupCopy) => string;
+
+const FIELD_LABELS = {
+  "server.host": (copy) => copy.serverHost,
+  "server.port": (copy) => copy.serverPort,
+  "server.docs_enabled": (copy) => copy.docsEnabled,
+  "http.cors_allowed_origins": (copy) => copy.corsAllowedOrigins,
+  "database.url": (copy) => copy.databaseUrl,
+  "database.pools.total_max_conns": (copy) => copy.postgresTotalMaxConns,
+  "database.pools.management.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneManagement),
+  "database.pools.management.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneManagement),
+  "database.pools.runtime_execution.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneRuntimeExecution),
+  "database.pools.runtime_execution.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneRuntimeExecution),
+  "database.pools.runtime_telemetry.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneRuntimeTelemetry),
+  "database.pools.runtime_telemetry.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneRuntimeTelemetry),
+  "database.pools.runtime_feedback.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneRuntimeFeedback),
+  "database.pools.runtime_feedback.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneRuntimeFeedback),
+  "database.pools.realtime.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneRealtime),
+  "database.pools.realtime.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneRealtime),
+  "database.pools.cache_refresh.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneCacheRefresh),
+  "database.pools.cache_refresh.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneCacheRefresh),
+  "database.pools.background_jobs.max_conns": (copy) => copy.postgresLaneMaxConns(copy.postgresLaneBackgroundJobs),
+  "database.pools.background_jobs.min_idle_conns": (copy) => copy.postgresLaneMinIdle(copy.postgresLaneBackgroundJobs),
+  "database.management_admission.m2_max_concurrent": (copy) => copy.m2MaxConcurrent,
+  "database.management_admission.m3_max_concurrent": (copy) => copy.m3MaxConcurrent,
+  "runtime.buffering_mode": (copy) => copy.bufferingMode,
+  "runtime.transport.max_idle_conns": (copy) => copy.maxIdleConns,
+  "runtime.transport.max_idle_conns_per_host": (copy) => copy.maxIdlePerHost,
+  "runtime.transport.max_conns_per_host": (copy) => copy.maxConnsPerHost,
+  "runtime.transport.idle_conn_timeout": (copy) => copy.idleConnTimeout,
+  "runtime.transport.request_timeout": (copy) => copy.requestTimeout,
+  "runtime.transport.response_header_timeout": (copy) => copy.responseHeaderTimeout,
+  "runtime.transport.tls_handshake_timeout": (copy) => copy.tlsHandshakeTimeout,
+  "runtime.transport.expect_continue_timeout": (copy) => copy.expectContinueTimeout,
+  "auth.jwtSigningKey": (copy) => copy.jwtSigningKey,
+  "auth.access_token_ttl_seconds": (copy) => copy.accessTokenTtlSeconds,
+  "auth.refresh_token_ttl_seconds": (copy) => copy.refreshTokenTtlSeconds,
+  "auth.reset_code_ttl_seconds": (copy) => copy.resetCodeTtlSeconds,
+  "auth.access_cookie_name": (copy) => copy.accessCookieName,
+  "auth.refresh_cookie_name": (copy) => copy.refreshCookieName,
+  "auth.cookie_secure": (copy) => copy.secureCookies,
+  "mail.enabled": (copy) => copy.mailEnabled,
+  "mail.from": (copy) => copy.mailFrom,
+  "mail.reply_to": (copy) => copy.mailReplyTo,
+  "mail.smtp.host": (copy) => copy.smtpHost,
+  "mail.smtp.port": (copy) => copy.smtpPort,
+  "mail.smtp.mode": (copy) => copy.smtpMode,
+  "mail.smtp.ehlo_hostname": (copy) => copy.smtpEhloHostname,
+  "mail.smtp.auth": (copy) => copy.smtpAuth,
+  "mail.smtp.username": (copy) => copy.smtpUsername,
+  "mail.smtp.password_file": (copy) => copy.smtpPasswordFile,
+  "mail.smtp.password": (copy) => copy.smtpPassword,
+  "mail.smtp.timeout": (copy) => copy.smtpTimeout,
+  "mail.smtp.tls_server_name": (copy) => copy.smtpTlsServerName,
+  "stateTransfer.bundleEncryptionKey": (copy) => copy.bundleEncryptionKey,
+  "runtime.secretEncryptionKey": (copy) => copy.runtimeSecretEncryptionKey,
+} satisfies Record<string, FieldLabelResolver>;
+
+const SERVER_FIELD_PATHS = ["server.host", "server.port", "server.docs_enabled", "http.cors_allowed_origins"];
+const DATABASE_FIELD_PATHS = [
+  "database.url",
+  "database.pools.total_max_conns",
+  "database.pools.management.max_conns",
+  "database.pools.management.min_idle_conns",
+  "database.pools.runtime_execution.max_conns",
+  "database.pools.runtime_execution.min_idle_conns",
+  "database.pools.runtime_telemetry.max_conns",
+  "database.pools.runtime_telemetry.min_idle_conns",
+  "database.pools.runtime_feedback.max_conns",
+  "database.pools.runtime_feedback.min_idle_conns",
+  "database.pools.realtime.max_conns",
+  "database.pools.realtime.min_idle_conns",
+  "database.pools.cache_refresh.max_conns",
+  "database.pools.cache_refresh.min_idle_conns",
+  "database.pools.background_jobs.max_conns",
+  "database.pools.background_jobs.min_idle_conns",
+  "database.management_admission.m2_max_concurrent",
+  "database.management_admission.m3_max_concurrent",
+];
+const TRANSPORT_FIELD_PATHS = [
+  "runtime.buffering_mode",
+  "runtime.transport.max_idle_conns",
+  "runtime.transport.max_idle_conns_per_host",
+  "runtime.transport.max_conns_per_host",
+  "runtime.transport.idle_conn_timeout",
+  "runtime.transport.request_timeout",
+  "runtime.transport.response_header_timeout",
+  "runtime.transport.tls_handshake_timeout",
+  "runtime.transport.expect_continue_timeout",
+];
+const AUTH_FIELD_PATHS = [
+  "auth.jwtSigningKey",
+  "auth.access_token_ttl_seconds",
+  "auth.refresh_token_ttl_seconds",
+  "auth.reset_code_ttl_seconds",
+  "auth.access_cookie_name",
+  "auth.refresh_cookie_name",
+  "auth.cookie_secure",
+];
+const MAIL_FIELD_PATHS = [
+  "mail.enabled",
+  "mail.from",
+  "mail.reply_to",
+  "mail.smtp.host",
+  "mail.smtp.port",
+  "mail.smtp.mode",
+  "mail.smtp.ehlo_hostname",
+  "mail.smtp.auth",
+  "mail.smtp.username",
+  "mail.smtp.password_file",
+  "mail.smtp.password",
+  "mail.smtp.timeout",
+  "mail.smtp.tls_server_name",
+];
+const SECRET_FIELD_PATHS = new Set<string>(SECRET_KEYS);
+const STATE_TRANSFER_FIELD_PATHS = ["stateTransfer.bundleEncryptionKey", "runtime.secretEncryptionKey"];
 
 const cloneValues = (values: BootstrapConfigValues): BootstrapConfigValues => structuredClone(values);
 
@@ -319,6 +443,215 @@ function getPostgresPoolLaneLabel(copy: SettingsStartupCopy, lane: PostgresPoolL
   return copy[POSTGRES_POOL_LABEL_KEYS[lane]] as string;
 }
 
+
+function formatFieldPath(path: string): string {
+  return path.split(".").map((part) => part.replaceAll("_", " ")).join(" / ");
+}
+
+function getFieldLabel(copy: SettingsStartupCopy, path: string): string {
+  const resolver = (FIELD_LABELS as Record<string, FieldLabelResolver>)[path];
+  return resolver?.(copy) ?? formatFieldPath(path);
+}
+
+function getCapabilityLabel(copy: SettingsStartupCopy, mode: BootstrapConfigApplyMode): string {
+  return mode === "hot_apply" ? copy.appliesImmediately : copy.restartRequired;
+}
+
+function getCapabilityVariant(mode: BootstrapConfigApplyMode): "secondary" | "outline" {
+  return mode === "hot_apply" ? "secondary" : "outline";
+}
+
+function FieldEffectBadge({ capability, copy }: { capability?: BootstrapConfigFieldCapability; copy: SettingsStartupCopy }) {
+  if (!capability) {
+    return null;
+  }
+  return <Badge variant={getCapabilityVariant(capability.mode)}>{getCapabilityLabel(copy, capability.mode)}</Badge>;
+}
+
+function SectionEffectBadge({ capabilities, copy, fields }: { capabilities: Record<string, BootstrapConfigFieldCapability>; copy: SettingsStartupCopy; fields: string[] }) {
+  const modes = new Set(fields.map((field) => capabilities[field]?.mode).filter(Boolean));
+  if (modes.size === 0) {
+    return null;
+  }
+  if (modes.size > 1) {
+    return <Badge variant="secondary">{copy.mixedEffects}</Badge>;
+  }
+  const [mode] = [...modes] as BootstrapConfigApplyMode[];
+  return <FieldEffectBadge capability={{ mode }} copy={copy} />;
+}
+
+function FieldLabelWithEffect({ effect, htmlFor, label }: { effect?: ReactNode; htmlFor?: string; label: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <FieldLabel htmlFor={htmlFor}>{label}</FieldLabel>
+      {effect}
+    </div>
+  );
+}
+
+function getValueAtPath(values: BootstrapConfigValues, path: string): unknown {
+  return path.split(".").reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, values);
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function getChangedCapabilityFields(
+  bootstrapConfig: BootstrapConfigResponse,
+  values: BootstrapConfigValues,
+  corsOriginsText: string,
+  secretUpdates: BootstrapConfigSecretUpdates,
+): string[] {
+  const nextValues = normalizeBootstrapValues(values);
+  nextValues.http.cors_allowed_origins = parseOrigins(corsOriginsText);
+  return Object.keys(bootstrapConfig.apply_capabilities).filter((field) => {
+    if (SECRET_FIELD_PATHS.has(field)) {
+      return secretUpdates[field as BootstrapConfigSecretKey]?.action === "replace";
+    }
+    return !valuesEqual(getValueAtPath(bootstrapConfig.values, field), getValueAtPath(nextValues, field));
+  });
+}
+
+function getDangerousConfirmationLabel(copy: SettingsStartupCopy, token: string, field: string): string {
+  if (token === "server-host-change") {
+    return copy.hostChangeLabel;
+  }
+  if (token === "server-port-change") {
+    return copy.portChangeLabel;
+  }
+  if (token === "database-url-change") {
+    return copy.databaseUrlChangeLabel;
+  }
+  if (token === "auth-jwt-signing-key-change") {
+    return copy.jwtSigningKeyChangeLabel;
+  }
+  if (token === "state-transfer-bundle-encryption-key-change") {
+    return copy.bundleEncryptionKeyChangeLabel;
+  }
+  return copy.fieldRequiresConfirmation(getFieldLabel(copy, field));
+}
+
+function buildPlannedRows(plannedChanges: BootstrapConfigPlannedChanges | undefined, copy: SettingsStartupCopy): ValidationRow[] {
+  const changes = plannedChanges?.changed_fields ?? [];
+  if (changes.length === 0) {
+    return [{ field: "backend", message: copy.backendValidationPassed, status: "success" }];
+  }
+  return changes.map((change: BootstrapConfigFieldChange) => ({
+    field: getFieldLabel(copy, change.field),
+    message: change.mode === "hot_apply" ? copy.plannedHotApplyMessage : copy.plannedRestartRequiredMessage,
+    status: change.mode === "hot_apply" ? "success" : "warning",
+  }));
+}
+
+function summarizeApplyResult(applyResult: BootstrapConfigApplyResult | undefined, copy: SettingsStartupCopy) {
+  const failedFields = new Set(applyResult?.failed_hot_apply_fields ?? []);
+  const pendingFields = (applyResult?.pending_hot_apply_fields ?? []).filter((field) => !failedFields.has(field));
+  const appliedCount = applyResult?.applied_now_fields.length ?? 0;
+  const restartCount = applyResult?.restart_required_fields.length ?? 0;
+  const pendingCount = pendingFields.length;
+  const failedCount = failedFields.size;
+  const changedCount = appliedCount + restartCount + pendingCount + failedCount;
+  if (failedCount > 0) {
+    return {
+      badge: copy.hotApplyFailed,
+      message: changedCount > failedCount ? copy.saveFailedPartialMessage : copy.saveFailedApplyMessage,
+      toast: changedCount > failedCount ? copy.savedPartialApplyToast : copy.failedApplyToast,
+      status: "error" as ValidationStatus,
+      variant: "destructive" as const,
+    };
+  }
+  if (changedCount === 0) {
+    return {
+      badge: copy.loaded,
+      message: copy.noEffectiveChangesWritten,
+      toast: copy.alreadyUpToDateToast,
+      status: "success" as ValidationStatus,
+      variant: "outline" as const,
+    };
+  }
+  if (restartCount > 0 && (appliedCount > 0 || pendingCount > 0)) {
+    return {
+      badge: copy.mixedEffects,
+      message: copy.saveMixedApplyMessage,
+      toast: copy.savedMixedApplyToast,
+      status: "warning" as ValidationStatus,
+      variant: "secondary" as const,
+    };
+  }
+  if (restartCount > 0) {
+    return {
+      badge: copy.restartRequired,
+      message: copy.saveRestartRequiredMessage,
+      toast: copy.savedRestartRequiredToast,
+      status: "warning" as ValidationStatus,
+      variant: "destructive" as const,
+    };
+  }
+  if (pendingCount > 0) {
+    return {
+      badge: copy.pendingHotApply,
+      message: copy.savePendingHotApplyMessage,
+      toast: copy.savedPendingHotApplyToast,
+      status: "warning" as ValidationStatus,
+      variant: "secondary" as const,
+    };
+  }
+  return {
+    badge: copy.appliesImmediately,
+    message: copy.saveHotAppliedMessage,
+    toast: copy.savedHotAppliedToast,
+    status: "success" as ValidationStatus,
+    variant: "secondary" as const,
+  };
+}
+
+function buildApplyResultRows(applyResult: BootstrapConfigApplyResult | undefined, copy: SettingsStartupCopy): ValidationRow[] {
+  if (!applyResult) {
+    return [{ field: "save", message: copy.noEffectiveChangesWritten, status: "success" }];
+  }
+  const rows: ValidationRow[] = [];
+  for (const field of applyResult.applied_now_fields) {
+    rows.push({ field: getFieldLabel(copy, field), message: copy.appliedNowMessage, status: "success" });
+  }
+  const failedFields = new Set(applyResult.failed_hot_apply_fields);
+  for (const field of applyResult.pending_hot_apply_fields) {
+    if (!failedFields.has(field)) {
+      rows.push({ field: getFieldLabel(copy, field), message: copy.pendingHotApplyMessage, status: "warning" });
+    }
+  }
+  for (const field of applyResult.failed_hot_apply_fields) {
+    rows.push({ field: getFieldLabel(copy, field), message: copy.failedHotApplyMessage, status: "error" });
+  }
+  for (const field of applyResult.restart_required_fields) {
+    rows.push({ field: getFieldLabel(copy, field), message: copy.restartRequiredSaveMessage, status: "warning" });
+  }
+  if (rows.length === 0) {
+    return [{ field: "save", message: copy.noEffectiveChangesWritten, status: "success" }];
+  }
+  if (applyResult.unchanged_fields.length > 0) {
+    rows.push({ field: "unchanged", message: copy.unchangedFieldsMessage(applyResult.unchanged_fields.length), status: "success" });
+  }
+  return rows;
+}
+
+function extractBootstrapResponse(error: unknown): BootstrapConfigResponse | null {
+  const detail = getApiErrorDetail(error);
+  if (!detail || typeof detail !== "object") {
+    return null;
+  }
+  const candidate = detail as Partial<BootstrapConfigResponse>;
+  if (candidate.values && candidate.secrets && candidate.apply_capabilities) {
+    return candidate as BootstrapConfigResponse;
+  }
+  return null;
+}
+
 function LoadingSkeleton() {
   return (
     <div className="flex flex-col gap-4">
@@ -338,6 +671,7 @@ interface StartupFieldProps {
   label: string;
   value: string;
   description?: string;
+  effect?: ReactNode;
   error?: string;
   type?: string;
   placeholder?: string;
@@ -350,6 +684,7 @@ function StartupInputField({
   label,
   value,
   description,
+  effect,
   error,
   type = "text",
   placeholder,
@@ -359,7 +694,7 @@ function StartupInputField({
   const invalid = Boolean(error);
   return (
     <Field data-invalid={invalid || undefined} data-disabled={disabled || undefined}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <FieldLabelWithEffect htmlFor={id} label={label} effect={effect} />
       <Input
         id={id}
         type={type}
@@ -397,6 +732,7 @@ interface SecretReplacementFieldProps {
   editable: boolean;
   value: string;
   copy: SettingsStartupCopy;
+  effect?: ReactNode;
   error?: string;
   onChange: (secretKey: BootstrapConfigSecretKey, value: string) => void;
   onClear: (secretKey: BootstrapConfigSecretKey) => void;
@@ -410,6 +746,7 @@ function SecretReplacementField({
   editable,
   value,
   copy,
+  effect,
   error,
   onChange,
   onClear,
@@ -420,7 +757,7 @@ function SecretReplacementField({
     <Field data-invalid={invalid || undefined} data-disabled={!editable || undefined}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <FieldContent>
-          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+          <FieldLabelWithEffect htmlFor={id} label={label} effect={effect} />
           <FieldDescription>
             {copy.currentSecretMetadata(configured ? masked || copy.set : copy.notConfigured)} {editable ? copy.enterNewValueWhenReplacing : copy.preserveOnlyInThisVersion}
           </FieldDescription>
@@ -462,7 +799,6 @@ export function SettingsStartupTab() {
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [restartRequired, setRestartRequired] = useState(false);
   const [dangerDialogOpen, setDangerDialogOpen] = useState(false);
 
   const hydrateConfig = useCallback((response: BootstrapConfigResponse) => {
@@ -476,7 +812,6 @@ export function SettingsStartupTab() {
     setConfirmedTokens([]);
     setValidationRows([]);
     setFieldErrors({});
-    setRestartRequired(response.restart_required);
   }, []);
 
   const loadConfig = useCallback(async () => {
@@ -649,38 +984,27 @@ export function SettingsStartupTab() {
     return updates;
   }, [bootstrapConfig, secretInputs, values]);
 
-  const dangerousConfirmations = useMemo<DangerousConfirmation[]>(() => {
+  const changedCapabilityFields = useMemo(() => {
     if (!bootstrapConfig || !values) {
+      return [] as string[];
+    }
+    return getChangedCapabilityFields(bootstrapConfig, values, corsOriginsText, secretUpdates);
+  }, [bootstrapConfig, corsOriginsText, secretUpdates, values]);
+
+  const changedCapabilityFieldSet = useMemo(() => new Set(changedCapabilityFields), [changedCapabilityFields]);
+
+  const dangerousConfirmations = useMemo<DangerousConfirmation[]>(() => {
+    if (!bootstrapConfig) {
       return [];
     }
-    return [
-      {
-        token: "server-host-change",
-        label: copy.hostChangeLabel,
-        active: bootstrapConfig.values.server.host !== values.server.host,
-      },
-      {
-        token: "server-port-change",
-        label: copy.portChangeLabel,
-        active: bootstrapConfig.values.server.port !== values.server.port,
-      },
-      {
-        token: "database-url-change",
-        label: copy.databaseUrlChangeLabel,
-        active: secretUpdates["database.url"].action === "replace",
-      },
-      {
-        token: "auth-jwt-signing-key-change",
-        label: copy.jwtSigningKeyChangeLabel,
-        active: secretUpdates["auth.jwtSigningKey"].action === "replace",
-      },
-      {
-        token: "state-transfer-bundle-encryption-key-change",
-        label: copy.bundleEncryptionKeyChangeLabel,
-        active: secretUpdates["stateTransfer.bundleEncryptionKey"].action === "replace",
-      },
-    ];
-  }, [bootstrapConfig, copy, secretUpdates, values]);
+    return Object.entries(bootstrapConfig.apply_capabilities)
+      .filter(([, capability]) => capability.mode === "restart_required" && Boolean(capability.confirmation_token))
+      .map(([field, capability]) => ({
+        token: capability.confirmation_token as BootstrapConfigConfirmationToken,
+        label: getDangerousConfirmationLabel(copy, capability.confirmation_token ?? "", field),
+        active: changedCapabilityFieldSet.has(field),
+      }));
+  }, [bootstrapConfig, changedCapabilityFieldSet, copy]);
 
   const activeDangerousConfirmations = useMemo(
     () => dangerousConfirmations.filter((confirmation) => confirmation.active),
@@ -859,8 +1183,8 @@ export function SettingsStartupTab() {
     }
     setValidating(true);
     try {
-      await api.config.bootstrap.validate(request);
-      setValidationRows([{ field: "backend", message: copy.backendValidationPassed, status: "success" }]);
+      const response = await api.config.bootstrap.validate(request);
+      setValidationRows(buildPlannedRows(response.planned_changes, copy));
       toast.success(copy.bootstrapConfigValidated);
     } catch (error) {
       const rows = extractBackendRows(error, copy);
@@ -880,16 +1204,28 @@ export function SettingsStartupTab() {
     try {
       await api.config.bootstrap.validate(request);
       const response = await api.config.bootstrap.update(request);
+      const summary = summarizeApplyResult(response.apply_result, copy);
       hydrateConfig(response);
       setSecretInputs(emptySecretInputs());
-      setRestartRequired(response.restart_required);
-      setValidationRows([{ field: "save", message: response.restart_required ? copy.saveRestartRequiredMessage : copy.noEffectiveChangesWritten, status: "success" }]);
-      toast.success(response.restart_required ? copy.savedRestartRequiredToast : copy.alreadyUpToDateToast);
+      setValidationRows(buildApplyResultRows(response.apply_result, copy));
+      if (summary.status === "error") {
+        toast.error(summary.toast);
+      } else {
+        toast.success(summary.toast);
+      }
     } catch (error) {
       setSecretInputs(emptySecretInputs());
-      const rows = extractBackendRows(error, copy);
-      setValidationRows(rows.length ? rows : [{ field: "save", message: getErrorMessage(error, copy.failedToSave), status: "error" }]);
-      toast.error(copy.failedToSave);
+      const response = extractBootstrapResponse(error);
+      if (response) {
+        const summary = summarizeApplyResult(response.apply_result, copy);
+        hydrateConfig(response);
+        setValidationRows(buildApplyResultRows(response.apply_result, copy));
+        toast.error(summary.toast);
+      } else {
+        const rows = extractBackendRows(error, copy);
+        setValidationRows(rows.length ? rows : [{ field: "save", message: getErrorMessage(error, copy.failedToSave), status: "error" }]);
+        toast.error(copy.failedToSave);
+      }
     } finally {
       setSaving(false);
       setDangerDialogOpen(false);
@@ -909,19 +1245,25 @@ export function SettingsStartupTab() {
   }, [activeDangerousConfirmations.length, copy.completeValidationBeforeSaving, performSave, runFrontendValidation]);
 
   const dirtySummary = useMemo(() => {
-    if (!bootstrapConfig || !values) {
+    if (!bootstrapConfig) {
       return [] as string[];
     }
     const items: string[] = [];
-    if (JSON.stringify(bootstrapConfig.values) !== JSON.stringify({ ...values, http: { ...values.http, cors_allowed_origins: parseOrigins(corsOriginsText) } })) {
-      items.push(copy.safeValuesChanged);
+    const hotCount = changedCapabilityFields.filter((field) => bootstrapConfig.apply_capabilities[field]?.mode === "hot_apply").length;
+    const restartCount = changedCapabilityFields.filter((field) => bootstrapConfig.apply_capabilities[field]?.mode === "restart_required").length;
+    if (hotCount > 0 && restartCount > 0) {
+      items.push(copy.mixedChangesStaged(hotCount, restartCount));
+    } else if (hotCount > 0) {
+      items.push(copy.hotApplyChangesStaged(hotCount));
+    } else if (restartCount > 0) {
+      items.push(copy.restartChangesStaged(restartCount));
     }
     const replacements = SECRET_KEYS.filter((secretKey) => secretUpdates[secretKey].action === "replace");
     if (replacements.length > 0) {
       items.push(copy.secretReplacementCount(replacements.length));
     }
     return items;
-  }, [bootstrapConfig, copy, corsOriginsText, secretUpdates, values]);
+  }, [bootstrapConfig, changedCapabilityFields, copy, secretUpdates]);
 
   const toggleConfirmation = useCallback((token: BootstrapConfigConfirmationToken, checked: boolean) => {
     setConfirmedTokens((current) => {
@@ -957,6 +1299,9 @@ export function SettingsStartupTab() {
   const smtpValues = mailValues.smtp ?? defaultSMTPValues();
   const mailEnabled = Boolean(mailValues.enabled);
   const smtpControlsDisabled = controlsDisabled || !mailEnabled;
+  const currentApplySummary = summarizeApplyResult(bootstrapConfig.apply_result, copy);
+  const fieldEffect = (field: string) => <FieldEffectBadge capability={bootstrapConfig.apply_capabilities[field]} copy={copy} />;
+  const sectionEffect = (fields: string[]) => <SectionEffectBadge capabilities={bootstrapConfig.apply_capabilities} copy={copy} fields={fields} />;
 
   return (
     <div className="flex flex-col gap-6">
@@ -968,12 +1313,12 @@ export function SettingsStartupTab() {
         </AlertDescription>
       </Alert>
 
-      {restartRequired ? (
-        <Alert>
+      {bootstrapConfig.apply_result ? (
+        <Alert variant={currentApplySummary.status === "error" ? "destructive" : "default"}>
           <RefreshCw />
-          <AlertTitle>{copy.restartRequired}</AlertTitle>
+          <AlertTitle>{currentApplySummary.badge}</AlertTitle>
           <AlertDescription>
-            {copy.restartRequiredDescription}
+            {currentApplySummary.message}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -996,7 +1341,7 @@ export function SettingsStartupTab() {
             <span className="text-muted-foreground">{copy.state}</span>
             <span className="flex items-center gap-2">
               <Badge variant={bootstrapConfig.writable ? "secondary" : "destructive"}>{bootstrapConfig.writable ? copy.writable : copy.readOnly}</Badge>
-              <Badge variant={restartRequired ? "destructive" : "outline"}>{restartRequired ? copy.restartRequired : copy.loaded}</Badge>
+              <Badge variant={bootstrapConfig.apply_result ? currentApplySummary.variant : "outline"}>{bootstrapConfig.apply_result ? currentApplySummary.badge : copy.loaded}</Badge>
             </span>
           </div>
         </CardContent>
@@ -1005,20 +1350,20 @@ export function SettingsStartupTab() {
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm"><Server />{copy.serverAndBrowserAccessTitle}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><Server />{copy.serverAndBrowserAccessTitle}{sectionEffect(SERVER_FIELD_PATHS)}</CardTitle>
             <CardDescription>{copy.serverAndBrowserAccessDescription}</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldSet disabled={controlsDisabled}>
               <FieldLegend>{copy.server}</FieldLegend>
               <FieldGroup>
-                <StartupInputField id="startup-server-host" label={copy.serverHost} value={textValue(values.server.host)} error={fieldErrors["server.host"]} disabled={controlsDisabled} onChange={(value) => setServerField("host", value)} />
-                <StartupInputField id="startup-server-port" label={copy.serverPort} type="number" value={numberValue(values.server.port)} error={fieldErrors["server.port"]} disabled={controlsDisabled} onChange={(value) => setServerField("port", value)} />
+                <StartupInputField id="startup-server-host" label={copy.serverHost} effect={fieldEffect("server.host")} value={textValue(values.server.host)} error={fieldErrors["server.host"]} disabled={controlsDisabled} onChange={(value) => setServerField("host", value)} />
+                <StartupInputField id="startup-server-port" label={copy.serverPort} effect={fieldEffect("server.port")} type="number" value={numberValue(values.server.port)} error={fieldErrors["server.port"]} disabled={controlsDisabled} onChange={(value) => setServerField("port", value)} />
                 <Field orientation="horizontal" data-disabled={controlsDisabled || undefined}>
-                  <FieldContent><FieldLabel htmlFor="startup-docs-enabled">{copy.docsEnabled}</FieldLabel><FieldDescription>{copy.docsEnabledDescription}</FieldDescription></FieldContent>
+                  <FieldContent><FieldLabelWithEffect htmlFor="startup-docs-enabled" label={copy.docsEnabled} effect={fieldEffect("server.docs_enabled")} /><FieldDescription>{copy.docsEnabledDescription}</FieldDescription></FieldContent>
                   <Switch id="startup-docs-enabled" checked={Boolean(values.server.docs_enabled)} disabled={controlsDisabled} onCheckedChange={(checked) => setBooleanField("server.docs_enabled", checked)} />
                 </Field>
-                <StartupInputField id="startup-cors-origins" label={copy.corsAllowedOrigins} value={corsOriginsText} error={fieldErrors["http.cors_allowed_origins"]} description={copy.corsOriginsDescription} disabled={controlsDisabled} onChange={setCorsOriginsText} />
+                <StartupInputField id="startup-cors-origins" label={copy.corsAllowedOrigins} effect={fieldEffect("http.cors_allowed_origins")} value={corsOriginsText} error={fieldErrors["http.cors_allowed_origins"]} description={copy.corsOriginsDescription} disabled={controlsDisabled} onChange={setCorsOriginsText} />
               </FieldGroup>
             </FieldSet>
           </CardContent>
@@ -1026,27 +1371,27 @@ export function SettingsStartupTab() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm"><Database />{copy.databaseAndCapacityTitle}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><Database />{copy.databaseAndCapacityTitle}{sectionEffect(DATABASE_FIELD_PATHS)}</CardTitle>
             <CardDescription>{copy.databaseAndCapacityDescription}</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldSet disabled={controlsDisabled}>
               <FieldLegend>{copy.database}</FieldLegend>
               <FieldGroup>
-                <SecretReplacementField id="startup-database-url" label={copy.databaseUrl} secretKey="database.url" masked={bootstrapConfig.secrets["database.url"].masked} configured={bootstrapConfig.secrets["database.url"].configured} editable={bootstrapConfig.secrets["database.url"].editable && !controlsDisabled} value={secretInputs["database.url"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
-                <StartupInputField id="startup-postgres-total-max-conns" label={copy.postgresTotalMaxConns} type="number" value={numberValue(values.database.pools.total_max_conns)} error={fieldErrors["database.pools.total_max_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.pools.total_max_conns", value)} />
+                <SecretReplacementField id="startup-database-url" label={copy.databaseUrl} effect={fieldEffect("database.url")} secretKey="database.url" masked={bootstrapConfig.secrets["database.url"].masked} configured={bootstrapConfig.secrets["database.url"].configured} editable={bootstrapConfig.secrets["database.url"].editable && !controlsDisabled} value={secretInputs["database.url"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+                <StartupInputField id="startup-postgres-total-max-conns" label={copy.postgresTotalMaxConns} effect={fieldEffect("database.pools.total_max_conns")} type="number" value={numberValue(values.database.pools.total_max_conns)} error={fieldErrors["database.pools.total_max_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.pools.total_max_conns", value)} />
                 <div className="grid gap-4 md:grid-cols-2">
                   {POSTGRES_POOL_LANES.map((lane) => {
                     const label = getPostgresPoolLaneLabel(copy, lane);
                     return (
                       <div key={lane} className="contents">
-                        <StartupInputField id={`startup-${lane}-max-conns`} label={copy.postgresLaneMaxConns(label)} type="number" value={numberValue(values.database.pools[lane].max_conns)} error={fieldErrors[`database.pools.${lane}.max_conns`]} disabled={controlsDisabled} onChange={(value) => setNumberField(`database.pools.${lane}.max_conns`, value)} />
-                        <StartupInputField id={`startup-${lane}-min-idle`} label={copy.postgresLaneMinIdle(label)} type="number" value={numberValue(values.database.pools[lane].min_idle_conns)} error={fieldErrors[`database.pools.${lane}.min_idle_conns`]} disabled={controlsDisabled} onChange={(value) => setNumberField(`database.pools.${lane}.min_idle_conns`, value)} />
+                        <StartupInputField id={`startup-${lane}-max-conns`} label={copy.postgresLaneMaxConns(label)} effect={fieldEffect(`database.pools.${lane}.max_conns`)} type="number" value={numberValue(values.database.pools[lane].max_conns)} error={fieldErrors[`database.pools.${lane}.max_conns`]} disabled={controlsDisabled} onChange={(value) => setNumberField(`database.pools.${lane}.max_conns`, value)} />
+                        <StartupInputField id={`startup-${lane}-min-idle`} label={copy.postgresLaneMinIdle(label)} effect={fieldEffect(`database.pools.${lane}.min_idle_conns`)} type="number" value={numberValue(values.database.pools[lane].min_idle_conns)} error={fieldErrors[`database.pools.${lane}.min_idle_conns`]} disabled={controlsDisabled} onChange={(value) => setNumberField(`database.pools.${lane}.min_idle_conns`, value)} />
                       </div>
                     );
                   })}
-                  <StartupInputField id="startup-m2-concurrent" label={copy.m2MaxConcurrent} type="number" value={numberValue(values.database.management_admission.m2_max_concurrent)} error={fieldErrors["database.management_admission.m2_max_concurrent"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_admission.m2_max_concurrent", value)} />
-                  <StartupInputField id="startup-m3-concurrent" label={copy.m3MaxConcurrent} type="number" value={numberValue(values.database.management_admission.m3_max_concurrent)} error={fieldErrors["database.management_admission.m3_max_concurrent"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_admission.m3_max_concurrent", value)} />
+                  <StartupInputField id="startup-m2-concurrent" label={copy.m2MaxConcurrent} effect={fieldEffect("database.management_admission.m2_max_concurrent")} type="number" value={numberValue(values.database.management_admission.m2_max_concurrent)} error={fieldErrors["database.management_admission.m2_max_concurrent"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_admission.m2_max_concurrent", value)} />
+                  <StartupInputField id="startup-m3-concurrent" label={copy.m3MaxConcurrent} effect={fieldEffect("database.management_admission.m3_max_concurrent")} type="number" value={numberValue(values.database.management_admission.m3_max_concurrent)} error={fieldErrors["database.management_admission.m3_max_concurrent"]} disabled={controlsDisabled} onChange={(value) => setNumberField("database.management_admission.m3_max_concurrent", value)} />
                 </div>
               </FieldGroup>
             </FieldSet>
@@ -1054,7 +1399,7 @@ export function SettingsStartupTab() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm"><Network />{copy.transportTitle}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><Network />{copy.transportTitle}{sectionEffect(TRANSPORT_FIELD_PATHS)}</CardTitle>
             <CardDescription>{copy.transportDescription}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -1062,21 +1407,21 @@ export function SettingsStartupTab() {
               <FieldLegend>{copy.transport}</FieldLegend>
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="startup-buffering-mode">{copy.bufferingMode}</FieldLabel>
+                  <FieldLabelWithEffect htmlFor="startup-buffering-mode" label={copy.bufferingMode} effect={fieldEffect("runtime.buffering_mode")} />
                   <Select value={values.runtime.buffering_mode ?? "buffered"} disabled={controlsDisabled} onValueChange={(value) => setStringField("runtime.buffering_mode", value)}>
                     <SelectTrigger id="startup-buffering-mode"><SelectValue placeholder={copy.selectMode} /></SelectTrigger>
                     <SelectContent><SelectGroup><SelectItem value="buffered">{copy.buffered}</SelectItem><SelectItem value="streaming">{copy.streaming}</SelectItem></SelectGroup></SelectContent>
                   </Select>
                 </Field>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <StartupInputField id="startup-max-idle-conns" label={copy.maxIdleConns} type="number" value={numberValue(values.runtime.transport.max_idle_conns)} error={fieldErrors["runtime.transport.max_idle_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_idle_conns", value)} />
-                  <StartupInputField id="startup-max-idle-per-host" label={copy.maxIdlePerHost} type="number" value={numberValue(values.runtime.transport.max_idle_conns_per_host)} error={fieldErrors["runtime.transport.max_idle_conns_per_host"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_idle_conns_per_host", value)} />
-                  <StartupInputField id="startup-max-conns-per-host" label={copy.maxConnsPerHost} type="number" value={numberValue(values.runtime.transport.max_conns_per_host)} error={fieldErrors["runtime.transport.max_conns_per_host"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_conns_per_host", value)} />
-                  <StartupInputField id="startup-idle-timeout" label={copy.idleConnTimeout} value={textValue(values.runtime.transport.idle_conn_timeout)} error={fieldErrors["runtime.transport.idle_conn_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.idle_conn_timeout", value)} />
-                  <StartupInputField id="startup-request-timeout" label={copy.requestTimeout} value={textValue(values.runtime.transport.request_timeout)} error={fieldErrors["runtime.transport.request_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.request_timeout", value)} />
-                  <StartupInputField id="startup-response-header-timeout" label={copy.responseHeaderTimeout} value={textValue(values.runtime.transport.response_header_timeout)} error={fieldErrors["runtime.transport.response_header_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.response_header_timeout", value)} />
-                  <StartupInputField id="startup-tls-timeout" label={copy.tlsHandshakeTimeout} value={textValue(values.runtime.transport.tls_handshake_timeout)} error={fieldErrors["runtime.transport.tls_handshake_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.tls_handshake_timeout", value)} />
-                  <StartupInputField id="startup-expect-timeout" label={copy.expectContinueTimeout} value={textValue(values.runtime.transport.expect_continue_timeout)} error={fieldErrors["runtime.transport.expect_continue_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.expect_continue_timeout", value)} />
+                  <StartupInputField id="startup-max-idle-conns" label={copy.maxIdleConns} effect={fieldEffect("runtime.transport.max_idle_conns")} type="number" value={numberValue(values.runtime.transport.max_idle_conns)} error={fieldErrors["runtime.transport.max_idle_conns"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_idle_conns", value)} />
+                  <StartupInputField id="startup-max-idle-per-host" label={copy.maxIdlePerHost} effect={fieldEffect("runtime.transport.max_idle_conns_per_host")} type="number" value={numberValue(values.runtime.transport.max_idle_conns_per_host)} error={fieldErrors["runtime.transport.max_idle_conns_per_host"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_idle_conns_per_host", value)} />
+                  <StartupInputField id="startup-max-conns-per-host" label={copy.maxConnsPerHost} effect={fieldEffect("runtime.transport.max_conns_per_host")} type="number" value={numberValue(values.runtime.transport.max_conns_per_host)} error={fieldErrors["runtime.transport.max_conns_per_host"]} disabled={controlsDisabled} onChange={(value) => setNumberField("runtime.transport.max_conns_per_host", value)} />
+                  <StartupInputField id="startup-idle-timeout" label={copy.idleConnTimeout} effect={fieldEffect("runtime.transport.idle_conn_timeout")} value={textValue(values.runtime.transport.idle_conn_timeout)} error={fieldErrors["runtime.transport.idle_conn_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.idle_conn_timeout", value)} />
+                  <StartupInputField id="startup-request-timeout" label={copy.requestTimeout} effect={fieldEffect("runtime.transport.request_timeout")} value={textValue(values.runtime.transport.request_timeout)} error={fieldErrors["runtime.transport.request_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.request_timeout", value)} />
+                  <StartupInputField id="startup-response-header-timeout" label={copy.responseHeaderTimeout} effect={fieldEffect("runtime.transport.response_header_timeout")} value={textValue(values.runtime.transport.response_header_timeout)} error={fieldErrors["runtime.transport.response_header_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.response_header_timeout", value)} />
+                  <StartupInputField id="startup-tls-timeout" label={copy.tlsHandshakeTimeout} effect={fieldEffect("runtime.transport.tls_handshake_timeout")} value={textValue(values.runtime.transport.tls_handshake_timeout)} error={fieldErrors["runtime.transport.tls_handshake_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.tls_handshake_timeout", value)} />
+                  <StartupInputField id="startup-expect-timeout" label={copy.expectContinueTimeout} effect={fieldEffect("runtime.transport.expect_continue_timeout")} value={textValue(values.runtime.transport.expect_continue_timeout)} error={fieldErrors["runtime.transport.expect_continue_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.expect_continue_timeout", value)} />
                 </div>
               </FieldGroup>
             </FieldSet>
@@ -1084,23 +1429,23 @@ export function SettingsStartupTab() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm"><KeyRound />{copy.authAndCookiesTitle}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><KeyRound />{copy.authAndCookiesTitle}{sectionEffect(AUTH_FIELD_PATHS)}</CardTitle>
             <CardDescription>{copy.authAndCookiesDescription}</CardDescription>
           </CardHeader>
           <CardContent>
               <FieldSet disabled={controlsDisabled}>
                 <FieldLegend>{copy.auth}</FieldLegend>
                 <FieldGroup>
-                  <SecretReplacementField id="startup-jwt-key" label={copy.jwtSigningKey} secretKey="auth.jwtSigningKey" masked={bootstrapConfig.secrets["auth.jwtSigningKey"].masked} configured={bootstrapConfig.secrets["auth.jwtSigningKey"].configured} editable={bootstrapConfig.secrets["auth.jwtSigningKey"].editable && !controlsDisabled} value={secretInputs["auth.jwtSigningKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+                  <SecretReplacementField id="startup-jwt-key" label={copy.jwtSigningKey} effect={fieldEffect("auth.jwtSigningKey")} secretKey="auth.jwtSigningKey" masked={bootstrapConfig.secrets["auth.jwtSigningKey"].masked} configured={bootstrapConfig.secrets["auth.jwtSigningKey"].configured} editable={bootstrapConfig.secrets["auth.jwtSigningKey"].editable && !controlsDisabled} value={secretInputs["auth.jwtSigningKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
                   <div className="grid gap-4 md:grid-cols-2">
-                  <StartupInputField id="startup-access-ttl" label={copy.accessTokenTtlSeconds} type="number" value={numberValue(values.auth.access_token_ttl_seconds)} error={fieldErrors["auth.access_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.access_token_ttl_seconds", value)} />
-                  <StartupInputField id="startup-refresh-ttl" label={copy.refreshTokenTtlSeconds} type="number" value={numberValue(values.auth.refresh_token_ttl_seconds)} error={fieldErrors["auth.refresh_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.refresh_token_ttl_seconds", value)} />
-                  <StartupInputField id="startup-reset-ttl" label={copy.resetCodeTtlSeconds} type="number" value={numberValue(values.auth.reset_code_ttl_seconds)} error={fieldErrors["auth.reset_code_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.reset_code_ttl_seconds", value)} />
-                  <StartupInputField id="startup-access-cookie" label={copy.accessCookieName} value={textValue(values.auth.access_cookie_name)} error={fieldErrors["auth.access_cookie_name"]} disabled={controlsDisabled} onChange={(value) => setStringField("auth.access_cookie_name", value)} />
-                  <StartupInputField id="startup-refresh-cookie" label={copy.refreshCookieName} value={textValue(values.auth.refresh_cookie_name)} error={fieldErrors["auth.refresh_cookie_name"]} disabled={controlsDisabled} onChange={(value) => setStringField("auth.refresh_cookie_name", value)} />
+                  <StartupInputField id="startup-access-ttl" label={copy.accessTokenTtlSeconds} effect={fieldEffect("auth.access_token_ttl_seconds")} type="number" value={numberValue(values.auth.access_token_ttl_seconds)} error={fieldErrors["auth.access_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.access_token_ttl_seconds", value)} />
+                  <StartupInputField id="startup-refresh-ttl" label={copy.refreshTokenTtlSeconds} effect={fieldEffect("auth.refresh_token_ttl_seconds")} type="number" value={numberValue(values.auth.refresh_token_ttl_seconds)} error={fieldErrors["auth.refresh_token_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.refresh_token_ttl_seconds", value)} />
+                  <StartupInputField id="startup-reset-ttl" label={copy.resetCodeTtlSeconds} effect={fieldEffect("auth.reset_code_ttl_seconds")} type="number" value={numberValue(values.auth.reset_code_ttl_seconds)} error={fieldErrors["auth.reset_code_ttl_seconds"]} disabled={controlsDisabled} onChange={(value) => setNumberField("auth.reset_code_ttl_seconds", value)} />
+                  <StartupInputField id="startup-access-cookie" label={copy.accessCookieName} effect={fieldEffect("auth.access_cookie_name")} value={textValue(values.auth.access_cookie_name)} error={fieldErrors["auth.access_cookie_name"]} disabled={controlsDisabled} onChange={(value) => setStringField("auth.access_cookie_name", value)} />
+                  <StartupInputField id="startup-refresh-cookie" label={copy.refreshCookieName} effect={fieldEffect("auth.refresh_cookie_name")} value={textValue(values.auth.refresh_cookie_name)} error={fieldErrors["auth.refresh_cookie_name"]} disabled={controlsDisabled} onChange={(value) => setStringField("auth.refresh_cookie_name", value)} />
                 </div>
                 <Field orientation="horizontal" data-disabled={controlsDisabled || undefined}>
-                  <FieldContent><FieldLabel htmlFor="startup-cookie-secure">{copy.secureCookies}</FieldLabel><FieldDescription>{copy.secureCookiesDescription}</FieldDescription></FieldContent>
+                  <FieldContent><FieldLabelWithEffect htmlFor="startup-cookie-secure" label={copy.secureCookies} effect={fieldEffect("auth.cookie_secure")} /><FieldDescription>{copy.secureCookiesDescription}</FieldDescription></FieldContent>
                   <Switch id="startup-cookie-secure" checked={Boolean(values.auth.cookie_secure)} disabled={controlsDisabled} onCheckedChange={(checked) => setBooleanField("auth.cookie_secure", checked)} />
                 </Field>
               </FieldGroup>
@@ -1109,7 +1454,7 @@ export function SettingsStartupTab() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm"><Mail />{copy.mailAndSmtpTitle}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><Mail />{copy.mailAndSmtpTitle}{sectionEffect(MAIL_FIELD_PATHS)}</CardTitle>
             <CardDescription>{copy.mailAndSmtpDescription}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -1117,12 +1462,12 @@ export function SettingsStartupTab() {
               <FieldLegend>{copy.mail}</FieldLegend>
               <FieldGroup>
                 <Field orientation="horizontal" data-disabled={controlsDisabled || undefined}>
-                  <FieldContent><FieldLabel htmlFor="startup-mail-enabled">{copy.mailEnabled}</FieldLabel><FieldDescription>{copy.mailEnabledDescription}</FieldDescription></FieldContent>
+                  <FieldContent><FieldLabelWithEffect htmlFor="startup-mail-enabled" label={copy.mailEnabled} effect={fieldEffect("mail.enabled")} /><FieldDescription>{copy.mailEnabledDescription}</FieldDescription></FieldContent>
                   <Switch id="startup-mail-enabled" checked={mailEnabled} disabled={controlsDisabled} onCheckedChange={setMailEnabled} />
                 </Field>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <StartupInputField id="startup-mail-from" label={copy.mailFrom} value={textValue(mailValues.from)} placeholder={copy.mailFromPlaceholder} error={fieldErrors["mail.from"]} disabled={smtpControlsDisabled} onChange={(value) => setMailStringField("from", value)} />
-                  <StartupInputField id="startup-mail-reply-to" label={copy.mailReplyTo} value={textValue(mailValues.reply_to)} placeholder={copy.mailReplyToPlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setMailStringField("reply_to", value)} />
+                  <StartupInputField id="startup-mail-from" label={copy.mailFrom} effect={fieldEffect("mail.from")} value={textValue(mailValues.from)} placeholder={copy.mailFromPlaceholder} error={fieldErrors["mail.from"]} disabled={smtpControlsDisabled} onChange={(value) => setMailStringField("from", value)} />
+                  <StartupInputField id="startup-mail-reply-to" label={copy.mailReplyTo} effect={fieldEffect("mail.reply_to")} value={textValue(mailValues.reply_to)} placeholder={copy.mailReplyToPlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setMailStringField("reply_to", value)} />
                 </div>
               </FieldGroup>
             </FieldSet>
@@ -1132,31 +1477,31 @@ export function SettingsStartupTab() {
               <FieldDescription>{mailEnabled ? copy.smtpDescription : copy.smtpDisabledDescription}</FieldDescription>
               <FieldGroup>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <StartupInputField id="startup-smtp-host" label={copy.smtpHost} value={textValue(smtpValues.host)} placeholder={copy.smtpHostPlaceholder} error={fieldErrors["mail.smtp.host"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("host", value)} />
-                  <StartupInputField id="startup-smtp-port" label={copy.smtpPort} type="number" value={numberValue(smtpValues.port)} error={fieldErrors["mail.smtp.port"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPNumberField("port", value)} />
+                  <StartupInputField id="startup-smtp-host" label={copy.smtpHost} effect={fieldEffect("mail.smtp.host")} value={textValue(smtpValues.host)} placeholder={copy.smtpHostPlaceholder} error={fieldErrors["mail.smtp.host"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("host", value)} />
+                  <StartupInputField id="startup-smtp-port" label={copy.smtpPort} effect={fieldEffect("mail.smtp.port")} type="number" value={numberValue(smtpValues.port)} error={fieldErrors["mail.smtp.port"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPNumberField("port", value)} />
                   <Field data-invalid={Boolean(fieldErrors["mail.smtp.mode"]) || undefined} data-disabled={smtpControlsDisabled || undefined}>
-                    <FieldLabel htmlFor="startup-smtp-mode">{copy.smtpMode}</FieldLabel>
+                    <FieldLabelWithEffect htmlFor="startup-smtp-mode" label={copy.smtpMode} effect={fieldEffect("mail.smtp.mode")} />
                     <Select value={smtpValues.mode ?? ""} disabled={smtpControlsDisabled} onValueChange={(value) => setSMTPStringField("mode", value)}>
                       <SelectTrigger id="startup-smtp-mode" aria-invalid={Boolean(fieldErrors["mail.smtp.mode"]) || undefined}><SelectValue placeholder={copy.selectMode} /></SelectTrigger>
                       <SelectContent><SelectGroup><SelectItem value="starttls_required">{copy.smtpModeStarttlsRequired}</SelectItem><SelectItem value="implicit_tls">{copy.smtpModeImplicitTls}</SelectItem><SelectItem value="plaintext_local_only">{copy.smtpModePlaintextLocalOnly}</SelectItem></SelectGroup></SelectContent>
                     </Select>
                     <FieldError>{fieldErrors["mail.smtp.mode"]}</FieldError>
                   </Field>
-                  <StartupInputField id="startup-smtp-ehlo" label={copy.smtpEhloHostname} value={textValue(smtpValues.ehlo_hostname)} placeholder={copy.smtpEhloHostnamePlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("ehlo_hostname", value)} />
+                  <StartupInputField id="startup-smtp-ehlo" label={copy.smtpEhloHostname} effect={fieldEffect("mail.smtp.ehlo_hostname")} value={textValue(smtpValues.ehlo_hostname)} placeholder={copy.smtpEhloHostnamePlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("ehlo_hostname", value)} />
                   <Field data-invalid={Boolean(fieldErrors["mail.smtp.auth"]) || undefined} data-disabled={smtpControlsDisabled || undefined}>
-                    <FieldLabel htmlFor="startup-smtp-auth">{copy.smtpAuth}</FieldLabel>
+                    <FieldLabelWithEffect htmlFor="startup-smtp-auth" label={copy.smtpAuth} effect={fieldEffect("mail.smtp.auth")} />
                     <Select value={smtpValues.auth ?? ""} disabled={smtpControlsDisabled} onValueChange={(value) => setSMTPStringField("auth", value)}>
                       <SelectTrigger id="startup-smtp-auth" aria-invalid={Boolean(fieldErrors["mail.smtp.auth"]) || undefined}><SelectValue placeholder={copy.smtpAuthPlaceholder} /></SelectTrigger>
                       <SelectContent><SelectGroup><SelectItem value="none">{copy.smtpAuthNone}</SelectItem><SelectItem value="plain">{copy.smtpAuthPlain}</SelectItem></SelectGroup></SelectContent>
                     </Select>
                     <FieldError>{fieldErrors["mail.smtp.auth"]}</FieldError>
                   </Field>
-                  <StartupInputField id="startup-smtp-username" label={copy.smtpUsername} value={textValue(smtpValues.username)} placeholder={copy.smtpUsernamePlaceholder} error={fieldErrors["mail.smtp.username"]} disabled={smtpControlsDisabled || smtpValues.auth !== "plain"} onChange={(value) => setSMTPStringField("username", value)} />
-                  <StartupInputField id="startup-smtp-password-file" label={copy.smtpPasswordFile} value={textValue(smtpValues.password_file)} placeholder={copy.smtpPasswordFilePlaceholder} description={copy.smtpPasswordFileDescription} error={fieldErrors["mail.smtp.password_file"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("password_file", value)} />
-                  <StartupInputField id="startup-smtp-timeout" label={copy.smtpTimeout} value={textValue(smtpValues.timeout)} placeholder={copy.smtpTimeoutPlaceholder} error={fieldErrors["mail.smtp.timeout"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("timeout", value)} />
-                  <StartupInputField id="startup-smtp-tls-server-name" label={copy.smtpTlsServerName} value={textValue(smtpValues.tls_server_name)} placeholder={copy.smtpTlsServerNamePlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("tls_server_name", value)} />
+                  <StartupInputField id="startup-smtp-username" label={copy.smtpUsername} effect={fieldEffect("mail.smtp.username")} value={textValue(smtpValues.username)} placeholder={copy.smtpUsernamePlaceholder} error={fieldErrors["mail.smtp.username"]} disabled={smtpControlsDisabled || smtpValues.auth !== "plain"} onChange={(value) => setSMTPStringField("username", value)} />
+                  <StartupInputField id="startup-smtp-password-file" label={copy.smtpPasswordFile} effect={fieldEffect("mail.smtp.password_file")} value={textValue(smtpValues.password_file)} placeholder={copy.smtpPasswordFilePlaceholder} description={copy.smtpPasswordFileDescription} error={fieldErrors["mail.smtp.password_file"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("password_file", value)} />
+                  <StartupInputField id="startup-smtp-timeout" label={copy.smtpTimeout} effect={fieldEffect("mail.smtp.timeout")} value={textValue(smtpValues.timeout)} placeholder={copy.smtpTimeoutPlaceholder} error={fieldErrors["mail.smtp.timeout"]} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("timeout", value)} />
+                  <StartupInputField id="startup-smtp-tls-server-name" label={copy.smtpTlsServerName} effect={fieldEffect("mail.smtp.tls_server_name")} value={textValue(smtpValues.tls_server_name)} placeholder={copy.smtpTlsServerNamePlaceholder} disabled={smtpControlsDisabled} onChange={(value) => setSMTPStringField("tls_server_name", value)} />
                 </div>
-                <SecretReplacementField id="startup-smtp-password" label={copy.smtpPassword} secretKey="mail.smtp.password" masked={bootstrapConfig.secrets["mail.smtp.password"].masked} configured={bootstrapConfig.secrets["mail.smtp.password"].configured} editable={mailEnabled && bootstrapConfig.secrets["mail.smtp.password"].editable && !controlsDisabled} value={secretInputs["mail.smtp.password"]} copy={copy} error={fieldErrors["mail.smtp.password"]} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+                <SecretReplacementField id="startup-smtp-password" label={copy.smtpPassword} effect={fieldEffect("mail.smtp.password")} secretKey="mail.smtp.password" masked={bootstrapConfig.secrets["mail.smtp.password"].masked} configured={bootstrapConfig.secrets["mail.smtp.password"].configured} editable={mailEnabled && bootstrapConfig.secrets["mail.smtp.password"].editable && !controlsDisabled} value={secretInputs["mail.smtp.password"]} copy={copy} error={fieldErrors["mail.smtp.password"]} onChange={handleSecretInputChange} onClear={clearSecretInput} />
               </FieldGroup>
             </FieldSet>
           </CardContent>
@@ -1165,15 +1510,15 @@ export function SettingsStartupTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm"><ShieldAlert />{copy.stateTransferTitle}</CardTitle>
+          <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><ShieldAlert />{copy.stateTransferTitle}{sectionEffect(STATE_TRANSFER_FIELD_PATHS)}</CardTitle>
           <CardDescription>{copy.stateTransferDescription}</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldSet disabled={controlsDisabled}>
             <FieldLegend>{copy.secrets}</FieldLegend>
             <FieldGroup>
-              <SecretReplacementField id="startup-bundle-key" label={copy.bundleEncryptionKey} secretKey="stateTransfer.bundleEncryptionKey" masked={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].masked} configured={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].configured} editable={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].editable && !controlsDisabled} value={secretInputs["stateTransfer.bundleEncryptionKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
-              <SecretReplacementField id="startup-runtime-secret-key" label={copy.runtimeSecretEncryptionKey} secretKey="runtime.secretEncryptionKey" masked={bootstrapConfig.secrets["runtime.secretEncryptionKey"].masked} configured={bootstrapConfig.secrets["runtime.secretEncryptionKey"].configured} editable={false} value="" copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+              <SecretReplacementField id="startup-bundle-key" label={copy.bundleEncryptionKey} effect={fieldEffect("stateTransfer.bundleEncryptionKey")} secretKey="stateTransfer.bundleEncryptionKey" masked={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].masked} configured={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].configured} editable={bootstrapConfig.secrets["stateTransfer.bundleEncryptionKey"].editable && !controlsDisabled} value={secretInputs["stateTransfer.bundleEncryptionKey"]} copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
+              <SecretReplacementField id="startup-runtime-secret-key" label={copy.runtimeSecretEncryptionKey} effect={fieldEffect("runtime.secretEncryptionKey")} secretKey="runtime.secretEncryptionKey" masked={bootstrapConfig.secrets["runtime.secretEncryptionKey"].masked} configured={bootstrapConfig.secrets["runtime.secretEncryptionKey"].configured} editable={false} value="" copy={copy} onChange={handleSecretInputChange} onClear={clearSecretInput} />
             </FieldGroup>
           </FieldSet>
         </CardContent>

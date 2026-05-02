@@ -53,6 +53,74 @@ function createRetentionSettings() {
   };
 }
 
+
+function createApplyCapabilities() {
+  const hotFields = [
+    "http.cors_allowed_origins",
+    "auth.access_token_ttl_seconds",
+    "auth.refresh_token_ttl_seconds",
+    "auth.reset_code_ttl_seconds",
+    "auth.access_cookie_name",
+    "auth.refresh_cookie_name",
+    "auth.cookie_secure",
+    "mail.enabled",
+    "mail.from",
+    "mail.reply_to",
+    "mail.smtp.host",
+    "mail.smtp.port",
+    "mail.smtp.mode",
+    "mail.smtp.ehlo_hostname",
+    "mail.smtp.auth",
+    "mail.smtp.username",
+    "mail.smtp.password_file",
+    "mail.smtp.password",
+    "mail.smtp.timeout",
+    "mail.smtp.tls_server_name",
+    "runtime.buffering_mode",
+    "runtime.transport.max_idle_conns",
+    "runtime.transport.max_idle_conns_per_host",
+    "runtime.transport.max_conns_per_host",
+    "runtime.transport.idle_conn_timeout",
+    "runtime.transport.request_timeout",
+    "runtime.transport.response_header_timeout",
+    "runtime.transport.tls_handshake_timeout",
+    "runtime.transport.expect_continue_timeout",
+    "database.management_admission.m2_max_concurrent",
+    "database.management_admission.m3_max_concurrent",
+  ];
+  const restartFields = [
+    ["server.host", "server-host-change"],
+    ["server.port", "server-port-change"],
+    ["server.docs_enabled", ""],
+    ["database.url", "database-url-change"],
+    ["database.pools.total_max_conns", ""],
+    ["database.pools.management.max_conns", ""],
+    ["database.pools.management.min_idle_conns", ""],
+    ["database.pools.runtime_execution.max_conns", ""],
+    ["database.pools.runtime_execution.min_idle_conns", ""],
+    ["database.pools.runtime_telemetry.max_conns", ""],
+    ["database.pools.runtime_telemetry.min_idle_conns", ""],
+    ["database.pools.runtime_feedback.max_conns", ""],
+    ["database.pools.runtime_feedback.min_idle_conns", ""],
+    ["database.pools.realtime.max_conns", ""],
+    ["database.pools.realtime.min_idle_conns", ""],
+    ["database.pools.cache_refresh.max_conns", ""],
+    ["database.pools.cache_refresh.min_idle_conns", ""],
+    ["database.pools.background_jobs.max_conns", ""],
+    ["database.pools.background_jobs.min_idle_conns", ""],
+    ["runtime.secretEncryptionKey", ""],
+    ["auth.jwtSigningKey", "auth-jwt-signing-key-change"],
+    ["stateTransfer.bundleEncryptionKey", "state-transfer-bundle-encryption-key-change"],
+  ] as const;
+  return Object.fromEntries([
+    ...hotFields.map((field) => [field, { mode: "hot_apply" }]),
+    ...restartFields.map(([field, confirmation_token]) => [
+      field,
+      confirmation_token ? { mode: "restart_required", confirmation_token } : { mode: "restart_required" },
+    ]),
+  ]);
+}
+
 function createBootstrapResponse() {
   return {
     config_path: "/etc/prism/config.json",
@@ -65,6 +133,19 @@ function createBootstrapResponse() {
     updated_at: fixedTimestamp,
     restart_required: false,
     writable: true,
+    apply_capabilities: createApplyCapabilities(),
+    apply_result: undefined as
+      | {
+        applied_now_fields: string[];
+        restart_required_fields: string[];
+        unchanged_fields: string[];
+        pending_hot_apply_fields: string[];
+        failed_hot_apply_fields: string[];
+      }
+      | undefined,
+    planned_changes: undefined as
+      | { changed_fields: { field: string; mode: string }[]; restart_required: boolean }
+      | undefined,
     values: {
       server: { host: "127.0.0.1", port: 18000, docs_enabled: true },
       database: {
@@ -129,10 +210,19 @@ function createBootstrapResponse() {
   };
 }
 
+type BootstrapTestResponse = ReturnType<typeof createBootstrapResponse>;
+type BootstrapTestUpdatePayload = {
+  values: BootstrapTestResponse["values"];
+  secret_updates?: Record<string, { action: string; value?: string }>;
+  confirmations?: string[];
+};
+
 type MockOptions = {
   bootstrapGate?: Promise<void>;
-  bootstrapResponse?: ReturnType<typeof createBootstrapResponse>;
+  bootstrapResponse?: BootstrapTestResponse;
   validateFailure?: { status: number; body: unknown };
+  validateResponse?: BootstrapTestResponse;
+  updateResponse?: (payload: BootstrapTestUpdatePayload, current: BootstrapTestResponse) => BootstrapTestResponse;
 };
 
 async function mockSettingsStartupRoutes(page: Page, options: MockOptions = {}) {
@@ -195,17 +285,29 @@ async function mockSettingsStartupRoutes(page: Page, options: MockOptions = {}) 
       if (options.validateFailure) {
         return fulfillJson(options.validateFailure.body, options.validateFailure.status);
       }
-      return fulfillJson(bootstrapResponse);
+      return fulfillJson(options.validateResponse ?? bootstrapResponse);
     }
     if (pathname === "/api/config/bootstrap" && request.method() === "PUT") {
-      const payload = request.postDataJSON() as { values: typeof bootstrapResponse.values };
+      const payload = request.postDataJSON() as BootstrapTestUpdatePayload;
       updateRequests.push(payload);
+      if (options.updateResponse) {
+        bootstrapResponse = options.updateResponse(payload, bootstrapResponse);
+        return fulfillJson(bootstrapResponse);
+      }
+      const restartRequired = payload.values.server.port !== bootstrapResponse.values.server.port;
       bootstrapResponse = {
         ...bootstrapResponse,
         file_revision: bootstrapResponse.file_revision + 1,
         document_etag: "etag-8",
         updated_at: "2026-04-28T12:05:00Z",
-        restart_required: true,
+        restart_required: restartRequired,
+        apply_result: {
+          applied_now_fields: restartRequired ? [] : ["mail.smtp.password_file"],
+          restart_required_fields: restartRequired ? ["server.port"] : [],
+          unchanged_fields: [],
+          pending_hot_apply_fields: [],
+          failed_hot_apply_fields: [],
+        },
         values: payload.values,
       };
       return fulfillJson(bootstrapResponse);
@@ -245,7 +347,7 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
 
   gate.resolve();
 
-  await expect(page.getByText("These settings are loaded when Prism starts. Saving updates config.json; restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Eligible settings apply immediately after save; structural settings are written to config.json and require a Prism restart.")).toBeVisible();
   await expect(page.getByText(maskedDatabaseUrl)).toBeVisible();
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
   await expect(page.getByText(maskedJwtKey)).toBeVisible();
@@ -274,7 +376,7 @@ test("missing PostgreSQL pool lanes hydrate defaults and save canonical pools", 
   await expect(page.getByRole("spinbutton", { name: "Cache refresh min idle" })).toHaveValue("0");
 
   await page.getByRole("button", { name: "Save startup config" }).click();
-  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(1);
@@ -322,7 +424,7 @@ test("legacy missing mail hydrates as disabled and saves canonical disabled mail
   await expect(page.getByRole("textbox", { name: "SMTP host" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Save startup config" }).click();
-  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(1);
@@ -357,7 +459,7 @@ test("enabled mail saves password file separately from SMTP password secret upda
 
   await page.getByRole("textbox", { name: "SMTP password file" }).fill("/run/secrets/prism-smtp-password");
   await page.getByRole("button", { name: "Save startup config" }).click();
-  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
   expect(routes.getUpdateRequests()).toHaveLength(1);
   const payload = routes.getUpdateRequests()[0] as {
@@ -377,7 +479,7 @@ test("enabled mail saves inline SMTP password replacement only through secret up
 
   await page.getByRole("textbox", { name: "SMTP password", exact: true }).fill("new-smtp-password");
   await page.getByRole("button", { name: "Save startup config" }).click();
-  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
   expect(routes.getUpdateRequests()).toHaveLength(1);
   const payload = routes.getUpdateRequests()[0] as {
@@ -400,7 +502,7 @@ test("disabling mail after staging SMTP password saves disabled mail without rep
   await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
   await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "Save startup config" }).click();
-  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
   expect(routes.getUpdateRequests()).toHaveLength(1);
   const payload = routes.getUpdateRequests()[0] as {
@@ -468,6 +570,136 @@ test("client validation blocks blank request timeout validate and save", async (
   expect(routes.getUpdateRequests()).toHaveLength(0);
 });
 
+test("backend validation renders planned hot-apply and restart effects before save", async ({ page }) => {
+  const validateResponse = createBootstrapResponse();
+  validateResponse.planned_changes = {
+    changed_fields: [
+      { field: "http.cors_allowed_origins", mode: "hot_apply" },
+      { field: "server.docs_enabled", mode: "restart_required" },
+    ],
+    restart_required: true,
+  };
+  const routes = await mockSettingsStartupRoutes(page, { validateResponse });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByLabel("CORS allowed origins").fill("http://localhost:15173, http://127.0.0.1:15173");
+  await page.getByRole("switch", { name: "Docs enabled" }).click();
+  await page.getByRole("button", { name: "Validate" }).click();
+
+  await expect(page.getByRole("row", { name: /CORS allowed origins.*Will apply immediately after save\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Docs enabled.*Will be written for the next restart\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(1);
+  expect(routes.getUpdateRequests()).toHaveLength(0);
+});
+
+test("hot-only save shows applied-immediately rows without restart alert or dangerous checklist", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page, {
+    updateResponse: (payload, current) => ({
+      ...current,
+      file_revision: current.file_revision + 1,
+      document_etag: "etag-hot-8",
+      updated_at: "2026-04-28T12:05:00Z",
+      restart_required: false,
+      apply_result: {
+        applied_now_fields: ["runtime.transport.request_timeout"],
+        restart_required_fields: [],
+        unchanged_fields: [],
+        pending_hot_apply_fields: [],
+        failed_hot_apply_fields: [],
+      },
+      values: payload.values,
+    }),
+  });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Request timeout" }).fill("45s");
+  await expect(page.getByText("1 immediate change staged")).toBeVisible();
+  await expect(page.getByText("Dangerous changes staged")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Request timeout.*Applied immediately to the running process\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Saved for the next Prism restart\./i })).toHaveCount(0);
+  expect(routes.getValidateRequests()).toHaveLength(1);
+  expect(routes.getUpdateRequests()).toHaveLength(1);
+});
+
+test("mixed save shows immediate rows plus restart-required alert", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page, {
+    updateResponse: (payload, current) => ({
+      ...current,
+      file_revision: current.file_revision + 1,
+      document_etag: "etag-mixed-8",
+      updated_at: "2026-04-28T12:05:00Z",
+      restart_required: true,
+      apply_result: {
+        applied_now_fields: ["http.cors_allowed_origins"],
+        restart_required_fields: ["server.port"],
+        unchanged_fields: [],
+        pending_hot_apply_fields: [],
+        failed_hot_apply_fields: [],
+      },
+      values: payload.values,
+    }),
+  });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByLabel("CORS allowed origins").fill("http://localhost:15173, http://127.0.0.1:15173");
+  await page.getByRole("spinbutton", { name: "Server port" }).fill("18001");
+  await expect(page.getByText("1 immediate and 1 restart change staged")).toBeVisible();
+  await page.getByLabel("Server port changes the management and proxy port after restart").check();
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByRole("alertdialog", { name: "Save dangerous startup changes?" })).toBeVisible();
+  await page.getByRole("button", { name: "Save and require restart" }).click();
+
+  await expect(page.getByText("Saved to config.json. Eligible settings applied immediately; structural settings require restart.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /CORS allowed origins.*Applied immediately to the running process\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Server port.*Saved for the next Prism restart\./i })).toBeVisible();
+  expect(routes.getUpdateRequests()[0]).toMatchObject({
+    confirmations: ["server-port-change"],
+  });
+});
+
+test("restart fields without backend confirmation tokens do not require dangerous checklist", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page, {
+    updateResponse: (payload, current) => ({
+      ...current,
+      file_revision: current.file_revision + 1,
+      document_etag: "etag-docs-8",
+      updated_at: "2026-04-28T12:05:00Z",
+      restart_required: true,
+      apply_result: {
+        applied_now_fields: [],
+        restart_required_fields: ["server.docs_enabled"],
+        unchanged_fields: [],
+        pending_hot_apply_fields: [],
+        failed_hot_apply_fields: [],
+      },
+      values: payload.values,
+    }),
+  });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByRole("switch", { name: "Docs enabled" }).click();
+  await expect(page.getByText("1 restart change staged")).toBeVisible();
+  await expect(page.getByText("Dangerous changes staged")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByRole("alertdialog", { name: "Save dangerous startup changes?" })).toHaveCount(0);
+  await expect(page.getByText("Saved to config.json. Structural settings require restart.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Docs enabled.*Saved for the next Prism restart\./i })).toBeVisible();
+  expect(routes.getUpdateRequests()[0]).toMatchObject({ confirmations: [] });
+});
+
 test("dangerous port save requires checklist, AlertDialog confirmation, and shows restart-required state", async ({ page }) => {
   const routes = await mockSettingsStartupRoutes(page);
 
@@ -482,8 +714,11 @@ test("dangerous port save requires checklist, AlertDialog confirmation, and show
   await expect(page.getByRole("alertdialog", { name: "Save dangerous startup changes?" })).toBeVisible();
   await page.getByRole("button", { name: "Save and require restart" }).click();
 
-  await expect(page.getByText("Saved to config.json. Restart Prism for changes to take effect.")).toBeVisible();
+  await expect(page.getByText("Saved to config.json. Structural settings require restart.")).toBeVisible();
   await expect(page.getByText("Restart required").first()).toBeVisible();
+  await expect(page.getByRole("row", { name: /Server port.*Saved for the next Prism restart\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Applied immediately to the running process\./i })).toHaveCount(0);
+  await expect(page.getByText("Saved to config.json and applied immediately.")).toHaveCount(0);
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(1);
   expect(routes.getValidateRequests()[0]).toMatchObject({
