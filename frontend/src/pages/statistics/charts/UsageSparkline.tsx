@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { Area, AreaChart } from "recharts";
+import { Area, AreaChart, XAxis, YAxis } from "recharts";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
@@ -35,13 +35,15 @@ export function UsageSparkline({
       className={cn("aspect-auto h-14 w-full", className)}
       config={config}
     >
-      <AreaChart accessibilityLayer data={points} margin={{ bottom: 0, left: 2, right: 2, top: 2 }}>
+      <AreaChart accessibilityLayer data={points} margin={{ bottom: 0, left: 4, right: 4, top: 4 }}>
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
             <stop offset="5%" stopColor={color} stopOpacity={0.38} />
             <stop offset="95%" stopColor={color} stopOpacity={0.02} />
           </linearGradient>
         </defs>
+        <XAxis allowDataOverflow dataKey="label" hide padding={{ left: 4, right: 4 }} />
+        <YAxis allowDataOverflow domain={[0, "dataMax"]} hide padding={{ top: 6 }} />
         <Area
           dataKey="value"
           fill={`url(#${gradientId})`}
@@ -50,7 +52,7 @@ export function UsageSparkline({
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={1.75}
-          type="natural"
+          type="linear"
         />
       </AreaChart>
     </ChartContainer>

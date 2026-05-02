@@ -191,15 +191,20 @@ export function UsageTrendChart({
               </defs>
               <CartesianGrid vertical={false} />
               <XAxis
+                allowDataOverflow
                 axisLine={false}
                 dataKey="bucket_start"
                 minTickGap={32}
+                padding={{ left: 8, right: 8 }}
                 tickFormatter={(value) => formatBucket(String(value))}
                 tickLine={false}
                 tickMargin={8}
               />
               <YAxis
+                allowDataOverflow
                 axisLine={false}
+                domain={[0, "dataMax"]}
+                padding={{ top: 12 }}
                 tickFormatter={(value) => (formatValue ? formatValue(Number(value)) : String(value))}
                 tickLine={false}
                 tickMargin={10}

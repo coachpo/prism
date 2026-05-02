@@ -371,15 +371,20 @@ export function UsageBreakdownSection({
                   </defs>
                   <CartesianGrid vertical={false} />
                   <XAxis
+                    allowDataOverflow
                     axisLine={false}
                     dataKey="bucket_start"
                     minTickGap={32}
+                    padding={{ left: 8, right: 8 }}
                     tickFormatter={(value) => formatBucket(String(value), chartGranularity.costOverview)}
                     tickLine={false}
                     tickMargin={8}
                   />
                   <YAxis
+                    allowDataOverflow
                     axisLine={false}
+                    domain={[0, "dataMax"]}
+                    padding={{ top: 12 }}
                     tickCount={4}
                     tickFormatter={(value) =>
                       formatMoneyMicros(Number(value), currency.symbol, currency.code, 0, 3, locale)
@@ -413,7 +418,7 @@ export function UsageBreakdownSection({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2.5}
-                    type="natural"
+                    type="monotone"
                   />
                 </AreaChart>
               </ChartContainer>
