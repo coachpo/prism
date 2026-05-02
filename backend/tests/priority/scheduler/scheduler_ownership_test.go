@@ -10,15 +10,30 @@ import (
 
 func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 	backendRoot := backendRoot(t)
-	assertFileContainsAll(t, backendRoot, "internal/platform/http/server.go", []string{
+	assertFileContainsAll(t, backendRoot, "internal/platform/lifecycle/production.go", []string{
 		"background.NewScheduler(background.Config{})",
 		"runtimePlanningCache.RegisterBackgroundWorker",
 		"managementAuthService.RegisterBackgroundWorkers",
 		"asyncDashboardPublisher.RegisterBackgroundWorker",
 		"runtimeService.RegisterBackgroundWorkers",
 		"emailOutbox.RegisterBackgroundWorker",
-		"backgroundScheduler.Start(context.Background())",
-		"backgroundScheduler.Stop(ctx, time.Now().Add(5*time.Second))",
+		"resources.scheduler.Start(ctx)",
+		"SchedulerStop:    resources.schedulerStopHook()",
+		"resources.schedulerStopHook()",
+		"resources.scheduler.Stop(ctx, deadline)",
+	})
+	assertFileExcludesAll(t, backendRoot, "internal/platform/http/server.go", []string{
+		"OpenDatabasePools",
+		"DatabasePools.Close",
+		"databasePools.Close",
+		"background.NewScheduler",
+		"RegisterBackgroundWorker",
+		"RegisterBackgroundWorkers",
+		"resources.scheduler.Start",
+		"resources.scheduler.Stop",
+		".Start(context.Background())",
+		".Stop(ctx",
+		"RegisterOnShutdown",
 	})
 	assertFileContainsAll(t, backendRoot, "internal/httpapi/runtime/cache.go", []string{
 		"RegisterBackgroundWorker",
@@ -74,14 +89,29 @@ func backendRoot(t *testing.T) string {
 
 func assertFileContainsAll(t *testing.T, backendRoot string, relativePath string, wants []string) {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join(backendRoot, relativePath))
-	if err != nil {
-		t.Fatalf("read %s: %v", relativePath, err)
-	}
-	text := string(content)
+	text := readBackendFile(t, backendRoot, relativePath)
 	for _, want := range wants {
 		if !strings.Contains(text, want) {
 			t.Fatalf("%s missing %q", relativePath, want)
 		}
 	}
+}
+
+func assertFileExcludesAll(t *testing.T, backendRoot string, relativePath string, forbidden []string) {
+	t.Helper()
+	text := readBackendFile(t, backendRoot, relativePath)
+	for _, value := range forbidden {
+		if strings.Contains(text, value) {
+			t.Fatalf("%s still contains %q", relativePath, value)
+		}
+	}
+}
+
+func readBackendFile(t *testing.T, backendRoot string, relativePath string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(backendRoot, relativePath))
+	if err != nil {
+		t.Fatalf("read %s: %v", relativePath, err)
+	}
+	return string(content)
 }

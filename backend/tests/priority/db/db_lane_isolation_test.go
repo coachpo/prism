@@ -12,7 +12,7 @@ import (
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
 )
 
-func TestDBLaneIsolation(t *testing.T) {
+func TestDBPoolLaneIsolation(t *testing.T) {
 	t.Run("default budget names every physical lane", func(t *testing.T) {
 		budget := config.DefaultPostgresPoolsBudget()
 		if err := budget.Validate(); err != nil {
@@ -72,8 +72,8 @@ func TestDBLaneIsolation(t *testing.T) {
 		}
 	})
 
-	t.Run("server wiring uses isolated non management lanes", func(t *testing.T) {
-		content := readBackendFile(t, "internal/platform/http/server.go")
+	t.Run("lifecycle wiring uses isolated non management lanes", func(t *testing.T) {
+		content := readBackendFile(t, "internal/platform/lifecycle/production.go")
 		for _, want := range []string{
 			"runtimeFeedbackPool := databasePools.RuntimeFeedback.Raw()",
 			"realtimePool := databasePools.Realtime.Raw()",
@@ -83,14 +83,25 @@ func TestDBLaneIsolation(t *testing.T) {
 			"RealtimePool: realtimePool",
 			"RefreshPool: cacheRefreshPool",
 			"ProxyKeyUsagePool: backgroundJobsPool",
+			"platformdb.OpenDatabasePools(ctx, settings.DatabaseURL",
+			"resources.dbClose = func(context.Context) error",
+			"databasePools.Close()",
+			"SchedulerStop:    resources.schedulerStopHook()",
+			"DBClose:          resources.dbClose",
 		} {
 			if !strings.Contains(content, want) {
-				t.Fatalf("expected server wiring to contain %q", want)
+				t.Fatalf("expected lifecycle wiring to contain %q", want)
 			}
 		}
 		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RealtimePool: managementPool", "RefreshPool: managementPool", "ProxyKeyUsagePool: managementPool"} {
 			if strings.Contains(content, forbidden) {
-				t.Fatalf("server wiring contains forbidden management or runtime lane borrowing %q", forbidden)
+				t.Fatalf("lifecycle wiring contains forbidden management or runtime lane borrowing %q", forbidden)
+			}
+		}
+		serverContent := readBackendFile(t, "internal/platform/http/server.go")
+		for _, forbidden := range []string{"OpenDatabasePools", "DatabasePools.Close", "databasePools.Close", "background.NewScheduler", "RegisterBackgroundWorker", "RegisterBackgroundWorkers", "RegisterOnShutdown"} {
+			if strings.Contains(serverContent, forbidden) {
+				t.Fatalf("server assembly still owns app lifecycle through %q", forbidden)
 			}
 		}
 	})

@@ -27,8 +27,8 @@ func TestPriorityLaneContract(t *testing.T) {
 		}
 	})
 
-	t.Run("server wiring binds components to declared lanes", func(t *testing.T) {
-		server := readBackendFile(t, "internal/platform/http/server.go")
+	t.Run("lifecycle wiring binds components to declared lanes", func(t *testing.T) {
+		lifecycle := readBackendFile(t, "internal/platform/lifecycle/production.go")
 		for _, want := range []string{
 			"runtimeExecutionPool := databasePools.RuntimeExecution.Raw()",
 			"runtimeTelemetryPool := databasePools.RuntimeTelemetry.Raw()",
@@ -43,13 +43,13 @@ func TestPriorityLaneContract(t *testing.T) {
 			"ProxyKeyUsagePool: backgroundJobsPool",
 			"TelemetryPool: runtimeTelemetryPool",
 		} {
-			if !strings.Contains(server, want) {
-				t.Fatalf("server wiring missing declared lane marker %q", want)
+			if !strings.Contains(lifecycle, want) {
+				t.Fatalf("lifecycle wiring missing declared lane marker %q", want)
 			}
 		}
 		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RealtimePool: managementPool", "RefreshPool: managementPool", "TelemetryPool: runtimeExecutionPool", "ProxyKeyUsagePool: managementPool"} {
-			if strings.Contains(server, forbidden) {
-				t.Fatalf("server wiring borrows forbidden lane %q", forbidden)
+			if strings.Contains(lifecycle, forbidden) {
+				t.Fatalf("lifecycle wiring borrows forbidden lane %q", forbidden)
 			}
 		}
 	})
