@@ -180,6 +180,7 @@ type requestPlan struct {
 	Strategy                    loadbalance.RuntimeStrategy
 	RequestGenerationParams     requestGenerationParamsSnapshot
 	RequestGenerationSnapshot   func() requestGenerationParamsSnapshot
+	HTTPClient                  *http.Client
 }
 
 func (plan requestPlan) requiresReplayableRequestBody() bool {
@@ -298,7 +299,7 @@ var errHedgeLoserCanceled = errors.New("hedge loser canceled")
 
 const hedgeCanceledAttemptStatusCode = 499
 
-func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte) (requestPlan, error) {
+func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) (requestPlan, error) {
 	requestedModelID, err := resolveModelID(rawBody, request.URL.Path)
 	if err != nil {
 		return requestPlan{}, &domainError{
@@ -371,6 +372,7 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		FailoverStatusCodes:         strategy.FailoverStatusCodes(),
 		Strategy:                    strategy,
 		RequestGenerationParams:     requestGenerationParams,
+		HTTPClient:                  runtimeConfig.HTTPClient,
 	}, nil
 }
 
@@ -721,7 +723,7 @@ func (s *Service) executeSingleAttempt(ctx context.Context, method string, plan 
 	}()
 
 	attemptStartedAt := s.nowUTC()
-	response, launched, requestErr := s.doUpstreamRequest(ctx, method, upstreamURL, headers, bodySource)
+	response, launched, requestErr := s.doUpstreamRequest(ctx, plan.HTTPClient, method, upstreamURL, headers, bodySource)
 	outcome := executionOutcome{Connection: connection, RequestHeaders: cloneStringMap(headers), Response: response, Launched: launched, Err: requestErr, ProbeEligibleRecord: decision.ProbeEligibleRecord}
 	if launched {
 		attemptCompletedAt := s.nowUTC()
@@ -788,7 +790,13 @@ func (s *Service) recordRuntimeTransportFailure(profileID int, connection runtim
 	s.feedbackPipeline.TryEnqueue(runtimeFeedbackEvent{Kind: runtimeFeedbackTransportFailure, ProfileID: profileID, ConnectionID: connection.ID, ModelConfigID: connection.ModelConfigID, Strategy: strategy, Transition: transition, FailureKind: "connect_error", CompletedAt: completedAt})
 }
 
-func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource) (*http.Response, bool, error) {
+func (s *Service) doUpstreamRequest(ctx context.Context, client *http.Client, method string, upstreamURL string, headers map[string]string, bodySource *runtimeRequestBodySource) (*http.Response, bool, error) {
+	if client == nil {
+		client = s.httpClient
+	}
+	if client == nil {
+		return nil, false, fmt.Errorf("runtime HTTP client unavailable")
+	}
 	requestBody, contentLength, err := bodySource.Open()
 	if err != nil {
 		return nil, false, fmt.Errorf("open upstream request body: %w", err)
@@ -809,7 +817,7 @@ func (s *Service) doUpstreamRequest(ctx context.Context, method string, upstream
 			request.Header["User-Agent"] = []string{""}
 		}
 	}
-	response, err := s.httpClient.Do(request)
+	response, err := client.Do(request)
 	return response, true, err
 }
 

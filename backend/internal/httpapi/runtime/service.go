@@ -25,37 +25,48 @@ type DashboardUpdatePublisher interface {
 }
 
 type Options struct {
-	ExecutionPool    *pgxpool.Pool
-	TelemetryPool    *pgxpool.Pool
-	FeedbackPool     *pgxpool.Pool
-	HTTPClient       *http.Client
-	Now              func() time.Time
-	DashboardUpdates DashboardUpdatePublisher
-	Cache            *SharedCache
-	RuntimeState     *loadbalancedomain.LocalRuntimeStateStore
-	TelemetryOutbox  TelemetryOutboxOptions
-	FeedbackPipeline RuntimeFeedbackPipelineOptions
-	SideEffects      RuntimeSideEffectOptions
-	Scheduler        *background.Scheduler
+	ExecutionPool              *pgxpool.Pool
+	TelemetryPool              *pgxpool.Pool
+	FeedbackPool               *pgxpool.Pool
+	HTTPClient                 *http.Client
+	RuntimeProxyConfigProvider RuntimeProxyConfigProvider
+	Now                        func() time.Time
+	DashboardUpdates           DashboardUpdatePublisher
+	Cache                      *SharedCache
+	RuntimeState               *loadbalancedomain.LocalRuntimeStateStore
+	TelemetryOutbox            TelemetryOutboxOptions
+	FeedbackPipeline           RuntimeFeedbackPipelineOptions
+	SideEffects                RuntimeSideEffectOptions
+	Scheduler                  *background.Scheduler
+}
+
+type RuntimeProxyConfigSnapshot struct {
+	BufferingMode config.RuntimeBufferingMode
+	HTTPClient    *http.Client
+}
+
+type RuntimeProxyConfigProvider interface {
+	RuntimeProxyConfigSnapshot() RuntimeProxyConfigSnapshot
 }
 
 type Service struct {
-	executionPool       *pgxpool.Pool
-	telemetryPool       *pgxpool.Pool
-	feedbackPool        *pgxpool.Pool
-	feedbackStore       *runtimeFeedbackStore
-	httpClient          *http.Client
-	ownsHTTPClient      bool
-	now                 func() time.Time
-	bufferingMode       config.RuntimeBufferingMode
-	secretEncryptionKey string
-	dashboardUpdates    DashboardUpdatePublisher
-	cache               *SharedCache
-	runtimeState        *loadbalancedomain.LocalRuntimeStateStore
-	telemetryOutbox     *runtimeTelemetryOutbox
-	feedbackPipeline    *runtimeFeedbackPipeline
-	runtimeSideEffects  *RuntimeSideEffectManager
-	ownedScheduler      *background.Scheduler
+	executionPool              *pgxpool.Pool
+	telemetryPool              *pgxpool.Pool
+	feedbackPool               *pgxpool.Pool
+	feedbackStore              *runtimeFeedbackStore
+	httpClient                 *http.Client
+	ownsHTTPClient             bool
+	runtimeProxyConfigProvider RuntimeProxyConfigProvider
+	staticRuntimeProxyConfig   RuntimeProxyConfigSnapshot
+	now                        func() time.Time
+	secretEncryptionKey        string
+	dashboardUpdates           DashboardUpdatePublisher
+	cache                      *SharedCache
+	runtimeState               *loadbalancedomain.LocalRuntimeStateStore
+	telemetryOutbox            *runtimeTelemetryOutbox
+	feedbackPipeline           *runtimeFeedbackPipeline
+	runtimeSideEffects         *RuntimeSideEffectManager
+	ownedScheduler             *background.Scheduler
 }
 
 type domainError struct {
@@ -93,18 +104,19 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		scheduler = background.NewScheduler(background.Config{})
 	}
 	service := &Service{
-		executionPool:       executionPool,
-		telemetryPool:       telemetryPool,
-		feedbackPool:        feedbackPool,
-		feedbackStore:       newRuntimeFeedbackStore(feedbackPool),
-		httpClient:          client,
-		ownsHTTPClient:      ownsHTTPClient,
-		now:                 now,
-		bufferingMode:       settings.ResolvedRuntimeBufferingMode(),
-		secretEncryptionKey: settings.SecretEncryptionKey,
-		dashboardUpdates:    options.DashboardUpdates,
-		cache:               options.Cache,
-		runtimeState:        runtimeState,
+		executionPool:              executionPool,
+		telemetryPool:              telemetryPool,
+		feedbackPool:               feedbackPool,
+		feedbackStore:              newRuntimeFeedbackStore(feedbackPool),
+		httpClient:                 client,
+		ownsHTTPClient:             ownsHTTPClient,
+		runtimeProxyConfigProvider: options.RuntimeProxyConfigProvider,
+		staticRuntimeProxyConfig:   RuntimeProxyConfigSnapshot{BufferingMode: settings.ResolvedRuntimeBufferingMode(), HTTPClient: client},
+		now:                        now,
+		secretEncryptionKey:        settings.SecretEncryptionKey,
+		dashboardUpdates:           options.DashboardUpdates,
+		cache:                      options.Cache,
+		runtimeState:               runtimeState,
 	}
 	telemetryOptions := options.TelemetryOutbox
 	telemetryOptions.Scheduler = scheduler
@@ -158,6 +170,16 @@ func newRuntimeHTTPClient(settings config.Settings) *http.Client {
 			ExpectContinueTimeout: transportConfig.ExpectContinueTimeout,
 		},
 	}
+}
+
+func (s *Service) runtimeProxyConfigSnapshot() RuntimeProxyConfigSnapshot {
+	if s == nil {
+		return RuntimeProxyConfigSnapshot{}
+	}
+	if s.runtimeProxyConfigProvider != nil {
+		return s.runtimeProxyConfigProvider.RuntimeProxyConfigSnapshot()
+	}
+	return s.staticRuntimeProxyConfig
 }
 
 func (s *Service) Close() {
@@ -240,8 +262,9 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		defer func() { _ = r.Body.Close() }()
 	}
+	runtimeConfig := s.runtimeProxyConfigSnapshot()
 	if canBuildStreamingRequestPlan(r) {
-		plan, err := s.buildProxyRequestPlan(r, nil)
+		plan, err := s.buildProxyRequestPlan(r, nil, runtimeConfig)
 		if err != nil {
 			writeDomainError(w, err)
 			return
@@ -258,7 +281,7 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	plan, err := s.buildProxyRequestPlan(r, rawBody)
+	plan, err := s.buildProxyRequestPlan(r, rawBody, runtimeConfig)
 	if err != nil {
 		writeDomainError(w, err)
 		return
@@ -277,8 +300,8 @@ func readBufferedRequestBody(body io.Reader) ([]byte, error) {
 	return rawBody, nil
 }
 
-func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte) (requestPlan, error) {
-	return s.buildRequestPlan(r.Context(), r, rawBody)
+func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) (requestPlan, error) {
+	return s.buildRequestPlan(r.Context(), r, rawBody, runtimeConfig)
 }
 
 func canBuildStreamingRequestPlan(r *http.Request) bool {

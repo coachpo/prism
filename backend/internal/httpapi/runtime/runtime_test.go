@@ -111,6 +111,26 @@ func TestNewRuntimeHTTPClientUsesConfiguredRequestTimeout(t *testing.T) {
 	}
 }
 
+func TestRuntimeProxyConfigProviderUpdatesNewPlansAndKeepsExistingPlanClient(t *testing.T) {
+	oldClient := &http.Client{Timeout: 17 * time.Second}
+	newClient := &http.Client{Timeout: 23 * time.Second}
+	provider := &mutableRuntimeProxyConfigProvider{snapshot: RuntimeProxyConfigSnapshot{BufferingMode: config.RuntimeBufferingModeBuffered, HTTPClient: oldClient}}
+	service := &Service{runtimeProxyConfigProvider: provider}
+
+	oldSnapshot := service.runtimeProxyConfigSnapshot()
+	oldPlan := requestPlan{HTTPClient: oldSnapshot.HTTPClient}
+	provider.snapshot = RuntimeProxyConfigSnapshot{BufferingMode: config.RuntimeBufferingModeBuffered, HTTPClient: newClient}
+	newSnapshot := service.runtimeProxyConfigSnapshot()
+	newPlan := requestPlan{HTTPClient: newSnapshot.HTTPClient}
+
+	if oldPlan.HTTPClient != oldClient || oldPlan.HTTPClient.Timeout != 17*time.Second {
+		t.Fatalf("expected existing plan to keep old client snapshot, got %+v", oldPlan.HTTPClient)
+	}
+	if newPlan.HTTPClient != newClient || newPlan.HTTPClient.Timeout != 23*time.Second {
+		t.Fatalf("expected new plan to use updated client snapshot, got %+v", newPlan.HTTPClient)
+	}
+}
+
 func TestBuildRuntimePricingResult(t *testing.T) {
 	cachedInputPrice := "1"
 	cacheCreationPrice := "2"
@@ -334,6 +354,14 @@ func TestBuildRuntimePricingResultMarksMissingOptionalPriceDataUnpricedWhenDimen
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected missing used optional dimension to degrade pricing: want %+v got %+v", want, got)
 	}
+}
+
+type mutableRuntimeProxyConfigProvider struct {
+	snapshot RuntimeProxyConfigSnapshot
+}
+
+func (p *mutableRuntimeProxyConfigProvider) RuntimeProxyConfigSnapshot() RuntimeProxyConfigSnapshot {
+	return p.snapshot
 }
 
 func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPaths(t *testing.T) {
