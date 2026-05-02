@@ -259,18 +259,27 @@ func TestBootstrapConfigManagementResponseAddsLoadedMetadata(t *testing.T) {
 	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
 	path, _ := writeManagementTestDocument(t, newManagementTestDocument(t, createdAt))
 	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{})
-	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	snapshot, settings, err := manager.LoadBootstrapConfigDocument(path)
 	if err != nil {
 		t.Fatalf("load snapshot for safe response: %v", err)
 	}
 
-	currentResponse := BuildBootstrapConfigResponse(snapshot, snapshot.FileRevision, snapshot.DocumentETag, true)
+	currentResponse := BuildBootstrapConfigResponse(snapshot, settings, settings, snapshot.FileRevision, snapshot.DocumentETag, true, BootstrapConfigResponseOptions{})
 	if currentResponse.RestartRequired || !currentResponse.Writable {
 		t.Fatal("expected current loaded metadata to produce writable non-restart response")
 	}
-	staleResponse := BuildBootstrapConfigResponse(snapshot, snapshot.FileRevision-1, "sha256:loaded", false)
-	if !staleResponse.RestartRequired || staleResponse.Writable {
-		t.Fatal("expected stale loaded metadata to produce read-only restart-required response")
+	if len(currentResponse.ApplyCapabilities) != len(BootstrapConfigApplyCapabilities()) {
+		t.Fatal("expected response to include apply capabilities")
+	}
+	staleResponse := BuildBootstrapConfigResponse(snapshot, settings, settings, snapshot.FileRevision-1, "sha256:loaded", false, BootstrapConfigResponseOptions{})
+	if staleResponse.RestartRequired || staleResponse.Writable {
+		t.Fatal("expected revision and etag drift alone to produce read-only non-restart response")
+	}
+	restartedSettings := settings
+	restartedSettings.Port++
+	restartResponse := BuildBootstrapConfigResponse(snapshot, restartedSettings, settings, snapshot.FileRevision, snapshot.DocumentETag, true, BootstrapConfigResponseOptions{})
+	if !restartResponse.RestartRequired {
+		t.Fatal("expected restart-required field drift to require restart")
 	}
 	assertSafeManagementSnapshot(t, mustMarshalJSON(t, staleResponse))
 }

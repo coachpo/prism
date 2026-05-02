@@ -68,18 +68,39 @@ type BootstrapConfigSnapshot struct {
 }
 
 type BootstrapConfigResponse struct {
-	ConfigPath         string                                   `json:"config_path"`
-	SchemaVersion      int                                      `json:"schema_version"`
-	FileRevision       int                                      `json:"file_revision"`
-	LoadedRevision     int                                      `json:"loaded_revision"`
-	DocumentETag       string                                   `json:"document_etag"`
-	LoadedDocumentETag string                                   `json:"loaded_document_etag"`
-	CreatedAt          string                                   `json:"created_at"`
-	UpdatedAt          string                                   `json:"updated_at"`
-	RestartRequired    bool                                     `json:"restart_required"`
-	Writable           bool                                     `json:"writable"`
-	Values             BootstrapConfigValues                    `json:"values"`
-	Secrets            map[string]BootstrapConfigSecretMetadata `json:"secrets"`
+	ConfigPath         string                                    `json:"config_path"`
+	SchemaVersion      int                                       `json:"schema_version"`
+	FileRevision       int                                       `json:"file_revision"`
+	LoadedRevision     int                                       `json:"loaded_revision"`
+	DocumentETag       string                                    `json:"document_etag"`
+	LoadedDocumentETag string                                    `json:"loaded_document_etag"`
+	CreatedAt          string                                    `json:"created_at"`
+	UpdatedAt          string                                    `json:"updated_at"`
+	RestartRequired    bool                                      `json:"restart_required"`
+	Writable           bool                                      `json:"writable"`
+	ApplyCapabilities  map[string]BootstrapConfigFieldCapability `json:"apply_capabilities"`
+	PlannedChanges     *BootstrapConfigPlannedChanges            `json:"planned_changes,omitempty"`
+	ApplyResult        *BootstrapConfigApplyResult               `json:"apply_result,omitempty"`
+	Values             BootstrapConfigValues                     `json:"values"`
+	Secrets            map[string]BootstrapConfigSecretMetadata  `json:"secrets"`
+}
+
+type BootstrapConfigPlannedChanges struct {
+	ChangedFields   []BootstrapConfigFieldChange `json:"changed_fields"`
+	RestartRequired bool                         `json:"restart_required"`
+}
+
+type BootstrapConfigApplyResult struct {
+	AppliedNowFields      []string `json:"applied_now_fields"`
+	RestartRequiredFields []string `json:"restart_required_fields"`
+	UnchangedFields       []string `json:"unchanged_fields"`
+	PendingHotApplyFields []string `json:"pending_hot_apply_fields"`
+	FailedHotApplyFields  []string `json:"failed_hot_apply_fields"`
+}
+
+type BootstrapConfigResponseOptions struct {
+	PlannedChanges *BootstrapConfigPlannedChanges
+	ApplyResult    *BootstrapConfigApplyResult
 }
 
 type BootstrapConfigValues struct {
@@ -396,11 +417,15 @@ func (m BootstrapConfigManager) LoadBootstrapConfigDocument(path string) (Bootst
 	return snapshot, settings, err
 }
 
-func BuildBootstrapConfigResponse(snapshot BootstrapConfigSnapshot, loadedRevision int, loadedDocumentETag string, writable bool) BootstrapConfigResponse {
+func BuildBootstrapConfigResponse(snapshot BootstrapConfigSnapshot, currentSettings Settings, liveSettings Settings, loadedRevision int, loadedDocumentETag string, writable bool, options BootstrapConfigResponseOptions) BootstrapConfigResponse {
 	loadedETag := strings.TrimSpace(loadedDocumentETag)
-	restartRequired := loadedRevision > 0 && loadedRevision != snapshot.FileRevision
-	if loadedETag != "" && loadedETag != snapshot.DocumentETag {
-		restartRequired = true
+	fieldDiff, err := DiffBootstrapConfigSettings(liveSettings, currentSettings)
+	restartRequired := err == nil && fieldDiff.RestartRequired()
+	if options.PlannedChanges != nil {
+		restartRequired = options.PlannedChanges.RestartRequired
+	}
+	if options.ApplyResult != nil {
+		restartRequired = len(options.ApplyResult.RestartRequiredFields) > 0
 	}
 	return BootstrapConfigResponse{
 		ConfigPath:         snapshot.ConfigPath,
@@ -413,6 +438,9 @@ func BuildBootstrapConfigResponse(snapshot BootstrapConfigSnapshot, loadedRevisi
 		UpdatedAt:          snapshot.UpdatedAt,
 		RestartRequired:    restartRequired,
 		Writable:           writable,
+		ApplyCapabilities:  BootstrapConfigApplyCapabilities(),
+		PlannedChanges:     options.PlannedChanges,
+		ApplyResult:        options.ApplyResult,
 		Values:             snapshot.Values,
 		Secrets:            snapshot.Secrets,
 	}
