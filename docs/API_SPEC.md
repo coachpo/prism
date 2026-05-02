@@ -1438,9 +1438,9 @@ The gateway accumulates SSE chunks during streaming and extracts usage from the 
 | API Family | Usage Events | Extraction |
 |---|---|---|
 | OpenAI | Final chunk/event containing a `usage` object (when provided by upstream) | Same as non-streaming `usage` object |
-| Anthropic | `message_start` event → `message.usage.input_tokens`; `message_delta` event → `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
+| Anthropic | `message_start` event -> `message.usage.input_tokens`; `message_delta` event -> `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
 
-If token data cannot be extracted, all token fields are logged as `null`.
+If token data cannot be extracted, all token fields are logged as `null`. Prism does not estimate tokens or cost. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable.
 
 ---
 
@@ -1586,6 +1586,8 @@ Response `200`:
       "ttft_ms": 320,
       "completion_duration_ms": 914,
       "is_stream": false,
+      "stream_outcome": "not_streaming",
+      "stream_error_kind": null,
       "total_tokens": 57,
       "total_cost_user_currency_micros": 1250,
       "priced_flag": true,
@@ -1604,7 +1606,7 @@ Response `200`:
 }
 ```
 
-The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes `model_label`, `resolved_target_model_label`, and `is_proxy_origin` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This is the operator drill-in surface for investigation, not a dashboard aggregate.
+The list route is the slim browse contract used by `/request-logs` and other row-summary consumers. It keeps one row per upstream attempt, returns `filter_options.endpoints` for the endpoint dropdown and `filter_options.models` for the model dropdown, includes `model_label`, `resolved_target_model_label`, `is_proxy_origin`, `stream_outcome`, and `stream_error_kind` for display, and does not treat vendor as a server filter. The current request-log page uses page sizes `100`, `300`, and `500`, with `100` as the frontend default. This is the operator drill-in surface for investigation, not a dashboard aggregate.
 
 `filter_options` always includes both `endpoints` and `models`. `filter_options.models` is request-log native and contains `{ model_id, model_label }` entries; when no current model options exist, the backend still returns `models: []` instead of omitting the field. `ingress_request_id` groups multiple attempt rows that belong to one incoming runtime request. For proxy traffic, `model_id` stays the requested proxy model and `resolved_target_model_id` captures the selected native target model for that attempt, while `resolved_target_model_label` surfaces the matching display label.
 
@@ -1634,7 +1636,10 @@ Response `200`:
     "response_time_ms": 1234,
     "ttft_ms": 320,
     "completion_duration_ms": 914,
-    "is_stream": false
+    "is_stream": false,
+    "stream_outcome": "not_streaming",
+    "stream_error_kind": null,
+    "stream_error_detail": null
   },
   "request": {
     "request_path": "/v1/chat/completions",
@@ -1699,7 +1704,9 @@ Response `200`:
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
-The request-log sheet consumes this grouped detail contract. The frontend keeps audit loading separate and lazy: opening the `overview` tab uses only this response, while the `audit` tab resolves linked audit payloads on demand.
+Stream telemetry values are stable strings. `stream_outcome` is one of `not_streaming`, `completed`, `provider_incomplete`, `client_disconnected`, `upstream_read_error`, `upstream_ended_without_terminal`, or `unknown`. `stream_error_kind` is nullable and, when present, is one of `client_write_failed`, `request_context_canceled`, `upstream_read_failed`, or `missing_terminal_event`. `stream_error_detail` appears only on exact request-log detail responses; it is sanitized diagnostic text, not provider content, headers, or secrets.
+
+The request-log sheet consumes this grouped detail contract. The frontend keeps audit loading separate and lazy: opening the `overview` tab uses only this response, while the `audit` tab resolves linked audit payloads on demand with `request_log_id` plus a UTC window derived from `summary.created_at`. The derived frontend window is `created_at` minus 12 hours through `created_at` plus 12 hours, serialized explicitly as `from_time` and `to_time`.
 
 ### 4.4 Get Aggregated Statistics
 ```
@@ -1924,12 +1931,15 @@ Response `200`:
   ],
   "unpriced_breakdown": {
     "PRICING_DISABLED": 30,
-    "UNKNOWN": 20
+    "STREAM_USAGE_UNAVAILABLE": 12,
+    "MISSING_TOKEN_USAGE": 8
   },
   "report_currency_code": "USD",
   "report_currency_symbol": "$"
 }
 ```
+
+Unpriced reasons distinguish pricing configuration gaps from observed usage gaps. `MISSING_TOKEN_USAGE` means a completed stream or non-stream response lacked required upstream token usage. `STREAM_USAGE_UNAVAILABLE` means a classified stream outcome made terminal usage unavailable and required tokens were absent. Prism doesn't estimate tokens or cost for either case.
 
 ---
 
@@ -1956,7 +1966,7 @@ Query parameters:
 | `cursor` | string | none | Opaque keyset cursor returned as `next_cursor` |
 | `sort` | string | `desc` | Only `desc` is supported |
 
-The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row. The `from` and `to` window is required and may not exceed 7 days. The legacy aliases `from_time` and `to_time` are accepted by the handler, but new clients should send `from` and `to`. Unsupported query keys return `400` with `audit_filter_unsupported`.
+The list API returns one row per upstream attempt. If a proxy request fails over across connections, each attempt has its own audit row. The `from` and `to` window is required and may not exceed 7 days, including when `request_log_id` is supplied. The backend has no fallback or default audit window for request-log lookups. The legacy aliases `from_time` and `to_time` are accepted by the handler, and the request-log detail frontend sends those aliases with an explicit UTC window derived from the request log `created_at`. Unsupported query keys return `400` with `audit_filter_unsupported`.
 
 Response `200`:
 ```json
