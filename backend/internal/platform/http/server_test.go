@@ -45,6 +45,7 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "protected auth route", method: http.MethodGet, path: "/api/auth/status", want: priority.ManagementTierM1, ok: true},
 		{name: "protected profile activation route", method: http.MethodPost, path: "/api/profiles/42/activate", want: priority.ManagementTierM1, ok: true},
 		{name: "general management route has explicit m2 tier", method: http.MethodGet, path: "/api/settings/auth/proxy-keys", want: priority.ManagementTierM2, ok: true},
+		{name: "connection batch read uses m2 tier", method: http.MethodPost, path: "/api/models/connections/batch", want: priority.ManagementTierM2, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
 		{name: "trimmed mounted path still matches", method: http.MethodGet, path: "/realtime/ws", want: priority.ManagementTierM3, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/profiles/active", want: priority.ManagementTierM1, ok: true},
@@ -132,6 +133,41 @@ func TestManagementAdmissionControllerFastFailsLowerPriorityRoutes(t *testing.T)
 				t.Fatalf("expected Retry-After header to be 1, got %q", retryAfter)
 			}
 		})
+	}
+}
+
+func TestConnectionBatchAdmissionBypassesM3Saturation(t *testing.T) {
+	t.Parallel()
+
+	controller := &managementAdmissionController{controller: admission.NewController(admission.Limits{ManagementM1: 1, ManagementM2: 2, ManagementM3: 1})}
+	_, releaseM3, err := controller.controller.Admit(context.Background(), admission.Spec{Name: "held M3", Metadata: priority.Metadata{Priority: priority.PriorityManagement, ManagementTier: priority.ManagementTierM3}, Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("expected to pre-acquire the M3 first-shed lane: %v", err)
+	}
+	defer releaseM3()
+
+	handlerCalled := false
+	handler := controller.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		metadata, err := priority.RequireMetadata(r.Context())
+		if err != nil {
+			t.Fatalf("expected priority metadata in request context: %v", err)
+		}
+		if metadata.ManagementTier != priority.ManagementTierM2 {
+			t.Fatalf("expected connection batch to use M2, got %+v", metadata)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	request := httptest.NewRequest(http.MethodPost, "/api/models/connections/batch", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if !handlerCalled {
+		t.Fatal("expected connection batch read to bypass saturated M3 admission")
+	}
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected connection batch read to reach handler, got %d", response.Code)
 	}
 }
 

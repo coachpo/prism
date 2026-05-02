@@ -79,7 +79,7 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "config user-agent rule create", method: http.MethodPost, pattern: "/config/user-agent-client-rules", tier: priority.ManagementTierM2},
 	{name: "config user-agent rule update", method: http.MethodPatch, pattern: "/config/user-agent-client-rules/{rule_id}", tier: priority.ManagementTierM2},
 	{name: "config user-agent rule delete", method: http.MethodDelete, pattern: "/config/user-agent-client-rules/{rule_id}", tier: priority.ManagementTierM2},
-	{name: "model connection batch", method: http.MethodPost, pattern: "/models/connections/batch", tier: priority.ManagementTierM3},
+	{name: "model connection batch", method: http.MethodPost, pattern: "/models/connections/batch", tier: priority.ManagementTierM2},
 	{name: "model connections list", method: http.MethodGet, pattern: "/models/{model_config_id}/connections", tier: priority.ManagementTierM2},
 	{name: "model health-check preview", method: http.MethodPost, pattern: "/models/{model_config_id}/connections/health-check-preview", tier: priority.ManagementTierM3},
 	{name: "model connection create", method: http.MethodPost, pattern: "/models/{model_config_id}/connections", tier: priority.ManagementTierM2},
