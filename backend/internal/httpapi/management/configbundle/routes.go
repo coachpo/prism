@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -21,7 +21,7 @@ func (s *Service) handleExportProfileBundle(w http.ResponseWriter, r *http.Reque
 
 func (s *Service) handleExportProfileBundleWithSecrets(w http.ResponseWriter, r *http.Request) {
 	if err := requireDangerousProfileExportConfirm(r); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	s.exportProfileBundle(w, r, true)
@@ -31,7 +31,7 @@ func (s *Service) exportProfileBundle(w http.ResponseWriter, r *http.Request, in
 	exportTime := s.nowUTC()
 	keyID, err := s.resolvedBundleSecretKeyID()
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -43,7 +43,7 @@ func (s *Service) exportProfileBundle(w http.ResponseWriter, r *http.Request, in
 		return s.buildProfileBundle(r.Context(), tx, profile.ID, exportTime, keyID, includeSecrets)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -53,17 +53,17 @@ func (s *Service) exportProfileBundle(w http.ResponseWriter, r *http.Request, in
 func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := validateProfileBundleEnvelope(requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
 	bundleFingerprint, err := profileImportBundleFingerprint(requestBody)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -85,7 +85,7 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		return preview, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -95,16 +95,16 @@ func (s *Service) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Request) {
 	var requestBody profileImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := validateProfileBundleEnvelope(requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	previewToken, err := requirePreviewTokenHeader(r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -119,7 +119,7 @@ func (s *Service) handleImportProfileBundle(w http.ResponseWriter, r *http.Reque
 		return s.executeProfileImport(r.Context(), tx, profile.ID, requestBody)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -132,7 +132,7 @@ func (s *Service) handleExportVendorCatalog(w http.ResponseWriter, r *http.Reque
 		return buildVendorCatalog(r.Context(), tx, exportTime)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -142,22 +142,22 @@ func (s *Service) handleExportVendorCatalog(w http.ResponseWriter, r *http.Reque
 func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *http.Request) {
 	var requestBody vendorCatalogImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := validateVendorCatalogBundleEnvelope(requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
 	bundleFingerprint, err := vendorCatalogImportBundleFingerprint(requestBody)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	previewToken, err := s.issueVendorPreviewToken(bundleFingerprint)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -171,7 +171,7 @@ func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *htt
 		return preview, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -181,20 +181,20 @@ func (s *Service) handlePreviewVendorCatalogImport(w http.ResponseWriter, r *htt
 func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Request) {
 	var requestBody vendorCatalogImportRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := validateVendorCatalogBundleEnvelope(requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	previewToken, err := requirePreviewTokenHeader(r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	if err := s.validateVendorPreviewToken(previewToken, requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -202,7 +202,7 @@ func (s *Service) handleImportVendorCatalog(w http.ResponseWriter, r *http.Reque
 		return s.importVendorCatalog(r.Context(), tx, requestBody)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 
@@ -254,29 +254,22 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var bundleErr *domainError
 	if errors.As(err, &bundleErr) {
-		writeError(w, r, allowedOrigins, bundleErr.StatusCode, bundleErr.Detail)
+		writeError(w, r, corsSnapshot, bundleErr.StatusCode, bundleErr.Detail)
 
 		return
 	}
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
