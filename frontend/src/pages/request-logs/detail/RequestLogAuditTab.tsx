@@ -47,10 +47,6 @@ function getResponseBodyEmptyState(
     return messages.requestLogs.auditResponseBodyNotStoredMetadataOnly;
   }
 
-  if (audit.is_stream) {
-    return messages.requestLogs.auditStreamingResponseBodyNotStored;
-  }
-
   return messages.requestLogs.auditResponseBodyNotStored;
 }
 

@@ -4,6 +4,7 @@ const timestamp = "2026-04-13T00:00:00Z";
 const expectedAuditFromTime = "2026-04-12T12:00:00.000Z";
 const expectedAuditToTime = "2026-04-13T12:00:00.000Z";
 const alternateTimestamp = "2026-04-14T06:30:00Z";
+const streamingSseResponseBody = 'event: message\ndata: {"id":"resp_stream","delta":"hel"}\n\nevent: message\ndata: {"id":"resp_stream","delta":"lo"}\n\nevent: done\ndata: [DONE]\n\n';
 const expectedAlternateAuditFromTime = "2026-04-13T18:30:00.000Z";
 const expectedAlternateAuditToTime = "2026-04-14T18:30:00.000Z";
 
@@ -12,6 +13,7 @@ type AuditScenario =
   | "metadata_only"
   | "full"
   | "full_streaming"
+  | "old_stream_unstored"
   | "invalid_created"
   | "fetch_failure"
   | "orphan_visibility";
@@ -58,6 +60,17 @@ function getScenarioConfig(scenario: AuditScenario) {
         isStream: true,
         listFails: false,
         requestBody: '{"input":"stream me"}',
+        requestBodyStored: true,
+        responseBody: streamingSseResponseBody,
+        responseBodyStored: true,
+      };
+    case "old_stream_unstored":
+      return {
+        auditCaptureBodiesAtRequest: true,
+        auditEnabledAtRequest: true,
+        isStream: true,
+        listFails: false,
+        requestBody: '{"input":"legacy stream"}',
         requestBodyStored: true,
         responseBody: null,
         responseBodyStored: false,
@@ -541,14 +554,25 @@ test.describe("request log audit investigation states", () => {
     await expect.poll(() => counters.getAuditDetailRequests()).toBe(2);
   });
 
-  test("streaming full capture explains why response bodies are not stored", async ({ page }) => {
+  test("streaming full capture renders stored raw SSE response bodies", async ({ page }) => {
     const { drawer, counters } = await openRequestLogDetail(page, "full_streaming", "/request-logs?request_id=101&detail_tab=audit");
 
     await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
     await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
     await expect(drawer.getByText("Full capture").first()).toBeVisible();
     await expect(drawer.getByText('{"input":"stream me"}')).toBeVisible();
-    await expect(drawer.getByText("Streaming responses do not keep a stored response body, even when body capture was enabled.")).toBeVisible();
+    await expect(drawer.getByText('event: message\ndata: {"id":"resp_stream","delta":"hel"}')).toBeVisible();
+    await expect(drawer.getByText("event: done\ndata: [DONE]")).toBeVisible();
+  });
+
+  test("old streaming rows without stored response bodies use neutral no-body copy", async ({ page }) => {
+    const { drawer, counters } = await openRequestLogDetail(page, "old_stream_unstored", "/request-logs?request_id=101&detail_tab=audit");
+
+    await expect.poll(() => counters.getAuditListRequests()).toBeGreaterThan(0);
+    await expect.poll(() => counters.getAuditDetailRequests()).toBeGreaterThan(0);
+    await expect(drawer.getByText("Full capture").first()).toBeVisible();
+    await expect(drawer.getByText('{"input":"legacy stream"}')).toBeVisible();
+    await expect(drawer.getByText("Response body was not stored for this audit record.")).toBeVisible();
   });
 
   test("invalid request created time gates audit lookup calls", async ({ page }) => {

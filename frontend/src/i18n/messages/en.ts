@@ -1709,7 +1709,6 @@ export interface Messages {
     auditRequestBodyNotStoredMetadataOnly: string;
     auditResponseBodyNotStored: string;
     auditResponseBodyNotStoredMetadataOnly: string;
-    auditStreamingResponseBodyNotStored: string;
     noAuditRecords: string;
     timeRange: string;
     tokenRange: string;
@@ -2871,7 +2870,7 @@ export const enMessages: Messages = {
     audit: "Audit",
     auditAndPrivacy: "Audit & Privacy",
     bodies: "Bodies",
-    bodiesSensitive: "Also store request bodies and non-streaming response bodies for future requests (sensitive).",
+    bodiesSensitive: "Also store request and response bodies for future requests (sensitive).",
     captureAndPrivacyDefaults: "Choose how future requests are captured for each vendor.",
     classifyClientsFromUserAgent: "Classify request-log clients from caller and upstream User-Agent values.",
     headerBlocklist: "Header Blocklist",
@@ -2882,7 +2881,7 @@ export const enMessages: Messages = {
     noVendorsAvailable: "No vendors available.",
     off: "Off",
     on: "On",
-    outputsMayBeCaptured: "Full capture may store prompts and non-streaming responses.",
+    outputsMayBeCaptured: "Full capture may store prompts and responses.",
     recordMetadata: "Store request metadata and headers for future requests.",
     requestTimeProvenanceNote: "Each request keeps the audit mode that was active when it started.",
     stripsHeadersBeforeSendingUpstream: "Strips headers before sending upstream.",
@@ -3714,7 +3713,6 @@ export const enMessages: Messages = {
     auditRequestBodyNotStoredMetadataOnly: "Request body was intentionally not stored because this request used metadata-only audit capture.",
     auditResponseBodyNotStored: "Response body was not stored for this audit record.",
     auditResponseBodyNotStoredMetadataOnly: "Response body was intentionally not stored because this request used metadata-only audit capture.",
-    auditStreamingResponseBodyNotStored: "Streaming responses do not keep a stored response body, even when body capture was enabled.",
     noAuditRecords: "No audit records found for this request.",
     timeRange: "Time range",
     tokenRange: "Token range",
