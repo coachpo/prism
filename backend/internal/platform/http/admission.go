@@ -24,8 +24,14 @@ type managementRouteSpec struct {
 	timeout time.Duration
 }
 
+type hotAdmissionProvider interface {
+	AdmissionSnapshot() HotAdmissionSnapshot
+	RuntimeProxySnapshot() HotRuntimeProxySnapshot
+}
+
 type managementAdmissionController struct {
 	controller *admission.Controller
+	provider   hotAdmissionProvider
 }
 
 var managementRouteSpecs = []managementRouteSpec{
@@ -175,7 +181,11 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 			next.ServeHTTP(w, r)
 			return
 		}
-		requestContext, release, err := c.controller.Admit(r.Context(), routeSpec.AdmissionSpec())
+		controller := c.controller
+		if c.provider != nil {
+			controller = c.provider.AdmissionSnapshot().Controller()
+		}
+		requestContext, release, err := controller.Admit(r.Context(), routeSpec.AdmissionSpec())
 		if err != nil {
 			writeAdmissionError(w, err)
 			return
@@ -186,10 +196,21 @@ func (c *managementAdmissionController) Middleware(next http.Handler) http.Handl
 }
 
 func proxyAdmissionMiddleware(controller *admission.Controller, timeout time.Duration, next http.Handler) http.Handler {
-	if controller == nil {
+	return proxyAdmissionProviderMiddleware(nil, controller, timeout, next)
+}
+
+func proxyAdmissionProviderMiddleware(provider hotAdmissionProvider, fallbackController *admission.Controller, fallbackTimeout time.Duration, next http.Handler) http.Handler {
+	if provider == nil && fallbackController == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		controller := fallbackController
+		timeout := fallbackTimeout
+		if provider != nil {
+			runtimeProxy := provider.RuntimeProxySnapshot()
+			timeout = runtimeProxy.TransportConfig().RequestTimeout
+			controller = provider.AdmissionSnapshot().Controller()
+		}
 		spec := admission.Spec{
 			Name:     "runtime proxy",
 			Metadata: priority.Metadata{Priority: priority.PriorityProxy},

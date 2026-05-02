@@ -168,6 +168,57 @@ func TestManagementAdmissionControllerKeepsProtectedRoutesIsolated(t *testing.T)
 	}
 }
 
+func TestManagementAdmissionUsesPublishedHotLimitsWithoutBlockingInflightRelease(t *testing.T) {
+	settings := config.Settings{
+		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 3},
+		ManagementAdmissionControlBudget: config.ManagementAdmissionBudget{M2MaxConcurrent: 1, M3MaxConcurrent: 1},
+	}
+	runtime, err := NewHotBootstrapConfigRuntime(settings)
+	if err != nil {
+		t.Fatalf("create hot bootstrap runtime: %v", err)
+	}
+	controller := &managementAdmissionController{controller: newHTTPAdmissionController(settings), provider: runtime}
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	handler := controller.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Test-Request") == "first" {
+			close(firstEntered)
+			<-releaseFirst
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	firstDone := make(chan int, 1)
+	go func() {
+		request := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+		request.Header.Set("X-Test-Request", "first")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		firstDone <- response.Code
+	}()
+	<-firstEntered
+
+	updated := settings
+	updated.ManagementAdmissionControlBudget = config.ManagementAdmissionBudget{M2MaxConcurrent: 2, M3MaxConcurrent: 1}
+	retired, err := runtime.Publish(updated)
+	if err != nil {
+		t.Fatalf("publish updated admission limits: %v", err)
+	}
+	retired.CloseIdleConnections()
+
+	secondRequest := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	secondResponse := httptest.NewRecorder()
+	handler.ServeHTTP(secondResponse, secondRequest)
+	if secondResponse.Code != http.StatusNoContent {
+		t.Fatalf("expected request under published admission limits to proceed, got %d", secondResponse.Code)
+	}
+
+	close(releaseFirst)
+	if firstCode := <-firstDone; firstCode != http.StatusNoContent {
+		t.Fatalf("expected in-flight request to release through old controller, got %d", firstCode)
+	}
+}
+
 func TestAdmissionAttachesServerSideWorkloadAndIgnoresPriorityHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -422,5 +473,47 @@ func validSMTPMailConfig() config.MailConfig {
 			Timeout:       2 * time.Second,
 			TLSServerName: "localhost",
 		},
+	}
+}
+
+func TestCORSMiddlewareUsesPublishedRuntimeOrigins(t *testing.T) {
+	settings := config.Settings{
+		AppEnv:             config.EnvironmentProduction,
+		CORSAllowedOrigins: "https://old.example.test",
+	}
+	runtime, err := NewHotBootstrapConfigRuntime(settings)
+	if err != nil {
+		t.Fatalf("create hot bootstrap runtime: %v", err)
+	}
+	handler, err := NewHandlerWithDependencies(settings, Dependencies{Version: "cors-runtime-test", HotBootstrapConfigRuntime: runtime})
+	if err != nil {
+		t.Fatalf("create handler: %v", err)
+	}
+
+	assertCORSOrigin(t, handler, "https://old.example.test", "https://old.example.test")
+
+	updated := settings
+	updated.CORSAllowedOrigins = "https://new.example.test"
+	retired, err := runtime.Publish(updated)
+	if err != nil {
+		t.Fatalf("publish CORS runtime update: %v", err)
+	}
+	retired.CloseIdleConnections()
+
+	assertCORSOrigin(t, handler, "https://new.example.test", "https://new.example.test")
+	assertCORSOrigin(t, handler, "https://old.example.test", "")
+}
+
+func assertCORSOrigin(t *testing.T, handler http.Handler, origin string, want string) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	request.Header.Set("Origin", origin)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected health response status 200, got %d", response.Code)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != want {
+		t.Fatalf("Access-Control-Allow-Origin for %q = %q, want %q", origin, got, want)
 	}
 }
