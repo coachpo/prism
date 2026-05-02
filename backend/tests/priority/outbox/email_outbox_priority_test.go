@@ -10,7 +10,7 @@ import (
 func TestEmailOutboxRetryAndIdempotency(t *testing.T) {
 	backendRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 
-	assertFileContains(t, filepath.Join(backendRoot, "internal/platform/http/server.go"), []string{
+	assertFileContains(t, filepath.Join(backendRoot, "internal/platform/lifecycle/production.go"), []string{
 		"outbox.NewStore",
 		"EmailOutbox: emailOutbox",
 		"emailOutbox.RegisterBackgroundWorker",

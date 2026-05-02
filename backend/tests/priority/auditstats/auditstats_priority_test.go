@@ -12,7 +12,7 @@ func TestBoundedAggregationCheckpoint(t *testing.T) {
 	root := backendRoot(t)
 	rollups := readSource(t, root, "internal/domain/stats/rollups.go")
 	jobs := readSource(t, root, "internal/platform/managementjobs/jobs.go")
-	server := readSource(t, root, "internal/platform/http/server.go")
+	lifecycle := readSource(t, root, "internal/platform/lifecycle/production.go")
 	audit := readSource(t, root, "internal/httpapi/management/audit/service.go")
 
 	for _, want := range []string{"management_stat_buckets", "management_stat_refresh_state", "source_high_water_mark", "DashboardStatsStaleAfter"} {
@@ -28,7 +28,7 @@ func TestBoundedAggregationCheckpoint(t *testing.T) {
 			t.Fatalf("audit delete job worker missing %q", want)
 		}
 	}
-	if !strings.Contains(server, "managementJobs.RegisterBackgroundWorker") || !strings.Contains(server, "backgroundJobsPool") {
+	if !strings.Contains(lifecycle, "managementJobs.RegisterBackgroundWorker") || !strings.Contains(lifecycle, "backgroundJobsPool := databasePools.BackgroundJobs.Raw()") {
 		t.Fatalf("management jobs worker must be registered through the background scheduler lane")
 	}
 	if !strings.Contains(audit, "http.StatusAccepted") || strings.Contains(sourceBetween(audit, "func (s *Service) handleDeleteLogs", "func (s *Service) handleCreateDeleteJob"), "auditdomain.DeleteLogs(") {

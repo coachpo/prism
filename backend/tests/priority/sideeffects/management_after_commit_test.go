@@ -83,10 +83,10 @@ func TestManagementAfterCommitSemantics(t *testing.T) {
 				t.Fatalf("management outbox migration missing %q", want)
 			}
 		}
-		server := readSource(t, filepath.Join(backendRoot, "internal", "platform", "http", "server.go"))
+		lifecycle := readSource(t, filepath.Join(backendRoot, "internal", "platform", "lifecycle", "production.go"))
 		for _, want := range []string{"managementsideeffects.NewDispatcher", "managementSideEffects.RegisterBackgroundWorker", "SideEffects: managementSideEffects"} {
-			if !strings.Contains(server, want) {
-				t.Fatalf("server wiring missing %q", want)
+			if !strings.Contains(lifecycle, want) {
+				t.Fatalf("lifecycle wiring missing %q", want)
 			}
 		}
 		stats := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "stats", "service.go"))

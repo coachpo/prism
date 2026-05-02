@@ -28,13 +28,13 @@ func TestM3ShedsManagementAuditBeforeDashboardStats(t *testing.T) {
 
 func TestM3ThrottlesManagementMaintenanceWorkers(t *testing.T) {
 	jobsSource := runtimePhase7ReadBackendSource(t, "internal/platform/managementjobs/jobs.go")
-	serverSource := runtimePhase7ReadBackendSource(t, "internal/platform/http/server.go")
+	lifecycleSource := runtimePhase7ReadBackendSource(t, "internal/platform/lifecycle/production.go")
 	for _, want := range []string{"PriorityLowBackground", "MaxPriority: background.PriorityLowBackground", "QueueLimit: 32", "ConcurrencyLimit: 1"} {
 		if !strings.Contains(jobsSource, want) {
 			t.Fatalf("expected management jobs worker throttle evidence %q", want)
 		}
 	}
-	if !strings.Contains(serverSource, "backgroundJobsPool := databasePools.BackgroundJobs.Raw()") || !strings.Contains(serverSource, "managementJobs.RegisterBackgroundWorker") {
+	if !strings.Contains(lifecycleSource, "backgroundJobsPool := databasePools.BackgroundJobs.Raw()") || !strings.Contains(lifecycleSource, "managementJobs.RegisterBackgroundWorker") {
 		t.Fatalf("expected management jobs to use scheduler-owned background_jobs lane")
 	}
 }
