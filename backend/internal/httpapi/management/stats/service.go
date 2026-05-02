@@ -19,11 +19,13 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 type Options struct {
+	CORSOriginProvider platformcors.OriginProvider
 	Pool               *pgxpool.Pool
 	Now                func() time.Time
 	DashboardSnapshots *statsdomain.DashboardAggregateStore
@@ -34,7 +36,7 @@ type Service struct {
 	pool               *pgxpool.Pool
 	ownsPool           bool
 	now                func() time.Time
-	allowedOrigins     map[string]struct{}
+	corsOriginProvider platformcors.OriginProvider
 	dashboardSnapshots *statsdomain.DashboardAggregateStore
 	sideEffects        *managementsideeffects.Dispatcher
 }
@@ -55,15 +57,15 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	allowedOrigins := map[string]struct{}{}
-	for _, origin := range settings.CORSAllowedOriginsList() {
-		allowedOrigins[origin] = struct{}{}
+	corsOriginProvider := options.CORSOriginProvider
+	if corsOriginProvider == nil {
+		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 	dashboardSnapshots := options.DashboardSnapshots
 	if dashboardSnapshots == nil {
 		dashboardSnapshots = statsdomain.NewDashboardAggregateStore()
 	}
-	service := &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins, dashboardSnapshots: dashboardSnapshots, sideEffects: options.SideEffects}
+	service := &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, dashboardSnapshots: dashboardSnapshots, sideEffects: options.SideEffects}
 	if service.sideEffects != nil {
 		service.sideEffects.RegisterHandler(managementsideeffects.EventDashboardSnapshotInvalidate, service.handleDashboardSnapshotInvalidation)
 	}
@@ -166,6 +168,13 @@ func absDuration(value time.Duration) time.Duration {
 	return value
 }
 
+func (s *Service) corsSnapshot() platformcors.Snapshot {
+	if s == nil || s.corsOriginProvider == nil {
+		return platformcors.Snapshot{}
+	}
+	return s.corsOriginProvider.CORSSnapshot()
+}
+
 func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/stats", func(router chi.Router) {
 		router.Get("/dashboard", s.handleDashboardStats)
@@ -186,17 +195,17 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	profile, err := s.resolveEffectiveProfile(r.Context(), r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	window := strings.TrimSpace(r.URL.Query().Get("window"))
 	if window == "" {
-		writeStructuredError(w, r, s.allowedOrigins, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "stats_window_unsupported", Detail: "Dashboard stats window is required."})
+		writeStructuredError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "stats_window_unsupported", Detail: "Dashboard stats window is required."})
 		return
 	}
 	response, err := statsdomain.LoadDashboardStats(r.Context(), s.pool, profile.ID, window, s.nowUTC())
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -215,7 +224,7 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 		return statsdomain.ListRequestLogs(r.Context(), tx, params)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -224,7 +233,7 @@ func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) 
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 	requestID, err := routeInt(r, "request_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (*statsdomain.RequestLogDetailResponse, error) {
@@ -235,11 +244,11 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 		return statsdomain.GetRequestLogDetail(r.Context(), tx, profile.ID, requestID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	if response == nil {
-		writeError(w, r, s.allowedOrigins, http.StatusNotFound, "Request log not found")
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Request log not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -248,19 +257,19 @@ func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 	profile, err := s.resolveEffectiveProfile(r.Context(), r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	referenceNow := s.nowUTC()
 	params, err := parseStatsSummaryParams(r, profile.ID)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	if matchesDashboardSummarySnapshotRequest(params, referenceNow) {
 		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
 		if snapshotErr != nil {
-			writeDomainError(w, r, s.allowedOrigins, snapshotErr)
+			writeDomainError(w, r, s.corsSnapshot(), snapshotErr)
 			return
 		}
 		response := snapshot.StatsSummary24H
@@ -272,7 +281,7 @@ func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := statsdomain.GetStatsSummary(r.Context(), s.pool, params)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -281,7 +290,7 @@ func (s *Service) handleStatsSummary(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 	body, err := decodeModelMetricsRequest(r)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (statsdomain.ModelMetricsBatchResponse, error) {
@@ -298,7 +307,7 @@ func (s *Service) handleModelMetrics(w http.ResponseWriter, r *http.Request) {
 		return statsdomain.GetModelMetrics(r.Context(), tx, statsdomain.ModelMetricsParams{ProfileID: profile.ID, ModelIDs: body.ModelIDs, SummaryWindowHours: body.SummaryWindowHours, SpendingPreset: body.SpendingPreset, ReferenceNow: s.nowUTC()})
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -321,7 +330,7 @@ func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Re
 		return statsdomain.GetConnectionSuccessRates(r.Context(), tx, statsdomain.ConnectionSuccessRateParams{ProfileID: profile.ID, FromTime: fromTime, ToTime: toTime})
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -330,28 +339,28 @@ func (s *Service) handleConnectionSuccessRates(w http.ResponseWriter, r *http.Re
 func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 	profile, err := s.resolveEffectiveProfile(r.Context(), r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	referenceNow := s.nowUTC()
 	fromTime, err := parseOptionalTime(r, "from_time")
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	toTime, err := parseOptionalTime(r, "to_time")
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	endpointID, err := parseOptionalInt(r, "endpoint_id")
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	connectionID, err := parseOptionalInt(r, "connection_id")
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	params := statsdomain.ThroughputParams{
@@ -366,7 +375,7 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 	if matchesDashboardThroughputSnapshotRequest(params, referenceNow) {
 		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
 		if snapshotErr != nil {
-			writeDomainError(w, r, s.allowedOrigins, snapshotErr)
+			writeDomainError(w, r, s.corsSnapshot(), snapshotErr)
 			return
 		}
 		writeJSON(w, http.StatusOK, snapshot.Throughput24H)
@@ -374,7 +383,7 @@ func (s *Service) handleThroughput(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := statsdomain.GetThroughput(r.Context(), s.pool, params)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -417,7 +426,7 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 		return statsdomain.GetSpending(r.Context(), tx, statsdomain.SpendingParams{ProfileID: profile.ID, Preset: queryStringOrDefault(r, "preset", ""), FromTime: fromTime, ToTime: toTime, APIFamily: normalizedQueryString(r, "api_family"), ModelID: normalizedQueryString(r, "model_id"), EndpointID: endpointID, ConnectionID: connectionID, GroupBy: queryStringOrDefault(r, "group_by", "none"), Limit: limit, Offset: offset, TopN: topN, ReferenceNow: s.nowUTC()})
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -426,7 +435,7 @@ func (s *Service) handleSpending(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 	profile, err := s.resolveEffectiveProfile(r.Context(), r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	preset := queryStringOrDefault(r, "preset", "1h")
@@ -434,7 +443,7 @@ func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 	if matchesDashboardUsageSnapshotRequest(preset) {
 		snapshot, snapshotErr := s.loadOrBuildDashboardAggregateSnapshot(r.Context(), profile.ID, referenceNow)
 		if snapshotErr != nil {
-			writeDomainError(w, r, s.allowedOrigins, snapshotErr)
+			writeDomainError(w, r, s.corsSnapshot(), snapshotErr)
 			return
 		}
 		writeJSON(w, http.StatusOK, snapshot.UsageSnapshotPreset1)
@@ -442,7 +451,7 @@ func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := statsdomain.GetUsageSnapshot(r.Context(), s.pool, profile.ID, preset, referenceNow)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -451,7 +460,7 @@ func (s *Service) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.Request) {
 	endpointID, err := routeInt(r, "endpoint_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) ([]statsdomain.EndpointModelStatistic, error) {
@@ -471,7 +480,7 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 		return statsdomain.GetEndpointModelStatistics(r.Context(), tx, statsdomain.EndpointModelStatisticsParams{ProfileID: profile.ID, EndpointID: endpointID, Preset: preset, FromTime: fromTime, ToTime: toTime}, s.nowUTC())
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -509,7 +518,7 @@ func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request
 		return profile.ID, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	managementsideeffects.AfterCommit(context.Background(), s.wakeSideEffectDispatcher)
@@ -548,7 +557,7 @@ func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request)
 		return profile.ID, nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	managementsideeffects.AfterCommit(context.Background(), s.wakeSideEffectDispatcher)
@@ -765,31 +774,31 @@ func routeInt(r *http.Request, name string) (int, error) {
 	return parsed, nil
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
 	var statsErr *statsdomain.HTTPError
 	if errors.As(err, &statsErr) {
 		if statsErr.Code != "" {
-			writeStructuredError(w, r, allowedOrigins, statsErr)
+			writeStructuredError(w, r, corsSnapshot, statsErr)
 			return
 		}
-		writeError(w, r, allowedOrigins, statsErr.StatusCode, statsErr.Detail)
+		writeError(w, r, corsSnapshot, statsErr.StatusCode, statsErr.Detail)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
-	writeCORSHeaders(w, r, allowedOrigins)
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	writeCORSHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
 
-func writeStructuredError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err *statsdomain.HTTPError) {
-	writeCORSHeaders(w, r, allowedOrigins)
+func writeStructuredError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err *statsdomain.HTTPError) {
+	writeCORSHeaders(w, r, corsSnapshot)
 	payload := map[string]any{"error": map[string]any{"code": err.Code, "message": err.Detail}}
 	if len(err.Details) > 0 {
 		payload["error"].(map[string]any)["details"] = err.Details
@@ -797,15 +806,8 @@ func writeStructuredError(w http.ResponseWriter, r *http.Request, allowedOrigins
 	writeJSON(w, err.StatusCode, payload)
 }
 
-func writeCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeCORSHeaders(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
