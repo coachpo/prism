@@ -303,7 +303,7 @@ Prepare seed state through API (not manual DB edits):
 | F01 | P0 | Audit disabled vendor | No audit row created |
 | F02 | P0 | Audit enabled + body capture enabled | Request/response metadata and bodies recorded |
 | F03 | P0 | Body capture disabled | Bodies stored as null |
-| F04 | P0 | Streaming audited request | `response_body` null; other fields recorded |
+| F04 | P0 | Streaming audited request with body capture | Raw captured SSE response body stored when bytes are captured; metadata-only or empty captures keep `response_body` null |
 | F05 | P0 | Failover with audit enabled | One audit row per upstream attempt |
 | F06 | P0 | Redaction exact headers | Values redacted before storage |
 | F07 | P1 | Redaction by name pattern | Values redacted |
