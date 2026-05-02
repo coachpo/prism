@@ -52,6 +52,7 @@ type ConnectionManager struct {
 	connections  map[string]*RealtimeConnection
 	rooms        map[roomKey]map[string]struct{}
 	writeTimeout time.Duration
+	closed       bool
 }
 
 func NewConnectionManager(writeTimeout time.Duration) *ConnectionManager {
@@ -63,6 +64,12 @@ func NewConnectionManager(writeTimeout time.Duration) *ConnectionManager {
 }
 
 func (m *ConnectionManager) Connect(socket *websocket.Conn) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		_ = socket.Close()
+		return ""
+	}
 	connectionID := fmt.Sprintf("rt-%d", m.nextID.Add(1))
 	connection := &RealtimeConnection{
 		id:           connectionID,
@@ -70,9 +77,6 @@ func (m *ConnectionManager) Connect(socket *websocket.Conn) string {
 		writeTimeout: m.writeTimeout,
 		channels:     map[string]struct{}{},
 	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.connections[connectionID] = connection
 	return connectionID
 }
@@ -189,6 +193,24 @@ func (m *ConnectionManager) Stats() map[string]any {
 		"total_connections": len(m.connections),
 		"total_rooms":       len(m.rooms),
 		"rooms":             rooms,
+	}
+}
+
+func (m *ConnectionManager) Close() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	connections := make([]*RealtimeConnection, 0, len(m.connections))
+	for _, connection := range m.connections {
+		connections = append(connections, connection)
+	}
+	m.connections = map[string]*RealtimeConnection{}
+	m.rooms = map[roomKey]map[string]struct{}{}
+	m.closed = true
+	m.mu.Unlock()
+	for _, connection := range connections {
+		connection.closeWithCode(websocket.CloseGoingAway)
 	}
 }
 

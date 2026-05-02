@@ -98,6 +98,10 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 }
 
 func (s *Service) Close() {
+	if s == nil || s.manager == nil {
+		return
+	}
+	s.manager.Close()
 }
 
 func (s *Service) SetAsyncDashboardPublisher(publisher *AsyncDashboardPublisher) {
