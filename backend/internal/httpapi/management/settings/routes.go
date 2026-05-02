@@ -14,6 +14,7 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -36,7 +37,7 @@ func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Reques
 		return buildCostingSettingsResponse(settingsRow, mappings), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -45,11 +46,11 @@ func (s *Service) handleGetCostingSettings(w http.ResponseWriter, r *http.Reques
 func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Request) {
 	var requestBody costingSettingsUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateCostingRequest(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (costingSettingsResponse, error) {
@@ -77,7 +78,7 @@ func (s *Service) handlePutCostingSettings(w http.ResponseWriter, r *http.Reques
 		return buildCostingSettingsResponse(settingsRow, cloneMappings(requestBody.EndpointFXMappings)), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -96,7 +97,7 @@ func (s *Service) handleGetTimezonePreference(w http.ResponseWriter, r *http.Req
 		return buildTimezonePreferenceResponse(settingsRow), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -105,11 +106,11 @@ func (s *Service) handleGetTimezonePreference(w http.ResponseWriter, r *http.Req
 func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Request) {
 	var requestBody timezonePreferenceUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateTimezoneRequest(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (timezonePreferenceResponse, error) {
@@ -129,7 +130,7 @@ func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Req
 		return buildTimezonePreferenceResponse(settingsRow), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -148,7 +149,7 @@ func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Requ
 		return buildRetentionSettingsResponse(settingsRow), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -157,11 +158,11 @@ func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Requ
 func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Request) {
 	var requestBody retentionSettingsUpdateRequest
 	if err := decodeJSONBody(r, &requestBody); err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, "Invalid request body")
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := normalizeAndValidateRetentionRequest(&requestBody); err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
@@ -183,7 +184,7 @@ func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Requ
 		return buildRetentionSettingsResponse(settingsRow), nil
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -347,28 +348,21 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var settingsErr *domainError
 	if errors.As(err, &settingsErr) {
-		writeError(w, r, allowedOrigins, settingsErr.StatusCode, settingsErr.Detail)
+		writeError(w, r, corsSnapshot, settingsErr.StatusCode, settingsErr.Detail)
 		return
 	}
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail any) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail any) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]any{"detail": detail})
 }
