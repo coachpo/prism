@@ -20,22 +20,24 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
 type Options struct {
-	Pool *pgxpool.Pool
-	Now  func() time.Time
-	Jobs *managementjobs.Store
+	CORSOriginProvider platformcors.OriginProvider
+	Pool               *pgxpool.Pool
+	Now                func() time.Time
+	Jobs               *managementjobs.Store
 }
 
 type Service struct {
-	pool           *pgxpool.Pool
-	ownsPool       bool
-	now            func() time.Time
-	allowedOrigins map[string]struct{}
-	jobs           *managementjobs.Store
+	pool               *pgxpool.Pool
+	ownsPool           bool
+	now                func() time.Time
+	corsOriginProvider platformcors.OriginProvider
+	jobs               *managementjobs.Store
 }
 
 func NewService(settings config.Settings, options Options) (*Service, error) {
@@ -48,15 +50,15 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	if now == nil {
 		now = time.Now
 	}
-	allowedOrigins := map[string]struct{}{}
-	for _, origin := range settings.CORSAllowedOriginsList() {
-		allowedOrigins[origin] = struct{}{}
+	corsOriginProvider := options.CORSOriginProvider
+	if corsOriginProvider == nil {
+		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 	jobs := options.Jobs
 	if jobs == nil {
 		jobs = managementjobs.NewStore(managementjobs.Options{Pool: pool, Now: now})
 	}
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, allowedOrigins: allowedOrigins, jobs: jobs}, nil
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, jobs: jobs}, nil
 }
 
 func (s *Service) Close() {
@@ -67,6 +69,13 @@ func (s *Service) Close() {
 
 func (s *Service) nowUTC() time.Time {
 	return s.now().UTC()
+}
+
+func (s *Service) corsSnapshot() platformcors.Snapshot {
+	if s == nil || s.corsOriginProvider == nil {
+		return platformcors.Snapshot{}
+	}
+	return s.corsOriginProvider.CORSSnapshot()
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
@@ -103,7 +112,7 @@ func (s *Service) handleListLogs(w http.ResponseWriter, r *http.Request) {
 		return auditdomain.ListLogs(r.Context(), tx, params)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -112,7 +121,7 @@ func (s *Service) handleListLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 	logID, err := routeInt(r, "log_id")
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusBadRequest, err.Error())
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "audit", func(tx pgx.Tx) (*auditdomain.AuditLogDetail, error) {
@@ -123,11 +132,11 @@ func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 		return auditdomain.GetLog(r.Context(), tx, profile.ID, logID)
 	})
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	if response == nil {
-		writeError(w, r, s.allowedOrigins, http.StatusNotFound, "Audit log not found")
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Audit log not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -136,7 +145,7 @@ func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleDeleteLogs(w http.ResponseWriter, r *http.Request) {
 	job, err := s.createAuditDeleteJobFromQuery(r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, auditJobError(err))
+		writeDomainError(w, r, s.corsSnapshot(), auditJobError(err))
 		return
 	}
 	w.Header().Set("Location", "/api/management/jobs/"+job.ID)
@@ -146,7 +155,7 @@ func (s *Service) handleDeleteLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleCreateDeleteJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.createAuditDeleteJobFromBody(r)
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, auditJobError(err))
+		writeDomainError(w, r, s.corsSnapshot(), auditJobError(err))
 		return
 	}
 	w.Header().Set("Location", "/api/management/jobs/"+job.ID)
@@ -232,12 +241,12 @@ func (s *Service) handleGetJob(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), s.pool, r.Header.Get(profiledomain.ProfileIDHeader))
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	job, err := s.jobs.CancelJob(r.Context(), chi.URLParam(r, "job_id"), profile.ID)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusNotFound, "Job not found")
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Job not found")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)
@@ -245,12 +254,12 @@ func (s *Service) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 func (s *Service) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), s.pool, r.Header.Get(profiledomain.ProfileIDHeader))
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	response, err := s.jobs.ListJobs(r.Context(), profile.ID, 50)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusInternalServerError, "Internal server error")
+		writeError(w, r, s.corsSnapshot(), http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -258,12 +267,12 @@ func (s *Service) handleListJobs(w http.ResponseWriter, r *http.Request) {
 func (s *Service) withJob(w http.ResponseWriter, r *http.Request, fn func(managementjobs.Job)) {
 	profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), s.pool, r.Header.Get(profiledomain.ProfileIDHeader))
 	if err != nil {
-		writeDomainError(w, r, s.allowedOrigins, err)
+		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	job, err := s.jobs.GetJob(r.Context(), chi.URLParam(r, "job_id"), profile.ID)
 	if err != nil {
-		writeError(w, r, s.allowedOrigins, http.StatusNotFound, "Job not found")
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Job not found")
 		return
 	}
 	fn(job)
@@ -459,31 +468,31 @@ func loadRequestLogAuditCaptureState(ctx context.Context, tx pgx.Tx, profileID i
 	return auditEnabledAtRequest, true, nil
 }
 
-func writeDomainError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err error) {
+func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err error) {
 	var profileErr *profiledomain.HTTPError
 	if errors.As(err, &profileErr) {
-		responseutil.WriteProfileHTTPError(w, r, allowedOrigins, profileErr)
+		responseutil.WriteProfileHTTPError(w, r, corsSnapshot, profileErr)
 		return
 	}
 	var auditErr *auditdomain.HTTPError
 	if errors.As(err, &auditErr) {
 		if auditErr.Code != "" {
-			writeStructuredError(w, r, allowedOrigins, auditErr)
+			writeStructuredError(w, r, corsSnapshot, auditErr)
 			return
 		}
-		writeError(w, r, allowedOrigins, auditErr.StatusCode, auditErr.Detail)
+		writeError(w, r, corsSnapshot, auditErr.StatusCode, auditErr.Detail)
 		return
 	}
-	writeError(w, r, allowedOrigins, http.StatusInternalServerError, "Internal server error")
+	writeError(w, r, corsSnapshot, http.StatusInternalServerError, "Internal server error")
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, statusCode int, detail string) {
-	writeCORSHeaders(w, r, allowedOrigins)
+func writeError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, statusCode int, detail string) {
+	writeCORSHeaders(w, r, corsSnapshot)
 	writeJSON(w, statusCode, map[string]string{"detail": detail})
 }
 
-func writeStructuredError(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}, err *auditdomain.HTTPError) {
-	writeCORSHeaders(w, r, allowedOrigins)
+func writeStructuredError(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot, err *auditdomain.HTTPError) {
+	writeCORSHeaders(w, r, corsSnapshot)
 	payload := map[string]any{"error": map[string]any{"code": err.Code, "message": err.Detail}}
 	if len(err.Details) > 0 {
 		payload["error"].(map[string]any)["details"] = err.Details
@@ -491,15 +500,8 @@ func writeStructuredError(w http.ResponseWriter, r *http.Request, allowedOrigins
 	writeJSON(w, err.StatusCode, payload)
 }
 
-func writeCORSHeaders(w http.ResponseWriter, r *http.Request, allowedOrigins map[string]struct{}) {
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin != "" {
-		if _, ok := allowedOrigins[origin]; ok {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-	}
+func writeCORSHeaders(w http.ResponseWriter, r *http.Request, corsSnapshot platformcors.Snapshot) {
+	platformcors.ApplyAllowOriginHeaders(w, r, corsSnapshot)
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
