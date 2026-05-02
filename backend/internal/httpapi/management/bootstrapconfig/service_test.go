@@ -3,16 +3,20 @@ package bootstrapconfig
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
 
 const (
@@ -29,6 +33,7 @@ const (
 var (
 	routeTestCreatedAt = time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC)
 	routeTestUpdatedAt = time.Date(2026, 4, 28, 11, 0, 0, 0, time.UTC)
+	errFakeHotApply    = errors.New("fake hot apply failure")
 )
 
 func TestBootstrapConfigRouteGetReturnsSafeMetadata(t *testing.T) {
@@ -53,6 +58,12 @@ func TestBootstrapConfigRouteGetReturnsSafeMetadata(t *testing.T) {
 	}
 	if body.RestartRequired {
 		t.Fatal("expected matching loaded metadata not to require restart")
+	}
+	if len(body.ApplyCapabilities) != len(config.BootstrapConfigApplyCapabilities()) {
+		t.Fatal("expected response to include apply capabilities")
+	}
+	if body.PlannedChanges != nil || body.ApplyResult != nil {
+		t.Fatal("expected GET response to omit planned changes and apply result")
 	}
 	if !body.Writable {
 		t.Fatal("expected route fixture to report writable metadata")
@@ -82,8 +93,81 @@ func TestBootstrapConfigRouteValidateDoesNotRewriteFile(t *testing.T) {
 	if body.FileRevision != fixture.snapshot.FileRevision+1 {
 		t.Fatal("expected validation response to show the prepared revision")
 	}
-	if !body.RestartRequired {
-		t.Fatal("expected changed validation response to require restart against loaded metadata")
+	if body.RestartRequired {
+		t.Fatal("expected hot-only validation response not to require restart")
+	}
+	if body.PlannedChanges == nil || body.PlannedChanges.RestartRequired || len(body.PlannedChanges.ChangedFields) != 1 {
+		t.Fatalf("expected hot-only planned changes, got %+v", body.PlannedChanges)
+	}
+	if body.PlannedChanges.ChangedFields[0].Field != "auth.access_token_ttl_seconds" || body.PlannedChanges.ChangedFields[0].Mode != config.BootstrapConfigApplyModeHotApply {
+		t.Fatalf("expected planned auth TTL hot-apply change, got %+v", body.PlannedChanges.ChangedFields)
+	}
+	if body.ApplyResult != nil {
+		t.Fatal("expected validation response to omit apply result")
+	}
+}
+
+func TestBootstrapConfigRouteValidateReportsRestartOnlyPlannedChanges(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+	before := mustReadFile(t, fixture.path)
+	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
+	nextDocsEnabled := !*fixture.snapshot.Values.Server.DocsEnabled
+	request.Values.Server.DocsEnabled = &nextDocsEnabled
+
+	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
+
+	requireStatus(t, response, http.StatusOK)
+	assertFileUnchanged(t, fixture.path, before)
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.PlannedChanges == nil || !body.PlannedChanges.RestartRequired {
+		t.Fatalf("expected restart-only validation planning, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
+	}
+	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: "server.docs_enabled", Mode: config.BootstrapConfigApplyModeRestartRequired}})
+}
+
+func TestBootstrapConfigRouteValidateDoesNotTouchHotApplyRuntime(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	before := mustReadFile(t, path)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
+
+	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
+
+	requireStatus(t, response, http.StatusOK)
+	assertFileUnchanged(t, path, before)
+	if hotRuntime.validateCalls != 0 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected validate route not to touch hot runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if body.PlannedChanges == nil || body.PlannedChanges.RestartRequired {
+		t.Fatalf("expected hot-only planned changes without restart, got %+v", body.PlannedChanges)
+	}
+	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: "auth.access_token_ttl_seconds", Mode: config.BootstrapConfigApplyModeHotApply}})
+	if body.ApplyResult != nil {
+		t.Fatal("expected validation response to omit apply result")
+	}
+}
+
+func TestBootstrapConfigRoutePutUnchangedReturnsEmptyApplyResult(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+	before := mustReadFile(t, fixture.path)
+	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusOK)
+	assertFileUnchanged(t, fixture.path, before)
+	body := decodeBootstrapConfigResponse(t, response)
+	if body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected unchanged PUT apply result without restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	if len(body.ApplyResult.PendingHotApplyFields) != 0 || len(body.ApplyResult.RestartRequiredFields) != 0 || len(body.ApplyResult.AppliedNowFields) != 0 {
+		t.Fatalf("expected empty changed apply result fields, got %+v", body.ApplyResult)
+	}
+	if len(body.ApplyResult.UnchangedFields) != len(config.BootstrapConfigApplyCapabilityFields()) {
+		t.Fatalf("expected unchanged fields to include all capabilities, got %d", len(body.ApplyResult.UnchangedFields))
 	}
 }
 
@@ -118,7 +202,15 @@ func TestBootstrapConfigRoutePutWritesAndReturnsRestartRequired(t *testing.T) {
 		t.Fatal("expected successful write to increment revision")
 	}
 	if !body.RestartRequired {
-		t.Fatal("expected write response to require restart when current file differs from loaded metadata")
+		t.Fatal("expected write response to require restart for restart-required fields")
+	}
+	if body.ApplyResult == nil {
+		t.Fatal("expected PUT response to include apply result")
+	}
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{config.BootstrapConfigSecretDatabaseURL, config.BootstrapConfigSecretAuthJWTSigningKey})
+	if len(body.ApplyResult.AppliedNowFields) != 0 || len(body.ApplyResult.FailedHotApplyFields) != 0 {
+		t.Fatalf("expected no immediate or failed hot-apply fields, got %+v", body.ApplyResult)
 	}
 	after := mustReadFile(t, fixture.path)
 	if bytes.Equal(before, after) {
@@ -139,6 +231,424 @@ func TestBootstrapConfigRoutePutWritesAndReturnsRestartRequired(t *testing.T) {
 	}
 	if writtenSettings.ConfigBundleEncryptionKey != originalSettings.ConfigBundleEncryptionKey {
 		t.Fatal("expected bundle secret preserve action to keep the original value")
+	}
+}
+
+func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	nextDocsEnabled := !*snapshot.Values.Server.DocsEnabled
+	request.Values.Server.DocsEnabled = &nextDocsEnabled
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusOK)
+	if hotRuntime.validateCalls != 0 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected restart-only PUT not to touch hot runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected restart-only apply result, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{"server.docs_enabled"})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+
+	getResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
+	requireStatus(t, getResponse, http.StatusOK)
+	getBody := decodeBootstrapConfigResponse(t, getResponse)
+	if !getBody.RestartRequired || getBody.ApplyResult == nil {
+		t.Fatalf("expected GET to report restart-only drift, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
+	}
+	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{"server.docs_enabled"})
+	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
+}
+
+func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	hotRuntime.publishHook = func(config.Settings) {
+		_, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+		if err != nil {
+			t.Fatalf("load bootstrap config during hot publish: %v", err)
+		}
+		if writtenSettings.AuthAccessTokenTTLSeconds != 2400 {
+			t.Fatalf("expected canonical file write before publish, got auth TTL %d", writtenSettings.AuthAccessTokenTTLSeconds)
+		}
+	}
+	service, err := NewService(settings, Options{
+		ConfigPath:         path,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+		HotApplyRuntime:    hotRuntime,
+		Manager:            manager,
+		Writable:           func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create bootstrap config route service: %v", err)
+	}
+	router := chi.NewRouter()
+	router.Route("/api", service.MountManagementRoutes)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
+
+	requireStatus(t, response, http.StatusOK)
+	if hotRuntime.validateCalls != 1 || hotRuntime.publishCalls != 1 || hotRuntime.retired.closeCalls != 1 {
+		t.Fatalf("expected validate/publish/retire once, got validate=%d publish=%d close=%d", hotRuntime.validateCalls, hotRuntime.publishCalls, hotRuntime.retired.closeCalls)
+	}
+	if hotRuntime.published.AuthAccessTokenTTLSeconds != 2400 {
+		t.Fatalf("expected published hot auth TTL, got %d", hotRuntime.published.AuthAccessTokenTTLSeconds)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected hot-only successful apply without restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+}
+
+func TestBootstrapConfigRoutePutValidatesHotApplyBeforeWrite(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	before := mustReadFile(t, path)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{validateErr: errFakeHotApply}
+	service, err := NewService(settings, Options{
+		ConfigPath:         path,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+		HotApplyRuntime:    hotRuntime,
+		Manager:            manager,
+		Writable:           func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create bootstrap config route service: %v", err)
+	}
+	router := chi.NewRouter()
+	router.Route("/api", service.MountManagementRoutes)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
+
+	requireStatus(t, response, http.StatusBadRequest)
+	assertFileUnchanged(t, path, before)
+	if hotRuntime.validateCalls != 1 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected validate only, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+}
+
+func TestBootstrapConfigRoutePutPublishFailureReturnsApplyResultAndPendingRetry(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{publishErr: errFakeHotApply}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	before := mustReadFile(t, path)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusInternalServerError)
+	assertNoRouteSecrets(t, response.Body.Bytes(), settings)
+	if hotRuntime.validateCalls != 1 || hotRuntime.publishCalls != 1 || hotRuntime.retired.closeCalls != 0 {
+		t.Fatalf("expected validate and failed publish only, got validate=%d publish=%d close=%d", hotRuntime.validateCalls, hotRuntime.publishCalls, hotRuntime.retired.closeCalls)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected structured hot-apply failure without restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{"auth.access_token_ttl_seconds"})
+	detail := decodeErrorDetailMap(t, response)
+	if detail["message"] != "Failed to apply bootstrap config" || !containsStringValue(detail["failed_hot_apply_fields"], "auth.access_token_ttl_seconds") {
+		t.Fatalf("expected structured apply failure detail, got %+v", detail)
+	}
+	after := mustReadFile(t, path)
+	if bytes.Equal(before, after) {
+		t.Fatal("expected publish failure to leave the canonical file written")
+	}
+	writtenSnapshot, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load written bootstrap config after failed publish: %v", err)
+	}
+	if writtenSettings.AuthAccessTokenTTLSeconds != 2400 {
+		t.Fatalf("expected failed publish to keep written auth TTL, got %d", writtenSettings.AuthAccessTokenTTLSeconds)
+	}
+
+	getResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
+	requireStatus(t, getResponse, http.StatusOK)
+	getBody := decodeBootstrapConfigResponse(t, getResponse)
+	if getBody.RestartRequired || getBody.ApplyResult == nil {
+		t.Fatalf("expected GET to report pending hot apply without restart, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
+	}
+	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
+
+	hotRuntime.publishErr = nil
+	retryRequest := bootstrapRouteRequestForSnapshot(t, writtenSnapshot)
+	retryResponse := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", retryRequest)
+
+	requireStatus(t, retryResponse, http.StatusOK)
+	if hotRuntime.validateCalls != 2 || hotRuntime.publishCalls != 2 || hotRuntime.retired.closeCalls != 1 {
+		t.Fatalf("expected retry to validate, publish, and retire once, got validate=%d publish=%d close=%d", hotRuntime.validateCalls, hotRuntime.publishCalls, hotRuntime.retired.closeCalls)
+	}
+	retryBody := decodeBootstrapConfigResponse(t, retryResponse)
+	if retryBody.RestartRequired || retryBody.ApplyResult == nil {
+		t.Fatalf("expected retry to hot-apply without restart, got restart=%v result=%+v", retryBody.RestartRequired, retryBody.ApplyResult)
+	}
+	assertStringSetEqual(t, retryBody.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, retryBody.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, retryBody.ApplyResult.FailedHotApplyFields, []string{})
+
+	finalGetResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
+	requireStatus(t, finalGetResponse, http.StatusOK)
+	finalGetBody := decodeBootstrapConfigResponse(t, finalGetResponse)
+	if finalGetBody.RestartRequired || finalGetBody.ApplyResult != nil {
+		t.Fatalf("expected retry to clear pending GET effects, got restart=%v result=%+v", finalGetBody.RestartRequired, finalGetBody.ApplyResult)
+	}
+}
+
+func TestBootstrapConfigRoutePutPublishesOnlyHotProjectedSettings(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	service, err := NewService(settings, Options{
+		ConfigPath:         path,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+		HotApplyRuntime:    hotRuntime,
+		Manager:            manager,
+		Writable:           func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create bootstrap config route service: %v", err)
+	}
+	router := chi.NewRouter()
+	router.Route("/api", service.MountManagementRoutes)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
+	request.SecretUpdates[config.BootstrapConfigSecretDatabaseURL] = config.BootstrapConfigSecretUpdate{Action: config.BootstrapConfigSecretActionReplace, Value: routeStringPtr(routeTestNextDatabaseURL)}
+	request.Confirmations = []string{config.BootstrapConfigConfirmationDatabaseURLChange}
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
+
+	requireStatus(t, response, http.StatusOK)
+	if hotRuntime.published.AuthAccessTokenTTLSeconds != 2400 {
+		t.Fatalf("expected hot auth TTL to publish, got %d", hotRuntime.published.AuthAccessTokenTTLSeconds)
+	}
+	if hotRuntime.published.DatabaseURL != settings.DatabaseURL {
+		t.Fatalf("expected restart-only database URL to stay live baseline, got %q", hotRuntime.published.DatabaseURL)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected mixed apply result with restart required, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{config.BootstrapConfigSecretDatabaseURL})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+	_, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load written bootstrap config: %v", err)
+	}
+	if writtenSettings.DatabaseURL != routeTestNextDatabaseURL {
+		t.Fatal("expected restart-only database URL to persist to file")
+	}
+}
+
+func TestBootstrapConfigRoutePutHotOnlyCORSAppliesNewOriginWithoutRestart(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	settings.CORSAllowedOrigins = "https://old.example.test"
+	corsProvider := newMutableRouteCORSProvider("https://old.example.test")
+	hotRuntime := &fakeBootstrapHotApplyRuntime{publishHook: func(settings config.Settings) {
+		corsProvider.publish(settings.CORSAllowedOriginsList()...)
+	}}
+	service, err := NewService(settings, Options{
+		ConfigPath:         path,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+		CORSOriginProvider: corsProvider,
+		HotApplyRuntime:    hotRuntime,
+		Manager:            manager,
+		Writable:           func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create bootstrap config route service: %v", err)
+	}
+	router := chi.NewRouter()
+	router.Route("/api", service.MountManagementRoutes)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.HTTP.CORSAllowedOrigins = &[]string{"https://new.example.test"}
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
+
+	requireStatus(t, response, http.StatusOK)
+	body := decodeBootstrapConfigResponse(t, response)
+	if body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected hot-only CORS PUT without restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"http.cors_allowed_origins"})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{})
+	assertBootstrapErrorCORSOrigin(t, router, "https://new.example.test", "https://new.example.test")
+	assertBootstrapErrorCORSOrigin(t, router, "https://old.example.test", "")
+}
+
+func TestBootstrapConfigRoutePutRestartOnlyServerPortDoesNotMutateLiveState(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Server.Port = routeIntPtr(*snapshot.Values.Server.Port + 1)
+	request.Confirmations = []string{config.BootstrapConfigConfirmationServerPortChange}
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusOK)
+	if hotRuntime.validateCalls != 0 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected server port PUT not to touch hot runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected restart-required server port PUT, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{"server.port"})
+
+	getResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
+	requireStatus(t, getResponse, http.StatusOK)
+	getBody := decodeBootstrapConfigResponse(t, getResponse)
+	if !getBody.RestartRequired || getBody.ApplyResult == nil {
+		t.Fatalf("expected live baseline to keep server port pending restart, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
+	}
+	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{"server.port"})
+}
+
+func TestBootstrapConfigRoutePutMixedCORSAndDatabaseURLAppliesOnlyCORS(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	settings.CORSAllowedOrigins = "https://old.example.test"
+	corsProvider := newMutableRouteCORSProvider("https://old.example.test")
+	hotRuntime := &fakeBootstrapHotApplyRuntime{publishHook: func(settings config.Settings) {
+		corsProvider.publish(settings.CORSAllowedOriginsList()...)
+	}}
+	service, err := NewService(settings, Options{
+		ConfigPath:         path,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+		CORSOriginProvider: corsProvider,
+		HotApplyRuntime:    hotRuntime,
+		Manager:            manager,
+		Writable:           func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create bootstrap config route service: %v", err)
+	}
+	router := chi.NewRouter()
+	router.Route("/api", service.MountManagementRoutes)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.HTTP.CORSAllowedOrigins = &[]string{"https://new.example.test"}
+	request.SecretUpdates[config.BootstrapConfigSecretDatabaseURL] = config.BootstrapConfigSecretUpdate{Action: config.BootstrapConfigSecretActionReplace, Value: routeStringPtr(routeTestNextDatabaseURL)}
+	request.Confirmations = []string{config.BootstrapConfigConfirmationDatabaseURLChange}
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
+
+	requireStatus(t, response, http.StatusOK)
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected mixed CORS/database PUT to require restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"http.cors_allowed_origins"})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{config.BootstrapConfigSecretDatabaseURL})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
+	assertBootstrapErrorCORSOrigin(t, router, "https://new.example.test", "https://new.example.test")
+	assertBootstrapErrorCORSOrigin(t, router, "https://old.example.test", "")
+	_, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load written bootstrap config: %v", err)
+	}
+	if writtenSettings.DatabaseURL != routeTestNextDatabaseURL {
+		t.Fatal("expected mixed PUT to persist restart-required database URL")
+	}
+}
+
+func TestBootstrapConfigRoutePutInvalidEnabledSMTPLeavesFileAndLiveStateUnchanged(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	before := mustReadFile(t, path)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Mail = &config.BootstrapConfigMailValues{
+		Enabled: routeBoolPtr(true),
+		From:    routeStringPtr("Prism <noreply@example.com>"),
+		SMTP: &config.BootstrapConfigMailSMTPValues{
+			Host: routeStringPtr("smtp.example.com"),
+			Port: routeIntPtr(587),
+			Mode: routeStringPtr(string(config.MailSMTPModeStartTLSRequired)),
+			Auth: routeStringPtr(string(config.MailSMTPAuthPlain)),
+		},
+	}
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusBadRequest)
+	assertFileUnchanged(t, path, before)
+	if hotRuntime.validateCalls != 0 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected invalid SMTP PUT not to touch live runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+}
+
+func TestBootstrapConfigRouteConcurrentPUTsSerializeAndKeepReadableConfig(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := newBlockingHotApplyRuntime()
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	firstRequest := bootstrapRouteRequestForSnapshot(t, snapshot)
+	firstRequest.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2100)
+
+	firstDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		firstDone <- fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", firstRequest)
+	}()
+
+	<-hotRuntime.firstPublishStarted
+	writtenSnapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load config after first serialized write: %v", err)
+	}
+	secondRequest := bootstrapRouteRequestForSnapshot(t, writtenSnapshot)
+	secondRequest.Values.Auth.RefreshTokenTTLSeconds = routeIntPtr(2200)
+	secondDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		secondDone <- fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", secondRequest)
+	}()
+
+	close(hotRuntime.releaseFirstPublish)
+	firstResponse := <-firstDone
+	secondResponse := <-secondDone
+
+	requireStatus(t, firstResponse, http.StatusOK)
+	requireStatus(t, secondResponse, http.StatusOK)
+	firstBody := decodeBootstrapConfigResponse(t, firstResponse)
+	secondBody := decodeBootstrapConfigResponse(t, secondResponse)
+	assertStringSetEqual(t, firstBody.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, secondBody.ApplyResult.AppliedNowFields, []string{"auth.refresh_token_ttl_seconds"})
+	if hotRuntime.maxConcurrentPublishes != 1 {
+		t.Fatalf("expected serialized hot publishes, saw %d concurrent", hotRuntime.maxConcurrentPublishes)
+	}
+	_, finalSettings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load final bootstrap config after concurrent PUTs: %v", err)
+	}
+	if finalSettings.AuthAccessTokenTTLSeconds != 2100 || finalSettings.AuthRefreshTokenTTLSeconds != 2200 {
+		t.Fatalf("expected final config to include both serialized updates, got access=%d refresh=%d", finalSettings.AuthAccessTokenTTLSeconds, finalSettings.AuthRefreshTokenTTLSeconds)
 	}
 }
 
@@ -426,10 +936,25 @@ func newBootstrapRouteFixtureFromSnapshot(
 	loadedDocumentETag string,
 ) routeFixture {
 	t.Helper()
+	return newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, loadedRevision, loadedDocumentETag, nil)
+}
+
+func newBootstrapRouteFixtureFromSnapshotWithHotRuntime(
+	t *testing.T,
+	path string,
+	manager config.BootstrapConfigManager,
+	snapshot config.BootstrapConfigSnapshot,
+	settings config.Settings,
+	loadedRevision int,
+	loadedDocumentETag string,
+	hotRuntime config.BootstrapConfigHotApplyRuntime,
+) routeFixture {
+	t.Helper()
 	service, err := NewService(settings, Options{
 		ConfigPath:         path,
 		LoadedRevision:     loadedRevision,
 		LoadedDocumentETag: loadedDocumentETag,
+		HotApplyRuntime:    hotRuntime,
 		Manager:            manager,
 		Writable:           func(string) bool { return true },
 	})
@@ -637,10 +1162,173 @@ func containsStringValue(values any, expected string) bool {
 	return false
 }
 
+func assertStringSetEqual(t *testing.T, got []string, want []string) {
+	t.Helper()
+	sortedGot := append([]string(nil), got...)
+	sortedWant := append([]string(nil), want...)
+	slices.Sort(sortedGot)
+	slices.Sort(sortedWant)
+	if !slices.Equal(sortedGot, sortedWant) {
+		t.Fatalf("unexpected string set\n got: %v\nwant: %v", got, want)
+	}
+}
+
+func assertFieldChangesEqual(t *testing.T, got []config.BootstrapConfigFieldChange, want []config.BootstrapConfigFieldChange) {
+	t.Helper()
+	if !slices.Equal(got, want) {
+		t.Fatalf("unexpected field changes\n got: %+v\nwant: %+v", got, want)
+	}
+}
+
 func routeIntPtr(value int) *int {
 	return &value
 }
 
 func routeStringPtr(value string) *string {
 	return &value
+}
+
+func routeBoolPtr(value bool) *bool {
+	return &value
+}
+
+func TestBootstrapConfigRouteErrorsUsePublishedCORSProvider(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	corsProvider := newMutableRouteCORSProvider("https://old.example.test")
+	service, err := NewService(settings, Options{
+		ConfigPath:         path,
+		LoadedRevision:     snapshot.FileRevision,
+		LoadedDocumentETag: snapshot.DocumentETag,
+		CORSOriginProvider: corsProvider,
+		Manager:            manager,
+		Writable:           func(string) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("create bootstrap config route service: %v", err)
+	}
+	router := chi.NewRouter()
+	router.Route("/api", service.MountManagementRoutes)
+
+	assertBootstrapErrorCORSOrigin(t, router, "https://old.example.test", "https://old.example.test")
+	corsProvider.publish("https://new.example.test")
+
+	assertBootstrapErrorCORSOrigin(t, router, "https://new.example.test", "https://new.example.test")
+	assertBootstrapErrorCORSOrigin(t, router, "https://old.example.test", "")
+}
+
+func assertBootstrapErrorCORSOrigin(t *testing.T, router http.Handler, origin string, want string) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/api/config/bootstrap/validate", bytes.NewReader([]byte(`{"expected_revision":`)))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", origin)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid body status 400, got %d", response.Code)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != want {
+		t.Fatalf("Access-Control-Allow-Origin for %q = %q, want %q", origin, got, want)
+	}
+}
+
+type fakeBootstrapHotApplyRuntime struct {
+	validateCalls int
+	publishCalls  int
+	validated     config.Settings
+	published     config.Settings
+	validateErr   error
+	publishErr    error
+	validateHook  func(config.Settings)
+	publishHook   func(config.Settings)
+	retired       fakeBootstrapHotApplyRetiredResources
+}
+
+type fakeBootstrapHotApplyRetiredResources struct {
+	closeCalls int
+}
+
+type blockingHotApplyRuntime struct {
+	mu                     sync.Mutex
+	activePublishes        int
+	maxConcurrentPublishes int
+	firstPublishStarted    chan struct{}
+	releaseFirstPublish    chan struct{}
+	firstPublishSignalOnce sync.Once
+	retired                fakeBootstrapHotApplyRetiredResources
+}
+
+func newBlockingHotApplyRuntime() *blockingHotApplyRuntime {
+	return &blockingHotApplyRuntime{
+		firstPublishStarted: make(chan struct{}),
+		releaseFirstPublish: make(chan struct{}),
+	}
+}
+
+func (r *blockingHotApplyRuntime) Validate(config.Settings) error {
+	return nil
+}
+
+func (r *blockingHotApplyRuntime) Publish(config.Settings) (config.BootstrapConfigHotApplyRetiredResources, error) {
+	r.mu.Lock()
+	r.activePublishes++
+	if r.activePublishes > r.maxConcurrentPublishes {
+		r.maxConcurrentPublishes = r.activePublishes
+	}
+	r.mu.Unlock()
+
+	r.firstPublishSignalOnce.Do(func() {
+		close(r.firstPublishStarted)
+		<-r.releaseFirstPublish
+	})
+
+	r.mu.Lock()
+	r.activePublishes--
+	r.mu.Unlock()
+	return &r.retired, nil
+}
+
+func (r *fakeBootstrapHotApplyRuntime) Validate(settings config.Settings) error {
+	r.validateCalls++
+	r.validated = settings
+	if r.validateHook != nil {
+		r.validateHook(settings)
+	}
+	return r.validateErr
+}
+
+func (r *fakeBootstrapHotApplyRuntime) Publish(settings config.Settings) (config.BootstrapConfigHotApplyRetiredResources, error) {
+	r.publishCalls++
+	r.published = settings
+	if r.publishHook != nil {
+		r.publishHook(settings)
+	}
+	if r.publishErr != nil {
+		return nil, r.publishErr
+	}
+	return &r.retired, nil
+}
+
+func (r *fakeBootstrapHotApplyRetiredResources) CloseIdleConnections() {
+	r.closeCalls++
+}
+
+type mutableRouteCORSProvider struct {
+	mu       sync.RWMutex
+	snapshot platformcors.Snapshot
+}
+
+func newMutableRouteCORSProvider(origins ...string) *mutableRouteCORSProvider {
+	return &mutableRouteCORSProvider{snapshot: platformcors.NewSnapshot(origins)}
+}
+
+func (p *mutableRouteCORSProvider) CORSSnapshot() platformcors.Snapshot {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.snapshot
+}
+
+func (p *mutableRouteCORSProvider) publish(origins ...string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.snapshot = platformcors.NewSnapshot(origins)
 }
