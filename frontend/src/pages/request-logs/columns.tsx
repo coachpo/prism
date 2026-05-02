@@ -6,6 +6,12 @@ import { formatMoneyMicros, resolveSpendTrustState } from "@/lib/costing";
 import { cn, formatApiFamily } from "@/lib/utils";
 import type { RequestLogListItem } from "@/lib/types";
 import { AlertCircle, Clock } from "lucide-react";
+import {
+  getStreamOutcomeIntent,
+  getStreamOutcomeLabel,
+  hasStreamTelemetryOutcome,
+  isStreamUsageUnavailableReason,
+} from "./streamTelemetry";
 
 export const ROW_HEIGHT = 45;
 
@@ -99,8 +105,9 @@ function renderSpendCell(row: RequestLogListItem): React.ReactNode {
     unpricedReason: row.unpriced_reason,
   });
   const messages = getStaticMessages();
-  const value =
-    spendTrust === "unpriced"
+  const value = isStreamUsageUnavailableReason(row.unpriced_reason)
+    ? messages.requestLogs.streamUsageUnavailable
+    : spendTrust === "unpriced"
       ? messages.spendTrust.unpriced
       : formatCost(row.total_cost_user_currency_micros, row.report_currency_symbol);
 
@@ -277,12 +284,16 @@ export function getColumns(): ColumnDef[] {
     {
       key: "is_stream",
       label: messages.stream,
-      width: 92,
+      width: 168,
       grow: 0,
       align: "center",
       render: (row) =>
-        row.is_stream ? (
-          <TypeBadge label={messages.streaming} intent="blue" className="px-2 py-0.5" />
+        hasStreamTelemetryOutcome(row.stream_outcome) ? (
+          <TypeBadge
+            label={getStreamOutcomeLabel(row.stream_outcome, messages)}
+            intent={getStreamOutcomeIntent(row.stream_outcome)}
+            className="px-2 py-0.5"
+          />
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>
         ),

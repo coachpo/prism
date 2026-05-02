@@ -27,6 +27,14 @@ import {
 import { copyRequestLogText, getStatusIntent, getStatusTone } from "./requestLogDetailUtils";
 import { createConnectionNavigator } from "../connectionNavigation";
 import { resolveRequestAuditCaptureMode } from "../requestLogAuditState";
+import {
+  getStreamOutcomeIntent,
+  getStreamOutcomeLabel,
+  hasStreamTelemetryOutcome,
+  isHistoricalUnknownStreamRow,
+  isStreamUsageUnavailableReason,
+  shouldShowStreamStatus,
+} from "../streamTelemetry";
 
 interface RequestLogOverviewTabProps {
   request: RequestLogDetail;
@@ -134,6 +142,19 @@ export function RequestLogOverviewTab({
     || requestInfo.caller_user_agent !== null
     || requestInfo.user_agent_overridden;
   const navigateToConnection = createConnectionNavigator({ navigate });
+  const streamUsageUnavailable = isStreamUsageUnavailableReason(usage.unpriced_reason);
+  const historicalUnknownStream = isHistoricalUnknownStreamRow(summary.is_stream, summary.stream_outcome);
+  const streamStatusLabel = getStreamOutcomeLabel(summary.stream_outcome, messages.requestLogs);
+  const hasStreamTelemetry = hasStreamTelemetryOutcome(summary.stream_outcome);
+  const showStreamStatus = shouldShowStreamStatus(summary.stream_outcome);
+  const totalTokensValue = streamUsageUnavailable && usage.total_tokens === null
+    ? messages.requestLogs.streamUsageUnavailable
+    : formatTokens(usage.total_tokens);
+  const totalCostValue = streamUsageUnavailable && costing.total_cost_user_currency_micros === null
+    ? messages.requestLogs.streamUsageUnavailable
+    : spendTrust === "unpriced"
+      ? messages.spendTrust.unpriced
+      : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol);
 
   const handleCopyErrorDetail = (event: MouseEvent<HTMLButtonElement>) => {
     if (!formattedErrorDetail) return;
@@ -150,7 +171,13 @@ export function RequestLogOverviewTab({
             <div className="min-w-0 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <ValueBadge label={String(summary.status_code)} intent={getStatusIntent(summary.status_code)} className="px-1.5 py-0 font-mono" />
-                {summary.is_stream && <TypeBadge label={messages.requestLogs.streaming} intent="blue" className="px-2 py-0.5" />}
+                {hasStreamTelemetry ? (
+                  <TypeBadge
+                    label={streamStatusLabel}
+                    intent={getStreamOutcomeIntent(summary.stream_outcome)}
+                    className="px-2 py-0.5"
+                  />
+                ) : null}
                 {summary.is_proxy_origin ? (
                   <TypeBadge label={messages.requestLogs.proxyOrigin} intent="accent" className="px-2 py-0.5" />
                 ) : null}
@@ -198,7 +225,7 @@ export function RequestLogOverviewTab({
               />
               <SummaryStat
                 label={messages.requestLogs.totalTokens}
-                value={formatTokens(usage.total_tokens)}
+                value={totalTokensValue}
                 valueClassName="font-mono"
               />
               <SummaryStat
@@ -206,9 +233,7 @@ export function RequestLogOverviewTab({
                 value={(
                   <div className="flex flex-col items-start gap-1">
                     <span className="font-mono">
-                      {spendTrust === "unpriced"
-                        ? messages.spendTrust.unpriced
-                        : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
+                      {totalCostValue}
                     </span>
                   </div>
                 )}
@@ -345,8 +370,23 @@ export function RequestLogOverviewTab({
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.stream}>
-                {summary.is_stream ? <TypeBadge label={messages.requestLogs.streaming} intent="blue" /> : messages.requestLogs.no}
+                {hasStreamTelemetry ? (
+                  <TypeBadge
+                    label={streamStatusLabel}
+                    intent={getStreamOutcomeIntent(summary.stream_outcome)}
+                  />
+                ) : messages.requestLogs.no}
               </DetailRow>
+              {showStreamStatus ? (
+                <DetailRow label={messages.requestLogs.streamStatus}>{streamStatusLabel}</DetailRow>
+              ) : null}
+              {summary.stream_error_detail ? (
+                <DetailRow label={messages.requestLogs.streamErrorDetail}>
+                  <span className="font-mono text-[12px] whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                    {summary.stream_error_detail}
+                  </span>
+                </DetailRow>
+              ) : null}
               {requestReasoningEffort ? (
                 <DetailRow label={messages.requestLogs.reasoningEffort}>
                   <span className="font-mono">{requestReasoningEffort}</span>
@@ -402,9 +442,17 @@ export function RequestLogOverviewTab({
           <div className="space-y-3">
             <div className="space-y-1">
               <SectionSubheading>{messages.requestLogs.tokenUsage}</SectionSubheading>
-              <DetailRow label={messages.requestLogs.input}><span className="font-mono">{formatTokens(usage.input_tokens)}</span></DetailRow>
-              <DetailRow label={messages.requestLogs.output}><span className="font-mono">{formatTokens(usage.output_tokens)}</span></DetailRow>
-              <DetailRow label={messages.requestLogs.total}><span className="font-mono">{formatTokens(usage.total_tokens)}</span></DetailRow>
+              <DetailRow label={messages.requestLogs.input}>
+                <span className="font-mono">
+                  {streamUsageUnavailable && usage.input_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.input_tokens)}
+                </span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.output}>
+                <span className="font-mono">
+                  {streamUsageUnavailable && usage.output_tokens === null ? messages.requestLogs.streamUsageUnavailable : formatTokens(usage.output_tokens)}
+                </span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.total}><span className="font-mono">{totalTokensValue}</span></DetailRow>
               {(usage.cache_read_input_tokens ?? 0) > 0 ? (
                 <DetailRow label={messages.requestLogs.cacheRead}><span className="font-mono">{formatTokens(usage.cache_read_input_tokens)}</span></DetailRow>
               ) : null}
@@ -424,15 +472,13 @@ export function RequestLogOverviewTab({
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono">
-                      {spendTrust === "unpriced"
-                        ? messages.spendTrust.unpriced
-                        : formatCost(costing.total_cost_user_currency_micros, costing.report_currency_symbol)}
+                      {totalCostValue}
                     </span>
                   </div>
-                  {spendTrust !== "verified" ? (
+                  {spendTrust !== "verified" && !streamUsageUnavailable ? (
                     <SpendTrustNote
                       spendTrust={spendTrust}
-                      showPricingTemplatesLink={spendTrust === "unpriced"}
+                      showPricingTemplatesLink={spendTrust === "unpriced" && !historicalUnknownStream}
                     />
                   ) : null}
                 </div>

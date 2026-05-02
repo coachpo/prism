@@ -41,6 +41,8 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     status_code: 200,
     response_time_ms: 4500,
     is_stream: true,
+    stream_outcome: "completed",
+    stream_error_kind: null,
     output_tokens: 150,
     total_tokens: 150,
     total_cost_user_currency_micros: 750000,
@@ -99,7 +101,10 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
       response_time_ms: 900,
       ttft_ms: 80,
       completion_duration_ms: null,
-      is_stream: true,
+      is_stream: false,
+      stream_outcome: "client_disconnected",
+      stream_error_kind: "client_write_failed",
+      stream_error_detail: "client closed response stream",
     },
     request: {
       request_path: "/v1/chat/completions",
@@ -125,25 +130,25 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
       audit_enabled_at_request: true,
     },
     usage: {
-      input_tokens: 20,
-      output_tokens: 25,
-      total_tokens: 45,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
       success_flag: true,
       billable_flag: true,
-      priced_flag: true,
-      unpriced_reason: null,
+      priced_flag: false,
+      unpriced_reason: "STREAM_USAGE_UNAVAILABLE",
       cache_read_input_tokens: 0,
       cache_creation_input_tokens: 0,
       reasoning_tokens: 0,
     },
     costing: {
-      input_cost_micros: 200000,
-      output_cost_micros: 300000,
-      cache_read_input_cost_micros: 0,
-      cache_creation_input_cost_micros: 0,
-      reasoning_cost_micros: 0,
-      total_cost_original_micros: 500000,
-      total_cost_user_currency_micros: 500000,
+      input_cost_micros: null,
+      output_cost_micros: null,
+      cache_read_input_cost_micros: null,
+      cache_creation_input_cost_micros: null,
+      reasoning_cost_micros: null,
+      total_cost_original_micros: null,
+      total_cost_user_currency_micros: null,
       currency_code_original: "USD",
       report_currency_code: "USD",
       report_currency_symbol: "$",
@@ -163,6 +168,43 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createHistoricalUnknownRequestLogDetail() {
+  const detail = createRequestLogDetail();
+
+  return {
+    ...detail,
+    summary: {
+      ...detail.summary,
+      id: 105,
+      stream_outcome: "unknown",
+      stream_error_kind: null,
+      stream_error_detail: null,
+    },
+    request: {
+      ...detail.request,
+      ingress_request_id: "ingress-105",
+      provider_correlation_id: "provider-corr-105",
+      caller_client_display: "Historical Unknown",
+      upstream_client_display: "Historical Unknown",
+    },
+    usage: {
+      ...detail.usage,
+      input_tokens: null,
+      output_tokens: null,
+      total_tokens: null,
+      priced_flag: false,
+      unpriced_reason: "MISSING_TOKEN_USAGE",
+    },
+    costing: {
+      ...detail.costing,
+      input_cost_micros: null,
+      output_cost_micros: null,
+      total_cost_original_micros: null,
+      total_cost_user_currency_micros: null,
+    },
+  };
+}
+
 async function mockRequestLogRoutes(page: Page) {
   const profile = createProfile();
   const requestLogItems = [
@@ -175,6 +217,8 @@ async function mockRequestLogRoutes(page: Page) {
       completion_duration_ms: 400,
       response_time_ms: 2100,
       is_stream: false,
+      stream_outcome: "not_streaming",
+      stream_error_kind: null,
       output_tokens: 120,
       total_tokens: 120,
       total_cost_user_currency_micros: 500000,
@@ -186,9 +230,14 @@ async function mockRequestLogRoutes(page: Page) {
       ttft_ms: 80,
       completion_duration_ms: null,
       response_time_ms: 900,
-      output_tokens: 25,
-      total_tokens: 45,
-      total_cost_user_currency_micros: 500000,
+      is_stream: false,
+      stream_outcome: "client_disconnected",
+      stream_error_kind: "client_write_failed",
+      output_tokens: null,
+      total_tokens: null,
+      total_cost_user_currency_micros: null,
+      priced_flag: false,
+      unpriced_reason: "STREAM_USAGE_UNAVAILABLE",
     }),
     createRequestLogItem({
       id: 104,
@@ -198,13 +247,31 @@ async function mockRequestLogRoutes(page: Page) {
       completion_duration_ms: null,
       response_time_ms: 240,
       is_stream: false,
+      stream_outcome: "not_streaming",
+      stream_error_kind: null,
       output_tokens: null,
       total_tokens: 90,
       total_cost_user_currency_micros: 250000,
     }),
+    createRequestLogItem({
+      id: 105,
+      caller_client_display: "Historical Unknown",
+      upstream_client_display: "Historical Unknown",
+      ttft_ms: null,
+      completion_duration_ms: null,
+      response_time_ms: 1200,
+      stream_outcome: "unknown",
+      stream_error_kind: null,
+      output_tokens: null,
+      total_tokens: null,
+      total_cost_user_currency_micros: null,
+      priced_flag: false,
+      unpriced_reason: "MISSING_TOKEN_USAGE",
+    }),
   ];
   const detailById = new Map<number, unknown>([
     [103, createRequestLogDetail()],
+    [105, createHistoricalUnknownRequestLogDetail()],
   ]);
 
   await page.route("**/*", async (route) => {
@@ -295,6 +362,8 @@ test.describe("request logs TTFT", () => {
     await expect(completedStreamRow.locator(":scope > div").nth(2)).toHaveText("4,500ms");
     await expect(completedStreamRow.locator(":scope > div").nth(3)).toHaveText("120ms");
     await expect(completedStreamRow.locator(":scope > div").nth(4)).toHaveText("833.3 tok/s");
+    await expect(completedStreamRow.locator(":scope > div").nth(11)).toContainText("$0.75");
+    await expect(completedStreamRow.locator(":scope > div").nth(12)).toContainText("Streaming");
 
     const bufferedCompletedRow = page.getByRole("button").filter({ hasText: "Buffered Completed" });
     await expect(bufferedCompletedRow.locator(":scope > div").nth(2)).toHaveText("2,100ms");
@@ -305,11 +374,19 @@ test.describe("request logs TTFT", () => {
     await expect(interruptedStreamRow.locator(":scope > div").nth(2)).toHaveText("900ms");
     await expect(interruptedStreamRow.locator(":scope > div").nth(3)).toHaveText("80ms");
     await expect(interruptedStreamRow.locator(":scope > div").nth(4)).toHaveText("—");
+    await expect(interruptedStreamRow.locator(":scope > div").nth(10)).toHaveText("—");
+    await expect(interruptedStreamRow.locator(":scope > div").nth(11)).toContainText("Usage unavailable");
+    await expect(interruptedStreamRow.locator(":scope > div").nth(12)).toContainText("Stream Interrupted");
+    await expect(interruptedStreamRow.locator(":scope > div").nth(12)).toContainText("Client Disconnected");
 
     const legacyBufferedRow = page.getByRole("button").filter({ hasText: "Legacy Buffered" });
     await expect(legacyBufferedRow.locator(":scope > div").nth(2)).toHaveText("240ms");
     await expect(legacyBufferedRow.locator(":scope > div").nth(3)).toHaveText("—");
     await expect(legacyBufferedRow.locator(":scope > div").nth(4)).toHaveText("—");
+
+    const historicalUnknownRow = page.getByRole("button").filter({ hasText: "Historical Unknown" });
+    await expect(historicalUnknownRow.locator(":scope > div").nth(11)).toContainText("Unpriced");
+    await expect(historicalUnknownRow.locator(":scope > div").nth(12)).toContainText("Historical Stream State Unknown");
   });
 
   test("detail renders TTFT summary strip in the committed six-stat order", async ({ page }) => {
@@ -338,9 +415,29 @@ test.describe("request logs TTFT", () => {
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(0)).toHaveText("900ms");
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(1)).toHaveText("80ms");
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(2)).toHaveText("—");
-    await expect(summaryStrip.locator("[data-slot='metric-value']").nth(3)).toHaveText("45");
+    await expect(summaryStrip.locator("[data-slot='metric-value']").nth(3)).toHaveText("Usage unavailable");
     const totalCostSummary = summaryStrip.locator("[data-slot='metric-value']").nth(4);
-    await expect(totalCostSummary).toContainText("$0.50");
+    await expect(totalCostSummary).toContainText("Usage unavailable");
+    await expect(page.getByText("Stream interrupted - client disconnected").first()).toBeVisible();
+    await expect(page.getByText("client closed response stream")).toBeVisible();
+    await expect(page.getByText("Open Pricing Templates")).toHaveCount(0);
     await expect(summaryStrip.locator("[data-slot='metric-value']").nth(5)).not.toHaveText("");
+  });
+
+  test("historical unknown stream detail keeps missing-usage context without pricing-template guidance", async ({ page }) => {
+    await mockRequestLogRoutes(page);
+
+    await page.goto("/request-logs");
+    await page.getByRole("button").filter({ hasText: "Historical Unknown" }).click();
+
+    const drawer = page.getByTestId("request-log-detail-sheet");
+    const summaryStrip = page.getByTestId("request-log-summary-strip");
+
+    await expect(drawer).toBeVisible();
+    await expect(page.getByText("Historical stream state unknown").first()).toBeVisible();
+    await expect(summaryStrip.locator("[data-slot='metric-value']").nth(3)).toHaveText("—");
+    await expect(summaryStrip.locator("[data-slot='metric-value']").nth(4)).toContainText("Unpriced");
+    await expect(page.getByText("Missing token usage")).toBeVisible();
+    await expect(page.getByText("Open Pricing Templates")).toHaveCount(0);
   });
 });
