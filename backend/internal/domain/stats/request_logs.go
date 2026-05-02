@@ -27,6 +27,8 @@ type requestLogListRow struct {
 	TTFTMS                      *int
 	CompletionDurationMS        *int
 	IsStream                    bool
+	StreamOutcome               string
+	StreamErrorKind             *string
 	OutputTokens                *int
 	TotalTokens                 *int
 	TotalCostUserCurrencyMicros *int64
@@ -54,6 +56,9 @@ type requestLogDetailRow struct {
 	TTFTMS                            *int
 	CompletionDurationMS              *int
 	IsStream                          bool
+	StreamOutcome                     string
+	StreamErrorKind                   *string
+	StreamErrorDetail                 *string
 	RequestPath                       string
 	IngressRequestID                  *string
 	AttemptNumber                     *int
@@ -137,7 +142,7 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 	}
 	rows, err := exec.Query(
 		ctx,
-		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
+		`SELECT id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, endpoint_id, connection_id, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, request_generation_params #>> '{reasoning,effort}', report_currency_symbol, caller_user_agent, upstream_user_agent, endpoint_base_url
 		 FROM request_logs
 		 WHERE `+whereClause+`
 		 ORDER BY created_at DESC, id DESC
@@ -175,6 +180,8 @@ func ListRequestLogs(ctx context.Context, exec queryExecutor, params RequestLogL
 			TTFTMS:                      item.TTFTMS,
 			CompletionDurationMS:        item.CompletionDurationMS,
 			IsStream:                    item.IsStream,
+			StreamOutcome:               item.StreamOutcome,
+			StreamErrorKind:             item.StreamErrorKind,
 			OutputTokens:                item.OutputTokens,
 			TotalTokens:                 item.TotalTokens,
 			TotalCostUserCurrencyMicros: item.TotalCostUserCurrencyMicros,
@@ -243,6 +250,9 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			TTFTMS:                   row.TTFTMS,
 			CompletionDurationMS:     row.CompletionDurationMS,
 			IsStream:                 row.IsStream,
+			StreamOutcome:            row.StreamOutcome,
+			StreamErrorKind:          row.StreamErrorKind,
+			StreamErrorDetail:        row.StreamErrorDetail,
 		},
 		Request: RequestLogDetailRequest{
 			RequestPath:                   row.RequestPath,
@@ -461,7 +471,7 @@ func endpointFromMap(items map[int]endpointRecord, endpointID *int) (endpointRec
 func loadRequestLogDetailRow(ctx context.Context, exec queryExecutor, profileID int, requestID int) (requestLogDetailRow, bool, error) {
 	row := exec.QueryRow(
 		ctx,
-		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, request_generation_params, request_generation_params_status, endpoint_id, connection_id, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
+		`SELECT profile_id, id, created_at, model_id, resolved_target_model_id, api_family, vendor_id, vendor_key, vendor_name, status_code, response_time_ms, ttft_ms, completion_duration_ms, is_stream, stream_outcome, stream_error_kind, stream_error_detail, request_path, ingress_request_id, attempt_number, provider_correlation_id, proxy_api_key_id, proxy_api_key_name_snapshot, caller_user_agent, upstream_user_agent, error_detail, request_generation_params, request_generation_params_status, endpoint_id, connection_id, endpoint_base_url, endpoint_description, audit_enabled_at_request, audit_capture_bodies_at_request, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, unpriced_reason, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used
 		 FROM request_logs
 		 WHERE profile_id = $1 AND id = $2
 		 LIMIT 1`,
@@ -487,6 +497,8 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var connectionID sql.NullInt32
 	var ttftMS sql.NullInt32
 	var completionDurationMS sql.NullInt32
+	var streamOutcome sql.NullString
+	var streamErrorKind sql.NullString
 	var outputTokens sql.NullInt32
 	var totalTokens sql.NullInt32
 	var totalCostUserCurrencyMicros sql.NullInt64
@@ -498,7 +510,7 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	var upstreamUserAgent sql.NullString
 	var endpointBaseURL sql.NullString
 	item := requestLogListRow{}
-	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &endpointID, &connectionID, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricedFlag, &unpricedReason, &reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
+	if err := scanner.Scan(&item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &endpointID, &connectionID, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind, &outputTokens, &totalTokens, &totalCostUserCurrencyMicros, &pricedFlag, &unpricedReason, &reasoningEffort, &reportCurrencySymbol, &callerUserAgent, &upstreamUserAgent, &endpointBaseURL); err != nil {
 		return requestLogListRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -510,6 +522,8 @@ func scanRequestLogListRow(scanner interface{ Scan(...any) error }) (requestLogL
 	item.ConnectionID = nullableInt32(connectionID)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)
+	item.StreamOutcome = normalizeRequestLogStreamOutcome(nullableString(streamOutcome), item.IsStream, item.CompletionDurationMS)
+	item.StreamErrorKind = normalizeOptionalString(nullableString(streamErrorKind))
 	item.OutputTokens = nullableInt32(outputTokens)
 	item.TotalTokens = nullableInt32(totalTokens)
 	item.TotalCostUserCurrencyMicros = nullableInt64(totalCostUserCurrencyMicros)
@@ -531,6 +545,9 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var vendorName sql.NullString
 	var ttftMS sql.NullInt32
 	var completionDurationMS sql.NullInt32
+	var streamOutcome sql.NullString
+	var streamErrorKind sql.NullString
+	var streamErrorDetail sql.NullString
 	var ingressRequestID sql.NullString
 	var attemptNumber sql.NullInt32
 	var providerCorrelationID sql.NullString
@@ -575,7 +592,7 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	var pricingSnapshotReasoning sql.NullString
 	var pricingConfigVersionUsed sql.NullInt32
 	item := requestLogDetailRow{}
-	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &requestGenerationParams, &requestGenerationParamsStatus, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
+	if err := scanner.Scan(&item.ProfileID, &item.ID, &item.CreatedAt, &item.ModelID, &resolvedTargetModelID, &item.APIFamily, &vendorID, &vendorKey, &vendorName, &item.StatusCode, &item.ResponseTimeMS, &ttftMS, &completionDurationMS, &item.IsStream, &streamOutcome, &streamErrorKind, &streamErrorDetail, &item.RequestPath, &ingressRequestID, &attemptNumber, &providerCorrelationID, &proxyAPIKeyID, &proxyAPIKeyNameSnapshot, &callerUserAgent, &upstreamUserAgent, &errorDetail, &requestGenerationParams, &requestGenerationParamsStatus, &endpointID, &connectionID, &endpointBaseURL, &endpointDescription, &item.AuditEnabledAtRequest, &item.AuditCaptureBodiesAtRequest, &inputTokens, &outputTokens, &totalTokens, &successFlag, &billableFlag, &pricedFlag, &unpricedReason, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &currencyCodeOriginal, &reportCurrencyCode, &reportCurrencySymbol, &fxRateUsed, &fxRateSource, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
 		return requestLogDetailRow{}, err
 	}
 	item.CreatedAt = item.CreatedAt.UTC()
@@ -585,6 +602,9 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.VendorName = nullableString(vendorName)
 	item.TTFTMS = nullableInt32(ttftMS)
 	item.CompletionDurationMS = nullableInt32(completionDurationMS)
+	item.StreamOutcome = normalizeRequestLogStreamOutcome(nullableString(streamOutcome), item.IsStream, item.CompletionDurationMS)
+	item.StreamErrorKind = normalizeOptionalString(nullableString(streamErrorKind))
+	item.StreamErrorDetail = normalizeOptionalString(nullableString(streamErrorDetail))
 	item.IngressRequestID = nullableString(ingressRequestID)
 	item.AttemptNumber = nullableInt32(attemptNumber)
 	item.ProviderCorrelationID = nullableString(providerCorrelationID)
@@ -630,6 +650,19 @@ func scanRequestLogDetailRow(scanner interface{ Scan(...any) error }) (requestLo
 	item.PricingConfigVersionUsed = nullableInt32(pricingConfigVersionUsed)
 	item = normalizeRequestLogDetailSpendState(item)
 	return item, nil
+}
+
+func normalizeRequestLogStreamOutcome(value *string, isStream bool, completionDurationMS *int) string {
+	if normalized := normalizeOptionalString(value); normalized != nil {
+		return *normalized
+	}
+	if !isStream {
+		return "not_streaming"
+	}
+	if completionDurationMS != nil {
+		return "completed"
+	}
+	return "unknown"
 }
 
 func nullableJSONRawMessage(raw []byte) *json.RawMessage {

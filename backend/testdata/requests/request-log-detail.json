@@ -15,7 +15,10 @@
     "response_time_ms": 1234,
     "ttft_ms": 320,
     "completion_duration_ms": 914,
-    "is_stream": false
+    "is_stream": false,
+    "stream_outcome": "not_streaming",
+    "stream_error_kind": null,
+    "stream_error_detail": null
   },
   "request": {
     "request_path": "/v1/chat/completions",

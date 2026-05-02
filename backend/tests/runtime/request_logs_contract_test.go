@@ -60,6 +60,9 @@ func TestRequestLogListContract(t *testing.T) {
 	if unpricedReason, ok := primaryItem["unpriced_reason"]; !ok || unpricedReason != nil {
 		t.Fatalf("expected primary request-log list row unpriced_reason=null, got %+v", primaryItem)
 	}
+	if _, ok := primaryItem["stream_error_detail"]; ok {
+		t.Fatalf("did not expect request-log list row to expose stream_error_detail, got %+v", primaryItem)
+	}
 	filterOptions := asMapRuntime(t, payload["filter_options"])
 	models, ok := filterOptions["models"].([]any)
 	if !ok {
@@ -167,6 +170,38 @@ func TestRequestLogDetailContract(t *testing.T) {
 	decodeJSONResponse(t, missing, &missingPayload)
 	if missingPayload["detail"] != "Request log not found" {
 		t.Fatalf("expected scoped request-log 404 detail, got %+v", missingPayload)
+	}
+}
+
+func TestRequestLogStreamErrorDetailContract(t *testing.T) {
+	harness := newRequestLogContractHarness(t)
+	profileID := loadRuntimeDefaultProfileID(t, harness)
+	seedRequestLogEndpoints(t, harness, profileID)
+	createdAt := time.Date(2026, 4, 18, 12, 25, 0, 0, time.UTC)
+	seedSimpleRequestLog(t, harness, profileID, 105, 12, nil, createdAt, false)
+	streamErrorDetail := "upstream read failed after provider closed connection"
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET is_stream = FALSE, stream_outcome = 'upstream_read_error', stream_error_kind = 'upstream_read_failed', stream_error_detail = $1 WHERE profile_id = $2 AND id = 105`, streamErrorDetail, profileID); err != nil {
+		t.Fatalf("seed request-log stream error detail: %v", err)
+	}
+
+	listResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var payload map[string]any
+	decodeJSONResponse(t, listResponse, &payload)
+	item := requestLogItemsByID(t, payload["items"].([]any))[105]
+	if item["stream_outcome"] != "upstream_read_error" || item["stream_error_kind"] != "upstream_read_failed" {
+		t.Fatalf("expected request-log list to include stream outcome/kind, got %+v", item)
+	}
+	if _, ok := item["stream_error_detail"]; ok {
+		t.Fatalf("did not expect request-log list to expose stream_error_detail, got %+v", item)
+	}
+
+	detailResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests/105", nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	decodeJSONResponse(t, detailResponse, &payload)
+	summary := asMapRuntime(t, payload["summary"])
+	if summary["stream_outcome"] != "upstream_read_error" || summary["stream_error_kind"] != "upstream_read_failed" || summary["stream_error_detail"] != streamErrorDetail {
+		t.Fatalf("expected request-log detail summary to expose exact sanitized stream error detail, got %+v", summary)
 	}
 }
 
@@ -606,6 +641,10 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 	if usageEventRow != want {
 		t.Fatalf("expected usage_request_events pricing row %+v, got %+v", want, usageEventRow)
 	}
+	streamRow := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if streamRow.StreamOutcome != "not_streaming" || streamRow.StreamErrorKind.Valid || streamRow.StreamErrorDetail.Valid || !streamRow.TotalCostUserCurrencyMicros.Valid || streamRow.TotalCostUserCurrencyMicros.Int64 != 50 || !streamRow.CompletionDurationMS.Valid {
+		t.Fatalf("expected non-stream request log to persist not_streaming while preserving pricing/timing, got %+v", streamRow)
+	}
 }
 
 func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
@@ -958,6 +997,8 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 		EndpointBaseURL: upstream.URL,
 		EndpointAPIKey:  "runtime-stream-key",
 	})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
 		t,
@@ -998,6 +1039,85 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 		t.Fatalf("expected streamed responses usage to persist 7/13/20, got input=%+v output=%+v total=%+v", inputTokens, outputTokens, totalTokens)
 	}
 	assertLatestRuntimeWinningRequestLogTiming(t, harness.conn, profileID, false)
+	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.TotalCostUserCurrencyMicros.Valid || row.TotalCostUserCurrencyMicros.Int64 != 79 || !row.PricedFlag.Valid || !row.PricedFlag.Bool || row.UnpricedReason.Valid || !row.CompletionDurationMS.Valid {
+		t.Fatalf("expected completed streamed request log to persist priced stream telemetry, got %+v", row)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventStreamTelemetryRow(t, harness.conn, profileID)
+	if usageEventRow.StreamOutcome != "completed" || usageEventRow.StreamErrorKind.Valid || !usageEventRow.TotalCostUserCurrencyMicros.Valid || usageEventRow.TotalCostUserCurrencyMicros.Int64 != 79 || !usageEventRow.PricedFlag.Valid || !usageEventRow.PricedFlag.Bool || usageEventRow.UnpricedReason.Valid || !usageEventRow.CompletionDurationMS.Valid {
+		t.Fatalf("expected completed streamed usage event to persist priced stream telemetry, got %+v", usageEventRow)
+	}
+}
+
+func TestRuntimeRequestLogPersistsProviderIncompleteStreamOutcome(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+		_, _ = io.WriteString(w, "event: response.incomplete\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\"}}\n\n")
+	}))
+	defer upstream.Close()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "stream-incomplete-public-" + randomSuffix(), TargetModelID: "stream-incomplete-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-stream-incomplete-key"})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-incomplete-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "provider incomplete stream", "stream": true}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if row.StreamOutcome != "provider_incomplete" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.CompletionDurationMS.Valid || !row.UnpricedReason.Valid || row.UnpricedReason.String != "STREAM_USAGE_UNAVAILABLE" {
+		t.Fatalf("expected provider-incomplete stream telemetry with terminal duration and unavailable usage reason, got %+v", row)
+	}
+}
+
+func TestRuntimeRequestLogPersistsStreamEOFWithoutTerminalOutcome(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+	}))
+	defer upstream.Close()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "stream-missing-terminal-public-" + randomSuffix(), TargetModelID: "stream-missing-terminal-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-stream-missing-terminal-key"})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-missing-terminal-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "missing terminal stream", "stream": true}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if row.StreamOutcome != "upstream_ended_without_terminal" || !row.StreamErrorKind.Valid || row.StreamErrorKind.String != "missing_terminal_event" || row.StreamErrorDetail.Valid || row.InputTokens.Valid || row.OutputTokens.Valid || row.TotalTokens.Valid || row.TotalCostUserCurrencyMicros.Valid || row.CompletionDurationMS.Valid || !row.UnpricedReason.Valid || row.UnpricedReason.String != "STREAM_USAGE_UNAVAILABLE" {
+		t.Fatalf("expected missing-terminal stream telemetry with null usage/cost and unavailable reason, got %+v", row)
+	}
+}
+
+func TestRuntimeRequestLogCompletedStreamWithMissingUsageKeepsMissingTokenUsage(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.completed\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":null}}\n\n")
+	}))
+	defer upstream.Close()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "stream-missing-usage-public-" + randomSuffix(), TargetModelID: "stream-missing-usage-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-stream-missing-usage-key"})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-missing-usage-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "completed stream without usage", "stream": true}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.TotalCostUserCurrencyMicros.Valid || !row.UnpricedReason.Valid || row.UnpricedReason.String != "MISSING_TOKEN_USAGE" {
+		t.Fatalf("expected completed missing-usage stream to keep missing-token reason, got %+v", row)
+	}
 }
 
 func TestRuntimeRequestLogPersistsStreamedAnthropicUsage(t *testing.T) {
@@ -1072,7 +1192,15 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	assertLatestRequestLogUsage(t, harness.conn, profileID, false, 7, 13, 20)
+	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.CompletionDurationMS.Valid {
+		t.Fatalf("expected actual Gemini SSE response to persist completed stream telemetry despite non-stream request plan, got %+v", row)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventStreamTelemetryRow(t, harness.conn, profileID)
+	if usageEventRow.StreamOutcome != "completed" || usageEventRow.StreamErrorKind.Valid || !usageEventRow.CompletionDurationMS.Valid {
+		t.Fatalf("expected actual Gemini SSE usage event to persist completed stream telemetry despite non-stream request plan, got %+v", usageEventRow)
+	}
 }
 
 func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T) {
@@ -1108,6 +1236,58 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 	)
 	assertStatus(t, response, http.StatusOK)
 	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+}
+
+type runtimePersistedStreamTelemetryRow struct {
+	StreamOutcome               string
+	StreamErrorKind             sql.NullString
+	StreamErrorDetail           sql.NullString
+	InputTokens                 sql.NullInt64
+	OutputTokens                sql.NullInt64
+	TotalTokens                 sql.NullInt64
+	TotalCostUserCurrencyMicros sql.NullInt64
+	PricedFlag                  sql.NullBool
+	UnpricedReason              sql.NullString
+	CompletionDurationMS        sql.NullInt64
+}
+
+func loadRuntimeReportCurrencyCode(t *testing.T, conn *pgx.Conn, profileID int) string {
+	t.Helper()
+	var reportCurrencyCode string
+	if err := conn.QueryRow(context.Background(), `SELECT report_currency_code FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`, profileID).Scan(&reportCurrencyCode); err != nil {
+		t.Fatalf("load runtime report currency code: %v", err)
+	}
+	return reportCurrencyCode
+}
+
+func loadLatestRuntimeRequestLogStreamTelemetryRow(t *testing.T, conn *pgx.Conn, profileID int) runtimePersistedStreamTelemetryRow {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+	var row runtimePersistedStreamTelemetryRow
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT stream_outcome, stream_error_kind, stream_error_detail, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, completion_duration_ms FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&row.StreamOutcome, &row.StreamErrorKind, &row.StreamErrorDetail, &row.InputTokens, &row.OutputTokens, &row.TotalTokens, &row.TotalCostUserCurrencyMicros, &row.PricedFlag, &row.UnpricedReason, &row.CompletionDurationMS); err != nil {
+		t.Fatalf("load latest runtime request-log stream telemetry row: %v", err)
+	}
+	return row
+}
+
+func loadLatestRuntimeUsageEventStreamTelemetryRow(t *testing.T, conn *pgx.Conn, profileID int) runtimePersistedStreamTelemetryRow {
+	t.Helper()
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+	var row runtimePersistedStreamTelemetryRow
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT stream_outcome, stream_error_kind, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, priced_flag, unpriced_reason, completion_duration_ms FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&row.StreamOutcome, &row.StreamErrorKind, &row.InputTokens, &row.OutputTokens, &row.TotalTokens, &row.TotalCostUserCurrencyMicros, &row.PricedFlag, &row.UnpricedReason, &row.CompletionDurationMS); err != nil {
+		t.Fatalf("load latest runtime usage-event stream telemetry row: %v", err)
+	}
+	return row
 }
 
 func assertLatestRequestLogUsage(t *testing.T, conn *pgx.Conn, profileID int, expectStream bool, wantInput int64, wantOutput int64, wantTotal int64) {
