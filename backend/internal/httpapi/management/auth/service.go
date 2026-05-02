@@ -104,13 +104,18 @@ func (s *Service) RegisterBackgroundWorkers(scheduler *background.Scheduler) err
 	return s.proxyKeyUsageWriter.RegisterBackgroundWorker(scheduler)
 }
 
+func (s *Service) DrainSideEffects() {
+	if s == nil || s.proxyKeyUsageWriter == nil {
+		return
+	}
+	s.proxyKeyUsageWriter.Close()
+}
+
 func (s *Service) Close() {
 	if s == nil {
 		return
 	}
-	if s.proxyKeyUsageWriter != nil {
-		s.proxyKeyUsageWriter.Close()
-	}
+	s.DrainSideEffects()
 	if s.ownsPool && s.pool != nil {
 		s.pool.Close()
 	}

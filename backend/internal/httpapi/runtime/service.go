@@ -183,7 +183,7 @@ func (s *Service) runtimeProxyConfigSnapshot() RuntimeProxyConfigSnapshot {
 	return s.staticRuntimeProxyConfig
 }
 
-func (s *Service) Close() {
+func (s *Service) DrainSideEffects() {
 	if s == nil {
 		return
 	}
@@ -202,6 +202,13 @@ func (s *Service) Close() {
 	if s.feedbackPipeline != nil {
 		s.feedbackPipeline.Close()
 	}
+}
+
+func (s *Service) Close() {
+	if s == nil {
+		return
+	}
+	s.DrainSideEffects()
 	if s.ownedScheduler != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
