@@ -347,8 +347,9 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 
 	var responseCapture runtimeResponseCapture
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
+	captureAuditBody := plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest
 	if strings.Contains(contentType, "text/event-stream") {
-		responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(r.Context(), proxyWriter, execution.Response.Body, s.nowUTC)
+		responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
 		if streamErr != nil {
 			slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
 		}
@@ -356,7 +357,7 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
 		return
 	}
-	responseCapture, err := proxyNonEventResponseAndCaptureUsage(proxyWriter, execution.Response.Body, contentType, s.nowUTC, plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest && !plan.IsStreamingRequest)
+	responseCapture, err := proxyNonEventResponseAndCaptureUsage(proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
 	if err != nil {
 		if !proxyWriter.Committed() {
 			writeError(w, http.StatusBadGateway, "Failed to read upstream response")
@@ -818,17 +819,33 @@ func isJSONWhitespace(value byte) bool {
 	}
 }
 
-func proxyEventStreamAndCaptureCompletedResponse(ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time) (runtimeResponseCapture, error) {
+func proxyEventStreamAndCaptureCompletedResponse(ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	reader := bufio.NewReader(src)
 	capture := sseCompletedResponseCapture{}
+	var auditBuffer bytes.Buffer
+
+	captureResult := func(classification sseStreamClassification) runtimeResponseCapture {
+		responseCapture := capture.runtimeResponseCapture(classification)
+		if captureAuditBody {
+			responseCapture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
+		}
+		return responseCapture
+	}
 
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
 			capture.consumeLine(line, now())
-			if _, writeErr := dst.Write(line); writeErr != nil {
+			written, writeErr := dst.Write(line)
+			if captureAuditBody && written > 0 {
+				if written > len(line) {
+					written = len(line)
+				}
+				auditBuffer.Write(line[:written])
+			}
+			if writeErr != nil {
 				capture.finishEvent(now())
-				return capture.runtimeResponseCapture(classifySSEStreamOutcome(ctx, capture.terminalSignal, nil, writeErr)), writeErr
+				return captureResult(classifySSEStreamOutcome(ctx, capture.terminalSignal, nil, writeErr)), writeErr
 			}
 		}
 		if err == nil {
@@ -836,9 +853,9 @@ func proxyEventStreamAndCaptureCompletedResponse(ctx context.Context, dst io.Wri
 		}
 		capture.finishEvent(now())
 		if errors.Is(err, io.EOF) {
-			return capture.runtimeResponseCapture(classifySSEStreamOutcome(ctx, capture.terminalSignal, nil, nil)), nil
+			return captureResult(classifySSEStreamOutcome(ctx, capture.terminalSignal, nil, nil)), nil
 		}
-		return capture.runtimeResponseCapture(classifySSEStreamOutcome(ctx, capture.terminalSignal, err, nil)), err
+		return captureResult(classifySSEStreamOutcome(ctx, capture.terminalSignal, err, nil)), err
 	}
 }
 

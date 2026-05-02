@@ -406,19 +406,20 @@ func TestRuntimeResponsesAuditLogCapturesNonStreamingBodies(t *testing.T) {
 	}
 }
 
-func TestRuntimeStreamingAuditLogDoesNotClaimStoredResponseBody(t *testing.T) {
+func TestRuntimeStreamingAuditLogCapturesRawResponseBody(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = TRUE WHERE id = $1`, vendorID); err != nil {
 		t.Fatalf("enable streaming audit capture for runtime vendor: %v", err)
 	}
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "event: response.created\n")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n")
-		_, _ = io.WriteString(w, "event: response.completed\n")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n")
+		_, _ = io.WriteString(w, stream)
 	}))
 	defer upstream.Close()
 	publicModelID := "audit-stream-public-" + randomSuffix()
@@ -449,8 +450,64 @@ func TestRuntimeStreamingAuditLogDoesNotClaimStoredResponseBody(t *testing.T) {
 	if err := harness.conn.QueryRow(context.Background(), `SELECT request_body, request_body_stored, response_body, response_body_stored, is_stream, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&requestBody, &requestBodyStored, &responseBody, &responseBodyStored, &isStream, &auditCaptureBodiesAtRequest); err != nil {
 		t.Fatalf("load materialized streaming audit log: %v", err)
 	}
-	if !requestBody.Valid || !requestBodyStored || responseBody.Valid || responseBodyStored || !isStream || !auditCaptureBodiesAtRequest {
-		t.Fatalf("expected streaming audit row to keep request body but no stored response body, got request=%+v requestStored=%v response=%+v responseStored=%v isStream=%v capture=%v", requestBody, requestBodyStored, responseBody, responseBodyStored, isStream, auditCaptureBodiesAtRequest)
+	if !requestBody.Valid || !requestBodyStored || !responseBody.Valid || !responseBodyStored || !isStream || !auditCaptureBodiesAtRequest {
+		t.Fatalf("expected streaming audit row to keep request body and raw stored response body, got request=%+v requestStored=%v response=%+v responseStored=%v isStream=%v capture=%v", requestBody, requestBodyStored, responseBody, responseBodyStored, isStream, auditCaptureBodiesAtRequest)
+	}
+	if !strings.Contains(requestBody.String, route.TargetModelID) {
+		t.Fatalf("expected stored streaming audit request body to reflect rewritten upstream target model %q, got %q", route.TargetModelID, requestBody.String)
+	}
+	if responseBody.String != stream || !strings.Contains(responseBody.String, "event: response.created") || !strings.Contains(responseBody.String, "event: response.completed") || !strings.Contains(responseBody.String, "event:") {
+		t.Fatalf("expected stored streaming audit response body to preserve raw SSE framing, got %q", responseBody.String)
+	}
+	if strings.HasPrefix(strings.TrimSpace(responseBody.String), "{") {
+		t.Fatalf("expected stored streaming audit response body to be raw SSE, not synthesized usage JSON: %q", responseBody.String)
+	}
+}
+
+func TestRuntimeStreamingMetadataOnlyAuditLogDoesNotStoreResponseBody(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	vendorID := loadVendorIDByKey(t, harness.conn, "openai")
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE vendors SET audit_enabled = TRUE, audit_capture_bodies = FALSE WHERE id = $1`, vendorID); err != nil {
+		t.Fatalf("enable streaming metadata-only audit for runtime vendor: %v", err)
+	}
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, stream)
+	}))
+	defer upstream.Close()
+	publicModelID := "audit-stream-metadata-public-" + randomSuffix()
+	targetModelID := "audit-stream-metadata-target-" + randomSuffix()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   publicModelID,
+		TargetModelID:   targetModelID,
+		EndpointBaseURL: upstream.URL,
+		EndpointAPIKey:  "runtime-audit-stream-metadata-key",
+	})
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE model_configs SET vendor_id = $1 WHERE profile_id = $2 AND model_id = ANY($3::text[])`, vendorID, profileID, []string{route.PublicModelID, route.TargetModelID}); err != nil {
+		t.Fatalf("attach runtime models to streaming metadata-only audit vendor: %v", err)
+	}
+	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "streaming metadata-only audit row", "stream": true}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	var responseBody sql.NullString
+	var responseBodyStored bool
+	var isStream bool
+	var auditCaptureBodiesAtRequest bool
+	if err := harness.conn.QueryRow(context.Background(), `SELECT response_body, response_body_stored, is_stream, audit_capture_bodies_at_request FROM audit_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`, profileID).Scan(&responseBody, &responseBodyStored, &isStream, &auditCaptureBodiesAtRequest); err != nil {
+		t.Fatalf("load materialized streaming metadata-only audit log: %v", err)
+	}
+	if responseBody.Valid || responseBodyStored || !isStream || auditCaptureBodiesAtRequest {
+		t.Fatalf("expected streaming metadata-only audit row with nil response body and is_stream=true, got response=%+v responseStored=%v isStream=%v capture=%v", responseBody, responseBodyStored, isStream, auditCaptureBodiesAtRequest)
 	}
 }
 

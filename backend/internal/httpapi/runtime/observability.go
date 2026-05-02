@@ -322,7 +322,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	}
 
 	capturedRequestBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest, plan.UpstreamBody)
-	capturedResponseBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest && !isStream, responseCapture.AuditBody)
+	capturedResponseBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest, responseCapture.AuditBody)
 	requestLogs := make([]requestLogInsert, 0, len(attempts))
 	auditLogs := make([]auditLogInsert, 0, len(attempts))
 	for index, attempt := range attempts {

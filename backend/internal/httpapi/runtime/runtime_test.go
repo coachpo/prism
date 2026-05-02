@@ -145,7 +145,7 @@ func TestClassifySSEStreamOutcome(t *testing.T) {
 func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
 	writeFailure := errors.New("write failed\nwith\tcontrol")
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), failingWriter{err: writeFailure}, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), time.Now)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), failingWriter{err: writeFailure}, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), time.Now, false)
 	if !errors.Is(err, writeFailure) {
 		t.Fatalf("expected write failure, got %v", err)
 	}
@@ -154,7 +154,7 @@ func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
 	}
 
 	readFailure := errors.New("upstream read failed")
-	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), err: readFailure}, time.Now)
+	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), err: readFailure}, time.Now, false)
 	if !errors.Is(err, readFailure) {
 		t.Fatalf("expected upstream read failure, got %v", err)
 	}
@@ -165,7 +165,7 @@ func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
 
 func TestProxyEventStreamClassifiesEOFWithoutTerminal(t *testing.T) {
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n"), time.Now)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n"), time.Now, false)
 	if err != nil {
 		t.Fatalf("proxy SSE without terminal: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t 
 	defer cancel()
 	var forwarded bytes.Buffer
 	cancelingWriter := cancelOnBlankLineWriter{dst: &forwarded, cancel: cancel}
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(canceledContext, cancelingWriter, strings.NewReader(terminalStream), time.Now)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(canceledContext, cancelingWriter, strings.NewReader(terminalStream), time.Now, false)
 	if err != nil {
 		t.Fatalf("proxy SSE with canceled context after terminal: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t 
 
 	readFailure := errors.New("upstream read failed after terminal")
 	forwarded.Reset()
-	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte(terminalStream), err: readFailure}, time.Now)
+	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte(terminalStream), err: readFailure}, time.Now, false)
 	if !errors.Is(err, readFailure) {
 		t.Fatalf("expected upstream read failure, got %v", err)
 	}
@@ -208,7 +208,7 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 		stream := "data: {\"id\":\"chatcmpl-done\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n" +
 			"data:   [DONE]  \n\n"
 		var forwarded bytes.Buffer
-		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now)
+		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
 		if err != nil {
 			t.Fatalf("proxy SSE with [DONE]: %v", err)
 		}
@@ -227,7 +227,7 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 
 	t.Run("other non JSON remains missing terminal", func(t *testing.T) {
 		var forwarded bytes.Buffer
-		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("data: not-json\n\n"), time.Now)
+		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("data: not-json\n\n"), time.Now, false)
 		if err != nil {
 			t.Fatalf("proxy SSE with non-JSON payload: %v", err)
 		}
@@ -241,7 +241,7 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":13,\"total_tokens\":20}}\n\n" +
 		"data: [DONE]\n\n"
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
 	if err != nil {
 		t.Fatalf("proxy SSE with usage and [DONE]: %v", err)
 	}
@@ -260,6 +260,34 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 	pricing := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
 	if !pricing.Billable || !pricing.Priced || pricing.UnpricedReason != nil {
 		t.Fatalf("expected observed usage before [DONE] to price normally, got %+v", pricing)
+	}
+}
+
+func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
+	stream := "event: response.created\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n"
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now, true)
+	if err != nil {
+		t.Fatalf("proxy SSE with audit capture: %v", err)
+	}
+	if forwarded.String() != stream {
+		t.Fatalf("expected SSE stream to pass through unchanged, got %q", forwarded.String())
+	}
+	if string(capture.AuditBody) != stream || !strings.Contains(string(capture.AuditBody), "event: response.completed") {
+		t.Fatalf("expected raw framed SSE audit body, got %q", string(capture.AuditBody))
+	}
+	if bytes.Equal(capture.AuditBody, capture.Body) {
+		t.Fatalf("expected raw audit body to differ from parsed completion body, got %q", string(capture.AuditBody))
+	}
+	inputTokens := 7
+	outputTokens := 13
+	totalTokens := 20
+	wantUsage := responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens}
+	if got := capture.extractedUsage(); !reflect.DeepEqual(got, wantUsage) {
+		t.Fatalf("expected usage extraction to survive audit capture: want %+v got %+v", wantUsage, got)
 	}
 }
 
