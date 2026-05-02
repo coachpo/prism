@@ -2004,7 +2004,7 @@ Response `200`:
 ```
 
 The list API returns `request_body_preview` (first 200 characters of the request body) instead of the full body. Use the detail API for full content.
-If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. Streaming responses never store `response_body`, so a streaming row may still have request metadata with a null response body. Rows whose `request_log_id` is `null` are orphaned audit rows from deleted request logs, and they remain visible in the audit APIs.
+If body capture was off at request time, `request_body_preview` is `null` even though the audit metadata still exists. `response_body_stored` means captured response bytes were stored, independent of `is_stream`; rows with `response_body_stored=false` have no stored response body. Rows whose `request_log_id` is `null` are orphaned audit rows from deleted request logs, and they remain visible in the audit APIs.
 Rows are ordered by `(created_at DESC, id DESC)`. Pagination is keyset-based: when `has_more=true`, pass the returned `next_cursor` with the same window, sort, and filters. The audit list response does not include `total` or `offset`.
 
 ### 5.2 Get Audit Log Detail
@@ -2036,8 +2036,8 @@ Response `200`:
 }
 ```
 
-For streaming requests, `response_body` is `null` (streaming response bodies are not recorded).
-If vendor body capture is disabled, both `request_body` and `response_body` are `null`.
+When body capture is enabled and non-empty response bytes are captured, `response_body` stores those bytes and `response_body_stored=true`; `is_stream` does not prevent storage.
+If vendor body capture is disabled, both `request_body` and `response_body` are `null`. Rows with `response_body_stored=false` have no stored response body, including old rows that were written before streaming response capture was available.
 
 Response `404`: Audit log not found.
 

@@ -175,7 +175,7 @@ Full HTTP request/response recording for proxied requests, stored in the databas
 #### 4.10.2 What Gets Recorded
 For each audited upstream attempt (including failover attempts):
 - **Request**: HTTP method, full upstream URL, all headers (redacted), request body
-- **Response**: HTTP status code, response headers, response body (non-streaming only)
+- **Response**: HTTP status code, response headers, captured response body bytes when body capture is enabled and bytes were captured
 - **Metadata**: model ID, api family, connection identity (connection ID, endpoint base URL, description), duration, stream flag, timestamp, link to corresponding `request_log` entry
 
 #### 4.10.3 Sensitive Data Redaction

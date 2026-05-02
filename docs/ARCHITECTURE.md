@@ -447,7 +447,7 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
            -> Record connection metadata (connection_id, endpoint_base_url, endpoint_description)
            -> Link to request_log entry via request_log_id
            -> Store immutable profile_id attribution
-           -> response_body = NULL for streaming captures, because response bodies are not stored for streamed responses
+           -> Store captured response bytes when body capture is enabled and bytes were captured; is_stream is metadata only
             -> INSERT into audit_logs using a dedicated audit write path
 ```
 
@@ -478,7 +478,7 @@ The audit detail view is a right-side sheet with tabs for:
 
 - Summary strip: model, vendor, api family, connection (ID + description + endpoint base URL), status, duration, timestamp
 - Request tab: method, URL, headers (redacted), body (pretty-printed JSON)
-- Response tab: status, headers, body (pretty-printed JSON, or "not recorded" notice for streaming)
+- Response tab: status, headers, body (pretty-printed JSON when stored, or a "not recorded" notice when no response body was stored)
 - Connection identity fields (`connection_id`, `endpoint_base_url`, `endpoint_description`) are displayed in the summary strip
 
 ### 8.8 Conditional Decompression (Performance Optimization)
