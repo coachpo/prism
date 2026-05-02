@@ -9,6 +9,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendDir = path.resolve(__dirname, "../..");
 
+function loadStreamTelemetryModule() {
+  const { load } = createTsModuleLoader({ rootDir: frontendDir });
+
+  return load(path.join(frontendDir, "src/pages/request-logs/streamTelemetry.ts"));
+}
+
 function loadCostingModule(
   activeCurrencyState = { currency: { code: "EUR", symbol: "€" }, trust: "verified" },
 ) {
@@ -97,4 +103,24 @@ test("getActiveSpendTrustContext returns both currency trust and resolved spend 
     currencyTrust: "fallback",
     spendTrust: "unpriced",
   });
+});
+
+test("formatUnpricedReasonLabel distinguishes stream usage gaps from missing token usage", () => {
+  const costing = loadCostingModule();
+
+  assert.equal(costing.formatUnpricedReasonLabel("MISSING_TOKEN_USAGE"), "Missing token usage");
+  assert.equal(costing.formatUnpricedReasonLabel("STREAM_USAGE_UNAVAILABLE"), "Usage unavailable");
+});
+
+test("historical unknown stream rows are distinct from usage-unavailable pricing gaps", () => {
+  const streamTelemetry = loadStreamTelemetryModule();
+
+  assert.equal(streamTelemetry.isStreamUsageUnavailableReason("MISSING_TOKEN_USAGE"), false);
+  assert.equal(streamTelemetry.isStreamUsageUnavailableReason("STREAM_USAGE_UNAVAILABLE"), true);
+  assert.equal(streamTelemetry.hasStreamTelemetryOutcome("client_disconnected"), true);
+  assert.equal(streamTelemetry.hasStreamTelemetryOutcome("completed"), true);
+  assert.equal(streamTelemetry.hasStreamTelemetryOutcome("not_streaming"), false);
+  assert.equal(streamTelemetry.isHistoricalUnknownStreamRow(true, "unknown"), true);
+  assert.equal(streamTelemetry.isHistoricalUnknownStreamRow(true, "completed"), false);
+  assert.equal(streamTelemetry.isHistoricalUnknownStreamRow(false, "unknown"), true);
 });

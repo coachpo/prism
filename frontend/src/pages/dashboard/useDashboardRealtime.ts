@@ -36,6 +36,8 @@ function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
     status_code: entry.status_code,
     response_time_ms: entry.response_time_ms,
     is_stream: entry.is_stream,
+    stream_outcome: entry.stream_outcome,
+    stream_error_kind: entry.stream_error_kind,
     reasoning_effort: null,
     output_tokens: entry.output_tokens,
     total_tokens: entry.total_tokens,

@@ -38,6 +38,7 @@ function getUnpricedReasonLabels(): Record<string, string> {
     MISSING_PRICE_DATA: getStaticMessages().costingUi.missingPriceData,
     MISSING_ENDPOINT: getStaticMessages().costingUi.missingEndpoint,
     MISSING_TOKEN_USAGE: getStaticMessages().costingUi.missingTokenUsage,
+    STREAM_USAGE_UNAVAILABLE: getStaticMessages().costingUi.streamUsageUnavailable,
   };
 }
 

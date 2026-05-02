@@ -6,6 +6,21 @@ import type {
 
 export type ModelType = "native" | "proxy";
 
+export type StreamOutcome =
+  | "not_streaming"
+  | "completed"
+  | "provider_incomplete"
+  | "client_disconnected"
+  | "upstream_read_error"
+  | "upstream_ended_without_terminal"
+  | "unknown";
+
+export type StreamErrorKind =
+  | "client_write_failed"
+  | "request_context_canceled"
+  | "upstream_read_failed"
+  | "missing_terminal_event";
+
 export interface ProxyTarget {
   target_model_id: string;
   position: number;
@@ -113,6 +128,8 @@ export interface RequestLogEntry {
   status_code: number;
   response_time_ms: number;
   is_stream: boolean;
+  stream_outcome: StreamOutcome;
+  stream_error_kind: StreamErrorKind | null;
   input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
@@ -175,6 +192,8 @@ export interface RequestLogListItem {
   status_code: number;
   response_time_ms: number;
   is_stream: boolean;
+  stream_outcome: StreamOutcome;
+  stream_error_kind: StreamErrorKind | null;
   reasoning_effort: string | null;
   output_tokens: number | null;
   total_tokens: number | null;
@@ -201,6 +220,9 @@ export interface RequestLogDetailSummary {
   ttft_ms: number | null;
   completion_duration_ms: number | null;
   is_stream: boolean;
+  stream_outcome: StreamOutcome;
+  stream_error_kind: StreamErrorKind | null;
+  stream_error_detail: string | null;
 }
 
 export interface RequestGenerationParamsReasoning {
