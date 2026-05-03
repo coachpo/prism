@@ -1,4 +1,4 @@
-<!-- Generated: 2026-04-30 | branch: main | commit: 083e848 -->
+<!-- Generated: 2026-05-03 | branch: main | commit: 134f0cf -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -38,7 +38,9 @@ prism/
 ```
 
 ## HIERARCHY
-- `backend/AGENTS.md`: backend monorepo directory root for runtime and test boundaries.
+- `backend/AGENTS.md`: backend monorepo directory root for runtime, platform, HTTP API, and test boundaries.
+- `backend/internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, and side-effect ownership.
+- `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, and request-context HTTP seams.
 - `backend/tests/AGENTS.md`: backend contract, integration, runtime, and priority regression boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, typed browser/backend seams, and child ownership routers under `src/`.
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
@@ -70,14 +72,14 @@ prism/
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
-- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
+- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
 - Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.sisyphus/plans/`
 
 ## COMMANDS
 ```bash
 ./start.sh headless
 ./start.sh full
-cd backend && go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority
+cd backend && go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 cd backend && go build ./cmd/prism-backend
 cd frontend && pnpm run build
 cd frontend && pnpm run lint
