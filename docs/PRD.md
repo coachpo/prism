@@ -28,22 +28,24 @@ Single operator (developer/power user) running the application locally or on a l
 - Map each model to optional `vendor_id` metadata plus a fixed runtime `api_family`
 - Two model types:
   - **Native**: A real model with its own routing and costing configurations (connections)
-  - **Proxy**: An ordered routing model that selects one native target per request (no own connections, no own strategy)
+  - **Proxy**: A selector-driven routing model that selects one native target per request (no own connections, no own loadbalance strategy)
 - Assign one or more connections per native model
 - Select which connections are actively used for each model
 - CRUD operations for all configurations via REST API
 
 ### 4.3 Proxy Model Routing
-- Proxy models own an ordered `proxy_targets` list instead of a singular redirect target
+- Proxy models own `proxy_selection_strategy` plus a `proxy_targets` list instead of a singular redirect target
+- Supported selectors are `ordered_fallback`, `weighted_static`, and `priority_static`
+- Each proxy target carries `target_model_id`, contiguous zero-based `position`, `weight >= 1`, and `target_priority >= 0`
 - Only same-`api_family` proxying is allowed
-- Proxy models cannot have their own connections — they use the chosen native target model's connections
+- Proxy models cannot have their own connections; they use the chosen native target model's connections
 - A proxy model cannot target another proxy model (must target a native model)
-- Proxy models do not have their own load balancing strategy — they always use the chosen native target model's load balancing configuration
+- Proxy models do not have their own load balancing strategy; they always use the chosen native target model's load balancing configuration
 - Model IDs are unique within a profile; the same model ID can exist in different profiles without collision
-- Gateway resolves ordered proxy targets before native connection planning: incoming request for proxy model → first available native target wins → chosen native model's connections handle the request
+- Gateway resolves the selector before native connection planning: incoming request for proxy model -> selected native target -> chosen native model's connections handle the request
 - For Gemini native API paths (e.g., `/v1beta/models/{model}:generateContent`), the proxy rewrites the model ID segment in the URL path to the resolved native target model ID when proxy routing selects a different upstream model ID
 - Gemini streaming is path-native: `/v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`
-- V1 proxy routing scope is ordered priority selection only. Once one target is selected, retries stay inside that target model's native connection plan and do not jump to another proxy target in the same request.
+- Once one target is selected, retries stay inside that target model's native connection plan and do not jump to another proxy target in the same request.
 
 ### 4.4 Load Balancing & Failover
 - For models with multiple connections:
@@ -127,7 +129,7 @@ Single operator (developer/power user) running the application locally or on a l
 - No config files to manage — everything through the UI/API
 - The default profile exists from the first startup and remains editable after initialization
 - Config export/import uses the Go-era split-bundle contract: profile bundles are `version: 1` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
-- Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, ordered `proxy_targets`, nullable `vendor_key`, and `api_family`
+- Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
 - Database setup is managed by the Go backend runtime and applies the checked-in migration chain on startup
 ### 4.9 Request Statistics & Analytics

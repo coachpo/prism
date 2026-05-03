@@ -5,7 +5,7 @@
 This smoke test plan validates all documented workflows and core function paths across:
 
 - Backend API contract
-- Proxy behavior (ordered target selection, load balancing, failover, streaming)
+- Proxy behavior (selector-driven target selection, load balancing, failover, streaming)
 - Health detection
 - Statistics and token extraction
 - Audit logging and redaction
@@ -88,7 +88,7 @@ Prepare seed state through API (not manual DB edits):
    - in profile B: one Anthropic-family native model
    - in profile C: one Gemini-family native model
 5. Proxy models:
-   - same-`api_family` proxy model with ordered `proxy_targets` pointing to native models in the same profile, even when vendor metadata differs
+   - same-`api_family` proxy model with `proxy_selection_strategy` and explicit `proxy_targets` (`target_model_id`, `position`, `weight`, `target_priority`) pointing to native models in the same profile, even when vendor metadata differs
 6. Connection diversity per profile:
    - active + inactive
    - differing priorities
@@ -219,10 +219,10 @@ Prepare seed state through API (not manual DB edits):
 | B04 | P0 | Create native model | `201`, model stored |
 | B05 | P0 | Create duplicate `model_id` in same effective profile | `409` |
 | B06 | P0 | Create valid proxy model | `201` |
-| B07 | P0 | Proxy missing/invalid `proxy_targets` | `400` |
+| B07 | P0 | Proxy missing/invalid `proxy_selection_strategy` or target metadata | `400` |
 | B08 | P0 | Cross-api-family proxy target | `400` |
 | B09 | P0 | Proxy target is another proxy | `400` |
-| B10 | P0 | Native model with non-empty `proxy_targets` | `400` |
+| B10 | P0 | Native model with `proxy_selection_strategy` or non-empty `proxy_targets` | `400` |
 | B11 | P0 | Delete native model referenced by proxy | `400` with referrer detail |
 | B12 | P0 | List profile-scoped endpoints | `200`, returns array scoped to effective profile |
 | B12A | P0 | List profile-scoped endpoints preserves persisted order | Response order follows `position ASC, id ASC` |
@@ -252,7 +252,7 @@ Prepare seed state through API (not manual DB edits):
 | C01 | P0 | OpenAI-compatible proxy call | Upstream response proxied as-is |
 | C02 | P0 | Anthropic non-stream proxy call | Upstream response proxied as-is |
 | C03 | P1 | Gemini route compatibility | Correct routing and auth behavior |
-| C04 | P0 | Proxy model request | Routed via ordered target selection, then target native connections; requested model and resolved target logged separately |
+| C04 | P0 | Proxy model request | Routed via configured selector, then target native connections; requested model and resolved target logged separately |
 | C05 | P0 | Unknown/disabled model | `404` |
 | C06 | P0 | Adaptive routing with minimize-latency objective | Lowest-priority active connection wins when runtime state is otherwise equal |
 | C07 | P0 | Adaptive routing recovery path | First transient failure increments counters without blocking; threshold hit opens cooldown with backoff+jitter; cooldown-expired endpoints re-enter as probes in normal priority order |
@@ -345,7 +345,7 @@ Prepare seed state through API (not manual DB edits):
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| H01 | P0 | Export schema and metadata | `version=1`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable `api_key_secret_ref`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, ordered `proxy_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
+| H01 | P0 | Export schema and metadata | `version=1`, `bundle_kind=profile_config`, `exported_at`, profile-targeted payload with `vendor_refs`, `profile_settings`, encrypted `secret_payload`, nullable `api_key_secret_ref`, `loadbalance_strategies`, top-level `strategy_type`, family-specific legacy/adaptive payloads, proxy `proxy_selection_strategy`, explicit target metadata in `proxy_targets`, nullable model `vendor_key`, required `api_family`, and strategy-name model references |
 | H01A | P0 | Export includes endpoint position | Endpoints are ordered by `position` and each endpoint includes `position` |
 | H02 | P0 | Export excludes IDs/timestamps/health/logs | Exclusion contract respected |
 | H03 | P0 | Profile export excludes global vendor audit policy | Profile bundle uses `vendor_refs` only for actually referenced vendor rows; vendor audit metadata remains in the vendor-catalog bundle/global vendor rows |
@@ -534,9 +534,9 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | L11 | P0 | GET `/api/stats/spending` summary | Returns correct totals |
 | L12 | P0 | GET `/api/stats/spending` `group_by=model` | Returns grouped rows |
 | L13 | P0 | GET `/api/stats/spending` excludes failed requests | Failed requests not in totals |
-| L14 | P0 | Config export current format | Safe GET export returns `version: 1`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, ordered `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
+| L14 | P0 | Config export current format | Safe GET export returns `version: 1`, `bundle_kind: profile_config`, redacted endpoint secrets, empty secret entries for null refs, proxy `proxy_selection_strategy`, explicit `proxy_targets`, pricing templates, and profile-scoped `profile_settings` |
 | L15 | P0 | Config export with secrets | Dangerous POST export returns the full secret-bearing bundle and requires the dangerous-confirm header |
-| L16 | P0 | Config import current format | Preview and apply restore vendors, strategies, proxy targets, templates, connections, vendorless models, and settings into the target profile only |
+| L16 | P0 | Config import current format | Preview and apply restore vendors, strategies, proxy selectors and target metadata, templates, connections, vendorless models, and settings into the target profile only |
 | L17 | P0 | Config import unsupported version rejection | Unsupported config versions are rejected |
 | L18 | P1 | FX conversion with custom rate | Correct converted cost |
 | L19 | P1 | Model rename updates FX mapping keys | FX mappings remain valid |
@@ -570,7 +570,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | M10 | P0 | Create 11th non-deleted profile | `409` with actionable delete-before-create error |
 | M11 | P0 | Runtime request with `X-Profile-Id` override header | Runtime ignores override and uses active profile context only |
 | M12 | P0 | Same `model_id` exists in A/B with different connections | Routing uses active profile mappings only; no cross-profile resolution |
-| M13 | P0 | Proxy target exists only in another profile | Ordered target resolution fails (`404`) under current active profile |
+| M13 | P0 | Proxy target exists only in another profile | Proxy target resolution fails (`404`) under current active profile |
 | M14 | P0 | Request-log attribution and stats scope | Every row has immutable `profile_id`; stats/list/delete operate on effective profile only |
 | M15 | P0 | Audit attribution and scope | Every row has immutable `profile_id`; list/detail/delete are profile-scoped |
 | M16 | P0 | Config export from selected profile | Output is profile-targeted `version=1`, `bundle_kind=profile_config`, and includes safe redacted export details, while the dangerous export path is available separately through `POST /api/config/profile/export/with-secrets` |

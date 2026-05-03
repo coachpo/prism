@@ -117,7 +117,7 @@ Validated again against current repo surfaces on 2026-04-27:
 
 1. Operators list, search, create, edit, and delete model configs.
 2. Native models manage connections, pricing-template assignment, and attached loadbalance strategy.
-3. Proxy models manage ordered proxy targets instead of direct connections, and both `/models` and `/models/:id/proxy` use the same non-empty ordered same-family native-target contract.
+3. Proxy models manage `proxy_selection_strategy` and explicit proxy target metadata instead of direct connections, and both `/models` and `/models/:id/proxy` use the same non-empty same-family native-target contract.
 4. The `/models/:id/proxy` route keeps the page card summary-only; the shared Model Settings dialog is the one authoritative proxy-target editor and save path.
 5. Model detail loads connection KPIs, current loadbalance state, loadbalance event history, and manual health-check actions.
 
@@ -280,7 +280,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 **Runtime flow**
 
 1. The incoming request resolves a model from the request body or Gemini path.
-2. Proxy models choose an ordered native target before connection planning starts.
+2. Proxy models choose a native target through `ordered_fallback`, `weighted_static`, or `priority_static` before connection planning starts.
 3. Native connection planning applies the attached loadbalance strategy and per-connection limits.
 4. The upstream request is rewritten as needed for the target API family, then proxied through.
 5. Request logs, audit data, and loadbalance events are recorded for later operator investigation.
