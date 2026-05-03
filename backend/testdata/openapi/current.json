@@ -764,7 +764,7 @@
         "operationId": "create_model_api_models_post",
         "requestBody": {
           "required": true,
-          "description": "Native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`. Proxy models provide a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`, and omit `loadbalance_strategy_id`.",
+          "description": "Native models omit or empty `proxy_targets`, omit or null `proxy_selection_strategy`, and provide `loadbalance_strategy_id`. Proxy models provide `proxy_selection_strategy`, a non-empty `proxy_targets` list with explicit target metadata, and omit `loadbalance_strategy_id`.",
           "content": {
             "application/json": {
               "schema": {
@@ -914,7 +914,7 @@
         ],
         "requestBody": {
           "required": true,
-          "description": "Model updates keep the same routing contract as create: native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`, while proxy models provide a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0` and omit `loadbalance_strategy_id`.",
+          "description": "Model updates keep the same routing contract as create: native models omit or empty `proxy_targets`, omit or null `proxy_selection_strategy`, and provide `loadbalance_strategy_id`; proxy models provide `proxy_selection_strategy`, a non-empty `proxy_targets` list with explicit target metadata, and omit `loadbalance_strategy_id`.",
           "content": {
             "application/json": {
               "schema": {
@@ -3044,34 +3044,22 @@
           {
             "name": "from_time",
             "in": "query",
-            "required": false,
+            "required": true,
+            "description": "Required inclusive start of the bounded audit window. Request-log lookups must send an explicit window; the backend has no fallback window.",
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "string",
+              "format": "date-time",
               "title": "From Time"
             }
           },
           {
             "name": "to_time",
             "in": "query",
-            "required": false,
+            "required": true,
+            "description": "Required exclusive end of the bounded audit window. The request-log detail frontend derives this with from_time from request-log created_at.",
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "string",
+              "format": "date-time",
               "title": "To Time"
             }
           },
@@ -7209,6 +7197,23 @@
             "title": "Model Type",
             "default": "native"
           },
+          "proxy_selection_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ordered_fallback",
+                  "weighted_static",
+                  "priority_static"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Selection Strategy",
+            "description": "Proxy-only selector. Required for proxy models and null or omitted for native models."
+          },
           "proxy_targets": {
             "items": {
               "$ref": "#/components/schemas/ConfigProxyTargetExport"
@@ -7292,6 +7297,23 @@
             ],
             "title": "Model Type",
             "default": "native"
+          },
+          "proxy_selection_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ordered_fallback",
+                  "weighted_static",
+                  "priority_static"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Selection Strategy",
+            "description": "Proxy-only selector. Required for proxy models and null or omitted for native models."
           },
           "proxy_targets": {
             "items": {
@@ -7509,12 +7531,24 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Position"
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Weight"
+          },
+          "target_priority": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Target Priority"
           }
         },
         "type": "object",
         "required": [
           "target_model_id",
-          "position"
+          "position",
+          "weight",
+          "target_priority"
         ],
         "title": "ConfigProxyTargetExport"
       },
@@ -7528,13 +7562,25 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Position"
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Weight"
+          },
+          "target_priority": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Target Priority"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "target_model_id",
-          "position"
+          "position",
+          "weight",
+          "target_priority"
         ],
         "title": "ConfigProxyTargetImport"
       },
@@ -10280,7 +10326,7 @@
         "title": "LoginRequest"
       },
       "ModelConfigCreate": {
-        "description": "Create a native or proxy model. Proxy models require a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`; native models omit or empty `proxy_targets` and provide `loadbalance_strategy_id`.",
+        "description": "Create a native or proxy model. Proxy models require `proxy_selection_strategy` plus a non-empty `proxy_targets` list of native same-profile, same-`api_family` targets with explicit metadata; native models omit or null the selector and omit or empty `proxy_targets`.",
         "properties": {
           "vendor_id": {
             "anyOf": [
@@ -10324,8 +10370,25 @@
               "proxy"
             ],
             "title": "Model Type",
-            "description": "Choose `native` for directly routed models or `proxy` for ordered proxy routing through native targets.",
+            "description": "Choose `native` for directly routed models or `proxy` for selector-driven proxy routing through native targets.",
             "default": "native"
+          },
+          "proxy_selection_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ordered_fallback",
+                  "weighted_static",
+                  "priority_static"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Selection Strategy",
+            "description": "Proxy-only selector. Required for proxy models and null or omitted for native models."
           },
           "proxy_targets": {
             "items": {
@@ -10333,7 +10396,7 @@
             },
             "type": "array",
             "title": "Proxy Targets",
-            "description": "Proxy-only ordered routing list. Required and non-empty when `model_type` is `proxy`. Every entry must reference a unique native target in the same profile and same `api_family`, with contiguous `position` values starting at `0`. Omit or send an empty list for native models."
+            "description": "Proxy-only target list. Required and non-empty when `model_type` is `proxy`. Every entry must reference a unique native target in the same profile and same `api_family`, with contiguous `position` values starting at `0`, `weight >= 1`, and `target_priority >= 0`. Omit or send an empty list for native models."
           },
           "loadbalance_strategy_id": {
             "anyOf": [
@@ -10422,6 +10485,22 @@
               "proxy"
             ],
             "title": "Model Type"
+          },
+          "proxy_selection_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ordered_fallback",
+                  "weighted_static",
+                  "priority_static"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Selection Strategy"
           },
           "proxy_targets": {
             "items": {
@@ -10572,6 +10651,22 @@
             ],
             "title": "Model Type"
           },
+          "proxy_selection_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ordered_fallback",
+                  "weighted_static",
+                  "priority_static"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Selection Strategy"
+          },
           "proxy_targets": {
             "items": {
               "$ref": "#/components/schemas/ProxyTargetReference"
@@ -10641,7 +10736,7 @@
         "title": "ModelConfigResponse"
       },
       "ModelConfigUpdate": {
-        "description": "Update a native or proxy model. Proxy updates keep the same strict authoring contract as create: a non-empty ordered `proxy_targets` list of native same-profile, same-`api_family` targets with contiguous positions starting at `0`; native updates omit or empty `proxy_targets` and provide `loadbalance_strategy_id`.",
+        "description": "Update a native or proxy model. Proxy updates keep the same strict authoring contract as create: send `proxy_selection_strategy` plus a full non-empty `proxy_targets` list with explicit target metadata; native updates omit or null the selector and omit or empty `proxy_targets`.",
         "properties": {
           "vendor_id": {
             "anyOf": [
@@ -10706,7 +10801,24 @@
               }
             ],
             "title": "Model Type",
-            "description": "When provided, `proxy` uses ordered proxy routing and `native` uses direct routed connections plus a loadbalance strategy."
+            "description": "When provided, `proxy` uses selector-driven proxy routing and `native` uses direct routed connections plus a loadbalance strategy."
+          },
+          "proxy_selection_strategy": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ordered_fallback",
+                  "weighted_static",
+                  "priority_static"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proxy Selection Strategy",
+            "description": "Proxy-only selector. Required for proxy models and null or omitted for native models."
           },
           "proxy_targets": {
             "anyOf": [
@@ -10721,7 +10833,7 @@
               }
             ],
             "title": "Proxy Targets",
-            "description": "Proxy-only ordered routing list. When `model_type` is `proxy`, send the full non-empty ordered list of unique native same-profile, same-`api_family` targets with contiguous `position` values starting at `0`. Omit, null, or empty the field for native models."
+            "description": "Proxy-only target list. When `model_type` is `proxy`, send the full non-empty list of unique native same-profile, same-`api_family` targets with contiguous `position` values starting at `0`, `weight >= 1`, and `target_priority >= 0`. Omit, null, or empty the field for native models."
           },
           "loadbalance_strategy_id": {
             "anyOf": [
@@ -12524,7 +12636,7 @@
         "title": "ProxyApiKeyUpdate"
       },
       "ProxyTargetReference": {
-        "description": "One ordered proxy target entry. `target_model_id` must point to a native model in the same profile and same `api_family` as the proxy model, and the full list must stay contiguous from `position` `0..n-1`.",
+        "description": "One proxy target entry. `target_model_id` must point to a native model in the same profile and same `api_family` as the proxy model, and the full list must stay contiguous from `position` `0..n-1`.",
         "properties": {
           "target_model_id": {
             "type": "string",
@@ -12535,13 +12647,27 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Position",
-            "description": "Zero-based priority within the ordered proxy target list."
+            "description": "Zero-based contiguous authoring position. Used by ordered_fallback and as a deterministic tie-breaker."
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Weight",
+            "description": "Positive static weight used by weighted_static selection."
+          },
+          "target_priority": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Target Priority",
+            "description": "Non-negative static priority used by priority_static selection."
           }
         },
         "type": "object",
         "required": [
           "target_model_id",
-          "position"
+          "position",
+          "weight",
+          "target_priority"
         ],
         "title": "ProxyTargetReference"
       },
@@ -13148,6 +13274,48 @@
           "is_stream": {
             "type": "boolean",
             "title": "Is Stream"
+          },
+          "stream_outcome": {
+            "type": "string",
+            "enum": [
+              "not_streaming",
+              "completed",
+              "provider_incomplete",
+              "client_disconnected",
+              "upstream_read_error",
+              "upstream_ended_without_terminal",
+              "unknown"
+            ],
+            "title": "Stream Outcome"
+          },
+          "stream_error_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "client_write_failed",
+                  "request_context_canceled",
+                  "upstream_read_failed",
+                  "missing_terminal_event"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Error Kind"
+          },
+          "stream_error_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Error Detail",
+            "description": "Sanitized request-log-detail-only diagnostic text for stream failures. Not included in list or realtime payloads."
           }
         },
         "type": "object",
@@ -13161,7 +13329,10 @@
           "api_family",
           "status_code",
           "response_time_ms",
-          "is_stream"
+          "is_stream",
+          "stream_outcome",
+          "stream_error_kind",
+          "stream_error_detail"
         ],
         "title": "RequestLogDetailSummaryResponse"
       },
@@ -13242,7 +13413,8 @@
                 "type": "null"
               }
             ],
-            "title": "Unpriced Reason"
+            "title": "Unpriced Reason",
+            "description": "When present, distinguishes pricing and usage gaps. STREAM_USAGE_UNAVAILABLE is separate from MISSING_TOKEN_USAGE and Prism does not estimate missing tokens or cost."
           },
           "cache_read_input_tokens": {
             "anyOf": [
@@ -13473,6 +13645,36 @@
             "type": "boolean",
             "title": "Is Stream"
           },
+          "stream_outcome": {
+            "type": "string",
+            "enum": [
+              "not_streaming",
+              "completed",
+              "provider_incomplete",
+              "client_disconnected",
+              "upstream_read_error",
+              "upstream_ended_without_terminal",
+              "unknown"
+            ],
+            "title": "Stream Outcome"
+          },
+          "stream_error_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "client_write_failed",
+                  "request_context_canceled",
+                  "upstream_read_failed",
+                  "missing_terminal_event"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Error Kind"
+          },
           "output_tokens": {
             "anyOf": [
               {
@@ -13570,6 +13772,8 @@
           "status_code",
           "response_time_ms",
           "is_stream",
+          "stream_outcome",
+          "stream_error_kind",
           "user_agent_overridden"
         ],
         "title": "RequestLogListItemResponse"
