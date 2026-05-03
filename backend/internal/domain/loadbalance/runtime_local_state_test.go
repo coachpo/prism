@@ -196,6 +196,35 @@ func TestRuntimeLocalRoundRobinCursorAdvancesOncePerLaunch(t *testing.T) {
 	}
 }
 
+func TestRuntimeLocalProxyWeightedCursorUsesSeparateWeightedKeys(t *testing.T) {
+	store := NewLocalRuntimeStateStore()
+
+	if got := store.ClaimProxyWeightedCursor(1, 60, 0); got != 0 {
+		t.Fatalf("expected invalid total weight to return 0, got %d", got)
+	}
+	for index, want := range []int{0, 1, 2, 3, 0} {
+		if got := store.ClaimProxyWeightedCursor(1, 60, 4); got != want {
+			t.Fatalf("weighted cursor step %d: expected %d, got %d", index, want, got)
+		}
+	}
+	if got := store.ClaimProxyWeightedCursor(1, 60, 3); got != 0 {
+		t.Fatalf("expected changed total weight to use a separate key, got %d", got)
+	}
+	if got := store.ClaimRoundRobinCursor(1, 60, 2); got != 0 {
+		t.Fatalf("expected native round-robin cursor to stay separate, got %d", got)
+	}
+	store.ClaimProxyWeightedCursor(2, 60, 4)
+	store.ResetProfile(2)
+	if got := store.ClaimProxyWeightedCursor(2, 60, 4); got != 0 {
+		t.Fatalf("expected profile reset to clear proxy weighted cursor, got %d", got)
+	}
+	store.ClaimProxyWeightedCursor(1, 60, 4)
+	store.ResetAll()
+	if got := store.ClaimProxyWeightedCursor(1, 60, 4); got != 0 {
+		t.Fatalf("expected full reset to clear proxy weighted cursor, got %d", got)
+	}
+}
+
 func TestRuntimeRestartResetsEphemeralRuntimeStateSafely(t *testing.T) {
 	beforeRestart := NewLocalRuntimeStateStore()
 	nowAt := time.Date(2026, time.April, 25, 12, 0, 0, 0, time.UTC)

@@ -57,9 +57,19 @@ type localRuntimeProfileState struct {
 	connectionModels map[int]int
 	modelConnections map[int]map[int]struct{}
 	roundRobin       map[int]*localRoundRobinCursor
+	proxyWeighted    map[localProxyWeightedCursorKey]*localProxyWeightedCursor
 }
 
 type localRoundRobinCursor struct {
+	next atomic.Uint64
+}
+
+type localProxyWeightedCursorKey struct {
+	proxyModelConfigID int
+	totalWeight        int
+}
+
+type localProxyWeightedCursor struct {
 	next atomic.Uint64
 }
 
@@ -253,10 +263,7 @@ func (s *LocalRuntimeStateStore) RecordRuntimeSuccess(profileID int, modelConfig
 	defer state.mu.Unlock()
 
 	previousState := state.snapshotLocked()
-	latencyMS := responseTimeMS
-	if latencyMS < 1 {
-		latencyMS = 1
-	}
+	latencyMS := max(responseTimeMS, 1)
 	state.state.ConsecutiveFailures = 0
 	state.state.LastFailureKind = nil
 	state.state.LastCooldownSeconds = 0
@@ -301,6 +308,22 @@ func (s *LocalRuntimeStateStore) ClaimRoundRobinCursor(profileID int, modelConfi
 	}
 	profile.mu.Unlock()
 	return int((cursor.next.Add(1) - 1) % uint64(connectionCount))
+}
+
+func (s *LocalRuntimeStateStore) ClaimProxyWeightedCursor(profileID int, proxyModelConfigID int, totalWeight int) int {
+	if s == nil || profileID <= 0 || proxyModelConfigID <= 0 || totalWeight <= 0 {
+		return 0
+	}
+	profile := s.profileState(profileID)
+	key := localProxyWeightedCursorKey{proxyModelConfigID: proxyModelConfigID, totalWeight: totalWeight}
+	profile.mu.Lock()
+	cursor := profile.proxyWeighted[key]
+	if cursor == nil {
+		cursor = &localProxyWeightedCursor{}
+		profile.proxyWeighted[key] = cursor
+	}
+	profile.mu.Unlock()
+	return int((cursor.next.Add(1) - 1) % uint64(totalWeight))
 }
 
 func (s *LocalRuntimeStateStore) PeekRoundRobinCursor(profileID int, modelConfigID int, connectionCount int) int {
@@ -406,6 +429,7 @@ func (s *LocalRuntimeStateStore) profileState(profileID int) *localRuntimeProfil
 		connectionModels: map[int]int{},
 		modelConnections: map[int]map[int]struct{}{},
 		roundRobin:       map[int]*localRoundRobinCursor{},
+		proxyWeighted:    map[localProxyWeightedCursorKey]*localProxyWeightedCursor{},
 	}
 	s.profiles[profileID] = profile
 	return profile
