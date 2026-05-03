@@ -103,6 +103,7 @@
       "model_id": "gpt-4o-native",
       "display_name": "GPT-4o Native",
       "model_type": "native",
+      "proxy_selection_strategy": null,
       "proxy_targets": [],
       "loadbalance_strategy_name": "legacy-primary",
       "is_enabled": true,
@@ -131,6 +132,7 @@
       "model_id": "claude-3-5-sonnet",
       "display_name": "Claude 3.5 Sonnet",
       "model_type": "native",
+      "proxy_selection_strategy": null,
       "proxy_targets": [],
       "loadbalance_strategy_name": "adaptive-primary",
       "is_enabled": true,
@@ -155,10 +157,13 @@
       "model_id": "gpt-4o",
       "display_name": "GPT-4o Proxy",
       "model_type": "proxy",
+      "proxy_selection_strategy": "weighted_static",
       "proxy_targets": [
         {
           "target_model_id": "gpt-4o-native",
-          "position": 0
+          "position": 0,
+          "weight": 7,
+          "target_priority": 2
         }
       ],
       "loadbalance_strategy_name": null,

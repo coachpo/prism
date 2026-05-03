@@ -52,20 +52,23 @@ type strategyRow struct {
 }
 
 type modelRow struct {
-	ID                    int
-	VendorID              *int
-	APIFamily             string
-	ModelID               string
-	DisplayName           *string
-	ModelType             string
-	LoadbalanceStrategyID *int
-	IsEnabled             bool
+	ID                     int
+	VendorID               *int
+	APIFamily              string
+	ModelID                string
+	DisplayName            *string
+	ModelType              string
+	ProxySelectionStrategy *string
+	LoadbalanceStrategyID  *int
+	IsEnabled              bool
 }
 
 type proxyTargetRow struct {
 	SourceModelConfigID int
 	TargetModelID       string
 	Position            int
+	Weight              int
+	TargetPriority      int
 }
 
 type connectionRow struct {
@@ -289,7 +292,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 		rawProxyTargets := proxyTargetsByModelID[model.ID]
 		exportedProxyTargets := make([]proxyTargetExport, 0, len(rawProxyTargets))
 		for _, proxyTarget := range rawProxyTargets {
-			exportedProxyTargets = append(exportedProxyTargets, proxyTargetExport{TargetModelID: proxyTarget.TargetModelID, Position: proxyTarget.Position})
+			exportedProxyTargets = append(exportedProxyTargets, proxyTargetExport{TargetModelID: proxyTarget.TargetModelID, Position: proxyTarget.Position, Weight: proxyTarget.Weight, TargetPriority: proxyTarget.TargetPriority})
 		}
 
 		rawConnections := connectionsByModelID[model.ID]
@@ -328,6 +331,7 @@ func (s *Service) buildProfileBundle(ctx context.Context, exec queryExecutor, pr
 			ModelID:                 model.ModelID,
 			DisplayName:             model.DisplayName,
 			ModelType:               model.ModelType,
+			ProxySelectionStrategy:  model.ProxySelectionStrategy,
 			ProxyTargets:            exportedProxyTargets,
 			LoadbalanceStrategyName: strategyName,
 			IsEnabled:               model.IsEnabled,
@@ -466,7 +470,7 @@ func listStrategies(ctx context.Context, exec queryExecutor, profileID int) ([]s
 }
 
 func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]modelRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -476,13 +480,15 @@ func listModels(ctx context.Context, exec queryExecutor, profileID int) ([]model
 	for rows.Next() {
 		var vendorID sql.NullInt32
 		var displayName sql.NullString
+		var proxySelectionStrategy sql.NullString
 		var strategyID sql.NullInt32
 		item := modelRow{}
-		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &item.ModelType, &strategyID, &item.IsEnabled); err != nil {
+		if err := rows.Scan(&item.ID, &vendorID, &item.APIFamily, &item.ModelID, &displayName, &item.ModelType, &proxySelectionStrategy, &strategyID, &item.IsEnabled); err != nil {
 			return nil, fmt.Errorf("scan model row: %w", err)
 		}
 		item.VendorID = nullableInt32(vendorID)
 		item.DisplayName = nullableStringValue(displayName)
+		item.ProxySelectionStrategy = nullableStringValue(proxySelectionStrategy)
 		item.LoadbalanceStrategyID = nullableInt32(strategyID)
 		items = append(items, item)
 	}
@@ -497,7 +503,7 @@ func listProxyTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelID
 	if len(modelIDs) == 0 {
 		return items, nil
 	}
-	rows, err := exec.Query(ctx, `SELECT source_model_config_id, target_models.model_id, position FROM model_proxy_targets JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id WHERE source_model_config_id = ANY($1) ORDER BY model_proxy_targets.source_model_config_id ASC, model_proxy_targets.position ASC, model_proxy_targets.id ASC`, toInt32Slice(modelIDs))
+	rows, err := exec.Query(ctx, `SELECT source_model_config_id, target_models.model_id, position, weight, target_priority FROM model_proxy_targets JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id WHERE source_model_config_id = ANY($1) ORDER BY model_proxy_targets.source_model_config_id ASC, model_proxy_targets.position ASC, model_proxy_targets.id ASC`, toInt32Slice(modelIDs))
 	if err != nil {
 		return nil, fmt.Errorf("query proxy targets: %w", err)
 	}
@@ -505,7 +511,7 @@ func listProxyTargetsByModelIDs(ctx context.Context, exec queryExecutor, modelID
 
 	for rows.Next() {
 		item := proxyTargetRow{}
-		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetModelID, &item.Position); err != nil {
+		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetModelID, &item.Position, &item.Weight, &item.TargetPriority); err != nil {
 			return nil, fmt.Errorf("scan proxy target row: %w", err)
 		}
 		items[item.SourceModelConfigID] = append(items[item.SourceModelConfigID], item)

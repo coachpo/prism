@@ -1,6 +1,7 @@
 package configbundle
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 )
@@ -68,6 +69,7 @@ type modelExport struct {
 	ModelID                 string              `json:"model_id"`
 	DisplayName             *string             `json:"display_name"`
 	ModelType               string              `json:"model_type"`
+	ProxySelectionStrategy  *string             `json:"proxy_selection_strategy"`
 	ProxyTargets            []proxyTargetExport `json:"proxy_targets"`
 	LoadbalanceStrategyName *string             `json:"loadbalance_strategy_name"`
 	IsEnabled               bool                `json:"is_enabled"`
@@ -75,8 +77,60 @@ type modelExport struct {
 }
 
 type proxyTargetExport struct {
-	TargetModelID string `json:"target_model_id"`
-	Position      int    `json:"position"`
+	TargetModelID  string `json:"target_model_id"`
+	Position       int    `json:"position"`
+	Weight         int    `json:"weight"`
+	TargetPriority int    `json:"target_priority"`
+
+	weightSet          bool
+	weightNull         bool
+	targetPrioritySet  bool
+	targetPriorityNull bool
+}
+
+func (value *proxyTargetExport) UnmarshalJSON(data []byte) error {
+	var parsed struct {
+		TargetModelID  string            `json:"target_model_id"`
+		Position       int               `json:"position"`
+		Weight         importOptionalInt `json:"weight"`
+		TargetPriority importOptionalInt `json:"target_priority"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(data), &parsed); err != nil {
+		return err
+	}
+	value.TargetModelID = parsed.TargetModelID
+	value.Position = parsed.Position
+	value.weightSet = parsed.Weight.Set
+	value.weightNull = parsed.Weight.Set && parsed.Weight.Value == nil
+	if parsed.Weight.Value != nil {
+		value.Weight = *parsed.Weight.Value
+	}
+	value.targetPrioritySet = parsed.TargetPriority.Set
+	value.targetPriorityNull = parsed.TargetPriority.Set && parsed.TargetPriority.Value == nil
+	if parsed.TargetPriority.Value != nil {
+		value.TargetPriority = *parsed.TargetPriority.Value
+	}
+	return nil
+}
+
+type importOptionalInt struct {
+	Set   bool
+	Value *int
+}
+
+func (value *importOptionalInt) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		value.Value = nil
+		return nil
+	}
+	var parsed int
+	if err := json.Unmarshal(trimmed, &parsed); err != nil {
+		return err
+	}
+	value.Value = &parsed
+	return nil
 }
 
 type connectionExport struct {

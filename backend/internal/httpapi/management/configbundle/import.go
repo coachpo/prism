@@ -34,6 +34,12 @@ var validConnectionAuthTypes = map[string]struct{}{
 	"gemini":    {},
 }
 
+var validProxySelectionStrategies = map[string]struct{}{
+	"ordered_fallback": {},
+	"weighted_static":  {},
+	"priority_static":  {},
+}
+
 func importedConnectionCount(models []modelExport) int {
 	total := 0
 	for _, model := range models {
@@ -425,6 +431,9 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		}
 
 		if modelType == "native" {
+			if model.ProxySelectionStrategy != nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not include proxy_selection_strategy", modelID)}
+			}
 			if len(model.ProxyTargets) > 0 {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Native model '%s' must not have proxy_targets", modelID)}
 			}
@@ -437,23 +446,50 @@ func validateProfileImportRequest(data profileImportRequest) error {
 			}
 			nativeModelFamilies[modelID] = apiFamily
 		} else {
+			selector := normalizedImportedProxySelectionStrategy(model.ProxySelectionStrategy)
+			if selector == nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_selection_strategy", modelID)}
+			}
+			if !isValidImportedProxySelectionStrategy(*selector) {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has unknown proxy_selection_strategy '%s'", modelID, *selector)}
+			}
 			if trimmedOptionalString(model.LoadbalanceStrategyName) != nil {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not include loadbalance_strategy_name", modelID)}
 			}
 			if len(model.Connections) > 0 {
 				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must not have connections", modelID)}
 			}
+			if len(model.ProxyTargets) == 0 {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must include proxy_targets", modelID)}
+			}
 			for index, target := range model.ProxyTargets {
+				targetModelID := strings.TrimSpace(target.TargetModelID)
+				if targetModelID == "" {
+					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has proxy target with empty target_model_id", modelID)}
+				}
 				if target.Position != index {
 					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' must use contiguous proxy_targets positions starting at 0", modelID)}
+				}
+				if !target.weightSet || target.weightNull {
+					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include weight", modelID, targetModelID)}
+				}
+				if target.Weight < 1 {
+					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid weight '%d'", modelID, targetModelID, target.Weight)}
+				}
+				if !target.targetPrioritySet || target.targetPriorityNull {
+					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' must include target_priority", modelID, targetModelID)}
+				}
+				if target.TargetPriority < 0 {
+					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' target '%s' has invalid target_priority '%d'", modelID, targetModelID, target.TargetPriority)}
 				}
 			}
 			seenTargets := map[string]struct{}{}
 			for _, target := range model.ProxyTargets {
-				if _, ok := seenTargets[target.TargetModelID]; ok {
-					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has duplicate proxy target '%s'", modelID, target.TargetModelID)}
+				targetModelID := strings.TrimSpace(target.TargetModelID)
+				if _, ok := seenTargets[targetModelID]; ok {
+					return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Proxy model '%s' has duplicate proxy target '%s'", modelID, targetModelID)}
 				}
-				seenTargets[target.TargetModelID] = struct{}{}
+				seenTargets[targetModelID] = struct{}{}
 			}
 		}
 
@@ -492,12 +528,13 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		apiFamily := strings.ToLower(strings.TrimSpace(model.APIFamily))
 		modelID := strings.TrimSpace(model.ModelID)
 		for _, target := range model.ProxyTargets {
-			targetFamily, ok := nativeModelFamilies[target.TargetModelID]
+			targetModelID := strings.TrimSpace(target.TargetModelID)
+			targetFamily, ok := nativeModelFamilies[targetModelID]
 			if !ok {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown proxy target '%s'", modelID, target.TargetModelID)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' references unknown proxy target '%s'", modelID, targetModelID)}
 			}
 			if targetFamily != apiFamily {
-				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", modelID, target.TargetModelID)}
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Model '%s' cannot target cross-api-family model '%s'", modelID, targetModelID)}
 			}
 		}
 	}
@@ -856,11 +893,14 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 			vendorID = vendorIDsByKey[strings.TrimSpace(*model.VendorKey)]
 		}
 		var strategyID any
+		var proxySelectionStrategy any
 		if modelType == "native" {
 			strategyID = strategyIDsByName[*trimmedOptionalString(model.LoadbalanceStrategyName)]
+		} else {
+			proxySelectionStrategy = *normalizedImportedProxySelectionStrategy(model.ProxySelectionStrategy)
 		}
 		var modelConfigID int
-		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), modelType, strategyID, model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10) RETURNING id`, profileID, vendorID, apiFamily, modelID, nullableString(trimmedOptionalString(model.DisplayName)), modelType, proxySelectionStrategy, strategyID, model.IsEnabled, currentTime).Scan(&modelConfigID); err != nil {
 			return nil, nil, 0, fmt.Errorf("insert imported model %q: %w", modelID, err)
 		}
 		modelIDsByModelID[modelID] = modelConfigID
@@ -903,7 +943,8 @@ func insertImportedModelsAndConnections(ctx context.Context, exec queryExecutor,
 	for _, proxyTargets := range proxyTargetSpecs {
 		sourceModelID := modelIDsByModelID[proxyTargets.SourceModelID]
 		for _, target := range proxyTargets.Targets {
-			if _, err := exec.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`, sourceModelID, modelIDsByModelID[target.TargetModelID], target.Position); err != nil {
+			targetModelID := strings.TrimSpace(target.TargetModelID)
+			if _, err := exec.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, $3, $4, $5)`, sourceModelID, modelIDsByModelID[targetModelID], target.Position, target.Weight, target.TargetPriority); err != nil {
 				return nil, nil, 0, fmt.Errorf("insert proxy target for model %q: %w", proxyTargets.SourceModelID, err)
 			}
 		}
@@ -1112,6 +1153,22 @@ func normalizedOptionalAuthType(value *string) *string {
 		return nil
 	}
 	return &normalized
+}
+
+func normalizedImportedProxySelectionStrategy(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	normalized := strings.ToLower(strings.TrimSpace(*value))
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
+
+func isValidImportedProxySelectionStrategy(value string) bool {
+	_, ok := validProxySelectionStrategies[value]
+	return ok
 }
 
 func trimmedOptionalString(value *string) *string {

@@ -76,6 +76,160 @@ func TestConfigBundleV1ExportCarriesPortableTrafficRules(t *testing.T) {
 	}
 }
 
+func TestConfigBundleV1ExportCarriesProxySelectorAndTargetMetadata(t *testing.T) {
+	harness := newConfigBundleContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	seedConfigBundleFixtureGraph(t, harness, profileID)
+
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+
+	var payload map[string]any
+	decodeJSONResponse(t, response, &payload)
+	nativeModel := profileBundleModel(t, payload, "gpt-4o-native")
+	if value, ok := nativeModel["proxy_selection_strategy"]; !ok || value != nil {
+		t.Fatalf("expected native model proxy_selection_strategy to be null, got %+v", nativeModel)
+	}
+
+	proxyModel := profileBundleModel(t, payload, "gpt-4o")
+	if proxyModel["proxy_selection_strategy"] != "weighted_static" {
+		t.Fatalf("expected proxy model selector weighted_static, got %+v", proxyModel)
+	}
+	target := profileBundleProxyTarget(t, proxyModel, 0)
+	if target["target_model_id"] != "gpt-4o-native" || jsonInt(t, target["position"]) != 0 || jsonInt(t, target["weight"]) != 7 || jsonInt(t, target["target_priority"]) != 2 {
+		t.Fatalf("expected exported proxy target metadata, got %+v", target)
+	}
+}
+
+func TestConfigBundleImportPersistsProxySelectorAndTargetMetadata(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+	profileID := modelLoadDefaultProfileID(t, harness)
+	bundle := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
+	proxyModel := profileBundleModel(t, bundle, "gpt-4o")
+	proxyModel["proxy_selection_strategy"] = "  WeIgHtEd_StAtIc  "
+	target := profileBundleProxyTarget(t, proxyModel, 0)
+	target["weight"] = 11
+	target["target_priority"] = 4
+
+	previewToken := readyProfileImportPreviewToken(t, harness, profileID, bundle)
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
+	assertStatus(t, importResponse, http.StatusOK)
+
+	var selector string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT proxy_selection_strategy FROM model_configs WHERE profile_id = $1 AND model_id = 'gpt-4o'`, profileID).Scan(&selector); err != nil {
+		t.Fatalf("load imported proxy selector: %v", err)
+	}
+	if selector != "weighted_static" {
+		t.Fatalf("expected normalized proxy selector weighted_static, got %q", selector)
+	}
+
+	var weight int
+	var targetPriority int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT model_proxy_targets.weight, model_proxy_targets.target_priority FROM model_proxy_targets JOIN model_configs AS source_models ON source_models.id = model_proxy_targets.source_model_config_id JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id WHERE source_models.profile_id = $1 AND source_models.model_id = 'gpt-4o' AND target_models.model_id = 'gpt-4o-native'`, profileID).Scan(&weight, &targetPriority); err != nil {
+		t.Fatalf("load imported proxy target metadata: %v", err)
+	}
+	if weight != 11 || targetPriority != 4 {
+		t.Fatalf("expected imported target metadata weight=11 target_priority=4, got weight=%d target_priority=%d", weight, targetPriority)
+	}
+}
+
+func TestConfigBundleImportRejectsInvalidProxySelectorAndTargetMetadata(t *testing.T) {
+	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
+	profileID := modelLoadDefaultProfileID(t, harness)
+
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+		detail string
+	}{
+		{
+			name: "missing proxy selector",
+			mutate: func(payload map[string]any) {
+				delete(profileBundleModel(t, payload, "gpt-4o"), "proxy_selection_strategy")
+			},
+			detail: "Proxy model 'gpt-4o' must include proxy_selection_strategy",
+		},
+		{
+			name: "null proxy selector",
+			mutate: func(payload map[string]any) {
+				profileBundleModel(t, payload, "gpt-4o")["proxy_selection_strategy"] = nil
+			},
+			detail: "Proxy model 'gpt-4o' must include proxy_selection_strategy",
+		},
+		{
+			name: "empty proxy selector",
+			mutate: func(payload map[string]any) {
+				profileBundleModel(t, payload, "gpt-4o")["proxy_selection_strategy"] = "   "
+			},
+			detail: "Proxy model 'gpt-4o' must include proxy_selection_strategy",
+		},
+		{
+			name: "unknown proxy selector",
+			mutate: func(payload map[string]any) {
+				profileBundleModel(t, payload, "gpt-4o")["proxy_selection_strategy"] = "unknown_selector"
+			},
+			detail: "Proxy model 'gpt-4o' has unknown proxy_selection_strategy 'unknown_selector'",
+		},
+		{
+			name: "native selector",
+			mutate: func(payload map[string]any) {
+				profileBundleModel(t, payload, "gpt-4o-native")["proxy_selection_strategy"] = "ordered_fallback"
+			},
+			detail: "Native model 'gpt-4o-native' must not include proxy_selection_strategy",
+		},
+		{
+			name: "missing target weight",
+			mutate: func(payload map[string]any) {
+				delete(profileBundleProxyTarget(t, profileBundleModel(t, payload, "gpt-4o"), 0), "weight")
+			},
+			detail: "Proxy model 'gpt-4o' target 'gpt-4o-native' must include weight",
+		},
+		{
+			name: "null target weight",
+			mutate: func(payload map[string]any) {
+				profileBundleProxyTarget(t, profileBundleModel(t, payload, "gpt-4o"), 0)["weight"] = nil
+			},
+			detail: "Proxy model 'gpt-4o' target 'gpt-4o-native' must include weight",
+		},
+		{
+			name: "zero target weight",
+			mutate: func(payload map[string]any) {
+				profileBundleProxyTarget(t, profileBundleModel(t, payload, "gpt-4o"), 0)["weight"] = 0
+			},
+			detail: "Proxy model 'gpt-4o' target 'gpt-4o-native' has invalid weight '0'",
+		},
+		{
+			name: "missing target priority",
+			mutate: func(payload map[string]any) {
+				delete(profileBundleProxyTarget(t, profileBundleModel(t, payload, "gpt-4o"), 0), "target_priority")
+			},
+			detail: "Proxy model 'gpt-4o' target 'gpt-4o-native' must include target_priority",
+		},
+		{
+			name: "null target priority",
+			mutate: func(payload map[string]any) {
+				profileBundleProxyTarget(t, profileBundleModel(t, payload, "gpt-4o"), 0)["target_priority"] = nil
+			},
+			detail: "Proxy model 'gpt-4o' target 'gpt-4o-native' must include target_priority",
+		},
+		{
+			name: "negative target priority",
+			mutate: func(payload map[string]any) {
+				profileBundleProxyTarget(t, profileBundleModel(t, payload, "gpt-4o"), 0)["target_priority"] = -1
+			},
+			detail: "Proxy model 'gpt-4o' target 'gpt-4o-native' has invalid target_priority '-1'",
+		},
+	}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			payload := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
+			item.mutate(payload)
+			assertProfileImportRejected(t, harness, profileID, payload, item.detail)
+		})
+	}
+}
+
 func TestConfigBundleDownloadHeaders(t *testing.T) {
 	harness := newConfigBundleContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -317,10 +471,10 @@ func seedConfigBundleFixtureGraph(t *testing.T, harness *contractHarness, profil
 		t.Fatalf("insert native anthropic model: %v", err)
 	}
 	var proxyModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'proxy', NULL, TRUE, $5, $5) RETURNING id`, profileID, openaiVendorID, "gpt-4o", "GPT-4o Proxy", now).Scan(&proxyModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'proxy', 'weighted_static', NULL, TRUE, $5, $5) RETURNING id`, profileID, openaiVendorID, "gpt-4o", "GPT-4o Proxy", now).Scan(&proxyModelID); err != nil {
 		t.Fatalf("insert proxy model: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, 0)`, proxyModelID, nativeOpenAIModelID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, 0, 7, 2)`, proxyModelID, nativeOpenAIModelID); err != nil {
 		t.Fatalf("insert proxy target: %v", err)
 	}
 
@@ -381,6 +535,62 @@ func redactedProfileBundleFixture(t *testing.T) map[string]any {
 	}
 	secretPayload["entries"] = []any{}
 	return payload
+}
+
+func profileBundleModel(t *testing.T, payload map[string]any, modelID string) map[string]any {
+	t.Helper()
+	models, ok := payload["models"].([]any)
+	if !ok {
+		t.Fatalf("expected models array in profile bundle, got %+v", payload)
+	}
+	for _, raw := range models {
+		model := asMap(t, raw)
+		if model["model_id"] == modelID {
+			return model
+		}
+	}
+	t.Fatalf("expected model %q in profile bundle, got %+v", modelID, models)
+	return nil
+}
+
+func profileBundleProxyTarget(t *testing.T, model map[string]any, index int) map[string]any {
+	t.Helper()
+	proxyTargets, ok := model["proxy_targets"].([]any)
+	if !ok || index < 0 || index >= len(proxyTargets) {
+		t.Fatalf("expected proxy target index %d in model, got %+v", index, model)
+	}
+	return asMap(t, proxyTargets[index])
+}
+
+func readyProfileImportPreviewToken(t *testing.T, harness *contractHarness, profileID int, bundle map[string]any) string {
+	t.Helper()
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", bundle, modelHeader(profileID))
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	if previewPayload["ready"] != true || previewPayload["preview_token"] == "" {
+		t.Fatalf("expected ready profile import preview, got %+v", previewPayload)
+	}
+	return previewPayload["preview_token"].(string)
+}
+
+func assertProfileImportRejected(t *testing.T, harness *contractHarness, profileID int, bundle map[string]any, detail string) {
+	t.Helper()
+	previewResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import/preview", bundle, modelHeader(profileID))
+	assertStatus(t, previewResponse, http.StatusOK)
+	var previewPayload map[string]any
+	decodeJSONResponse(t, previewResponse, &previewPayload)
+	blockingErrors, ok := previewPayload["blocking_errors"].([]any)
+	if previewPayload["ready"] != false || !ok || len(blockingErrors) != 1 || blockingErrors[0] != detail {
+		t.Fatalf("expected profile import preview rejection %q, got %+v", detail, previewPayload)
+	}
+	previewToken, ok := previewPayload["preview_token"].(string)
+	if !ok || previewToken == "" {
+		t.Fatalf("expected rejected preview to still include preview token, got %+v", previewPayload)
+	}
+
+	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
+	assertErrorResponse(t, importResponse, http.StatusBadRequest, detail)
 }
 
 func assertJSONMatchesFixture(t *testing.T, got map[string]any, want map[string]any) {
