@@ -45,6 +45,7 @@ frontend/
 - `src/hooks/AGENTS.md` owns the shared realtime, polling, and timezone-formatting hooks.
 - `src/i18n/AGENTS.md` owns locale catalogs, static label helpers, and shared formatting.
 - `src/lib/AGENTS.md` owns the typed API boundary, websocket singleton, shared reference-data caches, and reporting-currency normalization.
+- `src/lib/api/AGENTS.md` owns the typed client module split, shared request plumbing, and selected-profile route matcher beneath `api.ts`.
 - `src/lib/websocket/AGENTS.md` owns the helper split beneath the singleton realtime client.
 - `tests/AGENTS.md` owns the test split between Playwright flows and contract seams.
 

@@ -1,12 +1,13 @@
 # FRONTEND API CLIENT KNOWLEDGE BASE
 
 ## OVERVIEW
-`lib/api/` is the typed `/api/*` client split behind `../api.ts`. It owns shared request plumbing in `core.ts`, then groups endpoints by auth/settings, management CRUD, and observability/bootstrap-config/audit/loadbalance/settings-costing surfaces.
+`lib/api/` is the typed `/api/*` client split behind `../api.ts`. It owns shared request plumbing in `core.ts`, profile-scope route matching in `profileScope.ts`, then groups endpoints by auth/settings, management CRUD, and observability/bootstrap-config/audit/loadbalance/settings-costing surfaces.
 
 ## STRUCTURE
 ```
 api/
 ├── core.ts           # API base, credentials, X-Profile-Id injection, refresh retry, query builder
+├── profileScope.ts   # Management-route matcher for selected-profile headers
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, proxy keys, WebAuthn
 ├── management.ts     # Profiles, vendors, models, loadbalance strategies, endpoints, connections, pricing templates
 └── observability.ts  # Stats, usage snapshot, bootstrap config, config import/export, audit, loadbalance events/current-state, settings costing/timezone/retention
@@ -15,14 +16,16 @@ api/
 ## WHERE TO LOOK
 
 - Public import surface over these modules: `../api.ts`
-- Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and `X-Profile-Id` injection for `/api/*`: `core.ts`
+- Shared request rules, cookie credentials, `ApiError`, auth-refresh retry, and `X-Profile-Id` injection for selected management routes: `core.ts`
+- Route allowlist for management calls that should receive `X-Profile-Id`: `profileScope.ts`
 - Cookie-auth bootstrap/session flows, settings auth endpoints, proxy-key endpoints, and browser WebAuthn endpoints: `authSettings.ts`
-- Profile-scoped management CRUD surfaces for profiles, vendors, models, loadbalance strategies, endpoints, connections, and pricing templates: `management.ts`
+- Global profile/vendor management plus profile-scoped model, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
 
 ## CONVENTIONS
 
 - Keep `core.ts` as the only place that injects `X-Profile-Id`, applies cookie credentials, and performs one refresh retry for eligible `/api/*` requests.
+- Keep `profileScope.ts` as the only route matcher deciding which management calls receive `X-Profile-Id`.
 - Keep grouped endpoint surfaces in their existing modules instead of expanding `api.ts` into a second implementation layer.
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.
 - Keep observability-side query building centralized through `buildQuery()` and typed param objects, including bootstrap-config validation/update requests consumed by `SettingsStartupTab.tsx`.
@@ -32,5 +35,5 @@ api/
 ## ANTI-PATTERNS
 
 - Do not call `fetch()` directly for Prism backend requests when this client layer already owns credentials and error handling.
-- Do not inject `X-Profile-Id` from pages, hooks, or provider code outside `core.ts`.
+- Do not inject `X-Profile-Id` or maintain a second profile-scope route list from pages, hooks, or provider code outside `core.ts` and `profileScope.ts`.
 - Do not split one endpoint family across multiple client modules without a real backend-boundary change.

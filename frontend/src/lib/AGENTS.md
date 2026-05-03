@@ -10,6 +10,7 @@ lib/
 ├── api/AGENTS.md                 # Typed `/api/*` client module split and grouped ownership
 ├── api/
 │   ├── core.ts                   # API base, X-Profile-Id injection, auth refresh, query builder
+│   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, proxy keys, WebAuthn methods
 │   ├── management.ts             # Profiles, vendors, models, endpoints, connections, pricing templates
 │   └── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
@@ -33,7 +34,7 @@ lib/
 ## WHERE TO LOOK
 
 - Public import boundary: `api.ts`
-- Typed `/api/*` client split, grouped surfaces, and `api/core.ts` request rules: `api/AGENTS.md`
+- Typed `/api/*` client split, grouped surfaces, `api/core.ts` request rules, and profile-scope matcher: `api/AGENTS.md`
 - Shared lookup cache, request dedupe, and dataset registry: `referenceData.ts`, `referenceDataRegistry.ts`
 - Frontend-side config import reference validation: `configImportValidation.ts`, `configImportValidationReferences.ts`
 - Shared dual-family load-balance defaults and policy normalization: `loadbalanceRoutingPolicy.ts`
@@ -47,13 +48,14 @@ lib/
 
 ## CHILD DOCS
 
-- `api/AGENTS.md`: `core.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
+- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
 - `websocket/AGENTS.md`: message helpers, subscription bookkeeping, and transport/reconnect rules beneath `websocket.ts`.
 
 ## CONVENTIONS
 
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
-- `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into `/api/*` requests.
+- `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into selected `/api/*` requests.
+- `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`; do not duplicate that allowlist in pages.
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.
@@ -71,7 +73,7 @@ lib/
 
 ## ANTI-PATTERNS
 
-- Do not bypass `api/core.ts` for Prism backend requests or inject `X-Profile-Id` from pages.
+- Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or selected-profile header rules.
 - Do not create ad hoc websocket clients or duplicate subscribe/unsubscribe bookkeeping outside `websocket.ts` and `websocket/`.
 - Do not add a parallel reference-data cache when `referenceData.ts` already owns the shared lookup datasets.
 - Do not duplicate config import validation in page or dialog code when `configImportValidation.ts` already mirrors that contract.
