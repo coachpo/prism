@@ -16,6 +16,21 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
+var expectedPrismMigrationVersions = []string{
+	migrate.DefaultBaselineVersion,
+	"000002_request_logs_audit_enabled_at_request_not_null",
+	"000003_runtime_telemetry_outbox",
+	"000004_user_settings_retention_policy",
+	"000005_audit_log_request_time_provenance",
+	"000006_request_generation_params_telemetry",
+	"000007_management_outbox",
+	"000008_email_outbox",
+	"000009_management_audit_stats_phase7",
+	"000010_runtime_cache_generations",
+	"000011_stream_outcome_telemetry",
+	"000012_proxy_target_selection_strategies",
+}
+
 func TestBaselineFreshApply(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -33,11 +48,9 @@ func TestBaselineFreshApply(t *testing.T) {
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected empty database to apply baseline, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] || got[7] != want[7] || got[8] != want[8] || got[9] != want[9] || got[10] != want[10] {
-		t.Fatalf("expected applied versions %v, got %v", want, got)
-	}
-
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
+	expectedVersions := expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion)
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
+	assertHistoryVersions(t, testContext, conn, expectedVersions)
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
@@ -95,7 +108,7 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 		t.Fatalf("expected noop run to report no versions, got %v", secondResult.Versions)
 	}
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 }
 
 func TestRuntimeCacheGenerationMigration(t *testing.T) {
@@ -115,6 +128,43 @@ func TestRuntimeCacheGenerationMigration(t *testing.T) {
 		t.Fatalf("expected runtime cache generation migration to apply, got %q", result.Outcome)
 	}
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
+}
+
+func TestProxyTargetSelectionStrategiesMigrationBackfillsAndEnforcesContracts(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "proxy_target_selection_strategies_migration")
+	defer func() { _ = conn.Close(testContext) }()
+
+	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+		t.Fatalf("create prism migration history table: %v", err)
+	}
+	for _, version := range expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion)[:11] {
+		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, version); err != nil {
+			t.Fatalf("seed prism migration history %s: %v", version, err)
+		}
+	}
+	createLegacyProxyTargetSelectionTables(t, testContext, conn)
+	if _, err := conn.Exec(testContext, `INSERT INTO model_configs (id, model_type, loadbalance_strategy_id) VALUES (1, 'native', 7), (2, 'proxy', NULL)`); err != nil {
+		t.Fatalf("seed legacy model_configs rows: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES (2, 1, 4)`); err != nil {
+		t.Fatalf("seed legacy model_proxy_targets row: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run proxy target selection strategies migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected proxy target selection strategies migration to apply, got %q", result.Outcome)
+	}
+	expectedVersions := expectedMigrationVersionsFrom(t, "000012_proxy_target_selection_strategies")
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
+	assertProxyTargetSelectionMigration(t, testContext, conn)
 }
 
 func TestStreamOutcomeTelemetryMigrationBackfillsAndEnforcesContracts(t *testing.T) {
@@ -146,6 +196,7 @@ func TestStreamOutcomeTelemetryMigrationBackfillsAndEnforcesContracts(t *testing
 	if _, err := conn.Exec(testContext, `INSERT INTO usage_request_events (profile_id, ingress_request_id, attempt_count, completion_duration_ms) VALUES (1, 'req-nonstream', 1, NULL), (1, 'req-completed', 1, NULL), (1, 'req-unknown', 2, NULL), (1, 'req-usage-completed', 1, 90), (1, 'req-usage-unknown', 1, NULL)`); err != nil {
 		t.Fatalf("seed stream telemetry legacy usage_request_events rows: %v", err)
 	}
+	createLegacyProxyTargetSelectionTables(t, testContext, conn)
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
@@ -154,9 +205,8 @@ func TestStreamOutcomeTelemetryMigrationBackfillsAndEnforcesContracts(t *testing
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected stream outcome telemetry migration to apply, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] {
-		t.Fatalf("expected applied versions %v, got %v", want, got)
-	}
+	expectedVersions := expectedMigrationVersionsFrom(t, "000011_stream_outcome_telemetry")
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
 
 	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
 	assertRequestLogStreamOutcomeRows(t, testContext, conn, map[string]string{"req-nonstream": "not_streaming", "req-completed": "completed", "req-unknown": "unknown"})
@@ -191,6 +241,7 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (profile_id, audit_enabled_at_request) VALUES (1, NULL), (1, TRUE), (1, FALSE)`); err != nil {
 		t.Fatalf("seed legacy request_logs rows: %v", err)
 	}
+	createLegacyProxyTargetSelectionTables(t, testContext, conn)
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
@@ -199,11 +250,10 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy request_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] || got[7] != want[7] || got[8] != want[8] || got[9] != want[9] {
-		t.Fatalf("expected applied versions %v, got %v", want, got)
-	}
+	expectedVersions := expectedMigrationVersionsFrom(t, "000002_request_logs_audit_enabled_at_request_not_null")
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
 
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 	assertRequestLogAuditEnabledRows(t, testContext, conn, []bool{false, true, false})
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
@@ -238,6 +288,7 @@ func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *te
 	if _, err := conn.Exec(testContext, `INSERT INTO audit_logs (id, profile_id, request_log_id, request_body, response_body) VALUES (10, 2, 1, '{"request":true}', '{"response":true}'), (11, 2, 2, NULL, NULL), (12, 2, NULL, '{"orphan":true}', NULL)`); err != nil {
 		t.Fatalf("seed legacy audit_logs rows: %v", err)
 	}
+	createLegacyProxyTargetSelectionTables(t, testContext, conn)
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
@@ -246,10 +297,9 @@ func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *te
 	if result.Outcome != migrate.OutcomeApply {
 		t.Fatalf("expected legacy audit_logs database to apply migration, got %q", result.Outcome)
 	}
-	if got, want := result.Versions, []string{"000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] || got[5] != want[5] || got[6] != want[6] {
-		t.Fatalf("expected applied versions %v, got %v", want, got)
-	}
-	assertHistoryVersions(t, testContext, conn, []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations", "000011_stream_outcome_telemetry"})
+	expectedVersions := expectedMigrationVersionsFrom(t, "000005_audit_log_request_time_provenance")
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
+	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 
 	rows, err := conn.Query(testContext, `SELECT audit_capture_bodies_at_request FROM request_logs ORDER BY id ASC`)
 	if err != nil {
@@ -362,6 +412,72 @@ func newRunner(t *testing.T) migrate.Runner {
 	}
 
 	return runner
+}
+
+func expectedMigrationVersionsFrom(t *testing.T, start string) []string {
+	t.Helper()
+	for index, version := range expectedPrismMigrationVersions {
+		if version == start {
+			return append([]string(nil), expectedPrismMigrationVersions[index:]...)
+		}
+	}
+	t.Fatalf("unknown migration version %q", start)
+	return nil
+}
+
+func assertMigrationVersions(t *testing.T, label string, got []string, expected []string) {
+	t.Helper()
+	if len(got) != len(expected) {
+		t.Fatalf("expected %s %v, got %v", label, expected, got)
+	}
+	for index := range expected {
+		if got[index] != expected[index] {
+			t.Fatalf("expected %s %v, got %v", label, expected, got)
+		}
+	}
+}
+
+func createLegacyProxyTargetSelectionTables(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	if _, err := conn.Exec(ctx, `CREATE TABLE model_configs (id BIGSERIAL PRIMARY KEY, model_type character varying(20) NOT NULL, loadbalance_strategy_id integer)`); err != nil {
+		t.Fatalf("create legacy model_configs table: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `CREATE TABLE model_proxy_targets (id BIGSERIAL PRIMARY KEY, source_model_config_id integer NOT NULL, target_model_config_id integer NOT NULL, position integer NOT NULL)`); err != nil {
+		t.Fatalf("create legacy model_proxy_targets table: %v", err)
+	}
+}
+
+func assertProxyTargetSelectionMigration(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	var nativeSelector string
+	var proxySelector string
+	if err := conn.QueryRow(ctx, `SELECT COALESCE(proxy_selection_strategy, '') FROM model_configs WHERE id = 1`).Scan(&nativeSelector); err != nil {
+		t.Fatalf("load migrated native proxy_selection_strategy: %v", err)
+	}
+	if nativeSelector != "" {
+		t.Fatalf("expected native proxy_selection_strategy to stay null, got %q", nativeSelector)
+	}
+	if err := conn.QueryRow(ctx, `SELECT proxy_selection_strategy FROM model_configs WHERE id = 2`).Scan(&proxySelector); err != nil {
+		t.Fatalf("load migrated proxy proxy_selection_strategy: %v", err)
+	}
+	if proxySelector != "ordered_fallback" {
+		t.Fatalf("expected proxy selector ordered_fallback, got %q", proxySelector)
+	}
+
+	var weight int
+	var targetPriority int
+	if err := conn.QueryRow(ctx, `SELECT weight, target_priority FROM model_proxy_targets WHERE source_model_config_id = 2 AND target_model_config_id = 1`).Scan(&weight, &targetPriority); err != nil {
+		t.Fatalf("load migrated proxy target metadata: %v", err)
+	}
+	if weight != 1 || targetPriority != 4 {
+		t.Fatalf("expected migrated proxy target weight=1 target_priority=4, got weight=%d target_priority=%d", weight, targetPriority)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (model_type, loadbalance_strategy_id, proxy_selection_strategy) VALUES ('proxy', NULL, NULL)`); err == nil {
+		t.Fatal("expected proxy model without proxy_selection_strategy to violate migration constraint")
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES (2, 1, 5, 0, 5)`); err == nil {
+		t.Fatal("expected proxy target with weight 0 to violate migration constraint")
+	}
 }
 
 func assertHistoryVersions(t *testing.T, ctx context.Context, conn *pgx.Conn, expected []string) {
