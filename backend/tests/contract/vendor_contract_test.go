@@ -284,7 +284,7 @@ func vendorInsertProxyModel(t *testing.T, harness *contractHarness, profileID in
 	t.Helper()
 	now := time.Now().UTC()
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`, profileID, vendorID, apiFamily, modelID, displayName, "proxy", nil, isEnabled, now, now).Scan(&modelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`, profileID, vendorID, apiFamily, modelID, displayName, "proxy", "ordered_fallback", nil, isEnabled, now, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert proxy model %q for vendor %d: %v", modelID, vendorID, err)
 	}
 	return modelConfigID

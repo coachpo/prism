@@ -172,14 +172,15 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 		UpdatedAt:          now,
 	})
 	insertModelConfig(t, testContext, conn, modelConfigSeed{
-		ProfileID: profileID,
-		VendorID:  sql.NullInt64{Int64: int64(googleVendorID), Valid: true},
-		APIFamily: "openai",
-		ModelID:   "proxy-google-model",
-		ModelType: "proxy",
-		IsEnabled: true,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ProfileID:              profileID,
+		VendorID:               sql.NullInt64{Int64: int64(googleVendorID), Valid: true},
+		APIFamily:              "openai",
+		ModelID:                "proxy-google-model",
+		ModelType:              "proxy",
+		ProxySelectionStrategy: sql.NullString{String: "ordered_fallback", Valid: true},
+		IsEnabled:              true,
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	})
 	insertSystemUserAgentRule(t, testContext, conn, systemUserAgentRuleSeed{
 		Name:      "Claude Code",
@@ -485,15 +486,16 @@ type vendorSeed struct {
 }
 
 type modelConfigSeed struct {
-	ProfileID             int
-	VendorID              sql.NullInt64
-	APIFamily             string
-	ModelID               string
-	ModelType             string
-	LoadbalanceStrategyID sql.NullInt64
-	IsEnabled             bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ProfileID              int
+	VendorID               sql.NullInt64
+	APIFamily              string
+	ModelID                string
+	ModelType              string
+	LoadbalanceStrategyID  sql.NullInt64
+	ProxySelectionStrategy sql.NullString
+	IsEnabled              bool
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type systemUserAgentRuleSeed struct {
@@ -786,10 +788,11 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 			display_name,
 			model_type,
 			loadbalance_strategy_id,
+			proxy_selection_strategy,
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id`,
 		seed.ProfileID,
 		nullInt64(seed.VendorID),
@@ -798,6 +801,7 @@ func insertModelConfig(t *testing.T, ctx context.Context, conn *pgx.Conn, seed m
 		nil,
 		seed.ModelType,
 		nullInt64(seed.LoadbalanceStrategyID),
+		nullString(seed.ProxySelectionStrategy),
 		seed.IsEnabled,
 		seed.CreatedAt,
 		seed.UpdatedAt,
@@ -1347,6 +1351,13 @@ func nullInt64(value sql.NullInt64) any {
 		return nil
 	}
 	return value.Int64
+}
+
+func nullString(value sql.NullString) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.String
 }
 
 func formatNullableTime(value sql.NullTime) *string {

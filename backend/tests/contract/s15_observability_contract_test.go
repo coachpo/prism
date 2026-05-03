@@ -1266,7 +1266,7 @@ func s15InsertRuntimeEndpoint(t *testing.T, harness *contractHarness, profileID 
 
 func s15InsertProxyTarget(t *testing.T, harness *contractHarness, sourceModelConfigID int, targetModelConfigID int, position int) {
 	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`, sourceModelConfigID, targetModelConfigID, position); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, $3, 1, $3)`, sourceModelConfigID, targetModelConfigID, position); err != nil {
 		t.Fatalf("insert S15 proxy target %d -> %d: %v", sourceModelConfigID, targetModelConfigID, err)
 	}
 }
