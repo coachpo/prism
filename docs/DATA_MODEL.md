@@ -24,16 +24,19 @@ model_configs (profile-scoped)
   display_name
   model_type (native|proxy)
   loadbalance_strategy_id FK -> loadbalance_strategies.id (native only)
+  proxy_selection_strategy (proxy only: ordered_fallback|weighted_static|priority_static)
   is_enabled
   created_at, updated_at
   UNIQUE(profile_id, model_id)
       |
       v
-model_proxy_targets (profile-scoped, ordered)
+model_proxy_targets (profile-scoped proxy metadata)
   id PK
   source_model_config_id FK -> model_configs.id (proxy only)
   target_model_config_id FK -> model_configs.id (native only)
   position
+  weight
+  target_priority
   UNIQUE(source_model_config_id, position)
   UNIQUE(source_model_config_id, target_model_config_id)
       |
@@ -311,31 +314,37 @@ Maps a model ID to optional vendor metadata, fixed api family, and routing behav
 | display_name | VARCHAR(200) | NULLABLE | Human-readable name |
 | model_type | VARCHAR(20) | NOT NULL, DEFAULT 'native' | `native` or `proxy` |
 | loadbalance_strategy_id | INTEGER | NULLABLE, FK -> loadbalance_strategies.id | Required for native models; null for proxy models |
+| proxy_selection_strategy | VARCHAR(50) | NULLABLE, CHECK IN (`ordered_fallback`, `weighted_static`, `priority_static`) | Required selector for proxy models; null for native models |
 | is_enabled | BOOLEAN | NOT NULL, DEFAULT TRUE | Runtime availability |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraints:
 - `UNIQUE(profile_id, model_id)`.
-- Proxy models route through ordered rows in `model_proxy_targets` instead of a singular redirect field.
+- Native models must attach one profile-scoped loadbalance strategy and must keep `proxy_selection_strategy` null.
+- Proxy models must not attach a loadbalance strategy and must set `proxy_selection_strategy` to `ordered_fallback`, `weighted_static`, or `priority_static`.
+- Proxy models route through rows in `model_proxy_targets` instead of a singular redirect field.
 - Proxy targets must resolve to native models in the same profile and same `api_family`.
-- Native models must attach one profile-scoped loadbalance strategy; proxy models must not attach one.
 
-### 2.3A `model_proxy_targets` (profile-scoped ordered proxy routing)
+### 2.3A `model_proxy_targets` (profile-scoped proxy routing metadata)
 
-Ordered proxy-model targets. One proxy model can point to multiple native targets in contiguous priority order.
+Proxy-model targets. One proxy model can point to multiple native targets with explicit position, weight, and static-priority metadata.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | source_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE CASCADE | Proxy model owning the target list |
 | target_model_config_id | INTEGER | FK -> model_configs.id, NOT NULL, ON DELETE RESTRICT | Native model target |
-| position | INTEGER | NOT NULL | Zero-based target priority |
+| position | INTEGER | NOT NULL, CHECK >= 0 | Zero-based contiguous authoring order; used by `ordered_fallback` and as a tie-breaker |
+| weight | INTEGER | NOT NULL, CHECK >= 1 | `weighted_static` target weight |
+| target_priority | INTEGER | NOT NULL, CHECK >= 0 | `priority_static` target priority |
 
 Constraints:
 - `UNIQUE(source_model_config_id, position)`.
 - `UNIQUE(source_model_config_id, target_model_config_id)`.
-- Database-level trigger enforcement rejects self-reference, cross-profile targets, cross-api-family targets, and proxy-to-proxy chains.
+- Positions are normalized and validated as contiguous `0..N-1` in management contracts.
+- Database checks enforce `weight >= 1` and `target_priority >= 0`.
+- Go management and config-bundle import validation rejects self-reference, cross-profile targets, cross-api-family targets, and proxy-to-proxy chains; these relationship semantics are not enforced by database triggers.
 
 ### 2.4 `loadbalance_strategies` (profile-scoped reusable routing behavior)
 
@@ -848,9 +857,9 @@ CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_use
 
 ## 7. Config Import/Export Versioning
 
-- Canonical profile export format is Go-era config version `1` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, ordered `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
+- Canonical profile export format is Go-era config version `1` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v1` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, ordered `proxy_targets` for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
+- Profile import accepts `v1` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, `proxy_selection_strategy` plus `proxy_targets` with target metadata for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the v1 profile bundle contract omits internal IDs entirely and relies on name-based references.

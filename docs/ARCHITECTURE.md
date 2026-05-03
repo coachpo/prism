@@ -87,7 +87,7 @@ frontend/
 │       ├── ModelDetailPage.tsx     # Model detail shell + loadbalance events tab
 │       ├── EndpointsPage.tsx
 │       ├── dashboard/DashboardPage.tsx # Dashboard shell with analytics tab and shared statistics content
-│       ├── ProxyModelDetailPage.tsx # Proxy-model detail shell and ordered target editing
+│       ├── ProxyModelDetailPage.tsx # Proxy-model detail shell and target metadata editing
 │       ├── RequestLogsPage.tsx     # Request-log investigation with lazy audit lookup
 │       ├── ProxyApiKeysPage.tsx
 │       ├── SettingsPage.tsx        # Profile-scoped settings shell + global auth/vendor management
@@ -148,14 +148,14 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
   -> Gateway returns JSON to client, releases any non-stream lease, persists one `request_logs` row for the attempt, and feeds the outcome back into runtime routing state
 ```
 
-### 3.2 Proxy Request (Proxy Model With Ordered Targets)
+### 3.2 Proxy Request (Proxy Model With Target Selector)
 
 ```
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
   -> Router captures active profile snapshot
   -> LoadBalancer looks up model config in active profile scope
-  -> Model is proxy -> evaluate ordered proxy_targets within same profile
-  -> Select the first enabled native target whose own native attempt plan is non-empty
+  -> Model is proxy -> load proxy_selection_strategy and explicit proxy_targets metadata
+  -> Evaluate same-profile, same-api-family native targets using the configured selector
   -> Select connection from that chosen native target model only
   -> ProxyService forwards request
   -> Upstream responds; request log keeps model_id=requested proxy and resolved_target_model_id=chosen native target
@@ -289,28 +289,38 @@ If all eligible candidates are unavailable inside the current policy window, the
 
 ### 5.1 Concept
 
-Proxy models are ordered routing records that choose one native target model per request. A proxy request first resolves one same-`api_family` native target from `proxy_targets`, then that chosen target model's attached legacy or adaptive strategy runs unchanged. The runtime never accepts empty target lists, non-contiguous positions, or cross-family proxy targets.
+Proxy models are selector-driven routing records that choose one native target model per request. A proxy request first resolves one same-`api_family` native target from `proxy_targets`, then that chosen target model's attached legacy or adaptive strategy runs unchanged. The runtime never accepts empty target lists, missing target metadata, non-contiguous positions, or cross-family proxy targets.
 
 ### 5.2 Rules
 
 - Only same-`api_family` proxying
 - Targets must be native models (no chained proxy models)
 - Proxy models have no connections of their own
-- Proxy models do not attach a strategy of their own; the resolved native model's attached strategy applies.
+- Proxy models do not attach a loadbalance strategy of their own; the resolved native model's attached strategy applies.
+- Proxy models require `proxy_selection_strategy`; native models must leave it null.
+- Supported selectors are `ordered_fallback`, `weighted_static`, and `priority_static`.
+- Every proxy target carries `target_model_id`, contiguous zero-based `position`, `weight >= 1`, and `target_priority >= 0`.
 - Model IDs are unique within a profile (same model ID may exist in other profiles)
-- Proxy targets are ordered contiguously from `0..n-1`; v1 routing is first-available target selection only.
 - Once one target model is selected for a request, retries stay inside that target model's native connection plan; there is no cross-target retry in the same request.
 - The gateway may normalize proxy request payloads before forwarding (for example: requested proxy model ID rewritten to the resolved native target model ID for upstream compatibility).
 
 Model contracts require `api_family`; `vendor_id` is optional metadata. Vendor CRUD remains global, while proxy compatibility is checked against `api_family` only.
 
-### 5.3 Resolution
+### 5.3 Selector Semantics
+
+- `ordered_fallback`: checks routable targets by `position`, then proxy target row id, and uses the first target whose native plan is available.
+- `priority_static`: checks routable targets by `target_priority`, then `position`, then proxy target row id.
+- `weighted_static`: filters to currently routable same-family native targets, keeps them in `position`, then proxy target row id order, and advances a deterministic cursor over each target's `weight`.
+
+### 5.4 Resolution
 
 ```
 resolve_model(profile_id, model_id):
   config = lookup(profile_id, model_id)
   if config.model_type == "proxy":
-    for target in ordered_proxy_targets(config):
+    candidates = proxy_targets(config)
+    ordered = apply_selector(config.proxy_selection_strategy, candidates)
+    for target in ordered:
       candidate = lookup(profile_id, target.target_model_id)
       if candidate is native and candidate has attempt plan:
         return candidate
