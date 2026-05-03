@@ -23,7 +23,7 @@ settings/
 ├── useAuditConfigurationData.ts
 ├── useConfigBackupData.ts
 ├── useRetentionDeletionData.ts
-├── useVendorManagementData.ts      # Shared-vendor CRUD bootstrap and delete-safety flow
+├── useVendorManagementData.ts      # Shared-vendor CRUD, catalog import/export, preview, and delete-safety flow
 ├── vendorManagementFormState.ts    # Vendor form normalization and delete-conflict parsing
 ├── sectionSaveState.tsx           # Shared dirty, saving, and recently-saved rendering
 ├── settingsPageHelpers.ts         # Tab ids, section ids, default costing form, shared validation helpers
@@ -34,19 +34,20 @@ settings/
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
 - The Profile tab owns section navigation and mounts backup, billing and currency, timezone, audit and privacy, and retention and deletion.
-- The Global tab mounts instance-wide authentication plus the shared vendor-management section and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
+- The Global tab mounts instance-wide authentication plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
 
 - Thin route shell, tab split, startup-tab mount, section order, and dialog mounts: `../SettingsPage.tsx`, `SettingsStartupTab.tsx`
+- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `SettingsStartupTab.tsx`
 - Cross-section composition, selected-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `useSettingsSectionNavigation.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
 - Shared save-state badges and render helpers: `sectionSaveState.tsx`, `settingsSaveTypes.ts`
 - Section implementation boundary: `sections/AGENTS.md`
 - Costing bootstrap, derived state, FX mapping CRUD, and save boundary: `costing/AGENTS.md`
-- Global vendor CRUD, usage prefetch, shared-cache patching, and delete-conflict parsing: `useVendorManagementData.ts`, `vendorManagementFormState.ts`
+- Global vendor CRUD, catalog import/export preview transport, usage prefetch, shared-cache patching, and delete-conflict parsing: `useVendorManagementData.ts`, `vendorManagementFormState.ts`
 - Local dialog ownership for destructive actions, vendor CRUD, and audit-rule editing: `dialogs/AGENTS.md`, `useAuditConfigurationData.ts`, `useRetentionDeletionData.ts`, `useConfigBackupData.ts`, `useVendorManagementData.ts`
 
 ## CHILD DOCS
@@ -62,7 +63,7 @@ settings/
 - Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
 - Keep the scope split clear in copy and behavior: authentication is global, while backup, billing and currency, timezone, audit and privacy, and retention stay profile-scoped.
-- Keep shared vendor catalog CRUD on the Global tab and continue to let the Profile-tab audit defaults consume that same shared vendor catalog.
+- Keep shared vendor catalog CRUD and import/export preview transport on the Global tab, and continue to let the Profile-tab audit defaults consume that same shared vendor catalog.
 - Keep vendor icon metadata on the shared vendor catalog and preserve it through global CRUD flows.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.
 - Billing, reporting currency, timezone preference, and FX mappings cross the `sections/` and `costing/` boundary. Let this parent doc describe the split, then send readers down instead of repeating local details.

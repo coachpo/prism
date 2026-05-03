@@ -8,6 +8,7 @@
 sections/
 ├── AuthenticationSection.tsx
 ├── VendorManagementSection.tsx
+├── VendorCatalogTransportCard.tsx
 ├── AuditConfigurationSection.tsx
 ├── AuditConfigurationDefaultsCard.tsx
 ├── AuditConfigurationHeaderBlocklistCard.tsx
@@ -28,7 +29,7 @@ sections/
 ## WHERE TO LOOK
 
 - Auth setup and verified-email prerequisites: `AuthenticationSection.tsx`, `authentication/`
-- Shared vendor-catalog table and Global-tab entrypoints for create/edit/delete flows: `VendorManagementSection.tsx`
+- Shared vendor-catalog table, catalog import/export preview transport, and Global-tab entrypoints for create/edit/delete flows: `VendorManagementSection.tsx`, `VendorCatalogTransportCard.tsx`
 - Audit and privacy defaults, header blocklist, user-agent or client rule management, vendor toggles, and rules-panel rendering stay vendor-based today, even though request logs and statistics now filter by `api_family`: `AuditConfigurationSection.tsx`, `AuditConfigurationDefaultsCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationVendorToggles.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
 - Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/`
 - Backup and config import or export section: `BackupSection.tsx`
@@ -45,8 +46,8 @@ sections/
 ## CONVENTIONS
 
 - Keep these files focused on section rendering, local field composition, and section-specific copy.
-- Let `VendorManagementSection.tsx` stay rendering-focused; bootstrap, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
-- Let `VendorManagementSection.tsx` stay rendering-focused and show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.
+- Let `VendorManagementSection.tsx` and `VendorCatalogTransportCard.tsx` stay rendering-focused; bootstrap, catalog import/export parsing, preview state, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
+- Let vendor section UI show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.
 - Let `billing-currency/` own the reporting-currency card and FX mapping presentation widgets.
 - Pull bootstrap, dirty-state derivation, and save orchestration from the parent settings hooks instead of rebuilding that logic inside section components.
 - Keep section IDs and save-state wiring aligned with the parent settings helpers.
