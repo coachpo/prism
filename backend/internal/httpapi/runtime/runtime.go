@@ -82,17 +82,18 @@ type apiFamilyAuthConfig struct {
 }
 
 type runtimeModelRecord struct {
-	ID                    int
-	ProfileID             int
-	APIFamily             string
-	ModelID               string
-	ModelType             string
-	VendorID              *int
-	VendorKey             *string
-	VendorName            *string
-	AuditEnabled          bool
-	AuditCaptureBodies    bool
-	LoadbalanceStrategyID *int
+	ID                     int
+	ProfileID              int
+	APIFamily              string
+	ModelID                string
+	ModelType              string
+	ProxySelectionStrategy string
+	VendorID               *int
+	VendorKey              *string
+	VendorName             *string
+	AuditEnabled           bool
+	AuditCaptureBodies     bool
+	LoadbalanceStrategyID  *int
 }
 
 type runtimeEndpoint struct {

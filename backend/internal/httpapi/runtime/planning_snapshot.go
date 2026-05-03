@@ -17,10 +17,19 @@ import (
 
 type planningSnapshot struct {
 	ModelsByID             map[string]runtimeModelRecord
-	ProxyTargetsBySourceID map[int][]string
+	ProxyTargetsBySourceID map[int][]runtimeProxyTargetRecord
 	NativeTargetsByModelID map[string]nativePlanningSnapshot
 	BlocklistRules         []headerBlocklistRule
 	ReportCurrency         runtimeReportCurrencySnapshot
+}
+
+type runtimeProxyTargetRecord struct {
+	SourceModelConfigID int
+	TargetModelID       string
+	ID                  int
+	Position            int
+	Weight              int
+	TargetPriority      int
 }
 
 type nativePlanningSnapshot struct {
@@ -159,23 +168,90 @@ func (s *Service) resolveExecutionTargetFromSnapshot(profileID int, snapshot *pl
 	if requestedModel.ModelType != "proxy" {
 		return s.loadNativeExecutionTargetFromSnapshot(profileID, snapshot, requestedModel.ModelID, requestedModel.ModelID, referenceNow)
 	}
+	return s.selectProxyExecutionTargetFromSnapshot(profileID, snapshot, requestedModel, referenceNow)
+}
 
-	targetModelIDs := snapshot.ProxyTargetsBySourceID[requestedModel.ID]
-	for _, targetModelID := range targetModelIDs {
-		if !proxyTargetMatchesRequestedModel(snapshot, requestedModel, targetModelID) {
-			continue
-		}
-		model, connections, runtimeStates, strategy, err := s.loadNativeExecutionTargetFromSnapshot(profileID, snapshot, targetModelID, requestedModel.ModelID, referenceNow)
-		if err == nil {
-			return model, connections, runtimeStates, strategy, nil
-		}
-		var runtimeErr *domainError
-		if errors.As(err, &runtimeErr) && runtimeErr.StatusCode == http.StatusServiceUnavailable {
-			continue
-		}
-		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
+type proxyResolvedTargetCandidate struct {
+	Record        runtimeProxyTargetRecord
+	Model         runtimeModelRecord
+	Connections   []runtimeConnection
+	RuntimeStates map[int]loadbalance.RuntimeConnectionState
+	Strategy      loadbalance.RuntimeStrategy
+}
+
+func (s *Service) selectProxyExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
+	strategy := normalizedRuntimeProxySelectionStrategy(requestedModel.ProxySelectionStrategy)
+	if !isSupportedRuntimeProxySelectionStrategy(strategy) {
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, fmt.Errorf("proxy model %q has invalid proxy_selection_strategy %q", requestedModel.ModelID, requestedModel.ProxySelectionStrategy)
 	}
-	return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Proxy model '%s' has no routable targets.", requestedModel.ModelID)}
+	if strategy == proxySelectionStrategyWeightedStatic {
+		return s.selectWeightedProxyExecutionTargetFromSnapshot(profileID, snapshot, requestedModel, referenceNow)
+	}
+	return s.selectOrderedProxyExecutionTargetFromSnapshot(profileID, snapshot, requestedModel, strategy, referenceNow)
+}
+
+func (s *Service) selectOrderedProxyExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, strategy string, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
+	targetRecords := orderRuntimeProxyTargetCandidates(strategy, snapshot.ProxyTargetsBySourceID[requestedModel.ID])
+	for _, targetRecord := range targetRecords {
+		candidate, routable, err := s.resolveProxyTargetCandidateFromSnapshot(profileID, snapshot, requestedModel, targetRecord, referenceNow)
+		if err != nil {
+			return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
+		}
+		if routable {
+			return candidate.Model, candidate.Connections, candidate.RuntimeStates, candidate.Strategy, nil
+		}
+	}
+	return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, proxyNoRoutableTargetsError(requestedModel)
+}
+
+func (s *Service) selectWeightedProxyExecutionTargetFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, referenceNow time.Time) (runtimeModelRecord, []runtimeConnection, map[int]loadbalance.RuntimeConnectionState, loadbalance.RuntimeStrategy, error) {
+	targetRecords := orderRuntimeProxyTargetCandidates(proxySelectionStrategyWeightedStatic, snapshot.ProxyTargetsBySourceID[requestedModel.ID])
+	candidates := make([]proxyResolvedTargetCandidate, 0, len(targetRecords))
+	totalWeight := 0
+	for _, targetRecord := range targetRecords {
+		candidate, routable, err := s.resolveProxyTargetCandidateFromSnapshot(profileID, snapshot, requestedModel, targetRecord, referenceNow)
+		if err != nil {
+			return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, err
+		}
+		if !routable {
+			continue
+		}
+		candidates = append(candidates, candidate)
+		totalWeight += targetRecord.Weight
+	}
+	if len(candidates) == 0 {
+		return runtimeModelRecord{}, nil, nil, loadbalance.RuntimeStrategy{}, proxyNoRoutableTargetsError(requestedModel)
+	}
+
+	cursorSlot := s.runtimeState.ClaimProxyWeightedCursor(profileID, requestedModel.ID, totalWeight)
+	cumulativeWeight := 0
+	for _, candidate := range candidates {
+		cumulativeWeight += candidate.Record.Weight
+		if cursorSlot < cumulativeWeight {
+			return candidate.Model, candidate.Connections, candidate.RuntimeStates, candidate.Strategy, nil
+		}
+	}
+	selected := candidates[len(candidates)-1]
+	return selected.Model, selected.Connections, selected.RuntimeStates, selected.Strategy, nil
+}
+
+func (s *Service) resolveProxyTargetCandidateFromSnapshot(profileID int, snapshot *planningSnapshot, requestedModel runtimeModelRecord, targetRecord runtimeProxyTargetRecord, referenceNow time.Time) (proxyResolvedTargetCandidate, bool, error) {
+	if !proxyTargetMatchesRequestedModel(snapshot, requestedModel, targetRecord.TargetModelID) {
+		return proxyResolvedTargetCandidate{}, false, nil
+	}
+	model, connections, runtimeStates, strategy, err := s.loadNativeExecutionTargetFromSnapshot(profileID, snapshot, targetRecord.TargetModelID, requestedModel.ModelID, referenceNow)
+	if err == nil {
+		return proxyResolvedTargetCandidate{Record: targetRecord, Model: model, Connections: connections, RuntimeStates: runtimeStates, Strategy: strategy}, true, nil
+	}
+	var runtimeErr *domainError
+	if errors.As(err, &runtimeErr) && runtimeErr.StatusCode == http.StatusServiceUnavailable {
+		return proxyResolvedTargetCandidate{}, false, nil
+	}
+	return proxyResolvedTargetCandidate{}, false, err
+}
+
+func proxyNoRoutableTargetsError(requestedModel runtimeModelRecord) error {
+	return &domainError{StatusCode: http.StatusServiceUnavailable, Detail: fmt.Sprintf("Proxy model '%s' has no routable targets.", requestedModel.ModelID)}
 }
 
 func proxyTargetMatchesRequestedModel(snapshot *planningSnapshot, requestedModel runtimeModelRecord, targetModelID string) bool {
@@ -225,7 +301,8 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 	rows, err := tx.Query(
 		ctx,
 		`SELECT model_configs.id, model_configs.profile_id, model_configs.api_family, model_configs.model_id, model_configs.model_type,
-			vendors.id, vendors.key, vendors.name, COALESCE(vendors.audit_enabled, FALSE), COALESCE(vendors.audit_capture_bodies, FALSE), model_configs.loadbalance_strategy_id
+			model_configs.proxy_selection_strategy, vendors.id, vendors.key, vendors.name,
+			COALESCE(vendors.audit_enabled, FALSE), COALESCE(vendors.audit_capture_bodies, FALSE), model_configs.loadbalance_strategy_id
 		FROM model_configs
 		LEFT JOIN vendors ON vendors.id = model_configs.vendor_id
 		WHERE model_configs.profile_id = $1 AND model_configs.is_enabled = TRUE
@@ -240,15 +317,19 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 	items := make(map[string]runtimeModelRecord)
 	for rows.Next() {
 		var strategyID sql.NullInt32
+		var proxySelectionStrategy sql.NullString
 		var vendorID sql.NullInt32
 		var vendorKey sql.NullString
 		var vendorName sql.NullString
 		item := runtimeModelRecord{}
-		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &item.ModelType, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &item.AuditCaptureBodies, &strategyID); err != nil {
+		if err := rows.Scan(&item.ID, &item.ProfileID, &item.APIFamily, &item.ModelID, &item.ModelType, &proxySelectionStrategy, &vendorID, &vendorKey, &vendorName, &item.AuditEnabled, &item.AuditCaptureBodies, &strategyID); err != nil {
 			return nil, fmt.Errorf("scan enabled model for profile %d: %w", profileID, err)
 		}
 		if _, exists := items[item.ModelID]; exists {
 			continue
+		}
+		if proxySelectionStrategy.Valid {
+			item.ProxySelectionStrategy = proxySelectionStrategy.String
 		}
 		if strategyID.Valid {
 			resolved := int(strategyID.Int32)
@@ -265,10 +346,11 @@ func listEnabledModelsForProfile(ctx context.Context, tx pgx.Tx, profileID int) 
 	return items, nil
 }
 
-func listProxyTargetModelIDsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[int][]string, error) {
+func listProxyTargetModelIDsForProfile(ctx context.Context, tx pgx.Tx, profileID int) (map[int][]runtimeProxyTargetRecord, error) {
 	rows, err := tx.Query(
 		ctx,
-		`SELECT model_proxy_targets.source_model_config_id, target_models.model_id
+		`SELECT model_proxy_targets.source_model_config_id, target_models.model_id,
+			model_proxy_targets.id, model_proxy_targets.position, model_proxy_targets.weight, model_proxy_targets.target_priority
 		FROM model_proxy_targets
 		JOIN model_configs AS source_models ON source_models.id = model_proxy_targets.source_model_config_id
 		JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id
@@ -281,14 +363,13 @@ func listProxyTargetModelIDsForProfile(ctx context.Context, tx pgx.Tx, profileID
 	}
 	defer rows.Close()
 
-	items := make(map[int][]string)
+	items := make(map[int][]runtimeProxyTargetRecord)
 	for rows.Next() {
-		var sourceModelConfigID int
-		var targetModelID string
-		if err := rows.Scan(&sourceModelConfigID, &targetModelID); err != nil {
+		item := runtimeProxyTargetRecord{}
+		if err := rows.Scan(&item.SourceModelConfigID, &item.TargetModelID, &item.ID, &item.Position, &item.Weight, &item.TargetPriority); err != nil {
 			return nil, fmt.Errorf("scan proxy target for profile %d: %w", profileID, err)
 		}
-		items[sourceModelConfigID] = append(items[sourceModelConfigID], targetModelID)
+		items[item.SourceModelConfigID] = append(items[item.SourceModelConfigID], item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate proxy targets for profile %d: %w", profileID, err)

@@ -1899,10 +1899,10 @@ func seedRequestLogModels(t *testing.T, harness *requestLogContractHarness, prof
 		t.Fatalf("insert current native request-log model: %v", err)
 	}
 	var proxyModelID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'proxy', NULL, TRUE, $5, $5) RETURNING id`, profileID, openAIVendorID, "gpt-4o", "GPT-4o Proxy", now).Scan(&proxyModelID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, proxy_selection_strategy, is_enabled, created_at, updated_at) VALUES ($1, $2, 'openai', $3, $4, 'proxy', NULL, 'ordered_fallback', TRUE, $5, $5) RETURNING id`, profileID, openAIVendorID, "gpt-4o", "GPT-4o Proxy", now).Scan(&proxyModelID); err != nil {
 		t.Fatalf("insert current proxy request-log model: %v", err)
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, 0)`, proxyModelID, nativeModelID); err != nil {
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, 0, 1, 0)`, proxyModelID, nativeModelID); err != nil {
 		t.Fatalf("insert request-log proxy target: %v", err)
 	}
 }

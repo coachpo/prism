@@ -2567,10 +2567,11 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 			display_name,
 			model_type,
 			loadbalance_strategy_id,
+			proxy_selection_strategy,
 			is_enabled,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8, $8)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $9)
 		RETURNING id`,
 		profileID,
 		nil,
@@ -2579,6 +2580,7 @@ func (h *runtimeHarness) seedModel(tb testing.TB, profileID int, apiFamily strin
 		nil,
 		modelType,
 		nullableTestInt(strategyID),
+		runtimeModelProxySelectionStrategy(modelType),
 		now,
 	).Scan(&modelConfigID); err != nil {
 		tb.Fatalf("insert runtime model %q: %v", modelID, err)
@@ -2595,15 +2597,7 @@ func (h *runtimeHarness) seedProxyTarget(tb testing.TB, sourceModelConfigID int,
 
 func (h *runtimeHarness) seedProxyTargetAtPosition(tb testing.TB, sourceModelConfigID int, targetModelConfigID int, position int) {
 	tb.Helper()
-	if _, err := h.conn.Exec(
-		context.Background(),
-		`INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`,
-		sourceModelConfigID,
-		targetModelConfigID,
-		position,
-	); err != nil {
-		tb.Fatalf("insert runtime proxy target: %v", err)
-	}
+	h.seedProxyTargetWithMetadata(tb, sourceModelConfigID, targetModelConfigID, position, 1, position)
 }
 
 func (h *runtimeHarness) seedEndpoint(tb testing.TB, profileID int, name string, baseURL string, apiKey string, position int) int {
