@@ -423,7 +423,7 @@ Response `200`: Array of model objects.
 ```
 GET /api/models/{id}
 ```
-Response `200`: Full model object with nullable vendor metadata, required `api_family`, and ordered connections in the effective profile scope. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
+Response `200`: Full model object with nullable vendor metadata, required `api_family`, nullable `proxy_selection_strategy`, explicit `proxy_targets` metadata, and ordered connections in the effective profile scope. Native model responses carry `proxy_selection_strategy: null` and empty `proxy_targets`; proxy model responses carry one selector and their full target metadata. Model rows do not carry `icon_key`; that metadata stays on `vendors[]`.
 
 #### Get Models by Endpoints (Batch)
 ```
@@ -467,14 +467,19 @@ Request (proxy model):
   "model_id": "claude-sonnet-4-5",
   "display_name": "Claude Sonnet 4.5",
   "model_type": "proxy",
+  "proxy_selection_strategy": "priority_static",
   "proxy_targets": [
     {
       "target_model_id": "claude-sonnet-4-5-20250929",
-      "position": 0
+      "position": 0,
+      "weight": 1,
+      "target_priority": 0
     },
     {
       "target_model_id": "claude-sonnet-4-5-20250701",
-      "position": 1
+      "position": 1,
+      "weight": 2,
+      "target_priority": 1
     }
   ],
   "is_enabled": true
@@ -486,10 +491,16 @@ Validation rules:
 - `model_id` must be unique within the effective profile scope
 - `api_family` is required on every model contract and remains the authoritative runtime compatibility field.
 - `vendor_id` is optional metadata and may be `null`.
-- If `model_type = "proxy"`: `proxy_targets` is required and must be a non-empty ordered list. Every entry must reference a unique native target model from the same profile and same `api_family`, and `position` values must stay contiguous starting at `0`. `loadbalance_strategy_id` must be null/omitted.
-- If `model_type = "native"`: `proxy_targets` must be empty/omitted and `loadbalance_strategy_id` is required.
+- If `model_type = "proxy"`: `proxy_selection_strategy` is required and must be `ordered_fallback`, `weighted_static`, or `priority_static`; `proxy_targets` is required and must be a non-empty list. Every target requires `target_model_id`, `position`, `weight`, and `target_priority`; targets must reference unique native models from the same profile and same `api_family`; positions must stay contiguous starting at `0`; `weight` must be `>= 1`; `target_priority` must be `>= 0`; `loadbalance_strategy_id` must be null/omitted.
+- If `model_type = "native"`: `proxy_selection_strategy` must be null/omitted, `proxy_targets` must be empty/omitted, and `loadbalance_strategy_id` is required.
 - Proxy target self-reference is rejected.
 - Deleting a native model referenced by any proxy target returns `400` until the proxy targets are removed or updated.
+
+Selector semantics:
+- `ordered_fallback` evaluates routable targets by `position`, then target row id.
+- `priority_static` evaluates routable targets by `target_priority`, then `position`, then target row id.
+- `weighted_static` evaluates currently routable same-family native targets in `position`, then target row id order, and uses a deterministic per-proxy cursor over target `weight` values.
+- Once one target model is selected for a request, retries stay inside that target model's native connection plan.
 
 #### Update Model
 ```
@@ -507,7 +518,7 @@ Request (all fields optional):
   "is_enabled": true
 }
 ```
-Proxy-model updates use the same strict `proxy_targets` authoring contract as create: a non-empty ordered list of unique same-profile native targets from the same `api_family`, contiguous `position` values starting at `0`, no self-targets, and no `loadbalance_strategy_id`. Native-model updates continue to omit or empty `proxy_targets` and provide `loadbalance_strategy_id`. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if proxy-target validation fails.
+When the resulting model is a proxy model, the update payload must include the full `proxy_selection_strategy` plus the full non-empty `proxy_targets` list using the same target metadata and validation rules as create, and must omit or null `loadbalance_strategy_id`. Native-model updates must omit or null `proxy_selection_strategy`, omit or empty `proxy_targets`, and provide `loadbalance_strategy_id`. Response `200`: Updated model object. Returns `409` if `model_id` conflicts within the effective profile. Returns `400` if selector or proxy-target validation fails.
 
 #### Delete Model
 ```
@@ -882,7 +893,7 @@ Profile export semantics:
 - Safe exports null reusable endpoint secret refs and do not include `secret_payload.entries[]`.
 - Dangerous exports include `secret_payload.entries[]` and reusable endpoint secret refs.
 - Export fails if a stored endpoint secret cannot be decrypted before bundle encryption.
-- Profile bundles preserve ordered proxy targets, same-family model routing, and attached loadbalance references as part of the canonical contract.
+- Profile bundles preserve proxy selectors, explicit proxy target metadata, same-family model routing, and attached loadbalance references as part of the canonical contract.
 
 #### Preview Profile Import
 ```
@@ -996,7 +1007,7 @@ Profile import semantics:
 - Endpoints with `api_key_secret_ref: null` import as no-auth endpoints with an empty stored endpoint secret.
 - Wrong bundle key or unreadable secret payloads fail before profile replacement starts.
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references.
-- Exported/imported proxy models carry ordered `proxy_targets` on the proxy model payload.
+- Exported/imported proxy models carry required `proxy_selection_strategy` plus `proxy_targets` entries with required `target_model_id`, `position`, `weight`, and `target_priority`; native models carry `proxy_selection_strategy: null` and no proxy targets.
 - Exported/imported connections include `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
 - Exported/imported loadbalance strategies use a top-level `strategy_type` discriminator. Legacy strategies carry `legacy_strategy_type` plus `auto_recovery`; adaptive strategies carry `routing_policy`.
 - Other config version numbers are unsupported.
