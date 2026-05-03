@@ -7,19 +7,52 @@ import (
 )
 
 type proxyTargetReference struct {
-	TargetModelID string `json:"target_model_id"`
-	Position      int    `json:"position"`
+	TargetModelID  string `json:"target_model_id"`
+	Position       int    `json:"position"`
+	Weight         int    `json:"weight"`
+	TargetPriority int    `json:"target_priority"`
+
+	weightSet          bool
+	weightNull         bool
+	targetPrioritySet  bool
+	targetPriorityNull bool
+}
+
+func (value *proxyTargetReference) UnmarshalJSON(data []byte) error {
+	var parsed struct {
+		TargetModelID  string      `json:"target_model_id"`
+		Position       int         `json:"position"`
+		Weight         optionalInt `json:"weight"`
+		TargetPriority optionalInt `json:"target_priority"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(data), &parsed); err != nil {
+		return err
+	}
+	value.TargetModelID = parsed.TargetModelID
+	value.Position = parsed.Position
+	value.weightSet = parsed.Weight.Set
+	value.weightNull = parsed.Weight.Set && parsed.Weight.Value == nil
+	if parsed.Weight.Value != nil {
+		value.Weight = *parsed.Weight.Value
+	}
+	value.targetPrioritySet = parsed.TargetPriority.Set
+	value.targetPriorityNull = parsed.TargetPriority.Set && parsed.TargetPriority.Value == nil
+	if parsed.TargetPriority.Value != nil {
+		value.TargetPriority = *parsed.TargetPriority.Value
+	}
+	return nil
 }
 
 type modelCreateRequest struct {
-	VendorID              *int                   `json:"vendor_id"`
-	APIFamily             string                 `json:"api_family"`
-	ModelID               string                 `json:"model_id"`
-	DisplayName           *string                `json:"display_name"`
-	ModelType             string                 `json:"model_type"`
-	ProxyTargets          []proxyTargetReference `json:"proxy_targets"`
-	LoadbalanceStrategyID *int                   `json:"loadbalance_strategy_id"`
-	IsEnabled             *bool                  `json:"is_enabled"`
+	VendorID               *int                   `json:"vendor_id"`
+	APIFamily              string                 `json:"api_family"`
+	ModelID                string                 `json:"model_id"`
+	DisplayName            *string                `json:"display_name"`
+	ModelType              string                 `json:"model_type"`
+	ProxySelectionStrategy *string                `json:"proxy_selection_strategy"`
+	ProxyTargets           []proxyTargetReference `json:"proxy_targets"`
+	LoadbalanceStrategyID  *int                   `json:"loadbalance_strategy_id"`
+	IsEnabled              *bool                  `json:"is_enabled"`
 }
 
 type optionalString struct {
@@ -93,14 +126,15 @@ func (value *optionalProxyTargets) UnmarshalJSON(data []byte) error {
 }
 
 type modelUpdateRequest struct {
-	VendorID              optionalInt          `json:"vendor_id"`
-	APIFamily             optionalString       `json:"api_family"`
-	ModelID               optionalString       `json:"model_id"`
-	DisplayName           optionalString       `json:"display_name"`
-	ModelType             optionalString       `json:"model_type"`
-	ProxyTargets          optionalProxyTargets `json:"proxy_targets"`
-	LoadbalanceStrategyID optionalInt          `json:"loadbalance_strategy_id"`
-	IsEnabled             optionalBool         `json:"is_enabled"`
+	VendorID               optionalInt          `json:"vendor_id"`
+	APIFamily              optionalString       `json:"api_family"`
+	ModelID                optionalString       `json:"model_id"`
+	DisplayName            optionalString       `json:"display_name"`
+	ModelType              optionalString       `json:"model_type"`
+	ProxySelectionStrategy optionalString       `json:"proxy_selection_strategy"`
+	ProxyTargets           optionalProxyTargets `json:"proxy_targets"`
+	LoadbalanceStrategyID  optionalInt          `json:"loadbalance_strategy_id"`
+	IsEnabled              optionalBool         `json:"is_enabled"`
 }
 
 type vendorResponse struct {
@@ -170,42 +204,44 @@ type connectionResponse struct {
 }
 
 type modelConfigListResponse struct {
-	ID                    int                         `json:"id"`
-	ProfileID             int                         `json:"profile_id"`
-	VendorID              *int                        `json:"vendor_id"`
-	Vendor                *vendorResponse             `json:"vendor"`
-	APIFamily             string                      `json:"api_family"`
-	ModelID               string                      `json:"model_id"`
-	DisplayName           *string                     `json:"display_name"`
-	ModelType             string                      `json:"model_type"`
-	ProxyTargets          []proxyTargetReference      `json:"proxy_targets"`
-	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	IsEnabled             bool                        `json:"is_enabled"`
-	ConnectionCount       int                         `json:"connection_count"`
-	ActiveConnectionCount int                         `json:"active_connection_count"`
-	HealthSuccessRate     *float64                    `json:"health_success_rate"`
-	HealthTotalRequests   int                         `json:"health_total_requests"`
-	CreatedAt             time.Time                   `json:"created_at"`
-	UpdatedAt             time.Time                   `json:"updated_at"`
+	ID                     int                         `json:"id"`
+	ProfileID              int                         `json:"profile_id"`
+	VendorID               *int                        `json:"vendor_id"`
+	Vendor                 *vendorResponse             `json:"vendor"`
+	APIFamily              string                      `json:"api_family"`
+	ModelID                string                      `json:"model_id"`
+	DisplayName            *string                     `json:"display_name"`
+	ModelType              string                      `json:"model_type"`
+	ProxySelectionStrategy *string                     `json:"proxy_selection_strategy"`
+	ProxyTargets           []proxyTargetReference      `json:"proxy_targets"`
+	LoadbalanceStrategyID  *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy    *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	IsEnabled              bool                        `json:"is_enabled"`
+	ConnectionCount        int                         `json:"connection_count"`
+	ActiveConnectionCount  int                         `json:"active_connection_count"`
+	HealthSuccessRate      *float64                    `json:"health_success_rate"`
+	HealthTotalRequests    int                         `json:"health_total_requests"`
+	CreatedAt              time.Time                   `json:"created_at"`
+	UpdatedAt              time.Time                   `json:"updated_at"`
 }
 
 type modelConfigResponse struct {
-	ID                    int                         `json:"id"`
-	ProfileID             int                         `json:"profile_id"`
-	VendorID              *int                        `json:"vendor_id"`
-	Vendor                *vendorResponse             `json:"vendor"`
-	APIFamily             string                      `json:"api_family"`
-	ModelID               string                      `json:"model_id"`
-	DisplayName           *string                     `json:"display_name"`
-	ModelType             string                      `json:"model_type"`
-	ProxyTargets          []proxyTargetReference      `json:"proxy_targets"`
-	LoadbalanceStrategyID *int                        `json:"loadbalance_strategy_id"`
-	LoadbalanceStrategy   *loadbalanceStrategySummary `json:"loadbalance_strategy"`
-	IsEnabled             bool                        `json:"is_enabled"`
-	Connections           []connectionResponse        `json:"connections"`
-	CreatedAt             time.Time                   `json:"created_at"`
-	UpdatedAt             time.Time                   `json:"updated_at"`
+	ID                     int                         `json:"id"`
+	ProfileID              int                         `json:"profile_id"`
+	VendorID               *int                        `json:"vendor_id"`
+	Vendor                 *vendorResponse             `json:"vendor"`
+	APIFamily              string                      `json:"api_family"`
+	ModelID                string                      `json:"model_id"`
+	DisplayName            *string                     `json:"display_name"`
+	ModelType              string                      `json:"model_type"`
+	ProxySelectionStrategy *string                     `json:"proxy_selection_strategy"`
+	ProxyTargets           []proxyTargetReference      `json:"proxy_targets"`
+	LoadbalanceStrategyID  *int                        `json:"loadbalance_strategy_id"`
+	LoadbalanceStrategy    *loadbalanceStrategySummary `json:"loadbalance_strategy"`
+	IsEnabled              bool                        `json:"is_enabled"`
+	Connections            []connectionResponse        `json:"connections"`
+	CreatedAt              time.Time                   `json:"created_at"`
+	UpdatedAt              time.Time                   `json:"updated_at"`
 }
 
 type endpointModelsBatchItem struct {

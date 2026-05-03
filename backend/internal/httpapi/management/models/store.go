@@ -22,17 +22,18 @@ type queryExecutor interface {
 }
 
 type modelRecord struct {
-	ID                    int
-	ProfileID             int
-	VendorID              *int
-	APIFamily             string
-	ModelID               string
-	DisplayName           *string
-	ModelType             string
-	LoadbalanceStrategyID *int
-	IsEnabled             bool
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                     int
+	ProfileID              int
+	VendorID               *int
+	APIFamily              string
+	ModelID                string
+	DisplayName            *string
+	ModelType              string
+	ProxySelectionStrategy *string
+	LoadbalanceStrategyID  *int
+	IsEnabled              bool
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type vendorRecord struct {
@@ -74,7 +75,7 @@ type endpointModelConnectionRow struct {
 }
 
 func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([]modelRecord, error) {
-	rows, err := exec.Query(ctx, `SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query models for profile %d: %w", profileID, err)
 	}
@@ -95,7 +96,7 @@ func listModelRecords(ctx context.Context, exec queryExecutor, profileID int) ([
 }
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int, forUpdate bool) (modelRecord, bool, error) {
-	query := `SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND id = $2`
+	query := `SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND id = $2`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -228,7 +229,7 @@ func loadProxyTargetsForModels(ctx context.Context, exec queryExecutor, modelIDs
 	for _, modelID := range modelIDs {
 		args = append(args, modelID)
 	}
-	query := fmt.Sprintf(`SELECT model_proxy_targets.source_model_config_id, model_proxy_targets.position, target_models.model_id FROM model_proxy_targets JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id WHERE model_proxy_targets.source_model_config_id IN (%s) ORDER BY model_proxy_targets.source_model_config_id ASC, model_proxy_targets.position ASC, model_proxy_targets.id ASC`, placeholders(1, len(modelIDs)))
+	query := fmt.Sprintf(`SELECT model_proxy_targets.source_model_config_id, model_proxy_targets.position, target_models.model_id, model_proxy_targets.weight, model_proxy_targets.target_priority FROM model_proxy_targets JOIN model_configs AS target_models ON target_models.id = model_proxy_targets.target_model_config_id WHERE model_proxy_targets.source_model_config_id IN (%s) ORDER BY model_proxy_targets.source_model_config_id ASC, model_proxy_targets.position ASC, model_proxy_targets.id ASC`, placeholders(1, len(modelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query proxy targets by source model: %w", err)
@@ -240,10 +241,12 @@ func loadProxyTargetsForModels(ctx context.Context, exec queryExecutor, modelIDs
 		var sourceModelID int
 		var position int
 		var targetModelID string
-		if err := rows.Scan(&sourceModelID, &position, &targetModelID); err != nil {
+		var weight int
+		var targetPriority int
+		if err := rows.Scan(&sourceModelID, &position, &targetModelID, &weight, &targetPriority); err != nil {
 			return nil, fmt.Errorf("scan proxy target: %w", err)
 		}
-		items[sourceModelID] = append(items[sourceModelID], proxyTargetReference{TargetModelID: targetModelID, Position: position})
+		items[sourceModelID] = append(items[sourceModelID], proxyTargetReference{TargetModelID: targetModelID, Position: position, Weight: weight, TargetPriority: targetPriority, weightSet: true, targetPrioritySet: true})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate proxy targets: %w", err)
@@ -280,7 +283,7 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 	for _, endpointID := range endpointIDs {
 		args = append(args, endpointID)
 	}
-	query := fmt.Sprintf(`SELECT connections.endpoint_id, connections.is_active, model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at FROM connections JOIN model_configs ON model_configs.id = connections.model_config_id WHERE connections.profile_id = $1 AND connections.endpoint_id IN (%s) ORDER BY connections.endpoint_id ASC, model_configs.id ASC, connections.priority ASC, connections.id ASC`, placeholders(2, len(endpointIDs)))
+	query := fmt.Sprintf(`SELECT connections.endpoint_id, connections.is_active, model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.proxy_selection_strategy, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at FROM connections JOIN model_configs ON model_configs.id = connections.model_config_id WHERE connections.profile_id = $1 AND connections.endpoint_id IN (%s) ORDER BY connections.endpoint_id ASC, model_configs.id ASC, connections.priority ASC, connections.id ASC`, placeholders(2, len(endpointIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query endpoint model rows for profile %d: %w", profileID, err)
@@ -290,10 +293,12 @@ func listEndpointModelRows(ctx context.Context, exec queryExecutor, profileID in
 	items := make([]endpointModelConnectionRow, 0)
 	for rows.Next() {
 		var row endpointModelConnectionRow
-		if err := rows.Scan(&row.EndpointID, &row.ConnectionIsActive, &row.ConnectionModelData.ID, &row.ConnectionModelData.ProfileID, &row.ConnectionModelData.VendorID, &row.ConnectionModelData.APIFamily, &row.ConnectionModelData.ModelID, &row.ConnectionModelData.DisplayName, &row.ConnectionModelData.ModelType, &row.ConnectionModelData.LoadbalanceStrategyID, &row.ConnectionModelData.IsEnabled, &row.ConnectionModelData.CreatedAt, &row.ConnectionModelData.UpdatedAt); err != nil {
+		var proxySelectionStrategy sql.NullString
+		if err := rows.Scan(&row.EndpointID, &row.ConnectionIsActive, &row.ConnectionModelData.ID, &row.ConnectionModelData.ProfileID, &row.ConnectionModelData.VendorID, &row.ConnectionModelData.APIFamily, &row.ConnectionModelData.ModelID, &row.ConnectionModelData.DisplayName, &row.ConnectionModelData.ModelType, &proxySelectionStrategy, &row.ConnectionModelData.LoadbalanceStrategyID, &row.ConnectionModelData.IsEnabled, &row.ConnectionModelData.CreatedAt, &row.ConnectionModelData.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan endpoint model row: %w", err)
 		}
 		row.ConnectionModelID = row.ConnectionModelData.ID
+		row.ConnectionModelData.ProxySelectionStrategy = nullableStringValue(proxySelectionStrategy)
 		items = append(items, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -348,7 +353,7 @@ func ensureModelIDAvailable(ctx context.Context, exec queryExecutor, profileID i
 func listProxyReferrers(ctx context.Context, exec queryExecutor, profileID int, modelID string, excludeID *int) ([]modelRecord, error) {
 	targetIDQuery := `SELECT id FROM model_configs WHERE profile_id = $1 AND model_id = $2`
 	args := []any{profileID, modelID}
-	query := `SELECT DISTINCT model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at FROM model_configs JOIN model_proxy_targets ON model_proxy_targets.source_model_config_id = model_configs.id WHERE model_configs.profile_id = $1 AND model_proxy_targets.target_model_config_id = (` + targetIDQuery + `)`
+	query := `SELECT DISTINCT model_configs.id, model_configs.profile_id, model_configs.vendor_id, model_configs.api_family, model_configs.model_id, model_configs.display_name, model_configs.model_type, model_configs.proxy_selection_strategy, model_configs.loadbalance_strategy_id, model_configs.is_enabled, model_configs.created_at, model_configs.updated_at FROM model_configs JOIN model_proxy_targets ON model_proxy_targets.source_model_config_id = model_configs.id WHERE model_configs.profile_id = $1 AND model_proxy_targets.target_model_config_id = (` + targetIDQuery + `)`
 	if excludeID != nil {
 		query += ` AND model_configs.id <> $3`
 		args = append(args, *excludeID)
@@ -395,7 +400,7 @@ func resolveProxyTargets(ctx context.Context, exec queryExecutor, profileID int,
 		targetModelIDs = append(targetModelIDs, proxyTarget.TargetModelID)
 		args = append(args, proxyTarget.TargetModelID)
 	}
-	query := fmt.Sprintf(`SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND model_id IN (%s) ORDER BY id ASC`, placeholders(2, len(targetModelIDs)))
+	query := fmt.Sprintf(`SELECT id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at FROM model_configs WHERE profile_id = $1 AND model_id IN (%s) ORDER BY id ASC`, placeholders(2, len(targetModelIDs)))
 	rows, err := exec.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query proxy targets for profile %d: %w", profileID, err)
@@ -443,7 +448,7 @@ func replaceProxyTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int
 		return fmt.Errorf("delete proxy targets for model %d: %w", sourceModelConfigID, err)
 	}
 	for index, proxyTarget := range orderedProxyTargets {
-		if _, err := tx.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES ($1, $2, $3)`, sourceModelConfigID, targetModels[index].ID, proxyTarget.Position); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES ($1, $2, $3, $4, $5)`, sourceModelConfigID, targetModels[index].ID, proxyTarget.Position, proxyTarget.Weight, proxyTarget.TargetPriority); err != nil {
 			if isUniqueViolation(err, "uq_model_proxy_targets_source_target") {
 				return &domainError{StatusCode: 400, Detail: "proxy_targets must contain unique target_model_id values"}
 			}
@@ -457,7 +462,7 @@ func replaceProxyTargets(ctx context.Context, tx pgx.Tx, sourceModelConfigID int
 }
 
 func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	created, err := scanModelRecord(tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), record.ModelType, nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.CreatedAt, record.UpdatedAt))
+	created, err := scanModelRecord(tx.QueryRow(ctx, `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at`, record.ProfileID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), record.ModelType, nullableString(record.ProxySelectionStrategy), nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.CreatedAt, record.UpdatedAt))
 	if err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
@@ -468,7 +473,7 @@ func insertModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecor
 }
 
 func updateModel(ctx context.Context, tx pgx.Tx, record modelRecord) (modelRecord, error) {
-	updated, err := scanModelRecord(tx.QueryRow(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, model_type = $6, loadbalance_strategy_id = $7, is_enabled = $8, updated_at = $9 WHERE id = $1 RETURNING id, profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), record.ModelType, nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.UpdatedAt))
+	updated, err := scanModelRecord(tx.QueryRow(ctx, `UPDATE model_configs SET vendor_id = $2, api_family = $3, model_id = $4, display_name = $5, model_type = $6, proxy_selection_strategy = $7, loadbalance_strategy_id = $8, is_enabled = $9, updated_at = $10 WHERE id = $1 RETURNING id, profile_id, vendor_id, api_family, model_id, display_name, model_type, proxy_selection_strategy, loadbalance_strategy_id, is_enabled, created_at, updated_at`, record.ID, nullableInt(record.VendorID), record.APIFamily, record.ModelID, nullableString(record.DisplayName), record.ModelType, nullableString(record.ProxySelectionStrategy), nullableInt(record.LoadbalanceStrategyID), record.IsEnabled, record.UpdatedAt))
 	if err != nil {
 		if isUniqueViolation(err, "uq_model_configs_profile_model_id") {
 			return modelRecord{}, &domainError{StatusCode: 409, Detail: fmt.Sprintf("Model ID '%s' already exists", record.ModelID)}
@@ -495,13 +500,15 @@ func syncRenamedModelReferences(ctx context.Context, tx pgx.Tx, profileID int, o
 func scanModelRecord(scanner interface{ Scan(...any) error }) (modelRecord, error) {
 	var vendorID sql.NullInt32
 	var displayName sql.NullString
+	var proxySelectionStrategy sql.NullString
 	var loadbalanceStrategyID sql.NullInt32
 	record := modelRecord{}
-	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &record.ModelType, &loadbalanceStrategyID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	if err := scanner.Scan(&record.ID, &record.ProfileID, &vendorID, &record.APIFamily, &record.ModelID, &displayName, &record.ModelType, &proxySelectionStrategy, &loadbalanceStrategyID, &record.IsEnabled, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return modelRecord{}, err
 	}
 	record.VendorID = nullableInt32(vendorID)
 	record.DisplayName = nullableStringValue(displayName)
+	record.ProxySelectionStrategy = nullableStringValue(proxySelectionStrategy)
 	record.LoadbalanceStrategyID = nullableInt32(loadbalanceStrategyID)
 	return record, nil
 }
@@ -583,7 +590,7 @@ func scanConnectionResponse(scanner interface{ Scan(...any) error }) (connection
 }
 
 func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, proxyTargets map[int][]proxyTargetReference, counts map[int]modelConnectionCounts, health map[string]modelHealthStats) modelConfigListResponse {
-	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, ModelType: record.ModelType, ProxyTargets: cloneProxyTargets(proxyTargets[record.ID]), LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigListResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, ModelType: record.ModelType, ProxySelectionStrategy: record.ProxySelectionStrategy, ProxyTargets: cloneProxyTargets(proxyTargets[record.ID]), LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled, HealthTotalRequests: 0, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if record.VendorID != nil {
 		if vendor, ok := vendors[*record.VendorID]; ok {
 			response.Vendor = vendorResponseFromRecord(vendor)
@@ -606,7 +613,7 @@ func buildModelListResponse(record modelRecord, vendors map[int]vendorRecord, st
 }
 
 func buildModelDetailResponse(record modelRecord, vendors map[int]vendorRecord, strategies map[int]strategyRecord, proxyTargets map[int][]proxyTargetReference, connections []connectionResponse) modelConfigResponse {
-	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, ModelType: record.ModelType, ProxyTargets: cloneProxyTargets(proxyTargets[record.ID]), LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled, Connections: connections, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	response := modelConfigResponse{ID: record.ID, ProfileID: record.ProfileID, VendorID: record.VendorID, APIFamily: record.APIFamily, ModelID: record.ModelID, DisplayName: record.DisplayName, ModelType: record.ModelType, ProxySelectionStrategy: record.ProxySelectionStrategy, ProxyTargets: cloneProxyTargets(proxyTargets[record.ID]), LoadbalanceStrategyID: record.LoadbalanceStrategyID, IsEnabled: record.IsEnabled, Connections: connections, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 	if response.Connections == nil {
 		response.Connections = []connectionResponse{}
 	}

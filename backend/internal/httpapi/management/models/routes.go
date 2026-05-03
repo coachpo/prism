@@ -124,7 +124,7 @@ func (s *Service) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 			return modelConfigResponse{}, err
 		}
 		now := s.nowUTC()
-		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), ModelType: modelType, LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
+		record := modelRecord{ProfileID: profile.ID, VendorID: requestBody.VendorID, APIFamily: requestBody.APIFamily, ModelID: requestBody.ModelID, DisplayName: resolvePersistedDisplayName(requestBody.ModelID, requestBody.DisplayName), ModelType: modelType, ProxySelectionStrategy: requestBody.ProxySelectionStrategy, LoadbalanceStrategyID: requestBody.LoadbalanceStrategyID, IsEnabled: resolveIsEnabled(requestBody.IsEnabled), CreatedAt: now, UpdatedAt: now}
 		created, err := insertModel(r.Context(), tx, record)
 		if err != nil {
 			return modelConfigResponse{}, err
@@ -205,6 +205,9 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if requestBody.ModelType.Set {
 			next.ModelType = *requestBody.ModelType.Value
 		}
+		if requestBody.ProxySelectionStrategy.Set {
+			next.ProxySelectionStrategy = requestBody.ProxySelectionStrategy.Value
+		}
 		if requestBody.IsEnabled.Set {
 			next.IsEnabled = requestBody.IsEnabled.Value
 		}
@@ -235,20 +238,33 @@ func (s *Service) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 		if next.ModelType == "proxy" && current.ModelType != "proxy" && len(connectionsBefore) > 0 {
 			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "Cannot convert native model with connections to proxy. Delete connections first."}
 		}
-		if next.ModelType == "proxy" && !requestBody.ProxyTargets.Set {
-			return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets is required for proxy models"}
-		}
-		targetModels, err := resolveProxyTargets(r.Context(), tx, profile.ID, next.ModelType, newProxyTargets, next.APIFamily, stringPtr(next.ModelID))
-		if err != nil {
-			return modelConfigResponse{}, err
+		if next.ModelType == "native" {
+			if requestBody.ProxySelectionStrategy.Set && requestBody.ProxySelectionStrategy.Value != nil {
+				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy must be null for native models"}
+			}
+			if requestBody.ProxyTargets.Set && len(newProxyTargets) > 0 {
+				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
+			}
+			next.ProxySelectionStrategy = nil
+			newProxyTargets = []proxyTargetReference{}
 		}
 		if next.ModelType == "proxy" {
 			if requestBody.LoadbalanceStrategyID.Set && requestBody.LoadbalanceStrategyID.Value != nil {
 				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id must be null for proxy models"}
 			}
+			if !requestBody.ProxySelectionStrategy.Set {
+				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy is required for proxy models"}
+			}
+			if !requestBody.ProxyTargets.Set {
+				return modelConfigResponse{}, &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets is required for proxy models"}
+			}
 			next.LoadbalanceStrategyID = nil
 		}
-		if err := validateModelTypeAndTargets(next.ModelType, newProxyTargets, next.LoadbalanceStrategyID); err != nil {
+		if err := validateModelTypeAndTargets(next.ModelType, newProxyTargets, next.LoadbalanceStrategyID, next.ProxySelectionStrategy); err != nil {
+			return modelConfigResponse{}, err
+		}
+		targetModels, err := resolveProxyTargets(r.Context(), tx, profile.ID, next.ModelType, newProxyTargets, next.APIFamily, stringPtr(next.ModelID))
+		if err != nil {
 			return modelConfigResponse{}, err
 		}
 		if next.ModelType == "native" {
@@ -518,6 +534,7 @@ func uniqueModelIDs(records []modelRecord) []int {
 func normalizeCreateRequest(requestBody *modelCreateRequest) {
 	requestBody.APIFamily = strings.ToLower(strings.TrimSpace(requestBody.APIFamily))
 	requestBody.ModelType = strings.ToLower(strings.TrimSpace(requestBody.ModelType))
+	requestBody.ProxySelectionStrategy = normalizeOptionalString(requestBody.ProxySelectionStrategy, true, false)
 	requestBody.DisplayName = normalizeOptionalString(requestBody.DisplayName, false, true)
 	requestBody.ProxyTargets = normalizeProxyTargets(requestBody.ProxyTargets)
 }
@@ -525,6 +542,7 @@ func normalizeCreateRequest(requestBody *modelCreateRequest) {
 func normalizeUpdateRequest(requestBody *modelUpdateRequest) {
 	requestBody.APIFamily = optionalString{Set: requestBody.APIFamily.Set, Value: normalizeOptionalString(requestBody.APIFamily.Value, true, false)}
 	requestBody.ModelType = optionalString{Set: requestBody.ModelType.Set, Value: normalizeOptionalString(requestBody.ModelType.Value, true, false)}
+	requestBody.ProxySelectionStrategy = optionalString{Set: requestBody.ProxySelectionStrategy.Set, Value: normalizeOptionalString(requestBody.ProxySelectionStrategy.Value, true, false)}
 	requestBody.DisplayName = optionalString{Set: requestBody.DisplayName.Set, Value: normalizeOptionalString(requestBody.DisplayName.Value, false, true)}
 	requestBody.ProxyTargets = optionalProxyTargets{Set: requestBody.ProxyTargets.Set, Value: normalizeProxyTargets(requestBody.ProxyTargets.Value)}
 }
@@ -550,7 +568,9 @@ func normalizeProxyTargets(values []proxyTargetReference) []proxyTargetReference
 	}
 	normalized := make([]proxyTargetReference, 0, len(values))
 	for _, value := range values {
-		normalized = append(normalized, proxyTargetReference{TargetModelID: strings.TrimSpace(value.TargetModelID), Position: value.Position})
+		normalizedTarget := value
+		normalizedTarget.TargetModelID = strings.TrimSpace(value.TargetModelID)
+		normalized = append(normalized, normalizedTarget)
 	}
 	return normalized
 }
@@ -565,7 +585,7 @@ func validateCreateRequest(requestBody modelCreateRequest) error {
 	if strings.TrimSpace(requestBody.ModelID) == "" {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "model_id is required"}
 	}
-	if err := validateModelTypeAndTargets(resolvedModelType(requestBody.ModelType), requestBody.ProxyTargets, requestBody.LoadbalanceStrategyID); err != nil {
+	if err := validateModelTypeAndTargets(resolvedModelType(requestBody.ModelType), requestBody.ProxyTargets, requestBody.LoadbalanceStrategyID, requestBody.ProxySelectionStrategy); err != nil {
 		return err
 	}
 	return nil
@@ -585,14 +605,22 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "model_type must be 'native' or 'proxy'"}
 		}
 	}
+	if requestBody.ProxySelectionStrategy.Set && requestBody.ProxySelectionStrategy.Value != nil && !isValidProxySelectionStrategy(*requestBody.ProxySelectionStrategy.Value) {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy must be one of 'ordered_fallback', 'weighted_static', or 'priority_static'"}
+	}
 	if requestBody.ProxyTargets.Set {
 		if err := validateProxyTargets(requestBody.ProxyTargets.Value); err != nil {
 			return err
 		}
 	}
 	if requestBody.ModelType.Set && requestBody.ModelType.Value != nil {
-		if *requestBody.ModelType.Value == "native" && requestBody.ProxyTargets.Set && len(requestBody.ProxyTargets.Value) > 0 {
-			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
+		if *requestBody.ModelType.Value == "native" {
+			if requestBody.ProxySelectionStrategy.Set && requestBody.ProxySelectionStrategy.Value != nil {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy must be null for native models"}
+			}
+			if requestBody.ProxyTargets.Set && len(requestBody.ProxyTargets.Value) > 0 {
+				return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must be empty for native models"}
+			}
 		}
 		if *requestBody.ModelType.Value == "proxy" && requestBody.ProxyTargets.Set {
 			if err := validateProxyTargetContract(*requestBody.ModelType.Value, requestBody.ProxyTargets.Value); err != nil {
@@ -603,9 +631,12 @@ func validateUpdateRequest(requestBody modelUpdateRequest) error {
 	return nil
 }
 
-func validateModelTypeAndTargets(modelType string, proxyTargets []proxyTargetReference, loadbalanceStrategyID *int) error {
+func validateModelTypeAndTargets(modelType string, proxyTargets []proxyTargetReference, loadbalanceStrategyID *int, proxySelectionStrategy *string) error {
 	if !isValidModelType(modelType) {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "model_type must be 'native' or 'proxy'"}
+	}
+	if err := validateProxySelectionStrategyContract(modelType, proxySelectionStrategy); err != nil {
+		return err
 	}
 	if err := validateProxyTargetContract(modelType, proxyTargets); err != nil {
 		return err
@@ -618,6 +649,22 @@ func validateModelTypeAndTargets(modelType string, proxyTargets []proxyTargetRef
 	}
 	if loadbalanceStrategyID != nil {
 		return &domainError{StatusCode: http.StatusBadRequest, Detail: "loadbalance_strategy_id must be null for proxy models"}
+	}
+	return nil
+}
+
+func validateProxySelectionStrategyContract(modelType string, proxySelectionStrategy *string) error {
+	if modelType == "native" {
+		if proxySelectionStrategy != nil {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy must be null for native models"}
+		}
+		return nil
+	}
+	if proxySelectionStrategy == nil {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy is required for proxy models"}
+	}
+	if !isValidProxySelectionStrategy(*proxySelectionStrategy) {
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_selection_strategy must be one of 'ordered_fallback', 'weighted_static', or 'priority_static'"}
 	}
 	return nil
 }
@@ -645,6 +692,18 @@ func validateProxyTargets(proxyTargets []proxyTargetReference) error {
 		}
 		if proxyTarget.Position < 0 {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "position must be greater than or equal to 0"}
+		}
+		if !proxyTarget.weightSet || proxyTarget.weightNull {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight is required for proxy targets"}
+		}
+		if proxyTarget.Weight < 1 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "weight must be greater than or equal to 1"}
+		}
+		if !proxyTarget.targetPrioritySet || proxyTarget.targetPriorityNull {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority is required for proxy targets"}
+		}
+		if proxyTarget.TargetPriority < 0 {
+			return &domainError{StatusCode: http.StatusBadRequest, Detail: "target_priority must be greater than or equal to 0"}
 		}
 		if _, ok := seenTargets[targetModelID]; ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: "proxy_targets must contain unique target_model_id values"}
@@ -690,6 +749,10 @@ func isValidAPIFamily(value string) bool {
 
 func isValidModelType(value string) bool {
 	return value == "native" || value == "proxy"
+}
+
+func isValidProxySelectionStrategy(value string) bool {
+	return value == "ordered_fallback" || value == "weighted_static" || value == "priority_static"
 }
 
 func joinModelIDs(records []modelRecord) string {

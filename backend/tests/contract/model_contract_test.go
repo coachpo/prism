@@ -26,6 +26,19 @@ func TestModelCRUD(t *testing.T) {
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 	vendorID := modelLoadVendorIDByKey(t, harness, "openai")
 	strategyID := modelInsertLoadbalanceStrategy(t, harness, defaultProfileID, "S8 Legacy Strategy")
+	proxyTarget := func(targetModelID string, position int, weight int, targetPriority int) map[string]any {
+		return map[string]any{"target_model_id": targetModelID, "position": position, "weight": weight, "target_priority": targetPriority}
+	}
+	proxyCreateBody := func(modelID string, selector string, proxyTargets []map[string]any) map[string]any {
+		body := map[string]any{"vendor_id": vendorID, "api_family": "openai", "model_id": modelID, "model_type": "proxy", "proxy_targets": proxyTargets}
+		if selector != "" {
+			body["proxy_selection_strategy"] = selector
+		}
+		return body
+	}
+	proxyUpdateBody := func(selector string, proxyTargets []map[string]any) map[string]any {
+		return map[string]any{"proxy_selection_strategy": selector, "proxy_targets": proxyTargets}
+	}
 
 	missingHeader := harness.requestJSON(t, harness.client, http.MethodGet, "/api/models", nil, nil)
 	assertErrorResponseCode(t, missingHeader, http.StatusBadRequest, profiledomain.ScopeErrorCodeHeaderMissing, fmt.Sprintf("%s header is required", profiledomain.ProfileIDHeader))
@@ -56,9 +69,37 @@ func TestModelCRUD(t *testing.T) {
 	if got := asMap(t, nativePayload["loadbalance_strategy"])["strategy_type"]; got != "legacy" {
 		t.Fatalf("expected legacy strategy summary on native create, got %+v", nativePayload)
 	}
+	assertNoProxySelectionStrategy(t, nativePayload)
 	if connections, ok := nativePayload["connections"].([]any); !ok || len(connections) != 0 {
 		t.Fatalf("expected native create response to include empty connections, got %+v", nativePayload)
 	}
+
+	nativeCreateWithSelector := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		map[string]any{
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-native-selector-rejected",
+			"model_type":               "native",
+			"loadbalance_strategy_id":  strategyID,
+			"proxy_selection_strategy": "ordered_fallback",
+		},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, nativeCreateWithSelector, http.StatusBadRequest, "proxy_selection_strategy must be null for native models")
+
+	nativeUpdateWithSelector := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", nativeID),
+		map[string]any{"proxy_selection_strategy": "ordered_fallback"},
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, nativeUpdateWithSelector, http.StatusBadRequest, "proxy_selection_strategy must be null for native models")
 
 	duplicateCreate := harness.requestJSON(
 		t,
@@ -77,17 +118,88 @@ func TestModelCRUD(t *testing.T) {
 	assertErrorResponse(t, duplicateCreate, http.StatusConflict, "Model ID 's8-native-model' already exists")
 	modelInsertModel(t, harness, defaultProfileID, &vendorID, "openai", "s8-native-model-b", stringPtr("S8 Native Model B"), "native", &strategyID, true)
 
+	proxyCreateMissingSelector := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-missing-selector", "", []map[string]any{proxyTarget("s8-native-model", 0, 1, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateMissingSelector, http.StatusBadRequest, "proxy_selection_strategy is required for proxy models")
+
+	proxyCreateUnknownSelector := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-unknown-selector", "unknown_selector", []map[string]any{proxyTarget("s8-native-model", 0, 1, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateUnknownSelector, http.StatusBadRequest, "proxy_selection_strategy must be one of 'ordered_fallback', 'weighted_static', or 'priority_static'")
+
+	proxyCreateMissingWeight := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-missing-weight", "ordered_fallback", []map[string]any{{"target_model_id": "s8-native-model", "position": 0, "target_priority": 0}}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateMissingWeight, http.StatusBadRequest, "weight is required for proxy targets")
+
+	proxyCreateZeroWeight := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-zero-weight", "ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 0, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateZeroWeight, http.StatusBadRequest, "weight must be greater than or equal to 1")
+
+	proxyCreateNegativeWeight := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-negative-weight", "ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, -1, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateNegativeWeight, http.StatusBadRequest, "weight must be greater than or equal to 1")
+
+	proxyCreateMissingTargetPriority := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-missing-target-priority", "ordered_fallback", []map[string]any{{"target_model_id": "s8-native-model", "position": 0, "weight": 1}}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateMissingTargetPriority, http.StatusBadRequest, "target_priority is required for proxy targets")
+
+	proxyCreateNegativeTargetPriority := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-proxy-negative-target-priority", "ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 1, -1)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyCreateNegativeTargetPriority, http.StatusBadRequest, "target_priority must be greater than or equal to 0")
+
 	proxyCreateWithoutTargets := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":  vendorID,
-			"api_family": "openai",
-			"model_id":   "s8-proxy-missing-targets",
-			"model_type": "proxy",
-			"is_enabled": true,
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-proxy-missing-targets",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
+			"is_enabled":               true,
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -99,11 +211,12 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":     vendorID,
-			"api_family":    "openai",
-			"model_id":      "s8-proxy-empty-targets",
-			"model_type":    "proxy",
-			"proxy_targets": []map[string]any{},
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-proxy-empty-targets",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
+			"proxy_targets":            []map[string]any{},
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -115,13 +228,14 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":  vendorID,
-			"api_family": "openai",
-			"model_id":   "s8-proxy-duplicate-targets",
-			"model_type": "proxy",
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-proxy-duplicate-targets",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
 			"proxy_targets": []map[string]any{
-				{"target_model_id": "s8-native-model", "position": 0},
-				{"target_model_id": "s8-native-model", "position": 1},
+				proxyTarget("s8-native-model", 0, 1, 0),
+				proxyTarget("s8-native-model", 1, 1, 1),
 			},
 		},
 		modelHeader(defaultProfileID),
@@ -134,13 +248,14 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":  vendorID,
-			"api_family": "openai",
-			"model_id":   "s8-proxy-duplicate-positions",
-			"model_type": "proxy",
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-proxy-duplicate-positions",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
 			"proxy_targets": []map[string]any{
-				{"target_model_id": "s8-native-model", "position": 0},
-				{"target_model_id": "s8-native-model-b", "position": 0},
+				proxyTarget("s8-native-model", 0, 1, 0),
+				proxyTarget("s8-native-model-b", 0, 1, 1),
 			},
 		},
 		modelHeader(defaultProfileID),
@@ -153,13 +268,14 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":  vendorID,
-			"api_family": "openai",
-			"model_id":   "s8-proxy-non-contiguous-positions",
-			"model_type": "proxy",
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-proxy-non-contiguous-positions",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
 			"proxy_targets": []map[string]any{
-				{"target_model_id": "s8-native-model", "position": 0},
-				{"target_model_id": "s8-native-model-b", "position": 2},
+				proxyTarget("s8-native-model", 0, 1, 0),
+				proxyTarget("s8-native-model-b", 2, 1, 1),
 			},
 		},
 		modelHeader(defaultProfileID),
@@ -172,15 +288,13 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":    vendorID,
-			"api_family":   "openai",
-			"model_id":     "s8-proxy-model",
-			"display_name": "S8 Proxy Model",
-			"model_type":   "proxy",
-			"proxy_targets": []map[string]any{{
-				"target_model_id": "s8-native-model",
-				"position":        0,
-			}},
+			"vendor_id":                vendorID,
+			"api_family":               "openai",
+			"model_id":                 "s8-proxy-model",
+			"display_name":             "S8 Proxy Model",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
+			"proxy_targets":            []map[string]any{proxyTarget("s8-native-model", 0, 2, 0)},
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -188,14 +302,85 @@ func TestModelCRUD(t *testing.T) {
 	var proxyPayload map[string]any
 	decodeJSONResponse(t, proxyCreate, &proxyPayload)
 	proxyID := jsonInt(t, proxyPayload["id"])
-	assertProxyTargets(t, proxyPayload, []string{"s8-native-model"})
+	assertProxySelectionStrategy(t, proxyPayload, "ordered_fallback")
+	assertProxyTargets(t, proxyPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model", Position: 0, Weight: 2, TargetPriority: 0}})
+
+	proxyUpdateOrdered := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 2, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, proxyUpdateOrdered, http.StatusOK)
+	var proxyUpdateOrderedPayload map[string]any
+	decodeJSONResponse(t, proxyUpdateOrdered, &proxyUpdateOrderedPayload)
+	assertProxySelectionStrategy(t, proxyUpdateOrderedPayload, "ordered_fallback")
+	assertProxyTargets(t, proxyUpdateOrderedPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model", Position: 0, Weight: 2, TargetPriority: 0}})
+
+	proxyUpdateWeighted := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("weighted_static", []map[string]any{proxyTarget("s8-native-model", 0, 3, 1)}),
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, proxyUpdateWeighted, http.StatusOK)
+	var proxyUpdateWeightedPayload map[string]any
+	decodeJSONResponse(t, proxyUpdateWeighted, &proxyUpdateWeightedPayload)
+	assertProxySelectionStrategy(t, proxyUpdateWeightedPayload, "weighted_static")
+	assertProxyTargets(t, proxyUpdateWeightedPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model", Position: 0, Weight: 3, TargetPriority: 1}})
+
+	proxyUpdatePriority := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("priority_static", []map[string]any{proxyTarget("s8-native-model", 0, 4, 2)}),
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, proxyUpdatePriority, http.StatusOK)
+	var proxyUpdatePriorityPayload map[string]any
+	decodeJSONResponse(t, proxyUpdatePriority, &proxyUpdatePriorityPayload)
+	assertProxySelectionStrategy(t, proxyUpdatePriorityPayload, "priority_static")
+	assertProxyTargets(t, proxyUpdatePriorityPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model", Position: 0, Weight: 4, TargetPriority: 2}})
+
+	proxyUpdateBackToOrdered := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 5, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, proxyUpdateBackToOrdered, http.StatusOK)
+	var proxyUpdateBackToOrderedPayload map[string]any
+	decodeJSONResponse(t, proxyUpdateBackToOrdered, &proxyUpdateBackToOrderedPayload)
+	assertProxySelectionStrategy(t, proxyUpdateBackToOrderedPayload, "ordered_fallback")
+	assertProxyTargets(t, proxyUpdateBackToOrderedPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model", Position: 0, Weight: 5, TargetPriority: 0}})
+
+	weightedProxyCreate := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/models",
+		proxyCreateBody("s8-weighted-proxy-model", "weighted_static", []map[string]any{proxyTarget("s8-native-model-b", 0, 7, 3)}),
+		modelHeader(defaultProfileID),
+	)
+	assertStatus(t, weightedProxyCreate, http.StatusCreated)
+	var weightedProxyPayload map[string]any
+	decodeJSONResponse(t, weightedProxyCreate, &weightedProxyPayload)
+	assertProxySelectionStrategy(t, weightedProxyPayload, "weighted_static")
+	assertProxyTargets(t, weightedProxyPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model-b", Position: 0, Weight: 7, TargetPriority: 3}})
 
 	selfTargetUpdate := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-proxy-model", "position": 0}}},
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-proxy-model", 0, 1, 0)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, selfTargetUpdate, http.StatusBadRequest, "Proxy model cannot target itself")
@@ -205,7 +390,7 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"display_name": "Proxy Rename Without Targets"},
+		map[string]any{"display_name": "Proxy Rename Without Targets", "proxy_selection_strategy": "ordered_fallback"},
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateWithoutTargets, http.StatusBadRequest, "proxy_targets is required for proxy models")
@@ -215,22 +400,50 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"proxy_targets": []map[string]any{}},
+		map[string]any{"proxy_selection_strategy": "ordered_fallback", "proxy_targets": []map[string]any{}},
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateEmptyTargets, http.StatusBadRequest, "proxy_targets is required for proxy models")
+
+	proxyUpdateUnknownSelector := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("unknown_selector", []map[string]any{proxyTarget("s8-native-model", 0, 1, 0)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateUnknownSelector, http.StatusBadRequest, "proxy_selection_strategy must be one of 'ordered_fallback', 'weighted_static', or 'priority_static'")
+
+	proxyUpdateMissingWeight := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("ordered_fallback", []map[string]any{{"target_model_id": "s8-native-model", "position": 0, "target_priority": 0}}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateMissingWeight, http.StatusBadRequest, "weight is required for proxy targets")
+
+	proxyUpdateNegativeTargetPriority := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPut,
+		fmt.Sprintf("/api/models/%d", proxyID),
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 1, -1)}),
+		modelHeader(defaultProfileID),
+	)
+	assertErrorResponse(t, proxyUpdateNegativeTargetPriority, http.StatusBadRequest, "target_priority must be greater than or equal to 0")
 
 	proxyUpdateNonContiguousPositions := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{
-			"proxy_targets": []map[string]any{
-				{"target_model_id": "s8-native-model", "position": 0},
-				{"target_model_id": "s8-native-model-b", "position": 2},
-			},
-		},
+		proxyUpdateBody("ordered_fallback", []map[string]any{
+			proxyTarget("s8-native-model", 0, 1, 0),
+			proxyTarget("s8-native-model-b", 2, 1, 1),
+		}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateNonContiguousPositions, http.StatusBadRequest, "proxy_targets positions must be contiguous starting at 0")
@@ -240,13 +453,7 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPost,
 		"/api/models",
-		map[string]any{
-			"vendor_id":     vendorID,
-			"api_family":    "openai",
-			"model_id":      "s8-chained-proxy",
-			"model_type":    "proxy",
-			"proxy_targets": []map[string]any{{"target_model_id": "s8-proxy-model", "position": 0}},
-		},
+		proxyCreateBody("s8-chained-proxy", "ordered_fallback", []map[string]any{proxyTarget("s8-proxy-model", 0, 1, 0)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, chainedProxyCreate, http.StatusBadRequest, "Target model 's8-proxy-model' is not a native model (chained proxies not allowed)")
@@ -256,13 +463,7 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPost,
 		"/api/models",
-		map[string]any{
-			"vendor_id":     vendorID,
-			"api_family":    "openai",
-			"model_id":      "s8-missing-target-proxy",
-			"model_type":    "proxy",
-			"proxy_targets": []map[string]any{{"target_model_id": "does-not-exist", "position": 0}},
-		},
+		proxyCreateBody("s8-missing-target-proxy", "ordered_fallback", []map[string]any{proxyTarget("does-not-exist", 0, 1, 0)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, missingTargetCreate, http.StatusBadRequest, "Target model 'does-not-exist' not found")
@@ -273,11 +474,12 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPost,
 		"/api/models",
 		map[string]any{
-			"vendor_id":     vendorID,
-			"api_family":    "anthropic",
-			"model_id":      "s8-family-mismatch-proxy",
-			"model_type":    "proxy",
-			"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}},
+			"vendor_id":                vendorID,
+			"api_family":               "anthropic",
+			"model_id":                 "s8-family-mismatch-proxy",
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
+			"proxy_targets":            []map[string]any{proxyTarget("s8-native-model", 0, 1, 0)},
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -288,23 +490,21 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPost,
 		"/api/models",
-		map[string]any{
-			"vendor_id":     vendorID,
-			"api_family":    "openai",
-			"model_id":      "s8-second-proxy-model",
-			"model_type":    "proxy",
-			"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model-b", "position": 0}},
-		},
+		proxyCreateBody("s8-second-proxy-model", "priority_static", []map[string]any{proxyTarget("s8-native-model-b", 0, 1, 4)}),
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, secondProxyCreate, http.StatusCreated)
+	var secondProxyPayload map[string]any
+	decodeJSONResponse(t, secondProxyCreate, &secondProxyPayload)
+	assertProxySelectionStrategy(t, secondProxyPayload, "priority_static")
+	assertProxyTargets(t, secondProxyPayload, []expectedProxyTarget{{TargetModelID: "s8-native-model-b", Position: 0, Weight: 1, TargetPriority: 4}})
 
 	proxyUpdateDuplicateTargets := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}, {"target_model_id": "s8-native-model", "position": 1}}},
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 1, 0), proxyTarget("s8-native-model", 1, 1, 1)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateDuplicateTargets, http.StatusBadRequest, "proxy_targets must contain unique target_model_id values")
@@ -314,7 +514,7 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}, {"target_model_id": "s8-native-model-b", "position": 0}}},
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-native-model", 0, 1, 0), proxyTarget("s8-native-model-b", 0, 1, 1)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateDuplicatePositions, http.StatusBadRequest, "proxy_targets must contain unique position values")
@@ -324,7 +524,7 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "does-not-exist", "position": 0}}},
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("does-not-exist", 0, 1, 0)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateMissingTarget, http.StatusBadRequest, "Target model 'does-not-exist' not found")
@@ -334,7 +534,7 @@ func TestModelCRUD(t *testing.T) {
 		harness.client,
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
-		map[string]any{"proxy_targets": []map[string]any{{"target_model_id": "s8-second-proxy-model", "position": 0}}},
+		proxyUpdateBody("ordered_fallback", []map[string]any{proxyTarget("s8-second-proxy-model", 0, 1, 0)}),
 		modelHeader(defaultProfileID),
 	)
 	assertErrorResponse(t, proxyUpdateChainedTarget, http.StatusBadRequest, "Target model 's8-second-proxy-model' is not a native model (chained proxies not allowed)")
@@ -345,8 +545,9 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", proxyID),
 		map[string]any{
-			"api_family":    "anthropic",
-			"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}},
+			"api_family":               "anthropic",
+			"proxy_selection_strategy": "ordered_fallback",
+			"proxy_targets":            []map[string]any{proxyTarget("s8-native-model", 0, 1, 0)},
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -362,6 +563,7 @@ func TestModelCRUD(t *testing.T) {
 	assertStatus(t, detailResponse, http.StatusOK)
 	var detailPayload map[string]any
 	decodeJSONResponse(t, detailResponse, &detailPayload)
+	assertNoProxySelectionStrategy(t, detailPayload)
 	assertConnectionOrder(t, detailPayload, secondConnectionID)
 
 	convertNativeWithReferrer := harness.requestJSON(
@@ -370,8 +572,9 @@ func TestModelCRUD(t *testing.T) {
 		http.MethodPut,
 		fmt.Sprintf("/api/models/%d", nativeID),
 		map[string]any{
-			"model_type":    "proxy",
-			"proxy_targets": []map[string]any{{"target_model_id": "s8-native-model", "position": 0}},
+			"model_type":               "proxy",
+			"proxy_selection_strategy": "ordered_fallback",
+			"proxy_targets":            []map[string]any{proxyTarget("s8-native-model", 0, 1, 0)},
 		},
 		modelHeader(defaultProfileID),
 	)
@@ -395,7 +598,8 @@ func TestModelCRUD(t *testing.T) {
 	if renamedPayload["model_id"] != "s8-native-model-renamed" || renamedPayload["display_name"] != "s8-native-model-renamed" {
 		t.Fatalf("expected rename payload to resync display_name, got %+v", renamedPayload)
 	}
-	assertProxyTargetModelID(t, harness, proxyID, defaultProfileID, "s8-native-model-renamed")
+	assertNoProxySelectionStrategy(t, renamedPayload)
+	assertProxyTargetModelID(t, harness, proxyID, defaultProfileID, "s8-native-model-renamed", 5, 0)
 	if got := modelLoadFXRateModelID(t, harness, defaultProfileID, firstEndpointID); got != "s8-native-model-renamed" {
 		t.Fatalf("expected fx-rate setting model_id to sync on rename, got %q", got)
 	}
@@ -581,8 +785,12 @@ func modelInsertLoadbalanceStrategy(t *testing.T, harness *contractHarness, prof
 func modelInsertModel(t *testing.T, harness *contractHarness, profileID int, vendorID *int, apiFamily string, modelID string, displayName *string, modelType string, strategyID *int, isEnabled bool) int {
 	t.Helper()
 	now := time.Now().UTC()
+	var proxySelectionStrategy any
+	if modelType == "proxy" {
+		proxySelectionStrategy = "ordered_fallback"
+	}
 	var modelConfigID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`, profileID, nullableTestInt(vendorID), apiFamily, modelID, displayName, modelType, nullableTestInt(strategyID), isEnabled, now, now).Scan(&modelConfigID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO model_configs (profile_id, vendor_id, api_family, model_id, display_name, model_type, loadbalance_strategy_id, proxy_selection_strategy, is_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`, profileID, nullableTestInt(vendorID), apiFamily, modelID, displayName, modelType, nullableTestInt(strategyID), proxySelectionStrategy, isEnabled, now, now).Scan(&modelConfigID); err != nil {
 		t.Fatalf("insert model %q: %v", modelID, err)
 	}
 	harness.refreshRuntimeSnapshot(t, runtimeapi.RefreshRequest{PlanningProfileIDs: []int{profileID}})
@@ -639,7 +847,30 @@ func modelLoadFXRateModelID(t *testing.T, harness *contractHarness, profileID in
 	return modelID
 }
 
-func assertProxyTargets(t *testing.T, payload map[string]any, want []string) {
+type expectedProxyTarget struct {
+	TargetModelID  string
+	Position       int
+	Weight         int
+	TargetPriority int
+}
+
+func assertNoProxySelectionStrategy(t *testing.T, payload map[string]any) {
+	t.Helper()
+	value, ok := payload["proxy_selection_strategy"]
+	if !ok || value != nil {
+		t.Fatalf("expected null proxy_selection_strategy, got %+v", payload)
+	}
+}
+
+func assertProxySelectionStrategy(t *testing.T, payload map[string]any, want string) {
+	t.Helper()
+	value, ok := payload["proxy_selection_strategy"]
+	if !ok || value != want {
+		t.Fatalf("expected proxy_selection_strategy %q, got %+v", want, payload)
+	}
+}
+
+func assertProxyTargets(t *testing.T, payload map[string]any, want []expectedProxyTarget) {
 	t.Helper()
 	proxyTargets, ok := payload["proxy_targets"].([]any)
 	if !ok || len(proxyTargets) != len(want) {
@@ -647,19 +878,20 @@ func assertProxyTargets(t *testing.T, payload map[string]any, want []string) {
 	}
 	for index, raw := range proxyTargets {
 		proxyTarget := asMap(t, raw)
-		if proxyTarget["target_model_id"] != want[index] {
-			t.Fatalf("expected proxy target %q at index %d, got %+v", want[index], index, proxyTarget)
+		expectedTarget := want[index]
+		if proxyTarget["target_model_id"] != expectedTarget.TargetModelID || jsonInt(t, proxyTarget["position"]) != expectedTarget.Position || jsonInt(t, proxyTarget["weight"]) != expectedTarget.Weight || jsonInt(t, proxyTarget["target_priority"]) != expectedTarget.TargetPriority {
+			t.Fatalf("expected proxy target %+v at index %d, got %+v", expectedTarget, index, proxyTarget)
 		}
 	}
 }
 
-func assertProxyTargetModelID(t *testing.T, harness *contractHarness, modelConfigID int, profileID int, wantTargetModelID string) {
+func assertProxyTargetModelID(t *testing.T, harness *contractHarness, modelConfigID int, profileID int, wantTargetModelID string, wantWeight int, wantTargetPriority int) {
 	t.Helper()
 	response := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/models/%d", modelConfigID), nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	assertProxyTargets(t, payload, []string{wantTargetModelID})
+	assertProxyTargets(t, payload, []expectedProxyTarget{{TargetModelID: wantTargetModelID, Position: 0, Weight: wantWeight, TargetPriority: wantTargetPriority}})
 }
 
 func assertConnectionOrder(t *testing.T, payload map[string]any, expectedFirstConnectionID int) {
