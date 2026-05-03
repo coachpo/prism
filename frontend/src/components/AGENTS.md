@@ -15,6 +15,7 @@ components/
 ├── MetricCard.tsx                                     # Shared metric summary card
 ├── PageHeader.tsx                                     # Shared page header shell
 ├── StatusBadge.tsx                                    # Shared status badge
+├── SpendTrustIndicator.tsx                            # Shared spend trust and fallback note
 ├── SwitchController.tsx                               # Shared switch wrapper and control row
 ├── VendorIcon.tsx + VendorSelect.tsx + vendorIcon*.tsx # Shared vendor icon and picker helpers
 ├── WebSocketStatusIndicator.tsx                       # Shared realtime connection badge
@@ -28,7 +29,7 @@ components/
 - Shell chrome and layout handoff: `layout/page.tsx`
 - Shell state cluster, nav/version ownership, and profile-switcher behavior: `layout/app-layout/AGENTS.md`
 - Shared language/theme controls: `LanguageSwitcher.tsx`, `ThemeToggle.tsx`
-- Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SwitchController.tsx`
+- Shared list, compact metric, copy, empty-state, icon action, metric, header, status badge, spend-trust note, and switch widgets: `AnimatedListItem.tsx`, `ApiFamilyIcon.tsx`, `ApiFamilySelect.tsx`, `CompactMetricTile.tsx`, `CopyButton.tsx`, `EmptyState.tsx`, `IconActionGroup.tsx`, `MetricCard.tsx`, `PageHeader.tsx`, `StatusBadge.tsx`, `SpendTrustIndicator.tsx`, `SwitchController.tsx`
 - Shared realtime connection badge: `WebSocketStatusIndicator.tsx`
 - Shared vendor icon and picker surfaces: `VendorIcon.tsx`, `VendorSelect.tsx`, `vendorIconRegistry.tsx`, `vendorIconComponents.tsx`
 - Shared loadbalance rendering: `loadbalance/LoadbalanceBadges.tsx`, `loadbalance/LoadbalanceEventsTable.tsx`, `loadbalance/LoadbalanceEventDetailSheet.tsx`
@@ -48,6 +49,7 @@ components/
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
 - Keep locale and theme controls in the shared preference widgets instead of duplicating them in auth pages or shell headers.
 - Keep shared websocket-health presentation in `WebSocketStatusIndicator.tsx` rather than rebuilding connection badges in pages.
+- Keep shared spend-trust fallback copy in `SpendTrustIndicator.tsx` instead of duplicating it across dashboard, models, statistics, or request-log views.
 - Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
 - Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
 - Keep the leaf docs in `ui/` for primitive-level wrappers, and keep this parent focused on the shared widgets above them.
