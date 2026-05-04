@@ -7,7 +7,7 @@ export function isStreamUsageUnavailableReason(reason: string | null | undefined
 }
 
 export function hasStreamTelemetryOutcome(outcome: StreamOutcome | null | undefined): boolean {
-  return outcome !== null && outcome !== undefined && outcome !== "not_streaming";
+  return outcome !== null && outcome !== undefined;
 }
 
 export function isHistoricalUnknownStreamRow(
@@ -33,10 +33,11 @@ export function getStreamOutcomeLabel(
     case "unknown":
       return messages.streamUnknown;
     case "completed":
-    case "not_streaming":
     case null:
     case undefined:
       return messages.streaming;
+    case "not_streaming":
+      return messages.nonStreaming;
   }
 }
 
