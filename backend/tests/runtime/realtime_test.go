@@ -3,7 +3,9 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -244,6 +246,197 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	if _, ok := requestLogPayload["stream_error_detail"]; ok {
 		t.Fatalf("did not expect realtime actual-stream request_log to expose stream_error_detail, got %+v", requestLogPayload)
 	}
+}
+
+func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
+	generatedAt := time.Date(2026, time.April, 19, 12, 0, 0, 0, time.UTC)
+	successCount := 40
+	failedCount := 2
+	pricedRequestCount := 40
+	unpricedRequestCount := 2
+	inputTokens := 500
+	outputTokens := 900
+	cachedTokens := 20
+	reasoningTokens := 10
+	p50TTFTMS := 320
+	p95TTFTMS := 900
+	avgOutputRateTPS := 48.5
+	endpointID := 12
+	profileID := 2
+	preset := "1h"
+	startAt := generatedAt.Add(-time.Hour)
+	dayStart := time.Date(2026, time.April, 19, 0, 0, 0, 0, time.UTC)
+	availabilityPercentage := 95.24
+	cellAvailabilityPercentage := 100.0
+	message := realtimeapi.AnalyticsSnapshotMessage{
+		Type:        "analytics.snapshot",
+		Channel:     "analytics",
+		ProfileID:   profileID,
+		Preset:      preset,
+		Sequence:    7,
+		GeneratedAt: generatedAt,
+		Snapshot: statsdomain.UsageSnapshotResponse{
+			GeneratedAt: generatedAt,
+			TimeRange:   statsdomain.UsageSnapshotTimeRange{Preset: preset, StartAt: &startAt, EndAt: generatedAt},
+			Currency:    statsdomain.UsageSnapshotCurrency{Code: "USD", Symbol: "$"},
+			Overview: statsdomain.UsageSnapshotOverview{
+				TotalRequests:        42,
+				SuccessRequests:      40,
+				FailedRequests:       2,
+				SuccessRate:          95.24,
+				TotalTokens:          1400,
+				InputTokens:          500,
+				OutputTokens:         900,
+				CachedTokens:         20,
+				ReasoningTokens:      10,
+				AverageRPM:           0.7,
+				AverageTPM:           23.333,
+				TotalCostMicros:      1250000,
+				RollingWindowMinutes: 5,
+				RollingRequestCount:  4,
+				RollingTokenCount:    120,
+				RollingRPM:           0.8,
+				RollingTPM:           24,
+			},
+			ServiceHealth:         statsdomain.UsageServiceHealth{AvailabilityPercentage: &availabilityPercentage, RequestCount: 42, SuccessCount: 40, FailedCount: 2, IntervalMinutes: 5, Cells: []statsdomain.UsageServiceHealthCell{{BucketStart: generatedAt.Add(-5 * time.Minute), RequestCount: 4, SuccessCount: 4, FailedCount: 0, AvailabilityPercentage: &cellAvailabilityPercentage, Status: "ok"}}},
+			RequestTrends:         statsdomain.UsageRequestTrends{Hourly: []statsdomain.UsageRequestTrendSeries{{Key: "openai", Label: "OpenAI", TotalRequests: 42, Points: []statsdomain.UsageRequestTrendPoint{{BucketStart: startAt, RequestCount: 42, SuccessCount: 40, FailedCount: 2, RPM: 0.7}}}}, Daily: []statsdomain.UsageRequestTrendSeries{{Key: "openai", Label: "OpenAI", TotalRequests: 42, Points: []statsdomain.UsageRequestTrendPoint{{BucketStart: dayStart, RequestCount: 42, SuccessCount: 40, FailedCount: 2, RPM: 0.029}}}}},
+			TokenUsageTrends:      statsdomain.UsageTokenUsageTrends{Hourly: []statsdomain.UsageTokenTrendSeries{{Key: "gpt-4o", Label: "GPT-4o Proxy", TotalTokens: 1400, Points: []statsdomain.UsageTokenTrendPoint{{BucketStart: startAt, TotalTokens: 1400, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10, TPM: 23.333}}}}, Daily: []statsdomain.UsageTokenTrendSeries{{Key: "gpt-4o", Label: "GPT-4o Proxy", TotalTokens: 1400, Points: []statsdomain.UsageTokenTrendPoint{{BucketStart: dayStart, TotalTokens: 1400, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10, TPM: 0.972}}}}},
+			TokenTypeBreakdown:    statsdomain.UsageTokenTypeBreakdown{Hourly: []statsdomain.UsageTokenTypeBreakdownPoint{{BucketStart: startAt, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10}}, Daily: []statsdomain.UsageTokenTypeBreakdownPoint{{BucketStart: dayStart, InputTokens: 500, OutputTokens: 900, CachedTokens: 20, ReasoningTokens: 10}}},
+			CostOverview:          statsdomain.UsageCostOverview{TotalCostMicros: 1250000, PricedRequestCount: 40, UnpricedRequestCount: 2, Hourly: []statsdomain.UsageCostOverviewPoint{{BucketStart: startAt, TotalCostMicros: 1250000}}, Daily: []statsdomain.UsageCostOverviewPoint{{BucketStart: dayStart, TotalCostMicros: 1250000}}},
+			EndpointStatistics:    []statsdomain.UsageEndpointStatistic{{EndpointID: &endpointID, EndpointLabel: "Primary OpenAI", RequestCount: 42, SuccessRate: 95.24, P50TTFTMS: &p50TTFTMS, P95TTFTMS: &p95TTFTMS, AvgOutputRateTPS: &avgOutputRateTPS, TotalTokens: 1400, TotalCostMicros: 1250000}},
+			ModelStatistics:       []statsdomain.UsageModelStatistic{{ModelID: "gpt-4o", ModelLabel: "GPT-4o Proxy", RequestCount: 42, SuccessCount: &successCount, FailedCount: &failedCount, PricedRequestCount: &pricedRequestCount, UnpricedRequestCount: &unpricedRequestCount, SuccessRate: 95.24, P50TTFTMS: &p50TTFTMS, P95TTFTMS: &p95TTFTMS, InputTokens: &inputTokens, OutputTokens: &outputTokens, CachedTokens: &cachedTokens, ReasoningTokens: &reasoningTokens, TotalTokens: 1400, TotalCostMicros: 1250000, AvgOutputRateTPS: &avgOutputRateTPS}},
+			ProxyAPIKeyStatistics: []statsdomain.UsageProxyAPIKeyStatistic{{ProxyAPIKeyID: nil, ProxyAPIKeyLabel: "Direct / unauthenticated", RequestCount: 42, SuccessRate: 95.24, TotalTokens: 1400, TotalCostMicros: 1250000}},
+		},
+		EndpointModelStatisticsByEndpointID: map[string][]statsdomain.UsageModelStatistic{"12": {{ModelID: "gpt-4o", ModelLabel: "GPT-4o Proxy", RequestCount: 42, SuccessCount: &successCount, FailedCount: &failedCount, PricedRequestCount: &pricedRequestCount, UnpricedRequestCount: &unpricedRequestCount, SuccessRate: 95.24, P50TTFTMS: &p50TTFTMS, P95TTFTMS: &p95TTFTMS, TotalTokens: 1400, TotalCostMicros: 1250000, AvgOutputRateTPS: &avgOutputRateTPS}}},
+	}
+	fixture := loadRealtimeFixture(t, "analytics-snapshot.json")
+	assertJSONShapeMatchesFixture(t, message, fixture)
+	if message.Type != "analytics.snapshot" || message.Channel != "analytics" || message.ProfileID != profileID || message.Preset != preset {
+		t.Fatalf("unexpected analytics snapshot envelope: %+v", message)
+	}
+	errorMessage := realtimeapi.AnalyticsErrorMessage{Type: "analytics.error", Channel: "analytics", ProfileID: &profileID, Preset: &preset, Code: "snapshot_failed", Message: "failed to build analytics snapshot"}
+	errorRaw, err := json.Marshal(errorMessage)
+	if err != nil {
+		t.Fatalf("marshal analytics error: %v", err)
+	}
+	var errorPayload map[string]any
+	if err := json.Unmarshal(errorRaw, &errorPayload); err != nil {
+		t.Fatalf("decode analytics error: %v", err)
+	}
+	for _, key := range []string{"type", "channel", "profile_id", "preset", "code", "message"} {
+		if _, ok := errorPayload[key]; !ok {
+			t.Fatalf("expected analytics error key %q, got %+v", key, errorPayload)
+		}
+	}
+}
+
+func TestRealtimeAnalyticsSnapshotParity(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-parity")
+	harness.insertDashboardActivity(t, route, profileID, 8400, 9400, harness.fixedNow.Add(-10*time.Minute))
+
+	usageResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, runtimeModelHeader(profileID))
+	assertStatus(t, usageResponse, http.StatusOK)
+	var restUsage statsdomain.UsageSnapshotResponse
+	decodeJSONResponse(t, usageResponse, &restUsage)
+
+	fromTime := url.QueryEscape(restUsage.TimeRange.StartAt.Format(time.RFC3339Nano))
+	toTime := url.QueryEscape(restUsage.TimeRange.EndAt.Format(time.RFC3339Nano))
+	modelsResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/endpoints/%d/models?from_time=%s&to_time=%s", route.EndpointID, fromTime, toTime), nil, runtimeModelHeader(profileID))
+	assertStatus(t, modelsResponse, http.StatusOK)
+	var restModels []statsdomain.EndpointModelStatistic
+	decodeJSONResponse(t, modelsResponse, &restModels)
+
+	message, err := harness.realtimeService.BuildAnalyticsSnapshot(context.Background(), profileID, "1h", harness.fixedNow)
+	if err != nil {
+		t.Fatalf("build analytics snapshot: %v", err)
+	}
+	if !message.GeneratedAt.Equal(harness.fixedNow) {
+		t.Fatalf("expected analytics message generated_at to use referenceNow %s, got %s", harness.fixedNow, message.GeneratedAt)
+	}
+	if !reflect.DeepEqual(restUsage, message.Snapshot) {
+		t.Fatalf("expected analytics snapshot to match REST usage snapshot, got rest=%+v realtime=%+v", restUsage, message.Snapshot)
+	}
+	if message.Snapshot.TimeRange.StartAt == nil || !message.Snapshot.TimeRange.StartAt.Equal(*restUsage.TimeRange.StartAt) || !message.Snapshot.TimeRange.EndAt.Equal(restUsage.TimeRange.EndAt) {
+		t.Fatalf("expected realtime snapshot window to match REST window, got rest=%+v realtime=%+v", restUsage.TimeRange, message.Snapshot.TimeRange)
+	}
+	realtimeModels := message.EndpointModelStatisticsByEndpointID[fmt.Sprint(route.EndpointID)]
+	if !reflect.DeepEqual(usageModelStatisticsFromEndpointTest(restModels), realtimeModels) {
+		t.Fatalf("expected endpoint model stats to match REST custom-window stats, got rest=%+v realtime=%+v", restModels, realtimeModels)
+	}
+	if _, ok := message.EndpointModelStatisticsByEndpointID[fmt.Sprint(route.EndpointID)]; !ok {
+		t.Fatalf("expected endpoint model stats keyed by endpoint ID string, got %+v", message.EndpointModelStatisticsByEndpointID)
+	}
+}
+
+func TestRealtimeAnalyticsSubscribeInitialSnapshot(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-initial")
+	harness.insertDashboardActivity(t, route, profileID, 8401, 9401, harness.fixedNow.Add(-10*time.Minute))
+
+	conn := harness.dialWebSocket(t, false)
+	assertRealtimeMessageType(t, conn, "authenticated")
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "1h"})
+	snapshot := readWebSocketJSON(t, conn)
+	assertAnalyticsSnapshot(t, snapshot, profileID, "1h", float64(1))
+	if snapshotPayload := snapshot["snapshot"].(map[string]any); snapshotPayload["overview"].(map[string]any)["total_requests"] != float64(1) {
+		t.Fatalf("expected initial analytics snapshot to include seeded usage, got %+v", snapshotPayload["overview"])
+	}
+	endpointStats := snapshot["endpoint_model_statistics_by_endpoint_id"].(map[string]any)
+	if _, ok := endpointStats[fmt.Sprint(route.EndpointID)]; !ok {
+		t.Fatalf("expected endpoint model statistics for endpoint %d, got %+v", route.EndpointID, endpointStats)
+	}
+
+	harness.insertDashboardActivity(t, route, profileID, 8403, 9403, harness.fixedNow.Add(-2*time.Minute))
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	refreshedSnapshot := readWebSocketJSON(t, conn)
+	assertAnalyticsSnapshot(t, refreshedSnapshot, profileID, "1h", float64(2))
+	if snapshotPayload := refreshedSnapshot["snapshot"].(map[string]any); snapshotPayload["overview"].(map[string]any)["total_requests"] != float64(2) {
+		t.Fatalf("expected refreshed analytics snapshot to include newly seeded usage, got %+v", snapshotPayload["overview"])
+	}
+	writeWebSocketJSON(t, conn, map[string]any{"type": "ping"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "pong"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "unsubscribed", "channel": "analytics", "preset": "1h"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "scope_not_subscribed")
+	_ = conn.Close()
+}
+
+func TestRealtimeAnalyticsSubscribeValidationErrors(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-validation")
+	harness.insertDashboardActivity(t, route, profileID, 8402, 9402, harness.fixedNow.Add(-5*time.Minute))
+
+	conn := harness.dialWebSocket(t, false)
+	assertRealtimeMessageType(t, conn, "authenticated")
+	assertRealtimeMessage(t, conn, map[string]any{"type": "heartbeat"})
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "2h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "invalid_preset")
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "channel": "analytics", "preset": "1h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "profile_id_required")
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": 999999, "channel": "analytics", "preset": "1h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "profile_not_found")
+	writeWebSocketJSON(t, conn, map[string]any{"type": "refresh", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "scope_not_subscribed")
+	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "invalid_preset")
+	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics", "preset": "2h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "invalid_preset")
+	writeWebSocketJSON(t, conn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics", "preset": "1h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "scope_not_subscribed")
+	writeWebSocketJSON(t, conn, map[string]any{"type": 12, "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertAnalyticsErrorCode(t, readWebSocketJSON(t, conn), "malformed_message")
+
+	writeWebSocketJSON(t, conn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, conn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "1h"})
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, conn), profileID, "1h", float64(1))
+	_ = conn.Close()
 }
 
 func TestDashboardUpdateDelivery(t *testing.T) {
@@ -659,6 +852,26 @@ func writeWebSocketJSON(t *testing.T, conn *websocket.Conn, payload map[string]a
 	}
 }
 
+func assertAnalyticsSnapshot(t *testing.T, message map[string]any, profileID int, preset string, sequence float64) {
+	t.Helper()
+	if message["type"] != "analytics.snapshot" || message["channel"] != "analytics" || message["profile_id"] != float64(profileID) || message["preset"] != preset || message["sequence"] != sequence {
+		t.Fatalf("unexpected analytics snapshot envelope: %+v", message)
+	}
+	if _, ok := message["snapshot"].(map[string]any); !ok {
+		t.Fatalf("expected analytics snapshot payload, got %+v", message)
+	}
+	if _, ok := message["endpoint_model_statistics_by_endpoint_id"].(map[string]any); !ok {
+		t.Fatalf("expected analytics endpoint model statistics payload, got %+v", message)
+	}
+}
+
+func assertAnalyticsErrorCode(t *testing.T, message map[string]any, code string) {
+	t.Helper()
+	if message["type"] != "analytics.error" || message["channel"] != "analytics" || message["code"] != code {
+		t.Fatalf("expected analytics error code %q, got %+v", code, message)
+	}
+}
+
 func assertWebSocketClosedWithCode(t *testing.T, conn *websocket.Conn, code int) {
 	t.Helper()
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -732,4 +945,193 @@ func assertShapeRecursive(t *testing.T, actual any, fixture any) {
 	default:
 		return
 	}
+}
+
+func TestRealtimeAnalyticsPublishActiveScopesOnly(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	profileTwoID := harness.createProfile(t, "Analytics Active Scope Secondary")
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "analytics-active")
+	harness.insertDashboardActivity(t, route, profileID, 8450, 9450, harness.fixedNow.Add(-10*time.Minute))
+	routeTwo := harness.seedRealtimeDashboardRoute(t, profileTwoID, "analytics-inactive-profile")
+	harness.insertDashboardActivity(t, routeTwo, profileTwoID, 8451, 9451, harness.fixedNow.Add(-10*time.Minute))
+
+	oneHourConn := harness.dialWebSocket(t, false)
+	assertRealtimeMessageType(t, oneHourConn, "authenticated")
+	assertRealtimeMessage(t, oneHourConn, map[string]any{"type": "heartbeat"})
+	writeWebSocketJSON(t, oneHourConn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, oneHourConn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "1h"})
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, oneHourConn), profileID, "1h", float64(1))
+
+	thirtyDayConn := harness.dialWebSocket(t, false)
+	assertRealtimeMessageType(t, thirtyDayConn, "authenticated")
+	assertRealtimeMessage(t, thirtyDayConn, map[string]any{"type": "heartbeat"})
+	writeWebSocketJSON(t, thirtyDayConn, map[string]any{"type": "subscribe", "profile_id": profileID, "channel": "analytics", "preset": "30d"})
+	assertRealtimeMessage(t, thirtyDayConn, map[string]any{"type": "subscribed", "profile_id": float64(profileID), "channel": "analytics", "preset": "30d"})
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, thirtyDayConn), profileID, "30d", float64(1))
+
+	delivered, err := harness.realtimeService.PublishAnalyticsUpdates(context.Background(), profileTwoID)
+	if err != nil {
+		t.Fatalf("publish analytics inactive profile: %v", err)
+	}
+	if delivered {
+		t.Fatal("expected inactive profile analytics publish to report no delivery")
+	}
+	delivered, err = harness.realtimeService.PublishAnalyticsUpdates(context.Background(), profileID)
+	if err != nil {
+		t.Fatalf("publish active analytics scopes: %v", err)
+	}
+	if !delivered {
+		t.Fatal("expected active analytics scopes to report delivery")
+	}
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, oneHourConn), profileID, "1h", float64(2))
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, thirtyDayConn), profileID, "30d", float64(2))
+
+	writeWebSocketJSON(t, oneHourConn, map[string]any{"type": "unsubscribe_channel", "channel": "analytics", "preset": "1h"})
+	assertRealtimeMessage(t, oneHourConn, map[string]any{"type": "unsubscribed", "channel": "analytics", "preset": "1h"})
+	delivered, err = harness.realtimeService.PublishAnalyticsUpdates(context.Background(), profileID)
+	if err != nil {
+		t.Fatalf("publish after one active analytics unsubscribe: %v", err)
+	}
+	if !delivered {
+		t.Fatal("expected remaining active analytics scope to report delivery")
+	}
+	assertNoRealtimeMessage(t, oneHourConn)
+	assertAnalyticsSnapshot(t, readWebSocketJSON(t, thirtyDayConn), profileID, "30d", float64(3))
+
+	_ = oneHourConn.Close()
+	_ = thirtyDayConn.Close()
+}
+
+func TestRealtimeAnalyticsScopedSubscriptions(t *testing.T) {
+	manager := realtimeapi.NewConnectionManager(500 * time.Millisecond)
+	t.Cleanup(manager.Close)
+	profileID := 42
+	oneHourConn, oneHourID := newManagedRealtimeConnection(t, manager)
+	thirtyDayConn, thirtyDayID := newManagedRealtimeConnection(t, manager)
+
+	if !manager.Subscribe(oneHourID, profileID, "analytics", "1h") {
+		t.Fatal("subscribe analytics 1h")
+	}
+	if !manager.Subscribe(thirtyDayID, profileID, "analytics", "30d") {
+		t.Fatal("subscribe analytics 30d")
+	}
+	assertStringSliceEqual(t, manager.ActiveScopes(profileID, "analytics"), []string{"1h", "30d"})
+
+	if delivered := manager.BroadcastToProfile(profileID, "analytics", map[string]any{"type": "analytics.snapshot", "preset": "1h"}, "1h"); delivered != 1 {
+		t.Fatalf("1h delivered count = %d, want 1", delivered)
+	}
+	assertRealtimeMessage(t, oneHourConn, map[string]any{"type": "analytics.snapshot", "preset": "1h"})
+
+	if delivered := manager.BroadcastToProfile(profileID, "analytics", map[string]any{"type": "analytics.snapshot", "preset": "30d"}, "30d"); delivered != 1 {
+		t.Fatalf("30d delivered count = %d, want 1", delivered)
+	}
+	assertRealtimeMessage(t, thirtyDayConn, map[string]any{"type": "analytics.snapshot", "preset": "30d"})
+
+	if !manager.UnsubscribeChannel(oneHourID, "analytics", "1h") {
+		t.Fatal("unsubscribe analytics 1h")
+	}
+	assertStringSliceEqual(t, manager.ActiveScopes(profileID, "analytics"), []string{"30d"})
+	if delivered := manager.BroadcastToProfile(profileID, "analytics", map[string]any{"type": "analytics.snapshot", "preset": "1h"}, "1h"); delivered != 0 {
+		t.Fatalf("1h delivered count after unsubscribe = %d, want 0", delivered)
+	}
+	assertNoRealtimeMessage(t, oneHourConn)
+	if delivered := manager.BroadcastToProfile(profileID, "analytics", map[string]any{"type": "analytics.snapshot", "preset": "30d"}, "30d"); delivered != 1 {
+		t.Fatalf("30d delivered count after 1h unsubscribe = %d, want 1", delivered)
+	}
+	assertRealtimeMessage(t, thirtyDayConn, map[string]any{"type": "analytics.snapshot", "preset": "30d"})
+
+	profileTwoID := 84
+	if !manager.Subscribe(thirtyDayID, profileTwoID, "analytics", "7d") {
+		t.Fatal("subscribe analytics profile replacement")
+	}
+	assertStringSliceEqual(t, manager.ActiveScopes(profileID, "analytics"), nil)
+	assertStringSliceEqual(t, manager.ActiveScopes(profileTwoID, "analytics"), []string{"7d"})
+
+	manager.Disconnect(thirtyDayID)
+	assertStringSliceEqual(t, manager.ActiveScopes(profileTwoID, "analytics"), nil)
+	_ = oneHourConn.Close()
+	_ = thirtyDayConn.Close()
+}
+
+func newManagedRealtimeConnection(t *testing.T, manager *realtimeapi.ConnectionManager) (*websocket.Conn, string) {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	connectionIDCh := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade realtime manager websocket: %v", err)
+			return
+		}
+		connectionID := manager.Connect(socket)
+		connectionIDCh <- connectionID
+		for {
+			if _, _, err := socket.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	conn, _, err := websocket.DefaultDialer.Dial(strings.Replace(server.URL, "http://", "ws://", 1), nil)
+	if err != nil {
+		t.Fatalf("dial realtime manager websocket: %v", err)
+	}
+	select {
+	case connectionID := <-connectionIDCh:
+		if connectionID == "" {
+			t.Fatal("expected realtime connection ID")
+		}
+		return conn, connectionID
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for realtime manager connection")
+		return nil, ""
+	}
+}
+
+func assertNoRealtimeMessage(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var message map[string]any
+	err := conn.ReadJSON(&message)
+	_ = conn.SetReadDeadline(time.Time{})
+	if err == nil {
+		t.Fatalf("expected no realtime message, got %+v", message)
+	}
+	var netErr net.Error
+	if websocket.IsUnexpectedCloseError(err) && !(errors.As(err, &netErr) && netErr.Timeout()) {
+		t.Fatalf("unexpected websocket close while checking no message: %v", err)
+	}
+}
+
+func assertStringSliceEqual(t *testing.T, got []string, want []string) {
+	t.Helper()
+	if len(got) == 0 && len(want) == 0 {
+		return
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("string slice = %+v, want %+v", got, want)
+	}
+}
+
+func usageModelStatisticsFromEndpointTest(items []statsdomain.EndpointModelStatistic) []statsdomain.UsageModelStatistic {
+	models := make([]statsdomain.UsageModelStatistic, 0, len(items))
+	for _, item := range items {
+		models = append(models, statsdomain.UsageModelStatistic{
+			ModelID:              item.ModelID,
+			ModelLabel:           item.ModelLabel,
+			RequestCount:         item.RequestCount,
+			SuccessCount:         item.SuccessCount,
+			FailedCount:          item.FailedCount,
+			PricedRequestCount:   item.PricedRequestCount,
+			UnpricedRequestCount: item.UnpricedRequestCount,
+			SuccessRate:          item.SuccessRate,
+			P50TTFTMS:            item.P50TTFTMS,
+			P95TTFTMS:            item.P95TTFTMS,
+			TotalTokens:          item.TotalTokens,
+			TotalCostMicros:      item.TotalCostMicros,
+			AvgOutputRateTPS:     item.AvgOutputRateTPS,
+		})
+	}
+	return models
 }
