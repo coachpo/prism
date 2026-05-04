@@ -193,6 +193,7 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/auth/logout` | N04 |
 | `POST /api/auth/refresh` | N05 |
 | `GET /api/auth/session` | N06 |
+| `WS /api/realtime/ws` | I26, I30, I31, I37 |
 
 ---
 
@@ -408,6 +409,7 @@ Prepare seed state through API (not manual DB edits):
 | I34 | P1 | Request-log retained-filter state | Changing one retained filter preserves unrelated URL-backed filter state, resets pagination, and refreshes the server-backed slice without client-side refinement gating |
 | I35 | P0 | Frontend locale switch (public + protected) | Switching between `en` and `zh-CN` updates shell and page copy, persists across refresh, and updates `document.documentElement.lang` |
 | I36 | P0 | Locale-aware management formatting | Settings, statistics, request logs, and proxy-key metadata render numbers/timestamps in the selected locale |
+| I37 | P0 | Analytics websocket no-REST data path | `/dashboard?tab=analytics` subscribes with `{type:"subscribe", channel:"analytics", profile_id, preset}`, receives a full `analytics.snapshot` with `endpoint_model_statistics_by_endpoint_id`, manual refresh sends websocket `refresh`, and the browser makes no `/api/stats/*` requests for analytics rendering |
 
 ## J. Non-Functional Smoke
 

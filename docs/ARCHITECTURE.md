@@ -244,13 +244,13 @@ build_upstream_headers():
 
 Custom headers are a power-user feature. While they can override most headers, they cannot be used to re-add headers that are blocked by the Header Blocklist. This is enforced by applying the blocklist last in the header construction pipeline.
 
-### 3.7 Realtime Dashboard Updates
+### 3.7 Realtime Dashboard And Analytics Updates
 
 ```
-Dashboard page -> WebSocket connect /api/realtime/ws
+Dashboard overview page -> WebSocket connect /api/realtime/ws
   -> If auth enabled: management auth handlers validate the access-token cookie
   -> Client sends {type: "subscribe", profile_id, channel: "dashboard"}
-  -> Realtime manager stores room membership keyed by (profile_id, channel)
+  -> Realtime manager stores dashboard room membership keyed by profile and channel
 
 Proxy request completes
   -> Stats service persists the `request_logs` row
@@ -262,9 +262,20 @@ Proxy request completes
      - throughput_24h
      - routing_route_24h
   -> Broadcast {type: "dashboard.update", ...payload} to dashboard subscribers for that profile
-  -> `frontend/src/pages/dashboard/useDashboardRealtime.ts` merges the payload into dashboard state
-  -> On reconnect or manual refresh, frontend reconciles via REST bootstrap calls
+  -> `frontend/src/pages/dashboard/useDashboardRealtime.ts` merges the overview payload into dashboard state
+  -> On reconnect or manual refresh, frontend reconciles overview state through REST bootstrap calls
+
+Dashboard analytics tab -> WebSocket connect /api/realtime/ws
+  -> Client sends {type: "subscribe", profile_id, channel: "analytics", preset}
+  -> Realtime manager stores analytics room membership keyed by profile, channel, and preset scope
+  -> Service sends an initial full `analytics.snapshot` for that {profile_id,preset}
+  -> Manual refresh sends {type: "refresh", profile_id, channel: "analytics", preset}
+  -> Refresh returns a fresh full `analytics.snapshot` on the socket
+  -> Analytics snapshots include the usage snapshot plus endpoint model statistics keyed by endpoint ID string
+  -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
 ```
+
+The realtime API has two supported channels. `dashboard.update` is the overview dashboard signal and does not carry analytics page replacement data. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/usage-snapshot`, remain supported API and debug surfaces.
 
 ## 4. Routing Strategies and Runtime Health Signals
 

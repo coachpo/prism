@@ -1519,7 +1519,7 @@ If no matching rollup rows exist, the endpoint still returns the supported respo
 ```
 GET /api/stats/usage-snapshot
 ```
-This is the analytics snapshot contract used by `/dashboard?tab=analytics`. It returns aggregate summary, endpoint, model, and proxy-key statistics only.
+This is the REST analytics snapshot contract for API callers and debugging. The `/dashboard?tab=analytics` UI receives the same snapshot shape through `analytics.snapshot` WebSocket messages, but this REST endpoint remains supported and documented.
 
 Query parameters:
 | Parameter | Type | Default | Description |
@@ -2486,7 +2486,7 @@ Returns the current authenticated session state.
 
 Realtime routes are global management routes and do not use `X-Profile-Id`. WebSocket subscriptions carry `profile_id` explicitly in the message payload.
 
-### 8.1 Dashboard WebSocket
+### 8.1 WebSocket Transport
 ```
 WS /api/realtime/ws
 ```
@@ -2495,26 +2495,36 @@ Authentication:
 - When operator auth is disabled, the socket can connect without cookies.
 - When operator auth is enabled, the backend validates the configured access-token cookie before allowing subscriptions.
 
-Supported channel:
+Supported channels:
 - `dashboard`
+- `analytics`
 
-Client -> server messages:
+Common client -> server messages:
 ```text
-{ "type": "subscribe", "profile_id": 2, "channel": "dashboard" }
-{ "type": "unsubscribe" }
-{ "type": "unsubscribe_channel", "channel": "dashboard" }
 { "type": "ping" }
 { "type": "pong" }
+{ "type": "unsubscribe" }
 ```
 
-Server -> client messages include:
+Common server -> client messages include:
 - `authenticated`
 - `heartbeat`
 - `subscribed`
 - `unsubscribed`
 - `error`
-- `dashboard.update`
 - `pong`
+
+### 8.2 Dashboard WebSocket Channel
+
+The dashboard channel is the overview channel for the main dashboard page. It is profile-scoped by the message payload and broadcasts incremental `dashboard.update` payloads after request activity. It is separate from the scoped Analytics channel.
+
+Client -> server messages:
+```text
+{ "type": "subscribe", "profile_id": 2, "channel": "dashboard" }
+{ "type": "unsubscribe_channel", "channel": "dashboard" }
+```
+
+Dashboard server -> client messages include `dashboard.update`.
 
 Example `dashboard.update` payload:
 ```json
@@ -2531,6 +2541,77 @@ Example `dashboard.update` payload:
     "request_count_24h": 42,
     "success_rate_24h": 97.62
   }
+}
+```
+
+### 8.3 Analytics WebSocket Channel
+
+The analytics channel serves `/dashboard?tab=analytics`. A subscription is scoped by `{profile_id,preset}` in the message payload. Supported presets are `1h`, `6h`, `24h`, `7d`, `30d`, and `all`.
+
+Client -> server messages:
+```text
+{ "type": "subscribe", "profile_id": 2, "channel": "analytics", "preset": "24h" }
+{ "type": "refresh", "profile_id": 2, "channel": "analytics", "preset": "24h" }
+{ "type": "unsubscribe_channel", "channel": "analytics", "preset": "24h" }
+```
+
+`subscribe` sends `subscribed` and then an initial `analytics.snapshot` for that exact scope. `refresh` sends a fresh direct `analytics.snapshot` for an existing connection-local subscription. `unsubscribe_channel` is preset-scoped and connection-local, so it does not include `profile_id`.
+
+Analytics server -> client messages include:
+- `analytics.snapshot`
+- `analytics.error`
+
+Each `analytics.snapshot` is a full replacement for one `{profile_id,preset}` scope. The `snapshot` field uses the same `UsageSnapshotResponse` shape as `GET /api/stats/usage-snapshot`. The `endpoint_model_statistics_by_endpoint_id` field is keyed by endpoint ID as a string and carries the endpoint model statistics rows that are otherwise available from `GET /api/stats/endpoints/{endpoint_id}/models` for API and debug callers.
+
+Example `analytics.snapshot` payload:
+```json
+{
+  "type": "analytics.snapshot",
+  "channel": "analytics",
+  "profile_id": 2,
+  "preset": "24h",
+  "sequence": 3,
+  "generated_at": "2026-05-04T12:00:00Z",
+  "snapshot": {
+    "generated_at": "2026-05-04T12:00:00Z",
+    "time_range": {
+      "preset": "24h",
+      "start_at": "2026-05-03T12:00:00Z",
+      "end_at": "2026-05-04T12:00:00Z"
+    },
+    "currency": { "code": "USD", "symbol": "$" },
+    "overview": { "total_requests": 42, "success_rate": 97.62 },
+    "service_health": { "request_count": 42, "success_count": 41, "failed_count": 1, "cells": [] },
+    "request_trends": { "hourly": [], "daily": [] },
+    "token_usage_trends": { "hourly": [], "daily": [] },
+    "token_type_breakdown": { "hourly": [], "daily": [] },
+    "cost_overview": { "total_cost_micros": 1250000, "hourly": [], "daily": [] },
+    "endpoint_statistics": [],
+    "model_statistics": [],
+    "proxy_api_key_statistics": []
+  },
+  "endpoint_model_statistics_by_endpoint_id": {
+    "12": [
+      {
+        "model_id": "gpt-4o",
+        "model_label": "GPT-4o",
+        "request_count": 42,
+        "success_rate": 97.62
+      }
+    ]
+  }
+}
+```
+
+Example `analytics.error` payload:
+```json
+{
+  "type": "analytics.error",
+  "channel": "analytics",
+  "profile_id": 2,
+  "preset": "24h",
+  "code": "snapshot_failed",
+  "message": "Failed to build analytics snapshot"
 }
 ```
 
