@@ -2,6 +2,8 @@ package realtime
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,9 +11,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	analyticsChannel           = "analytics"
+	analyticsPresetScopePrefix = "preset="
+)
+
 type roomKey struct {
 	ProfileID int
 	Channel   string
+	Scope     string
 }
 
 type RealtimeConnection struct {
@@ -20,7 +28,7 @@ type RealtimeConnection struct {
 	writeMu       sync.Mutex
 	writeTimeout  time.Duration
 	profileID     *int
-	channels      map[string]struct{}
+	channels      map[roomKey]struct{}
 	authenticated bool
 }
 
@@ -75,7 +83,7 @@ func (m *ConnectionManager) Connect(socket *websocket.Conn) string {
 		id:           connectionID,
 		socket:       socket,
 		writeTimeout: m.writeTimeout,
-		channels:     map[string]struct{}{},
+		channels:     map[roomKey]struct{}{},
 	}
 	m.connections[connectionID] = connection
 	return connectionID
@@ -93,7 +101,7 @@ func (m *ConnectionManager) GetConnection(connectionID string) *RealtimeConnecti
 	return m.connections[connectionID]
 }
 
-func (m *ConnectionManager) Subscribe(connectionID string, profileID int, channel string) bool {
+func (m *ConnectionManager) Subscribe(connectionID string, profileID int, channel string, preset ...string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -105,9 +113,9 @@ func (m *ConnectionManager) Subscribe(connectionID string, profileID int, channe
 		m.clearConnectionSubscriptionsLocked(connection)
 	}
 
+	key := subscriptionRoomKey(profileID, channel, firstPreset(preset))
 	connection.profileID = intPtr(profileID)
-	connection.channels[channel] = struct{}{}
-	key := roomKey{ProfileID: profileID, Channel: channel}
+	connection.channels[key] = struct{}{}
 	if m.rooms[key] == nil {
 		m.rooms[key] = map[string]struct{}{}
 	}
@@ -115,7 +123,7 @@ func (m *ConnectionManager) Subscribe(connectionID string, profileID int, channe
 	return true
 }
 
-func (m *ConnectionManager) UnsubscribeChannel(connectionID string, channel string) bool {
+func (m *ConnectionManager) UnsubscribeChannel(connectionID string, channel string, preset ...string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -123,10 +131,11 @@ func (m *ConnectionManager) UnsubscribeChannel(connectionID string, channel stri
 	if connection == nil || connection.profileID == nil {
 		return false
 	}
-	if _, ok := connection.channels[channel]; !ok {
+	key := subscriptionRoomKey(*connection.profileID, channel, firstPreset(preset))
+	if _, ok := connection.channels[key]; !ok {
 		return false
 	}
-	m.removeChannelSubscriptionLocked(connection, channel)
+	m.removeChannelSubscriptionLocked(connection, key)
 	return true
 }
 
@@ -142,14 +151,14 @@ func (m *ConnectionManager) Unsubscribe(connectionID string) bool {
 	return true
 }
 
-func (m *ConnectionManager) HasSubscribers(profileID int, channel string) bool {
+func (m *ConnectionManager) HasSubscribers(profileID int, channel string, preset ...string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return len(m.rooms[roomKey{ProfileID: profileID, Channel: channel}]) > 0
+	return len(m.rooms[subscriptionRoomKey(profileID, channel, firstPreset(preset))]) > 0
 }
 
-func (m *ConnectionManager) BroadcastToProfile(profileID int, channel string, payload any) int {
-	key := roomKey{ProfileID: profileID, Channel: channel}
+func (m *ConnectionManager) BroadcastToProfile(profileID int, channel string, payload any, preset ...string) int {
+	key := subscriptionRoomKey(profileID, channel, firstPreset(preset))
 
 	m.mu.RLock()
 	connectionIDs := make([]string, 0, len(m.rooms[key]))
@@ -181,13 +190,36 @@ func (m *ConnectionManager) BroadcastToProfile(profileID int, channel string, pa
 	return delivered
 }
 
+func (m *ConnectionManager) ActiveScopes(profileID int, channel string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scopesByValue := map[string]struct{}{}
+	for key, members := range m.rooms {
+		if key.ProfileID != profileID || key.Channel != strings.TrimSpace(channel) || len(members) == 0 {
+			continue
+		}
+		scope := activeScopeValue(key)
+		if key.Channel == analyticsChannel && scope == "" {
+			continue
+		}
+		scopesByValue[scope] = struct{}{}
+	}
+	scopes := make([]string, 0, len(scopesByValue))
+	for scope := range scopesByValue {
+		scopes = append(scopes, scope)
+	}
+	sort.Strings(scopes)
+	return scopes
+}
+
 func (m *ConnectionManager) Stats() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	rooms := map[string]int{}
 	for key, members := range m.rooms {
-		rooms[fmt.Sprintf("profile_%d_%s", key.ProfileID, key.Channel)] = len(members)
+		rooms[statsRoomName(key)] = len(members)
 	}
 	return map[string]any{
 		"total_connections": len(m.connections),
@@ -238,19 +270,19 @@ func (m *ConnectionManager) dropConnectionLocked(connectionID string) {
 }
 
 func (m *ConnectionManager) clearConnectionSubscriptionsLocked(connection *RealtimeConnection) {
-	for channel := range connection.channels {
-		m.removeChannelSubscriptionLocked(connection, channel)
+	keys := make([]roomKey, 0, len(connection.channels))
+	for key := range connection.channels {
+		keys = append(keys, key)
 	}
-	connection.channels = map[string]struct{}{}
+	for _, key := range keys {
+		m.removeChannelSubscriptionLocked(connection, key)
+	}
+	connection.channels = map[roomKey]struct{}{}
 	connection.profileID = nil
 }
 
-func (m *ConnectionManager) removeChannelSubscriptionLocked(connection *RealtimeConnection, channel string) {
-	if connection.profileID == nil {
-		return
-	}
-	delete(connection.channels, channel)
-	key := roomKey{ProfileID: *connection.profileID, Channel: channel}
+func (m *ConnectionManager) removeChannelSubscriptionLocked(connection *RealtimeConnection, key roomKey) {
+	delete(connection.channels, key)
 	if members := m.rooms[key]; members != nil {
 		delete(members, connection.id)
 		if len(members) == 0 {
@@ -260,6 +292,48 @@ func (m *ConnectionManager) removeChannelSubscriptionLocked(connection *Realtime
 	if len(connection.channels) == 0 {
 		connection.profileID = nil
 	}
+}
+
+func subscriptionRoomKey(profileID int, channel string, preset string) roomKey {
+	trimmedChannel := strings.TrimSpace(channel)
+	return roomKey{
+		ProfileID: profileID,
+		Channel:   trimmedChannel,
+		Scope:     subscriptionScope(trimmedChannel, preset),
+	}
+}
+
+func subscriptionScope(channel string, preset string) string {
+	if strings.TrimSpace(channel) != analyticsChannel {
+		return ""
+	}
+	trimmedPreset := strings.TrimSpace(preset)
+	if trimmedPreset == "" {
+		return ""
+	}
+	return analyticsPresetScopePrefix + trimmedPreset
+}
+
+func activeScopeValue(key roomKey) string {
+	if key.Channel == analyticsChannel {
+		return strings.TrimPrefix(key.Scope, analyticsPresetScopePrefix)
+	}
+	return key.Scope
+}
+
+func statsRoomName(key roomKey) string {
+	name := fmt.Sprintf("profile_%d_%s", key.ProfileID, key.Channel)
+	if key.Scope != "" {
+		name += "_" + strings.ReplaceAll(key.Scope, "=", "_")
+	}
+	return name
+}
+
+func firstPreset(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func intPtr(value int) *int {
