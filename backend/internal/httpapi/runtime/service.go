@@ -25,6 +25,10 @@ type DashboardUpdatePublisher interface {
 	PublishDashboardUpdate(context.Context, int, int) (bool, error)
 }
 
+type AnalyticsUpdatePublisher interface {
+	PublishAnalyticsUpdates(context.Context, int) (bool, error)
+}
+
 type Options struct {
 	ExecutionPool              *pgxpool.Pool
 	TelemetryPool              *pgxpool.Pool
@@ -33,6 +37,7 @@ type Options struct {
 	RuntimeProxyConfigProvider RuntimeProxyConfigProvider
 	Now                        func() time.Time
 	DashboardUpdates           DashboardUpdatePublisher
+	AnalyticsUpdates           AnalyticsUpdatePublisher
 	Cache                      *SharedCache
 	RuntimeState               *loadbalancedomain.LocalRuntimeStateStore
 	TelemetryOutbox            TelemetryOutboxOptions
@@ -62,6 +67,7 @@ type Service struct {
 	now                        func() time.Time
 	secretEncryptionKey        string
 	dashboardUpdates           DashboardUpdatePublisher
+	analyticsUpdates           AnalyticsUpdatePublisher
 	cache                      *SharedCache
 	runtimeState               *loadbalancedomain.LocalRuntimeStateStore
 	telemetryOutbox            *runtimeTelemetryOutbox
@@ -116,12 +122,13 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		now:                        now,
 		secretEncryptionKey:        settings.SecretEncryptionKey,
 		dashboardUpdates:           options.DashboardUpdates,
+		analyticsUpdates:           options.AnalyticsUpdates,
 		cache:                      options.Cache,
 		runtimeState:               runtimeState,
 	}
 	telemetryOptions := options.TelemetryOutbox
 	telemetryOptions.Scheduler = scheduler
-	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, telemetryOptions)
+	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, service.analyticsUpdates, telemetryOptions)
 	service.feedbackPipeline = newRuntimeFeedbackPipeline(service.feedbackStore, service.runtimeState, options.FeedbackPipeline)
 	service.runtimeSideEffects = NewRuntimeSideEffectManager(service.telemetryOutbox, options.SideEffects)
 	if options.Scheduler == nil {

@@ -49,6 +49,7 @@ type runtimeTelemetryOutbox struct {
 	telemetryPool    *pgxpool.Pool
 	now              func() time.Time
 	dashboardUpdates DashboardUpdatePublisher
+	analyticsUpdates AnalyticsUpdatePublisher
 	pollInterval     time.Duration
 	shutdownTimeout  time.Duration
 	hooks            TelemetryOutboxHooks
@@ -82,12 +83,13 @@ func (state runtimeTelemetryDrainState) drained() bool {
 	return state.PendingRows == 0 && state.Inflight == 0
 }
 
-func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
+func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, analyticsUpdates AnalyticsUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
 	normalized := normalizeTelemetryOutboxOptions(options)
 	outbox := &runtimeTelemetryOutbox{
 		telemetryPool:    telemetryPool,
 		now:              now,
 		dashboardUpdates: dashboardUpdates,
+		analyticsUpdates: analyticsUpdates,
 		pollInterval:     normalized.PollInterval,
 		shutdownTimeout:  normalized.ShutdownTimeout,
 		hooks:            normalized.hooks(),
@@ -252,6 +254,9 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 	}
 	if o.dashboardUpdates != nil && result.RequestLogID > 0 && result.ProfileID > 0 {
 		_, _ = o.dashboardUpdates.PublishDashboardUpdate(ctx, result.RequestLogID, result.ProfileID)
+	}
+	if o.analyticsUpdates != nil && result.ProfileID > 0 {
+		_, _ = o.analyticsUpdates.PublishAnalyticsUpdates(ctx, result.ProfileID)
 	}
 	return true, nil
 }

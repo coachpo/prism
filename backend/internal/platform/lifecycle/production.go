@@ -243,7 +243,12 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	resources.registerSideEffectDrain(closeFuncHook(asyncDashboardPublisher.Close))
 	resources.registerServiceClose(closeFuncHook(asyncDashboardPublisher.Close))
 
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler})
+	asyncAnalyticsPublisher := realtimeapi.NewAsyncAnalyticsPublisher(realtimeService, realtimeapi.AsyncAnalyticsPublisherOptions{Scheduler: backgroundScheduler})
+	realtimeService.SetAsyncAnalyticsPublisher(asyncAnalyticsPublisher)
+	resources.registerSideEffectDrain(closeFuncHook(asyncAnalyticsPublisher.Close))
+	resources.registerServiceClose(closeFuncHook(asyncAnalyticsPublisher.Close))
+
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler})
 	if err != nil {
 		return err
 	}
@@ -256,6 +261,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
 		asyncDashboardPublisher.RegisterBackgroundWorker,
+		asyncAnalyticsPublisher.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,
 	} {
 		if err := register(backgroundScheduler); err != nil {
