@@ -5,11 +5,18 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/coachpo/prism/backend/internal/platform/background"
 )
 
 type asyncPublishCall struct {
 	ProfileID    int
 	RequestLogID int
+}
+
+type asyncAnalyticsPublishCall struct {
+	ProfileID int
+	Preset    string
 }
 
 type fakeAsyncDashboardTarget struct {
@@ -148,6 +155,97 @@ func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsE
 	}
 }
 
+func TestAsyncAnalyticsPublisher_CoalescesScopeWhileWorkerIsInflight(t *testing.T) {
+	target := newBlockingFakeAsyncAnalyticsTarget([]string{"1h"})
+	publisher := NewAsyncAnalyticsPublisher(target, AsyncAnalyticsPublisherOptions{
+		QueueCapacity:   1,
+		WorkerCount:     1,
+		PublishTimeout:  5 * time.Second,
+		ShutdownTimeout: time.Second,
+	})
+	defer publisher.Close()
+
+	accepted, err := publisher.PublishAnalyticsUpdates(context.Background(), 7)
+	if err != nil || !accepted {
+		t.Fatalf("expected first async analytics publish to queue successfully, got accepted=%v err=%v", accepted, err)
+	}
+	target.waitUntilFirstStarted(t, 2*time.Second)
+	accepted, err = publisher.PublishAnalyticsUpdates(context.Background(), 7)
+	if err != nil || !accepted {
+		t.Fatalf("expected second async analytics publish to coalesce successfully, got accepted=%v err=%v", accepted, err)
+	}
+	snapshot := publisher.Snapshot()
+	if snapshot.QueueDepth != 0 || snapshot.InflightScopes != 1 || snapshot.TrackedScopes != 1 {
+		t.Fatalf("expected inflight coalesced snapshot to track one inflight scope without queued backlog, got %+v", snapshot)
+	}
+	if snapshot.AcceptedCount != 1 || snapshot.CoalescedCount != 1 || snapshot.DroppedCount != 0 {
+		t.Fatalf("expected coalesced counters accepted=1 coalesced=1 dropped=0, got %+v", snapshot)
+	}
+	if snapshot.Drained || snapshot.BusySince.IsZero() {
+		t.Fatalf("expected inflight coalesced snapshot to remain busy, got %+v", snapshot)
+	}
+	if !snapshot.LastDrainedAt.IsZero() || snapshot.LastDrainDuration != 0 {
+		t.Fatalf("expected no drain metadata before inflight work completes, got %+v", snapshot)
+	}
+	target.releaseBlockedPublish()
+
+	firstCall := target.waitForCall(t, 2*time.Second)
+	secondCall := target.waitForCall(t, 2*time.Second)
+	if firstCall.ProfileID != 7 || firstCall.Preset != "1h" {
+		t.Fatalf("expected first publish call to use analytics scope, got %+v", firstCall)
+	}
+	if secondCall.ProfileID != 7 || secondCall.Preset != "1h" {
+		t.Fatalf("expected second publish call to use coalesced analytics scope, got %+v", secondCall)
+	}
+	finalSnapshot := waitForAsyncAnalyticsDrain(t, publisher, 2*time.Second)
+	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.CoalescedCount != 1 || finalSnapshot.DroppedCount != 0 {
+		t.Fatalf("expected final coalesced counters accepted=1 coalesced=1 dropped=0, got %+v", finalSnapshot)
+	}
+	if finalSnapshot.QueueDepth != 0 || finalSnapshot.InflightScopes != 0 || finalSnapshot.TrackedScopes != 0 || !finalSnapshot.Drained {
+		t.Fatalf("expected coalesced analytics publisher to drain fully after release, got %+v", finalSnapshot)
+	}
+	if finalSnapshot.LastDrainedAt.IsZero() || finalSnapshot.LastDrainDuration <= 0 {
+		t.Fatalf("expected coalesced analytics publisher to record a positive drain interval, got %+v", finalSnapshot)
+	}
+}
+
+func TestAsyncAnalyticsPublisher_DropsTrackedStateWhenSchedulerRejectsSubmit(t *testing.T) {
+	scheduler := background.NewScheduler(background.Config{})
+	target := newFakeAsyncAnalyticsTarget([]string{"1h"})
+	publisher := NewAsyncAnalyticsPublisher(target, AsyncAnalyticsPublisherOptions{
+		QueueCapacity: 1,
+		WorkerCount:   1,
+		Scheduler:     scheduler,
+	})
+
+	queued, err := publisher.PublishAnalyticsUpdates(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("publish analytics update with unstarted scheduler: %v", err)
+	}
+	if queued {
+		t.Fatal("expected scheduler rejection to report no queued analytics update")
+	}
+	snapshot := publisher.Snapshot()
+	if snapshot.TrackedScopes != 0 || snapshot.QueueDepth != 0 || !snapshot.Drained {
+		t.Fatalf("expected rejected submit to remove tracked state, got %+v", snapshot)
+	}
+	if snapshot.AcceptedCount != 1 || snapshot.DroppedCount != 1 {
+		t.Fatalf("expected rejected submit counters accepted=1 dropped=1, got %+v", snapshot)
+	}
+
+	queued, err = publisher.PublishAnalyticsUpdates(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("retry analytics update after rejected submit: %v", err)
+	}
+	if queued {
+		t.Fatal("expected retry with still-unstarted scheduler to reject again")
+	}
+	snapshot = publisher.Snapshot()
+	if snapshot.TrackedScopes != 0 || snapshot.QueueDepth != 0 || snapshot.AcceptedCount != 2 || snapshot.DroppedCount != 2 {
+		t.Fatalf("expected rejected retry to stay untracked and count another drop, got %+v", snapshot)
+	}
+}
+
 func newFakeAsyncDashboardTarget(blockFirst bool) *fakeAsyncDashboardTarget {
 	return &fakeAsyncDashboardTarget{
 		latest:       map[int]int{},
@@ -243,4 +341,105 @@ func waitForAsyncDashboardDrain(testingT *testing.T, publisher *AsyncDashboardPu
 	}
 	testingT.Fatalf("timed out waiting for async dashboard publisher drain, last snapshot %+v", lastSnapshot)
 	return AsyncDashboardPublisherSnapshot{}
+}
+
+type fakeAsyncAnalyticsTarget struct {
+	mu           sync.Mutex
+	scopes       []string
+	calls        []asyncAnalyticsPublishCall
+	publishCh    chan asyncAnalyticsPublishCall
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	blockFirst   bool
+}
+
+func newFakeAsyncAnalyticsTarget(scopes []string) *fakeAsyncAnalyticsTarget {
+	return newFakeAsyncAnalyticsTargetWithBlock(scopes, false)
+}
+
+func newBlockingFakeAsyncAnalyticsTarget(scopes []string) *fakeAsyncAnalyticsTarget {
+	return newFakeAsyncAnalyticsTargetWithBlock(scopes, true)
+}
+
+func newFakeAsyncAnalyticsTargetWithBlock(scopes []string, blockFirst bool) *fakeAsyncAnalyticsTarget {
+	return &fakeAsyncAnalyticsTarget{
+		scopes:       scopes,
+		publishCh:    make(chan asyncAnalyticsPublishCall, 8),
+		firstStarted: make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+		blockFirst:   blockFirst,
+	}
+}
+
+func (t *fakeAsyncAnalyticsTarget) PublishLatestAnalyticsSnapshot(ctx context.Context, profileID int, preset string) (bool, error) {
+	call := asyncAnalyticsPublishCall{ProfileID: profileID, Preset: preset}
+	t.mu.Lock()
+	t.calls = append(t.calls, call)
+	callIndex := len(t.calls)
+	t.mu.Unlock()
+
+	if t.blockFirst && callIndex == 1 {
+		select {
+		case <-t.firstStarted:
+		default:
+			close(t.firstStarted)
+		}
+		select {
+		case <-t.releaseFirst:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	select {
+	case t.publishCh <- call:
+	default:
+	}
+	return true, nil
+}
+
+func (t *fakeAsyncAnalyticsTarget) ActiveAnalyticsScopes(int) []string {
+	return append([]string(nil), t.scopes...)
+}
+
+func (t *fakeAsyncAnalyticsTarget) waitUntilFirstStarted(testingT *testing.T, timeout time.Duration) {
+	testingT.Helper()
+	select {
+	case <-t.firstStarted:
+	case <-time.After(timeout):
+		testingT.Fatal("timed out waiting for the first async analytics publish call to start")
+	}
+}
+
+func (t *fakeAsyncAnalyticsTarget) releaseBlockedPublish() {
+	select {
+	case <-t.releaseFirst:
+	default:
+		close(t.releaseFirst)
+	}
+}
+
+func (t *fakeAsyncAnalyticsTarget) waitForCall(testingT *testing.T, timeout time.Duration) asyncAnalyticsPublishCall {
+	testingT.Helper()
+	select {
+	case call := <-t.publishCh:
+		return call
+	case <-time.After(timeout):
+		testingT.Fatal("timed out waiting for async analytics publish call")
+		return asyncAnalyticsPublishCall{}
+	}
+}
+
+func waitForAsyncAnalyticsDrain(testingT *testing.T, publisher *AsyncAnalyticsPublisher, timeout time.Duration) AsyncAnalyticsPublisherSnapshot {
+	testingT.Helper()
+	deadline := time.Now().Add(timeout)
+	lastSnapshot := publisher.Snapshot()
+	for time.Now().Before(deadline) {
+		lastSnapshot = publisher.Snapshot()
+		if lastSnapshot.Drained {
+			return lastSnapshot
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	testingT.Fatalf("timed out waiting for async analytics publisher drain, last snapshot %+v", lastSnapshot)
+	return AsyncAnalyticsPublisherSnapshot{}
 }
