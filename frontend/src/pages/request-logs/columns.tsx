@@ -293,6 +293,7 @@ export function getColumns(): ColumnDef[] {
             label={getStreamOutcomeLabel(row.stream_outcome, messages)}
             intent={getStreamOutcomeIntent(row.stream_outcome)}
             className="px-2 py-0.5"
+            preserveLabel
           />
         ) : (
           <span className="text-[10px] text-muted-foreground">—</span>

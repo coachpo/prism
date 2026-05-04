@@ -17,6 +17,7 @@ interface BaseBadgeProps {
   label: string;
   intent?: BadgeIntent;
   className?: string;
+  preserveLabel?: boolean;
 }
 
 /** Boolean state indicators: On/Off, Enabled/Disabled, Active/Inactive */
@@ -32,13 +33,13 @@ export function StatusBadge({ label, intent = "default", className }: BaseBadgeP
 }
 
 /** Category/classification labels: Proxy/Native, Exact/Prefix, Stream */
-export function TypeBadge({ label, intent = "default", className }: BaseBadgeProps) {
+export function TypeBadge({ label, intent = "default", className, preserveLabel = false }: BaseBadgeProps) {
   return (
     <Badge
       variant="outline"
       className={cn("text-[10px] shrink-0", INTENT_CLASSES[intent], className)}
     >
-      {formatLabel(label)}
+      {preserveLabel ? label : formatLabel(label)}
     </Badge>
   );
 }

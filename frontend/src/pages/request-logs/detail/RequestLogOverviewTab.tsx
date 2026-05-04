@@ -176,6 +176,7 @@ export function RequestLogOverviewTab({
                     label={streamStatusLabel}
                     intent={getStreamOutcomeIntent(summary.stream_outcome)}
                     className="px-2 py-0.5"
+                    preserveLabel
                   />
                 ) : null}
                 {summary.is_proxy_origin ? (
@@ -374,6 +375,7 @@ export function RequestLogOverviewTab({
                   <TypeBadge
                     label={streamStatusLabel}
                     intent={getStreamOutcomeIntent(summary.stream_outcome)}
+                    preserveLabel
                   />
                 ) : messages.requestLogs.no}
               </DetailRow>
