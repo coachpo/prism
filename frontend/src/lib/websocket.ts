@@ -1,7 +1,13 @@
-import type { DashboardRealtimeUpdatePayload } from "@/lib/types";
+import type {
+  DashboardRealtimeUpdatePayload,
+  UsageModelStatistic,
+  UsageSnapshotPreset,
+  UsageSnapshotResponse,
+} from "@/lib/types";
 import {
   buildPingMessage,
   buildPongMessage,
+  buildRefreshMessage,
   buildSubscribeMessage,
   buildUnsubscribeAllMessage,
   buildUnsubscribeChannelMessage,
@@ -10,7 +16,9 @@ import {
 } from "@/lib/websocket/protocol";
 import {
   decrementChannelRefCount,
+  hasChannelSubscription,
   incrementChannelRefCount,
+  type RealtimeSubscriptionRefCounts,
 } from "@/lib/websocket/subscriptions";
 import {
   calculateReconnectDelay,
@@ -18,19 +26,42 @@ import {
   getInitialConnectionState,
 } from "@/lib/websocket/transport";
 
-export type RealtimeChannel = "dashboard";
+export type RealtimeChannel = "dashboard" | "analytics";
+
+export type RealtimeSubscriptionScope = { preset?: UsageSnapshotPreset };
+
+export interface AnalyticsRealtimeSnapshotPayload {
+  channel: "analytics";
+  profile_id: number;
+  preset: UsageSnapshotPreset;
+  sequence: number;
+  generated_at: string;
+  snapshot: UsageSnapshotResponse;
+  endpoint_model_statistics_by_endpoint_id: Record<string, UsageModelStatistic[]>;
+}
+
+export interface AnalyticsRealtimeErrorPayload {
+  channel: "analytics";
+  profile_id?: number;
+  preset?: UsageSnapshotPreset;
+  code: string;
+  message: string;
+}
 
 export interface RealtimeChannelPayloadMap {
   dashboard: DashboardRealtimeUpdatePayload;
+  analytics: AnalyticsRealtimeSnapshotPayload;
 }
 
 export type RealtimeMessage =
   | { type: "authenticated"; username: string }
   | { type: "unauthenticated"; message: string }
   | { type: "heartbeat" }
-  | { type: "subscribed"; profile_id: number; channel: RealtimeChannel }
-  | { type: "unsubscribed"; channel?: RealtimeChannel }
+  | { type: "subscribed"; profile_id: number; channel: RealtimeChannel; preset?: UsageSnapshotPreset }
+  | { type: "unsubscribed"; channel?: RealtimeChannel; preset?: UsageSnapshotPreset }
   | ({ type: "dashboard.update" } & DashboardRealtimeUpdatePayload)
+  | ({ type: "analytics.snapshot" } & AnalyticsRealtimeSnapshotPayload)
+  | ({ type: "analytics.error" } & AnalyticsRealtimeErrorPayload)
   | { type: "reconnected" }
   | { type: "error"; message: string }
   | { type: "pong" };
@@ -68,15 +99,15 @@ function sendProfileSubscriptions({
   send,
 }: {
   profileId: number | null;
-  channelRefCounts: ReadonlyMap<RealtimeChannel, number>;
+  channelRefCounts: RealtimeSubscriptionRefCounts;
   send: (data: Record<string, unknown>) => void;
 }) {
   if (profileId === null) {
     return;
   }
 
-  for (const channel of channelRefCounts.keys()) {
-    send(buildSubscribeMessage(profileId, channel));
+  for (const { channel, scope } of channelRefCounts.values()) {
+    send(buildSubscribeMessage(profileId, channel, scope));
   }
 }
 
@@ -88,15 +119,15 @@ function sendProfileSwitchMessages({
 }: {
   previousProfileId: number | null;
   nextProfileId: number;
-  channelRefCounts: ReadonlyMap<RealtimeChannel, number>;
+  channelRefCounts: RealtimeSubscriptionRefCounts;
   send: (data: Record<string, unknown>) => void;
 }) {
   if (previousProfileId === null || previousProfileId === nextProfileId) {
     return;
   }
 
-  for (const channel of channelRefCounts.keys()) {
-    send(buildUnsubscribeChannelMessage(channel));
+  for (const { channel, scope } of channelRefCounts.values()) {
+    send(buildUnsubscribeChannelMessage(channel, scope));
   }
 
   sendProfileSubscriptions({
@@ -118,7 +149,7 @@ export class WebSocketClient {
   private readonly handlers: Set<RealtimeEventHandler> = new Set();
   private isIntentionallyClosed = false;
   private currentProfileId: number | null = null;
-  private channelRefCounts = new Map<RealtimeChannel, number>();
+  private channelRefCounts: RealtimeSubscriptionRefCounts = new Map();
   private connectionState: ConnectionState = "disconnected";
   private hasConnectedOnce = false;
   private shouldEmitReconnect = false;
@@ -234,7 +265,7 @@ export class WebSocketClient {
   disconnect(): void {
     this.isIntentionallyClosed = true;
     this.currentProfileId = null;
-    this.channelRefCounts.clear();
+    this.channelRefCounts = new Map();
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -250,7 +281,11 @@ export class WebSocketClient {
     }
   }
 
-  subscribeChannel(profileId: number, channel: RealtimeChannel): void {
+  subscribeChannel(
+    profileId: number,
+    channel: RealtimeChannel,
+    scope?: RealtimeSubscriptionScope,
+  ): void {
     if (this.currentProfileId !== null && this.currentProfileId !== profileId) {
       this.setProfile(profileId);
     } else {
@@ -259,24 +294,29 @@ export class WebSocketClient {
 
     const { nextRefCounts, shouldSubscribe } = incrementChannelRefCount(
       this.channelRefCounts,
-      channel
+      channel,
+      scope,
     );
     this.channelRefCounts = nextRefCounts;
 
     if (shouldSubscribe && this.ws?.readyState === WebSocket.OPEN) {
-      this.send(buildSubscribeMessage(profileId, channel));
+      this.send(buildSubscribeMessage(profileId, channel, scope));
     }
   }
 
-  unsubscribeChannel(channel: RealtimeChannel): void {
+  unsubscribeChannel(
+    channel: RealtimeChannel,
+    scope?: RealtimeSubscriptionScope,
+  ): void {
     const { hasSubscriptions, nextRefCounts, shouldUnsubscribe } = decrementChannelRefCount(
       this.channelRefCounts,
-      channel
+      channel,
+      scope,
     );
     this.channelRefCounts = nextRefCounts;
 
     if (shouldUnsubscribe && this.ws?.readyState === WebSocket.OPEN) {
-      this.send(buildUnsubscribeChannelMessage(channel));
+      this.send(buildUnsubscribeChannelMessage(channel, scope));
     }
 
     if (!hasSubscriptions) {
@@ -285,7 +325,7 @@ export class WebSocketClient {
   }
 
   unsubscribe(): void {
-    this.channelRefCounts.clear();
+    this.channelRefCounts = new Map();
     this.currentProfileId = null;
 
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -326,12 +366,33 @@ export class WebSocketClient {
     return this.connectionState;
   }
 
-  hasChannelSubscription(channel: RealtimeChannel, profileId: number | null): boolean {
+  hasChannelSubscription(
+    channel: RealtimeChannel,
+    profileId: number | null,
+    scope?: RealtimeSubscriptionScope,
+  ): boolean {
     if (profileId === null || this.currentProfileId !== profileId) {
       return false;
     }
 
-    return (this.channelRefCounts.get(channel) ?? 0) > 0;
+    return hasChannelSubscription(this.channelRefCounts, channel, scope);
+  }
+
+  refreshChannel(
+    profileId: number | null,
+    channel: RealtimeChannel,
+    scope?: RealtimeSubscriptionScope,
+  ): void {
+    if (
+      channel !== "analytics" ||
+      profileId === null ||
+      this.currentProfileId !== profileId ||
+      !hasChannelSubscription(this.channelRefCounts, channel, scope)
+    ) {
+      return;
+    }
+
+    this.send(buildRefreshMessage(profileId, channel, scope));
   }
 
   private send(data: Record<string, unknown>): void {

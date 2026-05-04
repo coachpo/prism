@@ -1,28 +1,69 @@
-import type { RealtimeChannel } from "../websocket";
+import type { RealtimeChannel, RealtimeSubscriptionScope } from "../websocket";
+
+export type RealtimeSubscriptionKey = "dashboard" | `analytics:${NonNullable<RealtimeSubscriptionScope["preset"]>}`;
+
+export interface RealtimeSubscriptionRefCount {
+  channel: RealtimeChannel;
+  scope?: RealtimeSubscriptionScope;
+  count: number;
+}
+
+export type RealtimeSubscriptionRefCounts = ReadonlyMap<
+  RealtimeSubscriptionKey,
+  RealtimeSubscriptionRefCount
+>;
+
+export function normalizeSubscriptionKey(
+  channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
+): RealtimeSubscriptionKey {
+  if (channel === "dashboard") {
+    return "dashboard";
+  }
+
+  if (!scope?.preset) {
+    throw new Error("Analytics realtime subscriptions require a preset scope");
+  }
+
+  return `analytics:${scope.preset}`;
+}
 
 export function incrementChannelRefCount(
-  refCounts: ReadonlyMap<RealtimeChannel, number>,
+  refCounts: RealtimeSubscriptionRefCounts,
   channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
 ) {
+  const key = normalizeSubscriptionKey(channel, scope);
   const nextRefCounts = new Map(refCounts);
-  const currentCount = nextRefCounts.get(channel) ?? 0;
-  nextRefCounts.set(channel, currentCount + 1);
+  const currentEntry = nextRefCounts.get(key);
+  const currentCount = currentEntry?.count ?? 0;
+
+  nextRefCounts.set(key, {
+    channel,
+    scope,
+    count: currentCount + 1,
+  });
 
   return {
+    key,
     nextRefCounts,
     shouldSubscribe: currentCount === 0,
   };
 }
 
 export function decrementChannelRefCount(
-  refCounts: ReadonlyMap<RealtimeChannel, number>,
+  refCounts: RealtimeSubscriptionRefCounts,
   channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
 ) {
+  const key = normalizeSubscriptionKey(channel, scope);
   const nextRefCounts = new Map(refCounts);
-  const currentCount = nextRefCounts.get(channel) ?? 0;
+  const currentEntry = nextRefCounts.get(key);
+  const currentCount = currentEntry?.count ?? 0;
 
   if (currentCount === 0) {
     return {
+      key,
       nextRefCounts,
       shouldUnsubscribe: false,
       hasSubscriptions: nextRefCounts.size > 0,
@@ -30,18 +71,33 @@ export function decrementChannelRefCount(
   }
 
   if (currentCount === 1) {
-    nextRefCounts.delete(channel);
+    nextRefCounts.delete(key);
     return {
+      key,
       nextRefCounts,
       shouldUnsubscribe: true,
       hasSubscriptions: nextRefCounts.size > 0,
     };
   }
 
-  nextRefCounts.set(channel, currentCount - 1);
+  nextRefCounts.set(key, {
+    channel,
+    scope: currentEntry?.scope ?? scope,
+    count: currentCount - 1,
+  });
   return {
+    key,
     nextRefCounts,
     shouldUnsubscribe: false,
     hasSubscriptions: true,
   };
+}
+
+export function hasChannelSubscription(
+  refCounts: RealtimeSubscriptionRefCounts,
+  channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
+): boolean {
+  const key = normalizeSubscriptionKey(channel, scope);
+  return (refCounts.get(key)?.count ?? 0) > 0;
 }

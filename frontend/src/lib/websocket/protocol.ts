@@ -1,11 +1,56 @@
-import type { RealtimeChannel, RealtimeMessage } from "../websocket";
+import type {
+  RealtimeChannel,
+  RealtimeMessage,
+  RealtimeSubscriptionScope,
+} from "../websocket";
 
-export function buildSubscribeMessage(profileId: number, channel: RealtimeChannel) {
+function buildScopedChannelMessage<TType extends string>(
+  type: TType,
+  channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
+) {
+  if (channel === "analytics") {
+    return { type, channel, preset: scope?.preset } as const;
+  }
+
+  return { type, channel } as const;
+}
+
+export function buildSubscribeMessage(
+  profileId: number,
+  channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
+) {
+  if (channel === "analytics") {
+    return {
+      ...buildScopedChannelMessage("subscribe", channel, scope),
+      profile_id: profileId,
+    } as const;
+  }
+
   return { type: "subscribe" as const, profile_id: profileId, channel };
 }
 
-export function buildUnsubscribeChannelMessage(channel: RealtimeChannel) {
-  return { type: "unsubscribe_channel" as const, channel };
+export function buildUnsubscribeChannelMessage(
+  channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
+) {
+  return buildScopedChannelMessage("unsubscribe_channel", channel, scope);
+}
+
+export function buildRefreshMessage(
+  profileId: number,
+  channel: RealtimeChannel,
+  scope?: RealtimeSubscriptionScope,
+) {
+  if (channel === "analytics") {
+    return {
+      ...buildScopedChannelMessage("refresh", channel, scope),
+      profile_id: profileId,
+    } as const;
+  }
+
+  return { type: "refresh" as const, profile_id: profileId, channel };
 }
 
 export function buildUnsubscribeAllMessage() {

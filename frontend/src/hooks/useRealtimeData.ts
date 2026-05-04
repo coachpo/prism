@@ -5,11 +5,12 @@ import {
   type RealtimeChannel,
   type RealtimeChannelPayloadMap,
   type RealtimeMessage,
+  type RealtimeSubscriptionScope,
 } from "@/lib/websocket";
 
 type BufferedEvent<TData> = { type: "data"; payload: TData };
 
-const CHANNEL_PAYLOAD_EXTRACTORS: {
+export const CHANNEL_PAYLOAD_EXTRACTORS: {
   [K in RealtimeChannel]: (
     message: RealtimeMessage
   ) => RealtimeChannelPayloadMap[K] | null;
@@ -25,6 +26,19 @@ const CHANNEL_PAYLOAD_EXTRACTORS: {
           routing_route_24h: message.routing_route_24h,
         }
       : null,
+  analytics: (message) =>
+    message.type === "analytics.snapshot"
+      ? {
+          channel: message.channel,
+          profile_id: message.profile_id,
+          preset: message.preset,
+          sequence: message.sequence,
+          generated_at: message.generated_at,
+          snapshot: message.snapshot,
+          endpoint_model_statistics_by_endpoint_id:
+            message.endpoint_model_statistics_by_endpoint_id,
+        }
+      : null,
 };
 
 export interface UseRealtimeDataOptions<
@@ -33,6 +47,7 @@ export interface UseRealtimeDataOptions<
   profileId: number | null;
   channel?: TChannel;
   enabled?: boolean;
+  scope?: RealtimeSubscriptionScope;
   onData?: (payload: RealtimeChannelPayloadMap[TChannel]) => void;
   onReconnect?: () => void;
 }
@@ -45,12 +60,42 @@ export interface UseRealtimeDataReturn<TData> {
   lastMessage: RealtimeMessage | null;
   lastData: TData | null;
   markSyncComplete: () => void;
+  refresh: () => void;
+}
+
+export function matchesRealtimeDataScope({
+  channel,
+  message,
+  profileId,
+  scope,
+}: {
+  channel: RealtimeChannel;
+  message: RealtimeMessage;
+  profileId: number | null;
+  scope?: RealtimeSubscriptionScope;
+}): boolean {
+  if (channel !== "analytics") {
+    return true;
+  }
+
+  return (
+    message.type === "analytics.snapshot" &&
+    message.profile_id === profileId &&
+    message.preset === scope?.preset
+  );
 }
 
 export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
   options: UseRealtimeDataOptions<TChannel>
 ): UseRealtimeDataReturn<RealtimeChannelPayloadMap[TChannel]> {
-  const { profileId, channel = "dashboard" as TChannel, enabled = true, onData, onReconnect } = options;
+  const {
+    profileId,
+    channel = "dashboard" as TChannel,
+    enabled = true,
+    scope,
+    onData,
+    onReconnect,
+  } = options;
   const client = getWebSocketClient();
   const onDataRef = useRef(onData);
   const onReconnectRef = useRef(onReconnect);
@@ -61,7 +106,7 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
 
   const [isConnected, setIsConnected] = useState(client.isConnected());
   const [isSubscribed, setIsSubscribed] = useState(
-    client.hasChannelSubscription(channel, profileId)
+    client.hasChannelSubscription(channel, profileId, scope)
   );
   const [isSyncing, setIsSyncing] = useState(false);
   const [connectionState, setConnectionState] = useState(client.getConnectionState());
@@ -90,6 +135,10 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
     }
   }
 
+  function refresh() {
+    client.refreshChannel(profileId, channel, scope);
+  }
+
   useEffect(() => {
     if (!enabled) {
       return;
@@ -103,7 +152,8 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
       if (
         message.type === "subscribed" &&
         message.channel === channel &&
-        message.profile_id === profileId
+        message.profile_id === profileId &&
+        (channel !== "analytics" || message.preset === scope?.preset)
       ) {
         setIsSubscribed(true);
         return;
@@ -111,7 +161,9 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
 
       if (
         message.type === "unsubscribed" &&
-        (message.channel === undefined || message.channel === channel)
+        (message.channel === undefined ||
+          (message.channel === channel &&
+            (channel !== "analytics" || message.preset === scope?.preset)))
       ) {
         setIsSubscribed(false);
         return;
@@ -127,7 +179,10 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
       }
 
       const payload = CHANNEL_PAYLOAD_EXTRACTORS[channel](message);
-      if (payload !== null) {
+      if (
+        payload !== null &&
+        matchesRealtimeDataScope({ channel, message, profileId, scope })
+      ) {
         setLastData(payload);
 
         if (isSyncingRef.current) {
@@ -145,11 +200,11 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
     const statusTimer = setInterval(() => {
       setIsConnected(client.isConnected());
       setConnectionState(client.getConnectionState());
-      setIsSubscribed(client.hasChannelSubscription(channel, profileId));
+      setIsSubscribed(client.hasChannelSubscription(channel, profileId, scope));
     }, 500);
 
     if (profileId !== null) {
-      client.subscribeChannel(profileId, channel);
+      client.subscribeChannel(profileId, channel, scope);
     }
 
     return () => {
@@ -160,10 +215,10 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
       setIsSyncing(false);
 
       if (profileId !== null) {
-        client.unsubscribeChannel(channel);
+        client.unsubscribeChannel(channel, scope);
       }
     };
-  }, [channel, client, enabled, profileId]);
+  }, [channel, client, enabled, profileId, scope]);
 
   return {
     isConnected,
@@ -173,5 +228,6 @@ export function useRealtimeData<TChannel extends RealtimeChannel = "dashboard">(
     lastMessage,
     lastData,
     markSyncComplete,
+    refresh,
   };
 }
