@@ -91,3 +91,23 @@ type DashboardUpdateMessage struct {
 	Throughput24H       statsdomain.ThroughputStatsResponse `json:"throughput_24h"`
 	RoutingRoute24H     *DashboardRouteSnapshot             `json:"routing_route_24h"`
 }
+
+type AnalyticsSnapshotMessage struct {
+	Type                                string                                       `json:"type"`
+	Channel                             string                                       `json:"channel"`
+	ProfileID                           int                                          `json:"profile_id"`
+	Preset                              string                                       `json:"preset"`
+	Sequence                            int64                                        `json:"sequence"`
+	GeneratedAt                         time.Time                                    `json:"generated_at"`
+	Snapshot                            statsdomain.UsageSnapshotResponse            `json:"snapshot"`
+	EndpointModelStatisticsByEndpointID map[string][]statsdomain.UsageModelStatistic `json:"endpoint_model_statistics_by_endpoint_id"`
+}
+
+type AnalyticsErrorMessage struct {
+	Type      string  `json:"type"`
+	Channel   string  `json:"channel"`
+	ProfileID *int    `json:"profile_id,omitempty"`
+	Preset    *string `json:"preset,omitempty"`
+	Code      string  `json:"code"`
+	Message   string  `json:"message"`
+}

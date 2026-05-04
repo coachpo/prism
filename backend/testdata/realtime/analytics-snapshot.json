@@ -1,0 +1,228 @@
+{
+  "type": "analytics.snapshot",
+  "channel": "analytics",
+  "profile_id": 2,
+  "preset": "1h",
+  "sequence": 7,
+  "generated_at": "2026-04-19T12:00:00Z",
+  "snapshot": {
+    "generated_at": "2026-04-19T12:00:00Z",
+    "time_range": {
+      "preset": "1h",
+      "start_at": "2026-04-19T11:00:00Z",
+      "end_at": "2026-04-19T12:00:00Z"
+    },
+    "currency": {
+      "code": "USD",
+      "symbol": "$"
+    },
+    "overview": {
+      "total_requests": 42,
+      "success_requests": 40,
+      "failed_requests": 2,
+      "success_rate": 95.24,
+      "total_tokens": 1400,
+      "input_tokens": 500,
+      "output_tokens": 900,
+      "cached_tokens": 20,
+      "reasoning_tokens": 10,
+      "average_rpm": 0.7,
+      "average_tpm": 23.333,
+      "total_cost_micros": 1250000,
+      "rolling_window_minutes": 5,
+      "rolling_request_count": 4,
+      "rolling_token_count": 120,
+      "rolling_rpm": 0.8,
+      "rolling_tpm": 24
+    },
+    "service_health": {
+      "availability_percentage": 95.24,
+      "request_count": 42,
+      "success_count": 40,
+      "failed_count": 2,
+      "interval_minutes": 5,
+      "cells": [
+        {
+          "bucket_start": "2026-04-19T11:55:00Z",
+          "request_count": 4,
+          "success_count": 4,
+          "failed_count": 0,
+          "availability_percentage": 100,
+          "status": "ok"
+        }
+      ]
+    },
+    "request_trends": {
+      "hourly": [
+        {
+          "key": "openai",
+          "label": "OpenAI",
+          "total_requests": 42,
+          "points": [
+            {
+              "bucket_start": "2026-04-19T11:00:00Z",
+              "request_count": 42,
+              "success_count": 40,
+              "failed_count": 2,
+              "rpm": 0.7
+            }
+          ]
+        }
+      ],
+      "daily": [
+        {
+          "key": "openai",
+          "label": "OpenAI",
+          "total_requests": 42,
+          "points": [
+            {
+              "bucket_start": "2026-04-19T00:00:00Z",
+              "request_count": 42,
+              "success_count": 40,
+              "failed_count": 2,
+              "rpm": 0.029
+            }
+          ]
+        }
+      ]
+    },
+    "token_usage_trends": {
+      "hourly": [
+        {
+          "key": "gpt-4o",
+          "label": "GPT-4o Proxy",
+          "total_tokens": 1400,
+          "points": [
+            {
+              "bucket_start": "2026-04-19T11:00:00Z",
+              "total_tokens": 1400,
+              "input_tokens": 500,
+              "output_tokens": 900,
+              "cached_tokens": 20,
+              "reasoning_tokens": 10,
+              "tpm": 23.333
+            }
+          ]
+        }
+      ],
+      "daily": [
+        {
+          "key": "gpt-4o",
+          "label": "GPT-4o Proxy",
+          "total_tokens": 1400,
+          "points": [
+            {
+              "bucket_start": "2026-04-19T00:00:00Z",
+              "total_tokens": 1400,
+              "input_tokens": 500,
+              "output_tokens": 900,
+              "cached_tokens": 20,
+              "reasoning_tokens": 10,
+              "tpm": 0.972
+            }
+          ]
+        }
+      ]
+    },
+    "token_type_breakdown": {
+      "hourly": [
+        {
+          "bucket_start": "2026-04-19T11:00:00Z",
+          "input_tokens": 500,
+          "output_tokens": 900,
+          "cached_tokens": 20,
+          "reasoning_tokens": 10
+        }
+      ],
+      "daily": [
+        {
+          "bucket_start": "2026-04-19T00:00:00Z",
+          "input_tokens": 500,
+          "output_tokens": 900,
+          "cached_tokens": 20,
+          "reasoning_tokens": 10
+        }
+      ]
+    },
+    "cost_overview": {
+      "total_cost_micros": 1250000,
+      "priced_request_count": 40,
+      "unpriced_request_count": 2,
+      "hourly": [
+        {
+          "bucket_start": "2026-04-19T11:00:00Z",
+          "total_cost_micros": 1250000
+        }
+      ],
+      "daily": [
+        {
+          "bucket_start": "2026-04-19T00:00:00Z",
+          "total_cost_micros": 1250000
+        }
+      ]
+    },
+    "endpoint_statistics": [
+      {
+        "endpoint_id": 12,
+        "endpoint_label": "Primary OpenAI",
+        "request_count": 42,
+        "success_rate": 95.24,
+        "p50_ttft_ms": 320,
+        "p95_ttft_ms": 900,
+        "avg_output_rate_tps": 48.5,
+        "total_tokens": 1400,
+        "total_cost_micros": 1250000
+      }
+    ],
+    "model_statistics": [
+      {
+        "model_id": "gpt-4o",
+        "model_label": "GPT-4o Proxy",
+        "request_count": 42,
+        "success_count": 40,
+        "failed_count": 2,
+        "priced_request_count": 40,
+        "unpriced_request_count": 2,
+        "success_rate": 95.24,
+        "p50_ttft_ms": 320,
+        "p95_ttft_ms": 900,
+        "input_tokens": 500,
+        "output_tokens": 900,
+        "cached_tokens": 20,
+        "reasoning_tokens": 10,
+        "total_tokens": 1400,
+        "total_cost_micros": 1250000,
+        "avg_output_rate_tps": 48.5
+      }
+    ],
+    "proxy_api_key_statistics": [
+      {
+        "proxy_api_key_id": null,
+        "proxy_api_key_label": "Direct / unauthenticated",
+        "request_count": 42,
+        "success_rate": 95.24,
+        "total_tokens": 1400,
+        "total_cost_micros": 1250000
+      }
+    ]
+  },
+  "endpoint_model_statistics_by_endpoint_id": {
+    "12": [
+      {
+        "model_id": "gpt-4o",
+        "model_label": "GPT-4o Proxy",
+        "request_count": 42,
+        "success_count": 40,
+        "failed_count": 2,
+        "priced_request_count": 40,
+        "unpriced_request_count": 2,
+        "success_rate": 95.24,
+        "p50_ttft_ms": 320,
+        "p95_ttft_ms": 900,
+        "total_tokens": 1400,
+        "total_cost_micros": 1250000,
+        "avg_output_rate_tps": 48.5
+      }
+    ]
+  }
+}
