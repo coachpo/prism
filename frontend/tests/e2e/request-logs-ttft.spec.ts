@@ -376,8 +376,9 @@ test.describe("request logs TTFT", () => {
     await expect(interruptedStreamRow.locator(":scope > div").nth(4)).toHaveText("—");
     await expect(interruptedStreamRow.locator(":scope > div").nth(10)).toHaveText("—");
     await expect(interruptedStreamRow.locator(":scope > div").nth(11)).toContainText("Usage unavailable");
-    await expect(interruptedStreamRow.locator(":scope > div").nth(12)).toContainText("Stream Interrupted");
-    await expect(interruptedStreamRow.locator(":scope > div").nth(12)).toContainText("Client Disconnected");
+    await expect(interruptedStreamRow.locator(":scope > div").nth(12)).toContainText(
+      "Stream interrupted - client disconnected",
+    );
 
     const legacyBufferedRow = page.getByRole("button").filter({ hasText: "Legacy Buffered" });
     await expect(legacyBufferedRow.locator(":scope > div").nth(2)).toHaveText("240ms");
@@ -386,7 +387,7 @@ test.describe("request logs TTFT", () => {
 
     const historicalUnknownRow = page.getByRole("button").filter({ hasText: "Historical Unknown" });
     await expect(historicalUnknownRow.locator(":scope > div").nth(11)).toContainText("Unpriced");
-    await expect(historicalUnknownRow.locator(":scope > div").nth(12)).toContainText("Historical Stream State Unknown");
+    await expect(historicalUnknownRow.locator(":scope > div").nth(12)).toContainText("Historical stream state unknown");
   });
 
   test("detail renders TTFT summary strip in the committed six-stat order", async ({ page }) => {
