@@ -63,7 +63,7 @@ function getRowTone(row: RequestLogListItem, isSelected: boolean) {
     };
   }
 
-  if (row.status_code >= 400 || row.response_time_ms >= 10000) {
+  if (row.status_code >= 400 || row.response_time_ms >= 20000) {
     return {
       row: "border-amber-500/15 bg-amber-500/[0.05] hover:bg-amber-500/[0.09]",
     };
