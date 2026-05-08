@@ -58,10 +58,11 @@ go build ./cmd/prism-backend
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
 - Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits.
-- Restart-required fields include listener host and port, docs enablement, database URL and pool budgets, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
+- Restart-required fields include listener host and port, docs enablement, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
 - External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
-- Raw bootstrap files require `runtime.transport.requestTimeout` as a Go duration string. Set it to `"60s"` to keep the prior whole-request upstream timeout behavior. Missing `runtime.transport.requestTimeout` fails startup validation by design.
+- Raw bootstrap files require `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Set `runtime.transport.requestTimeout` to `"60s"` to keep the prior whole-request upstream timeout behavior. Set `runtime.sideEffects.attemptTimeout` to the newly seeded default `"10s"` for each background side-effect enqueue attempt. Missing either required field fails startup validation by design.
+- `runtime.sideEffects.attemptTimeout` is restart-required and not hot-applied. It is separate from `runtime.transport.requestTimeout`, which remains the whole-request upstream provider HTTP timeout.
 - Auth email delivery is disabled when `mail` is missing or `mail.enabled=false`; disabled mode uses no-op delivery and does not dial SMTP.
 - To enable SMTP, set `mail.enabled=true`, `mail.from`, and `mail.smtp` through the Startup tab or API PUT. Enabled-but-invalid SMTP config fails validation or startup instead of silently falling back to no-op delivery.
 - SMTP config fields are `mail.from`, `mail.replyTo`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehloHostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.passwordFile`, `mail.smtp.timeout`, and `mail.smtp.tlsServerName`.
