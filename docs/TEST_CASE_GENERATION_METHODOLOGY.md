@@ -15,7 +15,7 @@ When generating test cases, use these sources in order:
 5. `frontend/src/App.tsx` for the mounted route surface.
 6. the live Go backend surface for the mounted backend router surface and `/health`.
 7. Child AGENTS files under `frontend/` and `backend/` for local ownership boundaries inside the monorepo.
-8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in regression trees remain present under `backend/tests/` and `frontend/tests/`; when grounding backend coverage, prefer the Go runtime under `backend/cmd/`, `backend/internal/`, `backend/migrations/`, and the Go regression packages under `backend/tests/{contract,integration,runtime}`.
+8. Current repo-owned backend and frontend documentation for the live implementation surface. The checked-in regression trees remain present under `backend/tests/` and `frontend/tests/`; when grounding backend coverage, prefer the Go runtime under `backend/cmd/`, `backend/internal/`, `backend/migrations/`, and the Go regression packages under `backend/tests/{contract,integration,runtime,priority}`.
 
 Do not generate cases for behavior that is not supported by those sources.
 

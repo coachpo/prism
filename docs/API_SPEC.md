@@ -1,8 +1,8 @@
 # API Specification: Prism
 
-Service default base URL: `http://localhost:8000`
+Local `./start.sh` backend base URL: `http://localhost:18000`
 
-Local `./start.sh` base URL: `http://localhost:18000`
+Container and custom deployments use the listener configured in the plaintext bootstrap file; the manual Docker examples commonly publish `http://localhost:8000`.
 
 ## 0. Profile Context Semantics
 - Prism has three route classes:
@@ -2644,5 +2644,4 @@ Scope-control errors follow this format:
 
 ## 10. OpenAPI Spec
 
-The checked-in OpenAPI artifact is the management-and-health contract served at `/openapi.json`. It stays aligned with the narrative docs, but the narrative docs remain the source of truth for the Phase 1 upgrade contract.
-ract.
+The checked-in OpenAPI artifact is the management-and-health contract served at `/openapi.json`. It stays aligned with the narrative docs, but the narrative docs remain the source of truth for current runtime and management semantics.

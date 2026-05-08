@@ -2,10 +2,10 @@
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the checked-in Go-served contract in `docs/openapi.json`.
 
-Validated again against current repo surfaces on 2026-04-27:
-- `VERSION`, `backend/VERSION`, and `frontend/VERSION` are all `0.3.8`, which is the current backend version returned by `/health`.
+Validated again against current repo surfaces on 2026-05-08:
+- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.3.20`, which is the current backend/frontend version surface.
 - `docs/openapi.json` is the management and health OpenAPI artifact served by the Go backend at `/openapi.json`.
-- The protected frontend route shell in `frontend/src/App.tsx` still mounts `/dashboard`, `/models`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, and `/proxy-api-keys`; analytics now lives under `/dashboard?tab=analytics`.
+- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, and `/proxy-api-keys`; analytics lives under `/dashboard?tab=analytics`.
 
 ## Evidence Sources
 

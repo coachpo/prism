@@ -109,7 +109,7 @@ frontend/
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; old encrypted bootstrap files must be replaced before boot, and there is no compatibility mode for older bootstrap file shapes.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
-- Phase 1 keeps the split-bundle contract canonical, with `profile_config` and `vendor_catalog` both on one `version: 1` story and no surviving older bundle narrative.
+- The current implementation keeps the split-bundle contract canonical, with `profile_config` and `vendor_catalog` both on one `version: 1` story and no surviving older bundle narrative.
 - `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
