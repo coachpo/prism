@@ -43,7 +43,7 @@ Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap
 Use the Go regression packages directly for targeted validation:
 
 ```bash
-go test ./tests/contract ./tests/integration ./tests/runtime
+go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 go test ./...
 go build ./cmd/prism-backend
 ```

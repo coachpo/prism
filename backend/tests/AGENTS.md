@@ -22,7 +22,7 @@
 - Do not invent child test AGENTS files.
 - Keep regression notes grounded in current Go package boundaries and live backend ownership docs.
 - Treat `tests/priority/` as the guardrail for no-inline side effects, scheduler-owned background work, and DB lane isolation.
-- Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout`, unsupported legacy encrypted files, metadata-only safe secret responses, and fail-fast enabled SMTP.
+- Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, metadata-only safe secret responses, and fail-fast enabled SMTP.
 
 ## ANTI-PATTERNS
 - Do not bypass `tests/priority/` when changing admission, scheduler, outbox, DB pool, cache invalidation, or after-commit behavior.

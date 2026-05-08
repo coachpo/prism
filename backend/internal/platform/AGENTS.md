@@ -33,7 +33,7 @@ platform/
 ## CONVENTIONS
 - Keep `lifecycle/` as the production composition boundary. Feature services are wired there, while handlers and domain packages stay outside platform.
 - Keep hot-eligible bootstrap state behind `http.HotBootstrapConfigRuntime`; it publishes CORS, auth, mail, runtime proxy transport, and admission snapshots without restarting the process.
-- Keep listener, docs, database URL, pool budgets, runtime secret encryption key, JWT signing key, and state-transfer bundle key restart-required.
+- Keep listener, docs, database URL, pool budgets, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, and state-transfer bundle key restart-required.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.
 - Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, then DB close.
