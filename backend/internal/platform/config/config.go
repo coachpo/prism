@@ -86,6 +86,7 @@ const (
 	defaultRuntimeTransportResponseHeaderTimeout       = 0
 	defaultRuntimeTransportTLSHandshakeTimeout         = 10 * time.Second
 	defaultRuntimeTransportExpectContinueTimeout       = 1 * time.Second
+	defaultRuntimeSideEffectsAttemptTimeout            = 10 * time.Second
 )
 
 type DatabasePoolBudget struct {
@@ -132,6 +133,10 @@ type RuntimeTransportConfig struct {
 	ExpectContinueTimeout time.Duration
 }
 
+type RuntimeSideEffectsConfig struct {
+	AttemptTimeout time.Duration
+}
+
 type MailConfig struct {
 	Enabled bool
 	From    string
@@ -160,6 +165,7 @@ type Settings struct {
 	RuntimeTelemetryMode             RuntimeTelemetryMode
 	RuntimeBufferingMode             RuntimeBufferingMode
 	RuntimeTransportConfig           RuntimeTransportConfig
+	RuntimeSideEffectsConfig         RuntimeSideEffectsConfig
 	PostgresPoolsBudget              PostgresPoolsBudget
 	RuntimeDatabasePoolBudget        DatabasePoolBudget
 	ManagementDatabasePoolBudget     DatabasePoolBudget
@@ -195,6 +201,7 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		RuntimeBufferingMode:             RuntimeBufferingModeBuffered,
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
+		RuntimeSideEffectsConfig:         defaultRuntimeSideEffectsConfig(),
 		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),
 		RuntimeDatabasePoolBudget:        defaultRuntimeExecutionDatabasePoolBudget(),
 		ManagementDatabasePoolBudget:     defaultManagementDatabasePoolBudget(),
@@ -258,6 +265,10 @@ func (s Settings) RuntimeTransport() RuntimeTransportConfig {
 	return normalizeRuntimeTransportConfig(s.RuntimeTransportConfig, defaultRuntimeTransportConfig())
 }
 
+func (s Settings) RuntimeSideEffects() RuntimeSideEffectsConfig {
+	return normalizeRuntimeSideEffectsConfig(s.RuntimeSideEffectsConfig, defaultRuntimeSideEffectsConfig())
+}
+
 func (s Settings) Address() string {
 	return fmt.Sprintf("%s:%d", s.Host, s.Port)
 }
@@ -318,6 +329,10 @@ func defaultRuntimeTransportConfig() RuntimeTransportConfig {
 		TLSHandshakeTimeout:   defaultRuntimeTransportTLSHandshakeTimeout,
 		ExpectContinueTimeout: defaultRuntimeTransportExpectContinueTimeout,
 	}
+}
+
+func defaultRuntimeSideEffectsConfig() RuntimeSideEffectsConfig {
+	return RuntimeSideEffectsConfig{AttemptTimeout: defaultRuntimeSideEffectsAttemptTimeout}
 }
 
 func normalizeDatabasePoolBudget(candidate DatabasePoolBudget, defaults DatabasePoolBudget) DatabasePoolBudget {
@@ -421,6 +436,14 @@ func normalizeRuntimeTransportConfig(candidate RuntimeTransportConfig, defaults 
 	}
 	if normalized.ExpectContinueTimeout <= 0 {
 		normalized.ExpectContinueTimeout = defaults.ExpectContinueTimeout
+	}
+	return normalized
+}
+
+func normalizeRuntimeSideEffectsConfig(candidate RuntimeSideEffectsConfig, defaults RuntimeSideEffectsConfig) RuntimeSideEffectsConfig {
+	normalized := candidate
+	if normalized.AttemptTimeout <= 0 {
+		normalized.AttemptTimeout = defaults.AttemptTimeout
 	}
 	return normalized
 }

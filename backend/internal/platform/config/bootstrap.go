@@ -145,8 +145,9 @@ type BootstrapConfigManagementAdmissionValues struct {
 }
 
 type BootstrapConfigRuntimeValues struct {
-	BufferingMode *string                                `json:"buffering_mode"`
-	Transport     *BootstrapConfigRuntimeTransportValues `json:"transport"`
+	BufferingMode *string                                  `json:"buffering_mode"`
+	Transport     *BootstrapConfigRuntimeTransportValues   `json:"transport"`
+	SideEffects   *BootstrapConfigRuntimeSideEffectsValues `json:"side_effects"`
 }
 
 type BootstrapConfigRuntimeTransportValues struct {
@@ -158,6 +159,10 @@ type BootstrapConfigRuntimeTransportValues struct {
 	ResponseHeaderTimeout *string `json:"response_header_timeout"`
 	TLSHandshakeTimeout   *string `json:"tls_handshake_timeout"`
 	ExpectContinueTimeout *string `json:"expect_continue_timeout"`
+}
+
+type BootstrapConfigRuntimeSideEffectsValues struct {
+	AttemptTimeout *string `json:"attempt_timeout"`
 }
 
 type BootstrapConfigHTTPValues struct {
@@ -301,9 +306,10 @@ type bootstrapManagementAdmission struct {
 }
 
 type bootstrapRuntime struct {
-	BufferingMode       *string                    `json:"bufferingMode"`
-	SecretEncryptionKey *string                    `json:"secretEncryptionKey"`
-	Transport           *bootstrapRuntimeTransport `json:"transport"`
+	BufferingMode       *string                      `json:"bufferingMode"`
+	SecretEncryptionKey *string                      `json:"secretEncryptionKey"`
+	Transport           *bootstrapRuntimeTransport   `json:"transport"`
+	SideEffects         *bootstrapRuntimeSideEffects `json:"sideEffects"`
 }
 
 type bootstrapRuntimeTransport struct {
@@ -315,6 +321,10 @@ type bootstrapRuntimeTransport struct {
 	ResponseHeaderTimeout *string `json:"responseHeaderTimeout"`
 	TLSHandshakeTimeout   *string `json:"tlsHandshakeTimeout"`
 	ExpectContinueTimeout *string `json:"expectContinueTimeout"`
+}
+
+type bootstrapRuntimeSideEffects struct {
+	AttemptTimeout *string `json:"attemptTimeout"`
 }
 
 type bootstrapHTTP struct {
@@ -866,16 +876,8 @@ func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfig
 		},
 		Runtime: &BootstrapConfigRuntimeValues{
 			BufferingMode: cloneStringPointer(document.Runtime.BufferingMode),
-			Transport: &BootstrapConfigRuntimeTransportValues{
-				MaxIdleConns:          cloneIntPointer(document.Runtime.Transport.MaxIdleConns),
-				MaxIdleConnsPerHost:   cloneIntPointer(document.Runtime.Transport.MaxIdleConnsPerHost),
-				MaxConnsPerHost:       cloneIntPointer(document.Runtime.Transport.MaxConnsPerHost),
-				RequestTimeout:        cloneStringPointer(document.Runtime.Transport.RequestTimeout),
-				IdleConnTimeout:       cloneStringPointer(document.Runtime.Transport.IdleConnTimeout),
-				ResponseHeaderTimeout: cloneStringPointer(document.Runtime.Transport.ResponseHeaderTimeout),
-				TLSHandshakeTimeout:   cloneStringPointer(document.Runtime.Transport.TLSHandshakeTimeout),
-				ExpectContinueTimeout: cloneStringPointer(document.Runtime.Transport.ExpectContinueTimeout),
-			},
+			Transport:     safeBootstrapRuntimeTransportValues(document.Runtime.Transport),
+			SideEffects:   safeBootstrapRuntimeSideEffectsValues(document.Runtime.SideEffects),
 		},
 		HTTP: &BootstrapConfigHTTPValues{
 			CORSAllowedOrigins: cloneStringSlicePointer(document.HTTP.CORSAllowedOrigins),
@@ -1009,6 +1011,7 @@ func bootstrapRuntimeFromSafeValues(values *BootstrapConfigRuntimeValues, secret
 		BufferingMode:       cloneStringPointer(values.BufferingMode),
 		SecretEncryptionKey: cloneStringPointer(secretEncryptionKey),
 		Transport:           bootstrapRuntimeTransportFromSafeValues(values.Transport),
+		SideEffects:         bootstrapRuntimeSideEffectsFromSafeValues(values.SideEffects),
 	}
 }
 
@@ -1026,6 +1029,13 @@ func bootstrapRuntimeTransportFromSafeValues(values *BootstrapConfigRuntimeTrans
 		TLSHandshakeTimeout:   cloneStringPointer(values.TLSHandshakeTimeout),
 		ExpectContinueTimeout: cloneStringPointer(values.ExpectContinueTimeout),
 	}
+}
+
+func bootstrapRuntimeSideEffectsFromSafeValues(values *BootstrapConfigRuntimeSideEffectsValues) *bootstrapRuntimeSideEffects {
+	if values == nil {
+		return nil
+	}
+	return &bootstrapRuntimeSideEffects{AttemptTimeout: cloneStringPointer(values.AttemptTimeout)}
 }
 
 func bootstrapHTTPFromSafeValues(values *BootstrapConfigHTTPValues) *bootstrapHTTP {
@@ -1257,7 +1267,11 @@ func safeBootstrapRuntimeValues(runtimeConfig *bootstrapRuntime) *BootstrapConfi
 	if runtimeConfig == nil {
 		return nil
 	}
-	return &BootstrapConfigRuntimeValues{BufferingMode: cloneStringPointer(runtimeConfig.BufferingMode), Transport: safeBootstrapRuntimeTransportValues(runtimeConfig.Transport)}
+	return &BootstrapConfigRuntimeValues{
+		BufferingMode: cloneStringPointer(runtimeConfig.BufferingMode),
+		Transport:     safeBootstrapRuntimeTransportValues(runtimeConfig.Transport),
+		SideEffects:   safeBootstrapRuntimeSideEffectsValues(runtimeConfig.SideEffects),
+	}
 }
 
 func safeBootstrapRuntimeTransportValues(transport *bootstrapRuntimeTransport) *BootstrapConfigRuntimeTransportValues {
@@ -1274,6 +1288,13 @@ func safeBootstrapRuntimeTransportValues(transport *bootstrapRuntimeTransport) *
 		TLSHandshakeTimeout:   cloneStringPointer(transport.TLSHandshakeTimeout),
 		ExpectContinueTimeout: cloneStringPointer(transport.ExpectContinueTimeout),
 	}
+}
+
+func safeBootstrapRuntimeSideEffectsValues(sideEffects *bootstrapRuntimeSideEffects) *BootstrapConfigRuntimeSideEffectsValues {
+	if sideEffects == nil {
+		return nil
+	}
+	return &BootstrapConfigRuntimeSideEffectsValues{AttemptTimeout: cloneStringPointer(sideEffects.AttemptTimeout)}
 }
 
 func safeBootstrapHTTPValues(httpConfig *bootstrapHTTP) *BootstrapConfigHTTPValues {
@@ -1642,7 +1663,13 @@ func (r bootstrapRuntime) validate() error {
 	if r.Transport == nil {
 		return missingBootstrapFieldError("runtime.transport")
 	}
-	return r.Transport.validate()
+	if r.SideEffects == nil {
+		return missingBootstrapFieldError("runtime.sideEffects")
+	}
+	if err := r.Transport.validate(); err != nil {
+		return err
+	}
+	return r.SideEffects.validate()
 }
 
 func (t bootstrapRuntimeTransport) validate() error {
@@ -1671,6 +1698,11 @@ func (t bootstrapRuntimeTransport) validate() error {
 		return err
 	}
 	return nil
+}
+
+func (s bootstrapRuntimeSideEffects) validate() error {
+	_, err := requiredTrimmedString("runtime.sideEffects.attemptTimeout", s.AttemptTimeout, 1, 0)
+	return err
 }
 
 func (h bootstrapHTTP) validate() error {
@@ -1828,6 +1860,7 @@ func (d bootstrapConfigDocument) validateSemantics() error {
 		{path: "runtime.transport.responseHeaderTimeout", value: d.Runtime.Transport.ResponseHeaderTimeout},
 		{path: "runtime.transport.tlsHandshakeTimeout", value: d.Runtime.Transport.TLSHandshakeTimeout},
 		{path: "runtime.transport.expectContinueTimeout", value: d.Runtime.Transport.ExpectContinueTimeout},
+		{path: "runtime.sideEffects.attemptTimeout", value: d.Runtime.SideEffects.AttemptTimeout},
 	} {
 		if _, err := parseDurationField(field.path, field.value); err != nil {
 			return err
@@ -1876,6 +1909,10 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	runtimeSideEffects, err := d.Runtime.SideEffects.toRuntimeSideEffectsConfig()
+	if err != nil {
+		return Settings{}, err
+	}
 	postgresPoolsBudget, err := d.Database.Pools.toPostgresPoolsBudget()
 	if err != nil {
 		return Settings{}, err
@@ -1918,6 +1955,7 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		RuntimeBufferingMode:             RuntimeBufferingMode(runtimeBufferingMode),
 		RuntimeTransportConfig:           runtimeTransport,
+		RuntimeSideEffectsConfig:         runtimeSideEffects,
 		PostgresPoolsBudget:              postgresPoolsBudget,
 		RuntimeDatabasePoolBudget:        postgresPoolsBudget.RuntimeExecution,
 		ManagementDatabasePoolBudget:     postgresPoolsBudget.Management,
@@ -2080,10 +2118,22 @@ func (t bootstrapRuntimeTransport) toRuntimeTransportConfig() (RuntimeTransportC
 	}, nil
 }
 
+func (s bootstrapRuntimeSideEffects) toRuntimeSideEffectsConfig() (RuntimeSideEffectsConfig, error) {
+	attemptTimeout, err := parseDurationField("runtime.sideEffects.attemptTimeout", s.AttemptTimeout)
+	if err != nil {
+		return RuntimeSideEffectsConfig{}, err
+	}
+	if attemptTimeout <= 0 {
+		return RuntimeSideEffectsConfig{}, fmt.Errorf("bootstrap config field runtime.sideEffects.attemptTimeout must be greater than zero")
+	}
+	return RuntimeSideEffectsConfig{AttemptTimeout: attemptTimeout}, nil
+}
+
 func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapConfigDocument, error) {
 	postgresPoolsBudget := settings.PostgresPoolsBudgetOrDefault()
 	managementAdmissionBudget := settings.ManagementAdmissionBudget()
 	runtimeTransport := settings.RuntimeTransport()
+	runtimeSideEffects := settings.RuntimeSideEffects()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	databaseURL := strings.TrimSpace(settings.DatabaseURL)
 	if databaseURL == "" {
@@ -2145,6 +2195,9 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 				ResponseHeaderTimeout: stringPointer(runtimeTransport.ResponseHeaderTimeout.String()),
 				TLSHandshakeTimeout:   stringPointer(runtimeTransport.TLSHandshakeTimeout.String()),
 				ExpectContinueTimeout: stringPointer(runtimeTransport.ExpectContinueTimeout.String()),
+			},
+			SideEffects: &bootstrapRuntimeSideEffects{
+				AttemptTimeout: stringPointer(runtimeSideEffects.AttemptTimeout.String()),
 			},
 		},
 		HTTP: &bootstrapHTTP{

@@ -60,6 +60,9 @@
       "responseHeaderTimeout": "0s",
       "tlsHandshakeTimeout": "10s",
       "expectContinueTimeout": "1s"
+    },
+    "sideEffects": {
+      "attemptTimeout": "10s"
     }
   },
   "http": {
