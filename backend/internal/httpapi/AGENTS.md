@@ -16,6 +16,7 @@ httpapi/
 
 ## WHERE TO LOOK
 - Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/stats/`, `management/vendors/`, `management/audit/`
+- Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `management/auth/AGENTS.md`
 - Runtime proxy entry and helpers: `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/telemetry_outbox.go`
 - Realtime websocket service and dashboard publisher: `realtime/service.go`, `realtime/dashboard_publisher.go`
 - OpenAPI loading and docs handlers: `openapi/`
@@ -35,3 +36,4 @@ httpapi/
 - Do not add unsupported providers, proxy routes, or realtime message types without updating docs and contracts.
 - Do not inject profile scope inside runtime proxy handlers.
 - Do not duplicate request-context or proxy-key usage helpers inside individual endpoint packages.
+- Do not duplicate auth cookie, token, WebAuthn, or proxy-key helpers outside `management/auth/`.

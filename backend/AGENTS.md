@@ -29,6 +29,7 @@ backend/
 ## CHILD DOCS
 - `internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, and side-effect ownership.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, and request-context seams.
+- `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `tests/AGENTS.md`: backend Go regression boundary, including priority/lane isolation tests.
 
 ## RUNTIME FACTS
@@ -42,13 +43,14 @@ backend/
 - `internal/httpapi/runtime/` owns OpenAI, Anthropic, and Gemini-compatible proxy routes plus runtime cache, request logging, telemetry outbox, streaming, and load-balance helpers.
 - `../docs/openapi.json` is the checked-in management/health contract served by the Go backend at `/openapi.json`; runtime proxy routes are documented narratively instead.
 - `tests/contract/`, `tests/integration/`, `tests/runtime/`, and `tests/priority/` are the checked-in Go regression packages.
-- Bootstrap config v1 is plaintext and file-backed. Existing files must carry `runtime.transport.requestTimeout`, and legacy encrypted bootstrap fields are rejected.
+- Bootstrap config v1 is plaintext and file-backed. Existing files must carry `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, and legacy encrypted bootstrap fields are rejected.
 - Mail is controlled by bootstrap config. Missing or disabled mail means no-op delivery; enabled SMTP must validate at startup and must not silently fall back.
 
 ## WHERE TO LOOK
 - Process entrypoint: `cmd/prism-backend/main.go`
 - Platform lifecycle, server assembly, hot bootstrap runtime, DB lanes, startup, migrations, scheduler, and side effects: `internal/platform/AGENTS.md`
 - Mounted management, runtime, realtime, OpenAPI, proxy-key usage, and request-context seams: `internal/httpapi/AGENTS.md`
+- Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
 - SQL migrations and startup sequencing: `migrations/`, `internal/platform/migrate/`
 - Runtime stats, request-log shaping, and loadbalance business logic: `internal/domain/stats/`, `internal/domain/loadbalance/`, `internal/domain/audit/`
