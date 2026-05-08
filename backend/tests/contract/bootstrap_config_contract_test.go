@@ -31,6 +31,9 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		if settings.Mail.Enabled {
 			t.Fatal("expected legacy bootstrap fixture without mail block to load with mail disabled")
 		}
+		if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.SideEffects == nil || snapshot.Values.Runtime.SideEffects.AttemptTimeout == nil || *snapshot.Values.Runtime.SideEffects.AttemptTimeout != "10s" {
+			t.Fatalf("expected safe runtime side_effects attempt_timeout to be exposed, got %+v", snapshot.Values.Runtime)
+		}
 		assertContractDisabledSafeMailValues(t, snapshot.Values.Mail)
 	})
 
@@ -53,6 +56,30 @@ func TestBootstrapConfigSchema(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "runtime.transport.requestTimeout is required") {
 			t.Fatalf("expected missing request timeout error, got %v", err)
+		}
+	})
+
+	t.Run("missing runtime side effects fails", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		delete(payload["runtime"].(map[string]any), "sideEffects")
+		_, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err == nil {
+			t.Fatal("expected missing runtime side effects to fail")
+		}
+		if !strings.Contains(err.Error(), "runtime.sideEffects is required") {
+			t.Fatalf("expected missing runtime side effects error, got %v", err)
+		}
+	})
+
+	t.Run("missing runtime side effects attempt timeout fails", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		delete(payload["runtime"].(map[string]any)["sideEffects"].(map[string]any), "attemptTimeout")
+		_, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err == nil {
+			t.Fatal("expected missing runtime side effects attempt timeout to fail")
+		}
+		if !strings.Contains(err.Error(), "runtime.sideEffects.attemptTimeout is required") {
+			t.Fatalf("expected missing runtime side effects attempt timeout error, got %v", err)
 		}
 	})
 
@@ -134,7 +161,7 @@ func TestBootstrapConfigSchema(t *testing.T) {
 	})
 }
 
-func TestBootstrapConfigSemanticValidation(t *testing.T) {
+func TestBootstrapConfigValidation(t *testing.T) {
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 
 	t.Run("fixture rejects management pool imbalance", func(t *testing.T) {
@@ -186,6 +213,34 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 				payload["runtime"].(map[string]any)["transport"].(map[string]any)["requestTimeout"] = "-1s"
 			},
 			wantErr: "runtime.transport.requestTimeout must be greater than zero",
+		},
+		{
+			name: "invalid side effects attempt timeout string",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "not-a-duration"
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must parse as a Go duration",
+		},
+		{
+			name: "empty side effects attempt timeout string",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "   "
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must be at least 1 characters",
+		},
+		{
+			name: "zero side effects attempt timeout",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "0s"
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+		},
+		{
+			name: "negative side effects attempt timeout",
+			mutate: func(payload map[string]any) {
+				payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "-1s"
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
 		},
 		{
 			name: "runtime execution pool min idle exceeds max",
@@ -320,6 +375,18 @@ func TestBootstrapConfigSemanticValidation(t *testing.T) {
 			t.Fatalf("expected custom request timeout 17s, got %v", got)
 		}
 	})
+
+	t.Run("custom positive side effects attempt timeout maps to settings", func(t *testing.T) {
+		payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+		payload["runtime"].(map[string]any)["sideEffects"].(map[string]any)["attemptTimeout"] = "19s"
+		settings, err := manager.Parse(mustMarshalBootstrapFixture(t, payload))
+		if err != nil {
+			t.Fatalf("parse custom side effects attempt timeout: %v", err)
+		}
+		if got := settings.RuntimeSideEffects().AttemptTimeout; got != 19*time.Second {
+			t.Fatalf("expected custom side effects attempt timeout 19s, got %v", got)
+		}
+	})
 }
 
 func TestBootstrapConfigPlaintextMapping(t *testing.T) {
@@ -380,6 +447,9 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		}
 		if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 			t.Fatalf("unexpected runtime transport timeouts: %+v", transport)
+		}
+		if got := settings.RuntimeSideEffects(); got.AttemptTimeout != 10*time.Second {
+			t.Fatalf("unexpected runtime side effects settings: %+v", got)
 		}
 		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 6 || got.MinIdleConns != 0 {
 			t.Fatalf("unexpected management database budget: %+v", got)

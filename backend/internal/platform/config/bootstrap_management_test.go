@@ -51,11 +51,17 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.Transport == nil || snapshot.Values.Runtime.Transport.RequestTimeout == nil || *snapshot.Values.Runtime.Transport.RequestTimeout != "60s" {
 		t.Fatalf("expected safe runtime transport request_timeout to be exposed, got %+v", snapshot.Values.Runtime)
 	}
+	if snapshot.Values.Runtime.SideEffects == nil || snapshot.Values.Runtime.SideEffects.AttemptTimeout == nil || *snapshot.Values.Runtime.SideEffects.AttemptTimeout != "10s" {
+		t.Fatalf("expected safe runtime side_effects attempt_timeout to be exposed, got %+v", snapshot.Values.Runtime)
+	}
 
 	encoded := mustMarshalJSON(t, snapshot)
 	assertSafeManagementSnapshot(t, encoded)
 	if !bytes.Contains(encoded, []byte(`"request_timeout":"60s"`)) {
 		t.Fatal("expected safe management snapshot to include request_timeout")
+	}
+	if !bytes.Contains(encoded, []byte(`"attempt_timeout":"10s"`)) {
+		t.Fatal("expected safe management snapshot to include attempt_timeout")
 	}
 	databaseSecret := snapshot.Secrets[BootstrapConfigSecretDatabaseURL]
 	if !databaseSecret.Configured || !databaseSecret.Editable {
@@ -326,6 +332,7 @@ func TestBootstrapConfigManagementPrepareUpdateIncrementsMetaAndWritesAtomically
 	values := cloneManagementValues(t, snapshot.Values)
 	values.Auth.AccessTokenTTLSeconds = intPointer(1200)
 	values.Runtime.Transport.RequestTimeout = stringPointer("17s")
+	values.Runtime.SideEffects.AttemptTimeout = stringPointer("11s")
 	rotatedJWTSecret := "rotated-jwt-signing-key"
 	updates := preserveManagementSecretUpdates()
 	updates[BootstrapConfigSecretAuthJWTSigningKey] = BootstrapConfigSecretUpdate{
@@ -360,11 +367,14 @@ func TestBootstrapConfigManagementPrepareUpdateIncrementsMetaAndWritesAtomically
 	if err != nil {
 		t.Fatalf("parse prepared management payload: %v", err)
 	}
-	if settings.AuthAccessTokenTTLSeconds != 1200 || settings.AuthJWTSecret != rotatedJWTSecret || settings.RuntimeTransport().RequestTimeout != 17*time.Second {
-		t.Fatal("expected prepared payload to include auth and runtime transport changes")
+	if settings.AuthAccessTokenTTLSeconds != 1200 || settings.AuthJWTSecret != rotatedJWTSecret || settings.RuntimeTransport().RequestTimeout != 17*time.Second || settings.RuntimeSideEffects().AttemptTimeout != 11*time.Second {
+		t.Fatal("expected prepared payload to include auth, runtime transport, and runtime side effects changes")
 	}
 	if prepared.Snapshot.Values.Runtime == nil || prepared.Snapshot.Values.Runtime.Transport == nil || prepared.Snapshot.Values.Runtime.Transport.RequestTimeout == nil || *prepared.Snapshot.Values.Runtime.Transport.RequestTimeout != "17s" {
 		t.Fatal("expected prepared safe snapshot to preserve request_timeout")
+	}
+	if prepared.Snapshot.Values.Runtime.SideEffects == nil || prepared.Snapshot.Values.Runtime.SideEffects.AttemptTimeout == nil || *prepared.Snapshot.Values.Runtime.SideEffects.AttemptTimeout != "11s" {
+		t.Fatal("expected prepared safe snapshot to preserve attempt_timeout")
 	}
 	if _, err := manager.WriteBootstrapConfigUpdate(path, prepared); err != nil {
 		t.Fatalf("write prepared management update: %v", err)
@@ -374,7 +384,7 @@ func TestBootstrapConfigManagementPrepareUpdateIncrementsMetaAndWritesAtomically
 		t.Fatalf("load written management update: %v", err)
 	}
 
-	if loadedSettings.AuthJWTSecret != rotatedJWTSecret || loadedSettings.AuthAccessTokenTTLSeconds != 1200 || loadedSettings.RuntimeTransport().RequestTimeout != 17*time.Second {
+	if loadedSettings.AuthJWTSecret != rotatedJWTSecret || loadedSettings.AuthAccessTokenTTLSeconds != 1200 || loadedSettings.RuntimeTransport().RequestTimeout != 17*time.Second || loadedSettings.RuntimeSideEffects().AttemptTimeout != 11*time.Second {
 		t.Fatal("expected atomic write helper to persist prepared payload")
 	}
 }
@@ -670,6 +680,41 @@ func TestBootstrapConfigManagementRejectsInvalidSafeValuesAndPreservesStrictPars
 			},
 			wantErr: "runtime.transport.requestTimeout must be greater than zero",
 		},
+		{
+			name: "missing side effects object",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.SideEffects = nil
+			},
+			wantErr: "runtime.sideEffects is required",
+		},
+		{
+			name: "missing side effects attempt timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.SideEffects = &BootstrapConfigRuntimeSideEffectsValues{}
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout is required",
+		},
+		{
+			name: "invalid side effects attempt timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.SideEffects.AttemptTimeout = stringPointer("not-a-duration")
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must parse as a Go duration",
+		},
+		{
+			name: "zero side effects attempt timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.SideEffects.AttemptTimeout = stringPointer("0s")
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+		},
+		{
+			name: "negative side effects attempt timeout",
+			mutate: func(values BootstrapConfigValues) {
+				values.Runtime.SideEffects.AttemptTimeout = stringPointer("-1s")
+			},
+			wantErr: "runtime.sideEffects.attemptTimeout must be greater than zero",
+		},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -697,6 +742,29 @@ func TestBootstrapConfigManagementRejectsInvalidSafeValuesAndPreservesStrictPars
 	_, err = manager.Parse(unknownFieldPayload)
 	if err == nil || !strings.Contains(err.Error(), `unknown field "unexpected"`) {
 		t.Fatalf("expected strict unknown-field error, got %v", err)
+	}
+}
+
+func TestBootstrapConfigManagementBuildSeededDocumentIncludesSideEffects(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	settings := loadCanonicalDefaultSettings(managementTestDatabaseURL)
+	document, err := buildSeededBootstrapDocument(settings, createdAt)
+	if err != nil {
+		t.Fatalf("build seeded bootstrap document: %v", err)
+	}
+	if document.Runtime == nil || document.Runtime.SideEffects == nil || document.Runtime.SideEffects.AttemptTimeout == nil || *document.Runtime.SideEffects.AttemptTimeout != "10s" {
+		t.Fatalf("expected seeded runtime.sideEffects.attemptTimeout to be 10s, got %+v", document.Runtime)
+	}
+	payload := mustCanonicalManagementPayload(t, document)
+	if !bytes.Contains(payload, []byte(`"sideEffects"`)) || !bytes.Contains(payload, []byte(`"attemptTimeout": "10s"`)) {
+		t.Fatalf("expected seeded payload to include runtime side effects attempt timeout, got %s", payload)
+	}
+	parsed, err := NewBootstrapConfigManager(BootstrapConfigManagerOptions{}).Parse(payload)
+	if err != nil {
+		t.Fatalf("parse seeded runtime side effects payload: %v", err)
+	}
+	if got := parsed.RuntimeSideEffects().AttemptTimeout; got != 10*time.Second {
+		t.Fatalf("expected seeded runtime side effects attempt timeout 10s, got %v", got)
 	}
 }
 
