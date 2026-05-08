@@ -20,14 +20,15 @@ import (
 )
 
 const (
-	routeTestDatabasePassword         = "route-db-password"
-	routeTestDatabaseQueryPassword    = "route-query-password"
-	routeTestDatabaseSSLPassword      = "route-ssl-password"
-	routeTestDatabaseURL              = "postgres://prism:" + routeTestDatabasePassword + "@db.route.internal:5432/prism?sslmode=disable&password=" + routeTestDatabaseQueryPassword + "&sslpassword=" + routeTestDatabaseSSLPassword
-	routeTestNextDatabasePassword     = "route-next-db-password"
-	routeTestNextDatabaseURL          = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
-	routeTestReplacementJWTSecret     = "route-replacement-jwt-secret"
-	routeTestRuntimeReplacementSecret = "route-runtime-replacement-secret"
+	routeTestDatabasePassword                      = "route-db-password"
+	routeTestDatabaseQueryPassword                 = "route-query-password"
+	routeTestDatabaseSSLPassword                   = "route-ssl-password"
+	routeTestDatabaseURL                           = "postgres://prism:" + routeTestDatabasePassword + "@db.route.internal:5432/prism?sslmode=disable&password=" + routeTestDatabaseQueryPassword + "&sslpassword=" + routeTestDatabaseSSLPassword
+	routeTestNextDatabasePassword                  = "route-next-db-password"
+	routeTestNextDatabaseURL                       = "postgres://prism:" + routeTestNextDatabasePassword + "@db.next.internal:5432/prism?sslmode=disable"
+	routeTestReplacementJWTSecret                  = "route-replacement-jwt-secret"
+	routeTestRuntimeReplacementSecret              = "route-runtime-replacement-secret"
+	routeTestRuntimeSideEffectsAttemptTimeoutField = "runtime.side_effects.attempt_timeout"
 )
 
 var (
@@ -123,6 +124,33 @@ func TestBootstrapConfigRouteValidateReportsRestartOnlyPlannedChanges(t *testing
 		t.Fatalf("expected restart-only validation planning, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
 	}
 	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: "server.docs_enabled", Mode: config.BootstrapConfigApplyModeRestartRequired}})
+}
+
+func TestBootstrapConfigRouteValidateReportsRuntimeSideEffectsAttemptTimeoutRestartRequired(t *testing.T) {
+	fixture := newBootstrapRouteFixture(t)
+	before := mustReadFile(t, fixture.path)
+	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
+	request.Values.Runtime.SideEffects.AttemptTimeout = routeStringPtr("15s")
+
+	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
+
+	requireStatus(t, response, http.StatusOK)
+	assertFileUnchanged(t, fixture.path, before)
+	body := decodeBootstrapConfigResponse(t, response)
+	capability, ok := body.ApplyCapabilities[routeTestRuntimeSideEffectsAttemptTimeoutField]
+	if !ok {
+		t.Fatal("expected response capabilities to include runtime side-effects attempt timeout")
+	}
+	if capability.Mode != config.BootstrapConfigApplyModeRestartRequired || capability.ConfirmationToken != "" {
+		t.Fatalf("expected side-effects attempt timeout to be restart-required without confirmation, got %+v", capability)
+	}
+	if !body.RestartRequired || body.PlannedChanges == nil || !body.PlannedChanges.RestartRequired {
+		t.Fatalf("expected side-effects attempt timeout validation to require restart, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
+	}
+	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: routeTestRuntimeSideEffectsAttemptTimeoutField, Mode: config.BootstrapConfigApplyModeRestartRequired}})
+	if body.ApplyResult != nil {
+		t.Fatal("expected validation response to omit apply result")
+	}
 }
 
 func TestBootstrapConfigRouteValidateDoesNotTouchHotApplyRuntime(t *testing.T) {
@@ -530,6 +558,47 @@ func TestBootstrapConfigRoutePutRestartOnlyServerPortDoesNotMutateLiveState(t *t
 		t.Fatalf("expected live baseline to keep server port pending restart, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
 	}
 	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{"server.port"})
+}
+
+func TestBootstrapConfigRoutePutRuntimeSideEffectsAttemptTimeoutRestartOnlyDoesNotPublishHotRuntime(t *testing.T) {
+	path, manager, snapshot, settings := seedBootstrapRouteConfig(t)
+	hotRuntime := &fakeBootstrapHotApplyRuntime{}
+	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
+	request := bootstrapRouteRequestForSnapshot(t, snapshot)
+	request.Values.Runtime.SideEffects.AttemptTimeout = routeStringPtr("15s")
+
+	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
+
+	requireStatus(t, response, http.StatusOK)
+	if hotRuntime.validateCalls != 0 || hotRuntime.publishCalls != 0 {
+		t.Fatalf("expected side-effects attempt timeout PUT not to touch hot runtime, got validate=%d publish=%d", hotRuntime.validateCalls, hotRuntime.publishCalls)
+	}
+	body := decodeBootstrapConfigResponse(t, response)
+	if !body.RestartRequired || body.ApplyResult == nil {
+		t.Fatalf("expected restart-required side-effects attempt timeout PUT, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
+	}
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{routeTestRuntimeSideEffectsAttemptTimeoutField})
+	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
+	_, writtenSettings, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load written bootstrap config: %v", err)
+	}
+	if got := writtenSettings.RuntimeSideEffects().AttemptTimeout; got != 15*time.Second {
+		t.Fatalf("expected written side-effects attempt timeout 15s, got %s", got)
+	}
+
+	getResponse := fixture.do(t, http.MethodGet, "/api/config/bootstrap", nil)
+	requireStatus(t, getResponse, http.StatusOK)
+	getBody := decodeBootstrapConfigResponse(t, getResponse)
+	if !getBody.RestartRequired || getBody.ApplyResult == nil {
+		t.Fatalf("expected GET to report side-effects attempt timeout pending restart, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
+	}
+	assertStringSetEqual(t, getBody.ApplyResult.AppliedNowFields, []string{})
+	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{routeTestRuntimeSideEffectsAttemptTimeoutField})
+	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{})
+	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
 }
 
 func TestBootstrapConfigRoutePutMixedCORSAndDatabaseURLAppliesOnlyCORS(t *testing.T) {
