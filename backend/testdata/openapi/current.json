@@ -12080,14 +12080,39 @@
           },
           "transport": {
             "$ref": "#/components/schemas/BootstrapConfigRuntimeTransportValues"
+          },
+          "side_effects": {
+            "$ref": "#/components/schemas/BootstrapConfigRuntimeSideEffectsValues"
           }
         },
         "type": "object",
         "required": [
           "buffering_mode",
-          "transport"
+          "transport",
+          "side_effects"
         ],
         "title": "BootstrapConfigRuntimeValues"
+      },
+      "BootstrapConfigRuntimeSideEffectsValues": {
+        "properties": {
+          "attempt_timeout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Timeout",
+            "description": "Safe runtime.side_effects.attempt_timeout value for raw runtime.sideEffects.attemptTimeout."
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_timeout"
+        ],
+        "title": "BootstrapConfigRuntimeSideEffectsValues"
       },
       "BootstrapConfigRuntimeTransportValues": {
         "properties": {

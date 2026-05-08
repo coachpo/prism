@@ -27,7 +27,7 @@ The startup bootstrap contract is a plaintext `config.json` management surface. 
 GET /api/config/bootstrap
 ```
 
-Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case for runtime transport fields, so the raw `runtime.transport.requestTimeout` file setting appears as `runtime.transport.request_timeout` in API payloads.
+Response `200` returns safe metadata only. Raw secret values never appear in the payload. Safe bootstrap API values use snake_case for runtime fields, so the raw `runtime.transport.requestTimeout` file setting appears as `runtime.transport.request_timeout` in API payloads, and raw `runtime.sideEffects.attemptTimeout` appears as `runtime.side_effects.attempt_timeout`.
 
 GET is a read of the managed file plus the live applied baseline. Current responses always include `apply_capabilities`. They include `apply_result` only when file values differ from the live applied baseline, such as after a failed hot apply or an external file edit that changes a hot field. Current no-drift responses omit `planned_changes` and `apply_result`. `restart_required` is true only when the file contains restart-required drift from the live baseline. External edits to `config.json` are not watched automatically; operators must use the Startup tab or API PUT to publish hot-eligible file edits into the running process.
 ```json
@@ -45,6 +45,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
   "apply_capabilities": {
     "http.cors_allowed_origins": { "mode": "hot_apply" },
     "runtime.transport.request_timeout": { "mode": "hot_apply" },
+    "runtime.side_effects.attempt_timeout": { "mode": "restart_required" },
     "server.port": {
       "mode": "restart_required",
       "confirmation_token": "server-port-change"
@@ -71,6 +72,9 @@ GET is a read of the managed file plus the live applied baseline. Current respon
         "response_header_timeout": "0s",
         "tls_handshake_timeout": "10s",
         "expect_continue_timeout": "1s"
+      },
+      "side_effects": {
+        "attempt_timeout": "10s"
       }
     },
     "mail": {
@@ -100,9 +104,9 @@ GET is a read of the managed file plus the live applied baseline. Current respon
 }
 ```
 
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` as a Go duration string. Existing plaintext bootstrap files need a breaking migration before restart: add `runtime.transport.requestTimeout`, usually `"60s"`, to keep the prior whole-request upstream timeout behavior. Missing `runtime.transport.requestTimeout` fails validation and startup by design.
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Existing plaintext bootstrap files need a breaking migration before restart: add `runtime.transport.requestTimeout`, usually `"60s"`, and `runtime.sideEffects.attemptTimeout`, usually the newly seeded default `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
 
-Raw runtime transport startup config uses camelCase JSON field names in the file:
+Raw runtime startup config uses camelCase JSON field names in the file:
 
 ```json
 {
@@ -113,6 +117,9 @@ Raw runtime transport startup config uses camelCase JSON field names in the file
       "responseHeaderTimeout": "30s",
       "tlsHandshakeTimeout": "10s",
       "expectContinueTimeout": "1s"
+    },
+    "sideEffects": {
+      "attemptTimeout": "10s"
     }
   }
 }
@@ -145,11 +152,11 @@ Enabled SMTP startup config uses camelCase JSON field names in the file:
 
 Supported `mail.smtp.mode` values are `starttls_required`, `implicit_tls`, and `plaintext_local_only`. `plaintext_local_only` is valid only for localhost or loopback SMTP hosts, and auth over non-local plaintext is forbidden. `mail.smtp.auth` accepts `none` or `plain`; `plain` requires `mail.smtp.username` plus exactly one of `mail.smtp.password` or `mail.smtp.passwordFile`. `mail.smtp.timeout` must parse as a Go duration such as `15s`.
 
-Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as runtime `request_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
+Safe bootstrap API values omit the plaintext password and use snake_case for API fields, such as runtime `request_timeout`, `side_effects.attempt_timeout`, mail `reply_to`, `ehlo_hostname`, `password_file`, and `tls_server_name`. `mail.smtp.password` appears only in `secrets` metadata and in `secret_updates`. To keep the current password, send a `preserve` action. To change it, send a `replace` action with a non-placeholder value. Safe GET and validate responses never return the password value.
 
-The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.buffering_mode`, `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`.
+The durable field registry is exposed through `apply_capabilities`. Hot-apply fields are `http.cors_allowed_origins`; auth TTL and cookie metadata fields `auth.access_token_ttl_seconds`, `auth.refresh_token_ttl_seconds`, `auth.reset_code_ttl_seconds`, `auth.access_cookie_name`, `auth.refresh_cookie_name`, and `auth.cookie_secure`; mail fields `mail.enabled`, `mail.from`, `mail.reply_to`, `mail.smtp.host`, `mail.smtp.port`, `mail.smtp.mode`, `mail.smtp.ehlo_hostname`, `mail.smtp.auth`, `mail.smtp.username`, `mail.smtp.password`, `mail.smtp.password_file`, `mail.smtp.timeout`, and `mail.smtp.tls_server_name`; runtime fields `runtime.buffering_mode`, `runtime.transport.max_idle_conns`, `runtime.transport.max_idle_conns_per_host`, `runtime.transport.max_conns_per_host`, `runtime.transport.idle_conn_timeout`, `runtime.transport.request_timeout`, `runtime.transport.response_header_timeout`, `runtime.transport.tls_handshake_timeout`, and `runtime.transport.expect_continue_timeout`; and management admission fields `database.management_admission.m2_max_concurrent` and `database.management_admission.m3_max_concurrent`. `runtime.side_effects.attempt_timeout` is intentionally absent from hot-apply fields.
 
-Restart-required fields are listener and docs fields `server.host`, `server.port`, and `server.docs_enabled`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, docs, database URL, pool budgets, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
+Restart-required fields are listener and docs fields `server.host`, `server.port`, and `server.docs_enabled`; `database.url`; PostgreSQL pool fields `database.pools.total_max_conns`, `database.pools.management.max_conns`, `database.pools.management.min_idle_conns`, `database.pools.runtime_execution.max_conns`, `database.pools.runtime_execution.min_idle_conns`, `database.pools.runtime_telemetry.max_conns`, `database.pools.runtime_telemetry.min_idle_conns`, `database.pools.runtime_feedback.max_conns`, `database.pools.runtime_feedback.min_idle_conns`, `database.pools.realtime.max_conns`, `database.pools.realtime.min_idle_conns`, `database.pools.cache_refresh.max_conns`, `database.pools.cache_refresh.min_idle_conns`, `database.pools.background_jobs.max_conns`, and `database.pools.background_jobs.min_idle_conns`; runtime field `runtime.side_effects.attempt_timeout`; and secret fields `runtime.secretEncryptionKey`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey`. Confirmation tokens are required for `server.host`, `server.port`, `database.url`, `auth.jwtSigningKey`, and `stateTransfer.bundleEncryptionKey` changes. There is no hot apply for listener, docs, database URL, pool budgets, `runtime.side_effects.attempt_timeout`, JWT signing keys, state-transfer bundle keys, or the runtime secret encryption key.
 
 #### Validate Bootstrap Config
 ```
