@@ -14,7 +14,7 @@ const (
 	runtimeSideEffectsWorkerName            = background.WorkerName("runtime_side_effects_activity")
 	defaultRuntimeSideEffectQueueCapacity   = 1024
 	defaultRuntimeSideEffectWorkerCount     = 1
-	defaultRuntimeSideEffectAttemptTimeout  = 2 * time.Second
+	defaultRuntimeSideEffectAttemptTimeout  = 10 * time.Second
 	defaultRuntimeSideEffectShutdownTimeout = 3 * time.Second
 	defaultRuntimeSideEffectRetryDelay      = 25 * time.Millisecond
 	defaultRuntimeSideEffectMaxAttempts     = 5

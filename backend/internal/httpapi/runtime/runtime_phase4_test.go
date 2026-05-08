@@ -67,6 +67,12 @@ func waitForPendingRuntimeSideEffects(t *testing.T, manager *RuntimeSideEffectMa
 	t.Fatalf("timed out waiting for runtime side-effect pending count %d, got %d", want, manager.pendingCount())
 }
 
+func TestRuntimeSideEffectOptionsDefaultAttemptTimeout(t *testing.T) {
+	if got := normalizeRuntimeSideEffectOptions(RuntimeSideEffectOptions{}).AttemptTimeout; got != 10*time.Second {
+		t.Fatalf("expected default runtime side-effect attempt timeout 10s, got %v", got)
+	}
+}
+
 func TestRuntimeTelemetrySideEffectsRejectAfterShutdown(t *testing.T) {
 	scheduler := background.NewScheduler(background.Config{})
 	manager := NewRuntimeSideEffectManager(nil, RuntimeSideEffectOptions{ShutdownTimeout: 20 * time.Millisecond})

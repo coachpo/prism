@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
@@ -31,6 +32,13 @@ func TestProductionCleanupOrdersSideEffectDrainBeforeSchedulerStopAndDBCloseLast
 	want := []string{"realtime close", "side effect drain", "service close", "db close"}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("cleanup order = %v, want %v", events, want)
+	}
+}
+
+func TestRuntimeSideEffectOptionsFromSettings(t *testing.T) {
+	settings := config.Settings{RuntimeSideEffectsConfig: config.RuntimeSideEffectsConfig{AttemptTimeout: 17 * time.Second}}
+	if got := runtimeSideEffectOptions(settings); got != (runtimeapi.RuntimeSideEffectOptions{AttemptTimeout: 17 * time.Second}) {
+		t.Fatalf("runtime side-effect options = %+v, want attempt timeout 17s", got)
 	}
 }
 

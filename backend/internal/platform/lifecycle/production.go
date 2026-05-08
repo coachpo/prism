@@ -248,7 +248,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	resources.registerSideEffectDrain(closeFuncHook(asyncAnalyticsPublisher.Close))
 	resources.registerServiceClose(closeFuncHook(asyncAnalyticsPublisher.Close))
 
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
 	if err != nil {
 		return err
 	}
@@ -287,6 +287,10 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	resources.deps.StatsService = statsService
 	resources.deps.VendorsService = vendorService
 	return nil
+}
+
+func runtimeSideEffectOptions(settings config.Settings) runtimeapi.RuntimeSideEffectOptions {
+	return runtimeapi.RuntimeSideEffectOptions{AttemptTimeout: settings.RuntimeSideEffects().AttemptTimeout}
 }
 
 func (resources *productionResources) registerSideEffectDrain(hook ShutdownHook) {
