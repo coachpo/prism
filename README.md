@@ -96,6 +96,7 @@ The frontend image defaults to same-origin API calls. In production, put fronten
 - [Architecture](docs/ARCHITECTURE.md)
 - [API Specification](docs/API_SPEC.md)
 - [Data Model](docs/DATA_MODEL.md)
+- [Workflows](docs/WORKFLOWS.md)
 - [Requests Page Notes](docs/REQUESTS_PAGE.md)
 - [Test Case Generation Methodology](docs/TEST_CASE_GENERATION_METHODOLOGY.md)
 - [PRD](docs/PRD.md)
@@ -129,7 +130,7 @@ The helper creates one root `vX.Y.Z` tag. That tag triggers `.github/workflows/d
 ./start.sh headless
 
 cd backend
-go test ./tests/contract ./tests/integration ./tests/runtime
+go test ./tests/contract ./tests/integration ./tests/runtime ./tests/priority/...
 go build ./cmd/prism-backend
 ```
 

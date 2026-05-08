@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-03 | branch: main | commit: 134f0cf -->
+<!-- Generated: 2026-05-08 | branch: main | commit: 252d95c -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -41,6 +41,7 @@ prism/
 - `backend/AGENTS.md`: backend monorepo directory root for runtime, platform, HTTP API, and test boundaries.
 - `backend/internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, and side-effect ownership.
 - `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, and request-context HTTP seams.
+- `backend/internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `backend/tests/AGENTS.md`: backend contract, integration, runtime, and priority regression boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, typed browser/backend seams, and child ownership routers under `src/`.
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
@@ -58,7 +59,7 @@ prism/
 ## SHARED FACTS
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, and uses backend `18000`, frontend `15173`, and PostgreSQL `5432`.
 - `start.sh` keeps a fixed local launcher contract by using plaintext bootstrap ownership, the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000`.
-- Plaintext bootstrap startup is file-backed. Existing bootstrap files must include `runtime.transport.requestTimeout`, usually `"60s"`; legacy encrypted bootstrap files are rejected instead of migrated in place.
+- Plaintext bootstrap startup is file-backed. Existing bootstrap files must include `runtime.transport.requestTimeout`, usually `"60s"`, and `runtime.sideEffects.attemptTimeout`, usually `"10s"`; legacy encrypted bootstrap files are rejected instead of migrated in place.
 - Mail delivery is bootstrap-managed and disabled by default. Enabled SMTP validates at startup; invalid enabled mail config must fail rather than falling back to no-op delivery.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - `.github/workflows/docker-images.yml` checks out the monorepo, builds backend and frontend GHCR images for `linux/arm64`, runs on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and can build one service or both.
@@ -72,7 +73,7 @@ prism/
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`
 - Normative architecture and contract docs: `docs/ARCHITECTURE.md`, `docs/API_SPEC.md`, `docs/DATA_MODEL.md`
 - Supporting doc surfaces: `docs/PRD.md`, `docs/REQUESTS_PAGE.md`, `docs/SMOKE_TEST_PLAN.md`, `docs/TEST_CASE_GENERATION_METHODOLOGY.md`, `docs/WORKFLOWS.md`
-- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
+- Backend/frontend ownership trees: `backend/AGENTS.md`, `backend/internal/platform/AGENTS.md`, `backend/internal/httpapi/AGENTS.md`, `backend/internal/httpapi/management/auth/AGENTS.md`, `backend/tests/AGENTS.md`, `frontend/AGENTS.md`, `frontend/src/pages/AGENTS.md`, `frontend/src/components/AGENTS.md`, `frontend/src/context/AGENTS.md`, `frontend/src/hooks/AGENTS.md`, `frontend/src/i18n/AGENTS.md`, `frontend/src/lib/AGENTS.md`, `frontend/tests/AGENTS.md`
 - Docs provenance, archive naming, and active-plan handoff: `docs/AGENTS.md`, `docs/archive/AGENTS.md`, `.sisyphus/plans/`
 
 ## COMMANDS
@@ -90,7 +91,7 @@ cd frontend && pnpm run test:e2e
 - Keep this file focused on repo-wide facts and cross-directory boundaries.
 - Point downward instead of repeating leaf-level implementation detail here.
 - Keep launcher docs aligned with `start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, same-origin proxying, `PRISM_VITE_PROXY_ENABLED`, `PRISM_VITE_PROXY_TARGET`, and local CORS wiring.
-- Keep bootstrap docs aligned with the file-backed v1 contract: `runtime.transport.requestTimeout` required, `runtime.secretEncryptionKey` preserve-only in v1, safe secret responses metadata-only, enabled SMTP fail-fast.
+- Keep bootstrap docs aligned with the file-backed v1 contract: `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` required, `runtime.secretEncryptionKey` preserve-only in v1, safe secret responses metadata-only, enabled SMTP fail-fast.
 - Keep repo-level version docs aligned with `release.sh` and the four version surfaces it updates.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
 - Keep active implementation plans out of `docs/`; store working plans under `.sisyphus/plans/`, and use `docs/archive/` only for finished notes or retained evidence.
