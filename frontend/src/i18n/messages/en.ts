@@ -589,6 +589,8 @@ export interface Messages {
     refreshTokenTtlSeconds: string;
     requestTimeout: string;
     responseHeaderTimeout: string;
+    runtimeSideEffects: string;
+    runtimeSideEffectsDescription: string;
     replacementDisabled: string;
     replaceOnSave: string;
     requiredConfirmations: (tokens: string) => string;
@@ -633,6 +635,9 @@ export interface Messages {
     serverPort: string;
     serverPortRange: string;
     set: string;
+    sideEffectsAttemptTimeout: string;
+    sideEffectsAttemptTimeoutDescription: string;
+    sideEffectsAttemptTimeoutRequired: string;
     state: string;
     stateTransferDescription: string;
     stateTransferTitle: string;
@@ -2560,6 +2565,8 @@ export const enMessages: Messages = {
     refreshTokenTtlSeconds: "Refresh token TTL seconds",
     requestTimeout: "Request timeout",
     responseHeaderTimeout: "Response header timeout",
+    runtimeSideEffects: "Runtime side effects",
+    runtimeSideEffectsDescription: "Telemetry enqueue attempts use this timeout separately from upstream provider requests.",
     replacementDisabled: "Replacement disabled",
     replaceOnSave: "Replace on save",
     requiredConfirmations: (tokens) => ` Required confirmations: ${tokens}.`,
@@ -2604,6 +2611,9 @@ export const enMessages: Messages = {
     serverPort: "Server port",
     serverPortRange: "Server port must be an integer from 1 to 65535.",
     set: "set",
+    sideEffectsAttemptTimeout: "Telemetry enqueue attempt timeout",
+    sideEffectsAttemptTimeoutDescription: "How long runtime side effects may spend attempting to enqueue telemetry work before giving up.",
+    sideEffectsAttemptTimeoutRequired: "Telemetry enqueue attempt timeout is required.",
     state: "State",
     stateTransferDescription: "Config bundle encryption metadata. Runtime secret encryption key is read-only and preserve-only.",
     stateTransferTitle: "State transfer",

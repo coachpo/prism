@@ -167,6 +167,7 @@ const FIELD_LABELS = {
   "runtime.transport.response_header_timeout": (copy) => copy.responseHeaderTimeout,
   "runtime.transport.tls_handshake_timeout": (copy) => copy.tlsHandshakeTimeout,
   "runtime.transport.expect_continue_timeout": (copy) => copy.expectContinueTimeout,
+  "runtime.side_effects.attempt_timeout": (copy) => copy.sideEffectsAttemptTimeout,
   "auth.jwtSigningKey": (copy) => copy.jwtSigningKey,
   "auth.access_token_ttl_seconds": (copy) => copy.accessTokenTtlSeconds,
   "auth.refresh_token_ttl_seconds": (copy) => copy.refreshTokenTtlSeconds,
@@ -223,6 +224,8 @@ const TRANSPORT_FIELD_PATHS = [
   "runtime.transport.tls_handshake_timeout",
   "runtime.transport.expect_continue_timeout",
 ];
+const SIDE_EFFECT_FIELD_PATHS = ["runtime.side_effects.attempt_timeout"];
+const RUNTIME_FIELD_PATHS = [...TRANSPORT_FIELD_PATHS, ...SIDE_EFFECT_FIELD_PATHS];
 const AUTH_FIELD_PATHS = [
   "auth.jwtSigningKey",
   "auth.access_token_ttl_seconds",
@@ -1127,10 +1130,10 @@ export function SettingsStartupTab() {
       errors["database.management_admission.m3_max_concurrent"] = copy.m3ConcurrencyLimit;
       rows.push({ field: "database.management_admission", message: copy.m3ConcurrencyLimit, status: "error" });
     }
-    const checkRequiredString = (field: string, value: string | null) => {
+    const checkRequiredString = (field: string, value: string | null, message = copy.useRequiredValue) => {
       if (!value?.trim()) {
-        errors[field] = copy.useRequiredValue;
-        rows.push({ field, message: copy.useRequiredValue, status: "error" });
+        errors[field] = message;
+        rows.push({ field, message, status: "error" });
       }
     };
     checkRequiredString("runtime.transport.idle_conn_timeout", values.runtime.transport.idle_conn_timeout);
@@ -1138,6 +1141,7 @@ export function SettingsStartupTab() {
     checkRequiredString("runtime.transport.response_header_timeout", values.runtime.transport.response_header_timeout);
     checkRequiredString("runtime.transport.tls_handshake_timeout", values.runtime.transport.tls_handshake_timeout);
     checkRequiredString("runtime.transport.expect_continue_timeout", values.runtime.transport.expect_continue_timeout);
+    checkRequiredString("runtime.side_effects.attempt_timeout", values.runtime.side_effects.attempt_timeout, copy.sideEffectsAttemptTimeoutRequired);
     checkRequiredString("auth.access_cookie_name", values.auth.access_cookie_name);
     checkRequiredString("auth.refresh_cookie_name", values.auth.refresh_cookie_name);
   }, [copy, values]);
@@ -1399,7 +1403,7 @@ export function SettingsStartupTab() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><Network />{copy.transportTitle}{sectionEffect(TRANSPORT_FIELD_PATHS)}</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-2 text-sm"><Network />{copy.transportTitle}{sectionEffect(RUNTIME_FIELD_PATHS)}</CardTitle>
             <CardDescription>{copy.transportDescription}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -1423,6 +1427,14 @@ export function SettingsStartupTab() {
                   <StartupInputField id="startup-tls-timeout" label={copy.tlsHandshakeTimeout} effect={fieldEffect("runtime.transport.tls_handshake_timeout")} value={textValue(values.runtime.transport.tls_handshake_timeout)} error={fieldErrors["runtime.transport.tls_handshake_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.tls_handshake_timeout", value)} />
                   <StartupInputField id="startup-expect-timeout" label={copy.expectContinueTimeout} effect={fieldEffect("runtime.transport.expect_continue_timeout")} value={textValue(values.runtime.transport.expect_continue_timeout)} error={fieldErrors["runtime.transport.expect_continue_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.transport.expect_continue_timeout", value)} />
                 </div>
+              </FieldGroup>
+            </FieldSet>
+            <Separator className="my-6" />
+            <FieldSet disabled={controlsDisabled}>
+              <FieldLegend>{copy.runtimeSideEffects}</FieldLegend>
+              <FieldDescription>{copy.runtimeSideEffectsDescription}</FieldDescription>
+              <FieldGroup>
+                <StartupInputField id="startup-side-effects-attempt-timeout" label={copy.sideEffectsAttemptTimeout} description={copy.sideEffectsAttemptTimeoutDescription} effect={fieldEffect("runtime.side_effects.attempt_timeout")} value={textValue(values.runtime.side_effects.attempt_timeout)} error={fieldErrors["runtime.side_effects.attempt_timeout"]} disabled={controlsDisabled} onChange={(value) => setStringField("runtime.side_effects.attempt_timeout", value)} />
               </FieldGroup>
             </FieldSet>
           </CardContent>

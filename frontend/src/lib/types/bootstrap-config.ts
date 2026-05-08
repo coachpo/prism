@@ -59,9 +59,14 @@ export interface BootstrapConfigRuntimeTransportValues {
   expect_continue_timeout: string | null;
 }
 
+export interface BootstrapConfigRuntimeSideEffectsValues {
+  attempt_timeout: string | null;
+}
+
 export interface BootstrapConfigRuntimeValues {
   buffering_mode: string | null;
   transport: BootstrapConfigRuntimeTransportValues;
+  side_effects: BootstrapConfigRuntimeSideEffectsValues;
 }
 
 export interface BootstrapConfigHTTPValues {
