@@ -105,6 +105,7 @@ const (
 	bootstrapFieldRuntimeTransportResponseHeaderTimeout = "runtime.transport.response_header_timeout"
 	bootstrapFieldRuntimeTransportTLSHandshakeTimeout   = "runtime.transport.tls_handshake_timeout"
 	bootstrapFieldRuntimeTransportExpectContinueTimeout = "runtime.transport.expect_continue_timeout"
+	bootstrapFieldRuntimeSideEffectsAttemptTimeout      = "runtime.side_effects.attempt_timeout"
 	bootstrapFieldDatabaseManagementAdmissionM2Max      = "database.management_admission.m2_max_concurrent"
 	bootstrapFieldDatabaseManagementAdmissionM3Max      = "database.management_admission.m3_max_concurrent"
 	bootstrapFieldServerHost                            = "server.host"
@@ -164,6 +165,7 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	hotApplyBootstrapField(bootstrapFieldRuntimeTransportExpectContinueTimeout),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM2Max),
 	hotApplyBootstrapField(bootstrapFieldDatabaseManagementAdmissionM3Max),
+	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
 	restartRequiredBootstrapField(bootstrapFieldServerHost, BootstrapConfigConfirmationServerHostChange),
 	restartRequiredBootstrapField(bootstrapFieldServerPort, BootstrapConfigConfirmationServerPortChange),
 	restartRequiredBootstrapField(bootstrapFieldServerDocsEnabled, ""),
@@ -401,10 +403,20 @@ func addBootstrapRuntimeFieldValues(fields map[string]bootstrapConfigFieldValue,
 	if values == nil {
 		fields[bootstrapFieldRuntimeBufferingMode] = bootstrapStringFieldValue(nil)
 		addBootstrapRuntimeTransportFieldValues(fields, nil)
+		addBootstrapRuntimeSideEffectsFieldValues(fields, nil)
 		return
 	}
 	fields[bootstrapFieldRuntimeBufferingMode] = bootstrapStringFieldValue(values.BufferingMode)
 	addBootstrapRuntimeTransportFieldValues(fields, values.Transport)
+	addBootstrapRuntimeSideEffectsFieldValues(fields, values.SideEffects)
+}
+
+func addBootstrapRuntimeSideEffectsFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeSideEffectsValues) {
+	if values == nil {
+		fields[bootstrapFieldRuntimeSideEffectsAttemptTimeout] = bootstrapDurationFieldValue(nil)
+		return
+	}
+	fields[bootstrapFieldRuntimeSideEffectsAttemptTimeout] = bootstrapDurationFieldValue(values.AttemptTimeout)
 }
 
 func addBootstrapRuntimeTransportFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigRuntimeTransportValues) {
@@ -561,6 +573,7 @@ func bootstrapStringSliceSetFieldValue(value *[]string) bootstrapConfigFieldValu
 func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues {
 	postgresPools := settings.PostgresPoolsBudgetOrDefault()
 	runtimeTransport := settings.RuntimeTransport()
+	runtimeSideEffects := settings.RuntimeSideEffects()
 	managementAdmission := settings.ManagementAdmissionBudget()
 	corsAllowedOrigins := settings.CORSAllowedOriginsList()
 	requestTimeout := bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)
@@ -568,6 +581,7 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 	responseHeaderTimeout := runtimeTransport.ResponseHeaderTimeout.String()
 	tlsHandshakeTimeout := runtimeTransport.TLSHandshakeTimeout.String()
 	expectContinueTimeout := runtimeTransport.ExpectContinueTimeout.String()
+	runtimeSideEffectsAttemptTimeout := runtimeSideEffects.AttemptTimeout.String()
 	bufferingMode := string(settings.ResolvedRuntimeBufferingMode())
 	return BootstrapConfigValues{
 		Server: &BootstrapConfigServerValues{
@@ -602,6 +616,9 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 				ResponseHeaderTimeout: &responseHeaderTimeout,
 				TLSHandshakeTimeout:   &tlsHandshakeTimeout,
 				ExpectContinueTimeout: &expectContinueTimeout,
+			},
+			SideEffects: &BootstrapConfigRuntimeSideEffectsValues{
+				AttemptTimeout: &runtimeSideEffectsAttemptTimeout,
 			},
 		},
 		HTTP: &BootstrapConfigHTTPValues{CORSAllowedOrigins: &corsAllowedOrigins},

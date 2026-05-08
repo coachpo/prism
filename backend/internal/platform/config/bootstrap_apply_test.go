@@ -42,6 +42,7 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldDatabaseManagementAdmissionM3Max,
 	}
 	restartFields := []string{
+		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
 		bootstrapFieldServerHost,
 		bootstrapFieldServerPort,
 		bootstrapFieldServerDocsEnabled,
@@ -124,6 +125,25 @@ func TestBootstrapConfigFieldDiffDetectsRestartOnlyChanges(t *testing.T) {
 	})
 	if !diff.RestartRequired() {
 		t.Fatal("expected restart-only diff to require restart")
+	}
+}
+
+func TestBootstrapConfigFieldDiffDetectsRuntimeSideEffectsAttemptTimeoutRestartOnly(t *testing.T) {
+	current := bootstrapApplyTestValues(t)
+	requested := cloneManagementValues(t, current)
+	nextAttemptTimeout := "15s"
+	requested.Runtime.SideEffects.AttemptTimeout = &nextAttemptTimeout
+	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
+	if err != nil {
+		t.Fatalf("diff side-effects attempt timeout bootstrap field: %v", err)
+	}
+	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, nil)
+	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, []string{bootstrapFieldRuntimeSideEffectsAttemptTimeout})
+	assertBootstrapFieldChangesEqual(t, diff.ChangedFields(), []BootstrapConfigFieldChange{
+		{Field: bootstrapFieldRuntimeSideEffectsAttemptTimeout, Mode: BootstrapConfigApplyModeRestartRequired},
+	})
+	if !diff.RestartRequired() {
+		t.Fatal("expected side-effects attempt timeout diff to require restart")
 	}
 }
 
