@@ -108,6 +108,7 @@ function createApplyCapabilities() {
     ["database.pools.cache_refresh.min_idle_conns", ""],
     ["database.pools.background_jobs.max_conns", ""],
     ["database.pools.background_jobs.min_idle_conns", ""],
+    ["runtime.side_effects.attempt_timeout", ""],
     ["runtime.secretEncryptionKey", ""],
     ["auth.jwtSigningKey", "auth-jwt-signing-key-change"],
     ["stateTransfer.bundleEncryptionKey", "state-transfer-bundle-encryption-key-change"],
@@ -173,6 +174,7 @@ function createBootstrapResponse() {
           tls_handshake_timeout: "10s",
           expect_continue_timeout: "1s",
         },
+        side_effects: { attempt_timeout: "10s" },
       },
       http: { cors_allowed_origins: ["http://localhost:15173"] },
       auth: {
@@ -567,6 +569,60 @@ test("client validation blocks blank request timeout validate and save", async (
 
   await expect(page.getByRole("row", { name: /runtime\.transport\.request_timeout.*This field is required\./i })).toBeVisible();
   expect(routes.getValidateRequests()).toHaveLength(0);
+  expect(routes.getUpdateRequests()).toHaveLength(0);
+});
+
+test("runtime side-effects timeout renders distinct field", async ({ page }) => {
+  await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await expect(page.getByText("Runtime side effects", { exact: true })).toBeVisible();
+  await expect(page.getByText("Telemetry enqueue attempts use this timeout separately from upstream provider requests.")).toBeVisible();
+  await expect(page.locator('label[for="startup-side-effects-attempt-timeout"]').locator("..").getByText("Restart required")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" })).toHaveValue("10s");
+  await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");
+});
+
+test("blank side-effects timeout blocks client validate and save", async ({ page }) => {
+  const routes = await mockSettingsStartupRoutes(page);
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" }).fill("");
+  await page.getByRole("button", { name: "Validate" }).click();
+
+  await expect(page.getByRole("row", { name: /runtime\.side_effects\.attempt_timeout.*Telemetry enqueue attempt timeout is required\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(0);
+
+  await page.getByRole("button", { name: "Save startup config" }).click();
+
+  await expect(page.getByRole("row", { name: /runtime\.side_effects\.attempt_timeout.*Telemetry enqueue attempt timeout is required\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(0);
+  expect(routes.getUpdateRequests()).toHaveLength(0);
+});
+
+test("side-effects timeout validate shows restart-required planned row", async ({ page }) => {
+  const validateResponse = createBootstrapResponse();
+  validateResponse.planned_changes = {
+    changed_fields: [{ field: "runtime.side_effects.attempt_timeout", mode: "restart_required" }],
+    restart_required: true,
+  };
+  const routes = await mockSettingsStartupRoutes(page, { validateResponse });
+
+  await page.goto("/settings#startup");
+  await expect(page.getByText("Review and save")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" }).fill("15s");
+  await page.getByRole("button", { name: "Validate" }).click();
+
+  await expect(page.getByRole("row", { name: /Telemetry enqueue attempt timeout.*Will be written for the next restart\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(1);
+  expect(routes.getValidateRequests()[0]).toMatchObject({
+    values: { runtime: { side_effects: { attempt_timeout: "15s" } } },
+  });
   expect(routes.getUpdateRequests()).toHaveLength(0);
 });
 
