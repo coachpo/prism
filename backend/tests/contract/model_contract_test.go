@@ -825,6 +825,7 @@ func modelInsertConnection(t *testing.T, harness *contractHarness, profileID int
 func modelInsertRequestLog(t *testing.T, harness *contractHarness, profileID int, modelID string, apiFamily string, statusCode int, requestID string) {
 	t.Helper()
 	now := time.Now().UTC()
+	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("request_logs", now))
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (profile_id, model_id, api_family, ingress_request_id, attempt_number, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, unpriced_reason, request_path, created_at) VALUES ($1, $2, $3, $4, NULL, $5, $6, FALSE, $7, $8, $9, NULL, $10, $11)`, profileID, modelID, apiFamily, requestID, statusCode, 120, statusCode >= 200 && statusCode < 300, true, true, "/v1/chat/completions", now); err != nil {
 		t.Fatalf("insert request log %q: %v", requestID, err)
 	}

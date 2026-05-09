@@ -143,23 +143,23 @@ func TestTimezoneSettings(t *testing.T) {
 	}
 }
 
-func TestRetentionSettings(t *testing.T) {
+func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	harness := newS11ContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 
-	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/retention", nil, modelHeader(defaultProfileID))
+	initial := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/log-retention", nil, modelHeader(defaultProfileID))
 	assertStatus(t, initial, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, initial, &payload)
-	if payload["profile_id"] != float64(defaultProfileID) || payload["request_logs_retention_days"] != nil || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != nil {
-		t.Fatalf("expected default retention settings payload, got %+v", payload)
+	if payload["request_logs_retention_days"] != nil || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != nil || payload["loadbalance_events_retention_days"] != nil {
+		t.Fatalf("expected default global retention settings payload, got %+v", payload)
 	}
 
 	invalid := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPut,
-		"/api/settings/retention",
+		"/api/settings/log-retention",
 		map[string]any{"request_logs_retention_days": 0},
 		modelHeader(defaultProfileID),
 	)
@@ -169,43 +169,71 @@ func TestRetentionSettings(t *testing.T) {
 		t,
 		harness.client,
 		http.MethodPut,
-		"/api/settings/retention",
+		"/api/settings/log-retention",
 		map[string]any{
-			"request_logs_retention_days": 14,
-			"statistics_retention_days":   30,
-			"audit_logs_retention_days":   7,
+			"request_logs_retention_days":       14,
+			"statistics_retention_days":         30,
+			"audit_logs_retention_days":         7,
+			"loadbalance_events_retention_days": 45,
 		},
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, updated, http.StatusOK)
 	decodeJSONResponse(t, updated, &payload)
-	if payload["request_logs_retention_days"] != float64(14) || payload["statistics_retention_days"] != float64(30) || payload["audit_logs_retention_days"] != float64(7) {
-		t.Fatalf("expected persisted retention settings payload, got %+v", payload)
+	if payload["request_logs_retention_days"] != float64(14) || payload["statistics_retention_days"] != float64(30) || payload["audit_logs_retention_days"] != float64(7) || payload["loadbalance_events_retention_days"] != float64(45) {
+		t.Fatalf("expected persisted global retention settings payload, got %+v", payload)
 	}
 
 	cleared := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPut,
-		"/api/settings/retention",
+		"/api/settings/log-retention",
 		map[string]any{
-			"request_logs_retention_days": 21,
-			"statistics_retention_days":   nil,
-			"audit_logs_retention_days":   90,
+			"request_logs_retention_days":       21,
+			"statistics_retention_days":         nil,
+			"audit_logs_retention_days":         90,
+			"loadbalance_events_retention_days": nil,
 		},
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, cleared, http.StatusOK)
 	decodeJSONResponse(t, cleared, &payload)
-	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) {
-		t.Fatalf("expected retention settings clear/update payload, got %+v", payload)
+	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil {
+		t.Fatalf("expected global retention settings clear/update payload, got %+v", payload)
 	}
 
-	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/retention", nil, modelHeader(defaultProfileID))
+	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/log-retention", nil, modelHeader(defaultProfileID))
 	assertStatus(t, loaded, http.StatusOK)
 	decodeJSONResponse(t, loaded, &payload)
-	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) {
-		t.Fatalf("expected retention settings round-trip to persist, got %+v", payload)
+	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil {
+		t.Fatalf("expected global retention settings round-trip to persist, got %+v", payload)
+	}
+
+	legacySettings := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/retention", nil, modelHeader(defaultProfileID))
+	assertStatus(t, legacySettings, http.StatusNotFound)
+	legacyCleanup := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/requests", nil, modelHeader(defaultProfileID))
+	assertStatus(t, legacyCleanup, http.StatusNotFound)
+
+	jobResponse := harness.requestJSON(
+		t,
+		harness.client,
+		http.MethodPost,
+		"/api/maintenance/log-retention/jobs",
+		map[string]any{"table": "request_logs", "delete_all": true, "reason": "contract guardrail"},
+		withHeader(modelHeader(defaultProfileID), "Idempotency-Key", "s11-log-retention-job"),
+	)
+	assertStatus(t, jobResponse, http.StatusAccepted)
+	var jobPayload map[string]any
+	decodeJSONResponse(t, jobResponse, &jobPayload)
+	jobID, ok := jobPayload["job_id"].(string)
+	statusURL, _ := jobPayload["status_url"].(string)
+	scope := asMap(t, jobPayload["scope"])
+	if !ok || jobID == "" || jobPayload["state"] != "queued" || statusURL != "/api/management/jobs/"+jobID || jobResponse.Header.Get("Location") != statusURL || scope["table"] != "request_logs" || scope["delete_all"] != true {
+		t.Fatalf("expected log-retention job response schema and scope, got %+v with Location %q", jobPayload, jobResponse.Header.Get("Location"))
+	}
+	if _, exists := jobPayload["status"]; exists {
+		t.Fatalf("log-retention job create response must use state, not status: %+v", jobPayload)
 	}
 }
 

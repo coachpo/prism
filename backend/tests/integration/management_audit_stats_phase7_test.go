@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,16 +14,119 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
 	"github.com/coachpo/prism/backend/internal/domain/stats"
+	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
+	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 )
 
 var phase7Now = time.Date(2026, time.April, 30, 12, 0, 0, 0, time.UTC)
+
+func TestLogRetentionJobDropsExpiredPartitions(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, ctx, "log_retention_job_partitions")
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString("log_retention_job_partitions"))
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	defer pool.Close()
+	retentionStore := logretention.NewStore(logretention.Options{Pool: pool, Now: func() time.Time { return phase7Now }})
+	dayOne := time.Date(2026, time.January, 10, 0, 0, 0, 0, time.UTC)
+	for offset := range 3 {
+		if err := retentionStore.EnsurePartitionForTime(ctx, "request_logs", dayOne.AddDate(0, 0, offset)); err != nil {
+			t.Fatalf("ensure request_logs partition %d: %v", offset, err)
+		}
+	}
+	jobStore := managementjobs.NewStore(managementjobs.Options{Pool: pool, LogRetention: retentionStore, Now: func() time.Time { return phase7Now }})
+	cutoff := dayOne.AddDate(0, 0, 1).Add(12 * time.Hour)
+	job, err := jobStore.CreateLogRetentionJob(ctx, managementjobs.CreateLogRetentionJobRequest{RequestedBy: "test", Reason: "drop expired partitions", Scope: managementjobs.LogRetentionScope{Table: "request_logs", Cutoff: &cutoff}})
+	if err != nil {
+		t.Fatalf("create log retention job: %v", err)
+	}
+	if err := jobStore.ProcessDue(ctx); err != nil {
+		t.Fatalf("process log retention job: %v", err)
+	}
+	partitions, err := retentionStore.ListPartitions(ctx, "request_logs")
+	if err != nil {
+		t.Fatalf("list request_logs partitions: %v", err)
+	}
+	if phase7PartitionExists(partitions, "request_logs_p20260110") {
+		t.Fatalf("expected expired partition to be dropped after job %s", job.ID)
+	}
+	if !phase7PartitionExists(partitions, "request_logs_p20260111") || !phase7PartitionExists(partitions, "request_logs_p20260112") {
+		t.Fatalf("expected boundary and future partitions to remain, got %+v", partitions)
+	}
+	completed, err := jobStore.GetGlobalJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("load completed job: %v", err)
+	}
+	if completed.State != "succeeded" {
+		t.Fatalf("expected job to succeed, got %s: %v", completed.State, completed.ErrorMessage)
+	}
+}
+
+func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, ctx, "log_retention_settings_routes")
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString("log_retention_settings_routes"))
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	defer pool.Close()
+	retentionStore := logretention.NewStore(logretention.Options{Pool: pool, Now: func() time.Time { return phase7Now }})
+	jobStore := managementjobs.NewStore(managementjobs.Options{Pool: pool, LogRetention: retentionStore, Now: func() time.Time { return phase7Now }})
+	service, err := managementsettings.NewService(config.Settings{}, managementsettings.Options{Pool: pool, Jobs: jobStore, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create settings service: %v", err)
+	}
+	router := chiRouterForSettings(service)
+	put := httptest.NewRequest(http.MethodPut, "/settings/log-retention", bytes.NewBufferString(`{"request_logs_retention_days":3,"audit_logs_retention_days":4,"statistics_retention_days":5,"loadbalance_events_retention_days":6}`))
+	put.Header.Set("X-Profile-Id", "999999")
+	put.Header.Set("Content-Type", "application/json")
+	putRecorder := httptest.NewRecorder()
+	router.ServeHTTP(putRecorder, put)
+	if putRecorder.Code != http.StatusOK {
+		t.Fatalf("PUT /settings/log-retention status=%d body=%s", putRecorder.Code, putRecorder.Body.String())
+	}
+	get := httptest.NewRequest(http.MethodGet, "/settings/log-retention", nil)
+	getRecorder := httptest.NewRecorder()
+	router.ServeHTTP(getRecorder, get)
+	if getRecorder.Code != http.StatusOK || !strings.Contains(getRecorder.Body.String(), `"loadbalance_events_retention_days":6`) {
+		t.Fatalf("GET /settings/log-retention status=%d body=%s", getRecorder.Code, getRecorder.Body.String())
+	}
+	post := httptest.NewRequest(http.MethodPost, "/maintenance/log-retention/jobs", bytes.NewBufferString(`{"table":"usage_request_events","delete_all":true}`))
+	post.Header.Set("Content-Type", "application/json")
+	postRecorder := httptest.NewRecorder()
+	router.ServeHTTP(postRecorder, post)
+	if postRecorder.Code != http.StatusAccepted || !strings.Contains(postRecorder.Body.String(), `"job_id"`) {
+		t.Fatalf("POST /maintenance/log-retention/jobs status=%d body=%s", postRecorder.Code, postRecorder.Body.String())
+	}
+}
 
 func TestManagementAuditKeysetPagination(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -118,6 +223,32 @@ func TestManagementStatsRefreshHighWaterMark(t *testing.T) {
 	}
 }
 
+func TestDashboardStatsRollupRefreshPartitionPruning(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	conn := phase7MigratedConn(t, ctx, "stats_partition_pruning")
+	defer func() { _ = conn.Close(ctx) }()
+	profileID := phase7InsertProfile(t, ctx, conn)
+	phase7EnsureLogPartition(t, ctx, conn, "request_logs", phase7Now.AddDate(0, 0, -2))
+	phase7EnsureLogPartition(t, ctx, conn, "request_logs", phase7Now)
+	phase7EnsureLogPartition(t, ctx, conn, "audit_logs", phase7Now.AddDate(0, 0, -2))
+	phase7EnsureLogPartition(t, ctx, conn, "audit_logs", phase7Now)
+	phase7InsertRequestLog(t, ctx, conn, profileID, 1251, 200, phase7Now.Add(-time.Hour))
+	phase7InsertAuditLog(t, ctx, conn, profileID, 1252, phase7Now.Add(-30*time.Minute))
+
+	requestPlan := phase7ExplainPlan(t, ctx, conn, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3`, profileID, phase7Now.Add(-24*time.Hour), phase7Now.Add(time.Hour))
+	if !strings.Contains(requestPlan, "request_logs_p20260430") || strings.Contains(requestPlan, "request_logs_p20260428") {
+		t.Fatalf("expected request_logs created_at filter to prune old partitions, got %s", requestPlan)
+	}
+	auditPlan := phase7ExplainPlan(t, ctx, conn, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1 AND created_at >= $2 AND created_at < $3 AND audit_enabled_at_request = TRUE`, profileID, phase7Now.Add(-24*time.Hour), phase7Now.Add(time.Hour))
+	if !strings.Contains(auditPlan, "audit_logs_p20260430") || strings.Contains(auditPlan, "audit_logs_p20260428") {
+		t.Fatalf("expected audit_logs created_at filter to prune old partitions, got %s", auditPlan)
+	}
+	if err := stats.RefreshDashboardStatsRollup(ctx, conn, profileID, "24h", phase7Now); err != nil {
+		t.Fatalf("refresh dashboard stats rollup with partitioned roots: %v", err)
+	}
+}
+
 func TestManagementStatsStaleNoLiveFallback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -188,8 +319,8 @@ func TestManagementAuditDeleteJobChunking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload chunked job: %v", err)
 	}
-	if job.State != "queued" || job.Progress.RowsDeleted != 500 || phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected one bounded chunk to delete 500 rows and requeue, got job=%+v", job)
+	if job.State != "succeeded" || phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 0 {
+		t.Fatalf("expected audit retention job to drop expired audit rows, got job=%+v", job)
 	}
 }
 
@@ -211,8 +342,8 @@ func TestManagementAuditDeleteJobSuccessfulChunksDoNotConsumeRetryAttempts(t *te
 			break
 		}
 	}
-	if job.State != "succeeded" || job.AttemptCount != 0 || job.Progress.BatchesCompleted != 10 || job.Progress.RowsDeleted != 4501 {
-		t.Fatalf("expected >8 successful chunks to finish without consuming retry attempts, got job=%+v", job)
+	if job.State != "succeeded" || job.AttemptCount != 0 || job.Progress.BatchesCompleted != 1 {
+		t.Fatalf("expected partition-backed audit retention to finish without consuming retry attempts, got job=%+v", job)
 	}
 	if remaining := phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID); remaining != 0 {
 		t.Fatalf("expected all audit rows deleted after many chunks, got %d", remaining)
@@ -224,9 +355,11 @@ func TestManagementAuditDeleteJobTransientFailuresBoundedByMaxAttempts(t *testin
 	defer cancel()
 	store, pool, profileID := phase7JobStore(t, ctx, "audit_delete_failure_attempts")
 	defer pool.Close()
+	phase7InsertAuditLog(t, ctx, pool, profileID, 1, phase7Now.Add(-48*time.Hour))
 	job := phase7CreateDeleteJob(t, ctx, store, profileID, "failure-attempts", false)
-	if _, err := pool.Exec(ctx, `DROP TABLE audit_logs`); err != nil {
-		t.Fatalf("drop audit_logs to force transient delete failures: %v", err)
+	partitionName := fmt.Sprintf("audit_logs_p%s", phase7Now.Add(-48*time.Hour).UTC().Format("20060102"))
+	if _, err := pool.Exec(ctx, `ALTER TABLE `+quoteIdentifier(partitionName)+` RENAME TO `+quoteIdentifier(partitionName+"_missing")); err != nil {
+		t.Fatalf("rename audit partition to force transient delete failures: %v", err)
 	}
 	for attempt := 1; attempt <= 8; attempt++ {
 		if err := store.ProcessDue(ctx); err == nil {
@@ -242,8 +375,8 @@ func TestManagementAuditDeleteJobTransientFailuresBoundedByMaxAttempts(t *testin
 			}
 		}
 	}
-	if job.State != "failed" || job.AttemptCount != 8 || job.ErrorCode == nil || *job.ErrorCode != "transient_delete_error" {
-		t.Fatalf("expected max transient failures to mark job failed visibly, got job=%+v", job)
+	if job.State != "failed" || job.AttemptCount != 8 || job.ErrorCode == nil || *job.ErrorCode != "retention_error" {
+		t.Fatalf("expected max retention failures to mark job failed visibly, got job=%+v", job)
 	}
 }
 
@@ -287,8 +420,8 @@ func TestManagementAuditDeleteJobStaleLeaseResumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload stale lease job: %v", err)
 	}
-	if job.State != "queued" || job.Progress.RowsDeleted != 1 || job.Progress.BatchesCompleted != 1 || phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 0 {
-		t.Fatalf("expected stale running lease to resume and process one chunk, got job=%+v", job)
+	if job.State != "succeeded" || job.Progress.BatchesCompleted != 1 || phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 0 {
+		t.Fatalf("expected stale running lease to resume and finish retention, got job=%+v", job)
 	}
 }
 
@@ -310,8 +443,8 @@ func TestManagementAuditDeleteJobResume(t *testing.T) {
 			break
 		}
 	}
-	if job.State != "succeeded" || job.Progress.RowsDeleted != 3 || phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 0 {
-		t.Fatalf("expected resumed delete job to finish, got job=%+v", job)
+	if job.State != "succeeded" || job.Progress.BatchesCompleted != 1 || phase7CountRows(t, ctx, pool, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 0 {
+		t.Fatalf("expected resumed retention job to finish, got job=%+v", job)
 	}
 }
 
@@ -348,6 +481,21 @@ func TestManagementAuditDeleteJobDoesNotDeleteJobAudit(t *testing.T) {
 	}
 }
 
+func chiRouterForSettings(service *managementsettings.Service) http.Handler {
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+	return router
+}
+
+func phase7PartitionExists(partitions []logretention.Partition, partitionName string) bool {
+	for _, partition := range partitions {
+		if partition.PartitionName == partitionName {
+			return true
+		}
+	}
+	return false
+}
+
 func phase7MigratedConn(t *testing.T, ctx context.Context, name string) *pgx.Conn {
 	t.Helper()
 	harness := newPostgresHarness(t)
@@ -375,7 +523,8 @@ func phase7JobStore(t *testing.T, ctx context.Context, name string) (*management
 	if err != nil {
 		t.Fatalf("open phase7 pool: %v", err)
 	}
-	return managementjobs.NewStore(managementjobs.Options{Pool: pool, Now: func() time.Time { return phase7Now }}), pool, profileID
+	retentionStore := logretention.NewStore(logretention.Options{Pool: pool, Now: func() time.Time { return phase7Now }})
+	return managementjobs.NewStore(managementjobs.Options{Pool: pool, LogRetention: retentionStore, Now: func() time.Time { return phase7Now }}), pool, profileID
 }
 
 func phase7CreateDeleteJob(t *testing.T, ctx context.Context, store *managementjobs.Store, profileID int, key string, deleteAll bool) managementjobs.Job {
@@ -386,6 +535,29 @@ func phase7CreateDeleteJob(t *testing.T, ctx context.Context, store *managementj
 		t.Fatalf("create audit delete job: %v", err)
 	}
 	return job
+}
+
+func phase7EnsureLogPartition(t *testing.T, ctx context.Context, exec interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, tableName string, timestamp time.Time) {
+	t.Helper()
+	day := time.Date(timestamp.UTC().Year(), timestamp.UTC().Month(), timestamp.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	partitionName := fmt.Sprintf("%s_p%s", tableName, day.Format("20060102"))
+	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS public.%s PARTITION OF public.%s FOR VALUES FROM ('%s') TO ('%s')`, quoteIdentifier(partitionName), quoteIdentifier(tableName), day.Format("2006-01-02 15:04:05-07:00"), day.AddDate(0, 0, 1).Format("2006-01-02 15:04:05-07:00"))
+	if _, err := exec.Exec(ctx, query); err != nil {
+		t.Fatalf("ensure %s partition for %s: %v", tableName, day.Format("2006-01-02"), err)
+	}
+}
+
+func phase7ExplainPlan(t *testing.T, ctx context.Context, exec interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, query string, args ...any) string {
+	t.Helper()
+	var plan string
+	if err := exec.QueryRow(ctx, `EXPLAIN (FORMAT JSON) `+query, args...).Scan(&plan); err != nil {
+		t.Fatalf("explain query %q: %v", query, err)
+	}
+	return plan
 }
 
 func phase7InsertProfile(t *testing.T, ctx context.Context, exec interface {
@@ -403,6 +575,7 @@ func phase7InsertRequestLog(t *testing.T, ctx context.Context, exec interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }, profileID int, id int, statusCode int, createdAt time.Time) {
 	t.Helper()
+	phase7EnsureLogPartition(t, ctx, exec, "request_logs", createdAt)
 	if _, err := exec.Exec(ctx, `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'phase7-model', 'openai', $3, 100, FALSE, $4, TRUE, TRUE, '/v1/chat/completions', $5, FALSE, FALSE)`, id, profileID, statusCode, statusCode >= 200 && statusCode < 300, createdAt.UTC()); err != nil {
 		t.Fatalf("insert phase7 request log %d: %v", id, err)
 	}
@@ -412,6 +585,7 @@ func phase7InsertAuditLog(t *testing.T, ctx context.Context, exec interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }, profileID int, id int, createdAt time.Time) {
 	t.Helper()
+	phase7EnsureLogPartition(t, ctx, exec, "audit_logs", createdAt)
 	if _, err := exec.Exec(ctx, `INSERT INTO audit_logs (id, profile_id, model_id, request_method, request_url, request_headers, request_body_stored, response_status, response_headers, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, 'phase7-model', 'POST', 'https://phase7.invalid/v1/chat/completions', '{}', FALSE, 200, '{}', FALSE, FALSE, 100, TRUE, FALSE, $3)`, id, profileID, createdAt.UTC()); err != nil {
 		t.Fatalf("insert phase7 audit log %d: %v", id, err)
 	}

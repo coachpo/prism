@@ -3,6 +3,7 @@ package contract_test
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"net/http/cookiejar"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
@@ -197,27 +199,18 @@ func TestManagementMetricsExposed(t *testing.T) {
 	}
 }
 
-func TestManagementJobListContract(t *testing.T) {
+func TestManagementGlobalLogRetentionJobStatusContract(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	firstJobID := createS15AuditDeleteJob(t, harness, profileID, "list-one")
-	secondJobID := createS15AuditDeleteJob(t, harness, profileID, "list-two")
+	jobID := createS15LogRetentionJob(t, harness, "request_logs", map[string]any{"delete_all": true}, "status")
 
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/management/jobs", nil, modelHeader(profileID))
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/management/jobs/"+jobID, nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	items, ok := payload["items"].([]any)
-	if !ok || len(items) < 2 || payload["has_more"] != false {
-		t.Fatalf("expected management job list items and has_more=false, got %+v", payload)
-	}
-	seen := map[string]bool{}
-	for _, raw := range items {
-		item := asMap(t, raw)
-		seen[item["id"].(string)] = item["type"] == "audit_delete" && item["progress"] != nil && item["requested_at"] != nil
-	}
-	if !seen[firstJobID] || !seen[secondJobID] {
-		t.Fatalf("expected job list to include created audit delete jobs, got %+v", payload)
+	scope := asMap(t, payload["scope"])
+	if payload["id"] != jobID || payload["type"] != "log_retention" || payload["progress"] == nil || scope["table"] != "request_logs" || scope["delete_all"] != true {
+		t.Fatalf("expected global log-retention job status contract, got %+v", payload)
 	}
 }
 
@@ -368,43 +361,87 @@ func TestObservabilityTreatsSuccessfulMissingCostRowsAsUnpriced(t *testing.T) {
 	}
 }
 
-func TestStatsDelete(t *testing.T) {
+func TestStatsRetentionJobs(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertRequestLogSummaryRow(t, harness, 500, profileID, "delete-model", "openai", 12, 81, 200, 100, 0, 0, 0, fixedS15Now.Add(-48*time.Hour))
-	insertRequestLogSummaryRow(t, harness, 501, profileID, "delete-model", "openai", 12, 81, 200, 100, 0, 0, 0, fixedS15Now.Add(-30*time.Minute))
-	insertUsageEvent(t, harness, usageEventSeed{ID: 40, ProfileID: profileID, IngressRequestID: "stats-delete-old", ModelID: "delete-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
-	insertUsageEvent(t, harness, usageEventSeed{ID: 41, ProfileID: profileID, IngressRequestID: "stats-delete-new", ModelID: "delete-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
+	insertRequestLogSummaryRow(t, harness, 500, profileID, "retention-model", "openai", 12, 81, 200, 100, 0, 0, 0, fixedS15Now.Add(-48*time.Hour))
+	insertRequestLogSummaryRow(t, harness, 501, profileID, "retention-model", "openai", 12, 81, 200, 100, 0, 0, 0, fixedS15Now.Add(-30*time.Minute))
+	insertUsageEvent(t, harness, usageEventSeed{ID: 40, ProfileID: profileID, IngressRequestID: "stats-retention-old", ModelID: "retention-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 41, ProfileID: profileID, IngressRequestID: "stats-retention-new", ModelID: "retention-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 
-	retentionResponse := harness.requestJSON(
-		t,
-		harness.client,
-		http.MethodPut,
-		"/api/settings/retention",
-		map[string]any{
-			"request_logs_retention_days": 1,
-			"statistics_retention_days":   1,
-		},
-		modelHeader(profileID),
-	)
-	assertStatus(t, retentionResponse, http.StatusOK)
-
-	deleteRequestLogs := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/requests", nil, modelHeader(profileID))
-	assertStatus(t, deleteRequestLogs, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, deleteRequestLogs, &payload)
-	if payload["accepted"] != true {
-		t.Fatalf("expected stats request-log retention delete accepted response, got %+v", payload)
+	cutoff := fixedS15Now.Add(-24 * time.Hour).Format(time.RFC3339)
+	requestLogJob := createS15LogRetentionJob(t, harness, "request_logs", map[string]any{"cutoff": cutoff}, "request-logs")
+	usageJob := createS15LogRetentionJob(t, harness, "usage_request_events", map[string]any{"cutoff": cutoff}, "usage-events")
+	if requestLogJob == usageJob || s15CountRows(t, harness, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`, profileID) != 2 || s15CountRows(t, harness, `SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1`, profileID) != 2 {
+		t.Fatalf("expected global retention jobs to enqueue without inline stats deletion")
 	}
-	if s15CountRows(t, harness, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected retention-policy request-log delete to remove only old rows")
+}
+
+func TestRequestLogsPartitionProfileScopedDuplicateID(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	otherProfileID := s15InsertProfile(t, harness, "S15 Other Requests")
+	requestID := 9100
+	insertRequestLogSummaryRow(t, harness, requestID, profileID, "partition-old", "openai", 12, 91, 200, 111, 1, 2, 3, fixedS15Now.Add(-90*time.Minute))
+	insertRequestLogSummaryRow(t, harness, requestID, profileID, "partition-new", "openai", 12, 91, 500, 222, 4, 5, 9, fixedS15Now.Add(-5*time.Minute))
+	insertRequestLogSummaryRow(t, harness, requestID, otherProfileID, "partition-other", "openai", 12, 91, 200, 333, 7, 8, 15, fixedS15Now.Add(-1*time.Minute))
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/requests?limit=20", nil, modelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	if jsonInt(t, listPayload["total"]) != 2 {
+		t.Fatalf("expected profile-scoped request list over partitions, got %+v", listPayload)
 	}
 
-	deleteStatistics := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/statistics", nil, modelHeader(profileID))
-	assertStatus(t, deleteStatistics, http.StatusOK)
-	decodeJSONResponse(t, deleteStatistics, &payload)
-	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM usage_request_events WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected retention-policy statistics delete to remove only old rows, got %+v", payload)
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestID), nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	summary := asMap(t, detailPayload["summary"])
+	if summary["model_id"] != "partition-new" || jsonInt(t, summary["status_code"]) != 500 || jsonInt(t, summary["response_time_ms"]) != 222 {
+		t.Fatalf("expected newest duplicate request-log id for selected profile, got %+v", detailPayload)
+	}
+}
+
+func TestAuditDetailMissingRequestLogWeakReference(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	requestCreatedAt := fixedS15Now.AddDate(0, 0, -2).Add(2 * time.Hour)
+	auditCreatedAt := fixedS15Now.Add(-5 * time.Minute)
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 9200, profileID, "audit-missing-request", "openai", 12, 91, 200, 100, 0, 0, 0, requestCreatedAt, true)
+	insertAuditLog(t, harness, auditLogSeed{ID: 9201, ProfileID: profileID, RequestLogID: intPtr(9200), RequestLogCreatedAt: timePtr(requestCreatedAt), IngressRequestID: stringPtr("weak-request-9200"), ModelID: "audit-missing-request", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, AuditCaptureBodiesAtRequest: false, CreatedAt: auditCreatedAt})
+	dropS15RequestLogPartition(t, harness, requestCreatedAt)
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs/9201", nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	if jsonInt(t, detailPayload["request_log_id"]) != 9200 || detailPayload["ingress_request_id"] != "weak-request-9200" || detailPayload["request_log_created_at"] == nil || detailPayload["request_log_missing"] != true {
+		t.Fatalf("expected audit detail weak request link with missing state, got %+v", detailPayload)
+	}
+}
+
+func TestAuditPartitionProfileScopedWeakRequestLinkList(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	otherProfileID := s15InsertProfile(t, harness, "S15 Other Audit")
+	requestCreatedAt := fixedS15Now.Add(-20 * time.Minute)
+	insertRequestLogSummaryRowWithAuditEnabled(t, harness, 9300, profileID, "audit-partition", "openai", 12, 91, 200, 100, 0, 0, 0, requestCreatedAt, true)
+	insertAuditLog(t, harness, auditLogSeed{ID: 9301, ProfileID: profileID, RequestLogID: intPtr(9300), RequestLogCreatedAt: timePtr(requestCreatedAt), IngressRequestID: stringPtr("weak-request-9300"), ModelID: "audit-partition", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 9302, ProfileID: otherProfileID, RequestLogID: intPtr(9300), RequestLogCreatedAt: timePtr(requestCreatedAt), IngressRequestID: stringPtr("weak-request-other"), ModelID: "audit-partition", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-9 * time.Minute)})
+
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=20", nil, modelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	items := listPayload["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected profile-scoped audit partition list, got %+v", listPayload)
+	}
+	item := asMap(t, items[0])
+	if jsonInt(t, item["request_log_id"]) != 9300 || item["ingress_request_id"] != "weak-request-9300" || item["request_log_created_at"] == nil || item["request_log_missing"] != false {
+		t.Fatalf("expected audit list weak request fields, got %+v", item)
 	}
 }
 
@@ -485,82 +522,42 @@ func TestAuditLogs(t *testing.T) {
 	}
 }
 
-func TestAuditDelete(t *testing.T) {
+func TestAuditLogRetentionJob(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertAuditLog(t, harness, auditLogSeed{ID: 900, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
-	insertAuditLog(t, harness, auditLogSeed{ID: 901, ProfileID: profileID, ModelID: "audit-delete", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 900, ProfileID: profileID, ModelID: "audit-retention", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
+	insertAuditLog(t, harness, auditLogSeed{ID: 901, ProfileID: profileID, ModelID: "audit-retention", RequestHeaders: `{}`, ResponseStatus: 200, AuditEnabledAtRequest: true, CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 
 	retentionResponse := harness.requestJSON(
 		t,
 		harness.client,
 		http.MethodPut,
-		"/api/settings/retention",
+		"/api/settings/log-retention",
 		map[string]any{"audit_logs_retention_days": 1},
 		modelHeader(profileID),
 	)
 	assertStatus(t, retentionResponse, http.StatusOK)
 
-	response := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/audit/logs", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusAccepted)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if payload["job_id"] == nil || payload["state"] != "queued" || s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 2 {
-		t.Fatalf("expected retention-policy audit delete to enqueue async job without inline delete, got %+v", payload)
+	jobID := createS15LogRetentionJob(t, harness, "audit_logs", map[string]any{}, "audit-policy")
+	if jobID == "" || s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1`, profileID) != 2 {
+		t.Fatalf("expected audit log-retention job to enqueue without inline delete")
 	}
 }
 
-func TestManagementAuditDeleteJobCreateContract(t *testing.T) {
+func TestManagementLogRetentionJobCreateContract(t *testing.T) {
 	harness := newS15ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	before := fixedS15Now.Add(-time.Hour).Format(time.RFC3339)
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", map[string]any{"scope": map[string]any{"before": before}, "reason": "retention cleanup"}, withHeader(modelHeader(profileID), "Idempotency-Key", "audit-delete-create"))
-	assertStatus(t, response, http.StatusAccepted)
-	if response.Header.Get("Location") == "" {
-		t.Fatal("expected delete job create to set Location header")
+	jobID := createS15LogRetentionJob(t, harness, "loadbalance_events", map[string]any{"delete_all": true}, "create")
+	if jobID == "" {
+		t.Fatal("expected log-retention job id")
 	}
 }
 
-func TestManagementJobStatusContract(t *testing.T) {
+func TestManagementLogRetentionJobIdempotency(t *testing.T) {
 	harness := newS15ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	jobID := createS15AuditDeleteJob(t, harness, profileID, "status")
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/management/jobs/"+jobID, nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if payload["id"] != jobID || payload["type"] != "audit_delete" || payload["progress"] == nil {
-		t.Fatalf("expected job status contract, got %+v", payload)
-	}
-}
-
-func TestManagementJobCancelContract(t *testing.T) {
-	harness := newS15ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	jobID := createS15AuditDeleteJob(t, harness, profileID, "cancel")
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/management/jobs/"+jobID+"/cancel", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusAccepted)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if payload["state"] != "cancelled" && payload["state"] != "cancel_requested" {
-		t.Fatalf("expected cancelled job state, got %+v", payload)
-	}
-}
-
-func TestManagementAuditDeleteJobIdempotency(t *testing.T) {
-	harness := newS15ContractHarness(t)
-	profileID := modelLoadDefaultProfileID(t, harness)
-	body := map[string]any{"scope": map[string]any{"before": fixedS15Now.Format(time.RFC3339)}, "reason": "retention cleanup"}
-	first := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", body, withHeader(modelHeader(profileID), "Idempotency-Key", "idem-delete"))
-	second := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", body, withHeader(modelHeader(profileID), "Idempotency-Key", "idem-delete"))
-	assertStatus(t, first, http.StatusAccepted)
-	assertStatus(t, second, http.StatusAccepted)
-	var firstPayload map[string]any
-	var secondPayload map[string]any
-	decodeJSONResponse(t, first, &firstPayload)
-	decodeJSONResponse(t, second, &secondPayload)
-	if firstPayload["job_id"] != secondPayload["job_id"] {
-		t.Fatalf("expected idempotent create to return same job, got %+v and %+v", firstPayload, secondPayload)
+	first := createS15LogRetentionJob(t, harness, "audit_logs", map[string]any{"delete_all": true}, "idem")
+	second := createS15LogRetentionJob(t, harness, "audit_logs", map[string]any{"delete_all": true}, "idem")
+	if first != second {
+		t.Fatalf("expected idempotent log-retention create to return same job, got %s and %s", first, second)
 	}
 }
 
@@ -580,26 +577,23 @@ func TestRequestLogDeletionDoesNotWidenAuditVisibility(t *testing.T) {
 		t.Fatalf("expected only enabled audit row visible before request-log deletion, got %+v", beforeDeletePayload)
 	}
 
-	deleteResponse := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/stats/requests?delete_all=true", nil, modelHeader(profileID))
-	assertStatus(t, deleteResponse, http.StatusOK)
-	var deletePayload map[string]any
-	decodeJSONResponse(t, deleteResponse, &deletePayload)
-	if deletePayload["accepted"] != true {
-		t.Fatalf("expected request-log delete accepted response, got %+v", deletePayload)
+	jobID := createS15LogRetentionJob(t, harness, "request_logs", map[string]any{"delete_all": true}, "request-log-visibility")
+	if jobID == "" {
+		t.Fatal("expected request-log retention job id")
 	}
-	if s15CountRows(t, harness, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`, profileID) != 0 {
-		t.Fatalf("expected request-log delete to remove all parent request rows")
+	if s15CountRows(t, harness, `SELECT COUNT(*) FROM request_logs WHERE profile_id = $1`, profileID) != 2 {
+		t.Fatalf("expected global request-log retention job to avoid inline parent request deletion")
 	}
-	if s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1 AND request_log_id IS NULL`, profileID) != 2 {
-		t.Fatalf("expected request-log delete to orphan both audit rows by nulling request_log_id")
+	if s15CountRows(t, harness, `SELECT COUNT(*) FROM audit_logs WHERE profile_id = $1 AND request_log_id IS NULL`, profileID) != 0 {
+		t.Fatalf("expected global request-log retention job to avoid inline audit orphaning")
 	}
 
-	afterDelete := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=20", nil, modelHeader(profileID))
-	assertStatus(t, afterDelete, http.StatusOK)
-	var afterDeletePayload map[string]any
-	decodeJSONResponse(t, afterDelete, &afterDeletePayload)
-	if len(afterDeletePayload["items"].([]any)) != 1 || jsonInt(t, asMap(t, afterDeletePayload["items"].([]any)[0])["id"]) != 811 {
-		t.Fatalf("expected request-log deletion to keep orphan visibility frozen instead of widening it, got %+v", afterDeletePayload)
+	afterJob := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&limit=20", nil, modelHeader(profileID))
+	assertStatus(t, afterJob, http.StatusOK)
+	var afterJobPayload map[string]any
+	decodeJSONResponse(t, afterJob, &afterJobPayload)
+	if len(afterJobPayload["items"].([]any)) != 1 || jsonInt(t, asMap(t, afterJobPayload["items"].([]any)[0])["id"]) != 811 {
+		t.Fatalf("expected queued request-log retention job not to widen audit visibility inline, got %+v", afterJobPayload)
 	}
 }
 
@@ -774,7 +768,7 @@ func TestLoadbalanceReset(t *testing.T) {
 	endpointID := modelInsertEndpoint(t, harness, profileID, "LB Reset Endpoint", 0)
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
 	insertRuntimeState(t, harness, runtimeStateSeed{ProfileID: profileID, ConnectionID: connectionID, ConsecutiveFailures: 3, LastFailureKind: stringPtr("timeout"), LastCooldownSeconds: 90.0, MaxCooldownStrikes: 2, BanMode: "manual", ProbeEligibleLogged: false, CircuitState: "open", CreatedAt: fixedS15Now.Add(-1 * time.Hour), UpdatedAt: fixedS15Now})
-	for idx := 0; idx < 3; idx++ {
+	for range 3 {
 		harness.runtimeService.RuntimeState().ClaimRoundRobinCursor(profileID, modelConfigID, 4)
 	}
 
@@ -821,18 +815,40 @@ func TestLoadbalanceEvents(t *testing.T) {
 	}
 }
 
-func TestLoadbalanceDeleteEvents(t *testing.T) {
+func TestLoadbalancePartitionProfileScopedEvents(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1100, ProfileID: profileID, ConnectionID: 1, EventType: "opened", ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-delete-model"), CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
-	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1101, ProfileID: profileID, ConnectionID: 1, EventType: "opened", ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-delete-model"), CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
+	otherProfileID := s15InsertProfile(t, harness, "S15 Other Loadbalance")
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1200, ProfileID: profileID, ConnectionID: 1, EventType: "opened", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 1, CooldownSeconds: 30.0, ModelID: stringPtr("lb-partition-model"), CreatedAt: fixedS15Now.Add(-2 * time.Minute)})
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1201, ProfileID: otherProfileID, ConnectionID: 1, EventType: "banned", FailureKind: stringPtr("timeout"), ConsecutiveFailures: 2, CooldownSeconds: 60.0, ModelID: stringPtr("lb-partition-model"), CreatedAt: fixedS15Now.Add(-1 * time.Minute)})
 
-	response := harness.requestJSON(t, harness.client, http.MethodDelete, "/api/loadbalance/events?older_than_days=1", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusOK)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	if payload["accepted"] != true || s15CountRows(t, harness, `SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1`, profileID) != 1 {
-		t.Fatalf("expected loadbalance event delete to remove only old rows, got %+v", payload)
+	listResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events?model_id=lb-partition-model&limit=20&offset=0", nil, modelHeader(profileID))
+	assertStatus(t, listResponse, http.StatusOK)
+	var listPayload map[string]any
+	decodeJSONResponse(t, listResponse, &listPayload)
+	items := listPayload["items"].([]any)
+	if jsonInt(t, listPayload["total"]) != 1 || len(items) != 1 || jsonInt(t, asMap(t, items[0])["id"]) != 1200 {
+		t.Fatalf("expected profile-scoped loadbalance event list over partitions, got %+v", listPayload)
+	}
+
+	detailResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/loadbalance/events/1200", nil, modelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	if detailPayload["event_type"] != "opened" || jsonInt(t, detailPayload["id"]) != 1200 {
+		t.Fatalf("expected loadbalance partition detail for selected profile, got %+v", detailPayload)
+	}
+}
+
+func TestLoadbalanceEventRetentionJob(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1100, ProfileID: profileID, ConnectionID: 1, EventType: "opened", ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-retention-model"), CreatedAt: fixedS15Now.Add(-48 * time.Hour)})
+	insertLoadbalanceEvent(t, harness, loadbalanceEventSeed{ID: 1101, ProfileID: profileID, ConnectionID: 1, EventType: "opened", ConsecutiveFailures: 1, CooldownSeconds: 60.0, ModelID: stringPtr("lb-retention-model"), CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
+
+	jobID := createS15LogRetentionJob(t, harness, "loadbalance_events", map[string]any{"cutoff": fixedS15Now.Add(-24 * time.Hour).Format(time.RFC3339)}, "loadbalance-events")
+	if jobID == "" || s15CountRows(t, harness, `SELECT COUNT(*) FROM loadbalance_events WHERE profile_id = $1`, profileID) != 2 {
+		t.Fatalf("expected loadbalance event retention job to enqueue without inline delete")
 	}
 }
 
@@ -1011,6 +1027,21 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 		t.Fatalf("run startup service: %v", err)
 	}
 	settings := config.Settings{Host: "127.0.0.1", Port: 8000, AppEnv: config.EnvironmentProduction, DatabaseURL: sharedPostgresHarness.connectionString(databaseName), SecretEncryptionKey: "s15-contract-secret", CORSAllowedOrigins: "http://localhost:5173,http://127.0.0.1:5173"}
+	s15PartitionHarness := &contractHarness{conn: conn, dsn: settings.DatabaseURL}
+	ensureContractTestLogPartitions(t, s15PartitionHarness,
+		contractTestLogPartitionFor("request_logs", fixedS15Now.AddDate(0, 0, -2)),
+		contractTestLogPartitionFor("request_logs", fixedS15Now.AddDate(0, 0, -1)),
+		contractTestLogPartitionFor("request_logs", fixedS15Now),
+		contractTestLogPartitionFor("audit_logs", fixedS15Now.AddDate(0, 0, -2)),
+		contractTestLogPartitionFor("audit_logs", fixedS15Now.AddDate(0, 0, -1)),
+		contractTestLogPartitionFor("audit_logs", fixedS15Now),
+		contractTestLogPartitionFor("usage_request_events", fixedS15Now.AddDate(0, 0, -2)),
+		contractTestLogPartitionFor("usage_request_events", fixedS15Now.AddDate(0, 0, -1)),
+		contractTestLogPartitionFor("usage_request_events", fixedS15Now),
+		contractTestLogPartitionFor("loadbalance_events", fixedS15Now.AddDate(0, 0, -2)),
+		contractTestLogPartitionFor("loadbalance_events", fixedS15Now.AddDate(0, 0, -1)),
+		contractTestLogPartitionFor("loadbalance_events", fixedS15Now),
+	)
 	pool, err := pgxpool.New(testContext, settings.DatabaseURL)
 	if err != nil {
 		t.Fatalf("create pgx pool: %v", err)
@@ -1106,6 +1137,8 @@ type auditLogSeed struct {
 	ID                          int
 	ProfileID                   int
 	RequestLogID                *int
+	RequestLogCreatedAt         *time.Time
+	IngressRequestID            *string
 	ModelID                     string
 	RequestHeaders              string
 	RequestBody                 *string
@@ -1163,6 +1196,7 @@ type loadbalanceEventSeed struct {
 
 func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSeed) {
 	t.Helper()
+	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", seed.CreatedAt))
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`, seed.ID, seed.ProfileID, seed.IngressRequestID, seed.ModelID, nullableTestString(seed.ResolvedTargetModelID), seed.APIFamily, nullableTestInt(seed.EndpointID), nullableTestInt(seed.ConnectionID), nullableTestInt(seed.ProxyAPIKeyID), nullableTestString(seed.ProxyAPIKeyNameSnapshot), seed.StatusCode, seed.SuccessFlag, nullableTestInt(seed.InputTokens), nullableTestInt(seed.OutputTokens), nullableTestInt(seed.TotalTokens), nullableTestInt(seed.CacheReadInputTokens), nullableTestInt(seed.CacheCreationInputTokens), nullableTestInt(seed.ReasoningTokens), nullableTestInt64(seed.TotalCostUserCurrencyMicros), seed.AttemptCount, seed.RequestPath, seed.CreatedAt, nullableTestInt(seed.ResponseTimeMS), nullableTestInt(seed.CompletionDurationMS), nullableTestInt(seed.TTFTMS), nullableTestBool(seed.BillableFlag), nullableTestBool(seed.PricedFlag), nullableTestString(seed.UnpricedReason)); err != nil {
 		t.Fatalf("insert usage event %d: %v", seed.ID, err)
 	}
@@ -1175,6 +1209,7 @@ func insertRequestLogSummaryRow(t *testing.T, harness *contractHarness, id int, 
 
 func insertRequestLogSummaryRowWithAuditEnabled(t *testing.T, harness *contractHarness, id int, profileID int, modelID string, apiFamily string, endpointID int, connectionID int, statusCode int, responseTimeMS int, inputTokens int, outputTokens int, totalTokens int, createdAt time.Time, auditEnabledAtRequest bool) {
 	t.Helper()
+	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("request_logs", createdAt))
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO request_logs (id, profile_id, model_id, api_family, endpoint_id, connection_id, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, request_path, created_at, endpoint_base_url, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, $9, $10, $11, $12, TRUE, TRUE, '/v1/chat/completions', $13, $14, $15, FALSE)`, id, profileID, modelID, apiFamily, endpointID, connectionID, statusCode, responseTimeMS, inputTokens, outputTokens, totalTokens, statusCode >= 200 && statusCode < 300, createdAt, fmt.Sprintf("https://endpoint-%d.invalid", endpointID), auditEnabledAtRequest); err != nil {
 		t.Fatalf("insert request-log summary row %d: %v", id, err)
 	}
@@ -1194,8 +1229,12 @@ func insertAuditLog(t *testing.T, harness *contractHarness, seed auditLogSeed) {
 	if !auditCaptureBodiesAtRequest && (seed.RequestBody != nil || seed.ResponseBody != nil) {
 		auditCaptureBodiesAtRequest = true
 	}
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, $3, NULL, $4, NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', $5, $6, $7, $8, $9, $10, $11, $12, 1234, $13, $14, $15)`, seed.ID, seed.ProfileID, nullableTestInt(seed.RequestLogID), seed.ModelID, seed.RequestHeaders, nullableTestString(seed.RequestBody), requestBodyStored, seed.ResponseStatus, nullableTestString(seed.ResponseHeaders), nullableTestString(seed.ResponseBody), responseBodyStored, seed.IsStream, seed.AuditEnabledAtRequest, auditCaptureBodiesAtRequest, seed.CreatedAt); err != nil {
-		t.Fatalf("insert audit log %d: %v", seed.ID, err)
+	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("audit_logs", seed.CreatedAt))
+	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO audit_logs (id, profile_id, request_log_id, request_log_created_at, ingress_request_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, audit_enabled_at_request, audit_capture_bodies_at_request, created_at) VALUES ($1, $2, $3, $4, $5, NULL, $6, NULL, NULL, 'https://audit.invalid', 'Audit endpoint', 'POST', 'https://audit.invalid/v1/chat/completions', $7, $8, $9, $10, $11, $12, $13, $14, 1234, $15, $16, $17)`, seed.ID, seed.ProfileID, nullableTestInt(seed.RequestLogID), nullableTestTime(seed.RequestLogCreatedAt), nullableTestString(seed.IngressRequestID), seed.ModelID, seed.RequestHeaders, nullableTestString(seed.RequestBody), requestBodyStored, seed.ResponseStatus, nullableTestString(seed.ResponseHeaders), nullableTestString(seed.ResponseBody), responseBodyStored, seed.IsStream, seed.AuditEnabledAtRequest, auditCaptureBodiesAtRequest, seed.CreatedAt); err != nil {
+		if pgErr, ok := err.(*pgconn.PgError); ok {
+			t.Fatalf("insert audit log %d at %s: %s (%s)", seed.ID, seed.CreatedAt.UTC().Format(time.RFC3339), pgErr.Message, pgErr.Detail)
+		}
+		t.Fatalf("insert audit log %d at %s: %v", seed.ID, seed.CreatedAt.UTC().Format(time.RFC3339), err)
 	}
 }
 
@@ -1238,6 +1277,7 @@ func insertRuntimeState(t *testing.T, harness *contractHarness, seed runtimeStat
 
 func insertLoadbalanceEvent(t *testing.T, harness *contractHarness, seed loadbalanceEventSeed) {
 	t.Helper()
+	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("loadbalance_events", seed.CreatedAt))
 	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO loadbalance_events (id, profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds, blocked_until_mono, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`, seed.ID, seed.ProfileID, seed.ConnectionID, seed.EventType, nullableTestString(seed.FailureKind), seed.ConsecutiveFailures, seed.CooldownSeconds, nullableTestFloat64(seed.BlockedUntilMono), nullableTestString(seed.ModelID), nullableTestInt(seed.EndpointID), nullableTestInt(seed.VendorID), nullableTestInt(seed.FailureThreshold), nullableTestFloat64(seed.BackoffMultiplier), nullableTestInt(seed.MaxCooldownSeconds), nullableTestInt(seed.MaxCooldownStrikes), nullableTestString(seed.BanMode), nullableTestTime(seed.BannedUntilAt), seed.CreatedAt); err != nil {
 		t.Fatalf("insert loadbalance event %d: %v", seed.ID, err)
 	}
@@ -1386,6 +1426,25 @@ func s15CountRows(t *testing.T, harness *contractHarness, query string, args ...
 	return count
 }
 
+func s15InsertProfile(t *testing.T, harness *contractHarness, name string) int {
+	t.Helper()
+	now := time.Now().UTC()
+	var profileID int
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO profiles (name, description, is_active, is_default, is_editable, version, deleted_at, created_at, updated_at) VALUES ($1, NULL, FALSE, FALSE, TRUE, 0, NULL, $2, $2) RETURNING id`, name, now).Scan(&profileID); err != nil {
+		t.Fatalf("insert profile %q: %v", name, err)
+	}
+	return profileID
+}
+
+func dropS15RequestLogPartition(t *testing.T, harness *contractHarness, createdAt time.Time) {
+	t.Helper()
+	day := utcContractPartitionDay(createdAt)
+	partitionName := fmt.Sprintf("request_logs_p%s", day.Format("20060102"))
+	if _, err := harness.conn.Exec(context.Background(), fmt.Sprintf(`DROP TABLE IF EXISTS public.%s`, quoteIdentifier(partitionName))); err != nil {
+		t.Fatalf("drop request log partition %s: %v", partitionName, err)
+	}
+}
+
 func s15ReadBackendSource(t *testing.T, relative string) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(s15BackendRoot(t), relative))
@@ -1406,9 +1465,7 @@ func s15BackendRoot(t *testing.T) string {
 
 func withHeader(headers map[string]string, key string, value string) map[string]string {
 	merged := make(map[string]string, len(headers)+1)
-	for existingKey, existingValue := range headers {
-		merged[existingKey] = existingValue
-	}
+	maps.Copy(merged, headers)
 	merged[key] = value
 	return merged
 }
@@ -1420,16 +1477,22 @@ func insertDashboardStatRollup(t *testing.T, harness *contractHarness, profileID
 	}
 }
 
-func createS15AuditDeleteJob(t *testing.T, harness *contractHarness, profileID int, suffix string) string {
+func createS15LogRetentionJob(t *testing.T, harness *contractHarness, tableName string, scope map[string]any, suffix string) string {
 	t.Helper()
-	body := map[string]any{"scope": map[string]any{"before": fixedS15Now.Format(time.RFC3339)}, "reason": "retention cleanup"}
-	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/audit/logs/delete-jobs", body, withHeader(modelHeader(profileID), "Idempotency-Key", "audit-delete-"+suffix))
+	body := map[string]any{"table": tableName, "reason": "retention cleanup"}
+	maps.Copy(body, scope)
+	response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/maintenance/log-retention/jobs", body, withHeader(map[string]string{}, "Idempotency-Key", "log-retention-"+suffix))
 	assertStatus(t, response, http.StatusAccepted)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	jobID, ok := payload["job_id"].(string)
-	if !ok || jobID == "" {
-		t.Fatalf("expected delete job id, got %+v", payload)
+	statusURL, _ := payload["status_url"].(string)
+	if !ok || jobID == "" || payload["state"] != "queued" || statusURL != "/api/management/jobs/"+jobID || response.Header.Get("Location") != statusURL {
+		t.Fatalf("expected log-retention job response, got %+v with Location %q", payload, response.Header.Get("Location"))
+	}
+	payloadScope := asMap(t, payload["scope"])
+	if payloadScope["table"] != tableName {
+		t.Fatalf("expected log-retention scope for %s, got %+v", tableName, payload)
 	}
 	return jobID
 }

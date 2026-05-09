@@ -104,7 +104,10 @@ func TestPriorityUnitContract(t *testing.T) {
 		assertContains(t, "internal/pgxutil/tx.go", "hook(ctx, tx)", "tx.Commit(ctx)")
 		assertContains(t, "internal/platform/email/outbox/outbox.go", "ON CONFLICT (idempotency_key)", "status = \"dead\"", "sanitizeError")
 		assertContains(t, "internal/platform/managementsideeffects/outbox.go", "AfterCommit(context.Background(), dispatcher.Wake", "failed_permanent", "FOR UPDATE SKIP LOCKED")
-		assertContains(t, "internal/httpapi/management/stats/service.go", "enqueueDashboardInvalidation", "managementsideeffects.InsertTx")
+		assertContains(t, "internal/httpapi/management/stats/service.go", "EventDashboardSnapshotInvalidate", "RegisterHandler", "handleDashboardSnapshotInvalidation")
+		assertNotContains(t, "internal/httpapi/management/stats/service.go", "managementsideeffects.InsertTx", "router.Delete(", "DELETE FROM request_logs", "DELETE FROM usage_request_events")
+		assertContains(t, "internal/httpapi/management/settings/routes.go", "handleCreateLogRetentionJob", "CreateLogRetentionJob", "LogRetentionScope")
+		assertContains(t, "internal/platform/logretention/store.go", "RunRetention", "DropExpiredPartitions", "DeleteBoundaryRows", "EnsurePartitionForTime")
 		assertContains(t, "internal/domain/stats/rollups.go", "management_stat_buckets", "source_high_water_mark")
 		assertContains(t, "internal/httpapi/runtime/cache.go", "ErrRuntimeSnapshotGenerationChanged", "ReadRuntimeGenerationVector(ctx, tx, DefaultRuntimeGenerationScopes())")
 	})
@@ -116,6 +119,16 @@ func assertContains(t *testing.T, relativePath string, markers ...string) {
 	for _, marker := range markers {
 		if !strings.Contains(content, marker) {
 			t.Fatalf("%s missing marker %q", relativePath, marker)
+		}
+	}
+}
+
+func assertNotContains(t *testing.T, relativePath string, markers ...string) {
+	t.Helper()
+	content := readBackendFile(t, relativePath)
+	for _, marker := range markers {
+		if strings.Contains(content, marker) {
+			t.Fatalf("%s contains obsolete marker %q", relativePath, marker)
 		}
 	}
 }

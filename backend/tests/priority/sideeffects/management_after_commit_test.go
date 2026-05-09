@@ -18,13 +18,15 @@ func TestManagementAfterCommitSemantics(t *testing.T) {
 	t.Run("rollback suppresses after commit work", func(t *testing.T) {
 		backendRoot := backendRoot(t)
 		stats := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "stats", "service.go"))
-		for _, want := range []string{"managementsideeffects.InsertTx", "managementsideeffects.AfterCommit", "EventDashboardSnapshotInvalidate"} {
+		for _, want := range []string{"EventDashboardSnapshotInvalidate", "RegisterHandler", "handleDashboardSnapshotInvalidation"} {
 			if !strings.Contains(stats, want) {
-				t.Fatalf("stats management mutation missing %q", want)
+				t.Fatalf("stats dashboard invalidation handler missing %q", want)
 			}
 		}
-		if strings.Contains(stats, "s.invalidateDashboardAggregateSnapshot(profileID)") {
-			t.Fatal("stats delete still invalidates dashboard snapshots inline after transaction")
+		for _, obsolete := range []string{"managementsideeffects.InsertTx", "router.Delete(", "DELETE FROM request_logs", "DELETE FROM usage_request_events", "s.invalidateDashboardAggregateSnapshot(profileID)"} {
+			if strings.Contains(stats, obsolete) {
+				t.Fatalf("stats service still contains obsolete inline mutation marker %q", obsolete)
+			}
 		}
 	})
 
@@ -89,14 +91,28 @@ func TestManagementAfterCommitSemantics(t *testing.T) {
 				t.Fatalf("lifecycle wiring missing %q", want)
 			}
 		}
-		stats := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "stats", "service.go"))
-		for _, want := range []string{"managementsideeffects.InsertTx", "managementsideeffects.AfterCommit", "EventDashboardSnapshotInvalidate"} {
-			if !strings.Contains(stats, want) {
-				t.Fatalf("stats management mutation missing %q", want)
+		settings := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "settings", "routes.go"))
+		for _, want := range []string{"handleCreateLogRetentionJob", "CreateLogRetentionJob", "LogRetentionScope"} {
+			if !strings.Contains(settings, want) {
+				t.Fatalf("settings retention job route missing %q", want)
 			}
 		}
-		if strings.Contains(stats, "s.invalidateDashboardAggregateSnapshot(profileID)") {
-			t.Fatal("stats delete still invalidates dashboard snapshots inline after transaction")
+		logRetention := readSource(t, filepath.Join(backendRoot, "internal", "platform", "logretention", "store.go"))
+		for _, want := range []string{"RunRetention", "DropExpiredPartitions", "DeleteBoundaryRows", "EnsurePartitionForTime"} {
+			if !strings.Contains(logRetention, want) {
+				t.Fatalf("log retention store missing %q", want)
+			}
+		}
+		stats := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "management", "stats", "service.go"))
+		for _, want := range []string{"EventDashboardSnapshotInvalidate", "RegisterHandler", "handleDashboardSnapshotInvalidation"} {
+			if !strings.Contains(stats, want) {
+				t.Fatalf("stats dashboard invalidation handler missing %q", want)
+			}
+		}
+		for _, obsolete := range []string{"managementsideeffects.InsertTx", "router.Delete(", "DELETE FROM request_logs", "DELETE FROM usage_request_events", "s.invalidateDashboardAggregateSnapshot(profileID)"} {
+			if strings.Contains(stats, obsolete) {
+				t.Fatalf("stats service still contains obsolete inline mutation marker %q", obsolete)
+			}
 		}
 	})
 }

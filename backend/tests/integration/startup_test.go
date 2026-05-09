@@ -11,9 +11,68 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/lifecycle"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 	"github.com/coachpo/prism/backend/internal/platform/startup"
 )
+
+func TestStartupCreatesLogPartitions(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	databaseName := "startup_creates_log_partitions"
+	conn := harness.openDatabase(t, testContext, databaseName)
+	defer func() { _ = conn.Close(testContext) }()
+
+	service := newStartupService(t, harness.connectionString(databaseName), nil)
+	if _, err := service.RunWithConn(testContext, conn); err != nil {
+		t.Fatalf("run startup sequence before production lifecycle: %v", err)
+	}
+
+	app, _, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(harness.connectionString(databaseName)), lifecycle.ProductionOptions{})
+	if err != nil {
+		t.Fatalf("build production app with log partition bootstrap: %v", err)
+	}
+	defer func() {
+		if err := app.Shutdown(context.Background()); err != nil {
+			t.Fatalf("shutdown production app: %v", err)
+		}
+	}()
+
+	assertStartupLogPartitionHorizon(t, testContext, conn)
+}
+
+func TestStartupFailsWhenLogPartitionBootstrapFails(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	databaseName := "startup_fails_log_partition_bootstrap"
+	conn := harness.openDatabase(t, testContext, databaseName)
+	defer func() { _ = conn.Close(testContext) }()
+
+	service := newStartupService(t, harness.connectionString(databaseName), nil)
+	if _, err := service.RunWithConn(testContext, conn); err != nil {
+		t.Fatalf("run startup sequence before bootstrap failure setup: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `ALTER TABLE request_logs RENAME TO request_logs_bootstrap_broken`); err != nil {
+		t.Fatalf("break request_logs partition root: %v", err)
+	}
+
+	app, server, err := lifecycle.NewProductionApp(testContext, productionLifecycleSettings(harness.connectionString(databaseName)), lifecycle.ProductionOptions{})
+	if err == nil {
+		if app != nil {
+			_ = app.Shutdown(context.Background())
+		}
+		t.Fatalf("expected production app startup to fail, got app=%v server=%v", app, server)
+	}
+	if !strings.Contains(err.Error(), "bootstrap log partition horizon") || !strings.Contains(err.Error(), "request_logs") {
+		t.Fatalf("expected contextual log partition bootstrap error, got %v", err)
+	}
+}
 
 func TestStartupSeeds(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -673,6 +732,47 @@ func newStartupService(t *testing.T, databaseURL string, observer func(startup.S
 	}
 
 	return service
+}
+
+func productionLifecycleSettings(databaseURL string) config.Settings {
+	return config.Settings{
+		Host:                     "127.0.0.1",
+		Port:                     18000,
+		AppEnv:                   config.EnvironmentProduction,
+		DatabaseURL:              databaseURL,
+		RuntimeTransportConfig:   config.RuntimeTransportConfig{RequestTimeout: time.Second},
+		RuntimeSideEffectsConfig: config.RuntimeSideEffectsConfig{AttemptTimeout: time.Second},
+		SecretEncryptionKey:      "startup-test-secret",
+		AuthJWTSecret:            "startup-test-jwt-secret",
+	}
+}
+
+func assertStartupLogPartitionHorizon(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	const expectedHorizonDays = 15
+	for _, tableName := range logretention.ManagedTables() {
+		var partitionCount int
+		if err := conn.QueryRow(ctx, `
+			SELECT COUNT(*)
+			FROM pg_inherits inheritance
+			JOIN pg_class parent ON parent.oid = inheritance.inhparent
+			JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+			WHERE parent_ns.nspname = 'public' AND parent.relname = $1`, tableName).Scan(&partitionCount); err != nil {
+			t.Fatalf("count startup partitions for %s: %v", tableName, err)
+		}
+		if partitionCount != expectedHorizonDays {
+			t.Fatalf("expected %d startup partitions for %s, got %d", expectedHorizonDays, tableName, partitionCount)
+		}
+
+		currentPartition := tableName + "_p" + time.Now().UTC().Format("20060102")
+		var currentPartitionExists bool
+		if err := conn.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "public."+currentPartition).Scan(&currentPartitionExists); err != nil {
+			t.Fatalf("check current startup partition for %s: %v", tableName, err)
+		}
+		if !currentPartitionExists {
+			t.Fatalf("expected current startup partition %s to exist", currentPartition)
+		}
+	}
 }
 
 func assertStartupStepOrder(t *testing.T, result startup.Result) {

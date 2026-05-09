@@ -16,7 +16,7 @@ import (
 
 func TestM3ShedsManagementAuditBeforeDashboardStats(t *testing.T) {
 	admissionSource := runtimePhase7ReadBackendSource(t, "internal/platform/http/admission.go")
-	for _, route := range []string{`pattern: "/audit/logs", tier: priority.ManagementTierM3`, `pattern: "/audit/logs/delete-jobs", tier: priority.ManagementTierM3`, `pattern: "/management/jobs", tier: priority.ManagementTierM3`, `pattern: "/stats/dashboard", tier: priority.ManagementTierM3`} {
+	for _, route := range []string{`pattern: "/audit/logs", tier: priority.ManagementTierM3`, `pattern: "/audit/logs/delete-jobs", tier: priority.ManagementTierM3`, `pattern: "/maintenance/log-retention/jobs", tier: priority.ManagementTierM3`, `pattern: "/management/jobs", tier: priority.ManagementTierM3`, `pattern: "/stats/dashboard", tier: priority.ManagementTierM3`} {
 		if !strings.Contains(admissionSource, route) {
 			t.Fatalf("expected M3 admission classification for %s", route)
 		}

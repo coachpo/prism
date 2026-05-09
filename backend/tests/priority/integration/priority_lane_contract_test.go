@@ -41,13 +41,14 @@ func TestPriorityLaneContract(t *testing.T) {
 			"RealtimePool: realtimePool",
 			"RefreshPool: cacheRefreshPool",
 			"ProxyKeyUsagePool: backgroundJobsPool",
+			"logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundJobsPool})",
 			"TelemetryPool: runtimeTelemetryPool",
 		} {
 			if !strings.Contains(lifecycle, want) {
 				t.Fatalf("lifecycle wiring missing declared lane marker %q", want)
 			}
 		}
-		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RealtimePool: managementPool", "RefreshPool: managementPool", "TelemetryPool: runtimeExecutionPool", "ProxyKeyUsagePool: managementPool"} {
+		for _, forbidden := range []string{"FeedbackPool: runtimeExecutionPool", "FeedbackPool: runtimeTelemetryPool", "RealtimePool: managementPool", "RefreshPool: managementPool", "TelemetryPool: runtimeExecutionPool", "ProxyKeyUsagePool: managementPool", "logretention.Options{Pool: runtimeExecutionPool}", "logretention.Options{Pool: runtimeTelemetryPool}", "logretention.Options{Pool: runtimeFeedbackPool}"} {
 			if strings.Contains(lifecycle, forbidden) {
 				t.Fatalf("lifecycle wiring borrows forbidden lane %q", forbidden)
 			}

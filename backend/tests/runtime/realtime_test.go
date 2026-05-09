@@ -681,7 +681,7 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 	}
 	client := server.Client()
 	client.Jar = jar
-	baseHarness := &runtimeHarness{client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
+	baseHarness := &runtimeHarness{databaseName: databaseName, client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
 	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, fixedNow: fixedNow}
 }
 
@@ -741,6 +741,10 @@ func (h *realtimeHarness) seedRealtimeDashboardRoute(t *testing.T, profileID int
 
 func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDashboardRoute, profileID int, requestLogID int, usageEventID int, createdAt time.Time) int {
 	t.Helper()
+	ensureRuntimeTestLogPartitions(t, h.databaseName,
+		runtimeTestLogPartitionFor("request_logs", createdAt),
+		runtimeTestLogPartitionFor("usage_request_events", createdAt),
+	)
 	if _, err := h.conn.Exec(
 		context.Background(),
 		`INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, endpoint_description, created_at) VALUES ($1, $2, $3, $4, 'openai', $5, $6, $7, 1, $8, $9, 200, 1200, FALSE, 11, 7, 18, TRUE, TRUE, TRUE, 1250, 'USD', '$', '/v1/chat/completions', $10, $11)`,

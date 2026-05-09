@@ -29,6 +29,7 @@ var expectedPrismMigrationVersions = []string{
 	"000010_runtime_cache_generations",
 	"000011_stream_outcome_telemetry",
 	"000012_proxy_target_selection_strategies",
+	"000013_partitioned_log_retention",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -54,6 +55,27 @@ func TestBaselineFreshApply(t *testing.T) {
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
+	assertPartitionedLogSchemaContract(t, testContext, conn)
+}
+
+func TestPartitionedLogSchemaContract(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "partitioned_log_schema_contract")
+	defer func() { _ = conn.Close(testContext) }()
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run partitioned log schema migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected partitioned log schema migration to apply, got %q", result.Outcome)
+	}
+
+	assertPartitionedLogSchemaContract(t, testContext, conn)
 }
 
 func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
@@ -209,9 +231,8 @@ func TestStreamOutcomeTelemetryMigrationBackfillsAndEnforcesContracts(t *testing
 	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
 
 	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
-	assertRequestLogStreamOutcomeRows(t, testContext, conn, map[string]string{"req-nonstream": "not_streaming", "req-completed": "completed", "req-unknown": "unknown"})
-	assertUsageEventStreamOutcomeRows(t, testContext, conn, map[string]string{"req-nonstream": "not_streaming", "req-completed": "completed", "req-unknown": "unknown", "req-usage-completed": "completed", "req-usage-unknown": "unknown"})
-	assertStreamOutcomeTelemetryDefaults(t, testContext, conn)
+	assertCleanBreakLogRows(t, testContext, conn, "request_logs")
+	assertCleanBreakLogRows(t, testContext, conn, "usage_request_events")
 }
 
 func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
@@ -254,7 +275,7 @@ func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *
 	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
 
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertRequestLogAuditEnabledRows(t, testContext, conn, []bool{false, true, false})
+	assertCleanBreakLogRows(t, testContext, conn, "request_logs")
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 }
@@ -301,25 +322,7 @@ func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *te
 	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 
-	rows, err := conn.Query(testContext, `SELECT audit_capture_bodies_at_request FROM request_logs ORDER BY id ASC`)
-	if err != nil {
-		t.Fatalf("query request_logs audit_capture_bodies_at_request rows: %v", err)
-	}
-	defer rows.Close()
-	requestLogCaptureRows := []bool{}
-	for rows.Next() {
-		var value bool
-		if err := rows.Scan(&value); err != nil {
-			t.Fatalf("scan request_logs audit_capture_bodies_at_request row: %v", err)
-		}
-		requestLogCaptureRows = append(requestLogCaptureRows, value)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate request_logs audit_capture_bodies_at_request rows: %v", err)
-	}
-	if len(requestLogCaptureRows) != 2 || !requestLogCaptureRows[0] || requestLogCaptureRows[1] {
-		t.Fatalf("expected request_logs audit_capture_bodies_at_request rows [true false], got %v", requestLogCaptureRows)
-	}
+	assertCleanBreakLogRows(t, testContext, conn, "request_logs")
 
 	var requestLogIsNullable string
 	var requestLogDefault string
@@ -330,34 +333,7 @@ func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *te
 		t.Fatalf("expected request_logs.audit_capture_bodies_at_request NOT NULL with false default, got is_nullable=%q default=%q", requestLogIsNullable, requestLogDefault)
 	}
 
-	provenanceRows, err := conn.Query(testContext, `SELECT request_body_stored, response_body_stored, audit_enabled_at_request, audit_capture_bodies_at_request FROM audit_logs ORDER BY id ASC`)
-	if err != nil {
-		t.Fatalf("query audit_logs provenance rows: %v", err)
-	}
-	defer provenanceRows.Close()
-	gotAuditRows := [][4]bool{}
-	for provenanceRows.Next() {
-		var requestBodyStored bool
-		var responseBodyStored bool
-		var auditEnabled bool
-		var auditCaptureBodies bool
-		if err := provenanceRows.Scan(&requestBodyStored, &responseBodyStored, &auditEnabled, &auditCaptureBodies); err != nil {
-			t.Fatalf("scan audit_logs provenance row: %v", err)
-		}
-		gotAuditRows = append(gotAuditRows, [4]bool{requestBodyStored, responseBodyStored, auditEnabled, auditCaptureBodies})
-	}
-	if err := provenanceRows.Err(); err != nil {
-		t.Fatalf("iterate audit_logs provenance rows: %v", err)
-	}
-	wantAuditRows := [][4]bool{{true, true, true, true}, {false, false, false, false}, {true, false, true, true}}
-	if len(gotAuditRows) != len(wantAuditRows) {
-		t.Fatalf("expected audit_logs provenance rows %v, got %v", wantAuditRows, gotAuditRows)
-	}
-	for index := range wantAuditRows {
-		if gotAuditRows[index] != wantAuditRows[index] {
-			t.Fatalf("expected audit_logs provenance rows %v, got %v", wantAuditRows, gotAuditRows)
-		}
-	}
+	assertCleanBreakLogRows(t, testContext, conn, "audit_logs")
 }
 
 type postgresHarness struct {
@@ -530,33 +506,14 @@ func assertHistoryTableMissing(t *testing.T, ctx context.Context, conn *pgx.Conn
 	}
 }
 
-func assertRequestLogAuditEnabledRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected []bool) {
+func assertCleanBreakLogRows(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
 	t.Helper()
-
-	rows, err := conn.Query(ctx, `SELECT audit_enabled_at_request FROM request_logs ORDER BY id ASC`)
-	if err != nil {
-		t.Fatalf("query request_logs audit_enabled_at_request rows: %v", err)
+	var count int
+	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM `+quoteIdentifier(tableName)).Scan(&count); err != nil {
+		t.Fatalf("count clean-break %s rows: %v", tableName, err)
 	}
-	defer rows.Close()
-
-	values := make([]bool, 0, len(expected))
-	for rows.Next() {
-		var value bool
-		if err := rows.Scan(&value); err != nil {
-			t.Fatalf("scan request_logs audit_enabled_at_request row: %v", err)
-		}
-		values = append(values, value)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate request_logs audit_enabled_at_request rows: %v", err)
-	}
-	if len(values) != len(expected) {
-		t.Fatalf("expected request_logs audit_enabled_at_request rows %v, got %v", expected, values)
-	}
-	for index := range expected {
-		if values[index] != expected[index] {
-			t.Fatalf("expected request_logs audit_enabled_at_request rows %v, got %v", expected, values)
-		}
+	if count != 0 {
+		t.Fatalf("expected clean-break %s migration to discard legacy rows, got %d", tableName, count)
 	}
 }
 
@@ -721,99 +678,384 @@ func assertStreamTelemetryColumn(t *testing.T, contracts map[string]streamTeleme
 	}
 }
 
-func assertRequestLogStreamOutcomeRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
+func assertPartitionedLogSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	rows, err := conn.Query(ctx, `SELECT ingress_request_id, stream_outcome, stream_error_kind IS NULL, stream_error_detail IS NULL FROM request_logs ORDER BY id ASC`)
+
+	logTables := []string{"audit_logs", "request_logs", "usage_request_events", "loadbalance_events"}
+	assertPartitionedLogRoots(t, ctx, conn, logTables)
+	assertPartitionedLogPrimaryKeys(t, ctx, conn, logTables)
+	assertPartitionedLogIDDefaults(t, ctx, conn, logTables)
+	assertPartitionedLogRootIDIndexes(t, ctx, conn, logTables)
+	assertPartitionedLogLookupIndexes(t, ctx, conn)
+	assertPartitionedLogStorageParameterLimitation(t, ctx, conn, logTables)
+	assertAuditLogWeakRequestLinkContract(t, ctx, conn)
+	assertLogRetentionSettingsContract(t, ctx, conn)
+	assertNoLogChildPartitions(t, ctx, conn)
+}
+
+func assertPartitionedLogRoots(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT c.relname, c.relkind::text
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])
+		ORDER BY c.relname ASC`, logTables)
 	if err != nil {
-		t.Fatalf("query request_logs stream telemetry rows: %v", err)
+		t.Fatalf("load partitioned log roots: %v", err)
 	}
 	defer rows.Close()
-	got := map[string]struct {
-		outcome    string
-		kindNull   bool
-		detailNull bool
-	}{}
+
+	kinds := map[string]string{}
 	for rows.Next() {
-		var ingressRequestID string
-		var row struct {
-			outcome    string
-			kindNull   bool
-			detailNull bool
+		var name string
+		var relkind string
+		if err := rows.Scan(&name, &relkind); err != nil {
+			t.Fatalf("scan partitioned log root: %v", err)
 		}
-		if err := rows.Scan(&ingressRequestID, &row.outcome, &row.kindNull, &row.detailNull); err != nil {
-			t.Fatalf("scan request_logs stream telemetry row: %v", err)
-		}
-		got[ingressRequestID] = row
+		kinds[name] = relkind
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate request_logs stream telemetry rows: %v", err)
+		t.Fatalf("iterate partitioned log roots: %v", err)
 	}
-	if len(got) != len(expected) {
-		t.Fatalf("expected request_logs stream telemetry rows %v, got %+v", expected, got)
-	}
-	for ingressRequestID, wantOutcome := range expected {
-		row, ok := got[ingressRequestID]
-		if !ok || row.outcome != wantOutcome || !row.kindNull || !row.detailNull {
-			t.Fatalf("expected request_logs stream row %s outcome=%q with null error fields, got %+v", ingressRequestID, wantOutcome, row)
+	for _, tableName := range logTables {
+		if kinds[tableName] != "p" {
+			t.Fatalf("expected %s to have relkind p, got %q in %+v", tableName, kinds[tableName], kinds)
 		}
 	}
 }
 
-func assertUsageEventStreamOutcomeRows(t *testing.T, ctx context.Context, conn *pgx.Conn, expected map[string]string) {
+func assertPartitionedLogPrimaryKeys(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
 	t.Helper()
-	rows, err := conn.Query(ctx, `SELECT ingress_request_id, stream_outcome, stream_error_kind IS NULL FROM usage_request_events ORDER BY id ASC`)
-	if err != nil {
-		t.Fatalf("query usage_request_events stream telemetry rows: %v", err)
-	}
-	defer rows.Close()
-	got := map[string]struct {
-		outcome  string
-		kindNull bool
-	}{}
-	for rows.Next() {
-		var ingressRequestID string
-		var row struct {
-			outcome  string
-			kindNull bool
+	for _, tableName := range logTables {
+		var columns string
+		if err := conn.QueryRow(ctx, `
+			SELECT string_agg(att.attname, ',' ORDER BY keys.key_order)
+			FROM pg_constraint con
+			JOIN unnest(con.conkey) WITH ORDINALITY AS keys(attnum, key_order) ON true
+			JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = keys.attnum
+			WHERE con.conrelid = $1::regclass AND con.contype = 'p'`, "public."+tableName).Scan(&columns); err != nil {
+			t.Fatalf("load %s primary key columns: %v", tableName, err)
 		}
-		if err := rows.Scan(&ingressRequestID, &row.outcome, &row.kindNull); err != nil {
-			t.Fatalf("scan usage_request_events stream telemetry row: %v", err)
-		}
-		got[ingressRequestID] = row
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate usage_request_events stream telemetry rows: %v", err)
-	}
-	if len(got) != len(expected) {
-		t.Fatalf("expected usage_request_events stream telemetry rows %v, got %+v", expected, got)
-	}
-	for ingressRequestID, wantOutcome := range expected {
-		row, ok := got[ingressRequestID]
-		if !ok || row.outcome != wantOutcome || !row.kindNull {
-			t.Fatalf("expected usage_request_events stream row %s outcome=%q with null error kind, got %+v", ingressRequestID, wantOutcome, row)
+		if columns != "created_at,id" {
+			t.Fatalf("expected %s primary key on created_at,id, got %q", tableName, columns)
 		}
 	}
 }
 
-func assertStreamOutcomeTelemetryDefaults(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+func assertPartitionedLogIDDefaults(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
 	t.Helper()
-	var requestLogOutcome string
-	var requestLogKindNull bool
-	var requestLogDetailNull bool
-	if err := conn.QueryRow(ctx, `INSERT INTO request_logs (profile_id, ingress_request_id, attempt_number, is_stream) VALUES (2, 'req-default', 1, FALSE) RETURNING stream_outcome, stream_error_kind IS NULL, stream_error_detail IS NULL`).Scan(&requestLogOutcome, &requestLogKindNull, &requestLogDetailNull); err != nil {
-		t.Fatalf("insert request_logs stream telemetry default row: %v", err)
+	for _, tableName := range logTables {
+		var dataType string
+		var isNullable string
+		var columnDefault string
+		if err := conn.QueryRow(ctx, `
+			SELECT data_type, is_nullable, COALESCE(column_default, '')
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id'`, tableName).Scan(&dataType, &isNullable, &columnDefault); err != nil {
+			t.Fatalf("load %s id column contract: %v", tableName, err)
+		}
+		if dataType != "bigint" || isNullable != "NO" {
+			t.Fatalf("expected %s.id bigint not null, got type=%q nullable=%q", tableName, dataType, isNullable)
+		}
+		if !strings.Contains(columnDefault, "nextval") || !strings.Contains(columnDefault, tableName+"_id_seq") {
+			t.Fatalf("expected %s.id sequence default, got %q", tableName, columnDefault)
+		}
 	}
-	if requestLogOutcome != "not_streaming" || !requestLogKindNull || !requestLogDetailNull {
-		t.Fatalf("expected request_logs stream telemetry defaults not_streaming/null/null, got outcome=%q kind_null=%v detail_null=%v", requestLogOutcome, requestLogKindNull, requestLogDetailNull)
+}
+
+func assertPartitionedLogRootIDIndexes(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
+	t.Helper()
+	for _, tableName := range logTables {
+		assertIndexUniqueness(t, ctx, conn, tableName, "ix_"+tableName+"_id", false)
+	}
+}
+
+func assertPartitionedLogLookupIndexes(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	expectedIndexes := map[string]string{
+		"audit_logs":           "idx_audit_logs_profile_request_created_id_desc",
+		"request_logs":         "idx_request_logs_profile_created_at",
+		"usage_request_events": "idx_usage_request_events_profile_ingress_request",
+		"loadbalance_events":   "idx_loadbalance_events_profile_created",
+	}
+	for tableName, indexName := range expectedIndexes {
+		assertIndexExists(t, ctx, conn, tableName, indexName)
+	}
+	assertIndexUniqueness(t, ctx, conn, "audit_logs", "ix_audit_logs_request_log_id", false)
+}
+
+type partitionedLogStorageState struct {
+	reloptions  string
+	toastRelOID int64
+}
+
+func assertPartitionedLogStorageParameterLimitation(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) {
+	t.Helper()
+
+	// PostgreSQL 16 proof: .sisyphus/evidence/task-1-partitioned-root-reloptions-proof.txt.
+	// Partitioned parents reject heap autovacuum reloptions and expose no TOAST
+	// relation. If a server ever exposes either surface, require the planned
+	// reloptions here instead of letting a missing storage contract pass silently.
+	states := loadPartitionedLogStorageStates(t, ctx, conn, logTables)
+	for _, tableName := range logTables {
+		state := states[tableName]
+		if state.reloptions != "" {
+			assertReloptionsContain(t, tableName, state.reloptions, []string{
+				"autovacuum_vacuum_scale_factor=0.02",
+				"autovacuum_vacuum_threshold=10000",
+			})
+			continue
+		}
+
+		assertPartitionedRootHeapReloptionsRejected(t, ctx, conn, tableName)
 	}
 
-	var usageOutcome string
-	var usageKindNull bool
-	if err := conn.QueryRow(ctx, `INSERT INTO usage_request_events (profile_id, ingress_request_id, attempt_count) VALUES (2, 'usage-default', 1) RETURNING stream_outcome, stream_error_kind IS NULL`).Scan(&usageOutcome, &usageKindNull); err != nil {
-		t.Fatalf("insert usage_request_events stream telemetry default row: %v", err)
+	for _, tableName := range logTables {
+		state := states[tableName]
+		if state.toastRelOID == 0 {
+			continue
+		}
+		assertToastReloptions(t, ctx, conn, tableName, state.toastRelOID)
 	}
-	if usageOutcome != "not_streaming" || !usageKindNull {
-		t.Fatalf("expected usage_request_events stream telemetry defaults not_streaming/null, got outcome=%q kind_null=%v", usageOutcome, usageKindNull)
+}
+
+func loadPartitionedLogStorageStates(t *testing.T, ctx context.Context, conn *pgx.Conn, logTables []string) map[string]partitionedLogStorageState {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT c.relname, COALESCE(array_to_string(c.reloptions, ','), ''), c.reltoastrelid::oid::int8
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = ANY($1::text[])`, logTables)
+	if err != nil {
+		t.Fatalf("load partitioned log storage states: %v", err)
+	}
+	defer rows.Close()
+
+	states := map[string]partitionedLogStorageState{}
+	for rows.Next() {
+		var tableName string
+		var toastRelOID int64
+		var state partitionedLogStorageState
+		if err := rows.Scan(&tableName, &state.reloptions, &toastRelOID); err != nil {
+			t.Fatalf("scan partitioned log storage state: %v", err)
+		}
+		state.toastRelOID = toastRelOID
+		states[tableName] = state
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate partitioned log storage states: %v", err)
+	}
+	for _, tableName := range logTables {
+		if _, ok := states[tableName]; !ok {
+			t.Fatalf("expected storage state for %s", tableName)
+		}
+	}
+	return states
+}
+
+func assertPartitionedRootHeapReloptionsRejected(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
+	t.Helper()
+	_, err := conn.Exec(ctx, `ALTER TABLE public.`+quoteIdentifier(tableName)+` SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 10000)`)
+	if err == nil {
+		t.Fatalf("expected PostgreSQL 16 to reject heap autovacuum reloptions on partitioned root %s", tableName)
+	}
+	if !strings.Contains(err.Error(), "cannot specify storage parameters for a partitioned table") {
+		t.Fatalf("expected partitioned root storage-parameter rejection for %s, got %v", tableName, err)
+	}
+}
+
+func assertToastReloptions(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, toastRelOID int64) {
+	t.Helper()
+	var toastReloptions string
+	if err := conn.QueryRow(ctx, `SELECT COALESCE(array_to_string(reloptions, ','), '') FROM pg_class WHERE oid = $1::oid`, toastRelOID).Scan(&toastReloptions); err != nil {
+		t.Fatalf("load %s toast reloptions: %v", tableName, err)
+	}
+	assertReloptionsContain(t, tableName+" toast", toastReloptions, []string{
+		"autovacuum_vacuum_scale_factor=0.02",
+		"autovacuum_vacuum_threshold=10000",
+	})
+}
+
+func assertReloptionsContain(t *testing.T, relationName string, reloptions string, expectedOptions []string) {
+	t.Helper()
+	for _, option := range expectedOptions {
+		if !strings.Contains(reloptions, option) {
+			t.Fatalf("expected %s reloptions to contain %q, got %q", relationName, option, reloptions)
+		}
+	}
+}
+
+func assertIndexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string) {
+	t.Helper()
+	var exists bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_index idx
+			JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+			JOIN pg_class table_class ON table_class.oid = idx.indrelid
+			JOIN pg_namespace n ON n.oid = table_class.relnamespace
+			WHERE n.nspname = 'public' AND table_class.relname = $1 AND index_class.relname = $2
+		)`, tableName, indexName).Scan(&exists); err != nil {
+		t.Fatalf("check index %s on %s: %v", indexName, tableName, err)
+	}
+	if !exists {
+		t.Fatalf("expected index %s on %s", indexName, tableName)
+	}
+}
+
+func assertIndexUniqueness(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string, wantUnique bool) {
+	t.Helper()
+	var isUnique bool
+	if err := conn.QueryRow(ctx, `
+		SELECT idx.indisunique
+		FROM pg_index idx
+		JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+		JOIN pg_class table_class ON table_class.oid = idx.indrelid
+		JOIN pg_namespace n ON n.oid = table_class.relnamespace
+		WHERE n.nspname = 'public' AND table_class.relname = $1 AND index_class.relname = $2`, tableName, indexName).Scan(&isUnique); err != nil {
+		t.Fatalf("load index %s on %s uniqueness: %v", indexName, tableName, err)
+	}
+	if isUnique != wantUnique {
+		t.Fatalf("expected index %s on %s unique=%v, got %v", indexName, tableName, wantUnique, isUnique)
+	}
+}
+
+type partitionedLogColumnContract struct {
+	dataType  string
+	maxLength int
+	nullable  string
+}
+
+func assertAuditLogWeakRequestLinkContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	rows, err := conn.Query(ctx, `
+		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'audit_logs'
+		  AND column_name = ANY($1::text[])`, []string{"request_log_id", "request_log_created_at", "ingress_request_id"})
+	if err != nil {
+		t.Fatalf("load audit weak request-link columns: %v", err)
+	}
+	defer rows.Close()
+
+	columns := map[string]partitionedLogColumnContract{}
+	for rows.Next() {
+		var name string
+		var contract partitionedLogColumnContract
+		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
+			t.Fatalf("scan audit weak request-link column: %v", err)
+		}
+		columns[name] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate audit weak request-link columns: %v", err)
+	}
+
+	assertColumnContract(t, columns, "request_log_id", "bigint", 0, "YES")
+	assertColumnContract(t, columns, "request_log_created_at", "timestamp with time zone", 0, "YES")
+	assertColumnContract(t, columns, "ingress_request_id", "character varying", 36, "YES")
+
+	var hasHardFK bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_constraint
+			WHERE conrelid = 'public.audit_logs'::regclass
+			  AND conname = 'audit_logs_request_log_id_fkey'
+		)`).Scan(&hasHardFK); err != nil {
+		t.Fatalf("check audit_logs request_log_id fkey absence: %v", err)
+	}
+	if hasHardFK {
+		t.Fatal("expected audit_logs_request_log_id_fkey to be absent")
+	}
+}
+
+func assertColumnContract(t *testing.T, columns map[string]partitionedLogColumnContract, columnName string, dataType string, maxLength int, nullable string) {
+	t.Helper()
+	contract, ok := columns[columnName]
+	if !ok {
+		t.Fatalf("expected column %s to exist", columnName)
+	}
+	if contract.dataType != dataType || contract.maxLength != maxLength || contract.nullable != nullable {
+		t.Fatalf("expected column %s type=%q length=%d nullable=%q, got %+v", columnName, dataType, maxLength, nullable, contract)
+	}
+}
+
+func assertLogRetentionSettingsContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	dayColumns := []string{"request_logs_retention_days", "audit_logs_retention_days", "statistics_retention_days", "loadbalance_events_retention_days"}
+	rows, err := conn.Query(ctx, `
+		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'log_retention_settings'
+		  AND column_name = ANY($1::text[])`, dayColumns)
+	if err != nil {
+		t.Fatalf("load log_retention_settings day columns: %v", err)
+	}
+	defer rows.Close()
+
+	columns := map[string]partitionedLogColumnContract{}
+	for rows.Next() {
+		var name string
+		var contract partitionedLogColumnContract
+		if err := rows.Scan(&name, &contract.dataType, &contract.maxLength, &contract.nullable); err != nil {
+			t.Fatalf("scan log_retention_settings day column: %v", err)
+		}
+		columns[name] = contract
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate log_retention_settings day columns: %v", err)
+	}
+	for _, columnName := range dayColumns {
+		assertColumnContract(t, columns, columnName, "integer", 0, "YES")
+	}
+
+	var singletonRows int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.log_retention_settings WHERE singleton_key = 'global'`).Scan(&singletonRows); err != nil {
+		t.Fatalf("count global log_retention_settings row: %v", err)
+	}
+	if singletonRows != 1 {
+		t.Fatalf("expected one global log_retention_settings row, got %d", singletonRows)
+	}
+
+	var constraintCount int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_constraint
+		WHERE conrelid = 'public.log_retention_settings'::regclass
+		  AND conname = ANY($1::text[])`, []string{
+		"log_retention_settings_singleton_key_check",
+		"log_retention_settings_request_logs_retention_days_check",
+		"log_retention_settings_audit_logs_retention_days_check",
+		"log_retention_settings_statistics_retention_days_check",
+		"log_retention_settings_loadbalance_events_retention_days_check",
+	}).Scan(&constraintCount); err != nil {
+		t.Fatalf("count log_retention_settings check constraints: %v", err)
+	}
+	if constraintCount != 5 {
+		t.Fatalf("expected five log_retention_settings check constraints, got %d", constraintCount)
+	}
+}
+
+func assertNoLogChildPartitions(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	var childCount int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_inherits
+		WHERE inhparent IN (
+			'public.audit_logs'::regclass,
+			'public.request_logs'::regclass,
+			'public.usage_request_events'::regclass,
+			'public.loadbalance_events'::regclass
+		)`).Scan(&childCount); err != nil {
+		t.Fatalf("count log child partitions: %v", err)
+	}
+	if childCount != 0 {
+		t.Fatalf("expected migration to create partitioned roots only, got %d child partitions", childCount)
 	}
 }
 

@@ -14,6 +14,7 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"background.NewScheduler(background.Config{})",
 		"runtimePlanningCache.RegisterBackgroundWorker",
 		"managementAuthService.RegisterBackgroundWorkers",
+		"logRetentionStore.RegisterBackgroundWorker",
 		"asyncDashboardPublisher.RegisterBackgroundWorker",
 		"runtimeService.RegisterBackgroundWorkers",
 		"emailOutbox.RegisterBackgroundWorker",
@@ -75,6 +76,13 @@ func TestSchedulerOwnsBackgroundWork(t *testing.T) {
 		"RegisterBackgroundWorker",
 		"email_outbox_worker",
 		"handleScheduledSend",
+	})
+	assertFileContainsAll(t, backendRoot, "internal/platform/logretention/maintenance.go", []string{
+		"RegisterBackgroundWorker",
+		"log_partition_maintenance",
+		"handlePartitionMaintenance",
+		"PeriodicTrigger:  &background.PeriodicTrigger{Interval: maintenanceInterval}",
+		"maintenanceInterval = time.Hour",
 	})
 }
 
