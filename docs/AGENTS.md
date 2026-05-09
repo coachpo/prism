@@ -31,6 +31,8 @@ docs/
 ## WHERE TO LOOK
 - Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
+- Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
+- Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000013_partitioned_log_retention.sql`
 - Checked-in OpenAPI artifact: `openapi.json`, `../backend/AGENTS.md`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
@@ -45,6 +47,8 @@ docs/
 - Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `5432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and the bootstrap-only startup contract.
 - Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, unsupported encrypted legacy files, and enabled SMTP fail-fast.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
+- Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/etc/prism` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
+- Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
 - Keep archive wording tight: finished notes first, optional evidence only when needed, never treat archive notes as canonical docs.
@@ -59,3 +63,4 @@ docs/
 - Do not treat archived notes as the source of truth when a live doc or child AGENTS file already owns the topic.
 - Do not leave active implementation details stranded only in `docs/` when the owning backend or frontend AGENTS tree should carry the implementation map.
 - Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile/vendor bundle import.
+- Do not document log retention as a generic cleanup query; it is partitioned-log ownership across runtime writers, management jobs, and platform maintenance.
