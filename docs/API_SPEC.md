@@ -1835,58 +1835,72 @@ Query parameters:
 
 Response `200`: Throughput summary plus time buckets (`average_rpm`, `peak_rpm`, `current_rpm`, `total_requests`, `time_window_seconds`, `buckets[]`).
 
-### 4.8 Delete Request Logs (Batch)
+### 4.8 Global Log Retention Settings
 ```
-DELETE /api/stats/requests
+GET /api/settings/log-retention
+PUT /api/settings/log-retention
 ```
-Query parameters:
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `older_than_days` | integer | — | Delete logs older than N days. Must be ≥ 1. |
-| `delete_all` | boolean | false | Delete all request logs. |
 
-Exactly one of `older_than_days` or `delete_all=true` must be provided. If both are provided, returns `400`. If neither is provided, returns `400`.
+These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles. Request-log, audit-log, statistics, and load-balance list/detail APIs still filter by selected profile, but retention settings do not.
 
-When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`. Cleanup is scheduled immediately after the response and runs in the background with a fresh async DB session.
+Request and response fields:
+| Field | Type | Description |
+|---|---|---|
+| `request_logs_retention_days` | integer or null | Global request-log retention days. `null` disables the stored policy. |
+| `audit_logs_retention_days` | integer or null | Global audit-log retention days. `null` disables the stored policy. |
+| `statistics_retention_days` | integer or null | Global `usage_request_events` retention days. `null` disables the stored policy. |
+| `loadbalance_events_retention_days` | integer or null | Global load-balance event retention days. `null` disables the stored policy. |
 
 Response `200`:
 ```json
 {
-  "accepted": true
+  "request_logs_retention_days": 30,
+  "audit_logs_retention_days": 90,
+  "statistics_retention_days": 90,
+  "loadbalance_events_retention_days": 30
 }
 ```
 
-The response acknowledges that cleanup was scheduled; it does not include a final row count.
-
-### 4.8A Delete Aggregated Statistics Data
+### 4.8A Create Global Log Retention Job
 ```
-DELETE /api/stats/statistics
+POST /api/maintenance/log-retention/jobs
 ```
-Query parameters:
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `older_than_days` | integer | — | Delete aggregated statistics data older than N days. Must be ≥ 1. |
-| `delete_all` | boolean | false | Delete all aggregated statistics data. |
+Headers:
+| Header | Required | Description |
+|---|---|---|
+| `Idempotency-Key` | no | Optional stable client key for this global retention job |
 
-Exactly one of `older_than_days` or `delete_all=true` must be provided.
-
-Response `200`:
+Request:
 ```json
 {
-  "accepted": true
+  "table": "request_logs",
+  "cutoff": "2026-04-01T00:00:00Z",
+  "delete_all": false,
+  "reason": "operator retention cleanup"
 }
 ```
 
-The response acknowledges that cleanup was scheduled; it does not include a final row count.
+Allowed `table` values are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`. Provide either `cutoff` or `delete_all=true`. If both are omitted, Prism computes `cutoff` from the stored global policy for that table; if no policy exists, it returns `400`.
 
-Response `400`:
+Response `202`:
 ```json
 {
-  "detail": "Provide either 'older_than_days' (integer >= 1) or 'delete_all=true'"
+  "job_id": "job_0123456789abcdef01234567",
+  "state": "queued",
+  "status_url": "/api/management/jobs/job_0123456789abcdef01234567",
+  "scope": {
+    "table": "request_logs",
+    "cutoff": "2026-04-01T00:00:00Z",
+    "delete_all": false
+  }
 }
 ```
 
-Deleting request logs does NOT cascade to `audit_logs`. Linked audit rows remain, and `audit_logs.request_log_id` is set to `null` (`ON DELETE SET NULL`).
+The response sets `Location` to the same job status URL. The job type is `log_retention`, uses `profile_id = 0`, and applies across all profiles.
+
+Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the single child partition that overlaps the cutoff receives a bounded row delete, followed by `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on that boundary child.
+
+Audit rows keep weak request metadata. They retain `request_log_id`, `request_log_created_at`, and `ingress_request_id` when known, but request detail links can be missing after request-log retention expires first.
 
 ### 4.9 Get Spending Reports
 ```
@@ -2059,65 +2073,22 @@ If vendor body capture is disabled, both `request_body` and `response_body` are 
 
 Response `404`: Audit log not found.
 
-### 5.3 Create Audit Delete Job (Query Form)
-```
-DELETE /api/audit/logs
-```
-Query parameters:
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `before` | datetime | none | Delete logs created before this time (ISO 8601). |
-| `older_than_days` | integer | none | Delete logs older than N days. Must be >= 1. |
-| `delete_all` | boolean | false | Delete all audit logs. |
+### 5.3 Audit Log Retention
 
-This compatibility endpoint creates an asynchronous durable management job instead of deleting rows inside the request. If no explicit scope is supplied, Prism uses the selected profile's `audit_logs_retention_days` setting when configured. Otherwise, provide `before`, `older_than_days`, or `delete_all=true`. When using `older_than_days`, the cutoff timestamp is computed server-side from UTC app time as `current_utc - older_than_days`.
+Audit log list and detail APIs remain selected-profile scoped. Normal audit-log cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "audit_logs"`, or the stored `audit_logs_retention_days` value from `/api/settings/log-retention`.
 
-If `Idempotency-Key` is omitted on this query-form endpoint, the server derives a stable legacy key from profile and scope so repeated requests for the same scope return the same job. New clients that need an explicit reason and idempotency key should use `POST /api/audit/logs/delete-jobs`.
+The retired audit cleanup endpoints are not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
-Response `202`:
-```json
-{
-  "job_id": "job_0123456789abcdef01234567",
-  "state": "queued",
-  "status_url": "/api/management/jobs/job_0123456789abcdef01234567"
-}
-```
+Audit rows retain weak request metadata in `request_log_id`, `request_log_created_at`, and `ingress_request_id`. A request detail link can be missing after request-log retention expires before audit-log retention.
 
-The response sets `Location` to the same job status URL. The delete job runs in background chunks, tracks progress, and may finish after the response.
-
-Response `400`: Missing scope with no retention policy, invalid scope, or invalid query values.
-
-### 5.3A Create Audit Delete Job (JSON Form)
-```
-POST /api/audit/logs/delete-jobs
-```
-Headers:
-| Header | Required | Description |
-|---|---|---|
-| `Idempotency-Key` | yes | Stable client key for this delete request |
-
-Request:
-```json
-{
-  "reason": "operator retention cleanup",
-  "scope": {
-    "before": "2025-01-01T00:00:00Z"
-  }
-}
-```
-
-Use either `scope.before` or `scope.delete_all=true`. A non-empty `reason` is required.
-
-Response `202`: Same payload and `Location` header as `DELETE /api/audit/logs`.
-
-### 5.3B Management Job Status and Cancel
+### 5.3A Management Job Status and Cancel
 ```
 GET /api/management/jobs
 GET /api/management/jobs/{job_id}
 POST /api/management/jobs/{job_id}/cancel
 ```
 
-`GET /api/management/jobs` returns recent profile-scoped jobs:
+`GET /api/management/jobs` returns recent jobs in scope. Audit-delete jobs are profile-scoped. Global log-retention jobs use `profile_id = 0` and are visible to operators as instance maintenance jobs:
 ```json
 {
   "items": [
@@ -2407,25 +2378,11 @@ GET /api/loadbalance/events/{id}
 ```
 Response `200`: Single event object with full metadata, including `failure_threshold`, `backoff_multiplier`, `max_cooldown_seconds`, and ban-related fields (`max_cooldown_strikes`, `ban_mode`, `banned_until_at`) when present.
 
-### 6.9 Delete Loadbalance Events (Batch)
-```
-DELETE /api/loadbalance/events
-```
-Query parameters:
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `before` | datetime | — | Delete events created before this time (ISO 8601). |
-| `older_than_days` | integer | — | Delete events older than N days. Must be ≥ 1. |
-| `delete_all` | boolean | false | Delete all loadbalance events. |
+### 6.9 Loadbalance Event Retention
 
-Exactly one of `before`, `older_than_days`, or `delete_all=true` must be provided.
+Loadbalance event list and detail APIs remain selected-profile scoped. Normal cleanup is global and uses `POST /api/maintenance/log-retention/jobs` with `table = "loadbalance_events"`, or the stored `loadbalance_events_retention_days` value from `/api/settings/log-retention`.
 
-Response `200`:
-```json
-{
-  "accepted": true
-}
-```
+The retired load-balance cleanup endpoint is not part of the current API. Retention jobs return `202` with a job object, not a boolean acknowledgement.
 
 ---
 

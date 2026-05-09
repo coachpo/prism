@@ -141,8 +141,8 @@ endpoint_fx_rate_settings (profile-scoped)
   created_at, updated_at
   UNIQUE(profile_id, model_id, endpoint_id)
 
-request_logs (immutable attribution)
-  id PK
+request_logs (partitioned immutable attribution)
+  PK (created_at, id)
   profile_id FK -> profiles.id
   model_id, resolved_target_model_id, api_family
   ingress_request_id, attempt_number, provider_correlation_id
@@ -152,10 +152,10 @@ request_logs (immutable attribution)
   usage token fields
   costing snapshot fields
   request_path, error_detail
-  created_at
+  created_at partition key
 
-usage_request_events (immutable usage attribution)
-  id PK
+usage_request_events (partitioned immutable usage attribution)
+  PK (created_at, id)
   profile_id FK -> profiles.id
   ingress_request_id UNIQUE per profile
   model_id, resolved_target_model_id, api_family
@@ -167,15 +167,17 @@ usage_request_events (immutable usage attribution)
   costing snapshot fields
   created_at
 
-audit_logs (immutable attribution)
-  id PK
+audit_logs (partitioned immutable attribution)
+  PK (created_at, id)
   profile_id FK -> profiles.id
-  request_log_id FK -> request_logs.id ON DELETE SET NULL
+  request_log_id weak request metadata, nullable
+  request_log_created_at weak request metadata, nullable
+  ingress_request_id weak request metadata, nullable
   vendor_id FK -> vendors.id
   model_id, connection_id, endpoint_base_url, endpoint_description
   request/response payload fields
   is_stream, duration_ms
-  created_at
+  created_at partition key
 
   id PK
   profile_id FK -> profiles.id
@@ -188,8 +190,8 @@ audit_logs (immutable attribution)
   failure_kind, detail
   checked_at
 
-loadbalance_events (immutable attribution)
-  id PK
+loadbalance_events (partitioned immutable attribution)
+  PK (created_at, id)
   profile_id FK -> profiles.id
   connection_id
   event_type (opened|extended|max_cooldown_strike|banned|probe_eligible|recovered|not_opened)
@@ -498,9 +500,9 @@ Custom FX mappings used by costing within one profile.
 
 Constraint: `UNIQUE(profile_id, model_id, endpoint_id)`.
 
-### 2.10 `request_logs` (immutable profile attribution)
+### 2.10 `request_logs` (partitioned immutable profile attribution)
 
-Telemetry rows for every proxy attempt with immutable profile attribution captured at request start.
+Telemetry rows for every proxy attempt with immutable profile attribution captured at request start. The table is range-partitioned by UTC `created_at` day. The partition-compatible primary key is `(created_at, id)`, with `id` still sequence-backed for lookup convenience.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -536,9 +538,9 @@ Request-log semantics:
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
 
-### 2.11 `usage_request_events` (immutable usage attribution)
+### 2.11 `usage_request_events` (partitioned immutable usage attribution)
 
-Usage-event rows are the finalized source for the unified statistics snapshot.
+Usage-event rows are the finalized source for the unified statistics snapshot. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -566,15 +568,17 @@ Usage-event semantics:
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
 
-### 2.12 `audit_logs` (immutable profile attribution)
+### 2.12 `audit_logs` (partitioned immutable profile attribution)
 
-Audit rows for upstream attempts with immutable profile attribution.
+Audit rows for upstream attempts with immutable profile attribution. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key. Audit-to-request linkage is weak so audit rows can outlive request-log partitions.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | id | INTEGER | PK, AUTOINCREMENT | Unique identifier |
 | profile_id | INTEGER | FK -> profiles.id, NOT NULL | Immutable profile attribution |
-| request_log_id | INTEGER | FK -> request_logs.id, NULLABLE, ON DELETE SET NULL | Optional telemetry linkage |
+| request_log_id | INTEGER | NULLABLE | Weak request-log identifier retained for historical linking |
+| request_log_created_at | DATETIME | NULLABLE | Weak request-log partition key retained for historical linking |
+| ingress_request_id | VARCHAR(36) | NULLABLE | Weak incoming request grouping ID retained for correlation |
 | vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor reference |
 | model_id | VARCHAR(200) | NOT NULL | Model ID |
 | connection_id | INTEGER | NULLABLE | Connection snapshot |
@@ -588,11 +592,16 @@ Audit rows for upstream attempts with immutable profile attribution.
 | response_body_stored | BOOLEAN | NOT NULL | Whether response body content was stored |
 | is_stream | BOOLEAN | NOT NULL, DEFAULT FALSE | Streaming flag |
 | duration_ms | INTEGER | NOT NULL | Request duration |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Audit timestamp |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Audit timestamp and partition key |
 
-### 2.13 `loadbalance_events` (immutable profile attribution)
+Audit-link semantics:
+- `request_log_id`, `request_log_created_at`, and `ingress_request_id` are retained as weak metadata.
+- Request detail linkage can be absent after request-log retention expires before audit-log retention.
+- Audit retention and request-log retention are independent global jobs.
 
-Persistent record of failover, recovery, and health transitions.
+### 2.13 `loadbalance_events` (partitioned immutable profile attribution)
+
+Persistent record of failover, recovery, and health transitions. The table is range-partitioned by UTC `created_at` day and uses `(created_at, id)` as its partition-compatible primary key.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -613,9 +622,73 @@ Persistent record of failover, recovery, and health transitions.
 | model_id | VARCHAR(200) | NULLABLE | Model ID snapshot |
 | endpoint_id | INTEGER | NULLABLE | Endpoint ID snapshot |
 | vendor_id | INTEGER | NULLABLE, FK -> vendors.id, ON DELETE SET NULL | Optional vendor snapshot |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Event timestamp and partition key |
 
-### 2.14 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
+### 2.14 `log_retention_settings` (global singleton)
+
+Global normal-retention policy for partitioned log tables.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| singleton_key | VARCHAR(20) | PK, CHECK = `global` | Singleton row key |
+| request_logs_retention_days | INTEGER | NULLABLE | Global request-log retention window |
+| audit_logs_retention_days | INTEGER | NULLABLE | Global audit-log retention window |
+| statistics_retention_days | INTEGER | NULLABLE | Global `usage_request_events` retention window |
+| loadbalance_events_retention_days | INTEGER | NULLABLE | Global load-balance event retention window |
+| created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
+| updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
+
+Retention semantics:
+- Normal retention is global across all profiles and implemented by durable `log_retention` jobs with `profile_id = 0`.
+- Whole child partitions with upper bound `<= cutoff` are dropped. Only the cutoff-overlapping boundary child receives bounded row cleanup and `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
+- Managed partition diagnostics should read `pg_class`, `pg_inherits`, `pg_total_relation_size`, `pg_relation_size`, and `pg_class.reltoastrelid` so operators can see root, child, and TOAST relations without mutating data.
+- The partitioned-log upgrade is a clean break. Old log rows are not preserved.
+- `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink options only. `pg_repack` is not installed in the default local `postgres:16-alpine` image.
+
+Safe catalog inspection template:
+
+```sql
+WITH managed_roots(root_name) AS (
+  VALUES
+    ('request_logs'),
+    ('audit_logs'),
+    ('usage_request_events'),
+    ('loadbalance_events')
+)
+SELECT
+  parent.relname AS root_relation,
+  parent.reltoastrelid::int8 AS root_reltoastrelid,
+  pg_total_relation_size(parent.oid) AS root_total_bytes,
+  pg_relation_size(parent.oid) AS root_main_bytes,
+  child.relname AS child_partition,
+  pg_get_expr(child.relpartbound, child.oid) AS child_partition_bound,
+  child.reltoastrelid::int8 AS child_reltoastrelid,
+  pg_total_relation_size(child.oid) AS child_total_bytes,
+  pg_relation_size(child.oid) AS child_main_bytes,
+  toast_ns.nspname AS toast_schema,
+  toast.relname AS toast_relation,
+  COALESCE(pg_total_relation_size(toast.oid), 0) AS toast_total_bytes,
+  COALESCE(pg_relation_size(toast.oid), 0) AS toast_main_bytes
+FROM managed_roots
+JOIN pg_class parent ON parent.relname = managed_roots.root_name
+JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+JOIN pg_inherits inheritance ON inheritance.inhparent = parent.oid
+JOIN pg_class child ON child.oid = inheritance.inhrelid
+JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace
+LEFT JOIN pg_class toast ON toast.oid = child.reltoastrelid
+LEFT JOIN pg_namespace toast_ns ON toast_ns.oid = toast.relnamespace
+WHERE parent_ns.nspname = 'public'
+  AND child_ns.nspname = 'public'
+ORDER BY parent.relname, child.relname;
+```
+
+When an operator performs manual bounded deletes on the cutoff-overlapping boundary child, follow with child-only analysis and TOAST processing:
+
+```sql
+VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
+```
+
+### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
 
 Ephemeral hot-state row for per-connection admission, circuit state, and probe-aware runtime signals. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
 
@@ -644,7 +717,7 @@ Constraints:
 - Counter and strike fields are non-negative.
 - `circuit_state` is restricted to `closed`, `open`, or `half_open`.
 
-### 2.15 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
+### 2.16 `routing_connection_runtime_leases` (profile-scoped runtime lease table, `UNLOGGED`)
 
 Ephemeral lease rows used for non-stream attempts, streaming heartbeats, and half-open probes.
 
@@ -662,7 +735,7 @@ Ephemeral lease rows used for non-stream attempts, streaming heartbeats, and hal
 Constraints:
 - `lease_kind` is restricted to `stream`, `non_stream`, or `half_open_probe`.
 
-### 2.16 `app_auth_settings` (singleton)
+### 2.17 `app_auth_settings` (singleton)
 
 Global operator authentication settings and credentials.
 
@@ -685,7 +758,7 @@ Global operator authentication settings and credentials.
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
-### 2.17 `refresh_tokens`
+### 2.18 `refresh_tokens`
 
 Cookie-backed management sessions with family rotation and revocation.
 
@@ -743,7 +816,7 @@ Password-reset OTP challenges for the singleton operator account.
 | requested_ip | VARCHAR(100) | NULLABLE | Request origin IP |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.20 `webauthn_challenges`
+### 2.21 `webauthn_challenges`
 
 Retained internal challenge storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey ceremonies.
 
@@ -755,7 +828,7 @@ Retained internal challenge storage from the earlier passkey design. Prism's cur
 | expires_at | DATETIME | NOT NULL | Challenge expiry |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 
-### 2.21 `webauthn_credentials`
+### 2.22 `webauthn_credentials`
 
 Retained internal credential storage from the earlier passkey design. Prism's current supported auth surface does not expose active passkey credential management.
 

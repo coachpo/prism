@@ -2011,67 +2011,6 @@
             }
           }
         }
-      },
-      "delete": {
-        "tags": [
-          "statistics"
-        ],
-        "summary": "Delete Request Logs",
-        "operationId": "delete_request_logs_api_stats_requests_delete",
-        "parameters": [
-          {
-            "name": "older_than_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Older Than Days"
-            }
-          },
-          {
-            "name": "delete_all",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Delete All"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/XProfileIdRequired"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BatchDeleteResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/stats/requests/{request_id}": {
@@ -2585,69 +2524,6 @@
         }
       }
     },
-    "/api/stats/statistics": {
-      "delete": {
-        "tags": [
-          "statistics"
-        ],
-        "summary": "Delete Statistics Data",
-        "operationId": "delete_statistics_data_api_stats_statistics_delete",
-        "parameters": [
-          {
-            "name": "older_than_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Older Than Days"
-            }
-          },
-          {
-            "name": "delete_all",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Delete All"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/XProfileIdRequired"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BatchDeleteResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/stats/throughput": {
       "get": {
         "tags": [
@@ -3112,84 +2988,6 @@
             }
           }
         }
-      },
-      "delete": {
-        "tags": [
-          "audit"
-        ],
-        "summary": "Delete Audit Logs",
-        "operationId": "delete_audit_logs_api_audit_logs_delete",
-        "parameters": [
-          {
-            "name": "before",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Before"
-            }
-          },
-          {
-            "name": "older_than_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Older Than Days"
-            }
-          },
-          {
-            "name": "delete_all",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Delete All"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/XProfileIdRequired"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuditLogDeleteResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/audit/logs/{log_id}": {
@@ -3639,84 +3437,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LoadbalanceEventListResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "loadbalance"
-        ],
-        "summary": "Delete Loadbalance Events",
-        "operationId": "delete_loadbalance_events_api_loadbalance_events_delete",
-        "parameters": [
-          {
-            "name": "before",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Before"
-            }
-          },
-          {
-            "name": "older_than_days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Older Than Days"
-            }
-          },
-          {
-            "name": "delete_all",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Delete All"
-            }
-          },
-          {
-            "$ref": "#/components/parameters/XProfileIdRequired"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoadbalanceEventDeleteResponse"
                 }
               }
             }
@@ -4793,6 +4513,133 @@
         ]
       }
     },
+    "/api/settings/log-retention": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Log Retention Settings",
+        "operationId": "get_log_retention_settings_api_settings_log_retention_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogRetentionSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Update Log Retention Settings",
+        "operationId": "update_log_retention_settings_api_settings_log_retention_put",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogRetentionSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogRetentionSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/maintenance/log-retention/jobs": {
+      "post": {
+        "tags": [
+          "maintenance"
+        ],
+        "summary": "Create Log Retention Job",
+        "operationId": "create_log_retention_job_api_maintenance_log_retention_jobs_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogRetentionJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Management job status URL"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogRetentionJobCreateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/config/bootstrap": {
       "get": {
         "tags": [
@@ -5577,19 +5424,6 @@
         ],
         "title": "HealthResponse"
       },
-      "AuditLogDeleteResponse": {
-        "properties": {
-          "accepted": {
-            "type": "boolean",
-            "title": "Accepted"
-          }
-        },
-        "type": "object",
-        "required": [
-          "accepted"
-        ],
-        "title": "AuditLogDeleteResponse"
-      },
       "AuditLogDetail": {
         "properties": {
           "id": {
@@ -5606,6 +5440,29 @@
               }
             ],
             "title": "Request Log Id"
+          },
+          "request_log_created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Log Created At"
+          },
+          "ingress_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingress Request Id"
           },
           "profile_id": {
             "type": "integer",
@@ -5737,6 +5594,8 @@
         "required": [
           "id",
           "request_log_id",
+          "request_log_created_at",
+          "ingress_request_id",
           "profile_id",
           "vendor_id",
           "model_id",
@@ -5769,6 +5628,29 @@
               }
             ],
             "title": "Request Log Id"
+          },
+          "request_log_created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Log Created At"
+          },
+          "ingress_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingress Request Id"
           },
           "profile_id": {
             "type": "integer",
@@ -5878,6 +5760,8 @@
         "required": [
           "id",
           "request_log_id",
+          "request_log_created_at",
+          "ingress_request_id",
           "profile_id",
           "vendor_id",
           "model_id",
@@ -6141,19 +6025,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "AutoRecoveryCooldown"
-      },
-      "BatchDeleteResponse": {
-        "properties": {
-          "accepted": {
-            "type": "boolean",
-            "title": "Accepted"
-          }
-        },
-        "type": "object",
-        "required": [
-          "accepted"
-        ],
-        "title": "BatchDeleteResponse"
       },
       "ConfigConnectionExport": {
         "properties": {
@@ -8877,6 +8748,213 @@
         ],
         "title": "CostingSettingsUpdate"
       },
+      "LogRetentionSettingsResponse": {
+        "properties": {
+          "request_logs_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Logs Retention Days"
+          },
+          "audit_logs_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Logs Retention Days"
+          },
+          "statistics_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statistics Retention Days"
+          },
+          "loadbalance_events_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loadbalance Events Retention Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_logs_retention_days",
+          "audit_logs_retention_days",
+          "statistics_retention_days",
+          "loadbalance_events_retention_days"
+        ],
+        "title": "LogRetentionSettingsResponse"
+      },
+      "LogRetentionSettingsUpdate": {
+        "properties": {
+          "request_logs_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Logs Retention Days"
+          },
+          "audit_logs_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Logs Retention Days"
+          },
+          "statistics_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statistics Retention Days"
+          },
+          "loadbalance_events_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loadbalance Events Retention Days"
+          }
+        },
+        "type": "object",
+        "title": "LogRetentionSettingsUpdate"
+      },
+      "LogRetentionJobRequest": {
+        "properties": {
+          "table": {
+            "type": "string",
+            "enum": [
+              "request_logs",
+              "audit_logs",
+              "usage_request_events",
+              "loadbalance_events"
+            ],
+            "title": "Table"
+          },
+          "cutoff": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cutoff"
+          },
+          "delete_all": {
+            "type": "boolean",
+            "title": "Delete All",
+            "default": false
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "table"
+        ],
+        "title": "LogRetentionJobRequest"
+      },
+      "LogRetentionJobScope": {
+        "properties": {
+          "table": {
+            "type": "string",
+            "title": "Table"
+          },
+          "cutoff": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cutoff"
+          },
+          "delete_all": {
+            "type": "boolean",
+            "title": "Delete All"
+          }
+        },
+        "type": "object",
+        "required": [
+          "table",
+          "delete_all"
+        ],
+        "title": "LogRetentionJobScope"
+      },
+      "LogRetentionJobCreateResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LogRetentionJobScope"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "state",
+          "status_url",
+          "scope"
+        ],
+        "title": "LogRetentionJobCreateResponse"
+      },
       "EmailVerificationConfirmRequest": {
         "properties": {
           "otp_code": {
@@ -9599,19 +9677,6 @@
           "cleared"
         ],
         "title": "LoadbalanceCurrentStateResetResponse"
-      },
-      "LoadbalanceEventDeleteResponse": {
-        "properties": {
-          "accepted": {
-            "type": "boolean",
-            "title": "Accepted"
-          }
-        },
-        "type": "object",
-        "required": [
-          "accepted"
-        ],
-        "title": "LoadbalanceEventDeleteResponse"
       },
       "LoadbalanceEventDetail": {
         "properties": {

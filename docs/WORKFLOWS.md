@@ -261,10 +261,9 @@ The configuration-operations flow is explicit in both lanes:
 - `POST /api/vendors`
 - `PATCH /api/vendors/{vendor_id}`
 - `DELETE /api/vendors/{vendor_id}`
-- `DELETE /api/stats/requests`
-- `DELETE /api/stats/statistics`
-- `DELETE /api/audit/logs`
-- `DELETE /api/loadbalance/events`
+- `GET /api/settings/log-retention`
+- `PUT /api/settings/log-retention`
+- `POST /api/maintenance/log-retention/jobs`
 
 Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is a profile-scoped config readiness route and requires `X-Profile-Id`.
 

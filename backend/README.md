@@ -52,7 +52,7 @@ go build ./cmd/prism-backend
 - Supported steady-state backend startup uses `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`.
 - When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is not the supported source of truth.
 - When the bootstrap file is missing, Prism seeds it from built-in defaults plus the optional `DATABASE_URL` input only.
-- The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport.
+- The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
 - `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000` and the local PostgreSQL DSN on host port `5432`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file still resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
@@ -98,6 +98,12 @@ Enabled SMTP bootstrap example:
 ## Database and docs artifacts
 - Schema migrations are Go-managed and applied from `migrations/` at startup.
 - Startup now fails fast when an existing database has application tables but no `prism_schema_migrations` history; reset incompatible local databases instead of relying on migration cutover bridges.
+- Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
+- Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
+- Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
+- Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
+- The partitioned-log upgrade is a clean break for old log rows. Old log rows are not preserved.
+- `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 - `docs/openapi.json` is the checked-in management and health contract that the Go server serves at `/openapi.json`.
 
 For local PostgreSQL provisioning without the root launcher, run `docker compose up -d postgres` from `backend/`.

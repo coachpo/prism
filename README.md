@@ -27,7 +27,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 
 - **Backend**: Go runtime service for the management API and runtime proxy surface
 - **Frontend**: React 19 with TypeScript, Vite, TailwindCSS, and shadcn/ui
-- **Database**: PostgreSQL with schema migrations managed by the backend runtime
+- **Database**: PostgreSQL with schema migrations managed by the backend runtime, including partitioned log tables and global retention jobs
 - **Deployment**: GHCR images or local runs via `./start.sh`
 
 ---
@@ -54,6 +54,8 @@ cd prism
 Prism is a monorepo: the backend and frontend live in the same checkout under `backend/` and `frontend/`.
 
 The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `5432`.
+
+Log retention is configured from the Settings Global tab. Normal retention is global across all profiles and runs as durable `log_retention` jobs. It drops expired daily log partitions first, then cleans only the cutoff-overlapping boundary partition and vacuums that child with `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`. Manual shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are emergency operator actions only; `pg_repack` is not available in the default local `postgres:16-alpine` image.
 
 For subproject-specific setup and commands, use:
 

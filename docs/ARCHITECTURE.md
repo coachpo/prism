@@ -211,7 +211,7 @@ Vendor rows are global publisher metadata. Models may keep `vendor_id = null` an
 
 The protected frontend shell now boots profile state from `GET /api/profiles/bootstrap`, derives sidebar destinations and breadcrumbs from the route metadata registry in `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
-The Settings shell mirrors that split: the Profile tab keeps backup, billing and currency, timezone, audit and privacy, and retention flows scoped to the selected profile, while the Global tab owns instance-wide authentication and the shared vendor catalog.
+The Settings shell mirrors that split: the Profile tab keeps backup, billing and currency, timezone, audit and privacy flows scoped to the selected profile, while the Global tab owns instance-wide authentication, the shared vendor catalog, and global log retention. Normal log retention applies across all profiles; list and detail APIs still filter by the selected profile.
 
 The current split-bundle config workflow also mirrors that ownership split:
 - profile export/import uses `bundle_kind = profile_config` and is authoritative only for profile-scoped rows
@@ -541,60 +541,92 @@ The audit detail view is a right-side sheet with tabs for:
 - Upstream servers that don't support `Accept-Encoding: identity` will still work (proxy handles both compressed and uncompressed responses)
 
 **Testing:** Covered by DEF-067 regression tests in `tests/smoke_defect_regressions/test_conditional_decompression.py` and `tests/smoke_defect_regressions/test_headers.py`.
-## 9. Batch Data Deletion
+## 9. Global Log Retention
 
 ### 9.1 Concept
 
-Flexible bulk deletion of historical `request_logs`, `audit_logs`, and `loadbalance_events` to manage database growth. The Settings UI offers 7-day, 30-day, 90-day, and delete-all actions per data type, while the API still accepts any integer `older_than_days >= 1`.
+Historical `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events` are partitioned by UTC day and managed by global log-retention jobs. Normal retention is instance-wide across all profiles. Selected-profile filtering still applies to list and detail APIs, but `X-Profile-Id` does not scope retention settings or retention jobs.
 
-### 9.2 Request Log and Loadbalance Deletion Flow
+The Settings Global tab owns `/api/settings/log-retention` and can store a day count per log table. Operators can also create an immediate retention job through `POST /api/maintenance/log-retention/jobs` with a table name plus either an explicit cutoff or `delete_all=true`.
 
-```
-User → Settings Page → "Data Management" section
-  → Selects data type (Request Logs or Loadbalance Events)
-  → Selects action (preset: 7/30/90 days or delete all)
-  → Clicks "Delete" button → Confirmation dialog
-  -> DELETE /api/stats/requests?older_than_days=7 with explicit `X-Profile-Id`
-  → Returns { accepted: true }
-  → Background task opens a fresh async DB session
-  → Backend computes cutoff = current_utc - 7 days (or deletes all)
-  → DELETE FROM request_logs WHERE created_at < cutoff (or no filter)
-  → Toast: "Request Logs deletion requested"
-```
-
-The UI uses a single action builder pattern: select data type → select action → execute.
-
-Loadbalance event deletion follows the same immediate acceptance pattern through its matching delete endpoint.
-
-### 9.2A Audit Delete Job Flow
-
-Audit log deletion uses durable management jobs instead of deleting rows inside the request. The compatibility query-form endpoint `DELETE /api/audit/logs` creates an audit-delete job for legacy callers, while new clients can create the same job with the JSON endpoint `POST /api/audit/logs/delete-jobs` and an explicit `Idempotency-Key` plus reason.
+### 9.2 Retention Job Flow
 
 ```
-User → Settings Page → "Data Management" section
-  → Selects Audit Logs
-  → Selects action (preset: 7/30/90 days, before timestamp, or delete all)
-  → Clicks "Delete" button → Confirmation dialog
-  -> DELETE /api/audit/logs?older_than_days=7 with explicit `X-Profile-Id`
-     or POST /api/audit/logs/delete-jobs with JSON scope
-  → Returns 202 with { job_id, state, status_url }
-  → Sets Location to the same job status URL
-  → Background worker deletes matching audit rows in chunks
-  → Operator can observe or cancel the job through management job APIs
+Operator -> Settings Global tab -> Log Retention
+  -> Saves global day policies with PUT /api/settings/log-retention
+  -> Starts POST /api/maintenance/log-retention/jobs
+  -> Returns 202 with { job_id, state, status_url, scope }
+  -> Sets Location to /api/management/jobs/{job_id}
+  -> Background worker runs a durable log_retention job with profile_id = 0
+  -> Operator can observe or cancel the job through management job APIs
 ```
 
-Audit delete job status is visible through `GET /api/management/jobs` and `GET /api/management/jobs/{job_id}`. Operators can request cancellation through `POST /api/management/jobs/{job_id}/cancel`, which returns `202` with the job object when the job is in scope.
+If a job omits `cutoff` and `delete_all`, the backend computes the cutoff from the stored global policy for the requested table. If no policy exists, the job is rejected and the operator must provide a cutoff, request delete-all, or configure `/api/settings/log-retention` first.
 
-### 9.3 Independence
+### 9.3 Partition Drop and Boundary Cleanup
 
-- Deleting `request_logs` does NOT cascade to `audit_logs`
-- Deleting `audit_logs` does NOT affect `request_logs`
-- On request log deletion, `audit_logs.request_log_id` is set to `NULL` (`ON DELETE SET NULL`), preserving audit rows without dangling FK references
-- Optional maintenance: after large deletions, operators may run PostgreSQL `VACUUM (ANALYZE)` as part of DB maintenance
+Retention removes old partitions before it falls back to bounded row cleanup. Daily partitions use half-open UTC ranges, with `FROM` inclusive and `TO` exclusive. A whole child partition is expired when its upper bound is `<= cutoff`; those children are dropped as tables rather than cleaned with row deletes.
 
-### 9.4 Frontend Placement
+Only the single child partition that overlaps the cutoff receives a bounded delete for rows older than the cutoff. After that boundary delete, Prism runs `VACUUM (ANALYZE, PROCESS_TOAST TRUE)` on the boundary child so planner statistics and TOAST cleanup catch up without rewriting the whole table.
 
-Data management controls are on the Settings page (`/settings`) under a "Data Management" section, below the existing "Audit Configuration" and "Configuration Backup" sections.
+Operators can inspect managed root, child, and TOAST relation sizes with a read-only catalog query. Partitioned roots normally have `reltoastrelid = 0`; physical child partitions can own TOAST relations through `pg_class.reltoastrelid`.
+
+```sql
+WITH managed_roots(root_name) AS (
+  VALUES
+    ('request_logs'),
+    ('audit_logs'),
+    ('usage_request_events'),
+    ('loadbalance_events')
+)
+SELECT
+  parent.relname AS root_relation,
+  parent.reltoastrelid::int8 AS root_reltoastrelid,
+  pg_total_relation_size(parent.oid) AS root_total_bytes,
+  pg_relation_size(parent.oid) AS root_main_bytes,
+  child.relname AS child_partition,
+  pg_get_expr(child.relpartbound, child.oid) AS child_partition_bound,
+  child.reltoastrelid::int8 AS child_reltoastrelid,
+  pg_total_relation_size(child.oid) AS child_total_bytes,
+  pg_relation_size(child.oid) AS child_main_bytes,
+  toast_ns.nspname AS toast_schema,
+  toast.relname AS toast_relation,
+  COALESCE(pg_total_relation_size(toast.oid), 0) AS toast_total_bytes,
+  COALESCE(pg_relation_size(toast.oid), 0) AS toast_main_bytes
+FROM managed_roots
+JOIN pg_class parent ON parent.relname = managed_roots.root_name
+JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+JOIN pg_inherits inheritance ON inheritance.inhparent = parent.oid
+JOIN pg_class child ON child.oid = inheritance.inhrelid
+JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace
+LEFT JOIN pg_class toast ON toast.oid = child.reltoastrelid
+LEFT JOIN pg_namespace toast_ns ON toast_ns.oid = toast.relnamespace
+WHERE parent_ns.nspname = 'public'
+  AND child_ns.nspname = 'public'
+ORDER BY parent.relname, child.relname;
+```
+
+If an operator performs manual bounded deletes against the cutoff-overlapping boundary child, the standard follow-up is the same child-only vacuum Prism uses automatically. Replace the child name with the actual boundary partition and do not run this against the partitioned root or already expired children.
+
+```sql
+VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
+```
+
+Routine retention does not run parent-root bulk deletes. Operator-only shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency database actions. They are not automatic retention steps, and `pg_repack` is not installed in the default local `postgres:16-alpine` image.
+
+### 9.4 Audit and Request Linkage
+
+Audit rows keep weak request metadata rather than a hard dependency on live request-log rows. They retain `request_log_id`, `request_log_created_at`, and `ingress_request_id` when known, but request detail links can be missing after request-log retention expires before audit-log retention.
+
+Deleting or expiring request logs does not delete audit rows. Deleting or expiring audit rows does not affect request logs. Operators should treat request-to-audit linking as best-effort historical context, not as guaranteed referential availability.
+
+### 9.5 Upgrade Semantics
+
+The partitioned retention upgrade is a clean break for historical log tables. Old log rows are not preserved by the upgrade, and there is no compatibility path for pre-upgrade log storage.
+
+### 9.6 Frontend Placement
+
+Log retention controls live on the Settings Global tab. Profile-scoped Settings sections still manage profile backup, costing, timezone, audit capture preferences, and other selected-profile state.
 
 ## 10. Database Design
 

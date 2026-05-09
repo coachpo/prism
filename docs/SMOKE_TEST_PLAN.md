@@ -147,20 +147,18 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/stats/connection-success-rates` | E07 |
 | `GET /api/stats/throughput` | E15, M14 |
 | `GET /api/stats/spending` | L11-L13, L19-L20, M19 |
-| `DELETE /api/stats/requests` | G01-G03, M14 |
-| `DELETE /api/stats/statistics` | G20, M14 |
+| `GET /api/settings/log-retention` | G01, M14 |
+| `PUT /api/settings/log-retention` | G01-G02, M14 |
+| `POST /api/maintenance/log-retention/jobs` | G03-G15, G20, M14-M15 |
 | `GET /api/audit/logs` | F10, F12, M15 |
 | `GET /api/audit/logs/{id}` | F11, M15 |
-| `DELETE /api/audit/logs` | F13, G04-G05, M15 |
-| `POST /api/audit/logs/delete-jobs` | F13, G04-G05, M15 |
-| `GET /api/management/jobs` | F13, G04-G05, M15 |
-| `GET /api/management/jobs/{job_id}` | F13, G04-G05, M15 |
-| `POST /api/management/jobs/{job_id}/cancel` | F13, G04-G05, M15 |
+| `GET /api/management/jobs` | F13, G03-G15, G20, M15 |
+| `GET /api/management/jobs/{job_id}` | F13, G03-G15, G20, M15 |
+| `POST /api/management/jobs/{job_id}/cancel` | F13, G03-G15, G20, M15 |
 | `GET /api/loadbalance/current-state` | G18, M14 |
 | `POST /api/loadbalance/current-state/{connection_id}/reset` | G19, M14 |
 | `GET /api/loadbalance/events` | G16, M14 |
 | `GET /api/loadbalance/events/{id}` | G17, M14 |
-| `DELETE /api/loadbalance/events` | G13-G15, M14 |
 | `GET /api/config/profile/export` | H01-H04, L14, M16 |
 | `POST /api/config/profile/export/with-secrets` | H01A |
 | `POST /api/config/profile/import/preview` | H05-H07, L15-L16, M17-M18 |
@@ -317,30 +315,30 @@ Prepare seed state through API (not manual DB edits):
 | F14 | P1 | Audit non-interference on write failure | Proxy response unaffected |
 | F15 | P0 | Orphan audit row visibility | Audit rows with null `request_log_id` remain visible in audit APIs and keep request-time provenance |
 
-## G. Batch Deletion and FK Semantics
+## G. Global Log Retention and Weak Link Semantics
 
 | ID | Pri | Scenario | Expected Result |
 |---|---|---|---|
-| G01 | P0 | Stats delete with missing mode | `400` |
-| G02 | P0 | Stats delete with preset days | `200`, returns `{ accepted: true }`, cutoff semantics |
-| G03 | P0 | Delete request logs with linked audit rows | Audit rows remain, `request_log_id` becomes null |
-| G04 | P0 | Audit delete job with `older_than_days` | Job is accepted, processes asynchronously, reports progress, and deletes matching audit rows only |
-| G05 | P1 | Audit delete job with `before` timestamp | Job is accepted, processes asynchronously, and leaves request logs unaffected |
-| G06 | P0 | Stats delete with custom day value | `200`, returns `{ accepted: true }` |
-| G07 | P0 | Stats delete rejects invalid day values | `422` |
-| G08 | P0 | Stats delete rejects conflicting modes | `400` |
-| G09 | P0 | Stats delete all mode | Deletes entire `request_logs` table |
-| G10 | P0 | Audit delete with custom day value | `202`, returns `{ job_id, state, status_url }` and a `Location` header |
-| G13 | P0 | Loadbalance delete with custom day value | `200`, returns `{ accepted: true }` |
-| G14 | P0 | Loadbalance delete all mode | `200`, returns `{ accepted: true }` |
-| G15 | P0 | Loadbalance delete rejects conflicting modes | `400` |
-| G11 | P0 | Audit delete all mode | Async job deletes the selected profile's audit rows |
-| G12 | P0 | Audit delete rejects multiple active modes | `400` |
+| G01 | P0 | Get global log-retention settings | `200`, returns day policies for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; no selected-profile scope |
+| G02 | P0 | Update global log-retention settings | `200`, persists nullable day policies for all retention tables; invalid day values return `422` |
+| G03 | P0 | Create retention job with missing table | `400` |
+| G04 | P0 | Request-log retention job with stored policy | `202`, returns `{ job_id, state, status_url, scope }` and a `Location` header; job scope is global |
+| G05 | P0 | Request-log retention preserves audit provenance | Audit rows may outlive request logs and retain weak `request_log_id`, `request_log_created_at`, and `ingress_request_id` metadata |
+| G06 | P0 | Request-log retention with explicit cutoff | `202`, computes partition cleanup against the supplied cutoff and exposes job progress through management job APIs |
+| G07 | P0 | Retention job rejects invalid table or scope | `400` |
+| G08 | P0 | Retention job rejects conflicting cutoff and delete-all modes | `400` |
+| G09 | P0 | Request-log delete-all retention mode | Retention flow removes and recreates or reboots partitions for `request_logs`; it does not use a parent-root table delete |
+| G10 | P0 | Audit-log retention with explicit cutoff | `202`, returns `{ job_id, state, status_url, scope }` and a `Location` header; cleanup is global, not selected-profile scoped |
+| G11 | P0 | Audit-log delete-all retention mode | Retention flow removes and recreates or reboots `audit_logs` partitions while preserving independent request-log data |
+| G12 | P0 | Audit/request weak linkage after uneven retention | Audit list/detail rows remain visible even when request-log detail linkage is missing |
+| G13 | P0 | Loadbalance-event retention with explicit cutoff | `202`, creates a global retention job for `loadbalance_events` |
+| G14 | P0 | Loadbalance-event delete-all retention mode | Retention flow removes and recreates or reboots `loadbalance_events` partitions |
+| G15 | P0 | Boundary-partition cleanup | Whole expired daily child partitions are dropped; only the cutoff-overlapping child receives bounded cleanup plus vacuum |
 | G16 | P0 | List loadbalance events | Returns events for a model |
 | G17 | P0 | Get loadbalance event detail | Returns full event metadata |
 | G18 | P0 | List current loadbalance state for a model | Returns derived per-connection current-state rows in effective profile scope |
 | G19 | P0 | Reset current loadbalance state for a connection | `200`, returns `{ connection_id, cleared }`; idempotent when no row exists |
-| G20 | P0 | Delete aggregated statistics data | `200`, returns `{ accepted: true }` and schedules background cleanup |
+| G20 | P0 | Statistics retention for usage events | `202`, creates a global retention job for `usage_request_events` with job metadata and status URL |
 
 ## H. Config Export and Import
 
@@ -641,7 +639,7 @@ Notes:
 
 ## 11. Notes and Assumptions
 
-- Time cutoff tests use server UTC (`older_than_days` and `before` semantics).
+- Time cutoff tests use server UTC (`cutoff` semantics).
 - `delete_all=true` mode deletes all records without a time cutoff.
 - Destructive tests (`import`, `delete`) must run against isolated smoke DB.
 - Streaming token extraction tests should include both usage-present and usage-missing streams.
