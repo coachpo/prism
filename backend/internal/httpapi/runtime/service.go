@@ -19,6 +19,7 @@ import (
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
 )
 
 type DashboardUpdatePublisher interface {
@@ -40,6 +41,8 @@ type Options struct {
 	AnalyticsUpdates           AnalyticsUpdatePublisher
 	Cache                      *SharedCache
 	RuntimeState               *loadbalancedomain.LocalRuntimeStateStore
+	LogPartitionEnsurer        LogPartitionEnsurer
+	AssumeLogPartitionHorizon  bool
 	TelemetryOutbox            TelemetryOutboxOptions
 	FeedbackPipeline           RuntimeFeedbackPipelineOptions
 	SideEffects                RuntimeSideEffectOptions
@@ -105,6 +108,11 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	if runtimeState == nil {
 		runtimeState = loadbalancedomain.NewLocalRuntimeStateStore()
 	}
+	partitionEnsurer := options.LogPartitionEnsurer
+	if partitionEnsurer == nil {
+		partitionEnsurer = logretention.NewStore(logretention.Options{Pool: telemetryPool, Now: now})
+	}
+	logPartitions := newRuntimeLogPartitionCache(partitionEnsurer, now, options.AssumeLogPartitionHorizon)
 
 	scheduler := options.Scheduler
 	if scheduler == nil {
@@ -128,8 +136,8 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 	}
 	telemetryOptions := options.TelemetryOutbox
 	telemetryOptions.Scheduler = scheduler
-	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, service.analyticsUpdates, telemetryOptions)
-	service.feedbackPipeline = newRuntimeFeedbackPipeline(service.feedbackStore, service.runtimeState, options.FeedbackPipeline)
+	service.telemetryOutbox = newRuntimeTelemetryOutbox(telemetryPool, service.nowUTC, service.dashboardUpdates, service.analyticsUpdates, logPartitions, telemetryOptions)
+	service.feedbackPipeline = newRuntimeFeedbackPipeline(service.feedbackStore, service.runtimeState, logPartitions, options.FeedbackPipeline)
 	service.runtimeSideEffects = NewRuntimeSideEffectManager(service.telemetryOutbox, options.SideEffects)
 	if options.Scheduler == nil {
 		if err := service.RegisterBackgroundWorkers(scheduler); err != nil {

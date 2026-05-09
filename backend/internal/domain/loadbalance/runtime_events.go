@@ -14,6 +14,10 @@ type runtimeEventMetadata struct {
 	VendorID   *int
 }
 
+type PartitionEnsurer interface {
+	EnsurePartitionForTime(context.Context, string, time.Time) error
+}
+
 type runtimeEventPayload struct {
 	EventType           string
 	FailureKind         *string
@@ -28,7 +32,14 @@ type runtimeEventPayload struct {
 	BannedUntilAt       *time.Time
 }
 
-func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, observedAt time.Time, payload runtimeEventPayload) error {
+func insertRuntimeLoadbalanceEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, observedAt time.Time, payload runtimeEventPayload) error {
+	observedAt = observedAt.UTC()
+	if partitionEnsurer == nil {
+		return fmt.Errorf("loadbalance event partition ensurer unavailable")
+	}
+	if err := partitionEnsurer.EnsurePartitionForTime(ctx, "loadbalance_events", observedAt); err != nil {
+		return fmt.Errorf("ensure loadbalance event partition for connection %d in profile %d: %w", connectionID, profileID, err)
+	}
 	metadata, err := loadRuntimeEventMetadata(ctx, exec, profileID, connectionID)
 	if err != nil {
 		return err
@@ -85,42 +96,42 @@ func loadRuntimeEventMetadata(ctx context.Context, exec queryExecutor, profileID
 	}, nil
 }
 
-func RecordRuntimePlanningSkip(ctx context.Context, exec queryExecutor, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
+func RecordRuntimePlanningSkip(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
 	payload := buildRuntimePlanningSkipEventPayload(state, strategy, observedAt)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime planning skip event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func RecordRuntimeAdmissionRejection(ctx context.Context, exec queryExecutor, profileID int, connectionID int, observedAt time.Time) error {
+func RecordRuntimeAdmissionRejection(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, observedAt time.Time) error {
 	payload := runtimeEventPayload{EventType: "not_opened"}
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime admission rejection event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func InsertRuntimeProbeEligibleEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
+func InsertRuntimeProbeEligibleEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, state RuntimeConnectionState, strategy RuntimeStrategy, observedAt time.Time) error {
 	payload := buildRuntimeProbeEligibleEventPayload(state, strategy)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime probe-eligible event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func InsertRuntimeRecoveryEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, observedAt time.Time) error {
+func InsertRuntimeRecoveryEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, observedAt time.Time) error {
 	if !transition.RecoveryEventEligible {
 		return nil
 	}
 	payload := buildRuntimeRecoveryEventPayload(transition.PreviousState, strategy)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime recovery event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil
 }
 
-func InsertRuntimeFailureEvent(ctx context.Context, exec queryExecutor, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, failureKind string, observedAt time.Time) error {
+func InsertRuntimeFailureEvent(ctx context.Context, exec queryExecutor, partitionEnsurer PartitionEnsurer, profileID int, connectionID int, transition RuntimeStateTransition, strategy RuntimeStrategy, failureKind string, observedAt time.Time) error {
 	payload := buildRuntimeFailureEventPayload(
 		transition.PreviousState,
 		strategy,
@@ -133,7 +144,7 @@ func InsertRuntimeFailureEvent(ctx context.Context, exec queryExecutor, profileI
 		transition.CurrentState.OpenUntilAt,
 		observedAt.UTC(),
 	)
-	if err := insertRuntimeLoadbalanceEvent(ctx, exec, profileID, connectionID, observedAt.UTC(), payload); err != nil {
+	if err := insertRuntimeLoadbalanceEvent(ctx, exec, partitionEnsurer, profileID, connectionID, observedAt.UTC(), payload); err != nil {
 		return fmt.Errorf("record runtime failure event for connection %d in profile %d: %w", connectionID, profileID, err)
 	}
 	return nil

@@ -199,7 +199,7 @@ func ListEvents(ctx context.Context, exec queryExecutor, profileID int, modelID 
 }
 
 func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID int64) (*EventDetail, error) {
-	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds::float8, blocked_until_mono::float8, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier::float8, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, eventID)
+	row := exec.QueryRow(ctx, `SELECT id, profile_id, connection_id, event_type, failure_kind, consecutive_failures, cooldown_seconds::float8, blocked_until_mono::float8, model_id, endpoint_id, vendor_id, failure_threshold, backoff_multiplier::float8, max_cooldown_seconds, max_cooldown_strikes, ban_mode, banned_until_at, created_at FROM loadbalance_events WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, eventID)
 	item, err := scanEvent(row)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -208,39 +208,6 @@ func GetEvent(ctx context.Context, exec queryExecutor, profileID int, eventID in
 		return nil, fmt.Errorf("load loadbalance event %d for profile %d: %w", eventID, profileID, err)
 	}
 	return &item, nil
-}
-
-func DeleteEvents(ctx context.Context, exec queryExecutor, params DeleteParams) error {
-	provided := 0
-	if params.Before != nil {
-		provided++
-	}
-	if params.OlderThanDays != nil {
-		provided++
-	}
-	if params.DeleteAll {
-		provided++
-	}
-	if provided != 1 {
-		return &HTTPError{StatusCode: 400, Detail: "Provide exactly one of 'before', 'older_than_days', or 'delete_all'"}
-	}
-	if params.DeleteAll {
-		if _, err := exec.Exec(ctx, `DELETE FROM loadbalance_events WHERE profile_id = $1`, params.ProfileID); err != nil {
-			return fmt.Errorf("delete loadbalance events for profile %d: %w", params.ProfileID, err)
-		}
-		return nil
-	}
-	if params.OlderThanDays != nil {
-		cutoff := params.ReferenceNow.UTC().Add(-time.Duration(*params.OlderThanDays) * 24 * time.Hour)
-		if _, err := exec.Exec(ctx, `DELETE FROM loadbalance_events WHERE profile_id = $1 AND created_at < $2`, params.ProfileID, cutoff); err != nil {
-			return fmt.Errorf("delete loadbalance events older than %d days for profile %d: %w", *params.OlderThanDays, params.ProfileID, err)
-		}
-		return nil
-	}
-	if _, err := exec.Exec(ctx, `DELETE FROM loadbalance_events WHERE profile_id = $1 AND created_at < $2`, params.ProfileID, params.Before.UTC()); err != nil {
-		return fmt.Errorf("delete loadbalance events before %s for profile %d: %w", params.Before.UTC().Format(time.RFC3339), params.ProfileID, err)
-	}
-	return nil
 }
 
 func scanEvent(scanner interface{ Scan(...any) error }) (EventDetail, error) {

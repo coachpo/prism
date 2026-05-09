@@ -78,16 +78,17 @@ type runtimeFeedbackEvent struct {
 }
 
 type runtimeFeedbackPipeline struct {
-	store        *runtimeFeedbackStore
-	runtimeState *loadbalance.LocalRuntimeStateStore
-	options      RuntimeFeedbackPipelineOptions
-	scheduler    *background.Scheduler
-	mu           sync.Mutex
-	closed       bool
+	store         *runtimeFeedbackStore
+	runtimeState  *loadbalance.LocalRuntimeStateStore
+	logPartitions *runtimeLogPartitionCache
+	options       RuntimeFeedbackPipelineOptions
+	scheduler     *background.Scheduler
+	mu            sync.Mutex
+	closed        bool
 }
 
-func newRuntimeFeedbackPipeline(store *runtimeFeedbackStore, runtimeState *loadbalance.LocalRuntimeStateStore, options RuntimeFeedbackPipelineOptions) *runtimeFeedbackPipeline {
-	return &runtimeFeedbackPipeline{store: store, runtimeState: runtimeState, options: normalizeRuntimeFeedbackPipelineOptions(options)}
+func newRuntimeFeedbackPipeline(store *runtimeFeedbackStore, runtimeState *loadbalance.LocalRuntimeStateStore, logPartitions *runtimeLogPartitionCache, options RuntimeFeedbackPipelineOptions) *runtimeFeedbackPipeline {
+	return &runtimeFeedbackPipeline{store: store, runtimeState: runtimeState, logPartitions: logPartitions, options: normalizeRuntimeFeedbackPipelineOptions(options)}
 }
 
 func (p *runtimeFeedbackPipeline) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
@@ -165,11 +166,11 @@ func (p *runtimeFeedbackPipeline) persist(ctx context.Context, event runtimeFeed
 	_, err := pgxutil.InTxValue(ctx, p.store.pool, "runtime_feedback", func(tx pgx.Tx) (bool, error) {
 		switch event.Kind {
 		case runtimeFeedbackProbeEligible:
-			return true, loadbalance.InsertRuntimeProbeEligibleEvent(ctx, tx, event.ProfileID, event.ConnectionID, event.State, event.Strategy, event.ObservedAt)
+			return true, loadbalance.InsertRuntimeProbeEligibleEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ConnectionID, event.State, event.Strategy, event.ObservedAt)
 		case runtimeFeedbackSuccessRecovery:
-			return true, loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, event.ProfileID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt)
+			return true, loadbalance.InsertRuntimeRecoveryEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ConnectionID, event.Transition, event.Strategy, event.CompletedAt)
 		case runtimeFeedbackFailoverHTTP, runtimeFeedbackTransportFailure:
-			return true, loadbalance.InsertRuntimeFailureEvent(ctx, tx, event.ProfileID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt)
+			return true, loadbalance.InsertRuntimeFailureEvent(ctx, tx, p.logPartitions, event.ProfileID, event.ConnectionID, event.Transition, event.Strategy, event.FailureKind, event.CompletedAt)
 		default:
 			return false, fmt.Errorf("unsupported runtime feedback kind %q", event.Kind)
 		}

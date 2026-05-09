@@ -567,46 +567,6 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 	return response, nil
 }
 
-func DeleteRequestLogs(ctx context.Context, exec queryExecutor, profileID int, olderThanDays *int, deleteAll bool, referenceNow time.Time) error {
-	if deleteAll && olderThanDays != nil {
-		return &HTTPError{StatusCode: 400, Detail: "Provide either 'older_than_days' or 'delete_all', not both"}
-	}
-	if !deleteAll && olderThanDays == nil {
-		return &HTTPError{StatusCode: 400, Detail: "Provide either 'older_than_days' (integer >= 1) or 'delete_all=true'"}
-	}
-	if deleteAll {
-		if _, err := exec.Exec(ctx, `DELETE FROM request_logs WHERE profile_id = $1`, profileID); err != nil {
-			return fmt.Errorf("delete request logs for profile %d: %w", profileID, err)
-		}
-		return nil
-	}
-	cutoff := referenceNow.UTC().Add(-time.Duration(*olderThanDays) * 24 * time.Hour)
-	if _, err := exec.Exec(ctx, `DELETE FROM request_logs WHERE profile_id = $1 AND created_at < $2`, profileID, cutoff); err != nil {
-		return fmt.Errorf("delete request logs older than %d days for profile %d: %w", *olderThanDays, profileID, err)
-	}
-	return nil
-}
-
-func DeleteStatistics(ctx context.Context, exec queryExecutor, profileID int, olderThanDays *int, deleteAll bool, referenceNow time.Time) error {
-	if deleteAll && olderThanDays != nil {
-		return &HTTPError{StatusCode: 400, Detail: "Provide either 'older_than_days' or 'delete_all', not both"}
-	}
-	if !deleteAll && olderThanDays == nil {
-		return &HTTPError{StatusCode: 400, Detail: "Provide either 'older_than_days' (integer >= 1) or 'delete_all=true'"}
-	}
-	if deleteAll {
-		if _, err := exec.Exec(ctx, `DELETE FROM usage_request_events WHERE profile_id = $1`, profileID); err != nil {
-			return fmt.Errorf("delete statistics for profile %d: %w", profileID, err)
-		}
-		return nil
-	}
-	cutoff := referenceNow.UTC().Add(-time.Duration(*olderThanDays) * 24 * time.Hour)
-	if _, err := exec.Exec(ctx, `DELETE FROM usage_request_events WHERE profile_id = $1 AND created_at < $2`, profileID, cutoff); err != nil {
-		return fmt.Errorf("delete statistics older than %d days for profile %d: %w", *olderThanDays, profileID, err)
-	}
-	return nil
-}
-
 func normalizedStatsSummaryGroupBy(value *string) (string, bool) {
 	if value == nil {
 		return "", false

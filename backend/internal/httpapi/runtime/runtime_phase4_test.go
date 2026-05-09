@@ -92,7 +92,7 @@ func TestRuntimeTelemetrySideEffectsRejectAfterShutdown(t *testing.T) {
 
 func TestRuntimeFeedbackTryEnqueueDropsInvalidFullAndClosedEvents(t *testing.T) {
 	scheduler := background.NewScheduler(background.Config{GlobalConcurrency: 0})
-	pipeline := newRuntimeFeedbackPipeline(nil, nil, RuntimeFeedbackPipelineOptions{QueueCapacity: 1, WorkerCount: 1, WriteTimeout: time.Second})
+	pipeline := newRuntimeFeedbackPipeline(nil, nil, nil, RuntimeFeedbackPipelineOptions{QueueCapacity: 1, WorkerCount: 1, WriteTimeout: time.Second})
 	if err := pipeline.RegisterBackgroundWorker(scheduler); err != nil {
 		t.Fatalf("register feedback worker: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestRuntimeFeedbackTryEnqueueDropsInvalidFullAndClosedEvents(t *testing.T) 
 func TestRuntimeFeedbackWorkerAccountsStoreFailure(t *testing.T) {
 	writeResults := make(chan RuntimeFeedbackWriteResult, 1)
 	scheduler := background.NewScheduler(background.Config{})
-	pipeline := newRuntimeFeedbackPipeline(nil, nil, RuntimeFeedbackPipelineOptions{QueueCapacity: 1, WorkerCount: 1, WriteTimeout: 20 * time.Millisecond, Hooks: &RuntimeFeedbackPipelineHooks{AfterWrite: func(result RuntimeFeedbackWriteResult) {
+	pipeline := newRuntimeFeedbackPipeline(nil, nil, nil, RuntimeFeedbackPipelineOptions{QueueCapacity: 1, WorkerCount: 1, WriteTimeout: 20 * time.Millisecond, Hooks: &RuntimeFeedbackPipelineHooks{AfterWrite: func(result RuntimeFeedbackWriteResult) {
 		writeResults <- result
 	}}})
 	if err := pipeline.RegisterBackgroundWorker(scheduler); err != nil {

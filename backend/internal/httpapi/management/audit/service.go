@@ -2,7 +2,6 @@ package audit
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,10 +66,6 @@ func (s *Service) Close() {
 	}
 }
 
-func (s *Service) nowUTC() time.Time {
-	return s.now().UTC()
-}
-
 func (s *Service) corsSnapshot() platformcors.Snapshot {
 	if s == nil || s.corsOriginProvider == nil {
 		return platformcors.Snapshot{}
@@ -82,8 +77,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/audit", func(router chi.Router) {
 		router.Get("/logs", s.handleListLogs)
 		router.Get("/logs/{log_id}", s.handleGetLog)
-		router.Delete("/logs", s.handleDeleteLogs)
-		router.Post("/logs/delete-jobs", s.handleCreateDeleteJob)
 	})
 	api.Get("/management/jobs", s.handleListJobs)
 	api.Get("/management/jobs/{job_id}", s.handleGetJob)
@@ -142,99 +135,6 @@ func (s *Service) handleGetLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleDeleteLogs(w http.ResponseWriter, r *http.Request) {
-	job, err := s.createAuditDeleteJobFromQuery(r)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), auditJobError(err))
-		return
-	}
-	w.Header().Set("Location", "/api/management/jobs/"+job.ID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State, "status_url": "/api/management/jobs/" + job.ID})
-}
-
-func (s *Service) handleCreateDeleteJob(w http.ResponseWriter, r *http.Request) {
-	job, err := s.createAuditDeleteJobFromBody(r)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), auditJobError(err))
-		return
-	}
-	w.Header().Set("Location", "/api/management/jobs/"+job.ID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State, "status_url": "/api/management/jobs/" + job.ID})
-}
-
-func auditJobError(err error) error {
-	if err == nil {
-		return nil
-	}
-	switch err.Error() {
-	case "delete_reason_required":
-		return &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "delete_reason_required", Detail: "Delete job reason is required."}
-	case "delete_scope_required":
-		return &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "delete_scope_required", Detail: "Delete job scope is required."}
-	case "delete_idempotency_required":
-		return &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "delete_idempotency_required", Detail: "Idempotency-Key is required."}
-	default:
-		return err
-	}
-}
-
-func (s *Service) createAuditDeleteJobFromQuery(r *http.Request) (managementjobs.Job, error) {
-	return pgxutil.InTxValue(r.Context(), s.pool, "audit", func(tx pgx.Tx) (managementjobs.Job, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return managementjobs.Job{}, err
-		}
-		before, err := parseOptionalTime(r, "before")
-		if err != nil {
-			return managementjobs.Job{}, err
-		}
-		olderThanDays, err := parseOptionalInt(r, "older_than_days")
-		if err != nil {
-			return managementjobs.Job{}, err
-		}
-		deleteAll, err := parseOptionalBool(r, "delete_all")
-		if err != nil {
-			return managementjobs.Job{}, err
-		}
-		if before == nil && olderThanDays == nil && !deleteAll {
-			olderThanDays, err = loadAuditLogRetentionDays(r.Context(), tx, profile.ID)
-			if err != nil {
-				return managementjobs.Job{}, err
-			}
-			if olderThanDays == nil {
-				return managementjobs.Job{}, &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "delete_scope_required", Detail: "No audit log retention policy configured; provide 'before', 'older_than_days', or 'delete_all=true', or configure audit_logs_retention_days in /api/settings/retention"}
-			}
-		}
-		if olderThanDays != nil {
-			cutoff := s.nowUTC().Add(-time.Duration(*olderThanDays) * 24 * time.Hour)
-			before = &cutoff
-		}
-		key := r.Header.Get("Idempotency-Key")
-		if strings.TrimSpace(key) == "" {
-			key = fmt.Sprintf("legacy-audit-delete:%d:%v:%v", profile.ID, deleteAll, before)
-		}
-		return s.jobs.CreateAuditDeleteJob(r.Context(), managementjobs.CreateAuditDeleteJobRequest{ProfileID: profile.ID, RequestedBy: fmt.Sprintf("profile:%d", profile.ID), IdempotencyKey: key, Reason: "audit retention delete", Scope: managementjobs.AuditDeleteScope{Before: before, DeleteAll: deleteAll}})
-	})
-}
-
-type auditDeleteJobBody struct {
-	Scope  managementjobs.AuditDeleteScope `json:"scope"`
-	Reason string                          `json:"reason"`
-}
-
-func (s *Service) createAuditDeleteJobFromBody(r *http.Request) (managementjobs.Job, error) {
-	defer func() { _ = r.Body.Close() }()
-	var body auditDeleteJobBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		return managementjobs.Job{}, err
-	}
-	profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), s.pool, r.Header.Get(profiledomain.ProfileIDHeader))
-	if err != nil {
-		return managementjobs.Job{}, err
-	}
-	return s.jobs.CreateAuditDeleteJob(r.Context(), managementjobs.CreateAuditDeleteJobRequest{ProfileID: profile.ID, RequestedBy: fmt.Sprintf("profile:%d", profile.ID), IdempotencyKey: r.Header.Get("Idempotency-Key"), Reason: body.Reason, Scope: body.Scope})
-}
-
 func (s *Service) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	s.withJob(w, r, func(job managementjobs.Job) { writeJSON(w, http.StatusOK, job) })
 }
@@ -272,25 +172,13 @@ func (s *Service) withJob(w http.ResponseWriter, r *http.Request, fn func(manage
 	}
 	job, err := s.jobs.GetJob(r.Context(), chi.URLParam(r, "job_id"), profile.ID)
 	if err != nil {
+		job, err = s.jobs.GetGlobalJob(r.Context(), chi.URLParam(r, "job_id"))
+	}
+	if err != nil {
 		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Job not found")
 		return
 	}
 	fn(job)
-}
-
-func loadAuditLogRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
-	var auditLogsRetentionDays sql.NullInt32
-	if err := tx.QueryRow(ctx, `SELECT audit_logs_retention_days FROM user_settings WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&auditLogsRetentionDays); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("load audit retention settings for profile %d: %w", profileID, err)
-	}
-	if !auditLogsRetentionDays.Valid {
-		return nil, nil
-	}
-	resolved := int(auditLogsRetentionDays.Int32)
-	return &resolved, nil
 }
 
 func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, error) {
@@ -428,18 +316,6 @@ func parseCappedPositiveIntWithDefault(r *http.Request, key string, defaultValue
 	return value, nil
 }
 
-func parseOptionalBool(r *http.Request, key string) (bool, error) {
-	raw := strings.TrimSpace(r.URL.Query().Get(key))
-	if raw == "" {
-		return false, nil
-	}
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, fmt.Errorf("invalid %s", key)
-	}
-	return parsed, nil
-}
-
 func normalizedQueryString(r *http.Request, key string) *string {
 	raw := strings.TrimSpace(r.URL.Query().Get(key))
 	if raw == "" {
@@ -459,7 +335,7 @@ func routeInt(r *http.Request, name string) (int, error) {
 
 func loadRequestLogAuditCaptureState(ctx context.Context, tx pgx.Tx, profileID int, requestLogID int) (bool, bool, error) {
 	var auditEnabledAtRequest bool
-	if err := tx.QueryRow(ctx, `SELECT audit_enabled_at_request FROM request_logs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, requestLogID).Scan(&auditEnabledAtRequest); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT audit_enabled_at_request FROM request_logs WHERE profile_id = $1 AND id = $2 ORDER BY created_at DESC LIMIT 1`, profileID, requestLogID).Scan(&auditEnabledAtRequest); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, false, nil
 		}

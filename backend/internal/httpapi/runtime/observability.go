@@ -334,6 +334,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 		if attemptCreatedAt.IsZero() || index == len(attempts)-1 {
 			attemptCreatedAt = requestCompletedAt
 		}
+		attemptCreatedAt = attemptCreatedAt.UTC()
 		attemptResponseTimeMS := attempt.ResponseTimeMS
 		if attemptResponseTimeMS < 1 || index == len(attempts)-1 {
 			attemptResponseTimeMS = responseTimeMS
@@ -618,7 +619,11 @@ func marshalAuditHTTPHeaders(headers http.Header) *string {
 	return &resolved
 }
 
-func materializeRuntimeTelemetryEnvelopeTx(ctx context.Context, tx pgx.Tx, envelope runtimeTelemetryEnvelope) (int, error) {
+func materializeRuntimeTelemetryEnvelopeTx(ctx context.Context, tx pgx.Tx, logPartitions *runtimeLogPartitionCache, envelope runtimeTelemetryEnvelope) (int, error) {
+	envelope = normalizeRuntimeTelemetryEnvelopeTimestamps(envelope)
+	if err := ensureRuntimeTelemetryPartitions(ctx, logPartitions, envelope); err != nil {
+		return 0, err
+	}
 	requestLogID, err := insertRequestLogsAndUsageEventTx(ctx, tx, envelope.RequestLogs, envelope.AuditLogs, envelope.UsageEvent)
 	if err != nil {
 		return 0, err
@@ -627,6 +632,47 @@ func materializeRuntimeTelemetryEnvelopeTx(ctx context.Context, tx pgx.Tx, envel
 		return 0, err
 	}
 	return requestLogID, nil
+}
+
+func normalizeRuntimeTelemetryEnvelopeTimestamps(envelope runtimeTelemetryEnvelope) runtimeTelemetryEnvelope {
+	requestCreatedAtByAttempt := make(map[int]time.Time, len(envelope.RequestLogs))
+	for index := range envelope.RequestLogs {
+		envelope.RequestLogs[index].CreatedAt = envelope.RequestLogs[index].CreatedAt.UTC()
+		requestCreatedAtByAttempt[envelope.RequestLogs[index].AttemptNumber] = envelope.RequestLogs[index].CreatedAt
+	}
+	for index := range envelope.AuditLogs {
+		if createdAt, ok := requestCreatedAtByAttempt[envelope.AuditLogs[index].RequestLogAttemptNumber]; ok {
+			envelope.AuditLogs[index].CreatedAt = createdAt
+		} else {
+			envelope.AuditLogs[index].CreatedAt = envelope.AuditLogs[index].CreatedAt.UTC()
+		}
+	}
+	if len(envelope.RequestLogs) > 0 {
+		envelope.UsageEvent.CreatedAt = envelope.RequestLogs[len(envelope.RequestLogs)-1].CreatedAt
+	} else {
+		envelope.UsageEvent.CreatedAt = envelope.UsageEvent.CreatedAt.UTC()
+	}
+	return envelope
+}
+
+func ensureRuntimeTelemetryPartitions(ctx context.Context, logPartitions *runtimeLogPartitionCache, envelope runtimeTelemetryEnvelope) error {
+	if logPartitions == nil {
+		return fmt.Errorf("runtime log partition ensurer unavailable")
+	}
+	for _, requestLog := range envelope.RequestLogs {
+		if err := logPartitions.EnsurePartitionForTime(ctx, "request_logs", requestLog.CreatedAt); err != nil {
+			return err
+		}
+	}
+	for _, auditLog := range envelope.AuditLogs {
+		if err := logPartitions.EnsurePartitionForTime(ctx, "audit_logs", auditLog.CreatedAt); err != nil {
+			return err
+		}
+	}
+	if err := logPartitions.EnsurePartitionForTime(ctx, "usage_request_events", envelope.UsageEvent.CreatedAt); err != nil {
+		return err
+	}
+	return nil
 }
 
 func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLogs []requestLogInsert, auditLogs []auditLogInsert, usageEvent usageEventInsert) (int, error) {
@@ -689,7 +735,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			requestLog.RequestPath,
 			nullableStringArg(requestLog.ErrorDetail),
 			nullableStringArg(requestLog.EndpointDescription),
-			requestLog.CreatedAt,
+			requestLog.CreatedAt.UTC(),
 			nullableStringArg(requestLog.CallerUserAgent),
 			nullableStringArg(requestLog.UpstreamUserAgent),
 			nullableIntArg(requestLog.CompletionDurationMS),
@@ -706,7 +752,8 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 			return 0, fmt.Errorf("insert request log: %w", err)
 		}
 		if auditLog, ok := auditByAttempt[requestLog.AttemptNumber]; ok {
-			if err := insertRuntimeAuditLogTx(ctx, tx, requestLogID, auditLog); err != nil {
+			auditLog.CreatedAt = requestLog.CreatedAt
+			if err := insertRuntimeAuditLogTx(ctx, tx, requestLogID, requestLog.CreatedAt, requestLog.IngressRequestID, auditLog); err != nil {
 				return 0, err
 			}
 		}
@@ -752,7 +799,7 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 		nullableIntArg(usageEvent.PricingConfigVersionUsed),
 		usageEvent.AttemptCount,
 		usageEvent.RequestPath,
-		usageEvent.CreatedAt,
+		usageEvent.CreatedAt.UTC(),
 		nullableIntArg(usageEvent.ResponseTimeMS),
 		nullableIntArg(usageEvent.CompletionDurationMS),
 		nullableIntArg(usageEvent.TTFTMS),
@@ -767,11 +814,13 @@ func insertRequestLogsAndUsageEventTx(ctx context.Context, tx pgx.Tx, requestLog
 	return requestLogID, nil
 }
 
-func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, auditLog auditLogInsert) error {
+func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, requestLogCreatedAt time.Time, ingressRequestID string, auditLog auditLogInsert) error {
 	if _, err := tx.Exec(
 		ctx,
-		`INSERT INTO audit_logs (request_log_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+		`INSERT INTO audit_logs (request_log_id, request_log_created_at, ingress_request_id, profile_id, vendor_id, model_id, endpoint_id, connection_id, endpoint_base_url, endpoint_description, request_method, request_url, request_headers, request_body, request_body_stored, response_status, response_headers, response_body, response_body_stored, is_stream, duration_ms, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
 		requestLogID,
+		requestLogCreatedAt.UTC(),
+		ingressRequestID,
 		auditLog.ProfileID,
 		nullableIntArg(auditLog.VendorID),
 		auditLog.ModelID,
@@ -790,7 +839,7 @@ func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, a
 		auditLog.ResponseBodyStored,
 		auditLog.IsStream,
 		auditLog.DurationMS,
-		auditLog.CreatedAt,
+		auditLog.CreatedAt.UTC(),
 		auditLog.AuditEnabledAtRequest,
 		auditLog.AuditCaptureBodiesAtRequest,
 	); err != nil {

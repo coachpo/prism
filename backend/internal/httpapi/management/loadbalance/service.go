@@ -91,7 +91,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Post("/current-state/{connection_id}/reset", s.handleResetCurrentState)
 		router.Get("/events", s.handleListEvents)
 		router.Get("/events/{event_id}", s.handleGetEvent)
-		router.Delete("/events", s.handleDeleteEvents)
 	})
 }
 

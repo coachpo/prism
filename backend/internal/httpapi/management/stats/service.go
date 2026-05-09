@@ -2,7 +2,6 @@ package stats
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -179,7 +178,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Route("/stats", func(router chi.Router) {
 		router.Get("/dashboard", s.handleDashboardStats)
 		router.Get("/requests", s.handleListRequestLogs)
-		router.Delete("/requests", s.handleDeleteRequestLogs)
 		router.Get("/requests/{request_id}", s.handleGetRequestLog)
 		router.Get("/summary", s.handleStatsSummary)
 		router.Post("/models/metrics", s.handleModelMetrics)
@@ -188,7 +186,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 		router.Get("/spending", s.handleSpending)
 		router.Get("/usage-snapshot", s.handleUsageSnapshot)
 		router.Get("/endpoints/{endpoint_id}/models", s.handleEndpointModelStatistics)
-		router.Delete("/statistics", s.handleDeleteStatistics)
 	})
 }
 
@@ -486,144 +483,6 @@ func (s *Service) handleEndpointModelStatistics(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleDeleteRequestLogs(w http.ResponseWriter, r *http.Request) {
-	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return 0, err
-		}
-		olderThanDays, err := parseOptionalInt(r, "older_than_days")
-		if err != nil {
-			return 0, err
-		}
-		deleteAll, err := parseOptionalBool(r, "delete_all")
-		if err != nil {
-			return 0, err
-		}
-		if olderThanDays == nil && !deleteAll {
-			olderThanDays, err = loadRequestLogRetentionDays(r.Context(), tx, profile.ID)
-			if err != nil {
-				return 0, err
-			}
-			if olderThanDays == nil {
-				return 0, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "No request log retention policy configured; provide 'older_than_days' or 'delete_all=true', or configure request_logs_retention_days in /api/settings/retention"}
-			}
-		}
-		if err := statsdomain.DeleteRequestLogs(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
-			return 0, err
-		}
-		if err := s.enqueueDashboardInvalidation(r.Context(), tx, "request_logs.delete", profile.ID); err != nil {
-			return 0, err
-		}
-		return profile.ID, nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	managementsideeffects.AfterCommit(context.Background(), s.wakeSideEffectDispatcher)
-	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
-}
-
-func (s *Service) handleDeleteStatistics(w http.ResponseWriter, r *http.Request) {
-	_, err := pgxutil.InTxValue(r.Context(), s.pool, "stats", func(tx pgx.Tx) (int, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return 0, err
-		}
-		olderThanDays, err := parseOptionalInt(r, "older_than_days")
-		if err != nil {
-			return 0, err
-		}
-		deleteAll, err := parseOptionalBool(r, "delete_all")
-		if err != nil {
-			return 0, err
-		}
-		if olderThanDays == nil && !deleteAll {
-			olderThanDays, err = loadStatisticsRetentionDays(r.Context(), tx, profile.ID)
-			if err != nil {
-				return 0, err
-			}
-			if olderThanDays == nil {
-				return 0, &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Detail: "No statistics retention policy configured; provide 'older_than_days' or 'delete_all=true', or configure statistics_retention_days in /api/settings/retention"}
-			}
-		}
-		if err := statsdomain.DeleteStatistics(r.Context(), tx, profile.ID, olderThanDays, deleteAll, s.nowUTC()); err != nil {
-			return 0, err
-		}
-		if err := s.enqueueDashboardInvalidation(r.Context(), tx, "statistics.delete", profile.ID); err != nil {
-			return 0, err
-		}
-		return profile.ID, nil
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	managementsideeffects.AfterCommit(context.Background(), s.wakeSideEffectDispatcher)
-	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
-}
-
-func (s *Service) enqueueDashboardInvalidation(ctx context.Context, tx pgx.Tx, operation string, profileID int) error {
-	if s == nil || s.sideEffects == nil || profileID <= 0 {
-		return nil
-	}
-	operationID := fmt.Sprintf("stats.%s.profile.%d.%d", operation, profileID, s.nowUTC().UnixNano())
-	intent := managementsideeffects.Intent{
-		OperationID:   operationID,
-		EventType:     managementsideeffects.EventDashboardSnapshotInvalidate,
-		AggregateType: "profile",
-		AggregateID:   strconv.Itoa(profileID),
-		DedupeKey:     operationID,
-		Payload:       managementsideeffects.DashboardSnapshotInvalidatePayload{ProfileID: profileID},
-	}
-	_, err := managementsideeffects.InsertTx(ctx, tx, intent)
-	return err
-}
-
-func (s *Service) wakeSideEffectDispatcher(ctx context.Context) error {
-	if s == nil || s.sideEffects == nil {
-		return nil
-	}
-	return s.sideEffects.Wake(ctx)
-}
-
-func loadRequestLogRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
-	requestLogsRetentionDays, _, err := loadRetentionSettings(ctx, tx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	return requestLogsRetentionDays, nil
-}
-
-func loadStatisticsRetentionDays(ctx context.Context, tx pgx.Tx, profileID int) (*int, error) {
-	_, statisticsRetentionDays, err := loadRetentionSettings(ctx, tx, profileID)
-	if err != nil {
-		return nil, err
-	}
-	return statisticsRetentionDays, nil
-}
-
-func loadRetentionSettings(ctx context.Context, tx pgx.Tx, profileID int) (*int, *int, error) {
-	var requestLogsRetentionDays sql.NullInt32
-	var statisticsRetentionDays sql.NullInt32
-	if err := tx.QueryRow(ctx, `SELECT request_logs_retention_days, statistics_retention_days FROM user_settings WHERE profile_id = $1 LIMIT 1`, profileID).Scan(&requestLogsRetentionDays, &statisticsRetentionDays); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, nil
-		}
-		return nil, nil, fmt.Errorf("load stats retention settings for profile %d: %w", profileID, err)
-	}
-	return nullableIntFromNullInt32(requestLogsRetentionDays), nullableIntFromNullInt32(statisticsRetentionDays), nil
-}
-
-func nullableIntFromNullInt32(value sql.NullInt32) *int {
-	if !value.Valid {
-		return nil
-	}
-	resolved := int(value.Int32)
-	return &resolved
-}
-
 func parseRequestLogListParams(r *http.Request, profileID int) (statsdomain.RequestLogListParams, error) {
 	fromTime, err := parseOptionalTime(r, "from_time")
 	if err != nil {
@@ -736,18 +595,6 @@ func parseNonNegativeIntWithDefault(r *http.Request, key string, defaultValue in
 		return 0, fmt.Errorf("invalid %s", key)
 	}
 	return *parsed, nil
-}
-
-func parseOptionalBool(r *http.Request, key string) (bool, error) {
-	raw := strings.TrimSpace(r.URL.Query().Get(key))
-	if raw == "" {
-		return false, nil
-	}
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, fmt.Errorf("invalid %s", key)
-	}
-	return parsed, nil
 }
 
 func normalizedQueryString(r *http.Request, key string) *string {

@@ -9,12 +9,14 @@ import (
 
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
+	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 )
 
 type Options struct {
 	CORSOriginProvider platformcors.OriginProvider
 	Pool               *pgxpool.Pool
 	Now                func() time.Time
+	Jobs               *managementjobs.Store
 }
 
 type Service struct {
@@ -22,6 +24,7 @@ type Service struct {
 	ownsPool           bool
 	now                func() time.Time
 	corsOriginProvider platformcors.OriginProvider
+	jobs               *managementjobs.Store
 }
 
 type domainError struct {
@@ -53,7 +56,12 @@ func NewService(settings config.Settings, options Options) (*Service, error) {
 		corsOriginProvider = platformcors.NewStaticOriginProvider(settings.CORSAllowedOriginsList())
 	}
 
-	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider}, nil
+	jobs := options.Jobs
+	if jobs == nil {
+		jobs = managementjobs.NewStore(managementjobs.Options{Pool: pool, Now: now})
+	}
+
+	return &Service{pool: pool, ownsPool: ownsPool, now: now, corsOriginProvider: corsOriginProvider, jobs: jobs}, nil
 }
 
 func (s *Service) Close() {
@@ -78,6 +86,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/settings/costing", s.handlePutCostingSettings)
 	api.Get("/settings/timezone", s.handleGetTimezonePreference)
 	api.Put("/settings/timezone", s.handlePutTimezonePreference)
-	api.Get("/settings/retention", s.handleGetRetentionSettings)
-	api.Put("/settings/retention", s.handlePutRetentionSettings)
+	api.Get("/settings/log-retention", s.handleGetRetentionSettings)
+	api.Put("/settings/log-retention", s.handlePutRetentionSettings)
+	api.Post("/maintenance/log-retention/jobs", s.handleCreateLogRetentionJob)
 }

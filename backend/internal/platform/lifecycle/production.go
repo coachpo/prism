@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ import (
 	platformdb "github.com/coachpo/prism/backend/internal/platform/db"
 	"github.com/coachpo/prism/backend/internal/platform/email/outbox"
 	platformhttp "github.com/coachpo/prism/backend/internal/platform/http"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 	"github.com/coachpo/prism/backend/internal/platform/managementsideeffects"
 	"github.com/coachpo/prism/backend/internal/platform/version"
@@ -145,7 +147,11 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	backgroundScheduler := background.NewScheduler(background.Config{})
 	resources.scheduler = backgroundScheduler
 	managementSideEffects := managementsideeffects.NewDispatcher(managementsideeffects.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
-	managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler})
+	logRetentionStore := logretention.NewStore(logretention.Options{Pool: backgroundJobsPool})
+	managementJobs := managementjobs.NewStore(managementjobs.Options{Pool: backgroundJobsPool, Scheduler: backgroundScheduler, LogRetention: logRetentionStore})
+	if err := logRetentionStore.EnsurePartitionHorizon(ctx); err != nil {
+		return fmt.Errorf("bootstrap log partition horizon: %w", err)
+	}
 
 	runtimePlanningCache := runtimeapi.NewSharedCacheWithOptions(runtimeapi.SharedCacheOptions{RefreshPool: cacheRefreshPool, SecretEncryptionKey: settings.SecretEncryptionKey, Scheduler: backgroundScheduler})
 	runtimeState := loadbalancedomain.NewLocalRuntimeStateStore()
@@ -198,7 +204,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	}
 	resources.registerServiceClose(closeFuncHook(connectionsService.Close))
 
-	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
+	settingsService, err := managementsettings.NewService(settings, managementsettings.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, Jobs: managementJobs})
 	if err != nil {
 		return err
 	}
@@ -248,7 +254,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	resources.registerSideEffectDrain(closeFuncHook(asyncAnalyticsPublisher.Close))
 	resources.registerServiceClose(closeFuncHook(asyncAnalyticsPublisher.Close))
 
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: runtimeExecutionPool, TelemetryPool: runtimeTelemetryPool, FeedbackPool: runtimeFeedbackPool, RuntimeProxyConfigProvider: resources.deps.HotBootstrapConfigRuntime, DashboardUpdates: asyncDashboardPublisher, AnalyticsUpdates: asyncAnalyticsPublisher, Cache: runtimePlanningCache, RuntimeState: runtimeState, LogPartitionEnsurer: logRetentionStore, AssumeLogPartitionHorizon: true, Scheduler: backgroundScheduler, SideEffects: runtimeSideEffectOptions(settings)})
 	if err != nil {
 		return err
 	}
@@ -260,6 +266,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 		emailOutbox.RegisterBackgroundWorker,
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
+		logRetentionStore.RegisterBackgroundWorker,
 		asyncDashboardPublisher.RegisterBackgroundWorker,
 		asyncAnalyticsPublisher.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,

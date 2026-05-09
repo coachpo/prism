@@ -50,6 +50,7 @@ type runtimeTelemetryOutbox struct {
 	now              func() time.Time
 	dashboardUpdates DashboardUpdatePublisher
 	analyticsUpdates AnalyticsUpdatePublisher
+	logPartitions    *runtimeLogPartitionCache
 	pollInterval     time.Duration
 	shutdownTimeout  time.Duration
 	hooks            TelemetryOutboxHooks
@@ -83,13 +84,14 @@ func (state runtimeTelemetryDrainState) drained() bool {
 	return state.PendingRows == 0 && state.Inflight == 0
 }
 
-func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, analyticsUpdates AnalyticsUpdatePublisher, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
+func newRuntimeTelemetryOutbox(telemetryPool *pgxpool.Pool, now func() time.Time, dashboardUpdates DashboardUpdatePublisher, analyticsUpdates AnalyticsUpdatePublisher, logPartitions *runtimeLogPartitionCache, options TelemetryOutboxOptions) *runtimeTelemetryOutbox {
 	normalized := normalizeTelemetryOutboxOptions(options)
 	outbox := &runtimeTelemetryOutbox{
 		telemetryPool:    telemetryPool,
 		now:              now,
 		dashboardUpdates: dashboardUpdates,
 		analyticsUpdates: analyticsUpdates,
+		logPartitions:    logPartitions,
 		pollInterval:     normalized.PollInterval,
 		shutdownTimeout:  normalized.ShutdownTimeout,
 		hooks:            normalized.hooks(),
@@ -233,7 +235,7 @@ func (o *runtimeTelemetryOutbox) processNext(ctx context.Context) (bool, error) 
 				return runtimeTelemetryMaterializationResult{}, err
 			}
 		}
-		requestLogID, err := materializeRuntimeTelemetryEnvelopeTx(ctx, tx, envelope)
+		requestLogID, err := materializeRuntimeTelemetryEnvelopeTx(ctx, tx, o.logPartitions, envelope)
 		if err != nil {
 			return runtimeTelemetryMaterializationResult{}, err
 		}

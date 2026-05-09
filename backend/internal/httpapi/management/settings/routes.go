@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/coachpo/prism/backend/internal/httpapi/management/responseutil"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
+	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
 	profiledomain "github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
@@ -138,11 +140,7 @@ func (s *Service) handlePutTimezonePreference(w http.ResponseWriter, r *http.Req
 
 func (s *Service) handleGetRetentionSettings(w http.ResponseWriter, r *http.Request) {
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return retentionSettingsResponse{}, err
-		}
-		settingsRow, err := loadOrCreateUserSettings(r.Context(), tx, profile.ID, s.nowUTC())
+		settingsRow, err := loadOrCreateLogRetentionSettings(r.Context(), tx, s.nowUTC())
 		if err != nil {
 			return retentionSettingsResponse{}, err
 		}
@@ -166,19 +164,16 @@ func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	response, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (retentionSettingsResponse, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return retentionSettingsResponse{}, err
-		}
-		settingsRow, err := loadOrCreateUserSettings(r.Context(), tx, profile.ID, s.nowUTC())
+		settingsRow, err := loadOrCreateLogRetentionSettings(r.Context(), tx, s.nowUTC())
 		if err != nil {
 			return retentionSettingsResponse{}, err
 		}
 		settingsRow.RequestLogsRetentionDays = requestBody.RequestLogsRetentionDays
-		settingsRow.StatisticsRetentionDays = requestBody.StatisticsRetentionDays
 		settingsRow.AuditLogsRetentionDays = requestBody.AuditLogsRetentionDays
+		settingsRow.StatisticsRetentionDays = requestBody.StatisticsRetentionDays
+		settingsRow.LoadbalanceEventsRetentionDays = requestBody.LoadbalanceEventsRetentionDays
 		settingsRow.UpdatedAt = s.nowUTC()
-		if err := updateUserSettings(r.Context(), tx, settingsRow); err != nil {
+		if err := updateLogRetentionSettings(r.Context(), tx, settingsRow); err != nil {
 			return retentionSettingsResponse{}, err
 		}
 		return buildRetentionSettingsResponse(settingsRow), nil
@@ -188,6 +183,71 @@ func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Service) handleCreateLogRetentionJob(w http.ResponseWriter, r *http.Request) {
+	var requestBody logRetentionJobRequest
+	if err := decodeJSONBody(r, &requestBody); err != nil {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	requestBody.Table = strings.TrimSpace(requestBody.Table)
+	requestBody.Reason = strings.TrimSpace(requestBody.Reason)
+	if requestBody.Table == "" {
+		writeDomainError(w, r, s.corsSnapshot(), &domainError{StatusCode: http.StatusBadRequest, Detail: "table is required"})
+		return
+	}
+	cutoff := requestBody.Cutoff
+	if cutoff == nil && !requestBody.DeleteAll {
+		settingsRow, err := pgxutil.InTxValue(r.Context(), s.pool, "settings", func(tx pgx.Tx) (logRetentionSettingsRow, error) {
+			return loadOrCreateLogRetentionSettings(r.Context(), tx, s.nowUTC())
+		})
+		if err != nil {
+			writeDomainError(w, r, s.corsSnapshot(), err)
+			return
+		}
+		retentionDays := retentionDaysForTable(settingsRow, requestBody.Table)
+		if retentionDays == nil {
+			writeDomainError(w, r, s.corsSnapshot(), &domainError{StatusCode: http.StatusBadRequest, Detail: "No log retention policy configured; provide cutoff or delete_all=true, or configure the table retention days in /api/settings/log-retention"})
+			return
+		}
+		computed := s.nowUTC().Add(-time.Duration(*retentionDays) * 24 * time.Hour)
+		cutoff = &computed
+	}
+	job, err := s.jobs.CreateLogRetentionJob(r.Context(), managementjobs.CreateLogRetentionJobRequest{RequestedBy: "global", IdempotencyKey: r.Header.Get("Idempotency-Key"), Reason: requestBody.Reason, Scope: managementjobs.LogRetentionScope{Table: requestBody.Table, Cutoff: cutoff, DeleteAll: requestBody.DeleteAll}})
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), retentionJobError(err))
+		return
+	}
+	w.Header().Set("Location", "/api/management/jobs/"+job.ID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID, "state": job.State, "status_url": "/api/management/jobs/" + job.ID, "scope": job.Scope})
+}
+
+func retentionDaysForTable(settingsRow logRetentionSettingsRow, tableName string) *int {
+	switch tableName {
+	case "request_logs":
+		return settingsRow.RequestLogsRetentionDays
+	case "audit_logs":
+		return settingsRow.AuditLogsRetentionDays
+	case "usage_request_events":
+		return settingsRow.StatisticsRetentionDays
+	case "loadbalance_events":
+		return settingsRow.LoadbalanceEventsRetentionDays
+	default:
+		return nil
+	}
+}
+
+func retentionJobError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch err.Error() {
+	case "retention_scope_required", "retention_table_required", "retention_table_unknown":
+		return &domainError{StatusCode: http.StatusBadRequest, Detail: err.Error()}
+	default:
+		return err
+	}
 }
 
 func buildCostingSettingsResponse(settingsRow userSettingsRow, mappings []endpointFXMapping) costingSettingsResponse {
@@ -207,12 +267,12 @@ func buildTimezonePreferenceResponse(settingsRow userSettingsRow) timezonePrefer
 	return timezonePreferenceResponse{ProfileID: settingsRow.ProfileID, TimezonePreference: settingsRow.TimezonePreference}
 }
 
-func buildRetentionSettingsResponse(settingsRow userSettingsRow) retentionSettingsResponse {
+func buildRetentionSettingsResponse(settingsRow logRetentionSettingsRow) retentionSettingsResponse {
 	return retentionSettingsResponse{
-		ProfileID:                settingsRow.ProfileID,
-		RequestLogsRetentionDays: settingsRow.RequestLogsRetentionDays,
-		StatisticsRetentionDays:  settingsRow.StatisticsRetentionDays,
-		AuditLogsRetentionDays:   settingsRow.AuditLogsRetentionDays,
+		RequestLogsRetentionDays:       settingsRow.RequestLogsRetentionDays,
+		AuditLogsRetentionDays:         settingsRow.AuditLogsRetentionDays,
+		StatisticsRetentionDays:        settingsRow.StatisticsRetentionDays,
+		LoadbalanceEventsRetentionDays: settingsRow.LoadbalanceEventsRetentionDays,
 	}
 }
 

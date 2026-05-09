@@ -22,10 +22,10 @@ type timezonePreferenceResponse struct {
 }
 
 type retentionSettingsResponse struct {
-	ProfileID                int  `json:"profile_id"`
-	RequestLogsRetentionDays *int `json:"request_logs_retention_days"`
-	StatisticsRetentionDays  *int `json:"statistics_retention_days"`
-	AuditLogsRetentionDays   *int `json:"audit_logs_retention_days"`
+	RequestLogsRetentionDays       *int `json:"request_logs_retention_days"`
+	AuditLogsRetentionDays         *int `json:"audit_logs_retention_days"`
+	StatisticsRetentionDays        *int `json:"statistics_retention_days"`
+	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
 }
 
 type costingSettingsUpdateRequest struct {
@@ -41,20 +41,34 @@ type timezonePreferenceUpdateRequest struct {
 }
 
 type retentionSettingsUpdateRequest struct {
-	RequestLogsRetentionDays *int `json:"request_logs_retention_days"`
-	StatisticsRetentionDays  *int `json:"statistics_retention_days"`
-	AuditLogsRetentionDays   *int `json:"audit_logs_retention_days"`
+	RequestLogsRetentionDays       *int `json:"request_logs_retention_days"`
+	AuditLogsRetentionDays         *int `json:"audit_logs_retention_days"`
+	StatisticsRetentionDays        *int `json:"statistics_retention_days"`
+	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
+}
+
+type logRetentionJobRequest struct {
+	Table     string     `json:"table"`
+	Cutoff    *time.Time `json:"cutoff"`
+	DeleteAll bool       `json:"delete_all"`
+	Reason    string     `json:"reason"`
+}
+
+type logRetentionSettingsRow struct {
+	RequestLogsRetentionDays       *int
+	AuditLogsRetentionDays         *int
+	StatisticsRetentionDays        *int
+	LoadbalanceEventsRetentionDays *int
+	CreatedAt                      time.Time
+	UpdatedAt                      time.Time
 }
 
 type userSettingsRow struct {
-	ID                       int
-	ProfileID                int
-	ReportCurrencyCode       string
-	ReportCurrencySymbol     string
-	TimezonePreference       *string
-	RequestLogsRetentionDays *int
-	StatisticsRetentionDays  *int
-	AuditLogsRetentionDays   *int
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
+	ID                   int
+	ProfileID            int
+	ReportCurrencyCode   string
+	ReportCurrencySymbol string
+	TimezonePreference   *string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }

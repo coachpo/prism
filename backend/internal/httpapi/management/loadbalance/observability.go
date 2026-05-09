@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -109,33 +108,6 @@ func (s *Service) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleDeleteEvents(w http.ResponseWriter, r *http.Request) {
-	_, err := pgxutil.InTxValue(r.Context(), s.pool, "loadbalance", func(tx pgx.Tx) (struct{}, error) {
-		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
-		if err != nil {
-			return struct{}{}, err
-		}
-		before, err := parseOptionalTimeQuery(r, "before")
-		if err != nil {
-			return struct{}{}, err
-		}
-		olderThanDays, err := parseOptionalPositiveIntQuery(r, "older_than_days")
-		if err != nil {
-			return struct{}{}, err
-		}
-		deleteAll, err := parseOptionalBoolQuery(r, "delete_all")
-		if err != nil {
-			return struct{}{}, err
-		}
-		return struct{}{}, loadbalancedomain.DeleteEvents(r.Context(), tx, loadbalancedomain.DeleteParams{ProfileID: profile.ID, Before: before, OlderThanDays: olderThanDays, DeleteAll: deleteAll, ReferenceNow: s.nowUTC()})
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"accepted": true})
-}
-
 func parseRequiredPositiveIntQuery(r *http.Request, key string) (int, error) {
 	parsed, err := parseOptionalPositiveIntQuery(r, key)
 	if err != nil {
@@ -181,34 +153,6 @@ func parseNonNegativeIntQueryWithDefault(r *http.Request, key string, defaultVal
 		return 0, fmt.Errorf("invalid %s", key)
 	}
 	return parsed, nil
-}
-
-func parseOptionalBoolQuery(r *http.Request, key string) (bool, error) {
-	raw := strings.TrimSpace(r.URL.Query().Get(key))
-	if raw == "" {
-		return false, nil
-	}
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, fmt.Errorf("invalid %s", key)
-	}
-	return parsed, nil
-}
-
-func parseOptionalTimeQuery(r *http.Request, key string) (*time.Time, error) {
-	raw := strings.TrimSpace(r.URL.Query().Get(key))
-	if raw == "" {
-		return nil, nil
-	}
-	parsed, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		parsed, err = time.Parse(time.RFC3339Nano, raw)
-		if err != nil {
-			return nil, fmt.Errorf("invalid %s", key)
-		}
-	}
-	resolved := parsed.UTC()
-	return &resolved, nil
 }
 
 func routeInt64(request *http.Request, name string) (int64, error) {
