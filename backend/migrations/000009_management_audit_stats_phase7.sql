@@ -48,7 +48,7 @@ CREATE TABLE "public"."management_jobs" (
     "error_message" text,
     "created_at" timestamptz NOT NULL DEFAULT now(),
     "updated_at" timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT "management_jobs_type_check" CHECK (type IN ('audit_delete')),
+    CONSTRAINT "management_jobs_type_check" CHECK (type IN ('audit_delete', 'log_retention')),
     CONSTRAINT "management_jobs_state_check" CHECK (state IN ('queued', 'running', 'cancel_requested', 'cancelled', 'succeeded', 'failed')),
     CONSTRAINT "management_jobs_attempts_check" CHECK (attempt_count >= 0 AND max_attempts > 0 AND attempt_count <= max_attempts)
 );
