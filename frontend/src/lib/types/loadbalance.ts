@@ -210,7 +210,3 @@ export interface LoadbalanceEventListResponse {
   limit: number;
   offset: number;
 }
-
-export interface LoadbalanceEventDeleteResponse {
-  accepted: boolean;
-}

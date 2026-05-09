@@ -382,12 +382,27 @@ export interface AuditLogParams {
   offset?: number;
 }
 
-export interface AuditLogDeleteResponse {
-  accepted: boolean;
+export type LogRetentionTable = "request_logs" | "audit_logs" | "usage_request_events" | "loadbalance_events";
+
+export interface LogRetentionJobScope {
+  before?: string | null;
+  table: LogRetentionTable;
+  cutoff?: string | null;
+  delete_all?: boolean;
 }
 
-export interface BatchDeleteResponse {
-  accepted: boolean;
+export interface LogRetentionJobRequest {
+  table: LogRetentionTable;
+  cutoff?: string | null;
+  delete_all?: boolean;
+  reason: string;
+}
+
+export interface LogRetentionJobResponse {
+  job_id: string;
+  state: string;
+  status_url: string;
+  scope: LogRetentionJobScope;
 }
 
 export interface EndpointFxMapping {
@@ -419,16 +434,17 @@ export interface TimezonePreferenceUpdate {
 }
 
 export interface RetentionSettingsResponse {
-  profile_id: number;
   request_logs_retention_days: number | null;
   statistics_retention_days: number | null;
   audit_logs_retention_days: number | null;
+  loadbalance_events_retention_days: number | null;
 }
 
 export interface RetentionSettingsUpdate {
   request_logs_retention_days?: number | null;
   statistics_retention_days?: number | null;
   audit_logs_retention_days?: number | null;
+  loadbalance_events_retention_days?: number | null;
 }
 
 export interface HeaderBlocklistRule {

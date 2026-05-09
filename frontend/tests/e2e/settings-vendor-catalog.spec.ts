@@ -95,8 +95,8 @@ async function mockSettingsRoutes(page: Page) {
     if (pathname === "/api/settings/auth") {
       return fulfillJson({ auth_enabled: false, username: null, has_password: false, email: null, pending_email: null, email_bound_at: null, email_verification_required: false });
     }
-    if (pathname === "/api/settings/retention") {
-      return fulfillJson({ profile_id: 1, request_logs_retention_days: 30, statistics_retention_days: 30, audit_logs_retention_days: 30 });
+    if (pathname === "/api/settings/log-retention") {
+      return fulfillJson({ request_logs_retention_days: 30, statistics_retention_days: 30, audit_logs_retention_days: 30, loadbalance_events_retention_days: 30 });
     }
     if (pathname === "/api/models") {
       return fulfillJson([]);

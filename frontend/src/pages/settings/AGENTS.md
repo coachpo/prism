@@ -33,8 +33,8 @@ settings/
 ## SHELL CONTRACT
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
-- The Profile tab owns section navigation and mounts backup, billing and currency, timezone, audit and privacy, and retention and deletion.
-- The Global tab mounts instance-wide authentication plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
+- The Profile tab owns section navigation and mounts backup, billing and currency, timezone, and audit and privacy.
+- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
@@ -62,7 +62,7 @@ settings/
 - Keep new settings work sectionized. Extend helper registries, shared hooks, or local dialogs instead of inflating `SettingsPage.tsx`.
 - Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
-- Keep the scope split clear in copy and behavior: authentication is global, while backup, billing and currency, timezone, audit and privacy, and retention stay profile-scoped.
+- Keep the scope split clear in copy and behavior: authentication and retention are global, while backup, billing and currency, timezone, and audit and privacy stay profile-scoped.
 - Keep shared vendor catalog CRUD and import/export preview transport on the Global tab, and continue to let the Profile-tab audit defaults consume that same shared vendor catalog.
 - Keep vendor icon metadata on the shared vendor catalog and preserve it through global CRUD flows.
 - `SettingsProfileTab.tsx` and `SettingsGlobalTab.tsx` own the tab bodies, while the shell hook keeps their section state synchronized.

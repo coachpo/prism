@@ -158,12 +158,12 @@ async function installAuthLifecycleRoutes(context: BrowserContext) {
       return;
     }
 
-    if (pathname === "/api/settings/retention") {
+    if (pathname === "/api/settings/log-retention") {
       await fulfillJson(route, {
-        profile_id: 1,
         request_logs_retention_days: 30,
         statistics_retention_days: 30,
         audit_logs_retention_days: 30,
+        loadbalance_events_retention_days: 30,
       });
       return;
     }

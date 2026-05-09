@@ -15,14 +15,13 @@ export const SETTINGS_TABS = {
 
 export type SettingsTab = (typeof SETTINGS_TABS)[keyof typeof SETTINGS_TABS];
 
-export const INSTANCE_SECTION_IDS = new Set(["authentication"]);
+export const INSTANCE_SECTION_IDS = new Set(["authentication", "retention-deletion"]);
 
 export const SETTINGS_SECTIONS = [
   { id: "backup" },
   { id: "billing-currency" },
   { id: "timezone" },
   { id: "audit-configuration" },
-  { id: "retention-deletion" },
 ] as const;
 
 export const SETTINGS_SECTION_IDS = new Set<string>(SETTINGS_SECTIONS.map((section) => section.id));

@@ -1,9 +1,7 @@
 import type {
-  AuditLogDeleteResponse,
   AuditLogDetail,
   AuditLogListResponse,
   AuditLogParams,
-  BatchDeleteResponse,
   BootstrapConfigResponse,
   BootstrapConfigUpdateRequest,
   ConfigExportResponse,
@@ -19,9 +17,10 @@ import type {
   HeaderBlocklistRuleUpdate,
   LoadbalanceCurrentStateListResponse,
   LoadbalanceCurrentStateResetResponse,
-  LoadbalanceEventDeleteResponse,
   LoadbalanceEventDetail,
   LoadbalanceEventListResponse,
+  LogRetentionJobRequest,
+  LogRetentionJobResponse,
   RequestLogListResponse,
   SpendingReportParams,
   SpendingReportResponse,
@@ -101,14 +100,6 @@ export const stats = {
     const query = buildQuery(params);
     return request<ThroughputStatsResponse>(`/api/stats/throughput${query ? `?${query}` : ""}`);
   },
-  delete: (params: { older_than_days?: number; delete_all?: boolean }) => {
-    const query = buildQuery(params);
-    return request<BatchDeleteResponse>(`/api/stats/requests?${query}`, { method: "DELETE" });
-  },
-  deleteStatistics: (params: { older_than_days?: number; delete_all?: boolean }) => {
-    const query = buildQuery(params);
-    return request<BatchDeleteResponse>(`/api/stats/statistics?${query}`, { method: "DELETE" });
-  },
 };
 
 export const settingsCosting = {
@@ -130,10 +121,15 @@ export const settingsTimezone = {
 };
 
 export const settingsRetention = {
-  get: () => request<RetentionSettingsResponse>("/api/settings/retention"),
+  get: () => request<RetentionSettingsResponse>("/api/settings/log-retention"),
   update: (data: RetentionSettingsUpdate) =>
-    request<RetentionSettingsResponse>("/api/settings/retention", {
+    request<RetentionSettingsResponse>("/api/settings/log-retention", {
       method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  createJob: (data: LogRetentionJobRequest) =>
+    request<LogRetentionJobResponse>("/api/maintenance/log-retention/jobs", {
+      method: "POST",
       body: JSON.stringify(data),
     }),
 };
@@ -243,10 +239,6 @@ export const audit = {
     return request<AuditLogListResponse>(`/api/audit/logs${query ? `?${query}` : ""}`);
   },
   get: (id: number) => request<AuditLogDetail>(`/api/audit/logs/${id}`),
-  delete: (params: { before?: string; older_than_days?: number; delete_all?: boolean }) => {
-    const query = buildQuery(params);
-    return request<AuditLogDeleteResponse>(`/api/audit/logs?${query}`, { method: "DELETE" });
-  },
 };
 
 export const loadbalance = {
@@ -270,8 +262,4 @@ export const loadbalance = {
     return request<LoadbalanceEventListResponse>(`/api/loadbalance/events${query ? `?${query}` : ""}`);
   },
   getEvent: (eventId: number) => request<LoadbalanceEventDetail>(`/api/loadbalance/events/${eventId}`),
-  deleteEvents: (params: { before?: string; older_than_days?: number; delete_all?: boolean }) => {
-    const query = buildQuery(params);
-    return request<LoadbalanceEventDeleteResponse>(`/api/loadbalance/events?${query}`, { method: "DELETE" });
-  },
 };

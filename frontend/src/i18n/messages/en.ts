@@ -708,7 +708,7 @@ export interface Messages {
     dataType: string;
     delete: string;
     deleteConfirmKeyword: string;
-    deleteConfirmDescription: (profileLabel: string) => string;
+    deleteConfirmDescription: string;
     deleteConfirmTitle: string;
     deleteRuleDescription: (name: string) => string;
     deleteRuleTitle: string;
@@ -770,15 +770,16 @@ export interface Messages {
   settingsRetentionDeletion: {
     allData: string;
     auditLogsPolicy: string;
-    dangerDescription: (profileLabel: string) => string;
+    dangerDescription: string;
     dataType: string;
     deletionFailed: string;
-    deletionRequested: (label: string) => string;
+    deletionRequested: (label: string, jobId: string, statusUrl: string) => string;
     deleteData: string;
     deleteOlderThan: string;
-    description: (profileLabel: string) => string;
+    description: string;
     invalidRetentionOption: string;
     keepForever: string;
+    loadbalanceEventsPolicy: string;
     requestLogsPolicy: string;
     retentionDays: (days: number) => string;
     retentionLoadedFailed: string;
@@ -2686,7 +2687,7 @@ export const enMessages: Messages = {
     dataType: "Data type",
     delete: "Delete",
     deleteConfirmKeyword: "DELETE",
-    deleteConfirmDescription: (profileLabel) => `This deletes data in ${profileLabel} and cannot be undone.`,
+    deleteConfirmDescription: "This creates an instance-wide cleanup job. Matching data can be removed across all profiles and cannot be restored.",
     deleteConfirmTitle: "Confirm Deletion",
     deleteRuleDescription: (name) =>
       `Are you sure you want to delete the rule "${name}"? This action cannot be undone.`,
@@ -2755,20 +2756,20 @@ export const enMessages: Messages = {
   settingsRetentionDeletion: {
     allData: "All data",
     auditLogsPolicy: "Audit log retention",
-    dangerDescription: (profileLabel) => `This deletes data in ${profileLabel} and cannot be undone.`,
+    dangerDescription: "Cleanup jobs apply across all profiles. They remove matching log partitions or rows asynchronously and cannot be undone.",
     dataType: "Data type",
     deleteData: "Delete data",
     deleteOlderThan: "Delete data older than",
     deletionFailed: "Deletion failed",
-    deletionRequested: (label) => `${label} deletion requested`,
-    description: (profileLabel) =>
-      `Delete stored data in ${profileLabel} with explicit retention and confirmation controls.`,
+    deletionRequested: (label, jobId, statusUrl) => `${label} cleanup job ${jobId} created. Track it at ${statusUrl}; storage may shrink after the job completes.`,
+    description: "Set instance-wide log retention for all profiles and create cleanup jobs with explicit confirmation controls.",
     invalidRetentionOption: "Select a valid retention option",
     keepForever: "Keep forever",
+    loadbalanceEventsPolicy: "Load-balance event retention",
     requestLogsPolicy: "Request log retention",
     retentionDays: (days) => `${days} days`,
     retentionLoadedFailed: "Failed to load retention settings",
-    retentionPolicyDescription: "Choose how long request logs, statistics, and audit records are retained before cleanup jobs apply.",
+    retentionPolicyDescription: "Choose how long request logs, audit logs, statistics, and load-balance events are retained across every profile before cleanup jobs apply.",
     retentionPolicyTitle: "Retention policy",
     retentionUpdateFailed: "Failed to update retention settings",
     retentionUpdated: "Retention settings updated",

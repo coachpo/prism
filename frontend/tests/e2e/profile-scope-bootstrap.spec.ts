@@ -43,12 +43,12 @@ function createCostingSettings(profileId: number) {
   };
 }
 
-function createRetentionSettings(profileId: number) {
+function createRetentionSettings() {
   return {
-    profile_id: profileId,
     request_logs_retention_days: 30,
     statistics_retention_days: 30,
     audit_logs_retention_days: 30,
+    loadbalance_events_retention_days: 30,
   };
 }
 
@@ -146,11 +146,9 @@ async function mockProfileScopedSettingsRoutes(page: Page) {
       });
     }
 
-    if (pathname === "/api/settings/retention") {
-      const profileHeader = await readProfileHeader(request);
-      const profileId = Number.parseInt(profileHeader ?? "1", 10);
-      capturedHeaders.retention.push(profileHeader);
-      return fulfillJson(createRetentionSettings(Number.isFinite(profileId) ? profileId : 1));
+    if (pathname === "/api/settings/log-retention") {
+      capturedHeaders.retention.push(await readProfileHeader(request));
+      return fulfillJson(createRetentionSettings());
     }
 
     if (pathname === "/api/settings/timezone") {
@@ -188,7 +186,7 @@ async function expectActiveProfileBootstrap(page: Page, capturedHeaders: HeaderC
   expect(capturedHeaders.bootstrap).toEqual([null]);
   expect(capturedHeaders.costing[0]).toBe("2");
   expect(capturedHeaders.models[0]).toBe("2");
-  expect(capturedHeaders.retention[0]).toBe("2");
+  expect(capturedHeaders.retention[0]).toBeNull();
 
   await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team");
   await expect(page.getByText(getProfileScopedDescription("Blue Team", 2))).toBeVisible();
@@ -232,6 +230,6 @@ test.describe("profile scope bootstrap", () => {
     await expectActiveProfileBootstrap(page, capturedHeaders);
     expect(capturedHeaders.costing).not.toContain("1");
     expect(capturedHeaders.models).not.toContain("1");
-    expect(capturedHeaders.retention).not.toContain("1");
+    expect(capturedHeaders.retention.every((value) => value === null)).toBe(true);
   });
 });

@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { FormEvent } from "react";
 import {
   getCleanupRetentionLabel,
   getCleanupTypeLabel,
@@ -35,7 +34,6 @@ interface DeleteConfirmDialogProps {
     days: number | null;
     deleteAll: boolean;
   } | null) => void;
-  selectedProfileLabel: string;
   deleteConfirmPhrase: string;
   setDeleteConfirmPhrase: (phrase: string) => void;
   handleBatchDelete: () => Promise<void>;
@@ -48,7 +46,6 @@ export function DeleteConfirmDialog({
   displayedDeleteConfirm,
   open,
   setDeleteConfirm,
-  selectedProfileLabel,
   deleteConfirmPhrase,
   setDeleteConfirmPhrase,
   handleBatchDelete,
@@ -64,11 +61,6 @@ export function DeleteConfirmDialog({
     ? getCleanupRetentionLabel(dialogConfirm.deleteAll, dialogConfirm.days)
     : "-";
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void handleBatchDelete();
-  };
-
   return (
     <Dialog
       open={dialogOpen}
@@ -80,10 +72,10 @@ export function DeleteConfirmDialog({
       }}
     >
       <DialogContent className="sm:max-w-md" showCloseButton={false}>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <div className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>{copy.deleteConfirmTitle}</DialogTitle>
-            <DialogDescription>{copy.deleteConfirmDescription(selectedProfileLabel)}</DialogDescription>
+            <DialogDescription>{copy.deleteConfirmDescription}</DialogDescription>
           </DialogHeader>
 
           <DialogBody>
@@ -131,11 +123,11 @@ export function DeleteConfirmDialog({
             >
               {copy.cancel}
             </Button>
-            <Button type="submit" variant="destructive" disabled={deleting || !isDeletePhraseValid}>
+            <Button type="button" variant="destructive" disabled={deleting || !isDeletePhraseValid} onClick={() => void handleBatchDelete()}>
               {deleting ? copy.deleting : copy.delete}
             </Button>
           </DialogFooter>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   );

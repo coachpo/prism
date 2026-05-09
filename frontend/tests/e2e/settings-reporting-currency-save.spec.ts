@@ -73,10 +73,10 @@ function createCostingSettings(overrides?: {
 
 function createRetentionSettings() {
   return {
-    profile_id: 1,
     request_logs_retention_days: 30,
     statistics_retention_days: 30,
     audit_logs_retention_days: 30,
+    loadbalance_events_retention_days: 30,
   };
 }
 
@@ -144,7 +144,7 @@ async function mockSettingsRoutes(
       return fulfillJson(createAuthSettings());
     }
 
-    if (pathname === "/api/settings/retention") {
+    if (pathname === "/api/settings/log-retention") {
       return fulfillJson(createRetentionSettings());
     }
 

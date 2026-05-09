@@ -131,12 +131,12 @@ async function mockHeaderProbeRoutes(page: Page) {
       return fulfillJson(createCostingSettings(Number.isFinite(profileId) ? profileId : 1));
     }
 
-    if (pathname === "/api/settings/retention") {
+    if (pathname === "/api/settings/log-retention") {
       return fulfillJson({
-        profile_id: 2,
         request_logs_retention_days: 30,
         statistics_retention_days: 30,
         audit_logs_retention_days: 30,
+        loadbalance_events_retention_days: 30,
       });
     }
 

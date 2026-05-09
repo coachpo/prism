@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import { getSharedModels } from "@/lib/referenceData";
 import {
   isKnownAllModelsLabel,
@@ -57,6 +58,14 @@ interface AcceptedAnalyticsSnapshotMeta {
   sequence: number;
 }
 
+interface AnalyticsSnapshotSource {
+  endpointModelStatisticsByEndpointId: Record<number, UsageModelStatistic[]>;
+  generatedAt: string;
+  profileId: number;
+  sequence: number;
+  snapshot: UsageSnapshotResponse;
+}
+
 const EMPTY_ENDPOINT_MODEL_STATISTICS_BY_ENDPOINT_ID: Record<number, UsageModelStatistic[]> = {};
 const EMPTY_ENDPOINT_MODEL_STATISTICS_ERRORS: Record<number, string> = {};
 const EMPTY_ENDPOINT_MODEL_STATISTICS_LOADING: Record<number, boolean> = {};
@@ -89,6 +98,34 @@ function normalizeEndpointModelStatisticsByEndpointId(
 function getGeneratedAtMs(generatedAt: string): number {
   const generatedAtMs = Date.parse(generatedAt);
   return Number.isFinite(generatedAtMs) ? generatedAtMs : 0;
+}
+
+function buildRestSnapshotSource({
+  profileId,
+  snapshot,
+}: {
+  profileId: number;
+  snapshot: UsageSnapshotResponse;
+}): AnalyticsSnapshotSource {
+  return {
+    endpointModelStatisticsByEndpointId: {},
+    generatedAt: snapshot.generated_at,
+    profileId,
+    sequence: 0,
+    snapshot,
+  };
+}
+
+function buildRealtimeSnapshotSource(payload: AnalyticsRealtimeSnapshotPayload): AnalyticsSnapshotSource {
+  return {
+    endpointModelStatisticsByEndpointId: normalizeEndpointModelStatisticsByEndpointId(
+      payload.endpoint_model_statistics_by_endpoint_id,
+    ),
+    generatedAt: payload.generated_at,
+    profileId: payload.profile_id,
+    sequence: payload.sequence,
+    snapshot: payload.snapshot,
+  };
 }
 
 export function isStaleAnalyticsSnapshot(
@@ -299,6 +336,7 @@ export function useUsageStatisticsPageData({
   const [endpointModelStatisticsLoading, setEndpointModelStatisticsLoading] = useState<
     Record<number, boolean>
   >({});
+  const realtimeSnapshotReceivedRef = useRef(false);
   const realtimeScopeKey = `${selectedProfileId ?? "none"}:${state.selectedTimeRange}`;
   const activeScopeKey = `${realtimeScopeKey}:${revision}`;
   const acceptedSnapshotMetaRef = useRef<AcceptedAnalyticsSnapshotMeta | null>(null);
@@ -306,20 +344,17 @@ export function useUsageStatisticsPageData({
   const previousRealtimeScopeKeyRef = useRef(realtimeScopeKey);
   const refreshRealtimeRef = useRef<() => void>(() => undefined);
 
-  const acceptSnapshot = useCallback(
-    (payload: AnalyticsRealtimeSnapshotPayload) => {
-      if (
-        payload.profile_id !== selectedProfileId ||
-        payload.preset !== state.selectedTimeRange
-      ) {
+  const acceptSnapshotSource = useCallback(
+    (source: AnalyticsSnapshotSource) => {
+      if (source.profileId !== selectedProfileId) {
         return;
       }
 
       const nextMeta: AcceptedAnalyticsSnapshotMeta = {
-        generatedAtMs: getGeneratedAtMs(payload.generated_at),
-        preset: payload.preset,
-        profileId: payload.profile_id,
-        sequence: payload.sequence,
+        generatedAtMs: getGeneratedAtMs(source.generatedAt),
+        preset: state.selectedTimeRange,
+        profileId: source.profileId,
+        sequence: source.sequence,
       };
 
       if (isStaleAnalyticsSnapshot(acceptedSnapshotMetaRef.current, nextMeta)) {
@@ -327,12 +362,11 @@ export function useUsageStatisticsPageData({
       }
 
       acceptedSnapshotMetaRef.current = nextMeta;
-      setSnapshotState({ scopeKey: activeScopeKey, snapshot: payload.snapshot });
-      setEndpointModelStatisticsByEndpointId(
-        normalizeEndpointModelStatisticsByEndpointId(
-          payload.endpoint_model_statistics_by_endpoint_id,
-        ),
-      );
+      if (source.sequence > 0) {
+        realtimeSnapshotReceivedRef.current = true;
+      }
+      setSnapshotState({ scopeKey: activeScopeKey, snapshot: source.snapshot });
+      setEndpointModelStatisticsByEndpointId(source.endpointModelStatisticsByEndpointId);
       setEndpointModelStatisticsErrors({});
       setEndpointModelStatisticsLoading({});
       setErrorState(null);
@@ -341,9 +375,63 @@ export function useUsageStatisticsPageData({
     [activeScopeKey, selectedProfileId, state.selectedTimeRange],
   );
 
+  const acceptSnapshot = useCallback(
+    (payload: AnalyticsRealtimeSnapshotPayload) => {
+      if (payload.preset !== state.selectedTimeRange) {
+        return;
+      }
+      acceptSnapshotSource(buildRealtimeSnapshotSource(payload));
+    },
+    [acceptSnapshotSource, state.selectedTimeRange],
+  );
+
   useEffect(() => {
     acceptedSnapshotMetaRef.current = null;
+    realtimeSnapshotReceivedRef.current = false;
   }, [realtimeScopeKey]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (selectedProfileId === null) {
+      setLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoading(true);
+    setErrorState(null);
+    const fallbackTimer = window.setTimeout(() => {
+      if (realtimeSnapshotReceivedRef.current) {
+        return;
+      }
+
+      void api.stats
+        .usageSnapshot({ preset: state.selectedTimeRange })
+        .then((snapshot) => {
+          if (!active || realtimeSnapshotReceivedRef.current) {
+            return;
+          }
+          acceptSnapshotSource(buildRestSnapshotSource({ profileId: selectedProfileId, snapshot }));
+        })
+        .catch((error: unknown) => {
+          if (!active || realtimeSnapshotReceivedRef.current) {
+            return;
+          }
+          setErrorState({
+            message: error instanceof Error ? error.message : messages.statistics.failedToLoadUsageStatistics,
+            scopeKey: activeScopeKey,
+          });
+          setLoading(false);
+        });
+    }, 750);
+
+    return () => {
+      active = false;
+      window.clearTimeout(fallbackTimer);
+    };
+  }, [acceptSnapshotSource, activeScopeKey, messages.statistics.failedToLoadUsageStatistics, selectedProfileId, state.selectedTimeRange]);
 
   const realtime = useUsageStatisticsRealtimeData({
     onSnapshot: acceptSnapshot,
@@ -377,12 +465,46 @@ export function useUsageStatisticsPageData({
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setErrorState({ message: message.message, scopeKey: activeScopeKey });
     setLoading(false);
   }, [activeScopeKey, realtime.lastMessage, selectedProfileId, state.selectedTimeRange]);
 
-  const loadEndpointModelStatistics = useCallback(async () => undefined, []);
+  const loadEndpointModelStatistics = useCallback(
+    async (endpointId: number) => {
+      if (
+        selectedProfileId === null ||
+        endpointModelStatisticsByEndpointId[endpointId] ||
+        endpointModelStatisticsLoading[endpointId]
+      ) {
+        return;
+      }
+
+      setEndpointModelStatisticsLoading((current) => ({ ...current, [endpointId]: true }));
+      setEndpointModelStatisticsErrors((current) => {
+        const next = { ...current };
+        delete next[endpointId];
+        return next;
+      });
+
+      try {
+        const items = await api.stats.endpointModelStatistics(endpointId, {
+          preset: state.selectedTimeRange,
+        });
+        setEndpointModelStatisticsByEndpointId((current) => ({
+          ...current,
+          [endpointId]: items,
+        }));
+      } catch (error) {
+        setEndpointModelStatisticsErrors((current) => ({
+          ...current,
+          [endpointId]: error instanceof Error ? error.message : messages.statistics.failedToLoadEndpointModelStatistics,
+        }));
+      } finally {
+        setEndpointModelStatisticsLoading((current) => ({ ...current, [endpointId]: false }));
+      }
+    },
+    [endpointModelStatisticsByEndpointId, endpointModelStatisticsLoading, messages.statistics.failedToLoadEndpointModelStatistics, selectedProfileId, state.selectedTimeRange],
+  );
 
   const snapshot = snapshotState?.scopeKey === activeScopeKey ? snapshotState.snapshot : null;
   const activeEndpointModelStatisticsByEndpointId = snapshot
@@ -492,7 +614,25 @@ export function useUsageStatisticsPageData({
     setErrorState(null);
     setLoading(selectedProfileId !== null);
     realtime.refresh();
-  }, [realtime, selectedProfileId]);
+    if (selectedProfileId === null) {
+      return;
+    }
+
+    if (realtimeSnapshotReceivedRef.current) {
+      return;
+    }
+
+    try {
+      const snapshot = await api.stats.usageSnapshot({ preset: state.selectedTimeRange });
+      acceptSnapshotSource(buildRestSnapshotSource({ profileId: selectedProfileId, snapshot }));
+    } catch (error) {
+      setErrorState({
+        message: error instanceof Error ? error.message : messages.statistics.failedToLoadUsageStatistics,
+        scopeKey: activeScopeKey,
+      });
+      setLoading(false);
+    }
+  }, [acceptSnapshotSource, activeScopeKey, messages.statistics.failedToLoadUsageStatistics, realtime, selectedProfileId, state.selectedTimeRange]);
 
   const selectedModelLineIds = useMemo(
     () =>
@@ -501,6 +641,18 @@ export function useUsageStatisticsPageData({
         : [],
     [availableModelLineIds, modelsRevision, revision, state.selectedModelLines],
   );
+
+  useEffect(() => {
+    if (!snapshot || selectedModelLineIds.length === 0) {
+      return;
+    }
+
+    for (const item of snapshot.endpoint_statistics) {
+      if (item.endpoint_id !== null) {
+        void loadEndpointModelStatistics(item.endpoint_id);
+      }
+    }
+  }, [loadEndpointModelStatistics, selectedModelLineIds.length, snapshot]);
 
   const hasSelectedModels = selectedModelLineIds.length > 0;
 

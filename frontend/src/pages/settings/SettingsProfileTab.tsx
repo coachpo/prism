@@ -6,7 +6,6 @@ import type { SettingsPageData } from "./useSettingsPageData";
 import { AuditConfigurationSection } from "./sections/AuditConfigurationSection";
 import { BackupSection } from "./sections/BackupSection";
 import { BillingCurrencySection } from "./sections/BillingCurrencySection";
-import { RetentionDeletionSection } from "./sections/RetentionDeletionSection";
 import { TimezoneSection } from "./sections/TimezoneSection";
 
 interface SettingsProfileTabProps {
@@ -146,23 +145,6 @@ export function SettingsProfileTab({
             openAddUserAgentClientRuleDialog={data.openAddUserAgentClientRuleDialog}
             openEditUserAgentClientRuleDialog={data.openEditUserAgentClientRuleDialog}
             setDeleteUserAgentClientRuleConfirm={data.setDeleteUserAgentClientRuleConfirm}
-          />
-
-          <RetentionDeletionSection
-            selectedProfileLabel={data.selectedProfileLabel}
-            cleanupType={data.cleanupType}
-            setCleanupType={data.setCleanupType}
-            retentionPreset={data.retentionPreset}
-            setRetentionPreset={data.setRetentionPreset}
-            deleting={data.deleting}
-            handleOpenDeleteConfirm={data.handleOpenDeleteConfirm}
-            renderSectionSaveState={data.renderSaveStateForSection}
-            handleSaveRetentionSettings={data.handleSaveRetentionSettings}
-            retentionSettings={data.retentionSettings}
-            retentionSettingsDirty={data.retentionSettingsDirty}
-            retentionSettingsLoading={data.retentionSettingsLoading}
-            retentionSettingsSaving={data.retentionSettingsSaving}
-            setRetentionDays={data.setRetentionDays}
           />
         </div>
       </div>

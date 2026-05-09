@@ -4,6 +4,7 @@ import type { SettingsPageData } from "./useSettingsPageData";
 import { DeleteVendorDialog } from "./dialogs/DeleteVendorDialog";
 import { VendorDialog } from "./dialogs/VendorDialog";
 import { AuthenticationSection } from "./sections/AuthenticationSection";
+import { RetentionDeletionSection } from "./sections/RetentionDeletionSection";
 import { VendorManagementSection } from "./sections/VendorManagementSection";
 
 interface SettingsGlobalTabProps {
@@ -50,6 +51,22 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
         onConfirmEmailVerification={data.handleConfirmEmailVerification}
         authSaving={data.authSaving}
         onSaveAuthSettings={data.handleSaveAuthSettings}
+      />
+
+      <RetentionDeletionSection
+        cleanupType={data.cleanupType}
+        setCleanupType={data.setCleanupType}
+        retentionPreset={data.retentionPreset}
+        setRetentionPreset={data.setRetentionPreset}
+        deleting={data.deleting}
+        handleOpenDeleteConfirm={data.handleOpenDeleteConfirm}
+        renderSectionSaveState={data.renderSaveStateForSection}
+        handleSaveRetentionSettings={data.handleSaveRetentionSettings}
+        retentionSettings={data.retentionSettings}
+        retentionSettingsDirty={data.retentionSettingsDirty}
+        retentionSettingsLoading={data.retentionSettingsLoading}
+        retentionSettingsSaving={data.retentionSettingsSaving}
+        setRetentionDays={data.setRetentionDays}
       />
 
       <VendorManagementSection

@@ -17,8 +17,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+type RetentionSettingKey = keyof Pick<
+  RetentionSettingsResponse,
+  "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days" | "loadbalance_events_retention_days"
+>;
+
 interface RetentionDeletionSectionProps {
-  selectedProfileLabel: string;
   cleanupType: CleanupType;
   setCleanupType: (type: CleanupType) => void;
   retentionPreset: RetentionPreset;
@@ -32,7 +36,7 @@ interface RetentionDeletionSectionProps {
   retentionSettingsLoading: boolean;
   retentionSettingsSaving: boolean;
   setRetentionDays: (
-    key: "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days",
+    key: RetentionSettingKey,
     value: number | null,
   ) => void;
 }
@@ -44,7 +48,6 @@ function toRetentionSelectValue(value: number | null) {
 }
 
 export function RetentionDeletionSection({
-  selectedProfileLabel,
   cleanupType,
   setCleanupType,
   retentionPreset,
@@ -74,7 +77,7 @@ export function RetentionDeletionSection({
                 {copy.title}
               </CardTitle>
               <CardDescription className="text-xs">
-                {copy.description(selectedProfileLabel)}
+                {copy.description}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -102,19 +105,21 @@ export function RetentionDeletionSection({
                 <div className="h-9 animate-pulse rounded bg-muted" />
                 <div className="h-9 animate-pulse rounded bg-muted" />
                 <div className="h-9 animate-pulse rounded bg-muted" />
+                <div className="h-9 animate-pulse rounded bg-muted" />
               </div>
             ) : retentionSettings ? (
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
                 {[
-                  ["request_logs_retention_days", copy.requestLogsPolicy, retentionSettings.request_logs_retention_days],
-                  ["statistics_retention_days", copy.statisticsPolicy, retentionSettings.statistics_retention_days],
-                  ["audit_logs_retention_days", copy.auditLogsPolicy, retentionSettings.audit_logs_retention_days],
-                ].map(([key, label, value]) => (
-                  <div key={String(key)} className="space-y-2">
+                  { key: "request_logs_retention_days", label: copy.requestLogsPolicy, value: retentionSettings.request_logs_retention_days },
+                  { key: "statistics_retention_days", label: copy.statisticsPolicy, value: retentionSettings.statistics_retention_days },
+                  { key: "audit_logs_retention_days", label: copy.auditLogsPolicy, value: retentionSettings.audit_logs_retention_days },
+                  { key: "loadbalance_events_retention_days", label: copy.loadbalanceEventsPolicy, value: retentionSettings.loadbalance_events_retention_days },
+                ].map(({ key, label, value }) => (
+                  <div key={key} className="space-y-2">
                     <Label>{label}</Label>
                     <Select
-                      value={toRetentionSelectValue(value as number | null)}
-                      onValueChange={(nextValue) => setRetentionDays(key as "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days", nextValue === "forever" ? null : Number.parseInt(nextValue, 10))}
+                      value={toRetentionSelectValue(value)}
+                      onValueChange={(nextValue) => setRetentionDays(key as RetentionSettingKey, nextValue === "forever" ? null : Number.parseInt(nextValue, 10))}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -176,7 +181,7 @@ export function RetentionDeletionSection({
           </div>
 
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {copy.dangerDescription(selectedProfileLabel)}
+            {copy.dangerDescription}
           </div>
         </CardContent>
       </Card>

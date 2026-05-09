@@ -79,7 +79,6 @@ export function SettingsPage() {
         displayedDeleteConfirm={data.displayedDeleteConfirm}
         open={data.deleteConfirmDialogOpen}
         setDeleteConfirm={data.setDeleteConfirm}
-        selectedProfileLabel={data.selectedProfileLabel}
         deleteConfirmPhrase={data.deleteConfirmPhrase}
         setDeleteConfirmPhrase={data.setDeleteConfirmPhrase}
         handleBatchDelete={data.handleBatchDelete}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type { RetentionSettingsResponse } from "@/lib/types";
+import type { LogRetentionTable, RetentionSettingsResponse } from "@/lib/types";
 import { toast } from "sonner";
 import {
   type CleanupType,
@@ -14,6 +14,20 @@ import type { SettingsSaveSection } from "./settingsSaveTypes";
 interface UseRetentionDeletionDataInput {
   setRecentlySavedSection?: (section: SettingsSaveSection | null) => void;
 }
+
+type RetentionSettingKey = keyof Pick<
+  RetentionSettingsResponse,
+  "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days" | "loadbalance_events_retention_days"
+>;
+
+const CLEANUP_TABLES: Record<DeleteCleanupType, LogRetentionTable> = {
+  requests: "request_logs",
+  statistics: "usage_request_events",
+  audits: "audit_logs",
+  loadbalance_events: "loadbalance_events",
+};
+
+const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 export function useRetentionDeletionData({
   setRecentlySavedSection,
@@ -52,6 +66,7 @@ export function useRetentionDeletionData({
       savedRetentionSettings.request_logs_retention_days !== retentionSettings.request_logs_retention_days
       || savedRetentionSettings.statistics_retention_days !== retentionSettings.statistics_retention_days
       || savedRetentionSettings.audit_logs_retention_days !== retentionSettings.audit_logs_retention_days
+      || savedRetentionSettings.loadbalance_events_retention_days !== retentionSettings.loadbalance_events_retention_days
     );
   }, [retentionSettings, savedRetentionSettings]);
 
@@ -112,36 +127,18 @@ export function useRetentionDeletionData({
     }
 
     const { type, days, deleteAll } = deleteConfirm;
+    const cutoff = deleteAll ? null : new Date(Date.now() - days! * DAY_IN_MILLISECONDS).toISOString();
     setDeleting(true);
     try {
-      if (type === "requests") {
-        if (deleteAll) {
-          await api.stats.delete({ delete_all: true });
-        } else {
-          await api.stats.delete({ older_than_days: days! });
-        }
-      } else if (type === "statistics") {
-        if (deleteAll) {
-          await api.stats.deleteStatistics({ delete_all: true });
-        } else {
-          await api.stats.deleteStatistics({ older_than_days: days! });
-        }
-      } else if (type === "audits") {
-        if (deleteAll) {
-          await api.audit.delete({ delete_all: true });
-        } else {
-          await api.audit.delete({ older_than_days: days! });
-        }
-      } else {
-        if (deleteAll) {
-          await api.loadbalance.deleteEvents({ delete_all: true });
-        } else {
-          await api.loadbalance.deleteEvents({ older_than_days: days! });
-        }
-      }
+      const job = await api.settings.retention.createJob({
+        table: CLEANUP_TABLES[type],
+        cutoff,
+        delete_all: deleteAll,
+        reason: "manual_ui_cleanup",
+      });
 
       toast.success(
-        messages.settingsRetentionDeletion.deletionRequested(getCleanupTypeLabel(type)),
+        messages.settingsRetentionDeletion.deletionRequested(getCleanupTypeLabel(type), job.job_id, job.status_url),
       );
 
       setDeleteConfirmDialogOpen(false);
@@ -154,7 +151,7 @@ export function useRetentionDeletionData({
   };
 
   const setRetentionDays = (
-    key: "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days",
+    key: RetentionSettingKey,
     value: number | null,
   ) => {
     setRetentionSettings((current) => {
@@ -181,6 +178,7 @@ export function useRetentionDeletionData({
         request_logs_retention_days: retentionSettings.request_logs_retention_days,
         statistics_retention_days: retentionSettings.statistics_retention_days,
         audit_logs_retention_days: retentionSettings.audit_logs_retention_days,
+        loadbalance_events_retention_days: retentionSettings.loadbalance_events_retention_days,
       });
       setSavedRetentionSettings(updated);
       setRetentionSettings(updated);
