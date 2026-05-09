@@ -1,7 +1,7 @@
 # BACKEND HTTP API KNOWLEDGE BASE
 
 ## OVERVIEW
-`backend/internal/httpapi/` owns mounted backend HTTP handlers and shared handler seams. It splits the management API, runtime proxy surface, realtime websocket delivery, checked-in OpenAPI serving, proxy-key usage capture, and request-context helpers while platform code owns server assembly.
+`backend/internal/httpapi/` owns mounted backend HTTP handlers and shared handler seams. It splits the management API, runtime proxy surface, realtime websocket delivery, checked-in OpenAPI serving, proxy-key usage capture, log-retention job endpoints, and request-context helpers while platform code owns server assembly.
 
 ## STRUCTURE
 ```text
@@ -17,7 +17,8 @@ httpapi/
 ## WHERE TO LOOK
 - Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/stats/`, `management/vendors/`, `management/audit/`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `management/auth/AGENTS.md`
-- Runtime proxy entry and helpers: `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/telemetry_outbox.go`
+- Runtime proxy entry, log partition cache, and helpers: `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/log_partitions.go`, `runtime/telemetry_outbox.go`
+- Management settings costing, timezone, retention settings, and retention-job endpoints: `management/settings/`
 - Realtime websocket service and dashboard publisher: `realtime/service.go`, `realtime/dashboard_publisher.go`
 - OpenAPI loading and docs handlers: `openapi/`
 - Proxy-key usage capture: `proxykeyusage/`
@@ -30,10 +31,13 @@ httpapi/
 - Keep `api_family` as runtime compatibility truth. Vendor rows and `icon_key` are presentation metadata.
 - Keep OpenAPI serving aligned with root `docs/openapi.json`; do not invent a backend-local docs artifact.
 - Keep request-log and dashboard materialization off the hot request path by using runtime telemetry outboxes and realtime publishers.
+- Keep runtime partition creation on `runtime/log_partitions.go` and `platform/logretention.Store`; handlers should not create or drop partitions directly.
+- Keep log-retention settings global in `management/settings/`, with cleanup triggered through low-priority management jobs instead of request-path cleanup.
 - Keep `/metrics` DB-backed and mounted by platform server assembly, even though stats handlers live under management.
 
 ## ANTI-PATTERNS
 - Do not add unsupported providers, proxy routes, or realtime message types without updating docs and contracts.
 - Do not inject profile scope inside runtime proxy handlers.
+- Do not run retention deletes, partition drops, or horizon creation inside HTTP handlers.
 - Do not duplicate request-context or proxy-key usage helpers inside individual endpoint packages.
 - Do not duplicate auth cookie, token, WebAuthn, or proxy-key helpers outside `management/auth/`.
