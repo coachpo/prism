@@ -1,5 +1,6 @@
 import { ApiError, getApiProfileId, setApiProfileId } from "./api/core";
 import { auth, settings } from "./api/authSettings";
+import { sidecars } from "./api/sidecars";
 import {
   audit,
   config,
@@ -40,5 +41,6 @@ export const api = {
     retention: settingsRetention,
     timezone: settingsTimezone,
   },
+  sidecars,
   stats,
 };
