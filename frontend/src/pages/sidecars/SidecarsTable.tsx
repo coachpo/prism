@@ -14,9 +14,10 @@ import {
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import type { BadgeIntent } from "@/components/StatusBadge";
-import type { SidecarInstance } from "@/lib/types";
+import type { SidecarInstance, SidecarManagementAuthState } from "@/lib/types";
 
 type SidecarHealthState = "healthy" | "stale" | "degraded" | "disabled";
+type ManagementAuthLabels = Record<SidecarManagementAuthState, string>;
 
 interface SidecarsTableProps {
   onCreate: () => void;
@@ -61,6 +62,10 @@ function getHealthIntent(state: SidecarHealthState): BadgeIntent {
     return "danger";
   }
   return "muted";
+}
+
+function getManagementAuthLabel(state: SidecarManagementAuthState, labels: ManagementAuthLabels) {
+  return labels[state];
 }
 
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
@@ -197,8 +202,9 @@ export function SidecarsTable({
                         <div className="flex flex-col gap-2">
                           <StatusBadge label={copy.healthLabels[healthState]} intent={getHealthIntent(healthState)} />
                           <TypeBadge
-                            label={sidecar.management_auth_state}
+                            label={getManagementAuthLabel(sidecar.management_auth_state, copy.managementAuthLabels)}
                             intent={sidecar.management_auth_state === "valid" ? "success" : "warning"}
+                            preserveLabel
                           />
                           {sidecar.pause_metadata ? (
                             <span className="text-xs text-muted-foreground">{sidecar.pause_metadata.reason}</span>
@@ -230,7 +236,7 @@ export function SidecarsTable({
                           <IconActionGroup>
                             <IconActionButton onClick={() => onSelect(sidecar.id)}>
                               <Eye className="h-4 w-4" />
-                              <span className="sr-only">View details</span>
+                              <span className="sr-only">{copy.viewDetails}</span>
                             </IconActionButton>
                             <IconActionButton disabled={isTesting} onClick={() => void onTestConnection(sidecar)}>
                               {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlugZap className="h-4 w-4" />}

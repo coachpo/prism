@@ -1,3 +1,4 @@
+import { useLocale } from "@/i18n/useLocale";
 import { AuthFilesTable } from "./AuthFilesTable";
 import { DeleteSidecarDialog } from "./DeleteSidecarDialog";
 import { ProviderInventoryTable } from "./ProviderInventoryTable";
@@ -8,7 +9,9 @@ import { WatchdogPolicyPanel } from "./WatchdogPolicyPanel";
 import { useSidecarsPageData } from "./useSidecarsPageData";
 
 export function SidecarsScaffold() {
+  const { messages } = useLocale();
   const pageData = useSidecarsPageData();
+  const copy = messages.sidecarsPage;
 
   return (
     <>
@@ -29,10 +32,8 @@ export function SidecarsScaffold() {
       {pageData.selectedSidecar ? (
         <div className="space-y-6" data-testid="sidecar-detail">
           <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold">{pageData.selectedSidecar.name} detail</h2>
-            <p className="text-sm text-muted-foreground">
-              Auth inventory, provider inventory, watchdog policy, and action history for the selected sidecar.
-            </p>
+            <h2 className="text-base font-semibold">{copy.detailTitle(pageData.selectedSidecar.name)}</h2>
+            <p className="text-sm text-muted-foreground">{copy.detailDescription}</p>
           </div>
           <AuthFilesTable
             key={pageData.selectedSidecar.id}
