@@ -204,6 +204,14 @@ export interface Messages {
     authRequestsColumn: string;
     authRetryColumn: string;
     authTitle: string;
+    authFilterLabel: string;
+    authFilterPlaceholder: string;
+    authSortLabel: string;
+    authSortName: string;
+    authSortRoutingPriorityDesc: string;
+    authSortRoutingPriorityAsc: string;
+    authFilteredEmptyTitle: string;
+    authFilteredEmptyDescription: string;
     authUnavailableLabel: string;
     authWatchdogColumn: string;
     baseUrlDescription: string;
@@ -2326,6 +2334,14 @@ export const enMessages: Messages = {
     authRequestsColumn: "Requests",
     authRetryColumn: "Retry / recovery",
     authTitle: "Auth files",
+    authFilterLabel: "Filter auth files",
+    authFilterPlaceholder: "Filter auth files...",
+    authSortLabel: "Sort",
+    authSortName: "Name",
+    authSortRoutingPriorityDesc: "Routing priority: high to low",
+    authSortRoutingPriorityAsc: "Routing priority: low to high",
+    authFilteredEmptyTitle: "No auth files match",
+    authFilteredEmptyDescription: "Try a different auth file, provider, status, or priority.",
     authUnavailableLabel: "Unavailable",
     authWatchdogColumn: "Watchdog",
     baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",

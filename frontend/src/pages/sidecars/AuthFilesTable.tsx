@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Shield, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
@@ -40,6 +40,18 @@ import type { SidecarActionHistoryItem, SidecarAuthSnapshot } from "@/lib/types"
 type PendingMutation =
   | { kind: "priority"; snapshot: SidecarAuthSnapshot; priority: number }
   | { kind: "status"; snapshot: SidecarAuthSnapshot; disabled: boolean };
+
+type AuthSortMode = "name" | "routing-priority-desc" | "routing-priority-asc";
+
+interface AuthSearchLabels {
+  enabledLabel: string;
+  disabledLabel: string;
+  missingPriorityLabel: string;
+  priorityLabel: (priority: number) => string;
+  quotaExceededLabel: string;
+  unavailableLabel: string;
+  unknownStatus: string;
+}
 
 interface AuthFilesTableProps {
   actionHistory: SidecarActionHistoryItem[];
@@ -135,6 +147,73 @@ function parsePriority(value: string) {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function normalizeAuthSearch(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function compareAuthText(left: string, right: string) {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
+function compareAuthByName(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot) {
+  return compareAuthText(left.name, right.name) || compareAuthText(left.auth_id, right.auth_id);
+}
+
+function compareAuthByPriorityAsc(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot) {
+  return (left.priority ?? 0) - (right.priority ?? 0) || compareAuthByName(left, right);
+}
+
+function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearchLabels) {
+  const fields = [
+    snapshot.name,
+    snapshot.auth_id,
+    snapshot.auth_index ? `#${snapshot.auth_index}` : undefined,
+    snapshot.provider,
+    snapshot.label,
+    snapshot.status,
+    snapshot.status_message,
+    labels.priorityLabel(snapshot.priority ?? 0),
+    snapshot.quota_reason,
+    boolState(snapshot.disabled, labels.enabledLabel, labels.disabledLabel, labels.unknownStatus),
+  ];
+
+  if (snapshot.unavailable) {
+    fields.push(labels.unavailableLabel);
+  }
+  if (snapshot.quota_exceeded) {
+    fields.push(labels.quotaExceededLabel);
+  }
+  if (snapshot.priority === undefined) {
+    fields.push(labels.missingPriorityLabel);
+  }
+
+  return fields.filter((field): field is string => Boolean(field));
+}
+
+function authMatchesSearch(snapshot: SidecarAuthSnapshot, normalizedSearch: string, labels: AuthSearchLabels) {
+  if (!normalizedSearch) {
+    return true;
+  }
+
+  return buildAuthSearchFields(snapshot, labels).some((field) => normalizeAuthSearch(field).includes(normalizedSearch));
+}
+
+function compareAuthSnapshots(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot, sortMode: AuthSortMode) {
+  if (sortMode === "routing-priority-asc") {
+    return compareAuthByPriorityAsc(left, right);
+  }
+  if (sortMode === "routing-priority-desc") {
+    return (right.priority ?? 0) - (left.priority ?? 0) || compareAuthByName(left, right);
+  }
+  return compareAuthByName(left, right);
+}
+
 export function AuthFilesTable({
   actionHistory,
   authSnapshots,
@@ -149,15 +228,40 @@ export function AuthFilesTable({
   const [draftPriorities, setDraftPriorities] = useState<Record<string, string>>({});
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
   const [allowWatchdog, setAllowWatchdog] = useState(false);
+  const [authSearch, setAuthSearch] = useState("");
+  const [authSortMode, setAuthSortMode] = useState<AuthSortMode>("name");
   const [pageSize, setPageSize] = useState<number>(DEFAULT_AUTH_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
   const latestAction = useMemo(() => latestActionByAuthId(actionHistory), [actionHistory]);
-  const totalAuthRows = authSnapshots.length;
+  const normalizedAuthSearch = normalizeAuthSearch(authSearch);
+  const authSearchLabels = useMemo<AuthSearchLabels>(() => ({
+    disabledLabel: copy.authDisabledLabel,
+    enabledLabel: copy.authEnabledLabel,
+    missingPriorityLabel: copy.authMissingPriorityResolves,
+    priorityLabel: copy.authPriorityLabel,
+    quotaExceededLabel: copy.authQuotaExceeded,
+    unavailableLabel: copy.authUnavailableLabel,
+    unknownStatus: copy.unknownStatus,
+  }), [
+    copy.authDisabledLabel,
+    copy.authEnabledLabel,
+    copy.authMissingPriorityResolves,
+    copy.authPriorityLabel,
+    copy.authQuotaExceeded,
+    copy.authUnavailableLabel,
+    copy.unknownStatus,
+  ]);
+  const derivedAuthSnapshots = useMemo(() => {
+    return authSnapshots
+      .filter((snapshot) => authMatchesSearch(snapshot, normalizedAuthSearch, authSearchLabels))
+      .sort((left, right) => compareAuthSnapshots(left, right, authSortMode));
+  }, [authSearchLabels, authSnapshots, authSortMode, normalizedAuthSearch]);
+  const totalAuthRows = derivedAuthSnapshots.length;
   const totalPages = Math.max(1, Math.ceil(totalAuthRows / pageSize));
   const currentPageIndex = Math.min(pageIndex, totalPages - 1);
   const pageStartIndex = currentPageIndex * pageSize;
   const pageEndIndex = Math.min(pageStartIndex + pageSize, totalAuthRows);
-  const visibleAuthSnapshots = authSnapshots.slice(pageStartIndex, pageEndIndex);
+  const visibleAuthSnapshots = derivedAuthSnapshots.slice(pageStartIndex, pageEndIndex);
   const pageStart = totalAuthRows > 0 ? pageStartIndex + 1 : 0;
   const hasPreviousPage = currentPageIndex > 0;
   const hasNextPage = pageEndIndex < totalAuthRows;
@@ -204,6 +308,48 @@ export function AuthFilesTable({
           <AlertDescription>{copy.authPriority0Description}</AlertDescription>
         </Alert>
 
+        {!loading && authSnapshots.length > 0 ? (
+          <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full xl:max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label={copy.authFilterLabel}
+                name="sidecar_auth_search"
+                type="search"
+                autoComplete="off"
+                placeholder={copy.authFilterPlaceholder}
+                value={authSearch}
+                onChange={(event) => {
+                  setAuthSearch(event.target.value);
+                  setPageIndex(0);
+                }}
+                className="h-9 pl-9"
+              />
+            </div>
+
+            <Select
+              value={authSortMode}
+              onValueChange={(value) => {
+                setAuthSortMode(value as AuthSortMode);
+                setPageIndex(0);
+              }}
+            >
+              <SelectTrigger
+                aria-label={copy.authSortLabel}
+                className="h-9 w-full sm:w-[240px]"
+                data-testid="sidecar-auth-sort-select"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">{copy.authSortName}</SelectItem>
+                <SelectItem value="routing-priority-desc">{copy.authSortRoutingPriorityDesc}</SelectItem>
+                <SelectItem value="routing-priority-asc">{copy.authSortRoutingPriorityAsc}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="space-y-2">
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />
@@ -211,6 +357,8 @@ export function AuthFilesTable({
           </div>
         ) : authSnapshots.length === 0 ? (
           <EmptyState title={copy.authEmptyTitle} description={copy.authEmptyDescription} />
+        ) : totalAuthRows === 0 ? (
+          <EmptyState title={copy.authFilteredEmptyTitle} description={copy.authFilteredEmptyDescription} />
         ) : (
           <div className="overflow-hidden rounded-md border">
             <Table>
