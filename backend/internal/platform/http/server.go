@@ -22,6 +22,7 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
+	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
@@ -56,6 +57,7 @@ type Dependencies struct {
 	RuntimeState              *loadbalancedomain.LocalRuntimeStateStore
 	DatabasePools             *platformdb.DatabasePools
 	SettingsService           *managementsettings.Service
+	SidecarsService           *managementsidecars.Service
 	StatsService              *managementstats.Service
 	VendorsService            *managementvendors.Service
 }
@@ -194,7 +196,7 @@ func mountManagementBranch(router chi.Router, settings config.Settings, deps Dep
 		router.Get("/metrics", platformdb.MetricsHandler(deps.DatabasePools))
 	}
 
-	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.StatsService, deps.VendorsService)
+	managementHandler := NewManagementRouter(deps.AuditService, deps.AuthService, deps.BootstrapConfigService, deps.ConfigBundleService, deps.ConfigRulesService, deps.ConnectionsService, deps.EndpointsService, deps.LoadbalanceService, deps.ModelsService, deps.ProfilesService, deps.RealtimeService, deps.SettingsService, deps.SidecarsService, deps.StatsService, deps.VendorsService)
 	if deps.AuthService != nil {
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
@@ -234,7 +236,7 @@ func mountRuntimeBranch(router chi.Router, settings config.Settings, deps Depend
 	}
 }
 
-func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, bootstrapConfigService *managementbootstrapconfig.Service, configBundleService *managementconfigbundle.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, profilesService *managementprofiles.Service, realtimeService *realtimeapi.Service, settingsService *managementsettings.Service, statsService *managementstats.Service, vendorsService *managementvendors.Service) http.Handler {
+func NewManagementRouter(auditService *managementaudit.Service, authService *managementauth.Service, bootstrapConfigService *managementbootstrapconfig.Service, configBundleService *managementconfigbundle.Service, configRulesService *managementconfigrules.Service, connectionsService *managementconnections.Service, endpointsService *managementendpoints.Service, loadbalanceService *managementloadbalance.Service, modelsService *managementmodels.Service, profilesService *managementprofiles.Service, realtimeService *realtimeapi.Service, settingsService *managementsettings.Service, sidecarsService *managementsidecars.Service, statsService *managementstats.Service, vendorsService *managementvendors.Service) http.Handler {
 	router := chi.NewRouter()
 	if auditService != nil {
 		auditService.MountManagementRoutes(router)
@@ -271,6 +273,9 @@ func NewManagementRouter(auditService *managementaudit.Service, authService *man
 	}
 	if settingsService != nil {
 		settingsService.MountManagementRoutes(router)
+	}
+	if sidecarsService != nil {
+		sidecarsService.MountManagementRoutes(router)
 	}
 	if statsService != nil {
 		statsService.MountManagementRoutes(router)

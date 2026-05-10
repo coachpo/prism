@@ -21,6 +21,7 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
+	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
@@ -209,6 +210,12 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 		return err
 	}
 	resources.registerServiceClose(closeFuncHook(settingsService.Close))
+
+	sidecarsService, err := managementsidecars.NewService(settings, managementsidecars.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool})
+	if err != nil {
+		return err
+	}
+	resources.registerServiceClose(closeFuncHook(sidecarsService.Close))
 	loadbalanceService, err := managementloadbalance.NewService(settings, managementloadbalance.Options{CORSOriginProvider: resources.deps.HotBootstrapConfigRuntime, Pool: managementPool, RuntimeState: runtimeState})
 	if err != nil {
 		return err
@@ -267,6 +274,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 		managementJobs.RegisterBackgroundWorker,
 		managementSideEffects.RegisterBackgroundWorker,
 		logRetentionStore.RegisterBackgroundWorker,
+		sidecarsService.RegisterBackgroundWorker,
 		asyncDashboardPublisher.RegisterBackgroundWorker,
 		asyncAnalyticsPublisher.RegisterBackgroundWorker,
 		runtimeService.RegisterBackgroundWorkers,
@@ -291,6 +299,7 @@ func (resources *productionResources) configureDatabaseBackedServices(ctx contex
 	resources.deps.RuntimeCache = runtimePlanningCache
 	resources.deps.RuntimeState = runtimeState
 	resources.deps.SettingsService = settingsService
+	resources.deps.SidecarsService = sidecarsService
 	resources.deps.StatsService = statsService
 	resources.deps.VendorsService = vendorService
 	return nil
