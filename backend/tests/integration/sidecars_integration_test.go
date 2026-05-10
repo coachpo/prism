@@ -222,7 +222,7 @@ func (u *sidecarIntegrationUpstream) handle(t *testing.T, w http.ResponseWriter,
 	}
 	switch r.URL.Path {
 	case "/v0/management/auth-files":
-		sidecarIntegrationWriteJSON(w, map[string]any{"auth_files": []any{sidecarIntegrationAuthFixture()}})
+		sidecarIntegrationWriteJSON(w, map[string]any{"files": []any{sidecarIntegrationAuthFixture()}})
 	case "/v0/management/gemini-api-key":
 		sidecarIntegrationWriteJSON(w, map[string]any{"gemini-api-key": []any{sidecarIntegrationGeminiProviderFixture()}})
 	case "/v0/management/openai-compatibility":

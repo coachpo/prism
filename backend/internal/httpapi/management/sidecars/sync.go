@@ -117,10 +117,8 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 	if err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
-	for _, input := range authInputs {
-		if _, err := s.store.SaveAuthSnapshot(ctx, input); err != nil {
-			return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
-		}
+	if _, err := s.store.ReplaceAuthSnapshots(ctx, instance.ID, authInputs); err != nil {
+		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
 	providerSnapshotCount := 0
 	for _, batch := range providerBatches {
@@ -149,12 +147,12 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 }
 
 func (s *Service) collectSidecarSnapshots(ctx context.Context, sidecarID int, observedAt time.Time, target CLIProxyTarget) ([]SidecarAuthSnapshotInput, []SidecarProviderSnapshotBatch, error) {
-	var authPayload sidecarAuthFilesPayload
-	if _, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &authPayload); err != nil {
+	authFiles, err := s.fetchSidecarAuthFileRows(ctx, target)
+	if err != nil {
 		return nil, nil, err
 	}
-	authInputs := make([]SidecarAuthSnapshotInput, 0, len(authPayload.AuthFiles))
-	for _, raw := range authPayload.AuthFiles {
+	authInputs := make([]SidecarAuthSnapshotInput, 0, len(authFiles))
+	for _, raw := range authFiles {
 		input, err := normalizeSidecarAuthSnapshot(sidecarID, observedAt, raw)
 		if err != nil {
 			return nil, nil, err
@@ -285,6 +283,10 @@ func redactedSidecarSyncError(err error) (string, string) {
 	if err == nil {
 		return "", ""
 	}
+	var contractErr *sidecarSyncContractError
+	if errors.As(err, &contractErr) {
+		return err.Error(), "sync_contract"
+	}
 	var clientErr *CLIProxyClientError
 	if errors.As(err, &clientErr) {
 		detail := string(clientErr.Code)
@@ -308,8 +310,43 @@ func isInvalidManagementAuthError(err error) bool {
 	return errors.As(err, &clientErr) && clientErr.Code == CLIProxyErrorInvalidManagementAuth
 }
 
-type sidecarAuthFilesPayload struct {
-	AuthFiles []json.RawMessage `json:"auth_files"`
+type sidecarSyncContractError struct {
+	Detail string
+}
+
+func (err *sidecarSyncContractError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return "sync contract violation: " + err.Detail
+}
+
+func newSidecarSyncContractError(detail string) error {
+	return &sidecarSyncContractError{Detail: detail}
+}
+
+func (s *Service) fetchSidecarAuthFileRows(ctx context.Context, target CLIProxyTarget) ([]json.RawMessage, error) {
+	var envelope map[string]json.RawMessage
+	if _, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &envelope); err != nil {
+		return nil, err
+	}
+	return decodeSidecarAuthFileRows(envelope)
+}
+
+func decodeSidecarAuthFileRows(envelope map[string]json.RawMessage) ([]json.RawMessage, error) {
+	filesRaw, ok := envelope["files"]
+	if !ok {
+		return nil, newSidecarSyncContractError("/auth-files response files must be present")
+	}
+	trimmed := bytes.TrimSpace(filesRaw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '[' {
+		return nil, newSidecarSyncContractError("/auth-files response files must be an array")
+	}
+	var files []json.RawMessage
+	if err := json.Unmarshal(trimmed, &files); err != nil || files == nil {
+		return nil, newSidecarSyncContractError("/auth-files response files must be an array")
+	}
+	return files, nil
 }
 
 func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.RawMessage) (SidecarAuthSnapshotInput, error) {

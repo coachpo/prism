@@ -108,6 +108,48 @@ func TestCLIProxyManagementContractAuthFilesPayload(t *testing.T) {
 	}
 }
 
+func TestCLIProxyManagementContractAuthFilesEnvelopeFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixture string
+		wantErr string
+	}{
+		{name: "missing files key with provider inventory is not auth success", fixture: `{"metadata":{"row_count":1},"gemini-api-key":[{"api-key":"redacted-provider-key","auth-index":"auth_001"}]}`, wantErr: "files must be present"},
+		{name: "legacy auth_files only", fixture: cliProxyAuthFilesFixtureWithEnvelopeKey(t, "auth_files"), wantErr: "files must be present"},
+		{name: "files null", fixture: `{"files":null,"metadata":{"row_count":0}}`, wantErr: "files must be an array"},
+		{name: "files not array", fixture: `{"files":{"id":"auth-gemini-primary","name":"gemini-primary.json"},"metadata":{"row_count":1}}`, wantErr: "files must be an array"},
+		{name: "empty files array succeeds", fixture: `{"files":[],"metadata":{"row_count":0}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, err := decodeCLIProxyAuthFilesEnvelope([]byte(tt.fixture))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected empty files array to decode successfully, got %v", err)
+				}
+				if len(payload.Files) != 0 {
+					t.Fatalf("expected empty files array, got %+v", payload.Files)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected %q error, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestCLIProxyManagementContractAuthFilesRejectsMalformedRows(t *testing.T) {
+	payload, err := decodeCLIProxyAuthFilesEnvelope([]byte(cliProxyAuthFilesFixtureWithout(t, "name")))
+	if err != nil {
+		t.Fatalf("decode malformed-row fixture envelope: %v", err)
+	}
+	_, err = validateCLIProxyAuthFilesContract(payload)
+	if err == nil || !strings.Contains(err.Error(), "files[0].name is required") {
+		t.Fatalf("expected malformed row rejection, got %v", err)
+	}
+}
+
 func TestCLIProxyManagementContractAuthFilesDiskScanFallback(t *testing.T) {
 	payload := decodeCLIProxyFixture[cliProxyAuthFilesResponse](t, diskScanAuthFilesFallbackFixture)
 	observations, err := validateCLIProxyAuthFilesContract(payload)
@@ -381,7 +423,7 @@ func writeCLIProxyFixtureJSON(w http.ResponseWriter, status int, fixture string)
 }
 
 func cliProxyMalformedJSONRoute(w http.ResponseWriter, _ *http.Request) {
-	writeCLIProxyFixtureJSON(w, http.StatusOK, `{"auth_files":`)
+	writeCLIProxyFixtureJSON(w, http.StatusOK, `{"files":`)
 }
 
 func cliProxyOversizedBodyRoute(w http.ResponseWriter, _ *http.Request) {
@@ -452,7 +494,7 @@ func fetchCLIProxyJSON(ctx context.Context, client *http.Client, method string, 
 }
 
 type cliProxyAuthFilesResponse struct {
-	AuthFiles []cliProxyAuthFile `json:"auth_files"`
+	Files []cliProxyAuthFile `json:"files"`
 }
 
 type cliProxyAuthFile struct {
@@ -540,11 +582,11 @@ type cliProxyProviderInventoryCollection struct {
 }
 
 func validateCLIProxyAuthFilesContract(payload cliProxyAuthFilesResponse) ([]cliProxyAuthFileObservation, error) {
-	if len(payload.AuthFiles) == 0 {
-		return nil, fmt.Errorf("auth_files must include at least one entry")
+	if len(payload.Files) == 0 {
+		return nil, fmt.Errorf("files must include at least one entry")
 	}
-	observations := make([]cliProxyAuthFileObservation, 0, len(payload.AuthFiles))
-	for index, authFile := range payload.AuthFiles {
+	observations := make([]cliProxyAuthFileObservation, 0, len(payload.Files))
+	for index, authFile := range payload.Files {
 		if authFile.Name == "" {
 			return nil, fmt.Errorf("files[%d].name is required", index)
 		}
@@ -760,13 +802,55 @@ func jsonMatchesFixture[T any](t *testing.T, payload T, fixture string) bool {
 	return reflect.DeepEqual(payload, expected)
 }
 
+func decodeCLIProxyAuthFilesEnvelope(raw []byte) (cliProxyAuthFilesResponse, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return cliProxyAuthFilesResponse{}, err
+	}
+	filesRaw, ok := envelope["files"]
+	if !ok {
+		return cliProxyAuthFilesResponse{}, fmt.Errorf("files must be present")
+	}
+	if len(filesRaw) == 0 || string(filesRaw) == "null" || filesRaw[0] != '[' {
+		return cliProxyAuthFilesResponse{}, fmt.Errorf("files must be an array")
+	}
+	var payload cliProxyAuthFilesResponse
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return cliProxyAuthFilesResponse{}, err
+	}
+	if payload.Files == nil {
+		return payload, fmt.Errorf("files must be an array")
+	}
+	return payload, nil
+}
+
+func cliProxyAuthFilesFixtureWithEnvelopeKey(t *testing.T, key string) string {
+	t.Helper()
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(liveAuthFilesContractFixture), &payload); err != nil {
+		t.Fatalf("decode auth-files fixture: %v", err)
+	}
+	files, ok := payload["files"]
+	if !ok {
+		t.Fatalf("auth-files fixture missing files key")
+	}
+	encoded, err := json.Marshal(map[string]json.RawMessage{
+		key:        files,
+		"metadata": json.RawMessage(`{"row_count":2,"generated_at":"2026-05-10T17:00:00Z"}`),
+	})
+	if err != nil {
+		t.Fatalf("encode auth-files fixture with %s key: %v", key, err)
+	}
+	return string(encoded)
+}
+
 func cliProxyAuthFilesFixtureWithout(t *testing.T, field string) string {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(liveAuthFilesContractFixture), &payload); err != nil {
 		t.Fatalf("decode auth-files fixture: %v", err)
 	}
-	files, ok := payload["auth_files"].([]any)
+	files, ok := payload["files"].([]any)
 	if !ok || len(files) == 0 {
 		t.Fatalf("auth-files fixture has unexpected shape: %+v", payload)
 	}
@@ -783,7 +867,7 @@ func cliProxyAuthFilesFixtureWithout(t *testing.T, field string) string {
 }
 
 const liveAuthFilesContractFixture = `{
-  "auth_files": [
+  "files": [
     {
       "id": "auth-gemini-primary",
       "auth_index": "auth_001",
@@ -843,7 +927,7 @@ const liveAuthFilesContractFixture = `{
 }`
 
 const diskScanAuthFilesFallbackFixture = `{
-  "auth_files": [
+  "files": [
     {
       "name": "gemini-disk-scan-only.json",
       "type": "gemini",

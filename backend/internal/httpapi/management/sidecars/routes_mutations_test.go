@@ -301,7 +301,7 @@ func (u *operatorMutationUpstream) serveAuthFiles(w http.ResponseWriter) {
 	u.mu.Unlock()
 	payload := watchdogAuthPayload(auth)
 	payload["api_key"] = "raw-sync-secret"
-	writeWatchdogJSON(w, map[string]any{"auth_files": []any{payload}})
+	writeWatchdogJSON(w, map[string]any{"files": []any{payload}})
 }
 
 func (u *operatorMutationUpstream) serveFieldsPatch(w http.ResponseWriter, r *http.Request) {
