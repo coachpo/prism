@@ -54,14 +54,14 @@ function formatTimestamp(value: string | undefined, locale: string, fallback: st
   return date.toLocaleString(locale);
 }
 
-function boolState(value: boolean | undefined, enabledLabel: string, disabledLabel: string) {
+function boolState(value: boolean | undefined, enabledLabel: string, disabledLabel: string, unknownLabel: string) {
   if (value === true) {
     return disabledLabel;
   }
   if (value === false) {
     return enabledLabel;
   }
-  return "Unknown";
+  return unknownLabel;
 }
 
 function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
@@ -77,18 +77,22 @@ function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
   return snapshot.status ? "info" : "muted";
 }
 
-function summarizeJson(value: unknown) {
+function summarizeJson(
+  value: unknown,
+  bucketSummary: (count: number) => string,
+  redactedLabel: string,
+) {
   if (value === null || value === undefined) {
     return "—";
   }
   if (Array.isArray(value)) {
-    return `${value.length} bucket${value.length === 1 ? "" : "s"}`;
+    return bucketSummary(value.length);
   }
   if (typeof value === "object") {
     const keys = Object.keys(value as Record<string, unknown>).filter((key) => !/secret|token|key|password|authorization/i.test(key));
-    return keys.length > 0 ? keys.slice(0, 3).join(", ") : "redacted";
+    return keys.length > 0 ? keys.slice(0, 3).join(", ") : redactedLabel;
   }
-  return "redacted";
+  return redactedLabel;
 }
 
 function latestActionByAuthId(actions: SidecarActionHistoryItem[]) {
@@ -130,6 +134,7 @@ export function AuthFilesTable({
   onPatchStatus,
 }: AuthFilesTableProps) {
   const { formatNumber, locale, messages } = useLocale();
+  const copy = messages.sidecarsPage;
   const [draftPriorities, setDraftPriorities] = useState<Record<string, string>>({});
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
   const [allowWatchdog, setAllowWatchdog] = useState(false);
@@ -166,19 +171,15 @@ export function AuthFilesTable({
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <SlidersHorizontal className="h-4 w-4" />
-          Auth files
+          {copy.authTitle}
         </CardTitle>
-        <CardDescription className="text-xs">
-          Synced OAuth/auth inventory with quota, retry, priority, and watchdog state. Secrets and raw tokens are never shown.
-        </CardDescription>
+        <CardDescription className="text-xs">{copy.authDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Alert className="border-warning/30 bg-warning/10">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Priority 0 is not exclusion</AlertTitle>
-          <AlertDescription>
-            Priority 0 is the lowest, last-resort band. It may still be used if no higher-priority auth is available.
-          </AlertDescription>
+          <AlertTitle>{copy.authPriority0Title}</AlertTitle>
+          <AlertDescription>{copy.authPriority0Description}</AlertDescription>
         </Alert>
 
         {loading ? (
@@ -187,19 +188,19 @@ export function AuthFilesTable({
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />
           </div>
         ) : authSnapshots.length === 0 ? (
-          <EmptyState title="No auth snapshots" description="Run a sidecar sync to populate auth inventory." />
+          <EmptyState title={copy.authEmptyTitle} description={copy.authEmptyDescription} />
         ) : (
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Auth file</TableHead>
-                  <TableHead>State</TableHead>
-                  <TableHead>Priority / quota</TableHead>
-                  <TableHead>Retry / recovery</TableHead>
-                  <TableHead>Requests</TableHead>
-                  <TableHead>Watchdog</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{copy.authAuthFileColumn}</TableHead>
+                  <TableHead>{copy.authStateColumn}</TableHead>
+                  <TableHead>{copy.authPriorityColumn}</TableHead>
+                  <TableHead>{copy.authRetryColumn}</TableHead>
+                  <TableHead>{copy.authRequestsColumn}</TableHead>
+                  <TableHead>{copy.authWatchdogColumn}</TableHead>
+                  <TableHead className="text-right">{copy.actionsColumn}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -224,23 +225,23 @@ export function AuthFilesTable({
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-2">
-                          <StatusBadge label={snapshot.status ?? "unknown"} intent={statusIntent(snapshot)} />
-                          <TypeBadge label={boolState(snapshot.disabled, "Enabled", "Disabled")} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
-                          {snapshot.unavailable ? <TypeBadge label="Unavailable" intent="warning" preserveLabel /> : null}
+                          <StatusBadge label={snapshot.status ?? copy.unknownStatus} intent={statusIntent(snapshot)} />
+                          <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.unknownStatus)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
+                          {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
                           {snapshot.status_message ? <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span> : null}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex min-w-44 flex-col gap-2">
                           <div className="flex flex-wrap items-center gap-1">
-                            <ValueBadge label={`priority ${snapshot.priority ?? 0}`} intent={snapshot.priority === 0 || snapshot.priority === undefined ? "warning" : "info"} />
-                            {snapshot.priority === undefined ? <TypeBadge label="missing resolves to 0" intent="warning" preserveLabel /> : null}
+                            <ValueBadge label={copy.authPriorityLabel(snapshot.priority ?? 0)} intent={snapshot.priority === 0 || snapshot.priority === undefined ? "warning" : "info"} />
+                            {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="warning" preserveLabel /> : null}
                           </div>
-                          {snapshot.quota_exceeded ? <TypeBadge label="Quota exceeded" intent="warning" preserveLabel /> : null}
+                          {snapshot.quota_exceeded ? <TypeBadge label={copy.authQuotaExceeded} intent="warning" preserveLabel /> : null}
                           {snapshot.quota_reason ? <span className="max-w-44 text-xs text-muted-foreground">{snapshot.quota_reason}</span> : null}
                           <div className="flex items-center gap-2">
                             <Input
-                              aria-label={`Priority for ${snapshot.name}`}
+                              aria-label={copy.authPriorityInputLabel(snapshot.name)}
                               className="h-8 w-24"
                               min={0}
                               step={1}
@@ -257,24 +258,24 @@ export function AuthFilesTable({
                               onClick={() => parsedPriority !== null && openMutation({ kind: "priority", snapshot, priority: parsedPriority })}
                             >
                               {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                              Save
+                              {copy.authSavePriority}
                             </Button>
                           </div>
-                          {priorityValue === "0" ? <span className="text-xs text-warning">Priority 0 remains a last-resort option.</span> : null}
+                          {priorityValue === "0" ? <span className="text-xs text-warning">{copy.authPriority0LastResort}</span> : null}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          <span>Recover: {formatTimestamp(snapshot.quota_next_recover_at, locale, messages.common.unavailable)}</span>
-                          <span>Retry: {formatTimestamp(snapshot.next_retry_after, locale, messages.common.unavailable)}</span>
-                          <span>Observed: {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}</span>
+                          <span>{copy.authRecoverLabel}: {formatTimestamp(snapshot.quota_next_recover_at, locale, messages.common.unavailable)}</span>
+                          <span>{copy.authRetryLabel}: {formatTimestamp(snapshot.next_retry_after, locale, messages.common.unavailable)}</span>
+                          <span>{copy.authObservedLabel}: {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}</span>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          <span>Success: {formatNumber(snapshot.success_count ?? 0)}</span>
-                          <span>Failed: {formatNumber(snapshot.failed_count ?? 0)}</span>
-                          <span>Recent: {summarizeJson(snapshot.recent_requests)}</span>
+                          <span>{copy.authSuccessRequestsLabel}: {formatNumber(snapshot.success_count ?? 0)}</span>
+                          <span>{copy.authFailedRequestsLabel}: {formatNumber(snapshot.failed_count ?? 0)}</span>
+                          <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -283,10 +284,10 @@ export function AuthFilesTable({
                             <>
                               <TypeBadge label={latest.action_type} intent="accent" preserveLabel />
                               <span>{latest.status}</span>
-                              {latest.hold_until ? <span>Hold until {formatTimestamp(latest.hold_until, locale, messages.common.unavailable)}</span> : null}
+                              {latest.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(latest.hold_until, locale, messages.common.unavailable))}</span> : null}
                             </>
                           ) : (
-                            <span>No watchdog action</span>
+                            <span>{copy.authNoWatchdogAction}</span>
                           )}
                         </div>
                       </TableCell>
@@ -297,7 +298,7 @@ export function AuthFilesTable({
                             onClick={() => openMutation({ kind: "status", snapshot, disabled: !snapshot.disabled })}
                           >
                             {mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-                            <span className="sr-only">{snapshot.disabled ? `Enable auth ${snapshot.name}` : `Disable auth ${snapshot.name}`}</span>
+                            <span className="sr-only">{snapshot.disabled ? copy.authEnableAuth(snapshot.name) : copy.authDisableAuth(snapshot.name)}</span>
                           </IconActionButton>
                         </IconActionGroup>
                       </TableCell>
@@ -313,16 +314,12 @@ export function AuthFilesTable({
       <AlertDialog open={pendingMutation !== null} onOpenChange={(open) => !open && setPendingMutation(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm manual auth mutation</AlertDialogTitle>
+            <AlertDialogTitle>{copy.authActionConfirmTitle}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-left">
-                <p>
-                  Manual changes normally pause watchdog reconciliation for this auth file so the watchdog does not immediately undo operator intent.
-                </p>
+                <p>{copy.authActionConfirmDescription}</p>
                 {pendingMutation?.kind === "priority" && pendingMutation.priority === 0 ? (
-                  <p className="font-medium text-warning">
-                    Priority 0 is lowest/last resort, not guaranteed exclusion; it may still be used if no higher-priority auth is available.
-                  </p>
+                  <p className="font-medium text-warning">{copy.authPriority0MutationWarning}</p>
                 ) : null}
                 <div className="flex items-start gap-2 rounded-lg border bg-muted/20 p-3">
                   <Checkbox
@@ -331,18 +328,16 @@ export function AuthFilesTable({
                     onCheckedChange={(checked) => setAllowWatchdog(checked === true)}
                   />
                   <div className="grid gap-1 leading-none">
-                    <Label htmlFor="allow-watchdog-immediately">Allow watchdog immediately</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Sends allow_watchdog=true with this backend mutation instead of applying the normal manual pause.
-                    </p>
+                    <Label htmlFor="allow-watchdog-immediately">{copy.authActionAllowWatchdogLabel}</Label>
+                    <p className="text-xs text-muted-foreground">{copy.authActionAllowWatchdogDescription}</p>
                   </div>
                 </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmMutation()}>Apply change</AlertDialogAction>
+            <AlertDialogCancel>{copy.cancel}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmMutation()}>{copy.actionApplyChange}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
