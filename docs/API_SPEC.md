@@ -10,7 +10,7 @@ Container and custom deployments use the listener configured in the plaintext bo
   - Profile-scoped management routes, which require `X-Profile-Id` and resolve against the selected profile.
   - Runtime proxy routes, which always use the active profile and ignore management scope overrides.
 - Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.
-- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/config/bootstrap`, and `/api/config/bootstrap/validate`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
+- Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/auth/*`, `/api/realtime/*`, `/api/sidecars/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/config/bootstrap`, and `/api/config/bootstrap/validate`. `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Profile-scoped management routes include `/api/config/profile/import`, `/api/settings/costing`, `/api/settings/timezone`, `/api/stats/*`, `/api/audit/*`, `/api/loadbalance/*`, `/api/models/*`, `/api/endpoints/*`, `/api/connections/*`, and the other non-global `/api/config/profile/*` routes.
 - Detail endpoints return `404` when a resource exists in another profile but not in the effective profile context.
 - Scope-control failures return structured JSON with `code` and `detail`, where `code` is stable for machine handling and `detail` is safe to show to operators.
@@ -1354,6 +1354,62 @@ DELETE /api/config/header-blocklist-rules/{id}
 ```
 Response `200`: `{ "deleted": true }`.
 Note: Delete is only available for effective-profile user rules. Attempting to delete a system rule through this route returns `404` because system rows are not in the profile-owned delete scope.
+
+---
+
+### 1.10 Sidecars (Global CLIProxyAPI Control Plane)
+
+Sidecar routes are global management routes. They omit `X-Profile-Id` and operate on instance-wide CLIProxyAPI registrations. Prism stores sidecar metadata, normalized inventory snapshots, watchdog policy/holds, and redacted action history; CLIProxyAPI remains the source of truth for live auth/provider state.
+
+#### List Sidecars
+```
+GET /api/sidecars
+```
+Response `200`: `{ "items": SidecarInstance[] }`.
+
+#### Create Sidecar
+```
+POST /api/sidecars
+```
+Request includes `name`, `base_url`, required `management_password`, optional `environment_label`, `enabled`, `sync_interval_seconds`, `request_timeout_seconds`, `allow_private_network`, `allow_insecure_http`, and `skip_tls_verify`.
+
+Response `201`: Created sidecar. Raw management passwords are never returned; responses include `credential_state.management_password_configured` and may include the mask string `********` only.
+
+#### Get, Update, Delete Sidecar
+```
+GET /api/sidecars/{sidecar_id}
+PATCH /api/sidecars/{sidecar_id}
+DELETE /api/sidecars/{sidecar_id}
+```
+`PATCH` accepts the create fields as optional values. Supplying `management_password` rotates the stored credential and resets management-auth state. `DELETE` soft-deletes the registration and returns `204`.
+
+#### Test Connection and Sync
+```
+POST /api/sidecars/{sidecar_id}/test-connection
+POST /api/sidecars/{sidecar_id}/sync
+GET /api/sidecars/{sidecar_id}/sync-status
+```
+Connection tests call CLIProxyAPI management auth through the backend and return `state`, `management_auth_state`, and `status_code`. Manual sync returns `state` (`succeeded`, `skipped`, or `failed`), the updated `sidecar`, `sync_status`, `auth_snapshot_count`, `provider_snapshot_count`, and optional `error_code`/`error_detail`. Manual sync on a disabled sidecar returns `409`; invalid management auth returns `424`; other upstream failures return `502`.
+
+#### Inventory Snapshots
+```
+GET /api/sidecars/{sidecar_id}/auth-files
+GET /api/sidecars/{sidecar_id}/auth-snapshots
+GET /api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}
+GET /api/sidecars/{sidecar_id}/providers
+GET /api/sidecars/{sidecar_id}/provider-snapshots
+```
+`auth-files` is the operator-facing alias for the latest auth snapshots. Provider snapshots are normalized from CLIProxyAPI provider inventory endpoints for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. Snapshot payloads are redacted before storage or display.
+
+#### Auth-File Mutations and Watchdog
+```
+PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status
+PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields
+GET /api/sidecars/{sidecar_id}/watchdog-policy
+PUT /api/sidecars/{sidecar_id}/watchdog-policy
+GET /api/sidecars/{sidecar_id}/actions
+```
+Status mutations accept `disabled` plus optional `allow_watchdog`. Field mutations accept allowed operational fields such as `priority`, `proxy_url`, `headers`, `custom_headers`, `prefix`, `note`, `allow_watchdog`, and `force_live`; only `x-correlation-id`, `x-request-id`, and `x-trace-id` custom header names are accepted. Watchdog policy values use positive integer thresholds/windows/cooldowns, with `deprioritized_priority >= 0`. Action-history responses redact token, secret, password, and authorization-like text.
 
 ---
 

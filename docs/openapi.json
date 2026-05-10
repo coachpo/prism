@@ -3,7 +3,7 @@
   "info": {
     "title": "LLM Proxy Gateway",
     "description": "A lightweight proxy gateway for routing LLM API requests with load balancing and failover.",
-    "version": "0.3.20"
+    "version": "0.3.21"
   },
   "paths": {
     "/api/auth/status": {
@@ -5419,13 +5419,13 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SidecarInstance"
+                "$ref": "#/components/schemas/SidecarCreateRequest"
               }
             }
           }
         },
         "responses": {
-          "200": {
+          "201": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -5489,7 +5489,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SidecarInstance"
+                "$ref": "#/components/schemas/SidecarUpdateRequest"
               }
             }
           }
@@ -5826,6 +5826,9 @@
                   },
                   "allow_watchdog": {
                     "type": "boolean"
+                  },
+                  "force_live": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -5883,15 +5886,45 @@
                 "type": "object",
                 "properties": {
                   "priority": {
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "prefix": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "proxy_url": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "note": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "description": "Allowlisted custom headers only: x-correlation-id, x-request-id, and x-trace-id."
+                  },
+                  "custom_headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "description": "Alias for headers. Do not send both headers and custom_headers."
                   },
                   "allow_watchdog": {
                     "type": "boolean"
+                  },
+                  "force_live": {
+                    "type": "boolean"
                   }
                 },
-                "required": [
-                  "priority"
-                ],
+                "description": "At least one mutable auth field is required.",
                 "additionalProperties": false
               }
             }
@@ -16448,12 +16481,108 @@
           },
           "management_password": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Masked management password marker. Raw sidecar management passwords are write-only and never returned."
           }
         },
         "required": [
           "management_password_configured"
         ],
+        "additionalProperties": false
+      },
+      "SidecarCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "management_password": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Required sidecar management password. This value is write-only and never returned."
+          },
+          "enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "environment_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow_private_network": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "allow_insecure_http": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "skip_tls_verify": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "sync_interval_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "request_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          }
+        },
+        "required": [
+          "name",
+          "base_url",
+          "management_password"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "management_password": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Optional sidecar management password rotation. This value is write-only and never returned."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "environment_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow_private_network": {
+            "type": "boolean"
+          },
+          "allow_insecure_http": {
+            "type": "boolean"
+          },
+          "skip_tls_verify": {
+            "type": "boolean"
+          },
+          "sync_interval_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "request_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          }
+        },
         "additionalProperties": false
       },
       "SidecarPauseMetadata": {
@@ -16664,7 +16793,9 @@
             "type": "string",
             "format": "date-time"
           },
-          "snapshot": {}
+          "snapshot": {
+            "description": "Redacted auth-file observation. Raw tokens, secrets, passwords, API keys, authorization values, and unredacted upstream fields are never returned."
+          }
         },
         "required": [
           "id",
@@ -16725,7 +16856,9 @@
             "type": "string",
             "format": "date-time"
           },
-          "snapshot": {}
+          "snapshot": {
+            "description": "Redacted provider inventory observation. Raw tokens, secrets, passwords, API keys, authorization values, and unredacted upstream fields are never returned."
+          }
         },
         "required": [
           "id",
@@ -16859,20 +16992,38 @@
           "state": {
             "type": "string",
             "enum": [
-              "accepted"
+              "succeeded",
+              "skipped",
+              "failed"
             ]
           },
-          "placeholder": {
-            "type": "boolean"
+          "sidecar": {
+            "$ref": "#/components/schemas/SidecarInstance"
           },
-          "detail": {
-            "type": "string"
+          "sync_status": {
+            "$ref": "#/components/schemas/SidecarSyncStatusResponse"
+          },
+          "auth_snapshot_count": {
+            "type": "integer"
+          },
+          "provider_snapshot_count": {
+            "type": "integer"
+          },
+          "error_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "error_detail": {
+            "type": "string",
+            "nullable": true
           }
         },
         "required": [
           "state",
-          "placeholder",
-          "detail"
+          "sidecar",
+          "sync_status",
+          "auth_snapshot_count",
+          "provider_snapshot_count"
         ],
         "additionalProperties": false
       },
@@ -16930,7 +17081,8 @@
           },
           "error_message": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Redacted operator-safe error detail. Raw tokens, secrets, passwords, API keys, and authorization values are never returned."
           },
           "created_at": {
             "type": "string",
@@ -16979,6 +17131,9 @@
           },
           "snapshot": {
             "$ref": "#/components/schemas/SidecarAuthSnapshot"
+          },
+          "sync_status": {
+            "$ref": "#/components/schemas/SidecarSyncStatusResponse"
           },
           "sync_error": {
             "type": "string",

@@ -1,6 +1,6 @@
 # Data Model Document: Prism
 
-Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, and UNLOGGED routing hot state plus the current split-bundle configuration format (`version: 1` profile bundle, `version: 1` vendor catalog bundle).
+Scope: profile-isolated runtime/management model with pricing templates, vendor metadata, profile-scoped adaptive routing policies, UNLOGGED routing hot state, global sidecar control-plane tables, and the current split-bundle configuration format (`version: 1` profile bundle, `version: 1` vendor catalog bundle).
 
 ## 1. Entity Relationship Diagram
 
@@ -249,6 +249,18 @@ webauthn_credentials
   device_name, aaguid, transports
   backup_eligible, backup_state
   last_used_at, last_used_ip, created_at, updated_at
+
+sidecar_instances (global)
+  id PK
+  live lower(name) UNIQUE, live base_url_canonical UNIQUE
+  encrypted management_password
+  enabled, sync_interval_seconds, request_timeout_seconds
+  network policy flags, management_auth_state, sync metadata
+      | 1:N observations/actions, 1:1 watchdog policy
+      v
+sidecar_auth_snapshots / sidecar_provider_snapshots / sidecar_watchdog_policies / sidecar_watchdog_holds / sidecar_watchdog_actions
+  sidecar_id FK -> sidecar_instances.id
+  normalized auth/provider observations plus watchdog policy, holds, and action history
 ```
 
 ## 2. Table Definitions
@@ -688,6 +700,25 @@ When an operator performs manual bounded deletes on the cutoff-overlapping bound
 VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 ```
 
+### 2.14A `sidecar_*` tables (global CLIProxyAPI control plane)
+
+Sidecar tables are global instance state. They are not profile-scoped and do not participate in profile bundle import/export. Migration `000014_cli_proxy_sidecars.sql` creates this domain.
+
+| Table | Purpose |
+|---|---|
+| `sidecar_instances` | Sidecar registration, canonical base URL, encrypted management password, enabled flag, sync interval, request timeout, network policy flags, management-auth state, pause metadata, and sync timestamps. |
+| `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, quota/retry metadata, recent requests, model states, redacted snapshot JSON, and observation time. |
+| `sidecar_provider_snapshots` | Normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
+| `sidecar_watchdog_policies` | One per-sidecar watchdog settings row: enabled, failure threshold/window, fallback cooldown, deprioritized priority, and manual-override pause duration. |
+| `sidecar_watchdog_holds` | Active, paused, or released holds created by watchdog reconciliation or operator mutations. |
+| `sidecar_watchdog_actions` | Redacted audit trail for instance CRUD, connection tests, manual sync, operator patches, watchdog deprioritize/restore/skips, and policy updates. |
+
+Ownership notes:
+- Active `sidecar_instances` rows are unique on `lower(name)` and `base_url_canonical` among non-deleted registrations.
+- Stored management passwords use the backend secret-encryption key and are write-only at the API boundary.
+- Snapshot and action JSON must not persist raw token, secret, password, API-key, or authorization values.
+- Sync and watchdog work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
+
 ### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
 
 Ephemeral hot-state row for per-connection admission, circuit state, and probe-aware runtime signals. This table is intentionally `UNLOGGED`, so it resets after crash or unclean shutdown.
@@ -894,12 +925,15 @@ CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_
 CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
 ```
 
+Sidecar uniqueness and indexes are defined in `000014_cli_proxy_sidecars.sql`; they cover active sidecar names and canonical URLs, per-sidecar snapshot lookups, active watchdog holds, and action-history ordering.
+
 ## 4. Relationship and Ownership Rules
 
 - `vendors` are global and shared across all profiles.
 - `model_configs` reference shared vendor rows without vendor-owned delete cascade semantics; deleting a vendor must not delete profile-scoped model rows.
 - `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
+- `sidecar_instances` is a global control-plane root for sidecar snapshots, watchdog policies, holds, and actions; it is not owned by a profile.
 - `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `connection_limiter_state` and `connection_limiter_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.
