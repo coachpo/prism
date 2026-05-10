@@ -147,15 +147,70 @@ export interface Messages {
     sidecars: string;
   };
   sidecarsPage: {
+    actionApplyChange: string;
+    actionHistoryActionColumn: string;
+    actionHistoryAuthColumn: string;
+    actionHistoryCompletedAt: (time: string) => string;
+    actionHistoryDescription: string;
+    actionHistoryEmptyDescription: string;
+    actionHistoryEmptyTitle: string;
+    actionHistoryFromPriority: (priority: number) => string;
+    actionHistoryHoldUntil: (time: string) => string;
+    actionHistoryPriorityColumn: string;
+    actionHistoryReasonColumn: string;
+    actionHistoryStatusColumn: string;
+    actionStatusLabels: Record<"succeeded" | "success" | "skipped" | "failed" | "error", string>;
+    actionHistoryTimeColumn: string;
+    actionHistoryTitle: string;
+    actionHistoryToPriority: (priority: number) => string;
     actionsColumn: string;
     addSidecar: string;
     allowInsecureHttpDescription: string;
     allowInsecureHttpLabel: string;
     allowPrivateNetworkDescription: string;
     allowPrivateNetworkLabel: string;
+    authActionAllowWatchdogDescription: string;
+    authActionAllowWatchdogLabel: string;
+    authActionConfirmDescription: string;
+    authActionConfirmTitle: string;
+    authAuthFileColumn: string;
+    authDescription: string;
+    authDisableAuth: (name: string) => string;
+    authDisabledLabel: string;
+    authEmptyDescription: string;
+    authEmptyTitle: string;
+    authEnableAuth: (name: string) => string;
+    authEnabledLabel: string;
+    authMissingPriorityResolves: string;
+    authNoWatchdogAction: string;
+    authPriority0Description: string;
+    authPriority0LastResort: string;
+    authPriority0MutationWarning: string;
+    authPriority0Title: string;
+    authPriorityColumn: string;
+    authPriorityInputLabel: (name: string) => string;
+    authPriorityLabel: (priority: number) => string;
+    authPriorityUpdated: (name: string) => string;
+    authQuotaExceeded: string;
+    authRecentRequestsLabel: string;
+    authRecoverLabel: string;
+    authRetryLabel: string;
+    authSavePriority: string;
+    authStatusUpdated: (name: string, disabled: boolean) => string;
+    authStateColumn: string;
+    authSuccessRequestsLabel: string;
+    authFailedRequestsLabel: string;
+    authObservedLabel: string;
+    authRequestsColumn: string;
+    authRetryColumn: string;
+    authTitle: string;
+    authUnavailableLabel: string;
+    authWatchdogColumn: string;
     baseUrlDescription: string;
     baseUrlLabel: string;
     baseUrlPlaceholder: string;
+    baseUrlRequired: string;
+    bucketSummary: (count: number) => string;
     cancel: string;
     connectionSectionTitle: string;
     createSucceeded: (name: string) => string;
@@ -169,6 +224,8 @@ export interface Messages {
     deleteWarningTitle: string;
     deleting: string;
     description: string;
+    detailDescription: string;
+    detailTitle: (name: string) => string;
     dialogDescription: string;
     editSidecar: string;
     editTitle: string;
@@ -184,17 +241,31 @@ export interface Messages {
     lastSync: string;
     loadFailed: string;
     loadSingleFailed: string;
+    managementAuthLabels: Record<"unknown" | "valid" | "invalid_management_auth", string>;
     managementPasswordCreateDescription: string;
     managementPasswordCreatePlaceholder: string;
     managementPasswordEditDescription: string;
     managementPasswordEditPlaceholder: string;
     managementPasswordLabel: string;
+    managementPasswordRequired: string;
+    maskedFields: (fields: string) => string;
     nameLabel: string;
     namePlaceholder: string;
+    noExtraSnapshotFields: string;
+    nameRequired: string;
     passwordConfigured: string;
     passwordMissing: string;
     pollingDescription: string;
     privateNetwork: string;
+    providerDescription: string;
+    providerEmptyDescription: string;
+    providerEmptyTitle: string;
+    providerItemColumn: string;
+    providerNameColumn: string;
+    providerObservedColumn: string;
+    providerSnapshotColumn: string;
+    providerTitle: string;
+    redactedLabel: string;
     requestTimeoutLabel: string;
     runtimeSectionTitle: string;
     save: string;
@@ -203,6 +274,7 @@ export interface Messages {
     securityColumn: string;
     skipTlsVerifyDescription: string;
     skipTlsVerifyLabel: string;
+    snapshotFieldsMasked: string;
     staleAfter: string;
     stateSummary: (healthy: string, stale: string, degraded: string) => string;
     statusColumn: string;
@@ -221,8 +293,25 @@ export interface Messages {
     testFailed: string;
     testSucceeded: (name: string, statusCode: number) => string;
     tlsSkipped: string;
+    unknownStatus: string;
     updateSucceeded: (name: string) => string;
+    validationPositiveWholeNumber: (fieldLabel: string) => string;
+    viewDetails: string;
     watchdogDeferred: string;
+    watchdogDescription: string;
+    watchdogDeprioritizedPriorityLabel: string;
+    watchdogEnabledDescription: string;
+    watchdogEnabledLabel: string;
+    watchdogFailureThresholdLabel: string;
+    watchdogFailureWindowLabel: string;
+    watchdogFallbackCooldownLabel: string;
+    watchdogManualPauseLabel: string;
+    watchdogPrioritySafetyDescription: string;
+    watchdogPrioritySafetyTitle: string;
+    watchdogSave: string;
+    watchdogSaveSucceeded: string;
+    watchdogTitle: string;
+    watchdogValidationError: string;
   };
   loadbalanceStrategyDialog: {
     addTitle: string;
@@ -2180,15 +2269,70 @@ export const enMessages: Messages = {
     sidecars: "Sidecars",
   },
   sidecarsPage: {
+    actionApplyChange: "Apply change",
+    actionHistoryActionColumn: "Action",
+    actionHistoryAuthColumn: "Target auth",
+    actionHistoryCompletedAt: (time) => `Completed ${time}`,
+    actionHistoryDescription: "Backend-recorded manual mutations and watchdog actions, including successful, skipped, failed, deprioritize, and restore outcomes.",
+    actionHistoryEmptyDescription: "Manual changes and watchdog decisions will appear here.",
+    actionHistoryEmptyTitle: "No actions recorded",
+    actionHistoryFromPriority: (priority) => `from ${priority}`,
+    actionHistoryHoldUntil: (time) => `Hold until ${time}`,
+    actionHistoryPriorityColumn: "Priority / hold",
+    actionHistoryReasonColumn: "Reason",
+    actionHistoryStatusColumn: "Status",
+    actionStatusLabels: { succeeded: "Succeeded", success: "Success", skipped: "Skipped", failed: "Failed", error: "Error" },
+    actionHistoryTimeColumn: "Time",
+    actionHistoryTitle: "Action history",
+    actionHistoryToPriority: (priority) => `to ${priority}`,
     actionsColumn: "Actions",
     addSidecar: "Add sidecar",
     allowInsecureHttpDescription: "Permit plain HTTP management endpoints when the sidecar is not using TLS.",
     allowInsecureHttpLabel: "Allow insecure HTTP",
     allowPrivateNetworkDescription: "Allow this control-plane entry to target private network addresses.",
     allowPrivateNetworkLabel: "Allow private network",
+    authActionAllowWatchdogDescription: "Sends allow_watchdog=true with this backend mutation instead of applying the normal manual pause.",
+    authActionAllowWatchdogLabel: "Allow watchdog immediately",
+    authActionConfirmDescription: "Manual changes normally pause watchdog reconciliation for this auth file so the watchdog does not immediately undo operator intent.",
+    authActionConfirmTitle: "Confirm manual auth mutation",
+    authAuthFileColumn: "Auth file",
+    authDescription: "Synced OAuth/auth inventory with quota, retry, priority, and watchdog state. Secrets and raw tokens are never shown.",
+    authDisableAuth: (name) => `Disable auth ${name}`,
+    authDisabledLabel: "Disabled",
+    authEmptyDescription: "Run a sidecar sync to populate auth inventory.",
+    authEmptyTitle: "No auth snapshots",
+    authEnableAuth: (name) => `Enable auth ${name}`,
+    authEnabledLabel: "Enabled",
+    authMissingPriorityResolves: "missing resolves to 0",
+    authNoWatchdogAction: "No watchdog action",
+    authPriority0Description: "Priority 0 is the lowest, last-resort band. It may still be used if no higher-priority auth is available.",
+    authPriority0LastResort: "Priority 0 remains a last-resort option.",
+    authPriority0MutationWarning: "Priority 0 is lowest/last resort, not guaranteed exclusion; it may still be used if no higher-priority auth is available.",
+    authPriority0Title: "Priority 0 is not exclusion",
+    authPriorityColumn: "Priority / quota",
+    authPriorityInputLabel: (name) => `Priority for ${name}`,
+    authPriorityLabel: (priority) => `priority ${priority}`,
+    authPriorityUpdated: (name) => `Updated priority for ${name}.`,
+    authQuotaExceeded: "Quota exceeded",
+    authRecentRequestsLabel: "Recent",
+    authRecoverLabel: "Recover",
+    authRetryLabel: "Retry",
+    authSavePriority: "Save",
+    authStatusUpdated: (name, disabled) => `${disabled ? "Disabled" : "Enabled"} ${name}.`,
+    authStateColumn: "State",
+    authSuccessRequestsLabel: "Success",
+    authFailedRequestsLabel: "Failed",
+    authObservedLabel: "Observed",
+    authRequestsColumn: "Requests",
+    authRetryColumn: "Retry / recovery",
+    authTitle: "Auth files",
+    authUnavailableLabel: "Unavailable",
+    authWatchdogColumn: "Watchdog",
     baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",
     baseUrlLabel: "Base URL",
     baseUrlPlaceholder: "https://cliproxyapi.internal:8443",
+    baseUrlRequired: "Base URL is required.",
+    bucketSummary: (count) => `${count} bucket${count === 1 ? "" : "s"}`,
     cancel: "Cancel",
     connectionSectionTitle: "Connection",
     createSucceeded: (name) => `Created sidecar ${name}.`,
@@ -2202,6 +2346,8 @@ export const enMessages: Messages = {
     deleteWarningTitle: "This cannot be undone",
     deleting: "Deleting...",
     description: "Manage CLIProxyAPI sidecar instances from Prism's global control plane.",
+    detailDescription: "Auth inventory, provider inventory, watchdog policy, and action history for the selected sidecar.",
+    detailTitle: (name) => `${name} detail`,
     dialogDescription: "Configure the registered CLIProxyAPI management endpoint and polling behavior.",
     editSidecar: "Edit sidecar",
     editTitle: "Edit sidecar",
@@ -2217,17 +2363,31 @@ export const enMessages: Messages = {
     lastSync: "Last sync",
     loadFailed: "Failed to load sidecars.",
     loadSingleFailed: "Failed to load sidecar details.",
+    managementAuthLabels: { unknown: "Unknown", valid: "Valid", invalid_management_auth: "Invalid management auth" },
     managementPasswordCreateDescription: "Stored by the backend only; the value is never rendered back to the browser.",
     managementPasswordCreatePlaceholder: "Management password",
     managementPasswordEditDescription: "Leave blank to keep the existing backend-stored password.",
     managementPasswordEditPlaceholder: "Replace password (optional)",
     managementPasswordLabel: "Management password",
+    managementPasswordRequired: "Management password is required for new sidecars.",
+    maskedFields: (fields) => `Masked fields: ${fields}`,
     nameLabel: "Name",
     namePlaceholder: "CLIProxyAPI production",
+    noExtraSnapshotFields: "No extra snapshot fields",
+    nameRequired: "Sidecar name is required.",
     passwordConfigured: "Password configured",
     passwordMissing: "Password missing",
     pollingDescription: "The list refreshes every 30 seconds while this page is visible and stops on unmount.",
     privateNetwork: "Private network",
+    providerDescription: "Read-only provider metadata synced through Prism backend APIs. API keys and provider secrets are masked and never requested.",
+    providerEmptyDescription: "Run a sidecar sync to populate provider inventory.",
+    providerEmptyTitle: "No provider snapshots",
+    providerItemColumn: "Item",
+    providerNameColumn: "Provider",
+    providerObservedColumn: "Observed",
+    providerSnapshotColumn: "Masked snapshot",
+    providerTitle: "Provider inventory",
+    redactedLabel: "redacted",
     requestTimeoutLabel: "Request timeout (seconds)",
     runtimeSectionTitle: "Runtime behavior",
     save: "Save sidecar",
@@ -2236,6 +2396,7 @@ export const enMessages: Messages = {
     securityColumn: "Secret state",
     skipTlsVerifyDescription: "Skip certificate verification for this sidecar's management endpoint.",
     skipTlsVerifyLabel: "Skip TLS verification",
+    snapshotFieldsMasked: "Snapshot fields masked",
     staleAfter: "Stale after",
     stateSummary: (healthy, stale, degraded) => `Sidecars healthy:${healthy} stale:${stale} degraded:${degraded}`,
     statusColumn: "Status",
@@ -2254,8 +2415,25 @@ export const enMessages: Messages = {
     testFailed: "Failed to test sidecar connection.",
     testSucceeded: (name, statusCode) => `Connection to ${name} succeeded with HTTP ${statusCode}.`,
     tlsSkipped: "TLS verification skipped",
+    unknownStatus: "unknown",
     updateSucceeded: (name) => `Updated sidecar ${name}.`,
+    validationPositiveWholeNumber: (fieldLabel) => `${fieldLabel} must be a positive whole number.`,
+    viewDetails: "View details",
     watchdogDeferred: "Watchdog policy details are managed in the next sidecar task.",
+    watchdogDescription: "Controls when Prism lowers a degraded auth file to the configured fallback priority and how long manual changes pause reconciliation.",
+    watchdogDeprioritizedPriorityLabel: "Deprioritized priority",
+    watchdogEnabledDescription: "When enabled, Prism can deprioritize quota-failed auth files without disabling refresh.",
+    watchdogEnabledLabel: "Enable watchdog",
+    watchdogFailureThresholdLabel: "Failure threshold",
+    watchdogFailureWindowLabel: "Failure window (seconds)",
+    watchdogFallbackCooldownLabel: "Fallback cooldown (seconds)",
+    watchdogManualPauseLabel: "Manual override pause (seconds)",
+    watchdogPrioritySafetyDescription: "Priority 0 is the lowest, last-resort priority, not guaranteed exclusion. CLIProxyAPI may still use it if no higher-priority auth is available.",
+    watchdogPrioritySafetyTitle: "Priority 0 safety note",
+    watchdogSave: "Save watchdog policy",
+    watchdogSaveSucceeded: "Watchdog policy saved.",
+    watchdogTitle: "Watchdog policy",
+    watchdogValidationError: "Thresholds and timeouts must be positive whole numbers; fallback priority must be zero or greater.",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
