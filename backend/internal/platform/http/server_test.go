@@ -23,6 +23,7 @@ import (
 	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
+	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
 	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
@@ -50,6 +51,11 @@ func TestManagementRouteSpecClassification(t *testing.T) {
 		{name: "protected profile activation route", method: http.MethodPost, path: "/api/profiles/42/activate", want: priority.ManagementTierM1, ok: true},
 		{name: "general management route has explicit m2 tier", method: http.MethodGet, path: "/api/settings/auth/proxy-keys", want: priority.ManagementTierM2, ok: true},
 		{name: "connection batch read uses m2 tier", method: http.MethodPost, path: "/api/models/connections/batch", want: priority.ManagementTierM2, ok: true},
+		{name: "sidecar auth files alias uses m3 tier", method: http.MethodGet, path: "/api/sidecars/42/auth-files", want: priority.ManagementTierM3, ok: true},
+		{name: "sidecar auth status mutation uses m2 tier", method: http.MethodPatch, path: "/api/sidecars/42/auth-files/gemini/status", want: priority.ManagementTierM2, ok: true},
+		{name: "sidecar auth fields mutation uses m2 tier", method: http.MethodPatch, path: "/api/sidecars/42/auth-files/gemini/fields", want: priority.ManagementTierM2, ok: true},
+		{name: "sidecar providers alias uses m3 tier", method: http.MethodGet, path: "/api/sidecars/42/providers", want: priority.ManagementTierM3, ok: true},
+		{name: "sidecar sync status uses m3 tier", method: http.MethodGet, path: "/api/sidecars/42/sync-status", want: priority.ManagementTierM3, ok: true},
 		{name: "first shed stats route", method: http.MethodGet, path: "/api/stats/summary", want: priority.ManagementTierM3, ok: true},
 		{name: "trimmed mounted path still matches", method: http.MethodGet, path: "/realtime/ws", want: priority.ManagementTierM3, ok: true},
 		{name: "head maps to get", method: http.MethodHead, path: "/api/profiles/active", want: priority.ManagementTierM1, ok: true},
@@ -408,6 +414,7 @@ func TestManagementRouteSpecsCoverMountedRoutes(t *testing.T) {
 		&managementprofiles.Service{},
 		&realtimeapi.Service{},
 		&managementsettings.Service{},
+		&managementsidecars.Service{},
 		&managementstats.Service{},
 		&managementvendors.Service{},
 	).(*chi.Mux)

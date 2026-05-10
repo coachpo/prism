@@ -30,6 +30,7 @@ var expectedPrismMigrationVersions = []string{
 	"000011_stream_outcome_telemetry",
 	"000012_proxy_target_selection_strategies",
 	"000013_partitioned_log_retention",
+	"000014_cli_proxy_sidecars",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -56,6 +57,7 @@ func TestBaselineFreshApply(t *testing.T) {
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
 	assertPartitionedLogSchemaContract(t, testContext, conn)
+	assertSidecarSchemaContract(t, testContext, conn)
 }
 
 func TestPartitionedLogSchemaContract(t *testing.T) {
@@ -514,6 +516,77 @@ func assertCleanBreakLogRows(t *testing.T, ctx context.Context, conn *pgx.Conn, 
 	}
 	if count != 0 {
 		t.Fatalf("expected clean-break %s migration to discard legacy rows, got %d", tableName, count)
+	}
+}
+
+func assertSidecarSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	tables := []string{"sidecar_instances", "sidecar_auth_snapshots", "sidecar_provider_snapshots", "sidecar_watchdog_policies", "sidecar_watchdog_holds", "sidecar_watchdog_actions"}
+	for _, tableName := range tables {
+		var idDefault string
+		var createdType string
+		var updatedType string
+		if err := conn.QueryRow(ctx, `
+SELECT COALESCE(id.column_default, ''), created_at.data_type, updated_at.data_type
+FROM information_schema.columns id
+JOIN information_schema.columns created_at ON created_at.table_schema = id.table_schema AND created_at.table_name = id.table_name AND created_at.column_name = 'created_at'
+JOIN information_schema.columns updated_at ON updated_at.table_schema = id.table_schema AND updated_at.table_name = id.table_name AND updated_at.column_name = 'updated_at'
+WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id'`, tableName).Scan(&idDefault, &createdType, &updatedType); err != nil {
+			t.Fatalf("load sidecar table %s timestamp/id contract: %v", tableName, err)
+		}
+		if !strings.Contains(idDefault, "nextval") || createdType != "timestamp with time zone" || updatedType != "timestamp with time zone" {
+			t.Fatalf("unexpected sidecar table %s id/timestamp contract: id_default=%q created=%q updated=%q", tableName, idDefault, createdType, updatedType)
+		}
+	}
+	assertColumnDataType(t, ctx, conn, "sidecar_instances", "deleted_at", "timestamp with time zone")
+	for tableName, columnNames := range map[string][]string{
+		"sidecar_auth_snapshots":     {"recent_requests_json", "model_states_json", "snapshot_json"},
+		"sidecar_provider_snapshots": {"snapshot_json"},
+	} {
+		for _, columnName := range columnNames {
+			assertColumnDataType(t, ctx, conn, tableName, columnName, "jsonb")
+		}
+	}
+	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_name", "lower(name)", "deleted_at IS NULL")
+	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_base_url_canonical", "base_url_canonical", "deleted_at IS NULL")
+	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_holds_active_auth", "status = ANY", "active", "paused")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_instances_management_auth_state", "invalid_management_auth")
+}
+
+func assertColumnDataType(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string) {
+	t.Helper()
+	var got string
+	if err := conn.QueryRow(ctx, `SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`, tableName, columnName).Scan(&got); err != nil {
+		t.Fatalf("load %s.%s column type: %v", tableName, columnName, err)
+	}
+	if got != dataType {
+		t.Fatalf("expected %s.%s type %q, got %q", tableName, columnName, dataType, got)
+	}
+}
+
+func assertIndexDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.Conn, indexName string, fragments ...string) {
+	t.Helper()
+	var definition string
+	if err := conn.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, indexName).Scan(&definition); err != nil {
+		t.Fatalf("load index definition %s: %v", indexName, err)
+	}
+	for _, fragment := range fragments {
+		if !strings.Contains(definition, fragment) {
+			t.Fatalf("expected index %s definition %q to contain %q", indexName, definition, fragment)
+		}
+	}
+}
+
+func assertConstraintDefinitionContains(t *testing.T, ctx context.Context, conn *pgx.Conn, constraintName string, fragments ...string) {
+	t.Helper()
+	var definition string
+	if err := conn.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, constraintName).Scan(&definition); err != nil {
+		t.Fatalf("load constraint definition %s: %v", constraintName, err)
+	}
+	for _, fragment := range fragments {
+		if !strings.Contains(definition, fragment) {
+			t.Fatalf("expected constraint %s definition %q to contain %q", constraintName, definition, fragment)
+		}
 	}
 }
 
