@@ -11,6 +11,7 @@ Developers and power users working with multiple LLM API families face:
 - No unified endpoint for switching between API families
 - No automatic failover when an API family is down or rate-limited
 - Manual configuration changes when rotating keys or endpoints
+- Limited visibility into external CLIProxyAPI auth/provider inventories when those sidecars are part of the local toolchain
 
 ## 3. Target User
 
@@ -117,6 +118,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated model-detail routes (`/models/:id` and `/models/:id/proxy`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/request-logs`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
+- Dedicated `/sidecars` route for global CLIProxyAPI sidecar registration, sync, inventory, watchdog policy, and action history
 - Dashboard analytics lives under `/dashboard?tab=analytics` and replaces the old standalone statistics route
 - Global profile selector in the app shell controls the selected profile (management scope).
 - Active profile indicator is shown globally; runtime activation is an explicit action.
@@ -125,8 +127,8 @@ Single operator (developer/power user) running the application locally or on a l
 - Settings is split between Profile-scoped sections (backup, billing/currency, timezone, audit/privacy, retention/deletion, and config rules) and a Global tab for instance auth plus shared vendor management.
 
 ### 4.8 Configuration Persistence
-- Configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
-- No config files to manage — everything through the UI/API
+- Runtime and management configuration is stored in PostgreSQL with Go-backend-managed schema migrations applied at startup
+- Startup/bootstrap process settings are owned by the plaintext `config.json` bootstrap file and managed through `/settings#startup`
 - The default profile exists from the first startup and remains editable after initialization
 - Config export/import uses the Go-era split-bundle contract: profile bundles are `version: 1` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
 - Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable `vendor_key`, and `api_family`

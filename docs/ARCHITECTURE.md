@@ -15,7 +15,7 @@
                     │  │ (profiles, models,        │          │
                     │  │  endpoints, connections,  │          │
                     │  │  settings, request_logs,  │          │
-                    │  │  audit_logs)              │          │
+                    │  │  audit_logs, sidecars)    │          │
                     │  └───────────────────────────┘          │
                      │             Port 18000*                 │
                     └──────────────────────────────────────────┘
@@ -32,7 +32,7 @@ backend/
 ├── cmd/prism-backend/          # Go process entrypoint
 ├── internal/
 │   ├── httpapi/
-│   │   ├── management/         # /api/* management handlers
+│   │   ├── management/         # /api/* management handlers, including sidecars
 │   │   ├── runtime/            # /v1/* and /v1beta/* proxy handlers
 │   │   ├── realtime/           # WebSocket room management and publishing
 │   │   └── openapi/            # checked-in OpenAPI loader and docs handlers
@@ -90,6 +90,7 @@ frontend/
 │       ├── ProxyModelDetailPage.tsx # Proxy-model detail shell and target metadata editing
 │       ├── RequestLogsPage.tsx     # Request-log investigation with lazy audit lookup
 │       ├── ProxyApiKeysPage.tsx
+│       ├── SidecarsPage.tsx        # Global CLIProxyAPI sidecar control plane
 │       ├── SettingsPage.tsx        # Profile-scoped settings shell + global auth/vendor management
 │       ├── PricingTemplatesPage.tsx
 │       └── LoadbalanceStrategiesPage.tsx
@@ -541,7 +542,26 @@ The audit detail view is a right-side sheet with tabs for:
 - No breaking changes to existing behavior when auditing is enabled
 - Upstream servers that don't support `Accept-Encoding: identity` will still work (proxy handles both compressed and uncompressed responses)
 
-**Testing:** Covered by DEF-067 regression tests in `tests/smoke_defect_regressions/test_conditional_decompression.py` and `tests/smoke_defect_regressions/test_headers.py`.
+**Testing:** Keep this behavior covered by current Go runtime/header regression tests under `backend/internal/httpapi/runtime/` or `backend/tests/runtime/`; the old Python smoke-defect regression tree is no longer part of this monorepo.
+
+## 8A. CLIProxyAPI Sidecars
+
+Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata, normalized auth/provider snapshots, watchdog policies, holds, and redacted action history. CLIProxyAPI remains the live authority for auth files and provider inventories.
+
+```text
+Frontend /sidecars
+  -> api.sidecars.* typed client
+  -> Backend /api/sidecars/* global management routes
+  -> Sidecar service validates network policy and management auth
+  -> CLIProxyAPI /v0/management/{auth-files,provider endpoints}
+  -> Prism persists snapshots and action/watchdog state in sidecar_* tables
+  -> Low-priority scheduler runs periodic sync and watchdog reconciliation
+```
+
+Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, and snapshot redaction happen inside `backend/internal/httpapi/management/sidecars/`.
+
+The scheduler registers two bounded low-priority workers: `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile`. Both use queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity.
+
 ## 9. Global Log Retention
 
 ### 9.1 Concept

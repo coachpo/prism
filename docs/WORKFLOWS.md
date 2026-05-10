@@ -2,17 +2,18 @@
 
 This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the checked-in Go-served contract in `docs/openapi.json`.
 
-Validated again against current repo surfaces on 2026-05-08:
-- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.3.20`, which is the current backend/frontend version surface.
+Validated again against current repo surfaces on 2026-05-10:
+- `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.3.21`, which is the current backend/frontend version surface.
 - `docs/openapi.json` is the management and health OpenAPI artifact served by the Go backend at `/openapi.json`.
-- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, and `/proxy-api-keys`; analytics lives under `/dashboard?tab=analytics`.
+- The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/sidecars`; analytics lives under `/dashboard?tab=analytics`.
 
 ## Evidence Sources
 
 - Frontend route surface: `frontend/src/App.tsx`
 - Shell navigation and route scoping: `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`
 - Auth bootstrap and session flow: `frontend/src/context/AuthContext.tsx`
-- Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`
+- Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
+- Sidecar route and API surface: `frontend/src/pages/sidecars/`, `frontend/src/lib/api/sidecars.ts`, `backend/internal/httpapi/management/sidecars/`
 - Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
 - Checked-in backend contract: `docs/openapi.json` (served at `/openapi.json` by the Go backend)
 - Request-log details: `docs/REQUESTS_PAGE.md`
@@ -27,9 +28,9 @@ Validated again against current repo surfaces on 2026-05-08:
 ## Shared Scope Rules
 
 - Public auth routes are `/login`, `/forgot-password`, and `/reset-password`.
-- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
+- Protected shell routes are `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, and `/request-logs`; analytics is a dashboard tab at `/dashboard?tab=analytics`.
 - `selectedProfile` controls profile-scoped management requests through `X-Profile-Id`.
-- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, and `/api/realtime/ws`.
+- Global management routes omit `X-Profile-Id` and include `/api/auth/*`, `/api/profiles/*`, `/api/vendors/*`, `/api/settings/auth*`, `/api/config/vendors/*`, `/api/sidecars/*`, and `/api/realtime/ws`.
 - `POST /api/config/profile/import/preview` is profile-scoped and requires `X-Profile-Id`.
 - Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.
 
@@ -173,6 +174,40 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `GET /api/pricing-templates/{template_id}`
 - `PUT /api/pricing-templates/{template_id}`
 - `DELETE /api/pricing-templates/{template_id}`
+
+## 5A. CLIProxyAPI Sidecars
+
+**User entrypoints**
+
+- `/sidecars`
+
+**Frontend flow**
+
+1. The sidecars page is global instance control-plane UI, not selected-profile configuration.
+2. Operators register CLIProxyAPI sidecar base URLs, management passwords, sync intervals, request timeout, and network policy flags.
+3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, tune watchdog policy, and review redacted action history.
+4. Auth-file status and field mutations flow through Prism backend routes; the browser never calls CLIProxyAPI directly.
+5. Sidecar sync and watchdog background work run as low-priority bounded scheduler jobs.
+
+**Backend touchpoints**
+
+- `GET /api/sidecars`
+- `POST /api/sidecars`
+- `GET /api/sidecars/{sidecar_id}`
+- `PATCH /api/sidecars/{sidecar_id}`
+- `DELETE /api/sidecars/{sidecar_id}`
+- `POST /api/sidecars/{sidecar_id}/test-connection`
+- `POST /api/sidecars/{sidecar_id}/sync`
+- `GET /api/sidecars/{sidecar_id}/auth-files`
+- `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status`
+- `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields`
+- `GET /api/sidecars/{sidecar_id}/auth-snapshots`
+- `GET /api/sidecars/{sidecar_id}/provider-snapshots`
+- `GET /api/sidecars/{sidecar_id}/providers`
+- `GET /api/sidecars/{sidecar_id}/sync-status`
+- `GET /api/sidecars/{sidecar_id}/watchdog-policy`
+- `PUT /api/sidecars/{sidecar_id}/watchdog-policy`
+- `GET /api/sidecars/{sidecar_id}/actions`
 
 ## 6. Request Investigation
 
@@ -320,4 +355,5 @@ Operational triage by symptom:
 
 - Product scope: `docs/PRD.md`
 - API contracts: `docs/API_SPEC.md`
+- Sidecar implementation boundary: `backend/internal/httpapi/management/sidecars/AGENTS.md`, `frontend/src/pages/sidecars/AGENTS.md`
 - Request investigation details: `docs/REQUESTS_PAGE.md`
