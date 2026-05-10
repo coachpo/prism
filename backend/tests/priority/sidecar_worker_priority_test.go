@@ -160,6 +160,9 @@ func (*sidecarObservingStore) UpdateSidecarSyncMetadata(context.Context, managem
 func (*sidecarObservingStore) SaveAuthSnapshot(context.Context, managementsidecars.SidecarAuthSnapshotInput) (managementsidecars.SidecarAuthSnapshot, error) {
 	return managementsidecars.SidecarAuthSnapshot{}, errSidecarPriorityUnexpectedStoreCall
 }
+func (*sidecarObservingStore) ReplaceAuthSnapshots(context.Context, int, []managementsidecars.SidecarAuthSnapshotInput) ([]managementsidecars.SidecarAuthSnapshot, error) {
+	return nil, errSidecarPriorityUnexpectedStoreCall
+}
 func (*sidecarObservingStore) GetAuthSnapshot(context.Context, int, string) (managementsidecars.SidecarAuthSnapshot, bool, error) {
 	return managementsidecars.SidecarAuthSnapshot{}, false, errSidecarPriorityUnexpectedStoreCall
 }

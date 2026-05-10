@@ -83,6 +83,55 @@ func (s *memorySidecarStore) SaveAuthSnapshot(_ context.Context, input SidecarAu
 	return cloneAuthSnapshot(snapshot), nil
 }
 
+func (s *memorySidecarStore) ReplaceAuthSnapshots(_ context.Context, sidecarID int, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	normalized, err := validateAuthSnapshotReplacementInputs(sidecarID, inputs)
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make(map[string]SidecarAuthSnapshot, len(normalized))
+	records := make([]SidecarAuthSnapshot, 0, len(normalized))
+	now := s.now().UTC()
+	for _, input := range normalized {
+		observedAt := input.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = now
+		}
+		snapshot := SidecarAuthSnapshot{
+			ID:                 s.nextSnapshotID,
+			SidecarID:          sidecarID,
+			AuthID:             input.AuthID,
+			AuthIndex:          cloneStringPtr(input.AuthIndex),
+			Name:               input.Name,
+			Provider:           cloneStringPtr(input.Provider),
+			Label:              cloneStringPtr(input.Label),
+			Status:             cloneStringPtr(input.Status),
+			StatusMessage:      cloneStringPtr(input.StatusMessage),
+			Disabled:           cloneBoolPtr(input.Disabled),
+			Unavailable:        cloneBoolPtr(input.Unavailable),
+			Priority:           cloneIntPtr(input.Priority),
+			QuotaExceeded:      cloneBoolPtr(input.QuotaExceeded),
+			QuotaReason:        cloneStringPtr(input.QuotaReason),
+			QuotaNextRecoverAt: cloneTimePtr(input.QuotaNextRecoverAt),
+			NextRetryAfter:     cloneTimePtr(input.NextRetryAfter),
+			SuccessCount:       cloneIntPtr(input.SuccessCount),
+			FailedCount:        cloneIntPtr(input.FailedCount),
+			RecentRequestsJSON: memoryJSON(input.RecentRequestsJSON, "[]"),
+			ModelStatesJSON:    memoryJSON(input.ModelStatesJSON, "{}"),
+			SnapshotJSON:       memoryJSON(input.SnapshotJSON, "{}"),
+			ObservedAt:         observedAt.UTC(),
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		s.nextSnapshotID++
+		snapshots[snapshot.AuthID] = snapshot
+		records = append(records, cloneAuthSnapshot(snapshot))
+	}
+	s.authSnapshots[sidecarID] = snapshots
+	return records, nil
+}
+
 func (s *memorySidecarStore) ListAuthSnapshots(_ context.Context, sidecarID int) ([]SidecarAuthSnapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

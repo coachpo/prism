@@ -279,6 +279,221 @@ func TestSidecarSnapshotJSONPersistence(t *testing.T) {
 	}
 }
 
+func TestReplaceAuthSnapshotsGenerationSemantics(t *testing.T) {
+	for _, testCase := range authSnapshotReplacementStoreCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.setup(t, "auth_replace_generation_"+testCase.name)
+			sidecar := createTestSidecarInReplacementStore(t, ctx, store, "auth_replace_generation_"+testCase.name)
+			if _, err := store.SaveAuthSnapshot(ctx, testAuthSnapshotInput(sidecar.ID, "auth-stale", "stale.json", 0)); err != nil {
+				t.Fatalf("seed stale auth snapshot: %v", err)
+			}
+			if _, err := store.SaveAuthSnapshot(ctx, testAuthSnapshotInput(sidecar.ID, "auth-keep", "keep.json", 0)); err != nil {
+				t.Fatalf("seed kept auth snapshot: %v", err)
+			}
+
+			replaced, err := store.ReplaceAuthSnapshots(ctx, sidecar.ID, []SidecarAuthSnapshotInput{
+				testAuthSnapshotInput(sidecar.ID, "auth-keep", "keep.json", 1),
+				testAuthSnapshotInput(sidecar.ID, "auth-new", "new.json", 1),
+			})
+			if err != nil {
+				t.Fatalf("replace auth snapshots: %v", err)
+			}
+			if len(replaced) != 2 {
+				t.Fatalf("expected two replacement records, got %+v", replaced)
+			}
+			listed, err := store.ListAuthSnapshots(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("list auth snapshots after replacement: %v", err)
+			}
+			byAuthID := requireAuthSnapshotSet(t, listed, "auth-keep", "auth-new")
+			requireJSONEqual(t, byAuthID["auth-keep"].SnapshotJSON, `{"generation":1}`)
+
+			if _, err := store.ReplaceAuthSnapshots(ctx, sidecar.ID, []SidecarAuthSnapshotInput{
+				testAuthSnapshotInput(sidecar.ID, "auth-keep", "keep.json", 2),
+			}); err != nil {
+				t.Fatalf("repeat auth snapshot replacement: %v", err)
+			}
+			listed, err = store.ListAuthSnapshots(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("list auth snapshots after repeated replacement: %v", err)
+			}
+			byAuthID = requireAuthSnapshotSet(t, listed, "auth-keep")
+			requireJSONEqual(t, byAuthID["auth-keep"].SnapshotJSON, `{"generation":2}`)
+		})
+	}
+}
+
+func TestReplaceAuthSnapshotsEmptyGenerationClearsRows(t *testing.T) {
+	for _, testCase := range authSnapshotReplacementStoreCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.setup(t, "auth_replace_empty_"+testCase.name)
+			sidecar := createTestSidecarInReplacementStore(t, ctx, store, "auth_replace_empty_"+testCase.name)
+			if _, err := store.SaveAuthSnapshot(ctx, testAuthSnapshotInput(sidecar.ID, "auth-a", "a.json", 0)); err != nil {
+				t.Fatalf("seed first auth snapshot: %v", err)
+			}
+			if _, err := store.SaveAuthSnapshot(ctx, testAuthSnapshotInput(sidecar.ID, "auth-b", "b.json", 0)); err != nil {
+				t.Fatalf("seed second auth snapshot: %v", err)
+			}
+
+			replaced, err := store.ReplaceAuthSnapshots(ctx, sidecar.ID, nil)
+			if err != nil {
+				t.Fatalf("replace with empty auth generation: %v", err)
+			}
+			if len(replaced) != 0 {
+				t.Fatalf("expected empty replacement result, got %+v", replaced)
+			}
+			listed, err := store.ListAuthSnapshots(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("list auth snapshots after empty replacement: %v", err)
+			}
+			if len(listed) != 0 {
+				t.Fatalf("expected empty generation to clear rows, got %+v", listed)
+			}
+		})
+	}
+}
+
+func TestReplaceAuthSnapshotsValidationPreservesPreviousGeneration(t *testing.T) {
+	for _, testCase := range authSnapshotReplacementStoreCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.setup(t, "auth_replace_validate_"+testCase.name)
+			sidecar := createTestSidecarInReplacementStore(t, ctx, store, "auth_replace_validate_"+testCase.name)
+			if _, err := store.SaveAuthSnapshot(ctx, testAuthSnapshotInput(sidecar.ID, "auth-old", "old.json", 0)); err != nil {
+				t.Fatalf("seed previous auth snapshot: %v", err)
+			}
+
+			_, err := store.ReplaceAuthSnapshots(ctx, sidecar.ID, []SidecarAuthSnapshotInput{
+				testAuthSnapshotInput(sidecar.ID, "auth-new", "new.json", 1),
+				{SidecarID: sidecar.ID, AuthID: "auth-invalid", Name: "invalid.json", SnapshotJSON: json.RawMessage(`{"api_key":"raw-secret-value"}`)},
+			})
+			if !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid replacement input error, got %v", err)
+			}
+			listed, err := store.ListAuthSnapshots(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("list auth snapshots after invalid replacement: %v", err)
+			}
+			byAuthID := requireAuthSnapshotSet(t, listed, "auth-old")
+			requireJSONEqual(t, byAuthID["auth-old"].SnapshotJSON, `{"generation":0}`)
+		})
+	}
+}
+
+func TestReplaceAuthSnapshotsPostgresRollbackPreservesPreviousGeneration(t *testing.T) {
+	ctx, store, pool := sidecarStoreForTest(t, "auth_replace_rollback")
+	sidecar := createTestSidecar(t, ctx, store, "auth_replace_rollback")
+	if _, err := store.ReplaceAuthSnapshots(ctx, sidecar.ID, []SidecarAuthSnapshotInput{testAuthSnapshotInput(sidecar.ID, "auth-old", "old.json", 0)}); err != nil {
+		t.Fatalf("seed previous auth generation: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE OR REPLACE FUNCTION reject_sidecar_auth_snapshot_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+	IF NEW.name = 'reject-auth.json' THEN
+		RAISE EXCEPTION 'forced auth replacement failure';
+	END IF;
+	RETURN NEW;
+END;
+$$`); err != nil {
+		t.Fatalf("create auth replacement rejection function: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE TRIGGER reject_sidecar_auth_snapshot_insert
+BEFORE INSERT ON sidecar_auth_snapshots
+FOR EACH ROW EXECUTE FUNCTION reject_sidecar_auth_snapshot_insert()`); err != nil {
+		t.Fatalf("create auth replacement rejection trigger: %v", err)
+	}
+
+	_, err := store.ReplaceAuthSnapshots(ctx, sidecar.ID, []SidecarAuthSnapshotInput{testAuthSnapshotInput(sidecar.ID, "auth-new", "reject-auth.json", 1)})
+	if err == nil {
+		t.Fatal("expected replacement insert failure")
+	}
+	listed, err := store.ListAuthSnapshots(ctx, sidecar.ID)
+	if err != nil {
+		t.Fatalf("list auth snapshots after failed replacement: %v", err)
+	}
+	byAuthID := requireAuthSnapshotSet(t, listed, "auth-old")
+	requireJSONEqual(t, byAuthID["auth-old"].SnapshotJSON, `{"generation":0}`)
+}
+
+type authSnapshotReplacementTestStore interface {
+	CreateSidecarInstance(context.Context, SidecarInstanceInput) (SidecarInstance, error)
+	SaveAuthSnapshot(context.Context, SidecarAuthSnapshotInput) (SidecarAuthSnapshot, error)
+	ReplaceAuthSnapshots(context.Context, int, []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error)
+	ListAuthSnapshots(context.Context, int) ([]SidecarAuthSnapshot, error)
+}
+
+type authSnapshotReplacementStoreCase struct {
+	name  string
+	setup func(*testing.T, string) (context.Context, authSnapshotReplacementTestStore)
+}
+
+func authSnapshotReplacementStoreCases() []authSnapshotReplacementStoreCase {
+	return []authSnapshotReplacementStoreCase{
+		{
+			name: "postgres",
+			setup: func(t *testing.T, name string) (context.Context, authSnapshotReplacementTestStore) {
+				ctx, store, _ := sidecarStoreForTest(t, name)
+				return ctx, store
+			},
+		},
+		{
+			name: "memory",
+			setup: func(t *testing.T, _ string) (context.Context, authSnapshotReplacementTestStore) {
+				t.Helper()
+				return context.Background(), newMemorySidecarStore(func() time.Time {
+					return time.Date(2026, time.May, 10, 10, 0, 0, 0, time.UTC)
+				}, sidecarStoreSecretKey)
+			},
+		},
+	}
+}
+
+func createTestSidecarInReplacementStore(t *testing.T, ctx context.Context, store authSnapshotReplacementTestStore, suffix string) SidecarInstance {
+	t.Helper()
+	host := strings.ReplaceAll(suffix, "_", "-") + ".example.test"
+	created, err := store.CreateSidecarInstance(ctx, SidecarInstanceInput{
+		Name:               "Sidecar " + suffix,
+		BaseURL:            "https://" + host + "/",
+		BaseURLCanonical:   "https://" + host,
+		ManagementPassword: "password-" + suffix,
+	})
+	if err != nil {
+		t.Fatalf("create test sidecar %s: %v", suffix, err)
+	}
+	return created
+}
+
+func testAuthSnapshotInput(sidecarID int, authID string, name string, generation int) SidecarAuthSnapshotInput {
+	return SidecarAuthSnapshotInput{
+		SidecarID:    sidecarID,
+		AuthID:       authID,
+		Name:         name,
+		Status:       stringPtr(fmt.Sprintf("generation-%d", generation)),
+		SnapshotJSON: json.RawMessage(fmt.Sprintf(`{"generation":%d}`, generation)),
+	}
+}
+
+func requireAuthSnapshotSet(t *testing.T, snapshots []SidecarAuthSnapshot, wantAuthIDs ...string) map[string]SidecarAuthSnapshot {
+	t.Helper()
+	if len(snapshots) != len(wantAuthIDs) {
+		t.Fatalf("auth snapshot count = %d, want %d: %+v", len(snapshots), len(wantAuthIDs), snapshots)
+	}
+	byAuthID := make(map[string]SidecarAuthSnapshot, len(snapshots))
+	for _, snapshot := range snapshots {
+		if _, exists := byAuthID[snapshot.AuthID]; exists {
+			t.Fatalf("duplicate auth snapshot for auth_id %s in %+v", snapshot.AuthID, snapshots)
+		}
+		byAuthID[snapshot.AuthID] = snapshot
+	}
+	for _, authID := range wantAuthIDs {
+		if _, exists := byAuthID[authID]; !exists {
+			t.Fatalf("missing auth snapshot %s in %+v", authID, snapshots)
+		}
+	}
+	return byAuthID
+}
+
 func TestSidecarWatchdogPersistenceContracts(t *testing.T) {
 	ctx, store, _ := sidecarStoreForTest(t, "watchdog_persistence")
 	sidecar := createTestSidecar(t, ctx, store, "watchdog")

@@ -29,6 +29,8 @@ type StoreOptions struct {
 	SecretEncryptionKey string
 }
 
+const sidecarAuthSnapshotReplaceChunkSize = 250
+
 func NewStore(options StoreOptions) *Store {
 	now := options.Now
 	if now == nil {
@@ -246,6 +248,101 @@ RETURNING `+sidecarAuthSnapshotSelectColumns,
 		return SidecarAuthSnapshot{}, mapStoreError(err)
 	}
 	return record, nil
+}
+
+func (s *Store) ReplaceAuthSnapshots(ctx context.Context, sidecarID int, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	normalized, err := validateAuthSnapshotReplacementInputs(sidecarID, inputs)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin auth snapshot replacement: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DELETE FROM sidecar_auth_snapshots WHERE sidecar_id = $1`, sidecarID); err != nil {
+		return nil, fmt.Errorf("delete sidecar auth snapshots: %w", err)
+	}
+	records := make([]SidecarAuthSnapshot, 0, len(normalized))
+	for start := 0; start < len(normalized); start += sidecarAuthSnapshotReplaceChunkSize {
+		end := min(start+sidecarAuthSnapshotReplaceChunkSize, len(normalized))
+		chunkRecords, err := s.insertAuthSnapshotReplacementChunk(ctx, tx, normalized[start:end])
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, chunkRecords...)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit auth snapshot replacement: %w", err)
+	}
+	return records, nil
+}
+
+func (s *Store) insertAuthSnapshotReplacementChunk(ctx context.Context, tx pgx.Tx, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	var builder strings.Builder
+	builder.WriteString(`INSERT INTO sidecar_auth_snapshots (
+sidecar_id, auth_id, auth_index, name, provider, label, status, status_message,
+disabled, unavailable, priority, quota_exceeded, quota_reason, quota_next_recover_at,
+next_retry_after, success_count, failed_count, recent_requests_json, model_states_json,
+snapshot_json, observed_at) VALUES `)
+	args := make([]any, 0, len(inputs)*21)
+	for i, input := range inputs {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+		appendAuthSnapshotInsertPlaceholders(&builder, len(args)+1)
+		observedAt := input.ObservedAt
+		if observedAt.IsZero() {
+			observedAt = s.currentTime()
+		}
+		args = append(args,
+			input.SidecarID, input.AuthID, nullStringArg(input.AuthIndex), input.Name,
+			nullStringArg(input.Provider), nullStringArg(input.Label), nullStringArg(input.Status), nullStringArg(input.StatusMessage),
+			nullBoolArg(input.Disabled), nullBoolArg(input.Unavailable), nullIntArg(input.Priority), nullBoolArg(input.QuotaExceeded),
+			nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt), nullTimeArg(input.NextRetryAfter),
+			nullIntArg(input.SuccessCount), nullIntArg(input.FailedCount), jsonbString(input.RecentRequestsJSON, "[]"),
+			jsonbString(input.ModelStatesJSON, "{}"), jsonbString(input.SnapshotJSON, "{}"), observedAt,
+		)
+	}
+	builder.WriteString(` RETURNING `)
+	builder.WriteString(sidecarAuthSnapshotSelectColumns)
+	rows, err := tx.Query(ctx, builder.String(), args...)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	defer rows.Close()
+	records := make([]SidecarAuthSnapshot, 0, len(inputs))
+	for rows.Next() {
+		record, scanErr := scanSidecarAuthSnapshot(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate inserted sidecar auth snapshots: %w", err)
+	}
+	return records, nil
+}
+
+func appendAuthSnapshotInsertPlaceholders(builder *strings.Builder, first int) {
+	builder.WriteByte('(')
+	for index := range 21 {
+		if index > 0 {
+			builder.WriteString(", ")
+		}
+		_, _ = fmt.Fprintf(builder, "$%d", first+index)
+		if index == 17 || index == 18 || index == 19 {
+			builder.WriteString("::jsonb")
+		}
+	}
+	builder.WriteByte(')')
 }
 
 func (s *Store) GetAuthSnapshot(ctx context.Context, sidecarID int, authID string) (SidecarAuthSnapshot, bool, error) {
@@ -939,6 +1036,48 @@ func validateSidecarSnapshotJSON(raw json.RawMessage) error {
 	return found
 }
 
+func validateAuthSnapshotReplacementInputs(sidecarID int, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshotInput, error) {
+	if sidecarID <= 0 {
+		return nil, invalidInputError("sidecar_id is required")
+	}
+	normalized := make([]SidecarAuthSnapshotInput, len(inputs))
+	seenAuthIDs := make(map[string]struct{}, len(inputs))
+	for i, input := range inputs {
+		input.AuthID = strings.TrimSpace(input.AuthID)
+		input.Name = strings.TrimSpace(input.Name)
+		if input.SidecarID != sidecarID || input.AuthID == "" || input.Name == "" {
+			return nil, invalidInputError("auth replacement input does not match sidecar batch")
+		}
+		if _, exists := seenAuthIDs[input.AuthID]; exists {
+			return nil, invalidInputError("auth replacement input has duplicate auth_id")
+		}
+		seenAuthIDs[input.AuthID] = struct{}{}
+		if err := validateSidecarSnapshotJSON(input.SnapshotJSON); err != nil {
+			return nil, err
+		}
+		if err := validateJSONBInput(input.RecentRequestsJSON, "recent_requests_json"); err != nil {
+			return nil, err
+		}
+		if err := validateJSONBInput(input.ModelStatesJSON, "model_states_json"); err != nil {
+			return nil, err
+		}
+		normalized[i] = input
+	}
+	return normalized, nil
+}
+
+func validateJSONBInput(raw json.RawMessage, field string) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	var payload any
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
+		return invalidInputError("sidecar snapshot " + field + " must be valid JSON")
+	}
+	return nil
+}
+
 func walkSidecarSnapshotJSON(value any, visit func(string, any)) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -962,6 +1101,7 @@ func isSensitiveSnapshotKey(key string) bool {
 	return normalized == "apikey" ||
 		normalized == "managementpassword" ||
 		normalized == "authorization" ||
+		strings.Contains(normalized, "cookie") ||
 		normalized == "xapikey" ||
 		normalized == "xapitoken" ||
 		normalized == "token" ||

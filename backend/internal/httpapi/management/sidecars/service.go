@@ -23,6 +23,7 @@ type persistence interface {
 	SoftDeleteSidecarInstance(context.Context, int) (bool, error)
 	UpdateSidecarSyncMetadata(context.Context, SidecarSyncMetadataInput) (SidecarInstance, error)
 	SaveAuthSnapshot(context.Context, SidecarAuthSnapshotInput) (SidecarAuthSnapshot, error)
+	ReplaceAuthSnapshots(context.Context, int, []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error)
 	GetAuthSnapshot(context.Context, int, string) (SidecarAuthSnapshot, bool, error)
 	ListAuthSnapshots(context.Context, int) ([]SidecarAuthSnapshot, error)
 	SaveProviderSnapshot(context.Context, SidecarProviderSnapshotInput) (SidecarProviderSnapshot, error)
