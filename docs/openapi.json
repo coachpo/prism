@@ -5387,6 +5387,630 @@
           }
         }
       }
+    },
+    "/api/sidecars": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecars",
+        "operationId": "list_sidecars_api_sidecars_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Create Sidecar",
+        "operationId": "create_sidecar_api_sidecars_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarInstance"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarInstance"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar",
+        "operationId": "get_sidecar_api_sidecars__sidecar_id__get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarInstance"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar",
+        "operationId": "update_sidecar_api_sidecars__sidecar_id__patch",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarInstance"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarInstance"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Delete Sidecar",
+        "operationId": "delete_sidecar_api_sidecars__sidecar_id__delete",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/test-connection": {
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Test Sidecar Connection",
+        "operationId": "test_sidecar_connection_api_sidecars__sidecar_id__test_connection_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarTestConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/sync": {
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Sync Sidecar",
+        "operationId": "sync_sidecar_api_sidecars__sidecar_id__sync_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarSyncResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-snapshots": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Auth Snapshots",
+        "operationId": "list_sidecar_auth_snapshots_api_sidecars__sidecar_id__auth_snapshots_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar Auth Snapshot",
+        "operationId": "get_sidecar_auth_snapshot_api_sidecars__sidecar_id__auth_snapshots__snapshot_id__get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/provider-snapshots": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Provider Snapshots",
+        "operationId": "list_sidecar_provider_snapshots_api_sidecars__sidecar_id__provider_snapshots_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarProviderSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Auth Files",
+        "operationId": "list_sidecar_auth_files_api_sidecars__sidecar_id__auth_files_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/providers": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Providers",
+        "operationId": "list_sidecar_providers_api_sidecars__sidecar_id__providers_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarProviderSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/sync-status": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar Sync Status",
+        "operationId": "get_sidecar_sync_status_api_sidecars__sidecar_id__sync_status_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarSyncStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/{auth_id}/status": {
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar Auth File Status",
+        "operationId": "update_sidecar_auth_file_status_api_sidecars__sidecar_id__auth_files__auth_id__status_patch",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "auth_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "disabled": {
+                    "type": "boolean"
+                  },
+                  "allow_watchdog": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "disabled"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthMutationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields": {
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar Auth File Fields",
+        "operationId": "update_sidecar_auth_file_fields_api_sidecars__sidecar_id__auth_files__auth_id__fields_patch",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "auth_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "allow_watchdog": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "priority"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthMutationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/watchdog-policy": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar Watchdog Policy",
+        "operationId": "get_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarWatchdogPolicy"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar Watchdog Policy",
+        "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_put",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarWatchdogPolicyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarWatchdogPolicy"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/actions": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Actions",
+        "operationId": "list_sidecar_actions_api_sidecars__sidecar_id__actions_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarActionHistoryListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -15815,6 +16439,621 @@
           }
         },
         "title": "ScopeControlError"
+      },
+      "SidecarCredentialState": {
+        "type": "object",
+        "properties": {
+          "management_password_configured": {
+            "type": "boolean"
+          },
+          "management_password": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "management_password_configured"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarPauseMetadata": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "paused_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarInstance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "base_url_canonical": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "environment_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow_private_network": {
+            "type": "boolean"
+          },
+          "allow_insecure_http": {
+            "type": "boolean"
+          },
+          "skip_tls_verify": {
+            "type": "boolean"
+          },
+          "sync_interval_seconds": {
+            "type": "integer"
+          },
+          "request_timeout_seconds": {
+            "type": "integer"
+          },
+          "credential_state": {
+            "$ref": "#/components/schemas/SidecarCredentialState"
+          },
+          "management_auth_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "valid",
+              "invalid_management_auth"
+            ]
+          },
+          "pause_metadata": {
+            "$ref": "#/components/schemas/SidecarPauseMetadata"
+          },
+          "last_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_successful_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "snapshot_stale_after": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_sync_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "base_url",
+          "base_url_canonical",
+          "enabled",
+          "allow_private_network",
+          "allow_insecure_http",
+          "skip_tls_verify",
+          "sync_interval_seconds",
+          "request_timeout_seconds",
+          "credential_state",
+          "management_auth_state",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarInstance"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "auth_id": {
+            "type": "string"
+          },
+          "auth_index": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "status_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "disabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "unavailable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "priority": {
+            "type": "integer",
+            "nullable": true
+          },
+          "quota_exceeded": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "quota_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "quota_next_recover_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "next_retry_after": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "success_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "failed_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "recent_requests": {},
+          "model_states": {},
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot": {}
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "auth_id",
+          "name",
+          "observed_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthSnapshotListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarAuthSnapshot"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarProviderSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "provider_key": {
+            "type": "string"
+          },
+          "provider_item_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "disabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot": {}
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "provider_key",
+          "provider_item_key",
+          "observed_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarProviderSnapshotListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarProviderSnapshot"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarWatchdogPolicy": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "failure_threshold": {
+            "type": "integer"
+          },
+          "failure_window_seconds": {
+            "type": "integer"
+          },
+          "fallback_cooldown_seconds": {
+            "type": "integer"
+          },
+          "deprioritized_priority": {
+            "type": "integer"
+          },
+          "manual_override_pause_seconds": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "enabled",
+          "failure_threshold",
+          "failure_window_seconds",
+          "fallback_cooldown_seconds",
+          "deprioritized_priority",
+          "manual_override_pause_seconds",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarWatchdogPolicyUpdate": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "failure_threshold": {
+            "type": "integer"
+          },
+          "failure_window_seconds": {
+            "type": "integer"
+          },
+          "fallback_cooldown_seconds": {
+            "type": "integer"
+          },
+          "deprioritized_priority": {
+            "type": "integer"
+          },
+          "manual_override_pause_seconds": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SidecarTestConnectionResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "succeeded"
+            ]
+          },
+          "management_auth_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "valid",
+              "invalid_management_auth"
+            ]
+          },
+          "status_code": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "management_auth_state",
+          "status_code"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarSyncResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "accepted"
+            ]
+          },
+          "placeholder": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "placeholder",
+          "detail"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarActionHistoryItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "auth_snapshot_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "auth_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "auth_index": {
+            "type": "string",
+            "nullable": true
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "hold_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "action_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "previous_priority": {
+            "type": "integer",
+            "nullable": true
+          },
+          "target_priority": {
+            "type": "integer",
+            "nullable": true
+          },
+          "hold_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "action_type",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarActionHistoryListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarActionHistoryItem"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthMutationResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SidecarAuthSnapshot"
+          },
+          "sync_error": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarSyncStatusResponse": {
+        "type": "object",
+        "properties": {
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "sync_interval_seconds": {
+            "type": "integer"
+          },
+          "management_auth_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "valid",
+              "invalid_management_auth"
+            ]
+          },
+          "last_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_successful_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "snapshot_stale_after": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_sync_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "auth_failure_pause_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "due": {
+            "type": "boolean"
+          },
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sidecar_id",
+          "enabled",
+          "sync_interval_seconds",
+          "management_auth_state",
+          "stale",
+          "due",
+          "paused"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {
