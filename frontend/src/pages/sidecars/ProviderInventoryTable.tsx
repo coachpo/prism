@@ -29,30 +29,34 @@ function formatTimestamp(value: string | undefined, locale: string, fallback: st
   return date.toLocaleString(locale);
 }
 
-function maskedSnapshotSummary(snapshot: unknown) {
+function maskedSnapshotSummary(
+  snapshot: unknown,
+  noExtraFieldsLabel: string,
+  fieldsMaskedLabel: string,
+  maskedFields: (fields: string) => string,
+) {
   if (!snapshot || typeof snapshot !== "object") {
-    return "No extra snapshot fields";
+    return noExtraFieldsLabel;
   }
   const keys = Object.keys(snapshot as Record<string, unknown>).filter((key) => !/secret|token|key|password/i.test(key));
   if (keys.length === 0) {
-    return "Snapshot fields masked";
+    return fieldsMaskedLabel;
   }
-  return `Masked fields: ${keys.slice(0, 4).join(", ")}${keys.length > 4 ? "…" : ""}`;
+  return maskedFields(`${keys.slice(0, 4).join(", ")}${keys.length > 4 ? "…" : ""}`);
 }
 
 export function ProviderInventoryTable({ loading, providerSnapshots }: ProviderInventoryTableProps) {
   const { locale, messages } = useLocale();
+  const copy = messages.sidecarsPage;
 
   return (
     <Card data-testid="sidecar-provider-inventory">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <Boxes className="h-4 w-4" />
-          Provider inventory
+          {copy.providerTitle}
         </CardTitle>
-        <CardDescription className="text-xs">
-          Read-only provider metadata synced through Prism backend APIs. API keys and provider secrets are masked and never requested.
-        </CardDescription>
+        <CardDescription className="text-xs">{copy.providerDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -61,17 +65,17 @@ export function ProviderInventoryTable({ loading, providerSnapshots }: ProviderI
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />
           </div>
         ) : providerSnapshots.length === 0 ? (
-          <EmptyState title="No provider snapshots" description="Run a sidecar sync to populate provider inventory." />
+          <EmptyState title={copy.providerEmptyTitle} description={copy.providerEmptyDescription} />
         ) : (
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Provider</TableHead>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Observed</TableHead>
-                  <TableHead>Masked snapshot</TableHead>
+                  <TableHead>{copy.providerNameColumn}</TableHead>
+                  <TableHead>{copy.providerItemColumn}</TableHead>
+                  <TableHead>{copy.statusColumn}</TableHead>
+                  <TableHead>{copy.providerObservedColumn}</TableHead>
+                  <TableHead>{copy.providerSnapshotColumn}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -89,15 +93,15 @@ export function ProviderInventoryTable({ loading, providerSnapshots }: ProviderI
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-2">
-                        <StatusBadge label={provider.status ?? "unknown"} intent={provider.disabled ? "danger" : provider.status ? "success" : "muted"} />
-                        {provider.disabled ? <TypeBadge label="Disabled" intent="warning" preserveLabel /> : null}
+                        <StatusBadge label={provider.status ?? copy.unknownStatus} intent={provider.disabled ? "danger" : provider.status ? "success" : "muted"} />
+                        {provider.disabled ? <TypeBadge label={copy.authDisabledLabel} intent="warning" preserveLabel /> : null}
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {formatTimestamp(provider.observed_at, locale, messages.common.unavailable)}
                     </TableCell>
                     <TableCell className="max-w-64 text-xs text-muted-foreground">
-                      {maskedSnapshotSummary(provider.snapshot)}
+                      {maskedSnapshotSummary(provider.snapshot, copy.noExtraSnapshotFields, copy.snapshotFieldsMasked, copy.maskedFields)}
                     </TableCell>
                   </TableRow>
                 ))}

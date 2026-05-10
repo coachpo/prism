@@ -18,6 +18,9 @@ interface SidecarActionHistoryProps {
   loading: boolean;
 }
 
+type KnownActionStatus = "succeeded" | "success" | "skipped" | "failed" | "error";
+type ActionStatusLabels = Record<KnownActionStatus, string>;
+
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
   if (!value) {
     return fallback;
@@ -27,6 +30,14 @@ function formatTimestamp(value: string | undefined, locale: string, fallback: st
     return fallback;
   }
   return date.toLocaleString(locale);
+}
+
+function isKnownActionStatus(status: string): status is KnownActionStatus {
+  return status === "succeeded" || status === "success" || status === "skipped" || status === "failed" || status === "error";
+}
+
+function formatActionStatus(status: string, labels: ActionStatusLabels) {
+  return isKnownActionStatus(status) ? labels[status] : status;
 }
 
 function statusIntent(status: string): BadgeIntent {
@@ -55,48 +66,47 @@ function actionIntent(actionType: string): BadgeIntent {
   return "info";
 }
 
-function redactSensitiveText(value: string | undefined) {
+function redactSensitiveText(value: string | undefined, redactedLabel: string) {
   if (!value) {
     return "—";
   }
   return value
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-    .replace(/(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)[^\s,;}]+/gi, "$1$2[redacted]");
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer [${redactedLabel}]`)
+    .replace(/(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)[^\s,;}]+/gi, `$1$2[${redactedLabel}]`);
 }
 
-function formatReason(reason: string | undefined) {
+function formatReason(reason: string | undefined, redactedLabel: string) {
   if (!reason) {
     return "—";
   }
   try {
     const parsed = JSON.parse(reason) as { request?: { route?: string; fields?: string[] }; error?: string };
     const route = parsed.request?.route;
-    const fields = parsed.request?.fields?.map(redactSensitiveText).join(", ");
+    const fields = parsed.request?.fields?.map((field) => redactSensitiveText(field, redactedLabel)).join(", ");
     if (route || fields) {
-      return [redactSensitiveText(route), fields].filter(Boolean).join(" · ");
+      return [redactSensitiveText(route, redactedLabel), fields].filter(Boolean).join(" · ");
     }
     if (parsed.error) {
-      return redactSensitiveText(parsed.error);
+      return redactSensitiveText(parsed.error, redactedLabel);
     }
   } catch {
     // Reasons may be plain strings for watchdog decisions.
   }
-  return redactSensitiveText(reason);
+  return redactSensitiveText(reason, redactedLabel);
 }
 
 export function SidecarActionHistory({ actions, loading }: SidecarActionHistoryProps) {
   const { locale, messages } = useLocale();
+  const copy = messages.sidecarsPage;
 
   return (
     <Card data-testid="sidecar-action-history">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <History className="h-4 w-4" />
-          Action history
+          {copy.actionHistoryTitle}
         </CardTitle>
-        <CardDescription className="text-xs">
-          Backend-recorded manual mutations and watchdog actions, including successful, skipped, failed, deprioritize, and restore outcomes.
-        </CardDescription>
+        <CardDescription className="text-xs">{copy.actionHistoryDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -105,18 +115,18 @@ export function SidecarActionHistory({ actions, loading }: SidecarActionHistoryP
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />
           </div>
         ) : actions.length === 0 ? (
-          <EmptyState title="No actions recorded" description="Manual changes and watchdog decisions will appear here." />
+          <EmptyState title={copy.actionHistoryEmptyTitle} description={copy.actionHistoryEmptyDescription} />
         ) : (
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Auth</TableHead>
-                  <TableHead>Priority / hold</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Time</TableHead>
+                  <TableHead>{copy.actionHistoryActionColumn}</TableHead>
+                  <TableHead>{copy.actionHistoryStatusColumn}</TableHead>
+                  <TableHead>{copy.actionHistoryAuthColumn}</TableHead>
+                  <TableHead>{copy.actionHistoryPriorityColumn}</TableHead>
+                  <TableHead>{copy.actionHistoryReasonColumn}</TableHead>
+                  <TableHead>{copy.actionHistoryTimeColumn}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -126,7 +136,7 @@ export function SidecarActionHistory({ actions, loading }: SidecarActionHistoryP
                       <TypeBadge label={action.action_type} intent={actionIntent(action.action_type)} preserveLabel />
                     </TableCell>
                     <TableCell>
-                      <TypeBadge label={action.status} intent={statusIntent(action.status)} preserveLabel />
+                      <TypeBadge label={formatActionStatus(action.status, copy.actionStatusLabels)} intent={statusIntent(action.status)} preserveLabel />
                     </TableCell>
                     <TableCell>
                       <div className="flex min-w-40 flex-col gap-1">
@@ -137,20 +147,20 @@ export function SidecarActionHistory({ actions, loading }: SidecarActionHistoryP
                     <TableCell>
                       <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
                         <div className="flex flex-wrap gap-1">
-                          {action.previous_priority !== undefined ? <ValueBadge label={`from ${action.previous_priority}`} intent="muted" /> : null}
-                          {action.target_priority !== undefined ? <ValueBadge label={`to ${action.target_priority}`} intent="warning" /> : null}
+                          {action.previous_priority !== undefined ? <ValueBadge label={copy.actionHistoryFromPriority(action.previous_priority)} intent="muted" /> : null}
+                          {action.target_priority !== undefined ? <ValueBadge label={copy.actionHistoryToPriority(action.target_priority)} intent="warning" /> : null}
                         </div>
-                        {action.hold_until ? <span>Hold until {formatTimestamp(action.hold_until, locale, messages.common.unavailable)}</span> : null}
+                        {action.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(action.hold_until, locale, messages.common.unavailable))}</span> : null}
                       </div>
                     </TableCell>
                     <TableCell className="max-w-72 whitespace-normal text-xs text-muted-foreground">
-                      {formatReason(action.reason)}
-                      {action.error_message ? <p className="mt-1 text-destructive">{redactSensitiveText(action.error_message)}</p> : null}
+                      {formatReason(action.reason, copy.redactedLabel)}
+                      {action.error_message ? <p className="mt-1 text-destructive">{redactSensitiveText(action.error_message, copy.redactedLabel)}</p> : null}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       <div className="flex flex-col gap-1">
                         <span>{formatTimestamp(action.created_at, locale, messages.common.unavailable)}</span>
-                        {action.completed_at ? <span>Completed {formatTimestamp(action.completed_at, locale, messages.common.unavailable)}</span> : null}
+                        {action.completed_at ? <span>{copy.actionHistoryCompletedAt(formatTimestamp(action.completed_at, locale, messages.common.unavailable))}</span> : null}
                       </div>
                     </TableCell>
                   </TableRow>
