@@ -22,12 +22,13 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **Success-rate badges**: connection health based on recent request data
 - **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, masked secret metadata, and explicit confirmation for dangerous structural changes
 - **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
+- **CLIProxyAPI sidecars**: global sidecar registrations, auth/provider inventory snapshots, watchdog policy, and action history through `/sidecars` and `/api/sidecars/*`
 
 ### Architecture
 
 - **Backend**: Go runtime service for the management API and runtime proxy surface
 - **Frontend**: React 19 with TypeScript, Vite, TailwindCSS, and shadcn/ui
-- **Database**: PostgreSQL with schema migrations managed by the backend runtime, including partitioned log tables and global retention jobs
+- **Database**: PostgreSQL with schema migrations managed by the backend runtime, including partitioned log tables, global retention jobs, and sidecar control-plane tables
 - **Deployment**: GHCR images or local runs via `./start.sh`
 
 ---
@@ -112,7 +113,7 @@ The frontend image defaults to same-origin API calls. In production, put fronten
 - [Smoke Test Plan](docs/SMOKE_TEST_PLAN.md)
 - [Active plans](.sisyphus/plans/)
 
-The checked-in `docs/` tree is reserved for durable reference material and archive notes. Active working plans are kept outside `docs/`.
+The checked-in `docs/` tree is reserved for durable reference material and archive notes. Active working plans are kept outside `docs/`. Sidecar workflow, API, and data-model details live in the active docs rather than only in archived smoke evidence.
 
 ---
 
@@ -154,6 +155,8 @@ pnpm run dev
 pnpm run build
 pnpm run lint
 ```
+
+The frontend build injects `VITE_APP_VERSION` from `frontend/package.json` plus `VITE_GIT_RUN_NUMBER` and `VITE_GIT_REVISION` for the visible app-version label.
 
 ---
 

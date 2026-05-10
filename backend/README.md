@@ -1,6 +1,6 @@
 # Prism Backend
 
-**Go backend runtime for proxy routing, load balancing, telemetry, and management APIs.**
+**Go backend runtime for proxy routing, load balancing, telemetry, sidecar control-plane sync, and management APIs.**
 
 This directory owns Prism's live Go backend service.
 
@@ -9,8 +9,8 @@ This directory owns Prism's live Go backend service.
 ```text
 backend/
 ├── cmd/prism-backend/              # Go process entrypoint
-├── internal/httpapi/               # management, runtime, realtime, and docs handlers
-├── internal/platform/              # config, server assembly, migrations, startup, version
+├── internal/httpapi/               # management, sidecars, runtime, realtime, and docs handlers
+├── internal/platform/              # config, server assembly, migrations, startup, workers, version
 ├── internal/domain/                # audit, loadbalance, and stats domain logic
 ├── internal/{endpoint,profile,vendor}domain/ # shared management-domain helpers
 ├── migrations/                     # SQL migration chain applied by the Go runtime
