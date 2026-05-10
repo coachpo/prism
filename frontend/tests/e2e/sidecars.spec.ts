@@ -216,17 +216,62 @@ function writeSecretProofEvidence(bodyText: string, calls: string[]) {
   writeFileSync(evidencePaths.secretProof, proof);
 }
 
-async function mockSidecarsApi(
-  page: Page,
-  initialSidecars: Sidecar[],
-  options: { detailDelayBySidecarId?: Record<number, number> } = {},
-) {
-  let sidecars = [...initialSidecars];
-  let authSnapshots = [
+type MockSidecarsApiOptions = {
+  authSnapshots?: AuthSnapshot[];
+  authSnapshotsBySidecarId?: Record<number, AuthSnapshot[]>;
+  detailDelayBySidecarId?: Record<number, number>;
+};
+
+function defaultAuthSnapshots(): AuthSnapshot[] {
+  return [
     authSnapshot({}),
     authSnapshot({ id: 12, auth_id: "auth-quota", name: "quota-oauth.json", status: "quota_exceeded", priority: 0, quota_exceeded: true, quota_reason: "daily limit", quota_next_recover_at: future, next_retry_after: future }),
     authSnapshot({ id: 13, auth_id: "auth-disabled", name: "disabled-oauth.json", provider: "claude", disabled: true, unavailable: true, priority: undefined }),
   ];
+}
+
+function authFilterSortSnapshots(): AuthSnapshot[] {
+  const paginatedMatches = Array.from({ length: 101 }, (_, index) => {
+    const ordinal = String(index + 1).padStart(3, "0");
+    return authSnapshot({
+      id: 1000 + index,
+      auth_id: `auth-gamma-${ordinal}`,
+      name: `gamma-page-${ordinal}.json`,
+      label: "gamma-bulk",
+      priority: 10,
+    });
+  });
+
+  return [
+    authSnapshot({ id: 101, auth_id: "auth-zeta-high", name: "zeta-high.json", label: "sort-fixture", priority: 90 }),
+    authSnapshot({ id: 102, auth_id: "auth-alpha-a", name: "alpha-shared.json", label: "tie-fixture", priority: 50 }),
+    authSnapshot({ id: 103, auth_id: "auth-alpha-b", name: "alpha-shared.json", label: "tie-fixture", priority: 50 }),
+    authSnapshot({ id: 104, auth_id: "auth-beta", name: "beta-shared.json", label: "tie-fixture", priority: 50 }),
+    authSnapshot({ id: 105, auth_id: "auth-omega-low", name: "omega-low.json", label: "sort-fixture", priority: 1 }),
+    authSnapshot({ id: 106, auth_id: "auth-alpha-missing-a", name: "alpha-missing.json", provider: "claude", label: "provider-fixture", priority: undefined }),
+    authSnapshot({ id: 107, auth_id: "auth-alpha-missing-b", name: "alpha-missing.json", provider: "openai", label: "missing-priority-fixture", priority: undefined }),
+    authSnapshot({ id: 108, auth_id: "auth-quota-zero", name: "quota-zero.json", provider: "gemini", label: "quota-fixture", status: "quota_exceeded", priority: 0, quota_exceeded: true, quota_reason: "daily limit" }),
+    ...paginatedMatches,
+  ];
+}
+
+async function expectAuthOrder(page: Page, orderedText: string[]) {
+  const tableText = await page.getByTestId("sidecar-auth-files").innerText();
+  let previousIndex = -1;
+  for (const text of orderedText) {
+    const nextIndex = tableText.indexOf(text);
+    expect(nextIndex, `${text} should be visible in auth table order proof`).toBeGreaterThan(previousIndex);
+    previousIndex = nextIndex;
+  }
+}
+
+async function mockSidecarsApi(
+  page: Page,
+  initialSidecars: Sidecar[],
+  options: MockSidecarsApiOptions = {},
+) {
+  let sidecars = [...initialSidecars];
+  let authSnapshots = options.authSnapshots ? [...options.authSnapshots] : defaultAuthSnapshots();
   const providerSnapshots = defaultProviderSnapshots();
   let watchdogPolicy = defaultWatchdogPolicy();
   const actions = defaultActions();
@@ -239,9 +284,15 @@ async function mockSidecarsApi(
     }
   };
 
-  const authSnapshotsFor = (sidecarId: number) => sidecarId === 2
-    ? [authSnapshot({ id: 22, sidecar_id: 2, auth_id: "auth-edge", name: "edge-oauth.json", provider: "codex", priority: 5 })]
-    : authSnapshots;
+  const authSnapshotsFor = (sidecarId: number) => {
+    const scopedSnapshots = options.authSnapshotsBySidecarId?.[sidecarId];
+    if (scopedSnapshots) {
+      return scopedSnapshots;
+    }
+    return sidecarId === 2
+      ? [authSnapshot({ id: 22, sidecar_id: 2, auth_id: "auth-edge", name: "edge-oauth.json", provider: "codex", priority: 5 })]
+      : authSnapshots;
+  };
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -398,6 +449,58 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.deprioritize");
     await expectNoRawSecrets(page);
     await page.screenshot({ path: evidencePaths.watchdogActions, fullPage: true });
+  });
+
+  test("filters, sorts, tie-breaks, and paginates auth files", async ({ page }) => {
+    await mockSidecarsApi(page, [sidecar({ id: 1 })], { authSnapshots: authFilterSortSnapshots() });
+
+    await page.goto("/sidecars");
+
+    const authFiles = page.getByTestId("sidecar-auth-files");
+    const authSearch = page.getByLabel("Filter auth files");
+
+    await expect(authFiles).toContainText("1-100 of 109");
+    await authSearch.fill("gamma-page");
+    await expect(authFiles).toContainText("gamma-page-001.json");
+    await expect(authFiles).toContainText("1-100 of 101");
+    await expect(authFiles).not.toContainText("zeta-high.json");
+
+    await authSearch.fill("claude");
+    await expect(authFiles).toContainText("alpha-missing.json");
+    await expect(authFiles).toContainText("1-1 of 1");
+    await expect(authFiles).not.toContainText("zeta-high.json");
+
+    await authSearch.fill("quota_exceeded");
+    await expect(authFiles).toContainText("quota-zero.json");
+    await expect(authFiles).toContainText("1-1 of 1");
+    await authSearch.fill("daily limit");
+    await expect(authFiles).toContainText("quota-zero.json");
+    await expect(authFiles).toContainText("1-1 of 1");
+
+    await authSearch.fill("priority 90");
+    await expect(authFiles).toContainText("zeta-high.json");
+    await expect(authFiles).toContainText("1-1 of 1");
+    await expect(authFiles).not.toContainText("omega-low.json");
+
+    await authSearch.fill("missing-auth-file");
+    await expect(authFiles).toContainText("No auth files match");
+    await expect(authFiles).not.toContainText("1-100 of 101");
+
+    await authSearch.fill("");
+    await expect(authFiles).toContainText("1-100 of 109");
+    await expect(authFiles).toContainText("alpha-shared.json");
+
+    await page.getByTestId("sidecar-auth-sort-select").click();
+    await page.getByRole("option", { name: "Routing priority: high to low" }).click();
+    await expect(authFiles).toContainText("zeta-high.json");
+    await expectAuthOrder(page, ["auth-zeta-high", "auth-alpha-a", "auth-alpha-b", "auth-beta", "auth-gamma-001"]);
+
+    await page.getByTestId("sidecar-auth-sort-select").click();
+    await page.getByRole("option", { name: "Routing priority: low to high" }).click();
+    await expect(authFiles).toContainText("alpha-missing.json");
+    await expectAuthOrder(page, ["auth-alpha-missing-a", "auth-alpha-missing-b", "auth-quota-zero", "auth-omega-low", "auth-gamma-001"]);
+
+    await expectNoRawSecrets(page);
   });
 
   test("keeps detail responses scoped to the selected sidecar", async ({ page }) => {
