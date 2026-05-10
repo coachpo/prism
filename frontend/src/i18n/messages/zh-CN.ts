@@ -154,7 +154,7 @@ export const zhCNMessages: Messages = {
   sidecarsPage: {
     actionApplyChange: "应用更改",
     actionHistoryActionColumn: "操作",
-    actionHistoryAuthColumn: "目标 auth",
+    actionHistoryAuthColumn: "目标 Auth",
     actionHistoryCompletedAt: (time) => `完成于 ${time}`,
     actionHistoryDescription: "后端记录的手动变更和 watchdog 动作，包括成功、跳过、失败、降级优先级和恢复结果。",
     actionHistoryEmptyDescription: "手动更改和 watchdog 决策会显示在这里。",

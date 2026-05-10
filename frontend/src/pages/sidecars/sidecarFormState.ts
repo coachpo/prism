@@ -1,3 +1,4 @@
+import type { Messages } from "@/i18n/messages/en";
 import type { SidecarInstance } from "@/lib/types";
 
 export type SidecarFormState = {
@@ -30,6 +31,8 @@ export type SidecarUpdatePayload = Partial<Omit<SidecarCreatePayload, "managemen
   management_password?: string | null;
 };
 
+type SidecarsPageMessages = Messages["sidecarsPage"];
+
 export const DEFAULT_SIDECAR_FORM: SidecarFormState = {
   name: "",
   base_url: "",
@@ -58,10 +61,10 @@ export function sidecarFormStateFromInstance(sidecar: SidecarInstance): SidecarF
   };
 }
 
-function parsePositiveInteger(value: string, fieldLabel: string): number {
+function parsePositiveInteger(value: string, fieldLabel: string, copy: SidecarsPageMessages): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${fieldLabel} must be a positive whole number.`);
+    throw new Error(copy.validationPositiveWholeNumber(fieldLabel));
   }
   return parsed;
 }
@@ -71,15 +74,15 @@ function normalizeEnvironmentLabel(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function basePayload(form: SidecarFormState) {
+function basePayload(form: SidecarFormState, copy: SidecarsPageMessages) {
   const name = form.name.trim();
   const baseUrl = form.base_url.trim();
 
   if (name.length === 0) {
-    throw new Error("Sidecar name is required.");
+    throw new Error(copy.nameRequired);
   }
   if (baseUrl.length === 0) {
-    throw new Error("Base URL is required.");
+    throw new Error(copy.baseUrlRequired);
   }
 
   return {
@@ -87,29 +90,29 @@ function basePayload(form: SidecarFormState) {
     base_url: baseUrl,
     enabled: form.enabled,
     environment_label: normalizeEnvironmentLabel(form.environment_label),
-    sync_interval_seconds: parsePositiveInteger(form.sync_interval_seconds, "Sync interval"),
-    request_timeout_seconds: parsePositiveInteger(form.request_timeout_seconds, "Request timeout"),
+    sync_interval_seconds: parsePositiveInteger(form.sync_interval_seconds, copy.syncIntervalLabel, copy),
+    request_timeout_seconds: parsePositiveInteger(form.request_timeout_seconds, copy.requestTimeoutLabel, copy),
     allow_private_network: form.allow_private_network,
     allow_insecure_http: form.allow_insecure_http,
     skip_tls_verify: form.skip_tls_verify,
   };
 }
 
-export function toSidecarCreatePayload(form: SidecarFormState): SidecarCreatePayload {
+export function toSidecarCreatePayload(form: SidecarFormState, copy: SidecarsPageMessages): SidecarCreatePayload {
   const managementPassword = form.management_password.trim();
   if (managementPassword.length === 0) {
-    throw new Error("Management password is required for new sidecars.");
+    throw new Error(copy.managementPasswordRequired);
   }
 
   return {
-    ...basePayload(form),
+    ...basePayload(form, copy),
     management_password: managementPassword,
   };
 }
 
-export function toSidecarUpdatePayload(form: SidecarFormState): SidecarUpdatePayload {
+export function toSidecarUpdatePayload(form: SidecarFormState, copy: SidecarsPageMessages): SidecarUpdatePayload {
   const managementPassword = form.management_password.trim();
-  const payload: SidecarUpdatePayload = basePayload(form);
+  const payload: SidecarUpdatePayload = basePayload(form, copy);
 
   if (managementPassword.length > 0) {
     payload.management_password = managementPassword;

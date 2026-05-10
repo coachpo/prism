@@ -190,11 +190,11 @@ export function useSidecarsPageData() {
     setSidecarSaving(true);
     try {
       if (editingSidecar) {
-        const updated = await api.sidecars.update(editingSidecar.id, toSidecarUpdatePayload(sidecarForm));
+        const updated = await api.sidecars.update(editingSidecar.id, toSidecarUpdatePayload(sidecarForm, messages.sidecarsPage));
         setSidecars((current) => current.map((sidecar) => (sidecar.id === updated.id ? updated : sidecar)));
         toast.success(messages.sidecarsPage.updateSucceeded(updated.name));
       } else {
-        const created = await api.sidecars.create(toSidecarCreatePayload(sidecarForm));
+        const created = await api.sidecars.create(toSidecarCreatePayload(sidecarForm, messages.sidecarsPage));
         setSidecars((current) => [...current, created]);
         toast.success(messages.sidecarsPage.createSucceeded(created.name));
       }
@@ -280,7 +280,7 @@ export function useSidecarsPageData() {
     try {
       const updated = await api.sidecars.updateWatchdogPolicy(selectedSidecarId, payload);
       setWatchdogPolicy(updated);
-      toast.success("Watchdog policy saved.");
+      toast.success(messages.sidecarsPage.watchdogSaveSucceeded);
       await fetchSidecarDetail(selectedSidecarId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.sidecarsPage.saveFailed);
@@ -297,7 +297,7 @@ export function useSidecarsPageData() {
     setMutatingAuthKey(snapshot.auth_id);
     try {
       await api.sidecars.updateAuthFileStatus(selectedSidecarId, snapshot.auth_id, { disabled, allow_watchdog: allowWatchdog });
-      toast.success(`${disabled ? "Disabled" : "Enabled"} ${snapshot.name}.`);
+      toast.success(messages.sidecarsPage.authStatusUpdated(snapshot.name, disabled));
       await fetchSidecarDetail(selectedSidecarId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.sidecarsPage.saveFailed);
@@ -314,7 +314,7 @@ export function useSidecarsPageData() {
     setMutatingAuthKey(snapshot.auth_id);
     try {
       await api.sidecars.updateAuthFileFields(selectedSidecarId, snapshot.auth_id, { priority, allow_watchdog: allowWatchdog });
-      toast.success(`Updated priority for ${snapshot.name}.`);
+      toast.success(messages.sidecarsPage.authPriorityUpdated(snapshot.name));
       await fetchSidecarDetail(selectedSidecarId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : messages.sidecarsPage.saveFailed);

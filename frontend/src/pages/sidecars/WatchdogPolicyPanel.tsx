@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useLocale } from "@/i18n/useLocale";
 import type { SidecarWatchdogPolicy, SidecarWatchdogPolicyUpdate } from "@/lib/types";
 
 interface WatchdogPolicyPanelProps {
@@ -88,6 +89,8 @@ function Field({
 }
 
 export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: WatchdogPolicyPanelProps) {
+  const { messages } = useLocale();
+  const copy = messages.sidecarsPage;
   const [form, setForm] = useState<WatchdogPolicyForm>(() => formFromPolicy(policy));
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
     setForm((current) => ({ ...current, [field]: value }));
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (validationError) {
       return;
@@ -128,11 +131,9 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
           <ShieldCheck className="h-4 w-4" />
-          Watchdog policy
+          {copy.watchdogTitle}
         </CardTitle>
-        <CardDescription className="text-xs">
-          Controls when Prism lowers a degraded auth file to the configured fallback priority and how long manual changes pause reconciliation.
-        </CardDescription>
+        <CardDescription className="text-xs">{copy.watchdogDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -144,33 +145,31 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
             <div className="flex items-start justify-between gap-4 rounded-lg border bg-muted/20 p-4">
               <div className="space-y-1">
-                <p className="text-sm font-medium">Enable watchdog</p>
-                <p className="text-xs text-muted-foreground">When enabled, Prism can deprioritize quota-failed auth files without disabling refresh.</p>
+                <p className="text-sm font-medium">{copy.watchdogEnabledLabel}</p>
+                <p className="text-xs text-muted-foreground">{copy.watchdogEnabledDescription}</p>
               </div>
-              <Switch checked={form.enabled} onCheckedChange={(checked) => updateField("enabled", checked)} aria-label="Enable watchdog" />
+              <Switch checked={form.enabled} onCheckedChange={(checked) => updateField("enabled", checked)} aria-label={copy.watchdogEnabledLabel} />
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <Field id="watchdog-failure-threshold" label="Failure threshold" min={1} value={form.failure_threshold} error={parsed.failure_threshold === null} onChange={(value) => updateField("failure_threshold", value)} />
-              <Field id="watchdog-failure-window" label="Failure window (seconds)" min={1} value={form.failure_window_seconds} error={parsed.failure_window_seconds === null} onChange={(value) => updateField("failure_window_seconds", value)} />
-              <Field id="watchdog-fallback-cooldown" label="Fallback cooldown (seconds)" min={1} value={form.fallback_cooldown_seconds} error={parsed.fallback_cooldown_seconds === null} onChange={(value) => updateField("fallback_cooldown_seconds", value)} />
-              <Field id="watchdog-manual-pause" label="Manual override pause (seconds)" min={1} value={form.manual_override_pause_seconds} error={parsed.manual_override_pause_seconds === null} onChange={(value) => updateField("manual_override_pause_seconds", value)} />
-              <Field id="watchdog-deprioritized-priority" label="Deprioritized priority" min={0} value={form.deprioritized_priority} error={parsed.deprioritized_priority === null} onChange={(value) => updateField("deprioritized_priority", value)} />
+              <Field id="watchdog-failure-threshold" label={copy.watchdogFailureThresholdLabel} min={1} value={form.failure_threshold} error={parsed.failure_threshold === null} onChange={(value) => updateField("failure_threshold", value)} />
+              <Field id="watchdog-failure-window" label={copy.watchdogFailureWindowLabel} min={1} value={form.failure_window_seconds} error={parsed.failure_window_seconds === null} onChange={(value) => updateField("failure_window_seconds", value)} />
+              <Field id="watchdog-fallback-cooldown" label={copy.watchdogFallbackCooldownLabel} min={1} value={form.fallback_cooldown_seconds} error={parsed.fallback_cooldown_seconds === null} onChange={(value) => updateField("fallback_cooldown_seconds", value)} />
+              <Field id="watchdog-manual-pause" label={copy.watchdogManualPauseLabel} min={1} value={form.manual_override_pause_seconds} error={parsed.manual_override_pause_seconds === null} onChange={(value) => updateField("manual_override_pause_seconds", value)} />
+              <Field id="watchdog-deprioritized-priority" label={copy.watchdogDeprioritizedPriorityLabel} min={0} value={form.deprioritized_priority} error={parsed.deprioritized_priority === null} onChange={(value) => updateField("deprioritized_priority", value)} />
             </div>
 
             <Alert className="border-warning/30 bg-warning/10">
               <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>Priority 0 safety note</AlertTitle>
-              <AlertDescription>
-                Priority 0 is the lowest, last-resort priority, not guaranteed exclusion. CLIProxyAPI may still use it if no higher-priority auth is available.
-              </AlertDescription>
+              <AlertTitle>{copy.watchdogPrioritySafetyTitle}</AlertTitle>
+              <AlertDescription>{copy.watchdogPrioritySafetyDescription}</AlertDescription>
             </Alert>
 
-            {validationError ? <p className="text-sm text-destructive">Thresholds and timeouts must be positive whole numbers; fallback priority must be zero or greater.</p> : null}
+            {validationError ? <p className="text-sm text-destructive">{copy.watchdogValidationError}</p> : null}
 
             <Button type="submit" disabled={saving || validationError}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Save watchdog policy
+              {copy.watchdogSave}
             </Button>
           </form>
         )}
