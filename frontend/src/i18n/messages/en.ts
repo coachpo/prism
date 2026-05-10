@@ -144,6 +144,85 @@ export interface Messages {
     pricingTemplates: string;
     requestLogs: string;
     settings: string;
+    sidecars: string;
+  };
+  sidecarsPage: {
+    actionsColumn: string;
+    addSidecar: string;
+    allowInsecureHttpDescription: string;
+    allowInsecureHttpLabel: string;
+    allowPrivateNetworkDescription: string;
+    allowPrivateNetworkLabel: string;
+    baseUrlDescription: string;
+    baseUrlLabel: string;
+    baseUrlPlaceholder: string;
+    cancel: string;
+    connectionSectionTitle: string;
+    createSucceeded: (name: string) => string;
+    createTitle: string;
+    deleteAction: string;
+    deleteDescription: (name: string) => string;
+    deleteFailed: string;
+    deleteSucceeded: (name: string) => string;
+    deleteTitle: string;
+    deleteWarningDescription: string;
+    deleteWarningTitle: string;
+    deleting: string;
+    description: string;
+    dialogDescription: string;
+    editSidecar: string;
+    editTitle: string;
+    emptyDescription: string;
+    emptyTitle: string;
+    enabledDescription: string;
+    enabledLabel: string;
+    environmentLabel: string;
+    environmentPlaceholder: string;
+    healthLabels: Record<"healthy" | "stale" | "degraded" | "disabled", string>;
+    insecureHttp: string;
+    lastSuccess: string;
+    lastSync: string;
+    loadFailed: string;
+    loadSingleFailed: string;
+    managementPasswordCreateDescription: string;
+    managementPasswordCreatePlaceholder: string;
+    managementPasswordEditDescription: string;
+    managementPasswordEditPlaceholder: string;
+    managementPasswordLabel: string;
+    nameLabel: string;
+    namePlaceholder: string;
+    passwordConfigured: string;
+    passwordMissing: string;
+    pollingDescription: string;
+    privateNetwork: string;
+    requestTimeoutLabel: string;
+    runtimeSectionTitle: string;
+    save: string;
+    saveFailed: string;
+    saving: string;
+    securityColumn: string;
+    skipTlsVerifyDescription: string;
+    skipTlsVerifyLabel: string;
+    staleAfter: string;
+    stateSummary: (healthy: string, stale: string, degraded: string) => string;
+    statusColumn: string;
+    summaryDegraded: string;
+    summaryDisabled: string;
+    summaryHealthy: string;
+    summaryStale: string;
+    syncAccepted: (name: string) => string;
+    syncColumn: string;
+    syncFailed: string;
+    syncIntervalLabel: string;
+    syncNow: string;
+    tableDescription: string;
+    tableTitle: string;
+    testConnection: string;
+    testFailed: string;
+    testSucceeded: (name: string, statusCode: number) => string;
+    tlsSkipped: string;
+    updateSucceeded: (name: string) => string;
+    watchdogDeferred: string;
   };
   loadbalanceStrategyDialog: {
     addTitle: string;
@@ -2098,6 +2177,85 @@ export const enMessages: Messages = {
     pricingTemplates: "Pricing Templates",
     requestLogs: "Request Logs",
     settings: "Settings",
+    sidecars: "Sidecars",
+  },
+  sidecarsPage: {
+    actionsColumn: "Actions",
+    addSidecar: "Add sidecar",
+    allowInsecureHttpDescription: "Permit plain HTTP management endpoints when the sidecar is not using TLS.",
+    allowInsecureHttpLabel: "Allow insecure HTTP",
+    allowPrivateNetworkDescription: "Allow this control-plane entry to target private network addresses.",
+    allowPrivateNetworkLabel: "Allow private network",
+    baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",
+    baseUrlLabel: "Base URL",
+    baseUrlPlaceholder: "https://cliproxyapi.internal:8443",
+    cancel: "Cancel",
+    connectionSectionTitle: "Connection",
+    createSucceeded: (name) => `Created sidecar ${name}.`,
+    createTitle: "Add sidecar",
+    deleteAction: "Delete sidecar",
+    deleteDescription: (name) => `Delete ${name}? This removes the Prism sidecar registration only.`,
+    deleteFailed: "Failed to delete sidecar.",
+    deleteSucceeded: (name) => `Deleted sidecar ${name}.`,
+    deleteTitle: "Delete sidecar",
+    deleteWarningDescription: "Provider inventory and auth snapshots remain backend-owned; this page only removes the instance registration.",
+    deleteWarningTitle: "This cannot be undone",
+    deleting: "Deleting...",
+    description: "Manage CLIProxyAPI sidecar instances from Prism's global control plane.",
+    dialogDescription: "Configure the registered CLIProxyAPI management endpoint and polling behavior.",
+    editSidecar: "Edit sidecar",
+    editTitle: "Edit sidecar",
+    emptyDescription: "Register a CLIProxyAPI instance to start syncing provider inventory and health metadata.",
+    emptyTitle: "No sidecars registered",
+    enabledDescription: "Disabled sidecars stay registered but are excluded from sync and health checks.",
+    enabledLabel: "Enabled",
+    environmentLabel: "Environment label",
+    environmentPlaceholder: "production, staging, local",
+    healthLabels: { healthy: "Healthy", stale: "Stale", degraded: "Degraded", disabled: "Disabled" },
+    insecureHttp: "HTTP allowed",
+    lastSuccess: "Last successful sync",
+    lastSync: "Last sync",
+    loadFailed: "Failed to load sidecars.",
+    loadSingleFailed: "Failed to load sidecar details.",
+    managementPasswordCreateDescription: "Stored by the backend only; the value is never rendered back to the browser.",
+    managementPasswordCreatePlaceholder: "Management password",
+    managementPasswordEditDescription: "Leave blank to keep the existing backend-stored password.",
+    managementPasswordEditPlaceholder: "Replace password (optional)",
+    managementPasswordLabel: "Management password",
+    nameLabel: "Name",
+    namePlaceholder: "CLIProxyAPI production",
+    passwordConfigured: "Password configured",
+    passwordMissing: "Password missing",
+    pollingDescription: "The list refreshes every 30 seconds while this page is visible and stops on unmount.",
+    privateNetwork: "Private network",
+    requestTimeoutLabel: "Request timeout (seconds)",
+    runtimeSectionTitle: "Runtime behavior",
+    save: "Save sidecar",
+    saveFailed: "Failed to save sidecar.",
+    saving: "Saving...",
+    securityColumn: "Secret state",
+    skipTlsVerifyDescription: "Skip certificate verification for this sidecar's management endpoint.",
+    skipTlsVerifyLabel: "Skip TLS verification",
+    staleAfter: "Stale after",
+    stateSummary: (healthy, stale, degraded) => `Sidecars healthy:${healthy} stale:${stale} degraded:${degraded}`,
+    statusColumn: "Status",
+    summaryDegraded: "Degraded",
+    summaryDisabled: "Disabled",
+    summaryHealthy: "Healthy",
+    summaryStale: "Stale",
+    syncAccepted: (name) => `Manual sync accepted for ${name}.`,
+    syncColumn: "Sync metadata",
+    syncFailed: "Failed to request sidecar sync.",
+    syncIntervalLabel: "Sync interval (seconds)",
+    syncNow: "Sync now",
+    tableDescription: "Global sidecar registrations, health state, sync metadata, and management-secret status.",
+    tableTitle: "Sidecar instances",
+    testConnection: "Test connection",
+    testFailed: "Failed to test sidecar connection.",
+    testSucceeded: (name, statusCode) => `Connection to ${name} succeeded with HTTP ${statusCode}.`,
+    tlsSkipped: "TLS verification skipped",
+    updateSucceeded: (name) => `Updated sidecar ${name}.`,
+    watchdogDeferred: "Watchdog policy details are managed in the next sidecar task.",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
