@@ -29,10 +29,11 @@
 - Evidence screenshot: `docs/archive/2026-05-10-sidecars-live-smoke.png`.
 
 ## Root-Cause Evidence Collected
-- `backend/internal/httpapi/management/sidecars/sync.go` collects auth snapshots only from `/auth-files` into `sidecarAuthFilesPayload.AuthFiles` mapped from JSON key `auth_files`.
+- Historical finding: the sync code was reading `/auth-files` with a stale local envelope mapping, so it missed the live CLIProxyAPI top-level `files` array.
+- The live upstream contract is top-level `files`; old top-level `auth_files` payloads are not supported by Prism and should fail closed.
 - The same sync pass separately reads provider-specific endpoints and successfully normalizes provider snapshots from `/codex-api-key` and related provider routes.
-- Live evidence shows the sidecar data currently appears in provider inventory, while the auth snapshot path remains empty. This indicates an inventory contract/mapping gap between the implemented Auth files table and the live sidecar shape.
-- Because no auth snapshots exist, there was no safe auth target for the allowed priority-adjustment mutation during this live run.
+- Live evidence showed provider inventory while the auth snapshot path stayed empty, which identified an auth-files envelope mismatch rather than provider inventory being the supported fallback.
+- Because no auth snapshots existed during this historical run, there was no safe auth target for the allowed priority-adjustment mutation.
 
 ## Function Test Results
 - `cd backend && go test -count=1 ./internal/httpapi/management/sidecars`: passed.
@@ -44,10 +45,10 @@
 - Auth priority mutation was not executed because the live sync produced zero auth snapshots, so Prism exposed no auth row to mutate.
 - These paths remain covered by the automated sidecar tests listed above.
 
-## Follow-Up Issues To Fix Later
-- Live Auth files inventory remains empty after successful sync while provider inventory contains configured entries. Prism needs to reconcile the Auth files UI/API model with the live sidecar inventory shape.
-- The UI copy says `Run a sidecar sync to populate auth inventory`, but sync succeeds and still leaves auth empty; this message is misleading for the observed live sidecar shape.
-- Priority adjustment cannot be smoked from the UI/API when auth snapshots are empty, even though provider inventory includes priority-like fields.
+## Follow-Up Resolution
+- This historical gap is addressed by the auth-files contract fix plan: Prism reads the live top-level `files` envelope, rejects old or malformed envelopes, and keeps provider inventory as a separate read-only supplement.
+- Later evidence for the fix is stored under `.sisyphus/evidence/cliproxyapi-live-sync.txt`, `.sisyphus/evidence/cliproxyapi-read-only-sync.txt`, and `.sisyphus/evidence/cliproxyapi-auth-table-large.png`.
+- Priority adjustment was not smoked in this archived run because the stale envelope mapping produced no auth snapshots at that time.
 
 ## Files Not Modified Outside Docs
 - This run intentionally changed only docs/archive evidence files.
