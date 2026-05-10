@@ -5,7 +5,7 @@
 
 ## ROUTE SURFACE
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
+- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
 - Root redirect: `/` -> `/dashboard`
 
 ## DOMAINS
@@ -13,11 +13,12 @@
 - Observability: `DashboardPage.tsx`, dashboard analytics content, `RequestLogsPage.tsx`
 - Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `ProxyModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is also where dual-family strategy selection and assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
+- Global sidecar control plane: `SidecarsPage.tsx`, `sidecars/AGENTS.md`
 - Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/` and `settings/costing/`
 
 ## WHERE TO LOOK
 - Mounted route list, public auth split, and protected shell boundary: `../App.tsx`
-- Dashboard, model detail, request logs, settings, and statistics leaf maps: `dashboard/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `statistics/AGENTS.md`
+- Dashboard, model detail, request logs, settings, sidecars, and statistics leaf maps: `dashboard/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
 
 ## CHILD DOCS
 - `dashboard/AGENTS.md`
@@ -29,10 +30,12 @@
 - `proxy-api-keys/AGENTS.md`
 - `request-logs/AGENTS.md`
 - `settings/AGENTS.md`
+- `sidecars/AGENTS.md`
 - `statistics/AGENTS.md`
 
 ## CONVENTIONS
 - Keep backend access on the shared frontend API boundary rather than inventing page-local fetch layers.
+- Keep global routes such as `/sidecars`, `/settings`, and `/proxy-api-keys` separate from selected-profile route state.
 - Let route files own bookmarkable query or hash state and the first handoff into local hooks.
 - Parent-cover local route clusters that do not need their own AGENTS file, including dense local helper folders already documented by the page leaves.
 - When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.

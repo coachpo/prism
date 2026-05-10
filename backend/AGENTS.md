@@ -30,7 +30,8 @@ backend/
 - `internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, partitioned log retention, and side-effect ownership.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context seams.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
-- `tests/AGENTS.md`: backend Go regression boundary, including partitioned logs, Dockerfile, and priority/lane isolation tests.
+- `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, watchdog, action history, and worker seams.
+- `tests/AGENTS.md`: backend Go regression boundary, including partitioned logs, Dockerfile, sidecars, and priority/lane isolation tests.
 
 ## RUNTIME FACTS
 - `cmd/prism-backend/main.go` is the backend process entrypoint.
@@ -40,7 +41,8 @@ backend/
 - `internal/platform/config/` owns the plaintext bootstrap contract loaded by `cmd/prism-backend/main.go`; eligible runtime fields hot-apply through the Startup tab or bootstrap API, while structural fields stay restart-required.
 - `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile/settings seeds, and endpoint-secret normalization.
 - `internal/platform/logretention/` owns daily partitions, 15-day horizon creation, retention deletes, and low-priority partition maintenance for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-- `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, stats, vendors, and audit.
+- `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, sidecars, stats, vendors, and audit.
+- `internal/httpapi/management/sidecars/` owns global CLIProxyAPI sidecar control-plane routes, sidecar snapshots, watchdog policy/action state, and low-priority sync/watchdog workers.
 - `internal/httpapi/management/settings/` owns global log-retention settings and management-job creation in addition to profile-scoped costing and timezone settings.
 - `internal/httpapi/runtime/` owns OpenAI, Anthropic, and Gemini-compatible proxy routes plus runtime cache, request logging, telemetry outbox, streaming, load-balance helpers, and runtime partition ensuring.
 - `../docs/openapi.json` is the checked-in management/health contract served by the Go backend at `/openapi.json`; runtime proxy routes are documented narratively instead.
@@ -54,6 +56,7 @@ backend/
 - Platform lifecycle, server assembly, hot bootstrap runtime, DB lanes, startup, migrations, scheduler, log retention, and side effects: `internal/platform/AGENTS.md`
 - Mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context seams: `internal/httpapi/AGENTS.md`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
+- Global sidecar registration, CLIProxyAPI sync, watchdog, and action history: `internal/httpapi/management/sidecars/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
 - SQL migrations, partitioned log schema, and startup sequencing: `migrations/`, `internal/platform/migrate/`, `internal/platform/logretention/`
 - Runtime stats, request-log shaping, runtime partition ensuring, and loadbalance business logic: `internal/domain/stats/`, `internal/domain/loadbalance/`, `internal/domain/audit/`, `internal/httpapi/runtime/log_partitions.go`
@@ -63,7 +66,7 @@ backend/
 ## CONVENTIONS
 - Keep backend docs focused on the live Go runtime.
 - Keep SQL migrations under `migrations/` as the live schema source of truth for startup.
-- Keep management selected-profile behavior separate from runtime active-profile routing.
+- Keep management selected-profile behavior separate from runtime active-profile routing; sidecar management is global instance state and does not use selected-profile scope.
 - Keep `api_family` as runtime compatibility truth. Vendor rows and `icon_key` are presentation metadata.
 - Keep bootstrap config separate from PostgreSQL-backed profile/vendor bundle import and export.
 - Keep request-path side effects on durable outboxes, scheduler-owned workers, or after-commit wakeups; do not put provider sends, cache invalidations, or dashboard materialization inline.

@@ -12,10 +12,10 @@
 - `../package.json` exposes the frontend regression entrypoint as `pnpm run test:e2e`.
 - `../playwright.config.ts` points Playwright at `./tests/e2e`.
 - `../playwright.config.ts` uses `http://127.0.0.1:4173` as the web server target.
-- Same-origin launcher coverage lives in `e2e/launcher-same-origin-realtime.spec.ts`; contract tests for build/runtime seams stay outside `e2e/`.
+- Same-origin launcher coverage lives in `e2e/launcher-same-origin-realtime.spec.ts`; sidecar browser coverage lives in `e2e/sidecars.spec.ts`; contract tests for build/runtime seams stay outside `e2e/`.
 
 ## WHERE TO LOOK
-- Browser flow coverage: `e2e/`, `../playwright.config.ts`
+- Browser flow coverage: `e2e/`, `e2e/sidecars.spec.ts`, `../playwright.config.ts`
 - Shared contract seams: `lib/*.test.mjs`, `loadbalance/*.test.mjs`, `main/*.test.mjs`, `model-detail/*.test.mjs`, `server/*.test.mjs`
 - Shared test helpers: `helpers/loadTsModule.mjs`
 

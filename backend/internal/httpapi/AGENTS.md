@@ -15,8 +15,9 @@ httpapi/
 ```
 
 ## WHERE TO LOOK
-- Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/stats/`, `management/vendors/`, `management/audit/`
+- Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/sidecars/`, `management/stats/`, `management/vendors/`, `management/audit/`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `management/auth/AGENTS.md`
+- Global sidecar registration, CLIProxyAPI sync, watchdog, action history, and worker seams: `management/sidecars/AGENTS.md`
 - Runtime proxy entry, log partition cache, and helpers: `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/log_partitions.go`, `runtime/telemetry_outbox.go`
 - Management settings costing, timezone, retention settings, and retention-job endpoints: `management/settings/`
 - Realtime websocket service and dashboard publisher: `realtime/service.go`, `realtime/dashboard_publisher.go`
@@ -26,7 +27,7 @@ httpapi/
 - Router mounting and `/metrics`: `../platform/http/server.go`
 
 ## CONVENTIONS
-- Keep management selected-profile scope separate from runtime active-profile routing. `X-Profile-Id` affects `/api/*` management calls, not proxy traffic.
+- Keep management selected-profile scope separate from runtime active-profile routing. `X-Profile-Id` affects profile-scoped `/api/*` management calls, not proxy traffic or global sidecar management.
 - Keep runtime proxy routes under `runtime/`; they are served from `/v1` and `/v1beta` and intentionally stay outside the management OpenAPI artifact.
 - Keep `api_family` as runtime compatibility truth. Vendor rows and `icon_key` are presentation metadata.
 - Keep OpenAPI serving aligned with root `docs/openapi.json`; do not invent a backend-local docs artifact.

@@ -13,7 +13,8 @@ lib/
 │   ├── profileScope.ts           # Profile-scoped management route matcher
 │   ├── authSettings.ts           # Auth bootstrap, proxy keys, WebAuthn methods
 │   ├── management.ts             # Profiles, vendors, models, endpoints, connections, pricing templates
-│   └── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
+│   ├── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
+│   └── sidecars.ts               # Global sidecar registration, sync, watchdog, inventory, actions
 ├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
 ├── websocket/AGENTS.md           # Helper split beneath the singleton client
 ├── websocket/                    # Protocol, subscription, transport/reconnect helpers
@@ -48,14 +49,14 @@ lib/
 
 ## CHILD DOCS
 
-- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, and `observability.ts` ownership beneath the public `api.ts` barrel.
+- `api/AGENTS.md`: `core.ts`, `profileScope.ts`, `authSettings.ts`, `management.ts`, `observability.ts`, and `sidecars.ts` ownership beneath the public `api.ts` barrel.
 - `websocket/AGENTS.md`: message helpers, subscription bookkeeping, and transport/reconnect rules beneath `websocket.ts`.
 
 ## CONVENTIONS
 
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
 - `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into selected `/api/*` requests.
-- `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`; do not duplicate that allowlist in pages.
+- `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`; global sidecar calls intentionally stay out of that allowlist.
 - `request()` handles cookie credentials, `ApiError`, and one refresh retry for eligible `/api/*` paths.
 - Let `api/AGENTS.md` own the typed client split instead of expanding this parent with module-by-module endpoint detail.
 - `referenceData.ts` and `referenceDataRegistry.ts` own shared cache reuse, request dedupe, and revision-keyed lookup invalidation.

@@ -32,12 +32,12 @@ frontend/
 
 ## ROUTE MAP
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
+- Protected shell routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
 - `/` redirects to `/dashboard`
 
 ## HIERARCHY
 - `src/App.tsx` owns the mounted route surface and stays the source of truth for route mounting and shell boundaries.
-- `src/pages/AGENTS.md` owns route-domain handoff for the mounted page surface under `src/pages/`.
+- `src/pages/AGENTS.md` owns route-domain handoff for the mounted page surface under `src/pages/`, including the global sidecars route leaf.
 - `src/components/AGENTS.md` owns shared shell and widget work, then points down to the layout shell cluster, feature renderers, and `ui/` primitives.
 - `src/components/{layout/app-layout,loadbalance,statistics,ui}/AGENTS.md` own shell, feature-renderer, and primitive leaves.
 - `src/components/ui/AGENTS.md` owns the shadcn/ui primitives and local wrappers checked into `src/components/ui/`.
@@ -63,12 +63,12 @@ frontend/
 - Vite version injection, optional same-origin proxying, dev or preview `/health`, launcher proxy env path, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` server and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `playwright.config.ts`
-- Page hierarchy and route-domain handoff: `src/pages/AGENTS.md`
+- Page hierarchy and route-domain handoff, including the global sidecars route: `src/pages/AGENTS.md`, `src/pages/sidecars/AGENTS.md`
 
 ## CONVENTIONS
 - Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, and `test:e2e`.
 - Treat `src/App.tsx` as the source of truth for routes and shell boundaries.
-- Keep selected profile separate from active runtime routing. `selectedProfile` scopes management APIs; it does not switch proxy traffic.
+- Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
