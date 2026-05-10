@@ -24,14 +24,14 @@ Do not generate cases for behavior that is not supported by those sources.
 The agent should always inventory Prism as these surfaces:
 
 - Public auth routes: `/login`, `/forgot-password`, `/reset-password`
-- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/pricing-templates`, `/request-logs`
-- Management APIs on `/api/*`
+- Protected management routes: `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/settings`, `/proxy-api-keys`, `/sidecars`, `/pricing-templates`, `/request-logs`
+- Management APIs on `/api/*`, including global `/api/sidecars/*` routes
 - Runtime proxy APIs on `/v1/*` and `/v1beta/*`
 - Realtime dashboard updates on `/api/realtime/ws`
 - The selected-profile versus active-profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
+High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, sidecars, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, sidecar sync/watchdog, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 
@@ -47,6 +47,7 @@ Smoke cases should prove the system is viable, not exhaustively validated. Each 
 - one realtime connection or subscription check
 - one profile activation or scope check
 - one config export or import sanity check
+- one sidecar route/API smoke when sidecar fixtures or a safe live sidecar are available
 
 ### 4.2 Functional coverage
 
@@ -58,6 +59,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 - proxy/native model invariants
 - loadbalance, failover, and health-check behavior
 - request-log, audit, costing, and statistics contracts
+- sidecar credential masking, CLIProxyAPI management-path allowlist, sync/watchdog behavior, and action-history redaction
 - config import validation and dependency checks
 
 ### 4.3 UI or UX coverage

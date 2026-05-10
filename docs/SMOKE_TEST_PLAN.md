@@ -14,6 +14,7 @@ This smoke test plan validates all documented workflows and core function paths 
 - Batch data deletion semantics
 - Frontend management flows
 - Token costing and spending reports
+- CLIProxyAPI sidecar registration, inventory sync, watchdog policy, and action-history redaction
 
 The objective is a fast but thorough confidence pass that catches regressions before release.
 
@@ -96,6 +97,7 @@ Prepare seed state through API (not manual DB edits):
    - one connection assigned a `pricing_template_id`
 7. Audit toggles initially disabled, then enabled per-case.
 8. At least one duplicated `model_id` and endpoint `name` across A/B to validate scoped uniqueness.
+9. Optional sidecar fixture or safe live sidecar endpoint for `/api/sidecars/*` coverage; management password must never be recorded in run notes.
 
 ---
 
@@ -191,6 +193,24 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/auth/logout` | N04 |
 | `POST /api/auth/refresh` | N05 |
 | `GET /api/auth/session` | N06 |
+| `GET /api/sidecars` | O01, O11 |
+| `POST /api/sidecars` | O02 |
+| `GET /api/sidecars/{sidecar_id}` | O03 |
+| `PATCH /api/sidecars/{sidecar_id}` | O04 |
+| `DELETE /api/sidecars/{sidecar_id}` | O05 |
+| `POST /api/sidecars/{sidecar_id}/test-connection` | O06 |
+| `POST /api/sidecars/{sidecar_id}/sync` | O07 |
+| `GET /api/sidecars/{sidecar_id}/auth-files` | O08 |
+| `GET /api/sidecars/{sidecar_id}/auth-snapshots` | O08 |
+| `GET /api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}` | O08 |
+| `GET /api/sidecars/{sidecar_id}/providers` | O09 |
+| `GET /api/sidecars/{sidecar_id}/provider-snapshots` | O09 |
+| `GET /api/sidecars/{sidecar_id}/sync-status` | O16 |
+| `GET /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
+| `PUT /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
+| `GET /api/sidecars/{sidecar_id}/actions` | O12 |
+| `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status` | O13 |
+| `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields` | O14 |
 | `WS /api/realtime/ws` | I26, I30, I31, I37 |
 
 ---
@@ -586,6 +606,28 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | N04 | P0 | Logout | `200`, cookies cleared |
 | N05 | P0 | Session refresh | `200`, new session issued |
 | N06 | P0 | Get session | Returns current session info |
+
+## O. CLIProxyAPI Sidecars
+
+| ID | Pri | Scenario | Expected Result |
+|---|---|---|---|
+| O01 | P0 | List sidecars | `200`, returns global `items[]` with masked credential state only |
+| O02 | P0 | Create sidecar | `201`, persists canonical URL, network policy flags, sync intervals, and no raw password in response/body logs |
+| O03 | P0 | Get sidecar | `200` for existing sidecar, `404` for unknown sidecar |
+| O04 | P0 | Patch sidecar metadata or management password | `200`, updates metadata; password rotation resets management auth state without returning the raw value |
+| O05 | P0 | Delete sidecar | `204`, soft-deletes registration and removes it from list results |
+| O06 | P0 | Test sidecar connection | Success returns `state=succeeded`, management auth state, and status code; invalid management auth records pause state |
+| O07 | P0 | Manual sync | Success updates auth/provider snapshots and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
+| O08 | P0 | Auth inventory read | `auth-files` and `auth-snapshots` return normalized, redacted auth observations |
+| O09 | P0 | Provider inventory read | Provider snapshots are normalized for supported provider keys and do not expose raw secrets |
+| O10 | P0 | Watchdog policy read/update | Policy defaults load; valid updates persist and invalid non-positive values are rejected |
+| O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, and can select a detail row |
+| O12 | P0 | Action history redaction | Action rows redact authorization, token, secret, key, and password-like text |
+| O13 | P1 | Auth status mutation with watchdog confirmation | Status patch succeeds only through Prism backend and records an operator action |
+| O14 | P1 | Auth priority/field mutation | Field patch accepts allowed fields/header names and rejects unsupported fields |
+| O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile` reject elevated priority overrides |
+| O16 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
+
 ---
 
 ## 8. Recommended Execution Order
@@ -600,7 +642,8 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 8. L plus M19 (token costing and spending reports with profile isolation).
 9. G, H, K.4, and M16-M18 in isolated destructive lane.
 10. I and K.5 (frontend full-stack smoke, including selected vs active profile behavior).
-11. J and M21 (non-functional quick pass + failover memory isolation).
+11. O (sidecar control-plane smoke when fixtures or a safe live sidecar are available).
+12. J and M21 (non-functional quick pass + failover memory isolation).
 
 ---
 
@@ -608,6 +651,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 - All `P0` tests pass.
 - No proxy contract regressions in routing/failover/logging/audit.
+- No sidecar secret leakage in sidecar responses, snapshots, action history, run notes, or screenshots.
 - Any `P1` failure is triaged with reproducible payloads and logs.
 
 ---
