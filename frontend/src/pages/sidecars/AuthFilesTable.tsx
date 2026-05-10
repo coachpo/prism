@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, Loader2, Shield, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Shield, SlidersHorizontal } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
@@ -19,6 +19,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -42,6 +49,9 @@ interface AuthFilesTableProps {
   onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number, allowWatchdog: boolean) => Promise<void>;
   onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean, allowWatchdog: boolean) => Promise<void>;
 }
+
+const AUTH_PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
+const DEFAULT_AUTH_PAGE_SIZE = AUTH_PAGE_SIZE_OPTIONS[0];
 
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
   if (!value) {
@@ -135,10 +145,22 @@ export function AuthFilesTable({
 }: AuthFilesTableProps) {
   const { formatNumber, locale, messages } = useLocale();
   const copy = messages.sidecarsPage;
+  const paginationCopy = messages.requestLogs;
   const [draftPriorities, setDraftPriorities] = useState<Record<string, string>>({});
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
   const [allowWatchdog, setAllowWatchdog] = useState(false);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_AUTH_PAGE_SIZE);
+  const [pageIndex, setPageIndex] = useState(0);
   const latestAction = useMemo(() => latestActionByAuthId(actionHistory), [actionHistory]);
+  const totalAuthRows = authSnapshots.length;
+  const totalPages = Math.max(1, Math.ceil(totalAuthRows / pageSize));
+  const currentPageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStartIndex = currentPageIndex * pageSize;
+  const pageEndIndex = Math.min(pageStartIndex + pageSize, totalAuthRows);
+  const visibleAuthSnapshots = authSnapshots.slice(pageStartIndex, pageEndIndex);
+  const pageStart = totalAuthRows > 0 ? pageStartIndex + 1 : 0;
+  const hasPreviousPage = currentPageIndex > 0;
+  const hasNextPage = pageEndIndex < totalAuthRows;
 
   const clearDraftPriority = (authId: string) => {
     setDraftPriorities((current) => {
@@ -190,7 +212,7 @@ export function AuthFilesTable({
         ) : authSnapshots.length === 0 ? (
           <EmptyState title={copy.authEmptyTitle} description={copy.authEmptyDescription} />
         ) : (
-          <div className="rounded-md border">
+          <div className="overflow-hidden rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -204,7 +226,7 @@ export function AuthFilesTable({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {authSnapshots.map((snapshot) => {
+                {visibleAuthSnapshots.map((snapshot) => {
                   const latest = latestAction.get(snapshot.auth_id);
                   const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
                   const parsedPriority = parsePriority(priorityValue);
@@ -307,6 +329,62 @@ export function AuthFilesTable({
                 })}
               </TableBody>
             </Table>
+            <div className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  {paginationCopy.resultsRange(
+                    formatNumber(pageStart),
+                    formatNumber(pageEndIndex),
+                    formatNumber(totalAuthRows),
+                  )}
+                </span>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(value) => {
+                    setPageSize(Number(value));
+                    setPageIndex(0);
+                  }}
+                >
+                  <SelectTrigger
+                    className="h-8 w-[92px] rounded-full border-border/70 bg-background text-xs"
+                    data-testid="sidecar-auth-page-size-select"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AUTH_PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span>{paginationCopy.rowsPerPage}</span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 rounded-full"
+                  disabled={!hasPreviousPage}
+                  onClick={() => setPageIndex(Math.max(0, currentPageIndex - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 rounded-full"
+                  disabled={!hasNextPage}
+                  onClick={() => setPageIndex(Math.min(totalPages - 1, currentPageIndex + 1))}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </CardContent>
