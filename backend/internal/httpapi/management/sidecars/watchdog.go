@@ -392,11 +392,11 @@ func (s *Service) fetchLiveAuthSnapshot(ctx context.Context, instance SidecarIns
 	if err != nil {
 		return SidecarAuthSnapshot{}, false, err
 	}
-	var payload sidecarAuthFilesPayload
-	if _, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &payload); err != nil {
+	authFiles, err := s.fetchSidecarAuthFileRows(ctx, target)
+	if err != nil {
 		return SidecarAuthSnapshot{}, false, err
 	}
-	for _, raw := range payload.AuthFiles {
+	for _, raw := range authFiles {
 		input, err := normalizeSidecarAuthSnapshot(instance.ID, observedAt, raw)
 		if err != nil {
 			return SidecarAuthSnapshot{}, false, err

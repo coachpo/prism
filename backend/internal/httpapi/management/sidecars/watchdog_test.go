@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -105,6 +106,31 @@ func TestWatchdogRestoresOriginalPriorityAfterHold(t *testing.T) {
 	actions := listWatchdogActions(t, service, sidecar.ID)
 	assertWatchdogAction(t, actions, watchdogActionDeprioritize, watchdogActionStatusSucceeded)
 	assertWatchdogAction(t, actions, watchdogActionRestore, watchdogActionStatusSucceeded)
+}
+
+func TestWatchdogRestoreRejectsLegacyAuthFilesEnvelope(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	recoverAt := now.Add(time.Minute)
+	upstream := newWatchdogUpstream(t, watchdogUpstreamAuth{Priority: 20, QuotaExceeded: true, QuotaNextRecoverAt: &recoverAt})
+	defer upstream.Close()
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
+	enableWatchdogPolicy(t, service, sidecar.ID)
+	seedWatchdogSnapshot(t, service, sidecar.ID, now, watchdogUpstreamAuth{Priority: 20, QuotaExceeded: true, QuotaNextRecoverAt: &recoverAt})
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("initial deprioritize: %v", err)
+	}
+
+	now = recoverAt.Add(time.Second)
+	upstream.setAuthFilesPayload(syncAuthFixtureWithEnvelopeKey(t, "auth_files"))
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+	if err == nil || !strings.Contains(err.Error(), "files must be present") {
+		t.Fatalf("expected restore preflight to reject legacy auth_files envelope, result=%+v err=%v", result, err)
+	}
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{0}) {
+		t.Fatalf("legacy envelope must not restore priority or fallback to stale data, got patches %v", got)
+	}
 }
 
 func TestWatchdogSkipsStaleSnapshots(t *testing.T) {
@@ -275,6 +301,7 @@ type watchdogUpstream struct {
 	mu     sync.Mutex
 	auth   watchdogUpstreamAuth
 
+	authFilesPayload  string
 	fieldPatches      []int
 	statusPatchCalls  int
 	getAuthFilesCalls int
@@ -295,6 +322,13 @@ func (u *watchdogUpstream) setAuth(auth watchdogUpstreamAuth) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.auth = auth
+	u.authFilesPayload = ""
+}
+
+func (u *watchdogUpstream) setAuthFilesPayload(payload string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.authFilesPayload = payload
 }
 
 func (u *watchdogUpstream) fieldPatchPriorities() []int {
@@ -324,8 +358,14 @@ func (u *watchdogUpstream) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		u.mu.Lock()
 		u.getAuthFilesCalls++
 		auth := u.auth
+		authFilesPayload := u.authFilesPayload
 		u.mu.Unlock()
-		writeWatchdogJSON(w, map[string]any{"auth_files": []any{watchdogAuthPayload(auth)}})
+		if authFilesPayload != "" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(authFilesPayload))
+			return
+		}
+		writeWatchdogJSON(w, map[string]any{"files": []any{watchdogAuthPayload(auth)}})
 	case "/v0/management/auth-files/fields":
 		if r.Method != http.MethodPatch {
 			u.t.Errorf("expected PATCH /auth-files/fields, got %s", r.Method)
