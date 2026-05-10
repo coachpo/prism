@@ -24,7 +24,7 @@ docs/
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
 - `openapi.json` is the checked-in management and health contract artifact served by the backend; keep it aligned with backend ownership docs instead of treating it as the narrative source of truth.
 - `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio, `openapi.json`, and owning backend/frontend AGENTS files.
-- `archive/` currently contains only the boundary file and holds finished notes and retained evidence only.
+- `archive/` holds the boundary file plus dated finished notes and retained evidence, including the 2026-05-10 sidecars live-smoke record.
 - Archived run notes use `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
 
@@ -33,13 +33,14 @@ docs/
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000013_partitioned_log_retention.sql`
+- Sidecars control-plane contract: `../backend/internal/httpapi/management/sidecars/`, `../backend/migrations/000014_cli_proxy_sidecars.sql`, `../frontend/src/pages/sidecars/`, `openapi.json`
 - Checked-in OpenAPI artifact: `openapi.json`, `../backend/AGENTS.md`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
 - Active working plans outside docs: `../.sisyphus/plans/`
-- Archive boundary rules: `archive/AGENTS.md`, `archive/` (currently boundary-only)
+- Archive boundary rules and retained smoke evidence: `archive/AGENTS.md`, `archive/`
 
 ## CONVENTIONS
 - Keep docs Prism-specific.
@@ -49,6 +50,7 @@ docs/
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/etc/prism` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
+- Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, migration `000014_cli_proxy_sidecars.sql`, low-priority sidecar workers, and the rule that CLIProxyAPI owns live auth/provider state.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
 - Keep archive wording tight: finished notes first, optional evidence only when needed, never treat archive notes as canonical docs.

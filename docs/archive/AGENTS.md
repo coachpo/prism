@@ -1,7 +1,7 @@
 # DOCS ARCHIVE BOUNDARY
 
 ## OVERVIEW
-`docs/archive/` currently only contains this boundary file and is reserved for finished notes and retained evidence. It is not a source-of-truth area, does not host active plans, and must not preserve stale implementation guidance as the only copy of a rule.
+`docs/archive/` is reserved for finished notes and retained evidence. It currently includes the sidecars live-smoke run note and screenshot alongside this boundary file; it is not a source-of-truth area, does not host active plans, and must not preserve stale implementation guidance as the only copy of a rule.
 
 ## WHAT BELONGS HERE
 - Finalized run notes.
@@ -17,6 +17,6 @@
 ## CONVENTIONS
 - Keep archive notes concise and dated.
 - Use the run-note naming rule exactly: `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
-- Until finished notes land, keep `AGENTS.md` as the only file in this folder.
+- Evidence assets such as screenshots may sit beside the dated run note they support.
 - Prefer the parent docs or the owning backend or frontend AGENTS tree for live guidance.
 - When archiving evidence, link back to the live owner instead of restating implementation contracts here.
