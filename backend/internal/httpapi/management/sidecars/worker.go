@@ -74,10 +74,16 @@ func (s *Service) handleScheduledSidecarWatchdog(ctx context.Context, _ backgrou
 		slog.Error("sidecar watchdog worker failed", "error", err)
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
+	cleaned, cleanupErr := s.store.CleanupWatchdogProbeObservations(ctx)
+	if cleanupErr != nil {
+		err = fmt.Errorf("cleanup sidecar watchdog probe observations: %w", cleanupErr)
+		slog.Error("sidecar watchdog probe cleanup failed", "error", err)
+		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
+	}
 	if summary.Failed > 0 {
-		slog.Warn("sidecar watchdog worker completed with sidecar failures", "checked", summary.Checked, "reconciled", summary.Reconciled, "skipped", summary.Skipped, "failed", summary.Failed)
+		slog.Warn("sidecar watchdog worker completed with sidecar failures", "checked", summary.Checked, "reconciled", summary.Reconciled, "skipped", summary.Skipped, "failed", summary.Failed, "probed", summary.Probed, "quota_held", summary.QuotaHeld, "restored", summary.Restored, "probe_failed", summary.ProbeFailed, "unsupported_skipped", summary.UnsupportedSkipped, "probe_observations_cleaned", cleaned)
 	} else {
-		slog.Debug("sidecar watchdog worker completed", "checked", summary.Checked, "reconciled", summary.Reconciled, "skipped", summary.Skipped)
+		slog.Debug("sidecar watchdog worker completed", "checked", summary.Checked, "reconciled", summary.Reconciled, "skipped", summary.Skipped, "probed", summary.Probed, "quota_held", summary.QuotaHeld, "restored", summary.Restored, "probe_failed", summary.ProbeFailed, "unsupported_skipped", summary.UnsupportedSkipped, "probe_observations_cleaned", cleaned)
 	}
 	return background.JobResult{Status: background.JobSucceeded}
 }

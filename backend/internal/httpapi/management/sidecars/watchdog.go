@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -16,6 +17,7 @@ const (
 	WatchdogHoldStatusPaused   = "paused"
 	WatchdogHoldStatusReleased = "released"
 
+	watchdogActionStatusPending   = "pending"
 	watchdogActionStatusSucceeded = "succeeded"
 	watchdogActionStatusFailed    = "failed"
 	watchdogActionStatusSkipped   = "skipped"
@@ -37,18 +39,28 @@ const (
 )
 
 type SidecarWatchdogSummary struct {
-	Checked    int
-	Reconciled int
-	Skipped    int
-	Failed     int
+	Checked            int
+	Reconciled         int
+	Skipped            int
+	Failed             int
+	Probed             int
+	QuotaHeld          int
+	Restored           int
+	ProbeFailed        int
+	UnsupportedSkipped int
 }
 
 type SidecarWatchdogResult struct {
-	SidecarID   int
-	Reconciled  bool
-	Skipped     bool
-	SkipReason  string
-	ActionCount int
+	SidecarID          int
+	Reconciled         bool
+	Skipped            bool
+	SkipReason         string
+	ActionCount        int
+	Probed             int
+	QuotaHeld          int
+	Restored           int
+	ProbeFailed        int
+	UnsupportedSkipped int
 }
 
 type watchdogCondition struct {
@@ -74,6 +86,11 @@ func (s *Service) ReconcileWatchdogDueSidecars(ctx context.Context) (SidecarWatc
 			summary.Failed++
 			continue
 		}
+		summary.Probed += result.Probed
+		summary.QuotaHeld += result.QuotaHeld
+		summary.Restored += result.Restored
+		summary.ProbeFailed += result.ProbeFailed
+		summary.UnsupportedSkipped += result.UnsupportedSkipped
 		if result.Reconciled {
 			summary.Reconciled++
 			continue
@@ -94,6 +111,22 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		return result, nil
 	}
 	defer s.releaseWatchdogRun(sidecarID)
+	lease, acquired, err := s.tryAcquireWatchdogLease(ctx, sidecarID)
+	if err != nil {
+		return result, err
+	}
+	if !acquired {
+		result.Skipped = true
+		result.SkipReason = "watchdog_lease_held"
+		return result, nil
+	}
+	if lease != nil {
+		defer func() {
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = lease.Release(releaseCtx)
+		}()
+	}
 
 	instance, found, err := s.store.GetSidecarInstance(ctx, sidecarID)
 	if err != nil {
@@ -117,6 +150,9 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		return result, nil
 	}
 	now := s.nowUTC()
+	if err := validateWatchdogProbeRuntimePolicy(policy); err != nil {
+		return result, err
+	}
 	if sidecarSyncPaused(instance, now) {
 		reason := "management authentication pause is active"
 		recorded, err := s.recordWatchdogSkipOnce(ctx, SidecarWatchdogActionInput{SidecarID: sidecarID, ActionType: watchdogActionSkippedManagementAuthPause, Status: watchdogActionStatusSkipped, Reason: &reason}, now)
@@ -130,7 +166,55 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		}
 		return result, nil
 	}
-	if sidecarSnapshotsStale(instance, now) {
+
+	pendingOutcomes, pendingErr := s.repairPendingWatchdogPatchActions(ctx, instance, policy, now)
+	for _, outcome := range pendingOutcomes {
+		result.applyHoldOutcome(outcome)
+	}
+	if pendingErr != nil {
+		return result, pendingErr
+	}
+	if len(pendingOutcomes) > 0 {
+		return result, nil
+	}
+
+	dueHolds, err := s.store.ListDueWatchdogHolds(ctx, sidecarID, now)
+	if err != nil {
+		return result, err
+	}
+	snapshots, err := s.store.ListAuthSnapshots(ctx, sidecarID)
+	if err != nil {
+		return result, err
+	}
+	staleSnapshots := sidecarSnapshotsStale(instance, now)
+	freshSnapshots := make([]SidecarAuthSnapshot, 0, len(snapshots))
+	if !staleSnapshots {
+		for _, snapshot := range snapshots {
+			if watchdogSnapshotFromLatestSync(instance, snapshot) {
+				freshSnapshots = append(freshSnapshots, snapshot)
+			}
+		}
+	}
+	snapshotByAuth := map[string]SidecarAuthSnapshot{}
+	for _, snapshot := range freshSnapshots {
+		snapshotByAuth[snapshot.AuthID] = snapshot
+	}
+	activeHolds, err := s.store.ListActiveWatchdogHolds(ctx, sidecarID)
+	if err != nil {
+		return result, err
+	}
+
+	probeRun := newWatchdogProbeRun(policy, time.Now().UTC())
+	dueOutcome, err := s.reconcileDueWatchdogProbeBatch(ctx, instance, policy, dueHolds, snapshotByAuth, &probeRun, now)
+	if err != nil {
+		return result, err
+	}
+	result.applyProbeOutcome(dueOutcome)
+
+	if staleSnapshots {
+		if dueOutcome.Attempted > 0 {
+			return result, nil
+		}
 		reason := "sidecar auth snapshots are stale"
 		recorded, err := s.recordWatchdogSkipOnce(ctx, SidecarWatchdogActionInput{SidecarID: sidecarID, ActionType: watchdogActionSkippedStaleSnapshot, Status: watchdogActionStatusSkipped, Reason: &reason}, now)
 		if err != nil {
@@ -144,40 +228,36 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		return result, nil
 	}
 
-	holds, err := s.store.ListActiveWatchdogHolds(ctx, sidecarID)
-	if err != nil {
-		return result, err
-	}
-	snapshots, err := s.store.ListAuthSnapshots(ctx, sidecarID)
-	if err != nil {
-		return result, err
-	}
-	freshSnapshots := make([]SidecarAuthSnapshot, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		if watchdogSnapshotFromLatestSync(instance, snapshot) {
-			freshSnapshots = append(freshSnapshots, snapshot)
-		}
-	}
-	snapshotByAuth := map[string]SidecarAuthSnapshot{}
-	for _, snapshot := range freshSnapshots {
-		snapshotByAuth[snapshot.AuthID] = snapshot
-	}
+	activeHoldAuths := watchdogActiveHoldAuthSet(activeHolds)
 	processedHoldAuths := map[string]struct{}{}
-	for _, hold := range holds {
+	for _, hold := range activeHolds {
+		if _, processed := dueOutcome.ProcessedHoldIDs[hold.ID]; processed {
+			processedHoldAuths[hold.AuthID] = struct{}{}
+			continue
+		}
+		if watchdogDueHoldProbeCandidateEligible(hold, now) {
+			processedHoldAuths[hold.AuthID] = struct{}{}
+			continue
+		}
 		outcome, holdErr := s.reconcileWatchdogHold(ctx, instance, policy, hold, snapshotByAuth[hold.AuthID], now)
 		if holdErr != nil {
 			return result, holdErr
 		}
-		if outcome.ActionRecorded {
-			result.ActionCount++
-		}
-		if outcome.Reconciled {
-			result.Reconciled = true
-		}
+		result.applyHoldOutcome(outcome)
 		if outcome.Processed {
 			processedHoldAuths[hold.AuthID] = struct{}{}
 		}
 	}
+
+	discoveryOutcome, err := s.reconcileDiscoveryWatchdogProbeBatch(ctx, instance, policy, freshSnapshots, activeHoldAuths, &probeRun, now)
+	if err != nil {
+		return result, err
+	}
+	result.applyProbeOutcome(discoveryOutcome)
+	for authID := range discoveryOutcome.ProcessedAuthIDs {
+		processedHoldAuths[authID] = struct{}{}
+	}
+
 	for _, snapshot := range freshSnapshots {
 		if _, processed := processedHoldAuths[snapshot.AuthID]; processed {
 			continue
@@ -198,12 +278,7 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		if deprioritizeErr != nil {
 			return result, deprioritizeErr
 		}
-		if outcome.ActionRecorded {
-			result.ActionCount++
-		}
-		if outcome.Reconciled {
-			result.Reconciled = true
-		}
+		result.applyHoldOutcome(outcome)
 	}
 	if !result.Reconciled && result.ActionCount == 0 {
 		result.Skipped = true
@@ -213,10 +288,987 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 }
 
 type watchdogHoldOutcome struct {
-	Processed      bool
-	Released       bool
-	Reconciled     bool
-	ActionRecorded bool
+	Processed          bool
+	Released           bool
+	Reconciled         bool
+	ActionRecorded     bool
+	QuotaHeld          bool
+	Restored           bool
+	ProbeFailed        bool
+	UnsupportedSkipped bool
+}
+
+type watchdogProbeBatchOutcome struct {
+	Attempted          int
+	Reconciled         bool
+	ActionCount        int
+	QuotaHeld          int
+	Restored           int
+	ProbeFailed        int
+	UnsupportedSkipped int
+	ProcessedHoldIDs   map[int]struct{}
+	ProcessedAuthIDs   map[string]struct{}
+}
+
+func (result *SidecarWatchdogResult) applyProbeOutcome(outcome watchdogProbeBatchOutcome) {
+	if outcome.Reconciled {
+		result.Reconciled = true
+	}
+	result.ActionCount += outcome.ActionCount
+	result.Probed += outcome.Attempted
+	result.QuotaHeld += outcome.QuotaHeld
+	result.Restored += outcome.Restored
+	result.ProbeFailed += outcome.ProbeFailed
+	result.UnsupportedSkipped += outcome.UnsupportedSkipped
+}
+
+func (result *SidecarWatchdogResult) applyHoldOutcome(outcome watchdogHoldOutcome) {
+	if outcome.ActionRecorded {
+		result.ActionCount++
+	}
+	if outcome.Reconciled {
+		result.Reconciled = true
+	}
+	if outcome.QuotaHeld {
+		result.QuotaHeld++
+	}
+	if outcome.Restored {
+		result.Restored++
+	}
+	if outcome.ProbeFailed {
+		result.ProbeFailed++
+	}
+	if outcome.UnsupportedSkipped {
+		result.UnsupportedSkipped++
+	}
+}
+
+func (outcome *watchdogProbeBatchOutcome) applyHoldOutcome(holdOutcome watchdogHoldOutcome) {
+	if holdOutcome.ActionRecorded {
+		outcome.ActionCount++
+	}
+	if holdOutcome.Reconciled {
+		outcome.Reconciled = true
+	}
+	if holdOutcome.QuotaHeld {
+		outcome.QuotaHeld++
+	}
+	if holdOutcome.Restored {
+		outcome.Restored++
+	}
+	if holdOutcome.ProbeFailed {
+		outcome.ProbeFailed++
+	}
+	if holdOutcome.UnsupportedSkipped {
+		outcome.UnsupportedSkipped++
+	}
+}
+
+func (s *Service) repairPendingWatchdogPatchActions(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, now time.Time) ([]watchdogHoldOutcome, error) {
+	lister, ok := s.store.(actionHistoryPersistence)
+	if !ok {
+		return nil, nil
+	}
+	actions, err := lister.ListWatchdogActions(ctx, instance.ID)
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]SidecarWatchdogAction, 0)
+	for _, action := range actions {
+		if action.Status != watchdogActionStatusPending {
+			continue
+		}
+		if action.ActionType != watchdogActionDeprioritize && action.ActionType != watchdogActionRestore {
+			continue
+		}
+		pending = append(pending, action)
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	sort.SliceStable(pending, func(i, j int) bool {
+		if pending[i].CreatedAt.Equal(pending[j].CreatedAt) {
+			return pending[i].ID < pending[j].ID
+		}
+		return pending[i].CreatedAt.Before(pending[j].CreatedAt)
+	})
+
+	outcomes := make([]watchdogHoldOutcome, 0, len(pending))
+	for _, action := range pending {
+		outcome, repairErr := s.repairPendingWatchdogPatchAction(ctx, instance, policy, action, now)
+		outcomes = append(outcomes, outcome)
+		if repairErr != nil {
+			return outcomes, repairErr
+		}
+	}
+	return outcomes, nil
+}
+
+func (s *Service) repairPendingWatchdogPatchAction(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, action SidecarWatchdogAction, now time.Time) (watchdogHoldOutcome, error) {
+	switch action.ActionType {
+	case watchdogActionDeprioritize:
+		return s.repairPendingWatchdogDeprioritizeAction(ctx, instance, action, now)
+	case watchdogActionRestore:
+		return s.repairPendingWatchdogRestoreAction(ctx, instance, policy, action, now)
+	default:
+		return watchdogHoldOutcome{}, nil
+	}
+}
+
+func (s *Service) repairPendingWatchdogDeprioritizeAction(ctx context.Context, instance SidecarInstance, action SidecarWatchdogAction, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	if strings.TrimSpace(stringValue(action.AuthID)) == "" {
+		message := "pending deprioritize action is missing auth_id"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusFailed, nil, &message, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	if action.TargetPriority == nil {
+		message := "pending deprioritize action is missing target priority"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusFailed, nil, &message, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	if strings.TrimSpace(stringValue(action.Reason)) == "" {
+		message := "pending deprioritize action is missing reason"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusFailed, nil, &message, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	selectedName := strings.TrimSpace(stringValue(action.AuthName))
+	if selectedName == "" {
+		message := "pending deprioritize action is missing auth_name"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusFailed, nil, &message, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+
+	expected := watchdogLiveAuthExpectation{AuthID: strings.TrimSpace(stringValue(action.AuthID)), AuthIndex: strings.TrimSpace(stringValue(action.AuthIndex)), Provider: strings.TrimSpace(stringValue(action.Provider)), Name: selectedName}
+	live, found, mismatchReason, err := s.fetchLiveAuthForPriorityPatch(ctx, instance, expected, now)
+	if err != nil {
+		return outcome, err
+	}
+	if !found {
+		reason := "auth no longer exists in fresh preflight read"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	if mismatchReason != nil {
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, mismatchReason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+
+	livePriority := watchdogAuthPriority(live)
+	if livePriority <= *action.TargetPriority {
+		return s.completePendingWatchdogDeprioritizeAction(ctx, action, now)
+	}
+	if action.PreviousPriority != nil && livePriority != *action.PreviousPriority {
+		reason := "current priority no longer matches selected priority"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+
+	patchErr := s.patchAuthPriority(ctx, instance, live.Name, *action.TargetPriority)
+	if patchErr != nil {
+		message := watchdogErrorMessage(patchErr)
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusFailed, nil, &message, now)
+		outcome.ActionRecorded = true
+		if err != nil {
+			return outcome, err
+		}
+		return outcome, patchErr
+	}
+	return s.completePendingWatchdogDeprioritizeAction(ctx, action, now)
+}
+
+func (s *Service) completePendingWatchdogDeprioritizeAction(ctx context.Context, action SidecarWatchdogAction, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	hold, err := s.createActiveWatchdogHoldFromPendingAction(ctx, action)
+	if err != nil {
+		return outcome, err
+	}
+	action.HoldID = &hold.ID
+	finalized, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSucceeded, nil, nil, now)
+	if err != nil {
+		return outcome, err
+	}
+	hold.LastActionID = &finalized.ID
+	if _, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+		return outcome, err
+	}
+	outcome.ActionRecorded = true
+	outcome.Reconciled = true
+	outcome.QuotaHeld = true
+	return outcome, nil
+}
+
+func (s *Service) createActiveWatchdogHoldFromPendingAction(ctx context.Context, action SidecarWatchdogAction) (SidecarWatchdogHold, error) {
+	if action.TargetPriority == nil {
+		return SidecarWatchdogHold{}, invalidInputError("pending deprioritize action is missing target priority")
+	}
+	authID := strings.TrimSpace(stringValue(action.AuthID))
+	reason := strings.TrimSpace(stringValue(action.Reason))
+	if authID == "" || reason == "" {
+		return SidecarWatchdogHold{}, invalidInputError("pending deprioritize action is missing auth_id or reason")
+	}
+	holdUntil := cloneTimePtr(action.HoldUntil)
+	if holdUntil != nil {
+		utc := holdUntil.UTC()
+		holdUntil = &utc
+	}
+	hold, err := s.store.CreateWatchdogHold(ctx, SidecarWatchdogHoldInput{SidecarID: action.SidecarID, AuthID: authID, AuthIndex: cloneStringPtr(action.AuthIndex), Provider: cloneStringPtr(action.Provider), Reason: reason, ConditionHash: pendingWatchdogActionConditionHash(action), PreviousPriority: cloneIntPtr(action.PreviousPriority), TargetPriority: *action.TargetPriority, HoldUntil: holdUntil, Status: WatchdogHoldStatusActive})
+	if err == nil {
+		return hold, nil
+	}
+	if !IsStoreError(err, StoreErrorDuplicateActiveHold) {
+		return SidecarWatchdogHold{}, err
+	}
+	existing, found, loadErr := s.store.GetActiveWatchdogHold(ctx, action.SidecarID, authID)
+	if loadErr != nil {
+		return SidecarWatchdogHold{}, loadErr
+	}
+	if !found {
+		return SidecarWatchdogHold{}, err
+	}
+	return existing, nil
+}
+
+func pendingWatchdogActionConditionHash(action SidecarWatchdogAction) string {
+	holdUntil := ""
+	if action.HoldUntil != nil {
+		holdUntil = action.HoldUntil.UTC().Format(time.RFC3339Nano)
+	}
+	input := fmt.Sprintf("pending-action|%d|%d|%s|%s|%s", action.SidecarID, action.ID, strings.TrimSpace(stringValue(action.AuthID)), strings.TrimSpace(stringValue(action.Reason)), holdUntil)
+	sum := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Service) repairPendingWatchdogRestoreAction(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, action SidecarWatchdogAction, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	hold, found, err := s.findActiveWatchdogHoldForPendingAction(ctx, action)
+	if err != nil {
+		return outcome, err
+	}
+	if !found {
+		reason := "watchdog hold is no longer active"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	if hold.Status != WatchdogHoldStatusActive {
+		reason := "watchdog hold is not active"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	restorePriority := cloneIntPtr(action.TargetPriority)
+	if restorePriority == nil {
+		restorePriority = cloneIntPtr(hold.PreviousPriority)
+	}
+	if restorePriority == nil {
+		reason := "previous priority is missing; operator must choose restore priority"
+		return s.pauseHoldWithPendingRestoreAction(ctx, hold, action, policy, reason, now)
+	}
+	if hold.PreviousPriority == nil {
+		hold.PreviousPriority = cloneIntPtr(restorePriority)
+	}
+
+	selectedName := strings.TrimSpace(stringValue(action.AuthName))
+	if selectedName == "" {
+		reason := "pending restore action is missing auth_name"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusFailed, nil, &reason, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+
+	expected := watchdogLiveAuthExpectation{AuthID: hold.AuthID, AuthIndex: strings.TrimSpace(stringValue(hold.AuthIndex)), Provider: strings.TrimSpace(stringValue(hold.Provider)), Name: selectedName}
+	if strings.TrimSpace(stringValue(action.AuthIndex)) != "" {
+		expected.AuthIndex = strings.TrimSpace(stringValue(action.AuthIndex))
+	}
+	if strings.TrimSpace(stringValue(action.Provider)) != "" {
+		expected.Provider = strings.TrimSpace(stringValue(action.Provider))
+	}
+	live, liveFound, mismatchReason, err := s.fetchLiveAuthForPriorityPatch(ctx, instance, expected, now)
+	if err != nil {
+		return outcome, err
+	}
+	if !liveFound {
+		reason := "auth no longer exists in fresh preflight read"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+	if mismatchReason != nil {
+		return s.pauseHoldWithPendingRestoreAction(ctx, hold, action, policy, *mismatchReason, now)
+	}
+
+	currentPriority := watchdogAuthPriority(live)
+	if currentPriority == *restorePriority {
+		return s.completePendingWatchdogRestoreAction(ctx, hold, action, nil, now)
+	}
+	if currentPriority != hold.TargetPriority {
+		reason := "current priority no longer matches watchdog target priority"
+		return s.pauseHoldWithPendingRestoreAction(ctx, hold, action, policy, reason, now)
+	}
+	if !watchdogAuthEnabled(live) {
+		reason := "fresh preflight auth is not healthy"
+		_, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+		outcome.ActionRecorded = true
+		return outcome, err
+	}
+
+	patchErr := s.patchAuthPriority(ctx, instance, live.Name, *restorePriority)
+	return s.completePendingWatchdogRestoreAction(ctx, hold, action, patchErr, now)
+}
+
+func (s *Service) findActiveWatchdogHoldForPendingAction(ctx context.Context, action SidecarWatchdogAction) (SidecarWatchdogHold, bool, error) {
+	holds, err := s.store.ListActiveWatchdogHolds(ctx, action.SidecarID)
+	if err != nil {
+		return SidecarWatchdogHold{}, false, err
+	}
+	if action.HoldID != nil {
+		for _, hold := range holds {
+			if hold.ID == *action.HoldID {
+				return hold, true, nil
+			}
+		}
+	}
+	authID := strings.TrimSpace(stringValue(action.AuthID))
+	if authID == "" {
+		return SidecarWatchdogHold{}, false, nil
+	}
+	for _, hold := range holds {
+		if hold.AuthID == authID {
+			return hold, true, nil
+		}
+	}
+	return SidecarWatchdogHold{}, false, nil
+}
+
+func (s *Service) pauseHoldWithPendingRestoreAction(ctx context.Context, hold SidecarWatchdogHold, action SidecarWatchdogAction, policy SidecarWatchdogPolicy, reason string, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	finalized, err := s.finalizePendingWatchdogAction(ctx, action, watchdogActionStatusSkipped, &reason, nil, now)
+	if err != nil {
+		return outcome, err
+	}
+	manualPauseUntil := now.Add(time.Duration(normalizedManualPauseSeconds(policy)) * time.Second)
+	hold.ManualPauseUntil = &manualPauseUntil
+	hold.Status = WatchdogHoldStatusPaused
+	hold.LastActionID = &finalized.ID
+	if _, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+		return outcome, err
+	}
+	outcome.ActionRecorded = true
+	return outcome, nil
+}
+
+func (s *Service) completePendingWatchdogRestoreAction(ctx context.Context, hold SidecarWatchdogHold, action SidecarWatchdogAction, patchErr error, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	status := watchdogActionStatusSucceeded
+	var errorMessage *string
+	if patchErr != nil {
+		status = watchdogActionStatusFailed
+		message := watchdogErrorMessage(patchErr)
+		errorMessage = &message
+	}
+	finalized, err := s.finalizePendingWatchdogAction(ctx, action, status, nil, errorMessage, now)
+	if err != nil {
+		return outcome, err
+	}
+	hold.LastActionID = &finalized.ID
+	if patchErr == nil {
+		hold.Status = WatchdogHoldStatusReleased
+		hold.ReleasedAt = &now
+		outcome.Released = true
+		outcome.Restored = true
+		outcome.Reconciled = true
+	}
+	if _, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+		return outcome, err
+	}
+	outcome.ActionRecorded = true
+	if patchErr != nil {
+		return outcome, patchErr
+	}
+	return outcome, nil
+}
+
+func (s *Service) finalizePendingWatchdogAction(ctx context.Context, action SidecarWatchdogAction, status string, reason *string, errorMessage *string, now time.Time) (SidecarWatchdogAction, error) {
+	if reason != nil {
+		action.Reason = cloneStringPtr(reason)
+	}
+	return s.finalizeWatchdogAction(ctx, action, status, errorMessage, now)
+}
+
+type watchdogProbeRun struct {
+	remaining int
+	policy    SidecarWatchdogPolicy
+	startedAt time.Time
+}
+
+func newWatchdogProbeRun(policy SidecarWatchdogPolicy, startedAt time.Time) watchdogProbeRun {
+	return watchdogProbeRun{remaining: normalizedProbeBatchSize(policy), policy: policy, startedAt: startedAt}
+}
+
+func (run *watchdogProbeRun) nextTimeout(now time.Time) (time.Duration, bool) {
+	if run == nil || run.remaining <= 0 {
+		return 0, false
+	}
+	return watchdogEffectiveProbeTimeout(run.policy, run.startedAt, now)
+}
+
+func (run *watchdogProbeRun) consume() {
+	if run != nil && run.remaining > 0 {
+		run.remaining--
+	}
+}
+
+func (s *Service) reconcileDueWatchdogProbeBatch(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, holds []SidecarWatchdogHold, snapshotByAuth map[string]SidecarAuthSnapshot, run *watchdogProbeRun, now time.Time) (watchdogProbeBatchOutcome, error) {
+	outcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	for _, hold := range holds {
+		candidate, ok := watchdogDueHoldProbeCandidate(hold, now)
+		if !ok {
+			continue
+		}
+		timeout, ok := run.nextTimeout(time.Now().UTC())
+		if !ok {
+			break
+		}
+		classification, observation, err := s.runWatchdogProbe(ctx, instance, policy, candidate, timeout, now)
+		if err != nil {
+			return outcome, err
+		}
+		run.consume()
+		outcome.Attempted++
+		if watchdogProbeClassificationFailed(classification) {
+			outcome.ProbeFailed++
+		}
+		if classification.Status == watchdogProbeStatusSkippedUnsupportedProvider {
+			outcome.UnsupportedSkipped++
+		}
+		outcome.ProcessedHoldIDs[hold.ID] = struct{}{}
+		outcome.ProcessedAuthIDs[hold.AuthID] = struct{}{}
+
+		decision := SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{observation}}
+		if update := watchdogHoldUpdateForProbeResult(hold, policy, classification, now); update != nil {
+			decision.UpdateHold = &SidecarWatchdogProbeHoldUpdate{ID: hold.ID, Input: *update}
+		}
+		decisionResult, err := s.store.PersistWatchdogProbeDecision(ctx, decision)
+		if err != nil {
+			return outcome, err
+		}
+		actionHold := hold
+		if decisionResult.UpdatedHold != nil {
+			actionHold = *decisionResult.UpdatedHold
+		}
+		actionOutcome, err := s.applyDueWatchdogProbeResult(ctx, instance, policy, actionHold, snapshotByAuth[hold.AuthID], classification, now)
+		if err != nil {
+			return outcome, err
+		}
+		outcome.applyHoldOutcome(actionOutcome)
+	}
+	return outcome, nil
+}
+
+func (s *Service) reconcileDiscoveryWatchdogProbeBatch(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, snapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, run *watchdogProbeRun, now time.Time) (watchdogProbeBatchOutcome, error) {
+	unsupportedSkipped, unsupportedActions, err := s.recordUnsupportedDiscoveryWatchdogProbeSkips(ctx, instance.ID, policy, snapshots, activeHoldAuths, now)
+	if err != nil {
+		return watchdogProbeBatchOutcome{}, err
+	}
+	outcome := watchdogProbeBatchOutcome{UnsupportedSkipped: unsupportedSkipped, ActionCount: unsupportedActions, ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	for _, candidate := range watchdogDiscoveryProbeCandidates(policy, snapshots, activeHoldAuths) {
+		timeout, ok := run.nextTimeout(time.Now().UTC())
+		if !ok {
+			break
+		}
+		classification, observation, err := s.runWatchdogProbe(ctx, instance, policy, candidate, timeout, now)
+		if err != nil {
+			return outcome, err
+		}
+		run.consume()
+		if watchdogProbeClassificationFailed(classification) {
+			outcome.ProbeFailed++
+		}
+		if classification.Status == watchdogProbeStatusSkippedUnsupportedProvider {
+			outcome.UnsupportedSkipped++
+		}
+		cursorAuthID := candidate.AuthID
+		_, err = s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{observation}, AdvanceProbeCursor: true, ProbeCursorAuthID: &cursorAuthID})
+		if err != nil {
+			return outcome, err
+		}
+		outcome.Attempted++
+		outcome.ProcessedAuthIDs[candidate.AuthID] = struct{}{}
+		actionOutcome, err := s.applyDiscoveryWatchdogProbeResult(ctx, instance, policy, candidate, classification, now)
+		if err != nil {
+			return outcome, err
+		}
+		outcome.applyHoldOutcome(actionOutcome)
+	}
+	return outcome, nil
+}
+
+func (s *Service) runWatchdogProbe(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, candidate watchdogProbeCandidate, timeout time.Duration, now time.Time) (sidecarWatchdogProbeClassification, SidecarWatchdogProbeObservationInput, error) {
+	spec, ok := buildSidecarWatchdogProbeSpec(candidate.Provider, candidate.AuthIndex)
+	if !ok {
+		return sidecarWatchdogProbeClassification{}, SidecarWatchdogProbeObservationInput{}, invalidInputError("watchdog probe candidate is not probeable")
+	}
+	target, err := s.cliProxyTarget(instance)
+	if err != nil {
+		return sidecarWatchdogProbeClassification{}, SidecarWatchdogProbeObservationInput{}, err
+	}
+	target.RequestTimeoutSeconds = watchdogProbeRequestTimeoutSeconds(timeout)
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	response, probeErr := s.cliProxyClient.CallSidecarAPI(probeCtx, target, spec.Request)
+	classification := classifySidecarWatchdogProbe(candidate.Provider, response, probeErr, now, normalizedFallbackCooldownSeconds(policy))
+	observation, err := watchdogProbeObservationInput(instance.ID, candidate, classification, now)
+	if err != nil {
+		return sidecarWatchdogProbeClassification{}, SidecarWatchdogProbeObservationInput{}, err
+	}
+	return classification, observation, nil
+}
+
+type watchdogLiveAuthExpectation struct {
+	AuthID    string
+	AuthIndex string
+	Provider  string
+	Name      string
+}
+
+func (s *Service) applyDiscoveryWatchdogProbeResult(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, candidate watchdogProbeCandidate, classification sidecarWatchdogProbeClassification, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	condition := evaluateQuotaProbeObservation(instance.ID, candidate.AuthID, policy, classification, now)
+	if !condition.Triggered {
+		return outcome, nil
+	}
+	snapshot := watchdogCandidateSnapshot(candidate)
+	expected := watchdogLiveAuthExpectation{AuthID: candidate.AuthID, AuthIndex: candidate.AuthIndex, Provider: candidate.Provider, Name: snapshot.Name}
+	live, found, mismatchReason, err := s.fetchLiveAuthForPriorityPatch(ctx, instance, expected, now)
+	if err != nil {
+		return outcome, err
+	}
+	reason := condition.Reason
+	targetPriority := normalizedWatchdogTargetPriority(policy)
+	previousPriority := watchdogCandidatePreviousPriority(candidate, watchdogAuthPriority(live), targetPriority)
+	if !found {
+		missingReason := "auth no longer exists in fresh preflight read"
+		if err := s.recordWatchdogPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, watchdogActionStatusSkipped, &missingReason, previousPriority, &targetPriority, &condition.HoldUntil, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if mismatchReason != nil {
+		if err := s.recordWatchdogPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, watchdogActionStatusSkipped, mismatchReason, previousPriority, &targetPriority, &condition.HoldUntil, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	livePriority := watchdogAuthPriority(live)
+	holdInput := watchdogQuotaHoldInputFromProbe(instance.ID, candidate, condition, previousPriority, targetPriority)
+	if livePriority <= targetPriority {
+		hold, err := s.persistActiveWatchdogProbeHold(ctx, holdInput)
+		if err != nil {
+			return outcome, err
+		}
+		if _, err := s.recordHoldActionAndUpdate(ctx, hold, live, watchdogActionDeprioritize, watchdogActionStatusSucceeded, &reason, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		outcome.Reconciled = true
+		outcome.QuotaHeld = true
+		return outcome, nil
+	}
+	selectedPriority := watchdogCandidateSelectedPriority(candidate)
+	if selectedPriority == nil || livePriority != *selectedPriority {
+		manualReason := "current priority no longer matches selected priority"
+		if err := s.recordWatchdogPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, watchdogActionStatusSkipped, &manualReason, previousPriority, &targetPriority, &condition.HoldUntil, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	pendingAction, err := s.createPendingPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, &reason, previousPriority, &targetPriority, &condition.HoldUntil)
+	if err != nil {
+		return outcome, err
+	}
+	patchErr := s.patchAuthPriority(ctx, instance, live.Name, targetPriority)
+	if patchErr != nil {
+		message := watchdogErrorMessage(patchErr)
+		if _, err := s.finalizeWatchdogAction(ctx, pendingAction, watchdogActionStatusFailed, &message, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, patchErr
+	}
+	hold, err := s.persistActiveWatchdogProbeHold(ctx, holdInput)
+	if err != nil {
+		return outcome, err
+	}
+	pendingAction.HoldID = &hold.ID
+	action, err := s.finalizeWatchdogAction(ctx, pendingAction, watchdogActionStatusSucceeded, nil, now)
+	if err != nil {
+		return outcome, err
+	}
+	hold.LastActionID = &action.ID
+	if _, err := s.updateWatchdogHoldViaProbeDecision(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+		return outcome, err
+	}
+	outcome.ActionRecorded = true
+	outcome.Reconciled = true
+	outcome.QuotaHeld = true
+	return outcome, nil
+}
+
+func (s *Service) fetchLiveAuthForPriorityPatch(ctx context.Context, instance SidecarInstance, expected watchdogLiveAuthExpectation, now time.Time) (SidecarAuthSnapshot, bool, *string, error) {
+	live, found, err := s.fetchLiveAuthSnapshot(ctx, instance, expected.AuthID, now)
+	if err != nil || !found {
+		return live, found, nil, err
+	}
+	if expected.AuthIndex != "" && strings.TrimSpace(stringValue(live.AuthIndex)) != expected.AuthIndex {
+		reason := "current auth_index no longer matches selected auth"
+		return live, true, &reason, nil
+	}
+	if expected.Provider != "" && normalizedSidecarWatchdogProbeProviderKey(stringValue(live.Provider)) != normalizedSidecarWatchdogProbeProviderKey(expected.Provider) {
+		reason := "current provider no longer matches selected auth"
+		return live, true, &reason, nil
+	}
+	if expected.Name != "" && strings.TrimSpace(live.Name) != expected.Name {
+		reason := "current auth name no longer matches selected auth"
+		return live, true, &reason, nil
+	}
+	if strings.TrimSpace(live.Name) == "" {
+		reason := "current auth name is empty"
+		return live, true, &reason, nil
+	}
+	return live, true, nil, nil
+}
+
+func (s *Service) persistActiveWatchdogProbeHold(ctx context.Context, input SidecarWatchdogHoldInput) (SidecarWatchdogHold, error) {
+	result, err := s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: input.SidecarID, CreateHold: &input})
+	if err == nil {
+		if result.CreatedHold == nil {
+			return SidecarWatchdogHold{}, fmt.Errorf("sidecar watchdog probe decision did not return created hold")
+		}
+		return *result.CreatedHold, nil
+	}
+	if !IsStoreError(err, StoreErrorDuplicateActiveHold) {
+		return SidecarWatchdogHold{}, err
+	}
+	existing, found, loadErr := s.store.GetActiveWatchdogHold(ctx, input.SidecarID, input.AuthID)
+	if loadErr != nil {
+		return SidecarWatchdogHold{}, loadErr
+	}
+	if !found {
+		return SidecarWatchdogHold{}, err
+	}
+	merged := mergeWatchdogProbeHoldInput(existing, input)
+	return s.updateWatchdogHoldViaProbeDecision(ctx, existing.ID, merged)
+}
+
+func mergeWatchdogProbeHoldInput(existing SidecarWatchdogHold, input SidecarWatchdogHoldInput) SidecarWatchdogHoldInput {
+	merged := input
+	if existing.PreviousPriority != nil {
+		merged.PreviousPriority = cloneIntPtr(existing.PreviousPriority)
+	}
+	if existing.HoldUntil != nil && (merged.HoldUntil == nil || existing.HoldUntil.After(merged.HoldUntil.UTC())) {
+		merged.HoldUntil = cloneTimePtr(existing.HoldUntil)
+	}
+	merged.LastActionID = cloneIntPtr(existing.LastActionID)
+	if existing.ManualPauseUntil != nil {
+		merged.ManualPauseUntil = cloneTimePtr(existing.ManualPauseUntil)
+		merged.Status = existing.Status
+	}
+	return merged
+}
+
+func (s *Service) recordHoldActionAndUpdate(ctx context.Context, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, actionType string, status string, reason *string, errorMessage *string, now time.Time) (SidecarWatchdogHold, error) {
+	action, err := s.createHoldAction(ctx, hold, snapshot, actionType, status, reason, errorMessage, now)
+	if err != nil {
+		return hold, err
+	}
+	hold.LastActionID = &action.ID
+	return s.updateWatchdogHoldViaProbeDecision(ctx, hold.ID, watchdogHoldToInput(hold))
+}
+
+func (s *Service) updateWatchdogHoldViaProbeDecision(ctx context.Context, id int, input SidecarWatchdogHoldInput) (SidecarWatchdogHold, error) {
+	result, err := s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: input.SidecarID, UpdateHold: &SidecarWatchdogProbeHoldUpdate{ID: id, Input: input}})
+	if err != nil {
+		return SidecarWatchdogHold{}, err
+	}
+	if result.UpdatedHold == nil {
+		return SidecarWatchdogHold{}, fmt.Errorf("sidecar watchdog probe decision did not return updated hold")
+	}
+	return *result.UpdatedHold, nil
+}
+
+func (s *Service) recordWatchdogPatchActionWithoutHold(ctx context.Context, sidecarID int, snapshot SidecarAuthSnapshot, live SidecarAuthSnapshot, actionType string, status string, reason *string, previousPriority *int, targetPriority *int, holdUntil *time.Time, patchErr error, now time.Time) error {
+	input := watchdogPatchActionInputWithoutHold(sidecarID, snapshot, live, actionType, status, reason, previousPriority, targetPriority, holdUntil)
+	if patchErr != nil {
+		message := watchdogErrorMessage(patchErr)
+		input.ErrorMessage = &message
+	}
+	_, err := s.createWatchdogAction(ctx, input, now)
+	return err
+}
+
+func (s *Service) createPendingPatchActionWithoutHold(ctx context.Context, sidecarID int, snapshot SidecarAuthSnapshot, live SidecarAuthSnapshot, actionType string, reason *string, previousPriority *int, targetPriority *int, holdUntil *time.Time) (SidecarWatchdogAction, error) {
+	input := watchdogPatchActionInputWithoutHold(sidecarID, snapshot, live, actionType, watchdogActionStatusPending, reason, previousPriority, targetPriority, holdUntil)
+	return s.createPendingWatchdogAction(ctx, input)
+}
+
+func watchdogPatchActionInputWithoutHold(sidecarID int, snapshot SidecarAuthSnapshot, live SidecarAuthSnapshot, actionType string, status string, reason *string, previousPriority *int, targetPriority *int, holdUntil *time.Time) SidecarWatchdogActionInput {
+	input := SidecarWatchdogActionInput{SidecarID: sidecarID, AuthID: stringPtrFromNonEmpty(firstNonEmpty(live.AuthID, snapshot.AuthID)), AuthName: stringPtrFromNonEmpty(firstNonEmpty(live.Name, snapshot.Name)), AuthIndex: cloneStringPtr(live.AuthIndex), Provider: cloneStringPtr(live.Provider), ActionType: actionType, Reason: reason, PreviousPriority: cloneIntPtr(previousPriority), TargetPriority: cloneIntPtr(targetPriority), HoldUntil: cloneTimePtr(holdUntil), Status: status}
+	if input.AuthIndex == nil {
+		input.AuthIndex = cloneStringPtr(snapshot.AuthIndex)
+	}
+	if input.Provider == nil {
+		input.Provider = cloneStringPtr(snapshot.Provider)
+	}
+	if snapshot.ID > 0 {
+		input.AuthSnapshotID = &snapshot.ID
+	}
+	return input
+}
+
+func watchdogCandidateSnapshot(candidate watchdogProbeCandidate) SidecarAuthSnapshot {
+	if candidate.Snapshot == nil {
+		return SidecarAuthSnapshot{AuthID: candidate.AuthID, AuthIndex: stringPtrFromNonEmpty(candidate.AuthIndex), Provider: stringPtrFromNonEmpty(candidate.Provider)}
+	}
+	return *candidate.Snapshot
+}
+
+func watchdogCandidateSelectedPriority(candidate watchdogProbeCandidate) *int {
+	if candidate.Snapshot == nil {
+		return nil
+	}
+	return cloneIntPtr(candidate.Snapshot.Priority)
+}
+
+func watchdogCandidatePreviousPriority(candidate watchdogProbeCandidate, livePriority int, targetPriority int) *int {
+	if selected := watchdogCandidateSelectedPriority(candidate); selected != nil && *selected > targetPriority {
+		return selected
+	}
+	if livePriority > targetPriority {
+		priority := livePriority
+		return &priority
+	}
+	return nil
+}
+
+func watchdogQuotaHoldInputFromProbe(sidecarID int, candidate watchdogProbeCandidate, condition watchdogCondition, previousPriority *int, targetPriority int) SidecarWatchdogHoldInput {
+	holdUntil := condition.HoldUntil.UTC()
+	return SidecarWatchdogHoldInput{SidecarID: sidecarID, AuthID: candidate.AuthID, AuthIndex: stringPtrFromNonEmpty(candidate.AuthIndex), Provider: stringPtrFromNonEmpty(candidate.Provider), Reason: condition.Reason, ConditionHash: condition.Hash, PreviousPriority: cloneIntPtr(previousPriority), TargetPriority: targetPriority, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive}
+}
+
+func evaluateQuotaProbeObservation(sidecarID int, authID string, policy SidecarWatchdogPolicy, classification sidecarWatchdogProbeClassification, now time.Time) watchdogCondition {
+	if classification.Status != watchdogProbeStatusSucceeded || !classification.QuotaExceeded {
+		return watchdogCondition{}
+	}
+	holdUntil := now.Add(time.Duration(normalizedFallbackCooldownSeconds(policy)) * time.Second)
+	if classification.QuotaResetAt != nil && classification.QuotaResetAt.After(now) {
+		holdUntil = classification.QuotaResetAt.UTC()
+	}
+	reason := stringValueOr(classification.QuotaReason, watchdogReasonQuotaExceeded)
+	condition := watchdogCondition{Triggered: true, Reason: reason, HoldUntil: holdUntil}
+	condition.Hash = watchdogProbeConditionHash(sidecarID, authID, reason, holdUntil, classification)
+	return condition
+}
+
+func (s *Service) applyDueWatchdogProbeResult(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, classification sidecarWatchdogProbeClassification, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	if classification.Status == watchdogProbeStatusSucceeded && !classification.QuotaExceeded {
+		return s.restoreWatchdogHoldAfterHealthyProbe(ctx, instance, policy, hold, snapshot, now)
+	}
+	if classification.Status == watchdogProbeStatusSucceeded && classification.QuotaExceeded {
+		reason := stringValueOr(classification.QuotaReason, watchdogReasonQuotaExceeded)
+		if err := s.recordHoldAction(ctx, hold, snapshot, watchdogActionRestoreSkippedUnhealthy, watchdogActionStatusSkipped, &reason, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		outcome.QuotaHeld = true
+		return outcome, nil
+	}
+	reason := classification.Status
+	errorMessage := watchdogProbeFailureMessage(classification)
+	if err := s.recordHoldAction(ctx, hold, snapshot, classification.Status, watchdogActionStatusFailed, &reason, errorMessage, now); err != nil {
+		return outcome, err
+	}
+	outcome.ActionRecorded = true
+	return outcome, nil
+}
+
+func (s *Service) restoreWatchdogHoldAfterHealthyProbe(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	if hold.HoldUntil == nil || now.Before(hold.HoldUntil.UTC()) {
+		return outcome, nil
+	}
+	if hold.PreviousPriority == nil {
+		reason := "previous priority is missing; operator must choose restore priority"
+		if _, err := s.pauseHoldWithAction(ctx, hold, snapshot, policy, watchdogActionRestoreSkippedNeedsOperator, reason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	expected := watchdogLiveAuthExpectation{AuthID: hold.AuthID, AuthIndex: strings.TrimSpace(stringValue(hold.AuthIndex)), Provider: strings.TrimSpace(stringValue(hold.Provider))}
+	live, found, mismatchReason, err := s.fetchLiveAuthForPriorityPatch(ctx, instance, expected, now)
+	if err != nil {
+		return outcome, err
+	}
+	if !found {
+		reason := "auth no longer exists in fresh preflight read"
+		if err := s.recordHoldAction(ctx, hold, snapshot, watchdogActionRestoreSkippedMissingAuth, watchdogActionStatusSkipped, &reason, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if mismatchReason != nil {
+		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedManualChange, *mismatchReason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if strings.TrimSpace(stringValue(live.AuthIndex)) == "" {
+		reason := "fresh preflight auth is missing auth_index; operator must choose restore priority"
+		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedNeedsOperator, reason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	currentPriority := watchdogAuthPriority(live)
+	if currentPriority == *hold.PreviousPriority {
+		action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, watchdogActionStatusSucceeded, &hold.Reason, nil, now)
+		if err != nil {
+			return outcome, err
+		}
+		hold.LastActionID = &action.ID
+		hold.Status = WatchdogHoldStatusReleased
+		hold.ReleasedAt = &now
+		if _, err := s.updateWatchdogHoldViaProbeDecision(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		outcome.Released = true
+		outcome.Restored = true
+		outcome.Reconciled = true
+		return outcome, nil
+	}
+	if currentPriority != hold.TargetPriority {
+		reason := "current priority no longer matches watchdog target priority"
+		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedManualChange, reason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if !watchdogAuthEnabled(live) {
+		reason := "fresh preflight auth is not healthy"
+		if err := s.recordHoldAction(ctx, hold, live, watchdogActionRestoreSkippedUnhealthy, watchdogActionStatusSkipped, &reason, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	pendingAction, err := s.createPendingRestoreAction(ctx, hold, live)
+	if err != nil {
+		return outcome, err
+	}
+	patchErr := s.patchAuthPriority(ctx, instance, live.Name, *hold.PreviousPriority)
+	status := watchdogActionStatusSucceeded
+	var errorMessage *string
+	if patchErr != nil {
+		status = watchdogActionStatusFailed
+		message := watchdogErrorMessage(patchErr)
+		errorMessage = &message
+	}
+	action, err := s.finalizeWatchdogAction(ctx, pendingAction, status, errorMessage, now)
+	if err != nil {
+		return outcome, err
+	}
+	hold.LastActionID = &action.ID
+	if patchErr == nil {
+		hold.Status = WatchdogHoldStatusReleased
+		hold.ReleasedAt = &now
+		outcome.Released = true
+		outcome.Restored = true
+		outcome.Reconciled = true
+	}
+	if _, err := s.updateWatchdogHoldViaProbeDecision(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+		return outcome, err
+	}
+	outcome.ActionRecorded = true
+	return outcome, patchErr
+}
+
+func (s *Service) reconcileQuotaWatchdogHoldWithoutProbe(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, now time.Time) (watchdogHoldOutcome, error) {
+	outcome := watchdogHoldOutcome{Processed: true}
+	if hold.HoldUntil == nil || now.Before(hold.HoldUntil.UTC()) {
+		return outcome, nil
+	}
+	if hold.PreviousPriority == nil {
+		reason := "previous priority is missing; operator must choose restore priority"
+		if _, err := s.pauseHoldWithAction(ctx, hold, snapshot, policy, watchdogActionRestoreSkippedNeedsOperator, reason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	expected := watchdogLiveAuthExpectation{AuthID: hold.AuthID, AuthIndex: strings.TrimSpace(stringValue(hold.AuthIndex)), Provider: strings.TrimSpace(stringValue(hold.Provider))}
+	live, found, mismatchReason, err := s.fetchLiveAuthForPriorityPatch(ctx, instance, expected, now)
+	if err != nil {
+		return outcome, err
+	}
+	if !found {
+		reason := "auth no longer exists in fresh preflight read"
+		if err := s.recordHoldAction(ctx, hold, snapshot, watchdogActionRestoreSkippedMissingAuth, watchdogActionStatusSkipped, &reason, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if mismatchReason != nil {
+		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedManualChange, *mismatchReason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if watchdogAuthPriority(live) != hold.TargetPriority {
+		reason := "current priority no longer matches watchdog target priority"
+		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedManualChange, reason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if strings.TrimSpace(stringValue(hold.AuthIndex)) == "" || strings.TrimSpace(stringValue(live.AuthIndex)) == "" {
+		reason := "quota hold is missing auth_index; operator must choose restore priority"
+		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedNeedsOperator, reason, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(hold.Provider))
+	if !sidecarWatchdogProbeProviderSupported(provider) {
+		reason := watchdogProbeStatusSkippedUnsupportedProvider
+		recorded, err := s.recordHoldSkipOnce(ctx, hold, live, watchdogProbeStatusSkippedUnsupportedProvider, &reason, now)
+		if err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = recorded
+		outcome.UnsupportedSkipped = true
+	}
+	return outcome, nil
 }
 
 func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, now time.Time) (watchdogHoldOutcome, error) {
@@ -240,6 +1292,9 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 		outcome.Processed = false
 		outcome.Released = true
 		return outcome, nil
+	}
+	if watchdogHoldUsesQuotaProbe(hold) {
+		return s.reconcileQuotaWatchdogHoldWithoutProbe(ctx, instance, policy, hold, snapshot, now)
 	}
 	if hold.HoldUntil == nil || now.Before(hold.HoldUntil.UTC()) {
 		return outcome, nil
@@ -266,7 +1321,25 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 		outcome.ActionRecorded = true
 		return outcome, nil
 	}
-	if watchdogAuthPriority(live) != hold.TargetPriority {
+	currentPriority := watchdogAuthPriority(live)
+	if currentPriority == *hold.PreviousPriority {
+		action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, watchdogActionStatusSucceeded, &hold.Reason, nil, now)
+		if err != nil {
+			return outcome, err
+		}
+		hold.LastActionID = &action.ID
+		hold.Status = WatchdogHoldStatusReleased
+		hold.ReleasedAt = &now
+		if _, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		outcome.Released = true
+		outcome.Restored = true
+		outcome.Reconciled = true
+		return outcome, nil
+	}
+	if currentPriority != hold.TargetPriority {
 		reason := "current priority no longer matches watchdog target priority"
 		if _, err := s.pauseHoldWithAction(ctx, hold, live, policy, watchdogActionRestoreSkippedManualChange, reason, now); err != nil {
 			return outcome, err
@@ -292,6 +1365,10 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 		outcome.ActionRecorded = true
 		return outcome, nil
 	}
+	pendingAction, err := s.createPendingRestoreAction(ctx, hold, live)
+	if err != nil {
+		return outcome, err
+	}
 	patchErr := s.patchAuthPriority(ctx, instance, live.Name, *hold.PreviousPriority)
 	status := watchdogActionStatusSucceeded
 	var errorMessage *string
@@ -300,7 +1377,7 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 		message := watchdogErrorMessage(patchErr)
 		errorMessage = &message
 	}
-	action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, status, &hold.Reason, errorMessage, now)
+	action, err := s.finalizeWatchdogAction(ctx, pendingAction, status, errorMessage, now)
 	if err != nil {
 		return outcome, err
 	}
@@ -309,6 +1386,7 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 		hold.Status = WatchdogHoldStatusReleased
 		hold.ReleasedAt = &now
 		outcome.Released = true
+		outcome.Restored = true
 		outcome.Reconciled = true
 	}
 	if _, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
@@ -320,41 +1398,79 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 
 func (s *Service) reconcileWatchdogDeprioritize(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, snapshot SidecarAuthSnapshot, condition watchdogCondition, now time.Time) (watchdogHoldOutcome, error) {
 	outcome := watchdogHoldOutcome{Processed: true}
+	expected := watchdogLiveAuthExpectation{AuthID: snapshot.AuthID, AuthIndex: strings.TrimSpace(stringValue(snapshot.AuthIndex)), Provider: strings.TrimSpace(stringValue(snapshot.Provider)), Name: snapshot.Name}
+	live, found, mismatchReason, err := s.fetchLiveAuthForPriorityPatch(ctx, instance, expected, now)
+	if err != nil {
+		return outcome, err
+	}
+	targetPriority := normalizedWatchdogTargetPriority(policy)
+	previousPriority := cloneIntPtr(snapshot.Priority)
+	reason := condition.Reason
+	if !found {
+		missingReason := "auth no longer exists in fresh preflight read"
+		if err := s.recordWatchdogPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, watchdogActionStatusSkipped, &missingReason, previousPriority, &targetPriority, &condition.HoldUntil, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if mismatchReason != nil {
+		if err := s.recordWatchdogPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, watchdogActionStatusSkipped, mismatchReason, previousPriority, &targetPriority, &condition.HoldUntil, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	if watchdogAuthPriority(live) <= targetPriority {
+		hold, err := s.createActiveWatchdogHold(ctx, snapshot, policy, condition)
+		if err != nil {
+			return outcome, err
+		}
+		if _, err := s.recordHoldActionAndUpdate(ctx, hold, live, watchdogActionDeprioritize, watchdogActionStatusSucceeded, &reason, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		outcome.Reconciled = true
+		return outcome, nil
+	}
+	if previousPriority != nil && watchdogAuthPriority(live) != *previousPriority {
+		manualReason := "current priority no longer matches selected priority"
+		if err := s.recordWatchdogPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, watchdogActionStatusSkipped, &manualReason, previousPriority, &targetPriority, &condition.HoldUntil, nil, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, nil
+	}
+	pendingAction, err := s.createPendingPatchActionWithoutHold(ctx, instance.ID, snapshot, live, watchdogActionDeprioritize, &reason, previousPriority, &targetPriority, &condition.HoldUntil)
+	if err != nil {
+		return outcome, err
+	}
+	patchErr := s.patchAuthPriority(ctx, instance, live.Name, targetPriority)
+	if patchErr != nil {
+		message := watchdogErrorMessage(patchErr)
+		if _, err := s.finalizeWatchdogAction(ctx, pendingAction, watchdogActionStatusFailed, &message, now); err != nil {
+			return outcome, err
+		}
+		outcome.ActionRecorded = true
+		return outcome, patchErr
+	}
 	hold, err := s.createActiveWatchdogHold(ctx, snapshot, policy, condition)
 	if err != nil {
 		return outcome, err
 	}
-	patchErr := s.patchAuthPriority(ctx, instance, snapshot.Name, hold.TargetPriority)
-	status := watchdogActionStatusSucceeded
-	var errorMessage *string
-	if patchErr != nil {
-		status = watchdogActionStatusFailed
-		message := watchdogErrorMessage(patchErr)
-		errorMessage = &message
-	}
-	reason := condition.Reason
-	action, err := s.createHoldAction(ctx, hold, snapshot, watchdogActionDeprioritize, status, &reason, errorMessage, now)
+	pendingAction.HoldID = &hold.ID
+	action, err := s.finalizeWatchdogAction(ctx, pendingAction, watchdogActionStatusSucceeded, nil, now)
 	if err != nil {
 		return outcome, err
 	}
-	hold.Reason = condition.Reason
-	hold.ConditionHash = condition.Hash
-	hold.HoldUntil = &condition.HoldUntil
 	hold.LastActionID = &action.ID
-	hold.ManualPauseUntil = nil
-	if patchErr != nil {
-		hold.Status = WatchdogHoldStatusReleased
-		hold.ReleasedAt = &now
-	} else {
-		hold.Status = WatchdogHoldStatusActive
-		hold.ReleasedAt = nil
-		outcome.Reconciled = true
-	}
 	if _, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold)); err != nil {
 		return outcome, err
 	}
 	outcome.ActionRecorded = true
-	return outcome, patchErr
+	outcome.Reconciled = true
+	outcome.QuotaHeld = true
+	return outcome, nil
 }
 
 func (s *Service) createActiveWatchdogHold(ctx context.Context, snapshot SidecarAuthSnapshot, policy SidecarWatchdogPolicy, condition watchdogCondition) (SidecarWatchdogHold, error) {
@@ -422,25 +1538,16 @@ func (s *Service) cliProxyTarget(instance SidecarInstance) (CLIProxyTarget, erro
 func evaluateWatchdogCondition(snapshot SidecarAuthSnapshot, policy SidecarWatchdogPolicy, now time.Time) watchdogCondition {
 	fallbackUntil := now.Add(time.Duration(normalizedFallbackCooldownSeconds(policy)) * time.Second)
 	reason := ""
-	holdUntil := fallbackUntil
 	failureCount, observed := watchdogRecentFailureCount(snapshot, policy, now)
 	if !observed {
 		return watchdogCondition{}
 	}
-	if snapshot.QuotaExceeded != nil && *snapshot.QuotaExceeded {
-		reason = watchdogReasonQuotaExceeded
-		if snapshot.QuotaNextRecoverAt != nil && snapshot.QuotaNextRecoverAt.After(now) {
-			holdUntil = snapshot.QuotaNextRecoverAt.UTC()
-		}
-	} else if snapshot.QuotaNextRecoverAt != nil && snapshot.QuotaNextRecoverAt.After(now) {
-		reason = watchdogReasonQuotaRecoverPending
-		holdUntil = snapshot.QuotaNextRecoverAt.UTC()
-	} else if snapshot.Unavailable != nil && *snapshot.Unavailable {
+	if snapshot.Unavailable != nil && *snapshot.Unavailable {
 		reason = watchdogReasonUnavailable
 	} else if failureCount >= normalizedFailureThreshold(policy) {
 		reason = watchdogReasonFailureThreshold
 	}
-	condition := watchdogCondition{Triggered: reason != "", Reason: reason, FailureCount: failureCount, HoldUntil: holdUntil}
+	condition := watchdogCondition{Triggered: reason != "", Reason: reason, FailureCount: failureCount, HoldUntil: fallbackUntil}
 	if condition.Triggered {
 		condition.Hash = watchdogConditionHash(snapshot, condition)
 	}
@@ -503,11 +1610,24 @@ func (s *Service) pauseHoldWithAction(ctx context.Context, hold SidecarWatchdogH
 }
 
 func (s *Service) createHoldAction(ctx context.Context, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, actionType string, status string, reason *string, errorMessage *string, now time.Time) (SidecarWatchdogAction, error) {
-	input := SidecarWatchdogActionInput{SidecarID: hold.SidecarID, HoldID: &hold.ID, AuthID: &hold.AuthID, AuthIndex: cloneStringPtr(hold.AuthIndex), Provider: cloneStringPtr(hold.Provider), ActionType: actionType, Reason: reason, PreviousPriority: cloneIntPtr(hold.PreviousPriority), TargetPriority: &hold.TargetPriority, HoldUntil: cloneTimePtr(hold.HoldUntil), Status: status, ErrorMessage: errorMessage}
+	input := watchdogHoldActionInput(hold, snapshot, actionType, status, reason, errorMessage)
+	return s.createWatchdogAction(ctx, input, now)
+}
+
+func (s *Service) createPendingRestoreAction(ctx context.Context, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot) (SidecarWatchdogAction, error) {
+	input := watchdogHoldActionInput(hold, snapshot, watchdogActionRestore, watchdogActionStatusPending, &hold.Reason, nil)
+	if hold.PreviousPriority != nil {
+		input.TargetPriority = cloneIntPtr(hold.PreviousPriority)
+	}
+	return s.createPendingWatchdogAction(ctx, input)
+}
+
+func watchdogHoldActionInput(hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, actionType string, status string, reason *string, errorMessage *string) SidecarWatchdogActionInput {
+	input := SidecarWatchdogActionInput{SidecarID: hold.SidecarID, HoldID: &hold.ID, AuthID: &hold.AuthID, AuthName: stringPtrFromNonEmpty(snapshot.Name), AuthIndex: cloneStringPtr(hold.AuthIndex), Provider: cloneStringPtr(hold.Provider), ActionType: actionType, Reason: reason, PreviousPriority: cloneIntPtr(hold.PreviousPriority), TargetPriority: &hold.TargetPriority, HoldUntil: cloneTimePtr(hold.HoldUntil), Status: status, ErrorMessage: errorMessage}
 	if snapshot.ID > 0 {
 		input.AuthSnapshotID = &snapshot.ID
 	}
-	return s.createWatchdogAction(ctx, input, now)
+	return input
 }
 
 func (s *Service) recordHoldAction(ctx context.Context, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, actionType string, status string, reason *string, errorMessage *string, now time.Time) error {
@@ -529,7 +1649,7 @@ func (s *Service) recordWatchdogSkipOnce(ctx context.Context, input SidecarWatch
 }
 
 func (s *Service) recordHoldSkipOnce(ctx context.Context, hold SidecarWatchdogHold, snapshot SidecarAuthSnapshot, actionType string, reason *string, now time.Time) (bool, error) {
-	input := SidecarWatchdogActionInput{SidecarID: hold.SidecarID, HoldID: &hold.ID, AuthID: &hold.AuthID, ActionType: actionType, Status: watchdogActionStatusSkipped, Reason: reason}
+	input := SidecarWatchdogActionInput{SidecarID: hold.SidecarID, HoldID: &hold.ID, AuthID: &hold.AuthID, AuthIndex: cloneStringPtr(hold.AuthIndex), Provider: cloneStringPtr(hold.Provider), ActionType: actionType, Status: watchdogActionStatusSkipped, Reason: reason}
 	if s.hasMatchingSkippedAction(ctx, input) {
 		return false, nil
 	}
@@ -549,7 +1669,7 @@ func (s *Service) hasMatchingSkippedAction(ctx context.Context, input SidecarWat
 		if action.Status != watchdogActionStatusSkipped || action.ActionType != input.ActionType {
 			continue
 		}
-		if !optionalStringEqual(action.Reason, input.Reason) || !optionalStringEqual(action.AuthID, input.AuthID) || !optionalIntEqual(action.HoldID, input.HoldID) {
+		if !optionalStringEqual(action.Reason, input.Reason) || !optionalStringEqual(action.AuthID, input.AuthID) || !optionalStringEqual(action.Provider, input.Provider) || !optionalIntEqual(action.HoldID, input.HoldID) {
 			continue
 		}
 		return true
@@ -561,6 +1681,25 @@ func (s *Service) createWatchdogAction(ctx context.Context, input SidecarWatchdo
 	completedAt := now
 	input.CompletedAt = &completedAt
 	return s.store.CreateWatchdogAction(ctx, input)
+}
+
+func (s *Service) createPendingWatchdogAction(ctx context.Context, input SidecarWatchdogActionInput) (SidecarWatchdogAction, error) {
+	input.Status = watchdogActionStatusPending
+	input.ErrorMessage = nil
+	input.CompletedAt = nil
+	return s.store.CreateWatchdogAction(ctx, input)
+}
+
+func (s *Service) finalizeWatchdogAction(ctx context.Context, action SidecarWatchdogAction, status string, errorMessage *string, now time.Time) (SidecarWatchdogAction, error) {
+	completedAt := now
+	action.Status = status
+	action.ErrorMessage = cloneStringPtr(errorMessage)
+	action.CompletedAt = &completedAt
+	return s.store.UpdateWatchdogAction(ctx, action.ID, watchdogActionToInput(action))
+}
+
+func watchdogActionToInput(action SidecarWatchdogAction) SidecarWatchdogActionInput {
+	return SidecarWatchdogActionInput{SidecarID: action.SidecarID, AuthSnapshotID: cloneIntPtr(action.AuthSnapshotID), HoldID: cloneIntPtr(action.HoldID), AuthID: cloneStringPtr(action.AuthID), AuthName: cloneStringPtr(action.AuthName), AuthIndex: cloneStringPtr(action.AuthIndex), Provider: cloneStringPtr(action.Provider), ActionType: action.ActionType, Reason: cloneStringPtr(action.Reason), PreviousPriority: cloneIntPtr(action.PreviousPriority), TargetPriority: cloneIntPtr(action.TargetPriority), HoldUntil: cloneTimePtr(action.HoldUntil), Status: action.Status, ErrorMessage: cloneStringPtr(action.ErrorMessage), CompletedAt: cloneTimePtr(action.CompletedAt)}
 }
 
 func watchdogHoldToInput(hold SidecarWatchdogHold) SidecarWatchdogHoldInput {
@@ -584,6 +1723,156 @@ func watchdogAuthEnabled(snapshot SidecarAuthSnapshot) bool {
 
 func watchdogAuthPriority(snapshot SidecarAuthSnapshot) int {
 	return intPtrValue(snapshot.Priority)
+}
+
+type watchdogProbeCandidate struct {
+	AuthID    string
+	AuthIndex string
+	Provider  string
+	Snapshot  *SidecarAuthSnapshot
+	Hold      *SidecarWatchdogHold
+}
+
+func watchdogDueHoldProbeCandidate(hold SidecarWatchdogHold, now time.Time) (watchdogProbeCandidate, bool) {
+	if !watchdogDueHoldProbeCandidateEligible(hold, now) {
+		return watchdogProbeCandidate{}, false
+	}
+	return watchdogProbeCandidate{AuthID: strings.TrimSpace(hold.AuthID), AuthIndex: strings.TrimSpace(stringValue(hold.AuthIndex)), Provider: normalizedSidecarWatchdogProbeProviderKey(stringValue(hold.Provider)), Hold: &hold}, true
+}
+
+func watchdogDueHoldProbeCandidateEligible(hold SidecarWatchdogHold, now time.Time) bool {
+	if hold.Status != WatchdogHoldStatusActive || !watchdogHoldUsesQuotaProbe(hold) {
+		return false
+	}
+	if hold.HoldUntil == nil || now.Before(hold.HoldUntil.UTC()) {
+		return false
+	}
+	if hold.ManualPauseUntil != nil && now.Before(hold.ManualPauseUntil.UTC()) {
+		return false
+	}
+	provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(hold.Provider))
+	if !sidecarWatchdogProbeProviderSupported(provider) {
+		return false
+	}
+	return strings.TrimSpace(stringValue(hold.AuthIndex)) != ""
+}
+
+func watchdogHoldUsesQuotaProbe(hold SidecarWatchdogHold) bool {
+	reason := strings.TrimSpace(hold.Reason)
+	return strings.HasPrefix(reason, watchdogReasonQuotaExceeded) || strings.HasPrefix(reason, watchdogReasonQuotaRecoverPending)
+}
+
+func watchdogActiveHoldAuthSet(holds []SidecarWatchdogHold) map[string]struct{} {
+	active := map[string]struct{}{}
+	for _, hold := range holds {
+		if watchdogHoldStatusBlocksActiveDuplicate(hold.Status) {
+			active[hold.AuthID] = struct{}{}
+		}
+	}
+	return active
+}
+
+func watchdogDiscoveryProbeCandidates(policy SidecarWatchdogPolicy, snapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}) []watchdogProbeCandidate {
+	candidates := make([]watchdogProbeCandidate, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		if !watchdogDiscoveryProbeEligible(policy, snapshot, activeHoldAuths) {
+			continue
+		}
+		provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(snapshot.Provider))
+		candidates = append(candidates, watchdogProbeCandidate{AuthID: strings.TrimSpace(snapshot.AuthID), AuthIndex: strings.TrimSpace(stringValue(snapshot.AuthIndex)), Provider: provider, Snapshot: &snapshot})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Provider == candidates[j].Provider {
+			return candidates[i].AuthID < candidates[j].AuthID
+		}
+		return candidates[i].Provider < candidates[j].Provider
+	})
+	return rotateWatchdogDiscoveryCandidates(candidates, policy.ProbeCursorAuthID)
+}
+
+func watchdogDiscoveryProbeEligible(policy SidecarWatchdogPolicy, snapshot SidecarAuthSnapshot, activeHoldAuths map[string]struct{}) bool {
+	if !watchdogDiscoveryProbeBaseEligible(policy, snapshot, activeHoldAuths) {
+		return false
+	}
+	provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(snapshot.Provider))
+	return sidecarWatchdogProbeProviderSupported(provider)
+}
+
+func watchdogDiscoveryProbeBaseEligible(policy SidecarWatchdogPolicy, snapshot SidecarAuthSnapshot, activeHoldAuths map[string]struct{}) bool {
+	if _, held := activeHoldAuths[snapshot.AuthID]; held {
+		return false
+	}
+	if !watchdogAuthEnabled(snapshot) || watchdogAuthPriority(snapshot) < normalizedPrioritizedPriority(policy) {
+		return false
+	}
+	return strings.TrimSpace(stringValue(snapshot.AuthIndex)) != ""
+}
+
+func (s *Service) recordUnsupportedDiscoveryWatchdogProbeSkips(ctx context.Context, sidecarID int, policy SidecarWatchdogPolicy, snapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, now time.Time) (int, int, error) {
+	unsupportedSkipped, actions := unsupportedDiscoveryWatchdogProbeSkipActions(sidecarID, policy, snapshots, activeHoldAuths)
+	actionCount := 0
+	for _, action := range actions {
+		recorded, err := s.recordWatchdogSkipOnce(ctx, action, now)
+		if err != nil {
+			return unsupportedSkipped, actionCount, err
+		}
+		if recorded {
+			actionCount++
+		}
+	}
+	return unsupportedSkipped, actionCount, nil
+}
+
+func unsupportedDiscoveryWatchdogProbeSkipActions(sidecarID int, policy SidecarWatchdogPolicy, snapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}) (int, []SidecarWatchdogActionInput) {
+	unsupportedByProvider := map[string]struct{}{}
+	unsupportedSkipped := 0
+	for _, snapshot := range snapshots {
+		if !watchdogDiscoveryProbeBaseEligible(policy, snapshot, activeHoldAuths) {
+			continue
+		}
+		provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(snapshot.Provider))
+		if sidecarWatchdogProbeProviderSupported(provider) {
+			continue
+		}
+		unsupportedSkipped++
+		unsupportedByProvider[provider] = struct{}{}
+	}
+	providers := make([]string, 0, len(unsupportedByProvider))
+	for provider := range unsupportedByProvider {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	reason := watchdogProbeStatusSkippedUnsupportedProvider
+	actions := make([]SidecarWatchdogActionInput, 0, len(providers))
+	for _, provider := range providers {
+		actions = append(actions, SidecarWatchdogActionInput{SidecarID: sidecarID, Provider: stringPtrFromNonEmpty(provider), ActionType: watchdogProbeStatusSkippedUnsupportedProvider, Status: watchdogActionStatusSkipped, Reason: &reason})
+	}
+	return unsupportedSkipped, actions
+}
+
+func watchdogProbeClassificationFailed(classification sidecarWatchdogProbeClassification) bool {
+	return strings.HasPrefix(classification.Status, "probe_failed_")
+}
+
+func rotateWatchdogDiscoveryCandidates(candidates []watchdogProbeCandidate, cursorAuthID *string) []watchdogProbeCandidate {
+	if len(candidates) == 0 || cursorAuthID == nil || strings.TrimSpace(*cursorAuthID) == "" {
+		return candidates
+	}
+	cursor := strings.TrimSpace(*cursorAuthID)
+	start := 0
+	for index, candidate := range candidates {
+		if candidate.AuthID == cursor {
+			start = index + 1
+			break
+		}
+	}
+	if start == 0 || start >= len(candidates) {
+		return candidates
+	}
+	rotated := make([]watchdogProbeCandidate, 0, len(candidates))
+	rotated = append(rotated, candidates[start:]...)
+	rotated = append(rotated, candidates[:start]...)
+	return rotated
 }
 
 func intPtrValue(value *int) int {
@@ -622,11 +1911,163 @@ func intFromAny(value any) int {
 	return 0
 }
 
+func validateWatchdogProbeRuntimePolicy(policy SidecarWatchdogPolicy) error {
+	batchSize := normalizedProbeBatchSize(policy)
+	timeoutSeconds := normalizedProbeTimeoutSeconds(policy)
+	maxBudgetSeconds := watchdogProbeBudgetMaxSeconds()
+	if timeoutSeconds > maxBudgetSeconds {
+		return invalidInputError("probe_timeout_seconds exceeds watchdog worker budget")
+	}
+	if batchSize*timeoutSeconds > maxBudgetSeconds {
+		return invalidInputError("probe batch budget exceeds watchdog worker budget")
+	}
+	return nil
+}
+
+func watchdogEffectiveProbeTimeout(policy SidecarWatchdogPolicy, startedAt time.Time, now time.Time) (time.Duration, bool) {
+	if startedAt.IsZero() {
+		startedAt = now
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	budgetDeadline := startedAt.Add(sidecarWatchdogWorkerTimeout - sidecarWatchdogWorkerSafetyMargin())
+	remaining := budgetDeadline.Sub(now)
+	if remaining <= 0 {
+		return 0, false
+	}
+	policyTimeout := time.Duration(normalizedProbeTimeoutSeconds(policy)) * time.Second
+	if remaining < policyTimeout {
+		return remaining, true
+	}
+	return policyTimeout, true
+}
+
+func watchdogProbeRequestTimeoutSeconds(timeout time.Duration) int {
+	if timeout <= 0 {
+		return 1
+	}
+	seconds := int(timeout / time.Second)
+	if timeout%time.Second != 0 {
+		seconds++
+	}
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
+}
+
+func watchdogProbeObservationInput(sidecarID int, candidate watchdogProbeCandidate, classification sidecarWatchdogProbeClassification, now time.Time) (SidecarWatchdogProbeObservationInput, error) {
+	windows := classification.Windows
+	if windows == nil {
+		windows = []sidecarWatchdogQuotaWindow{}
+	}
+	windowsJSON, err := json.Marshal(windows)
+	if err != nil {
+		return SidecarWatchdogProbeObservationInput{}, err
+	}
+	return SidecarWatchdogProbeObservationInput{SidecarID: sidecarID, AuthID: candidate.AuthID, AuthIndex: stringPtrFromNonEmpty(candidate.AuthIndex), Provider: stringPtrFromNonEmpty(candidate.Provider), ProbedAt: now, ProbeStatus: classification.Status, UpstreamStatusCode: cloneIntPtr(classification.UpstreamStatusCode), QuotaExceeded: classification.QuotaExceeded, QuotaReason: cloneStringPtr(classification.QuotaReason), QuotaResetAt: cloneTimePtr(classification.QuotaResetAt), BlockingWindow: cloneStringPtr(classification.BlockingWindow), WindowsJSON: windowsJSON, ErrorCode: cloneStringPtr(classification.ErrorCode)}, nil
+}
+
+func watchdogHoldUpdateForProbeResult(hold SidecarWatchdogHold, policy SidecarWatchdogPolicy, classification sidecarWatchdogProbeClassification, now time.Time) *SidecarWatchdogHoldInput {
+	updated := hold
+	if classification.Status != watchdogProbeStatusSucceeded {
+		nextProbeAfter := now.Add(watchdogDueHoldProbeRetryCooldown(policy))
+		updated.HoldUntil = &nextProbeAfter
+		input := watchdogHoldToInput(updated)
+		return &input
+	}
+	if !classification.QuotaExceeded {
+		return nil
+	}
+	holdUntil := now.Add(time.Duration(normalizedFallbackCooldownSeconds(policy)) * time.Second)
+	if classification.QuotaResetAt != nil && classification.QuotaResetAt.After(now) {
+		holdUntil = classification.QuotaResetAt.UTC()
+	}
+	updated.Reason = stringValueOr(classification.QuotaReason, watchdogReasonQuotaExceeded)
+	updated.ConditionHash = watchdogProbeConditionHash(updated.SidecarID, updated.AuthID, updated.Reason, holdUntil, classification)
+	updated.HoldUntil = &holdUntil
+	input := watchdogHoldToInput(updated)
+	return &input
+}
+
+func watchdogProbeConditionHash(sidecarID int, authID string, reason string, holdUntil time.Time, classification sidecarWatchdogProbeClassification) string {
+	input := fmt.Sprintf("%d|%s|%s|%s|%s|%s", sidecarID, authID, reason, holdUntil.Format(time.RFC3339Nano), stringValue(classification.BlockingWindow), stringValue(classification.ErrorCode))
+	sum := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(sum[:])
+}
+
+func watchdogDueHoldProbeRetryCooldown(policy SidecarWatchdogPolicy) time.Duration {
+	cooldown := sidecarWatchdogWorkerInterval
+	if cooldown <= 0 {
+		return time.Duration(normalizedProbeTimeoutSeconds(policy)) * time.Second
+	}
+	return cooldown
+}
+
+func watchdogProbeFailureMessage(classification sidecarWatchdogProbeClassification) *string {
+	if classification.UpstreamStatusCode != nil {
+		return stringPtrFromNonEmpty(fmt.Sprintf("%s status=%d", classification.Status, *classification.UpstreamStatusCode))
+	}
+	if classification.ErrorCode != nil {
+		return stringPtrFromNonEmpty(fmt.Sprintf("%s: %s", classification.Status, *classification.ErrorCode))
+	}
+	return stringPtrFromNonEmpty(classification.Status)
+}
+
+func sidecarWatchdogWorkerSafetyMargin() time.Duration {
+	return 5 * time.Second
+}
+
 func normalizedWatchdogTargetPriority(policy SidecarWatchdogPolicy) int {
 	if policy.DeprioritizedPriority < 0 {
 		return DefaultDeprioritizedPriority
 	}
 	return policy.DeprioritizedPriority
+}
+
+func normalizedPrioritizedPriority(policy SidecarWatchdogPolicy) int {
+	if policy.PrioritizedPriority <= 0 {
+		return DefaultPrioritizedPriority
+	}
+	return policy.PrioritizedPriority
+}
+
+func normalizedProbeBatchSize(policy SidecarWatchdogPolicy) int {
+	if policy.ProbeBatchSize <= 0 {
+		return DefaultProbeBatchSize
+	}
+	return policy.ProbeBatchSize
+}
+
+func normalizedProbeTimeoutSeconds(policy SidecarWatchdogPolicy) int {
+	if policy.ProbeTimeoutSeconds <= 0 {
+		return DefaultProbeTimeoutSeconds
+	}
+	return policy.ProbeTimeoutSeconds
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func stringValueOr(value *string, fallback string) string {
+	if strings.TrimSpace(stringValue(value)) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(*value)
 }
 
 func normalizedFailureThreshold(policy SidecarWatchdogPolicy) int {
@@ -668,7 +2109,26 @@ func watchdogErrorMessage(err error) string {
 	if len(detail) > 500 {
 		detail = detail[:500]
 	}
+	if actionHistoryTextLooksSensitive(detail) {
+		return "redacted-by-prism"
+	}
 	return detail
+}
+
+type watchdogRunLease interface {
+	Release(context.Context) error
+}
+
+type watchdogRunLeasePersistence interface {
+	TryAcquireWatchdogLease(context.Context, int) (watchdogRunLease, bool, error)
+}
+
+func (s *Service) tryAcquireWatchdogLease(ctx context.Context, sidecarID int) (watchdogRunLease, bool, error) {
+	locker, ok := s.store.(watchdogRunLeasePersistence)
+	if !ok {
+		return nil, true, nil
+	}
+	return locker.TryAcquireWatchdogLease(ctx, sidecarID)
 }
 
 func (s *Service) tryAcquireWatchdogRun(sidecarID int) bool {
