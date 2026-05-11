@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -57,6 +58,25 @@ interface AuthSearchLabels {
   unknownStatus: string;
 }
 
+interface UsageLimitErrorLabels {
+  eligiblePromoLabel: string;
+  messageLabel: string;
+  planTypeLabel: string;
+  resetsAtLabel: string;
+  resetsInSecondsLabel: string;
+  title: string;
+  typeLabel: string;
+}
+
+interface UsageLimitErrorDetail {
+  eligible_promo: string | null;
+  message: string;
+  plan_type: string;
+  resets_at: number;
+  resets_in_seconds: number;
+  type: "usage_limit_reached";
+}
+
 interface AuthFilesTableProps {
   actionHistory: SidecarActionHistoryItem[];
   authSnapshots: SidecarAuthSnapshot[];
@@ -78,6 +98,50 @@ function formatTimestamp(value: string | undefined, locale: string, fallback: st
     return fallback;
   }
   return date.toLocaleString(locale);
+}
+
+function formatEpochSeconds(value: number, locale: string, fallback: string) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    return fallback;
+  }
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return fallback;
+  }
+  return date.toLocaleString(locale);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isUsageLimitErrorDetail(value: unknown): value is UsageLimitErrorDetail {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return value.type === "usage_limit_reached"
+    && typeof value.message === "string"
+    && typeof value.plan_type === "string"
+    && Number.isSafeInteger(value.resets_at)
+    && (typeof value.eligible_promo === "string" || value.eligible_promo === null)
+    && Number.isSafeInteger(value.resets_in_seconds);
+}
+
+function parseUsageLimitStatusMessage(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    return isUsageLimitErrorDetail(parsed.error) ? parsed.error : null;
+  } catch {
+    return null;
+  }
 }
 
 function boolState(value: boolean | undefined, enabledLabel: string, disabledLabel: string, unknownLabel: string) {
@@ -212,6 +276,65 @@ function compareAuthSnapshots(left: SidecarAuthSnapshot, right: SidecarAuthSnaps
     return (right.priority ?? 0) - (left.priority ?? 0) || compareAuthByName(left, right);
   }
   return compareAuthByName(left, right);
+}
+
+function UsageLimitStatusTooltip({
+  badgeIntent,
+  badgeLabel,
+  error,
+  fallback,
+  formatNumberValue,
+  labels,
+  locale,
+  notApplicableLabel,
+}: {
+  badgeIntent: BadgeIntent;
+  badgeLabel: string;
+  error: UsageLimitErrorDetail;
+  fallback: string;
+  formatNumberValue: (value: number) => string;
+  labels: UsageLimitErrorLabels;
+  locale: string;
+  notApplicableLabel: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={`${badgeLabel}: ${labels.title}`}
+          className="inline-flex rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          type="button"
+        >
+          <StatusBadge label={badgeLabel} intent={badgeIntent} className="cursor-help" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        className="rounded-lg border border-border/70 bg-popover/95 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm"
+        side="top"
+        sideOffset={4}
+      >
+        <div className="flex max-w-72 flex-col gap-2">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            {labels.title}
+          </p>
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-2 gap-y-1">
+            <dt className="text-muted-foreground">{labels.typeLabel}</dt>
+            <dd className="min-w-0"><ValueBadge label={error.type} intent="danger" /></dd>
+            <dt className="text-muted-foreground">{labels.messageLabel}</dt>
+            <dd className="min-w-0 break-words font-medium text-foreground">{error.message}</dd>
+            <dt className="text-muted-foreground">{labels.planTypeLabel}</dt>
+            <dd className="min-w-0"><TypeBadge label={error.plan_type} intent="muted" preserveLabel /></dd>
+            <dt className="text-muted-foreground">{labels.resetsAtLabel}</dt>
+            <dd className="min-w-0 text-foreground">{formatEpochSeconds(error.resets_at, locale, fallback)}</dd>
+            <dt className="text-muted-foreground">{labels.resetsInSecondsLabel}</dt>
+            <dd className="min-w-0"><ValueBadge label={formatNumberValue(error.resets_in_seconds)} intent="warning" /></dd>
+            <dt className="text-muted-foreground">{labels.eligiblePromoLabel}</dt>
+            <dd className="min-w-0 text-foreground">{error.eligible_promo ?? notApplicableLabel}</dd>
+          </dl>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function AuthFilesTable({
@@ -372,6 +495,9 @@ export function AuthFilesTable({
                     const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
                     const parsedPriority = parsePriority(priorityValue);
                     const mutating = mutatingAuthKey === snapshot.auth_id;
+                    const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
+                    const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
+                    const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.unknownStatus);
 
                     return (
                       <TableRow key={snapshot.auth_id}>
@@ -388,10 +514,33 @@ export function AuthFilesTable({
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-2">
-                            <StatusBadge label={snapshot.status ?? copy.unknownStatus} intent={statusIntent(snapshot)} />
+                            {usageLimitError ? (
+                              <UsageLimitStatusTooltip
+                                badgeIntent={statusBadgeIntent}
+                                badgeLabel={statusBadgeLabel}
+                                error={usageLimitError}
+                                fallback={messages.common.unavailable}
+                                formatNumberValue={formatNumber}
+                                labels={{
+                                  eligiblePromoLabel: copy.authUsageLimitEligiblePromoLabel,
+                                  messageLabel: copy.authUsageLimitMessageLabel,
+                                  planTypeLabel: copy.authUsageLimitPlanTypeLabel,
+                                  resetsAtLabel: copy.authUsageLimitResetsAtLabel,
+                                  resetsInSecondsLabel: copy.authUsageLimitResetsInSecondsLabel,
+                                  title: copy.authUsageLimitTitle,
+                                  typeLabel: copy.authUsageLimitTypeLabel,
+                                }}
+                                locale={locale}
+                                notApplicableLabel={messages.common.notApplicable}
+                              />
+                            ) : (
+                              <StatusBadge label={statusBadgeLabel} intent={statusBadgeIntent} />
+                            )}
                             <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.unknownStatus)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
                             {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
-                            {snapshot.status_message ? <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span> : null}
+                            {snapshot.status_message && !usageLimitError ? (
+                              <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell>

@@ -224,6 +224,13 @@ export interface Messages {
     authFilteredEmptyTitle: string;
     authFilteredEmptyDescription: string;
     authUnavailableLabel: string;
+    authUsageLimitEligiblePromoLabel: string;
+    authUsageLimitMessageLabel: string;
+    authUsageLimitPlanTypeLabel: string;
+    authUsageLimitResetsAtLabel: string;
+    authUsageLimitResetsInSecondsLabel: string;
+    authUsageLimitTitle: string;
+    authUsageLimitTypeLabel: string;
     authWatchdogColumn: string;
     baseUrlDescription: string;
     baseUrlLabel: string;
@@ -2367,6 +2374,13 @@ export const enMessages: Messages = {
     authFilteredEmptyTitle: "No auth files match",
     authFilteredEmptyDescription: "Try a different auth file, provider, status, or priority.",
     authUnavailableLabel: "Unavailable",
+    authUsageLimitEligiblePromoLabel: "Eligible promo",
+    authUsageLimitMessageLabel: "Message",
+    authUsageLimitPlanTypeLabel: "Plan",
+    authUsageLimitResetsAtLabel: "Resets at",
+    authUsageLimitResetsInSecondsLabel: "Resets in",
+    authUsageLimitTitle: "Usage limit",
+    authUsageLimitTypeLabel: "Type",
     authWatchdogColumn: "Watchdog",
     baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",
     baseUrlLabel: "Base URL",
