@@ -546,7 +546,7 @@ The audit detail view is a right-side sheet with tabs for:
 
 ## 8A. CLIProxyAPI Sidecars
 
-Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata, normalized auth/provider snapshots, watchdog policies, holds, and redacted action history. CLIProxyAPI remains the live authority for auth files and provider inventories.
+Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata, normalized auth/provider snapshots, watchdog policies, holds, sanitized probe observations, and redacted action history. CLIProxyAPI remains the live authority for auth files and provider inventories.
 
 ```text
 Frontend /sidecars
@@ -554,11 +554,16 @@ Frontend /sidecars
   -> Backend /api/sidecars/* global management routes
   -> Sidecar service validates network policy and management auth
   -> CLIProxyAPI /v0/management/{auth-files,provider endpoints}
-  -> Prism persists snapshots and action/watchdog state in sidecar_* tables
+  -> Watchdog quota probes use allowlisted CLIProxyAPI /api-call wrappers
+  -> Prism persists snapshots, sanitized probe observations, and action/watchdog state in sidecar_* tables
   -> Low-priority scheduler runs periodic sync and watchdog reconciliation
 ```
 
 Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, and snapshot redaction happen inside `backend/internal/httpapi/management/sidecars/`.
+
+The sidecar watchdog is probe-first for quota authority. It does not use snapshot `quota_*` fields as the source of truth for recovery or quota holds. Instead, bounded reconcile work selects auth files, sends active CLIProxyAPI `/api-call` probes, records sanitized observations, and then restores, deprioritizes, or extends holds from those probe outcomes. Public policy fields include `deprioritized_priority`, `prioritized_priority`, `probe_batch_size`, and `probe_timeout_seconds`; internal cursor state is kept out of the public API contract. In v1, provider-specific quota probes are supported only for `codex` and `chatgpt` and use the ChatGPT usage endpoint through the sidecar wrapper.
+
+Probe observations are append-only, operator-safe records with normalized status, upstream status code, quota result, reset time, blocking window, safe window summaries, and safe error code. They intentionally exclude raw probe payloads, raw provider responses, tokens, and provider identity payloads. The watchdog worker keeps a 15-day retention window for these observations. Action history exposes probe outcomes, including `probe_succeeded`, `probe_failed_*`, `probe_skipped_unsupported_provider`, and public `quota_hold_extended` records when quota remains blocking.
 
 The scheduler registers two bounded low-priority workers: `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile`. Both use queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity.
 

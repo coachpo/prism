@@ -1407,9 +1407,16 @@ PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status
 PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields
 GET /api/sidecars/{sidecar_id}/watchdog-policy
 PUT /api/sidecars/{sidecar_id}/watchdog-policy
+PATCH /api/sidecars/{sidecar_id}/watchdog-policy
 GET /api/sidecars/{sidecar_id}/actions
 ```
-Status mutations accept `disabled` plus optional `allow_watchdog`. Field mutations accept allowed operational fields such as `priority`, `proxy_url`, `headers`, `custom_headers`, `prefix`, `note`, `allow_watchdog`, and `force_live`; only `x-correlation-id`, `x-request-id`, and `x-trace-id` custom header names are accepted. Watchdog policy values use positive integer thresholds/windows/cooldowns, with `deprioritized_priority >= 0`. Action-history responses redact token, secret, password, and authorization-like text.
+Status mutations accept `disabled` plus optional `allow_watchdog`. Field mutations accept allowed operational fields such as `priority`, `proxy_url`, `headers`, `custom_headers`, `prefix`, `note`, `allow_watchdog`, and `force_live`; only `x-correlation-id`, `x-request-id`, and `x-trace-id` custom header names are accepted.
+
+Watchdog policy requests and responses expose `enabled`, `failure_threshold`, `failure_window_seconds`, `fallback_cooldown_seconds`, `deprioritized_priority`, `prioritized_priority`, `manual_override_pause_seconds`, `probe_batch_size`, and `probe_timeout_seconds`. `PUT` replaces the editable policy fields, while `PATCH` accepts a partial update. Positive integer thresholds, windows, cooldowns, batch sizes, and timeouts are required when present. Priority validation requires `deprioritized_priority >= 0`, `prioritized_priority >= 0`, and `deprioritized_priority < prioritized_priority`. Probe budget validation keeps `probe_timeout_seconds` and `probe_batch_size * probe_timeout_seconds` within the bounded watchdog worker budget.
+
+The sidecar watchdog uses probe-first quota authority. Recovery and quota decisions come from active CLIProxyAPI `/api-call` probes, not from stored snapshot `quota_*` fields. In v1, Prism only builds quota probes for `codex` and `chatgpt` provider keys, using a wrapped `GET https://chatgpt.com/backend-api/wham/usage` request through CLIProxyAPI with token substitution handled by the sidecar. Unsupported providers are skipped with an explicit probe action outcome.
+
+Action-history responses redact token, secret, password, and authorization-like text. Probe action types include `probe_succeeded`, `probe_failed_timeout`, `probe_failed_management_auth`, `probe_failed_token`, `probe_failed_status`, `probe_failed_parse`, `probe_failed_transport`, and `probe_skipped_unsupported_provider`. When a probe confirms quota is still blocking an auth file, the public action type is `quota_hold_extended`. Probe observations remain an internal sanitized store record and public API responses do not expose raw probe payloads, provider identity payloads, or internal probe cursor state.
 
 ---
 
