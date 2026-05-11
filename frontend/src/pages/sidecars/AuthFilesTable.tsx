@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Loader2, Search, Shield, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2, Search, Shield, SlidersHorizontal } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
 import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -300,12 +300,6 @@ export function AuthFilesTable({
         <CardDescription className="text-xs">{copy.authDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Alert className="border-warning/30 bg-warning/10">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{copy.authPriority0Title}</AlertTitle>
-          <AlertDescription>{copy.authPriority0Description}</AlertDescription>
-        </Alert>
-
         {!loading && authSnapshots.length > 0 ? (
           <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative w-full xl:max-w-sm">
@@ -359,119 +353,121 @@ export function AuthFilesTable({
           <EmptyState title={copy.authFilteredEmptyTitle} description={copy.authFilteredEmptyDescription} />
         ) : (
           <div className="overflow-hidden rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{copy.authAuthFileColumn}</TableHead>
-                  <TableHead>{copy.authStateColumn}</TableHead>
-                  <TableHead>{copy.authPriorityColumn}</TableHead>
-                  <TableHead>{copy.authRetryColumn}</TableHead>
-                  <TableHead>{copy.authRequestsColumn}</TableHead>
-                  <TableHead>{copy.authWatchdogColumn}</TableHead>
-                  <TableHead className="text-right">{copy.actionsColumn}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleAuthSnapshots.map((snapshot) => {
-                  const latest = latestAction.get(snapshot.auth_id);
-                  const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
-                  const parsedPriority = parsePriority(priorityValue);
-                  const mutating = mutatingAuthKey === snapshot.auth_id;
+            <ScrollArea className="h-288">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{copy.authAuthFileColumn}</TableHead>
+                    <TableHead>{copy.authStateColumn}</TableHead>
+                    <TableHead>{copy.authPriorityColumn}</TableHead>
+                    <TableHead>{copy.authRetryColumn}</TableHead>
+                    <TableHead>{copy.authRequestsColumn}</TableHead>
+                    <TableHead>{copy.authWatchdogColumn}</TableHead>
+                    <TableHead className="text-right">{copy.actionsColumn}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleAuthSnapshots.map((snapshot) => {
+                    const latest = latestAction.get(snapshot.auth_id);
+                    const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
+                    const parsedPriority = parsePriority(priorityValue);
+                    const mutating = mutatingAuthKey === snapshot.auth_id;
 
-                  return (
-                    <TableRow key={snapshot.auth_id}>
-                      <TableCell>
-                        <div className="flex min-w-52 flex-col gap-1">
-                          <span className="font-medium">{snapshot.name}</span>
-                          <span className="font-mono text-xs text-muted-foreground">{snapshot.auth_id}</span>
-                          <div className="flex flex-wrap gap-1">
-                            {snapshot.provider ? <TypeBadge label={snapshot.provider} intent="info" preserveLabel /> : null}
-                            {snapshot.label ? <TypeBadge label={snapshot.label} intent="muted" preserveLabel /> : null}
-                            {snapshot.auth_index ? <ValueBadge label={`#${snapshot.auth_index}`} intent="muted" /> : null}
+                    return (
+                      <TableRow key={snapshot.auth_id}>
+                        <TableCell>
+                          <div className="flex min-w-52 flex-col gap-1">
+                            <span className="font-medium">{snapshot.name}</span>
+                            <span className="font-mono text-xs text-muted-foreground">{snapshot.auth_id}</span>
+                            <div className="flex flex-wrap gap-1">
+                              {snapshot.provider ? <TypeBadge label={snapshot.provider} intent="info" preserveLabel /> : null}
+                              {snapshot.label ? <TypeBadge label={snapshot.label} intent="muted" preserveLabel /> : null}
+                              {snapshot.auth_index ? <ValueBadge label={`#${snapshot.auth_index}`} intent="muted" /> : null}
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-2">
-                          <StatusBadge label={snapshot.status ?? copy.unknownStatus} intent={statusIntent(snapshot)} />
-                          <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.unknownStatus)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
-                          {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
-                          {snapshot.status_message ? <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span> : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex min-w-44 flex-col gap-2">
-                          <div className="flex flex-wrap items-center gap-1">
-                            <ValueBadge label={copy.authPriorityLabel(snapshot.priority ?? 0)} intent={snapshot.priority === 0 || snapshot.priority === undefined ? "warning" : "info"} />
-                            {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="warning" preserveLabel /> : null}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-2">
+                            <StatusBadge label={snapshot.status ?? copy.unknownStatus} intent={statusIntent(snapshot)} />
+                            <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.unknownStatus)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
+                            {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
+                            {snapshot.status_message ? <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span> : null}
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              aria-label={copy.authPriorityInputLabel(snapshot.name)}
-                              className="h-8 w-24"
-                              min={0}
-                              step={1}
-                              type="number"
-                              value={priorityValue}
-                              aria-invalid={parsedPriority === null}
-                              onChange={(event) => setDraftPriorities((current) => ({ ...current, [snapshot.auth_id]: event.target.value }))}
-                            />
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              disabled={parsedPriority === null || mutating}
-                              onClick={() => parsedPriority !== null && openMutation({ kind: "priority", snapshot, priority: parsedPriority })}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex min-w-44 flex-col gap-2">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <ValueBadge label={copy.authPriorityLabel(snapshot.priority ?? 0)} intent={snapshot.priority === 0 || snapshot.priority === undefined ? "warning" : "info"} />
+                              {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="warning" preserveLabel /> : null}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                aria-label={copy.authPriorityInputLabel(snapshot.name)}
+                                className="h-8 w-24"
+                                min={0}
+                                step={1}
+                                type="number"
+                                value={priorityValue}
+                                aria-invalid={parsedPriority === null}
+                                onChange={(event) => setDraftPriorities((current) => ({ ...current, [snapshot.auth_id]: event.target.value }))}
+                              />
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                disabled={parsedPriority === null || mutating}
+                                onClick={() => parsedPriority !== null && openMutation({ kind: "priority", snapshot, priority: parsedPriority })}
+                              >
+                                {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                {copy.authSavePriority}
+                              </Button>
+                            </div>
+                            {priorityValue === "0" ? <span className="text-xs text-warning">{copy.authPriority0LastResort}</span> : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                            <span>{copy.authRetryLabel}: {formatTimestamp(snapshot.next_retry_after, locale, messages.common.unavailable)}</span>
+                            <span>{copy.authObservedLabel}: {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                            <span>{copy.authSuccessRequestsLabel}: {formatNumber(snapshot.success_count ?? 0)}</span>
+                            <span>{copy.authFailedRequestsLabel}: {formatNumber(snapshot.failed_count ?? 0)}</span>
+                            <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
+                            {latest ? (
+                              <>
+                                <TypeBadge label={formatActionType(latest.action_type, copy.actionTypeLabels)} intent={sidecarActionIntent(latest.action_type)} preserveLabel />
+                                <span>{formatActionStatus(latest.status, copy.actionStatusLabels)}</span>
+                                {latest.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(latest.hold_until, locale, messages.common.unavailable))}</span> : null}
+                              </>
+                            ) : (
+                              <span>{copy.authNoWatchdogAction}</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <IconActionGroup className="justify-end">
+                            <IconActionButton
+                              disabled={mutating}
+                              onClick={() => openMutation({ kind: "status", snapshot, disabled: !snapshot.disabled })}
                             >
-                              {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                              {copy.authSavePriority}
-                            </Button>
-                          </div>
-                          {priorityValue === "0" ? <span className="text-xs text-warning">{copy.authPriority0LastResort}</span> : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          <span>{copy.authRetryLabel}: {formatTimestamp(snapshot.next_retry_after, locale, messages.common.unavailable)}</span>
-                          <span>{copy.authObservedLabel}: {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          <span>{copy.authSuccessRequestsLabel}: {formatNumber(snapshot.success_count ?? 0)}</span>
-                          <span>{copy.authFailedRequestsLabel}: {formatNumber(snapshot.failed_count ?? 0)}</span>
-                          <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
-                          {latest ? (
-                            <>
-                              <TypeBadge label={formatActionType(latest.action_type, copy.actionTypeLabels)} intent={sidecarActionIntent(latest.action_type)} preserveLabel />
-                              <span>{formatActionStatus(latest.status, copy.actionStatusLabels)}</span>
-                              {latest.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(latest.hold_until, locale, messages.common.unavailable))}</span> : null}
-                            </>
-                          ) : (
-                            <span>{copy.authNoWatchdogAction}</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <IconActionGroup className="justify-end">
-                          <IconActionButton
-                            disabled={mutating}
-                            onClick={() => openMutation({ kind: "status", snapshot, disabled: !snapshot.disabled })}
-                          >
-                            {mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-                            <span className="sr-only">{snapshot.disabled ? copy.authEnableAuth(snapshot.name) : copy.authDisableAuth(snapshot.name)}</span>
-                          </IconActionButton>
-                        </IconActionGroup>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                              {mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                              <span className="sr-only">{snapshot.disabled ? copy.authEnableAuth(snapshot.name) : copy.authDisableAuth(snapshot.name)}</span>
+                            </IconActionButton>
+                          </IconActionGroup>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
             <div className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span>
