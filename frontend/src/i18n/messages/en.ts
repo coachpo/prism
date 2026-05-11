@@ -197,7 +197,6 @@ export interface Messages {
     authEnabledLabel: string;
     authMissingPriorityResolves: string;
     authNoWatchdogAction: string;
-    authPriority0Description: string;
     authPriority0LastResort: string;
     authPriority0MutationWarning: string;
     authPriority0Title: string;
@@ -2341,7 +2340,6 @@ export const enMessages: Messages = {
     authEnabledLabel: "Enabled",
     authMissingPriorityResolves: "missing resolves to 0",
     authNoWatchdogAction: "No watchdog action",
-    authPriority0Description: "Priority 0 is the lowest, last-resort band. It may still be used if no higher-priority auth is available.",
     authPriority0LastResort: "Priority 0 remains a last-resort option.",
     authPriority0MutationWarning: "Priority 0 is lowest/last resort, not guaranteed exclusion; it may still be used if no higher-priority auth is available.",
     authPriority0Title: "Priority 0 is not exclusion",

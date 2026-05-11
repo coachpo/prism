@@ -199,7 +199,6 @@ export const zhCNMessages: Messages = {
     authEnabledLabel: "启用",
     authMissingPriorityResolves: "缺失时按 0 处理",
     authNoWatchdogAction: "无 watchdog 动作",
-    authPriority0Description: "优先级 0 是最低的兜底档位；当没有更高优先级 auth 可用时仍可能被使用。",
     authPriority0LastResort: "优先级 0 仍是兜底选项。",
     authPriority0MutationWarning: "优先级 0 是最低/兜底级别，不保证排除；当没有更高优先级 auth 可用时仍可能被使用。",
     authPriority0Title: "优先级 0 不是排除",
