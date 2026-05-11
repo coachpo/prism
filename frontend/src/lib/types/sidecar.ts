@@ -97,7 +97,10 @@ export interface SidecarWatchdogPolicy {
   failure_window_seconds: number;
   fallback_cooldown_seconds: number;
   deprioritized_priority: number;
+  prioritized_priority: number;
   manual_override_pause_seconds: number;
+  probe_batch_size: number;
+  probe_timeout_seconds: number;
   created_at: string;
   updated_at: string;
 }
@@ -108,7 +111,10 @@ export interface SidecarWatchdogPolicyUpdate {
   failure_window_seconds?: number;
   fallback_cooldown_seconds?: number;
   deprioritized_priority?: number;
+  prioritized_priority?: number;
   manual_override_pause_seconds?: number;
+  probe_batch_size?: number;
+  probe_timeout_seconds?: number;
 }
 
 export interface SidecarTestConnectionResponse {

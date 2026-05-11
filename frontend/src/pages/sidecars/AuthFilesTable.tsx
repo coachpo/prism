@@ -36,6 +36,11 @@ import {
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
 import type { SidecarActionHistoryItem, SidecarAuthSnapshot } from "@/lib/types";
+import {
+  formatActionStatus,
+  formatActionType,
+  sidecarActionIntent,
+} from "./sidecarActionPresentation";
 
 type PendingMutation =
   | { kind: "priority"; snapshot: SidecarAuthSnapshot; priority: number }
@@ -48,7 +53,6 @@ interface AuthSearchLabels {
   disabledLabel: string;
   missingPriorityLabel: string;
   priorityLabel: (priority: number) => string;
-  quotaExceededLabel: string;
   unavailableLabel: string;
   unknownStatus: string;
 }
@@ -90,7 +94,7 @@ function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
   if (snapshot.disabled || snapshot.unavailable) {
     return "danger";
   }
-  if (snapshot.quota_exceeded || snapshot.next_retry_after) {
+  if (snapshot.next_retry_after) {
     return "warning";
   }
   if (snapshot.status === "healthy" || snapshot.status === "available") {
@@ -179,15 +183,11 @@ function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearch
     snapshot.status,
     snapshot.status_message,
     labels.priorityLabel(snapshot.priority ?? 0),
-    snapshot.quota_reason,
     boolState(snapshot.disabled, labels.enabledLabel, labels.disabledLabel, labels.unknownStatus),
   ];
 
   if (snapshot.unavailable) {
     fields.push(labels.unavailableLabel);
-  }
-  if (snapshot.quota_exceeded) {
-    fields.push(labels.quotaExceededLabel);
   }
   if (snapshot.priority === undefined) {
     fields.push(labels.missingPriorityLabel);
@@ -239,7 +239,6 @@ export function AuthFilesTable({
     enabledLabel: copy.authEnabledLabel,
     missingPriorityLabel: copy.authMissingPriorityResolves,
     priorityLabel: copy.authPriorityLabel,
-    quotaExceededLabel: copy.authQuotaExceeded,
     unavailableLabel: copy.authUnavailableLabel,
     unknownStatus: copy.unknownStatus,
   }), [
@@ -247,7 +246,6 @@ export function AuthFilesTable({
     copy.authEnabledLabel,
     copy.authMissingPriorityResolves,
     copy.authPriorityLabel,
-    copy.authQuotaExceeded,
     copy.authUnavailableLabel,
     copy.unknownStatus,
   ]);
@@ -407,8 +405,6 @@ export function AuthFilesTable({
                             <ValueBadge label={copy.authPriorityLabel(snapshot.priority ?? 0)} intent={snapshot.priority === 0 || snapshot.priority === undefined ? "warning" : "info"} />
                             {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="warning" preserveLabel /> : null}
                           </div>
-                          {snapshot.quota_exceeded ? <TypeBadge label={copy.authQuotaExceeded} intent="warning" preserveLabel /> : null}
-                          {snapshot.quota_reason ? <span className="max-w-44 text-xs text-muted-foreground">{snapshot.quota_reason}</span> : null}
                           <div className="flex items-center gap-2">
                             <Input
                               aria-label={copy.authPriorityInputLabel(snapshot.name)}
@@ -436,7 +432,6 @@ export function AuthFilesTable({
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          <span>{copy.authRecoverLabel}: {formatTimestamp(snapshot.quota_next_recover_at, locale, messages.common.unavailable)}</span>
                           <span>{copy.authRetryLabel}: {formatTimestamp(snapshot.next_retry_after, locale, messages.common.unavailable)}</span>
                           <span>{copy.authObservedLabel}: {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}</span>
                         </div>
@@ -452,8 +447,8 @@ export function AuthFilesTable({
                         <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
                           {latest ? (
                             <>
-                              <TypeBadge label={latest.action_type} intent="accent" preserveLabel />
-                              <span>{latest.status}</span>
+                              <TypeBadge label={formatActionType(latest.action_type, copy.actionTypeLabels)} intent={sidecarActionIntent(latest.action_type)} preserveLabel />
+                              <span>{formatActionStatus(latest.status, copy.actionStatusLabels)}</span>
                               {latest.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(latest.hold_until, locale, messages.common.unavailable))}</span> : null}
                             </>
                           ) : (

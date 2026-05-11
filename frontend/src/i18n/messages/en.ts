@@ -1,3 +1,16 @@
+export type SidecarActionStatusLabel = "succeeded" | "success" | "skipped" | "failed" | "error";
+
+export type SidecarActionTypeLabel =
+  | "probe_succeeded"
+  | "probe_failed_timeout"
+  | "probe_failed_management_auth"
+  | "probe_failed_token"
+  | "probe_failed_status"
+  | "probe_failed_parse"
+  | "probe_failed_transport"
+  | "probe_skipped_unsupported_provider"
+  | "quota_hold_extended";
+
 export interface Messages {
   auth: {
     accountResetCodeSent: string;
@@ -159,7 +172,8 @@ export interface Messages {
     actionHistoryPriorityColumn: string;
     actionHistoryReasonColumn: string;
     actionHistoryStatusColumn: string;
-    actionStatusLabels: Record<"succeeded" | "success" | "skipped" | "failed" | "error", string>;
+    actionStatusLabels: Record<SidecarActionStatusLabel, string>;
+    actionTypeLabels: Record<SidecarActionTypeLabel, string>;
     actionHistoryTimeColumn: string;
     actionHistoryTitle: string;
     actionHistoryToPriority: (priority: number) => string;
@@ -191,9 +205,7 @@ export interface Messages {
     authPriorityInputLabel: (name: string) => string;
     authPriorityLabel: (priority: number) => string;
     authPriorityUpdated: (name: string) => string;
-    authQuotaExceeded: string;
     authRecentRequestsLabel: string;
-    authRecoverLabel: string;
     authRetryLabel: string;
     authSavePriority: string;
     authStatusUpdated: (name: string, disabled: boolean) => string;
@@ -314,8 +326,13 @@ export interface Messages {
     watchdogFailureWindowLabel: string;
     watchdogFallbackCooldownLabel: string;
     watchdogManualPauseLabel: string;
+    watchdogPrioritizedPriorityDescription: string;
+    watchdogPrioritizedPriorityLabel: string;
+    watchdogPriorityOrderValidationError: string;
     watchdogPrioritySafetyDescription: string;
     watchdogPrioritySafetyTitle: string;
+    watchdogProbeBatchSizeLabel: string;
+    watchdogProbeTimeoutSecondsLabel: string;
     watchdogSave: string;
     watchdogSaveSucceeded: string;
     watchdogTitle: string;
@@ -2281,7 +2298,7 @@ export const enMessages: Messages = {
     actionHistoryActionColumn: "Action",
     actionHistoryAuthColumn: "Target auth",
     actionHistoryCompletedAt: (time) => `Completed ${time}`,
-    actionHistoryDescription: "Backend-recorded manual mutations and watchdog actions, including successful, skipped, failed, deprioritize, and restore outcomes.",
+    actionHistoryDescription: "Backend-recorded manual mutations and watchdog probe outcomes, including probe success, safe probe failure classes, skipped unsupported providers, hold extensions, deprioritize, and restore outcomes.",
     actionHistoryEmptyDescription: "Manual changes and watchdog decisions will appear here.",
     actionHistoryEmptyTitle: "No actions recorded",
     actionHistoryFromPriority: (priority) => `from ${priority}`,
@@ -2290,6 +2307,17 @@ export const enMessages: Messages = {
     actionHistoryReasonColumn: "Reason",
     actionHistoryStatusColumn: "Status",
     actionStatusLabels: { succeeded: "Succeeded", success: "Success", skipped: "Skipped", failed: "Failed", error: "Error" },
+    actionTypeLabels: {
+      probe_succeeded: "Probe succeeded",
+      probe_failed_timeout: "Probe timed out",
+      probe_failed_management_auth: "Probe management auth failed",
+      probe_failed_token: "Probe token failed",
+      probe_failed_status: "Probe returned non-OK status",
+      probe_failed_parse: "Probe response parse failed",
+      probe_failed_transport: "Probe transport failed",
+      probe_skipped_unsupported_provider: "Probe skipped: unsupported provider",
+      quota_hold_extended: "Quota hold extended",
+    },
     actionHistoryTimeColumn: "Time",
     actionHistoryTitle: "Action history",
     actionHistoryToPriority: (priority) => `to ${priority}`,
@@ -2304,7 +2332,7 @@ export const enMessages: Messages = {
     authActionConfirmDescription: "Manual changes normally pause watchdog reconciliation for this auth file so the watchdog does not immediately undo operator intent.",
     authActionConfirmTitle: "Confirm manual auth mutation",
     authAuthFileColumn: "Auth file",
-    authDescription: "Synced OAuth/auth inventory with quota, retry, priority, and watchdog state. Secrets and raw tokens are never shown.",
+    authDescription: "Synced OAuth/auth inventory with routing priority, retry timing, and watchdog state. Snapshot quota hints are not watchdog authority, and secrets or raw tokens are never shown.",
     authDisableAuth: (name) => `Disable auth ${name}`,
     authDisabledLabel: "Disabled",
     authEmptyDescription: "Run a sidecar sync to populate auth inventory.",
@@ -2317,13 +2345,11 @@ export const enMessages: Messages = {
     authPriority0LastResort: "Priority 0 remains a last-resort option.",
     authPriority0MutationWarning: "Priority 0 is lowest/last resort, not guaranteed exclusion; it may still be used if no higher-priority auth is available.",
     authPriority0Title: "Priority 0 is not exclusion",
-    authPriorityColumn: "Priority / quota",
+    authPriorityColumn: "Priority",
     authPriorityInputLabel: (name) => `Priority for ${name}`,
     authPriorityLabel: (priority) => `priority ${priority}`,
     authPriorityUpdated: (name) => `Updated priority for ${name}.`,
-    authQuotaExceeded: "Quota exceeded",
     authRecentRequestsLabel: "Recent",
-    authRecoverLabel: "Recover",
     authRetryLabel: "Retry",
     authSavePriority: "Save",
     authStatusUpdated: (name, disabled) => `${disabled ? "Disabled" : "Enabled"} ${name}.`,
@@ -2332,7 +2358,7 @@ export const enMessages: Messages = {
     authFailedRequestsLabel: "Failed",
     authObservedLabel: "Observed",
     authRequestsColumn: "Requests",
-    authRetryColumn: "Retry / recovery",
+    authRetryColumn: "Retry / observed",
     authTitle: "Auth files",
     authFilterLabel: "Filter auth files",
     authFilterPlaceholder: "Filter auth files...",
@@ -2436,20 +2462,25 @@ export const enMessages: Messages = {
     validationPositiveWholeNumber: (fieldLabel) => `${fieldLabel} must be a positive whole number.`,
     viewDetails: "View details",
     watchdogDeferred: "Watchdog policy details are managed in the next sidecar task.",
-    watchdogDescription: "Controls when Prism lowers a degraded auth file to the configured fallback priority and how long manual changes pause reconciliation.",
+    watchdogDescription: "Controls when Prism lowers a degraded auth file, probes held auth for recovery, and pauses reconciliation after manual changes.",
     watchdogDeprioritizedPriorityLabel: "Deprioritized priority",
-    watchdogEnabledDescription: "When enabled, Prism can deprioritize quota-failed auth files without disabling refresh.",
+    watchdogEnabledDescription: "When enabled, Prism can probe held auth files and adjust routing priority without disabling refresh.",
     watchdogEnabledLabel: "Enable watchdog",
     watchdogFailureThresholdLabel: "Failure threshold",
     watchdogFailureWindowLabel: "Failure window (seconds)",
     watchdogFallbackCooldownLabel: "Fallback cooldown (seconds)",
     watchdogManualPauseLabel: "Manual override pause (seconds)",
-    watchdogPrioritySafetyDescription: "Priority 0 is the lowest, last-resort priority, not guaranteed exclusion. CLIProxyAPI may still use it if no higher-priority auth is available.",
-    watchdogPrioritySafetyTitle: "Priority 0 safety note",
+    watchdogPrioritizedPriorityDescription: "Discovery probes start at this priority or higher; due holds may still probe below it to decide whether to restore or extend a hold.",
+    watchdogPrioritizedPriorityLabel: "Prioritized priority",
+    watchdogPriorityOrderValidationError: "Deprioritized priority must be lower than prioritized priority.",
+    watchdogPrioritySafetyDescription: "Priority 0 remains the lowest fallback band. Discovery probes use the prioritized threshold, but due holds may still probe lower-priority auth for recovery decisions.",
+    watchdogPrioritySafetyTitle: "Probe priority safety note",
+    watchdogProbeBatchSizeLabel: "Probe batch size",
+    watchdogProbeTimeoutSecondsLabel: "Probe timeout (seconds)",
     watchdogSave: "Save watchdog policy",
     watchdogSaveSucceeded: "Watchdog policy saved.",
     watchdogTitle: "Watchdog policy",
-    watchdogValidationError: "Thresholds and timeouts must be positive whole numbers; fallback priority must be zero or greater.",
+    watchdogValidationError: "Thresholds, windows, probe batch size, and probe timeout must be positive whole numbers; priorities must be zero or greater.",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",

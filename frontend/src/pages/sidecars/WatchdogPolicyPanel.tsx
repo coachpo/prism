@@ -22,7 +22,10 @@ type WatchdogPolicyForm = {
   failure_window_seconds: string;
   fallback_cooldown_seconds: string;
   deprioritized_priority: string;
+  prioritized_priority: string;
   manual_override_pause_seconds: string;
+  probe_batch_size: string;
+  probe_timeout_seconds: string;
 };
 
 const DEFAULT_FORM: WatchdogPolicyForm = {
@@ -31,7 +34,10 @@ const DEFAULT_FORM: WatchdogPolicyForm = {
   failure_window_seconds: "3600",
   fallback_cooldown_seconds: "86400",
   deprioritized_priority: "0",
+  prioritized_priority: "1",
   manual_override_pause_seconds: "1800",
+  probe_batch_size: "3",
+  probe_timeout_seconds: "8",
 };
 
 function formFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyForm {
@@ -44,7 +50,10 @@ function formFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyFor
     failure_window_seconds: String(policy.failure_window_seconds),
     fallback_cooldown_seconds: String(policy.fallback_cooldown_seconds),
     deprioritized_priority: String(policy.deprioritized_priority),
+    prioritized_priority: String(policy.prioritized_priority),
     manual_override_pause_seconds: String(policy.manual_override_pause_seconds),
+    probe_batch_size: String(policy.probe_batch_size),
+    probe_timeout_seconds: String(policy.probe_timeout_seconds),
   };
 }
 
@@ -58,6 +67,7 @@ function parseWholeNumber(value: string, min: number) {
 }
 
 function Field({
+  description,
   error,
   id,
   label,
@@ -65,6 +75,7 @@ function Field({
   onChange,
   value,
 }: {
+  description?: string;
   error: boolean;
   id: string;
   label: string;
@@ -84,6 +95,7 @@ function Field({
         aria-invalid={error}
         onChange={(event) => onChange(event.target.value)}
       />
+      {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
     </div>
   );
 }
@@ -102,10 +114,16 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
     failure_window_seconds: parseWholeNumber(form.failure_window_seconds, 1),
     fallback_cooldown_seconds: parseWholeNumber(form.fallback_cooldown_seconds, 1),
     deprioritized_priority: parseWholeNumber(form.deprioritized_priority, 0),
+    prioritized_priority: parseWholeNumber(form.prioritized_priority, 0),
     manual_override_pause_seconds: parseWholeNumber(form.manual_override_pause_seconds, 1),
+    probe_batch_size: parseWholeNumber(form.probe_batch_size, 1),
+    probe_timeout_seconds: parseWholeNumber(form.probe_timeout_seconds, 1),
   }), [form]);
 
-  const validationError = Object.values(parsed).some((value) => value === null);
+  const priorityOrderError = parsed.deprioritized_priority !== null
+    && parsed.prioritized_priority !== null
+    && parsed.deprioritized_priority >= parsed.prioritized_priority;
+  const validationError = Object.values(parsed).some((value) => value === null) || priorityOrderError;
 
   const updateField = (field: keyof WatchdogPolicyForm, value: string | boolean) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -122,7 +140,10 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
       failure_window_seconds: parsed.failure_window_seconds ?? undefined,
       fallback_cooldown_seconds: parsed.fallback_cooldown_seconds ?? undefined,
       deprioritized_priority: parsed.deprioritized_priority ?? undefined,
+      prioritized_priority: parsed.prioritized_priority ?? undefined,
       manual_override_pause_seconds: parsed.manual_override_pause_seconds ?? undefined,
+      probe_batch_size: parsed.probe_batch_size ?? undefined,
+      probe_timeout_seconds: parsed.probe_timeout_seconds ?? undefined,
     });
   };
 
@@ -156,7 +177,10 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
               <Field id="watchdog-failure-window" label={copy.watchdogFailureWindowLabel} min={1} value={form.failure_window_seconds} error={parsed.failure_window_seconds === null} onChange={(value) => updateField("failure_window_seconds", value)} />
               <Field id="watchdog-fallback-cooldown" label={copy.watchdogFallbackCooldownLabel} min={1} value={form.fallback_cooldown_seconds} error={parsed.fallback_cooldown_seconds === null} onChange={(value) => updateField("fallback_cooldown_seconds", value)} />
               <Field id="watchdog-manual-pause" label={copy.watchdogManualPauseLabel} min={1} value={form.manual_override_pause_seconds} error={parsed.manual_override_pause_seconds === null} onChange={(value) => updateField("manual_override_pause_seconds", value)} />
-              <Field id="watchdog-deprioritized-priority" label={copy.watchdogDeprioritizedPriorityLabel} min={0} value={form.deprioritized_priority} error={parsed.deprioritized_priority === null} onChange={(value) => updateField("deprioritized_priority", value)} />
+              <Field id="watchdog-deprioritized-priority" label={copy.watchdogDeprioritizedPriorityLabel} min={0} value={form.deprioritized_priority} error={parsed.deprioritized_priority === null || priorityOrderError} onChange={(value) => updateField("deprioritized_priority", value)} />
+              <Field id="watchdog-prioritized-priority" label={copy.watchdogPrioritizedPriorityLabel} min={0} value={form.prioritized_priority} error={parsed.prioritized_priority === null || priorityOrderError} description={copy.watchdogPrioritizedPriorityDescription} onChange={(value) => updateField("prioritized_priority", value)} />
+              <Field id="watchdog-probe-batch-size" label={copy.watchdogProbeBatchSizeLabel} min={1} value={form.probe_batch_size} error={parsed.probe_batch_size === null} onChange={(value) => updateField("probe_batch_size", value)} />
+              <Field id="watchdog-probe-timeout" label={copy.watchdogProbeTimeoutSecondsLabel} min={1} value={form.probe_timeout_seconds} error={parsed.probe_timeout_seconds === null} onChange={(value) => updateField("probe_timeout_seconds", value)} />
             </div>
 
             <Alert className="border-warning/30 bg-warning/10">
@@ -165,7 +189,11 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
               <AlertDescription>{copy.watchdogPrioritySafetyDescription}</AlertDescription>
             </Alert>
 
-            {validationError ? <p className="text-sm text-destructive">{copy.watchdogValidationError}</p> : null}
+            {validationError ? (
+              <p className="text-sm text-destructive">
+                {priorityOrderError ? copy.watchdogPriorityOrderValidationError : copy.watchdogValidationError}
+              </p>
+            ) : null}
 
             <Button type="submit" disabled={saving || validationError}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

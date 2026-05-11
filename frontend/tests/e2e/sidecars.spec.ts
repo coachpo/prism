@@ -67,7 +67,10 @@ type WatchdogPolicy = {
   failure_window_seconds: number;
   fallback_cooldown_seconds: number;
   deprioritized_priority: number;
+  prioritized_priority: number;
   manual_override_pause_seconds: number;
+  probe_batch_size: number;
+  probe_timeout_seconds: number;
   created_at: string;
   updated_at: string;
 };
@@ -155,7 +158,21 @@ function defaultProviderSnapshots(): ProviderSnapshot[] {
 }
 
 function defaultWatchdogPolicy(): WatchdogPolicy {
-  return { id: 31, sidecar_id: 1, enabled: true, failure_threshold: 3, failure_window_seconds: 3600, fallback_cooldown_seconds: 86400, deprioritized_priority: 0, manual_override_pause_seconds: 1800, created_at: now, updated_at: now };
+  return {
+    id: 31,
+    sidecar_id: 1,
+    enabled: true,
+    failure_threshold: 3,
+    failure_window_seconds: 3600,
+    fallback_cooldown_seconds: 86400,
+    deprioritized_priority: 0,
+    prioritized_priority: 1,
+    manual_override_pause_seconds: 1800,
+    probe_batch_size: 3,
+    probe_timeout_seconds: 8,
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 function syncStatus(target: Sidecar) {
@@ -425,9 +442,10 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("Priority 0 is not exclusion");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Priority 0 safety note");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe priority safety note");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("due holds may still probe lower-priority auth");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.restore");
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("failed");
+    await expect(page.getByTestId("sidecar-action-history")).toContainText("Failed");
     await expectNoRawSecrets(page);
     await page.screenshot({ path: evidencePaths.detail, fullPage: true });
 
@@ -473,7 +491,7 @@ test.describe("sidecars management", () => {
     await authSearch.fill("quota_exceeded");
     await expect(authFiles).toContainText("quota-zero.json");
     await expect(authFiles).toContainText("1-1 of 1");
-    await authSearch.fill("daily limit");
+    await authSearch.fill("quota-fixture");
     await expect(authFiles).toContainText("quota-zero.json");
     await expect(authFiles).toContainText("1-1 of 1");
 
