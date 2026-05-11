@@ -96,7 +96,6 @@ export function SidecarsTable({
   onSelect,
   onTestConnection,
   preparingEditSidecarId,
-  selectedSidecarId,
   sidecars,
   sidecarsLoading,
   syncingSidecarId,
@@ -188,7 +187,7 @@ export function SidecarsTable({
                   const passwordConfigured = sidecar.credential_state.management_password_configured;
 
                   return (
-                    <TableRow key={sidecar.id} data-state={selectedSidecarId === sidecar.id ? "selected" : undefined}>
+                    <TableRow key={sidecar.id}>
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <span className="font-medium">{sidecar.name}</span>
