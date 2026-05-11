@@ -101,6 +101,7 @@ func TestSidecarRouteSkeletonsMount(t *testing.T) {
 		{http.MethodGet, "/sidecars/sc_1/sync-status"},
 		{http.MethodGet, "/sidecars/sc_1/watchdog-policy"},
 		{http.MethodPut, "/sidecars/sc_1/watchdog-policy"},
+		{http.MethodPatch, "/sidecars/sc_1/watchdog-policy"},
 		{http.MethodGet, "/sidecars/sc_1/actions"},
 	} {
 		routeContext := chi.NewRouteContext()

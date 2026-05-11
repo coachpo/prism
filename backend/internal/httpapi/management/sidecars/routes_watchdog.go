@@ -11,7 +11,10 @@ type watchdogPolicyUpdateRequest struct {
 	FailureWindowSeconds       *int  `json:"failure_window_seconds"`
 	FallbackCooldownSeconds    *int  `json:"fallback_cooldown_seconds"`
 	DeprioritizedPriority      *int  `json:"deprioritized_priority"`
+	PrioritizedPriority        *int  `json:"prioritized_priority"`
 	ManualOverridePauseSeconds *int  `json:"manual_override_pause_seconds"`
+	ProbeBatchSize             *int  `json:"probe_batch_size"`
+	ProbeTimeoutSeconds        *int  `json:"probe_timeout_seconds"`
 }
 
 type watchdogPolicyResponse struct {
@@ -22,7 +25,10 @@ type watchdogPolicyResponse struct {
 	FailureWindowSeconds       int       `json:"failure_window_seconds"`
 	FallbackCooldownSeconds    int       `json:"fallback_cooldown_seconds"`
 	DeprioritizedPriority      int       `json:"deprioritized_priority"`
+	PrioritizedPriority        int       `json:"prioritized_priority"`
 	ManualOverridePauseSeconds int       `json:"manual_override_pause_seconds"`
+	ProbeBatchSize             int       `json:"probe_batch_size"`
+	ProbeTimeoutSeconds        int       `json:"probe_timeout_seconds"`
 	CreatedAt                  time.Time `json:"created_at"`
 	UpdatedAt                  time.Time `json:"updated_at"`
 }
@@ -79,7 +85,7 @@ func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	input := SidecarWatchdogPolicyInput{SidecarID: id, Enabled: current.Enabled, FailureThreshold: current.FailureThreshold, FailureWindowSeconds: current.FailureWindowSeconds, FallbackCooldownSeconds: current.FallbackCooldownSeconds, DeprioritizedPriority: current.DeprioritizedPriority, ManualOverridePauseSeconds: current.ManualOverridePauseSeconds}
+	input := SidecarWatchdogPolicyInput{SidecarID: id, Enabled: current.Enabled, FailureThreshold: current.FailureThreshold, FailureWindowSeconds: current.FailureWindowSeconds, FallbackCooldownSeconds: current.FallbackCooldownSeconds, DeprioritizedPriority: current.DeprioritizedPriority, PrioritizedPriority: current.PrioritizedPriority, ManualOverridePauseSeconds: current.ManualOverridePauseSeconds, ProbeBatchSize: current.ProbeBatchSize, ProbeTimeoutSeconds: current.ProbeTimeoutSeconds}
 	if requestBody.Enabled != nil {
 		input.Enabled = *requestBody.Enabled
 	}
@@ -111,12 +117,37 @@ func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Requ
 		}
 		input.DeprioritizedPriority = *requestBody.DeprioritizedPriority
 	}
+	if requestBody.PrioritizedPriority != nil {
+		if *requestBody.PrioritizedPriority < 0 {
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "prioritized_priority must be >= 0")
+			return
+		}
+		input.PrioritizedPriority = *requestBody.PrioritizedPriority
+	}
 	if requestBody.ManualOverridePauseSeconds != nil {
 		if *requestBody.ManualOverridePauseSeconds < 1 {
 			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "manual_override_pause_seconds must be >= 1")
 			return
 		}
 		input.ManualOverridePauseSeconds = *requestBody.ManualOverridePauseSeconds
+	}
+	if requestBody.ProbeBatchSize != nil {
+		if *requestBody.ProbeBatchSize < 1 {
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "probe_batch_size must be >= 1")
+			return
+		}
+		input.ProbeBatchSize = *requestBody.ProbeBatchSize
+	}
+	if requestBody.ProbeTimeoutSeconds != nil {
+		if *requestBody.ProbeTimeoutSeconds < 1 {
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "probe_timeout_seconds must be >= 1")
+			return
+		}
+		input.ProbeTimeoutSeconds = *requestBody.ProbeTimeoutSeconds
+	}
+	if err := validateWatchdogPolicyUpdateInput(input); err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
 	}
 	updated, err := s.store.UpsertWatchdogPolicy(r.Context(), input)
 	if err != nil {
@@ -125,6 +156,22 @@ func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Requ
 	}
 	s.recordAction(r.Context(), id, "watchdog-policy.update", "succeeded", nil)
 	writeJSON(w, http.StatusOK, buildWatchdogPolicyResponse(updated))
+}
+
+func validateWatchdogPolicyUpdateInput(input SidecarWatchdogPolicyInput) error {
+	if input.DeprioritizedPriority < 0 || input.PrioritizedPriority < 0 {
+		return invalidInputError("watchdog priorities must be non-negative")
+	}
+	if input.DeprioritizedPriority >= input.PrioritizedPriority {
+		return invalidInputError("deprioritized_priority must be less than prioritized_priority")
+	}
+	if input.ProbeBatchSize < 1 {
+		return invalidInputError("probe_batch_size must be >= 1")
+	}
+	if input.ProbeTimeoutSeconds < 1 {
+		return invalidInputError("probe_timeout_seconds must be >= 1")
+	}
+	return validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeBatchSize: input.ProbeBatchSize, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds})
 }
 
 func (s *Service) handleListActionHistory(w http.ResponseWriter, r *http.Request) {
@@ -149,9 +196,10 @@ func (s *Service) handleListActionHistory(w http.ResponseWriter, r *http.Request
 }
 
 func buildWatchdogPolicyResponse(policy SidecarWatchdogPolicy) watchdogPolicyResponse {
-	return watchdogPolicyResponse{ID: policy.ID, SidecarID: policy.SidecarID, Enabled: policy.Enabled, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, DeprioritizedPriority: policy.DeprioritizedPriority, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt}
+	return watchdogPolicyResponse{ID: policy.ID, SidecarID: policy.SidecarID, Enabled: policy.Enabled, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, DeprioritizedPriority: policy.DeprioritizedPriority, PrioritizedPriority: policy.PrioritizedPriority, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, ProbeBatchSize: policy.ProbeBatchSize, ProbeTimeoutSeconds: policy.ProbeTimeoutSeconds, CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt}
 }
 
 func buildActionRecordResponse(action SidecarWatchdogAction) actionRecordResponse {
-	return actionRecordResponse{ID: action.ID, SidecarID: action.SidecarID, AuthSnapshotID: action.AuthSnapshotID, AuthID: action.AuthID, AuthIndex: action.AuthIndex, Provider: action.Provider, HoldID: action.HoldID, ActionType: action.ActionType, Status: action.Status, Reason: action.Reason, PreviousPriority: action.PreviousPriority, TargetPriority: action.TargetPriority, HoldUntil: action.HoldUntil, ErrorMessage: action.ErrorMessage, CreatedAt: action.CreatedAt, UpdatedAt: action.UpdatedAt, CompletedAt: action.CompletedAt}
+	actionType := publicWatchdogActionType(action)
+	return actionRecordResponse{ID: action.ID, SidecarID: action.SidecarID, AuthSnapshotID: action.AuthSnapshotID, AuthID: action.AuthID, AuthIndex: action.AuthIndex, Provider: action.Provider, HoldID: action.HoldID, ActionType: actionType, Status: action.Status, Reason: publicWatchdogActionReason(actionType, action), PreviousPriority: action.PreviousPriority, TargetPriority: action.TargetPriority, HoldUntil: action.HoldUntil, ErrorMessage: publicWatchdogActionErrorMessage(actionType, action), CreatedAt: action.CreatedAt, UpdatedAt: action.UpdatedAt, CompletedAt: action.CompletedAt}
 }

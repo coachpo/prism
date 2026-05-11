@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +96,74 @@ func TestSidecarRouteSurfaceMatchesOpenAPI(t *testing.T) {
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		t.Fatalf("sidecar route/OpenAPI surface mismatch:\n%s", strings.Join(missing, "\n"))
+	}
+}
+
+func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
+	expectedPaths := []string{"/auth-files", "/auth-files/status", "/auth-files/fields", "/gemini-api-key", "/claude-api-key", "/codex-api-key", "/vertex-api-key", "/openai-compatibility", "/api-call"}
+	paths := managementsidecars.SupportedCLIProxyManagementPaths()
+	if !slices.Equal(paths, expectedPaths) {
+		t.Fatalf("CLIProxyAPI management allowlist changed: got %v want %v", paths, expectedPaths)
+	}
+	if sidecarContractStringIn(paths, "/usage-queue") {
+		t.Fatalf("destructive /usage-queue must stay outside the management allowlist: %v", paths)
+	}
+	paths[0] = "/mutated"
+	if managementsidecars.SupportedCLIProxyManagementPaths()[0] == "/mutated" {
+		t.Fatalf("SupportedCLIProxyManagementPaths must return a defensive copy")
+	}
+
+	authHarness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, authHarness, "sidecar-policy-admin", "sidecar-policy-password-123", "sidecar-policy@example.com")
+	sidecarHarness := newSidecarContractHarness(t, authHarness)
+	login := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/auth/login", map[string]any{
+		"username":         "sidecar-policy-admin",
+		"password":         "sidecar-policy-password-123",
+		"session_duration": "7_days",
+	}, nil)
+	assertStatus(t, login, http.StatusOK)
+	create := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/sidecars", map[string]any{
+		"name":                    "Policy Contract Sidecar",
+		"base_url":                "http://127.0.0.1:19091",
+		"management_password":     sidecarContractManagementPassword,
+		"allow_private_network":   true,
+		"allow_insecure_http":     true,
+		"sync_interval_seconds":   60,
+		"request_timeout_seconds": 5,
+	}, nil)
+	assertStatus(t, create, http.StatusCreated)
+	assertSidecarContractNoSecretLeak(t, readResponseBody(t, create), sidecarContractManagementPassword)
+	var created map[string]any
+	decodeJSONResponse(t, create, &created)
+	sidecarID := sidecarContractNumber(t, created, "id")
+
+	policy := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodGet, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/watchdog-policy", nil, nil)
+	assertStatus(t, policy, http.StatusOK)
+	policyBody := readResponseBody(t, policy)
+	assertSidecarContractNoSecretLeak(t, policyBody, sidecarContractManagementPassword)
+	var payload map[string]any
+	decodeJSONResponse(t, policy, &payload)
+	sidecarContractRequirePublicPolicyFields(t, payload)
+
+	updated := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPut, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/watchdog-policy", map[string]any{
+		"enabled":                       true,
+		"failure_threshold":             4,
+		"failure_window_seconds":        120,
+		"fallback_cooldown_seconds":     600,
+		"deprioritized_priority":        0,
+		"prioritized_priority":          2,
+		"manual_override_pause_seconds": 900,
+		"probe_batch_size":              2,
+		"probe_timeout_seconds":         10,
+	}, nil)
+	assertStatus(t, updated, http.StatusOK)
+	updatedBody := readResponseBody(t, updated)
+	assertSidecarContractNoSecretLeak(t, updatedBody, sidecarContractManagementPassword)
+	var updatedPayload map[string]any
+	decodeJSONResponse(t, updated, &updatedPayload)
+	sidecarContractRequirePublicPolicyFields(t, updatedPayload)
+	if sidecarContractNumber(t, updatedPayload, "failure_threshold") != 4 || sidecarContractNumber(t, updatedPayload, "failure_window_seconds") != 120 || sidecarContractNumber(t, updatedPayload, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, updatedPayload, "prioritized_priority") != 2 || sidecarContractNumber(t, updatedPayload, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, updatedPayload, "probe_batch_size") != 2 || sidecarContractNumber(t, updatedPayload, "probe_timeout_seconds") != 10 {
+		t.Fatalf("watchdog policy update did not round-trip public fields: %+v", updatedPayload)
 	}
 }
 
@@ -193,9 +263,42 @@ func expectedSidecarRouteSurface() map[string][]string {
 		"/api/sidecars/{sidecar_id}/providers":                    {http.MethodGet},
 		"/api/sidecars/{sidecar_id}/provider-snapshots":           {http.MethodGet},
 		"/api/sidecars/{sidecar_id}/sync-status":                  {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/watchdog-policy":              {http.MethodGet, http.MethodPut},
+		"/api/sidecars/{sidecar_id}/watchdog-policy":              {http.MethodGet, http.MethodPut, http.MethodPatch},
 		"/api/sidecars/{sidecar_id}/actions":                      {http.MethodGet},
 	}
+}
+
+func sidecarContractRequirePublicPolicyFields(t *testing.T, payload map[string]any) {
+	t.Helper()
+	for _, field := range []string{"id", "sidecar_id", "enabled", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "created_at", "updated_at"} {
+		if _, ok := payload[field]; !ok {
+			t.Fatalf("watchdog policy payload missing public field %q: %+v", field, payload)
+		}
+	}
+	for _, internal := range []string{"probe_cursor_auth_id"} {
+		if _, ok := payload[internal]; ok {
+			t.Fatalf("watchdog policy payload exposed internal field %q: %+v", internal, payload)
+		}
+	}
+	if _, ok := payload["enabled"].(bool); !ok {
+		t.Fatalf("watchdog policy enabled field must be boolean: %+v", payload)
+	}
+	for _, field := range []string{"id", "sidecar_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds"} {
+		sidecarContractNumber(t, payload, field)
+	}
+}
+
+func sidecarContractNumber(t *testing.T, payload map[string]any, field string) int {
+	t.Helper()
+	number, ok := payload[field].(float64)
+	if !ok {
+		t.Fatalf("expected numeric field %q in %+v", field, payload)
+	}
+	return int(number)
+}
+
+func sidecarContractStringIn(values []string, want string) bool {
+	return slices.Contains(values, want)
 }
 
 func assertSidecarContractNoSecretLeak(t *testing.T, value string, secrets ...string) {

@@ -5950,6 +5950,7 @@
           "sidecars"
         ],
         "summary": "Get Sidecar Watchdog Policy",
+        "description": "Returns the public probe-first watchdog policy fields. Internal probe cursor state is not exposed.",
         "operationId": "get_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_get",
         "parameters": [
           {
@@ -5979,7 +5980,48 @@
           "sidecars"
         ],
         "summary": "Update Sidecar Watchdog Policy",
+        "description": "Replaces public watchdog policy fields, including prioritized_priority, deprioritized_priority, probe_batch_size, and probe_timeout_seconds.",
         "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_put",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarWatchdogPolicyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarWatchdogPolicy"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar Watchdog Policy",
+        "description": "Partially updates public watchdog policy fields, including prioritized_priority, deprioritized_priority, probe_batch_size, and probe_timeout_seconds.",
+        "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_patch",
         "parameters": [
           {
             "name": "sidecar_id",
@@ -16906,10 +16948,23 @@
             "type": "integer"
           },
           "deprioritized_priority": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Priority assigned while a quota or failure hold is active. Must be lower than prioritized_priority."
+          },
+          "prioritized_priority": {
+            "type": "integer",
+            "description": "Priority restored after successful probe-first recovery. Must be greater than deprioritized_priority."
           },
           "manual_override_pause_seconds": {
             "type": "integer"
+          },
+          "probe_batch_size": {
+            "type": "integer",
+            "description": "Maximum number of auth files to probe in one bounded watchdog reconcile pass."
+          },
+          "probe_timeout_seconds": {
+            "type": "integer",
+            "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes."
           },
           "created_at": {
             "type": "string",
@@ -16928,7 +16983,10 @@
           "failure_window_seconds",
           "fallback_cooldown_seconds",
           "deprioritized_priority",
+          "prioritized_priority",
           "manual_override_pause_seconds",
+          "probe_batch_size",
+          "probe_timeout_seconds",
           "created_at",
           "updated_at"
         ],
@@ -16950,10 +17008,23 @@
             "type": "integer"
           },
           "deprioritized_priority": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Priority assigned while a quota or failure hold is active. Must be lower than prioritized_priority."
+          },
+          "prioritized_priority": {
+            "type": "integer",
+            "description": "Priority restored after successful probe-first recovery. Must be greater than deprioritized_priority."
           },
           "manual_override_pause_seconds": {
             "type": "integer"
+          },
+          "probe_batch_size": {
+            "type": "integer",
+            "description": "Maximum number of auth files to probe in one bounded watchdog reconcile pass."
+          },
+          "probe_timeout_seconds": {
+            "type": "integer",
+            "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes."
           }
         },
         "additionalProperties": false
@@ -17057,7 +17128,8 @@
             "nullable": true
           },
           "action_type": {
-            "type": "string"
+            "type": "string",
+            "description": "Redacted public action type. Probe-first watchdog outcomes include probe_succeeded, probe_failed_timeout, probe_failed_management_auth, probe_failed_token, probe_failed_status, probe_failed_parse, probe_failed_transport, probe_skipped_unsupported_provider, and quota_hold_extended."
           },
           "status": {
             "type": "string"
