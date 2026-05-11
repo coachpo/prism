@@ -7,16 +7,20 @@ import (
 )
 
 const (
-	DefaultSyncIntervalSeconds        = 300
-	DefaultRequestTimeoutSeconds      = 10
-	DefaultFailureThreshold           = 3
-	DefaultFailureWindowSeconds       = 3600
-	DefaultFallbackCooldownSeconds    = 86400
-	DefaultDeprioritizedPriority      = 0
-	DefaultManualOverridePauseSeconds = 1800
-	ManagementAuthStateUnknown        = "unknown"
-	ManagementAuthStateValid          = "valid"
-	ManagementAuthStateInvalid        = "invalid_management_auth"
+	DefaultSyncIntervalSeconds            = 300
+	DefaultRequestTimeoutSeconds          = 10
+	DefaultFailureThreshold               = 3
+	DefaultFailureWindowSeconds           = 3600
+	DefaultFallbackCooldownSeconds        = 86400
+	DefaultDeprioritizedPriority          = 0
+	DefaultPrioritizedPriority            = 1
+	DefaultManualOverridePauseSeconds     = 1800
+	DefaultProbeBatchSize                 = 3
+	DefaultProbeTimeoutSeconds            = 8
+	WatchdogProbeObservationRetentionDays = 15
+	ManagementAuthStateUnknown            = "unknown"
+	ManagementAuthStateValid              = "valid"
+	ManagementAuthStateInvalid            = "invalid_management_auth"
 )
 
 const encryptedSecretPrefix = "enc:"
@@ -201,7 +205,10 @@ type SidecarWatchdogPolicyInput struct {
 	FailureWindowSeconds       int
 	FallbackCooldownSeconds    int
 	DeprioritizedPriority      int
+	PrioritizedPriority        int
 	ManualOverridePauseSeconds int
+	ProbeBatchSize             int
+	ProbeTimeoutSeconds        int
 }
 
 type SidecarWatchdogPolicy struct {
@@ -212,9 +219,68 @@ type SidecarWatchdogPolicy struct {
 	FailureWindowSeconds       int
 	FallbackCooldownSeconds    int
 	DeprioritizedPriority      int
+	PrioritizedPriority        int
 	ManualOverridePauseSeconds int
+	ProbeBatchSize             int
+	ProbeTimeoutSeconds        int
+	ProbeCursorAuthID          *string
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+}
+
+type SidecarWatchdogProbeObservationInput struct {
+	SidecarID          int
+	AuthID             string
+	AuthIndex          *string
+	Provider           *string
+	ProbedAt           time.Time
+	ProbeStatus        string
+	UpstreamStatusCode *int
+	QuotaExceeded      bool
+	QuotaReason        *string
+	QuotaResetAt       *time.Time
+	BlockingWindow     *string
+	WindowsJSON        json.RawMessage
+	ErrorCode          *string
+}
+
+type SidecarWatchdogProbeObservation struct {
+	ID                 int
+	SidecarID          int
+	AuthID             string
+	AuthIndex          *string
+	Provider           *string
+	ProbedAt           time.Time
+	ProbeStatus        string
+	UpstreamStatusCode *int
+	QuotaExceeded      bool
+	QuotaReason        *string
+	QuotaResetAt       *time.Time
+	BlockingWindow     *string
+	WindowsJSON        json.RawMessage
+	ErrorCode          *string
+	CreatedAt          time.Time
+}
+
+type SidecarWatchdogProbeHoldUpdate struct {
+	ID    int
+	Input SidecarWatchdogHoldInput
+}
+
+type SidecarWatchdogProbeDecision struct {
+	SidecarID          int
+	Observations       []SidecarWatchdogProbeObservationInput
+	CreateHold         *SidecarWatchdogHoldInput
+	UpdateHold         *SidecarWatchdogProbeHoldUpdate
+	AdvanceProbeCursor bool
+	ProbeCursorAuthID  *string
+}
+
+type SidecarWatchdogProbeDecisionResult struct {
+	Observations []SidecarWatchdogProbeObservation
+	CreatedHold  *SidecarWatchdogHold
+	UpdatedHold  *SidecarWatchdogHold
+	Policy       *SidecarWatchdogPolicy
 }
 
 type SidecarWatchdogHoldInput struct {
@@ -257,6 +323,7 @@ type SidecarWatchdogActionInput struct {
 	AuthSnapshotID   *int
 	HoldID           *int
 	AuthID           *string
+	AuthName         *string
 	AuthIndex        *string
 	Provider         *string
 	ActionType       string
@@ -275,6 +342,7 @@ type SidecarWatchdogAction struct {
 	AuthSnapshotID   *int
 	HoldID           *int
 	AuthID           *string
+	AuthName         *string
 	AuthIndex        *string
 	Provider         *string
 	ActionType       string

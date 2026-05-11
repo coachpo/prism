@@ -563,6 +563,7 @@ func TestSidecarWatchdogPersistenceContracts(t *testing.T) {
 		SidecarID:        sidecar.ID,
 		HoldID:           &hold.ID,
 		AuthID:           stringPtr("auth-watchdog-primary"),
+		AuthName:         stringPtr("auth-watchdog-primary.json"),
 		AuthIndex:        stringPtr("auth_002"),
 		Provider:         stringPtr("claude"),
 		ActionType:       "deprioritize",
@@ -576,15 +577,15 @@ func TestSidecarWatchdogPersistenceContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create watchdog action: %v", err)
 	}
-	if action.HoldID == nil || *action.HoldID != hold.ID || action.TargetPriority == nil || *action.TargetPriority != 0 {
-		t.Fatalf("watchdog action did not persist hold/priority fields: %+v", action)
+	if action.HoldID == nil || *action.HoldID != hold.ID || action.TargetPriority == nil || *action.TargetPriority != 0 || stringValue(action.AuthName) != "auth-watchdog-primary.json" {
+		t.Fatalf("watchdog action did not persist hold/priority/auth-name fields: %+v", action)
 	}
 	actions, err := store.ListWatchdogActions(ctx, sidecar.ID)
 	if err != nil {
 		t.Fatalf("list watchdog actions: %v", err)
 	}
-	if len(actions) != 1 || actions[0].ID != action.ID {
-		t.Fatalf("expected one listed watchdog action, got %+v", actions)
+	if len(actions) != 1 || actions[0].ID != action.ID || stringValue(actions[0].AuthName) != "auth-watchdog-primary.json" {
+		t.Fatalf("expected one listed watchdog action with auth name, got %+v", actions)
 	}
 }
 
@@ -765,6 +766,29 @@ func requireJSONEqual(t *testing.T, got json.RawMessage, want string) {
 	}
 }
 
+func requireJSONEquivalent(t *testing.T, got json.RawMessage, want string) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("unmarshal got JSON %s: %v", string(got), err)
+	}
+	var wantValue any
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("unmarshal want JSON %s: %v", want, err)
+	}
+	gotCanonical, err := json.Marshal(gotValue)
+	if err != nil {
+		t.Fatalf("canonicalize got JSON: %v", err)
+	}
+	wantCanonical, err := json.Marshal(wantValue)
+	if err != nil {
+		t.Fatalf("canonicalize want JSON: %v", err)
+	}
+	if string(gotCanonical) != string(wantCanonical) {
+		t.Fatalf("JSON mismatch got %s want %s", gotCanonical, wantCanonical)
+	}
+}
+
 func stringPtr(value string) *string { return &value }
 
 func boolPtr(value bool) *bool { return &value }
@@ -772,3 +796,359 @@ func boolPtr(value bool) *bool { return &value }
 func intPtr(value int) *int { return &value }
 
 func timePtr(value time.Time) *time.Time { return &value }
+
+func TestWatchdogPolicyProbeFieldsRoundTripAndValidation(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "policy_probe_fields") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "policy_probe_"+testCase.name)
+			policy, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("get default policy: %v", err)
+			}
+			if policy.PrioritizedPriority != DefaultPrioritizedPriority || policy.ProbeBatchSize != DefaultProbeBatchSize || policy.ProbeTimeoutSeconds != DefaultProbeTimeoutSeconds || policy.ProbeCursorAuthID != nil {
+				t.Fatalf("unexpected default probe policy fields: %+v", policy)
+			}
+			updated, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
+				SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 5,
+				FailureWindowSeconds: 7200, FallbackCooldownSeconds: 3600,
+				DeprioritizedPriority: 2, PrioritizedPriority: 5,
+				ManualOverridePauseSeconds: 900, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10,
+			})
+			if err != nil {
+				t.Fatalf("upsert custom probe policy: %v", err)
+			}
+			if !updated.Enabled || updated.DeprioritizedPriority != 2 || updated.PrioritizedPriority != 5 || updated.ProbeBatchSize != 2 || updated.ProbeTimeoutSeconds != 10 {
+				t.Fatalf("custom probe policy not persisted: %+v", updated)
+			}
+			reloaded, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("reload custom probe policy: %v", err)
+			}
+			if reloaded.PrioritizedPriority != 5 || reloaded.ProbeBatchSize != 2 || reloaded.ProbeTimeoutSeconds != 10 {
+				t.Fatalf("custom probe policy did not round-trip: %+v", reloaded)
+			}
+			visibleUpdate, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
+				SidecarID: sidecar.ID, Enabled: false, FailureThreshold: 6,
+				FailureWindowSeconds: 1800, FallbackCooldownSeconds: 2400,
+				DeprioritizedPriority: 3, ManualOverridePauseSeconds: 1200,
+			})
+			if err != nil {
+				t.Fatalf("upsert visible-only policy fields: %v", err)
+			}
+			if visibleUpdate.PrioritizedPriority != 5 || visibleUpdate.ProbeBatchSize != 2 || visibleUpdate.ProbeTimeoutSeconds != 10 {
+				t.Fatalf("visible-only policy update clobbered hidden probe fields: %+v", visibleUpdate)
+			}
+			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, DeprioritizedPriority: 2, PrioritizedPriority: 2, ProbeBatchSize: 1, ProbeTimeoutSeconds: 1})
+			if !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid priority policy error, got %v", err)
+			}
+			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, DeprioritizedPriority: 0, PrioritizedPriority: 5, ProbeBatchSize: 4, ProbeTimeoutSeconds: 8})
+			if !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid probe budget policy error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestWatchdogProbeObservationStoreRoundTrip(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "probe_observation_roundtrip") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "probe_observation_"+testCase.name)
+			probedAt := sidecarStoreFixedNow().Add(-time.Minute)
+			input := testProbeObservationInput(sidecar.ID, "auth-probe-primary", probedAt)
+			created, err := store.CreateWatchdogProbeObservation(ctx, input)
+			if err != nil {
+				t.Fatalf("create probe observation: %v", err)
+			}
+			if created.ID == 0 || created.AuthID != "auth-probe-primary" || !created.QuotaExceeded || created.UpstreamStatusCode == nil || *created.UpstreamStatusCode != 200 {
+				t.Fatalf("probe observation fields not persisted: %+v", created)
+			}
+			requireJSONEquivalent(t, created.WindowsJSON, `[{
+				"source":"wham","window_type":"primary","used_percent":95.5,
+				"limit_reached":true,"allowed":false,
+				"reset_at":"2026-05-10T11:00:00Z","limit_window_seconds":3600
+			}]`)
+			listed, err := store.ListWatchdogProbeObservations(ctx, sidecar.ID, 10)
+			if err != nil {
+				t.Fatalf("list probe observations: %v", err)
+			}
+			if len(listed) != 1 || listed[0].ID != created.ID {
+				t.Fatalf("expected created probe observation in list, got %+v", listed)
+			}
+		})
+	}
+}
+
+func TestWatchdogProbeObservationRetention(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "probe_observation_retention") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "probe_retention_"+testCase.name)
+			now := sidecarStoreFixedNow()
+			old := testProbeObservationInput(sidecar.ID, "auth-old", now.Add(-15*24*time.Hour-time.Second))
+			boundary := testProbeObservationInput(sidecar.ID, "auth-boundary", now.Add(-15*24*time.Hour))
+			fresh := testProbeObservationInput(sidecar.ID, "auth-fresh", now.Add(-14*24*time.Hour))
+			for _, input := range []SidecarWatchdogProbeObservationInput{old, boundary, fresh} {
+				if _, err := store.CreateWatchdogProbeObservation(ctx, input); err != nil {
+					t.Fatalf("seed probe observation %s: %v", input.AuthID, err)
+				}
+			}
+			if _, err := store.CreateWatchdogAction(ctx, SidecarWatchdogActionInput{SidecarID: sidecar.ID, ActionType: "probe_retention_marker", Status: "succeeded"}); err != nil {
+				t.Fatalf("seed action history marker: %v", err)
+			}
+			deleted, err := store.CleanupWatchdogProbeObservations(ctx)
+			if err != nil {
+				t.Fatalf("cleanup probe observations: %v", err)
+			}
+			if deleted != 1 {
+				t.Fatalf("expected one old observation deleted, got %d", deleted)
+			}
+			remaining, err := store.ListWatchdogProbeObservations(ctx, sidecar.ID, 10)
+			if err != nil {
+				t.Fatalf("list retained probe observations: %v", err)
+			}
+			if len(remaining) != 2 || remaining[0].AuthID != "auth-fresh" || remaining[1].AuthID != "auth-boundary" {
+				t.Fatalf("unexpected retained observations: %+v", remaining)
+			}
+			actions, err := store.ListWatchdogActions(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("list action history after cleanup: %v", err)
+			}
+			if len(actions) != 1 {
+				t.Fatalf("probe cleanup must not touch action history, got %+v", actions)
+			}
+		})
+	}
+}
+
+func TestWatchdogDueHoldStoreOrdering(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "due_hold_ordering") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "due_hold_"+testCase.name)
+			dueAt := sidecarStoreFixedNow()
+			later, err := store.CreateWatchdogHold(ctx, testWatchdogHoldInput(sidecar.ID, "auth-later", dueAt.Add(-time.Hour)))
+			if err != nil {
+				t.Fatalf("create later due hold: %v", err)
+			}
+			earliest, err := store.CreateWatchdogHold(ctx, testWatchdogHoldInput(sidecar.ID, "auth-earliest", dueAt.Add(-2*time.Hour)))
+			if err != nil {
+				t.Fatalf("create earliest due hold: %v", err)
+			}
+			tie, err := store.CreateWatchdogHold(ctx, testWatchdogHoldInput(sidecar.ID, "auth-tie", dueAt.Add(-2*time.Hour)))
+			if err != nil {
+				t.Fatalf("create tied due hold: %v", err)
+			}
+			futureInput := testWatchdogHoldInput(sidecar.ID, "auth-future", dueAt.Add(time.Hour))
+			if _, err := store.CreateWatchdogHold(ctx, futureInput); err != nil {
+				t.Fatalf("create future hold: %v", err)
+			}
+			due, err := store.ListDueWatchdogHolds(ctx, sidecar.ID, dueAt)
+			if err != nil {
+				t.Fatalf("list due holds: %v", err)
+			}
+			if len(due) != 3 || due[0].ID != earliest.ID || due[1].ID != tie.ID || due[2].ID != later.ID {
+				t.Fatalf("due holds not ordered by hold_until ASC, id ASC: %+v", due)
+			}
+		})
+	}
+}
+
+func TestWatchdogProbeDecisionStoreAtomicity(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "probe_decision_atomicity") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "probe_atomic_"+testCase.name)
+			cursor := "auth-next"
+			decision := SidecarWatchdogProbeDecision{
+				SidecarID: sidecar.ID,
+				Observations: []SidecarWatchdogProbeObservationInput{
+					testProbeObservationInput(sidecar.ID, "auth-atomic", sidecarStoreFixedNow()),
+				},
+				CreateHold:         ptrWatchdogHoldInput(testWatchdogHoldInput(sidecar.ID, "auth-atomic", sidecarStoreFixedNow().Add(time.Hour))),
+				AdvanceProbeCursor: true,
+				ProbeCursorAuthID:  &cursor,
+			}
+			result, err := store.PersistWatchdogProbeDecision(ctx, decision)
+			if err != nil {
+				t.Fatalf("persist probe decision: %v", err)
+			}
+			if len(result.Observations) != 1 || result.CreatedHold == nil || result.Policy == nil || result.Policy.ProbeCursorAuthID == nil || *result.Policy.ProbeCursorAuthID != cursor {
+				t.Fatalf("probe decision result missing atomic state: %+v", result)
+			}
+			badCursor := "auth-bad"
+			badObservation := testProbeObservationInput(sidecar.ID, "auth-bad", sidecarStoreFixedNow().Add(time.Minute))
+			badObservation.WindowsJSON = json.RawMessage(`[{"raw_body":"secret-payload"}]`)
+			_, err = store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{
+				SidecarID:          sidecar.ID,
+				Observations:       []SidecarWatchdogProbeObservationInput{badObservation},
+				CreateHold:         ptrWatchdogHoldInput(testWatchdogHoldInput(sidecar.ID, "auth-bad", sidecarStoreFixedNow().Add(2*time.Hour))),
+				AdvanceProbeCursor: true,
+				ProbeCursorAuthID:  &badCursor,
+			})
+			if !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid atomic decision error, got %v", err)
+			}
+			observations, err := store.ListWatchdogProbeObservations(ctx, sidecar.ID, 10)
+			if err != nil {
+				t.Fatalf("list observations after failed decision: %v", err)
+			}
+			if len(observations) != 1 || observations[0].AuthID != "auth-atomic" {
+				t.Fatalf("failed decision mutated observations: %+v", observations)
+			}
+			if _, ok, err := store.GetActiveWatchdogHold(ctx, sidecar.ID, "auth-bad"); err != nil || ok {
+				t.Fatalf("failed decision mutated holds: ok=%v err=%v", ok, err)
+			}
+			policy, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("reload policy after failed decision: %v", err)
+			}
+			if policy.ProbeCursorAuthID == nil || *policy.ProbeCursorAuthID != cursor {
+				t.Fatalf("failed decision mutated cursor: %+v", policy)
+			}
+		})
+	}
+}
+
+func TestProbeObservationPrivacyRejectsSensitiveWindowFields(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "probe_privacy") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "probe_privacy_"+testCase.name)
+			sensitiveWindows := []json.RawMessage{
+				json.RawMessage(`[{"token":"raw-token"}]`),
+				json.RawMessage(`[{"account_id":"acct_123"}]`),
+				json.RawMessage(`[{"account":"acct_123"}]`),
+				json.RawMessage(`[{"user":"raw-user"}]`),
+				json.RawMessage(`[{"username":"raw-user"}]`),
+				json.RawMessage(`[{"email":"operator@example.test"}]`),
+				json.RawMessage(`[{"request_headers":"raw-headers"}]`),
+				json.RawMessage(`[{"response_body":"raw-body"}]`),
+				json.RawMessage(`[{"authorization_header":"Bearer token"}]`),
+				json.RawMessage(`[{"headers":{"authorization":"Bearer token"}}]`),
+			}
+			for _, windows := range sensitiveWindows {
+				input := testProbeObservationInput(sidecar.ID, "auth-sensitive", sidecarStoreFixedNow())
+				input.WindowsJSON = windows
+				_, err := store.CreateWatchdogProbeObservation(ctx, input)
+				if !IsStoreError(err, StoreErrorInvalidInput) {
+					t.Fatalf("expected sensitive windows_json to be rejected, got %v for %s", err, string(windows))
+				}
+			}
+		})
+	}
+}
+
+func TestObservationRawPayloadColumnsAbsent(t *testing.T) {
+	ctx, _, pool := sidecarStoreForTest(t, "observation_raw_columns")
+	rows, err := pool.Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sidecar_watchdog_probe_observations'`)
+	if err != nil {
+		t.Fatalf("query observation columns: %v", err)
+	}
+	defer rows.Close()
+	bannedFragments := []string{"header", "body", "token", "account", "email", "cookie", "user_id", "useridentity", "raw"}
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatalf("scan observation column: %v", err)
+		}
+		normalized := strings.ReplaceAll(strings.ToLower(column), "-", "_")
+		for _, banned := range bannedFragments {
+			if strings.Contains(normalized, banned) {
+				t.Fatalf("probe observations must not persist raw/private column %q", column)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate observation columns: %v", err)
+	}
+}
+
+type watchdogProbeStoreForTest interface {
+	CreateSidecarInstance(context.Context, SidecarInstanceInput) (SidecarInstance, error)
+	GetOrCreateWatchdogPolicy(context.Context, int) (SidecarWatchdogPolicy, error)
+	UpsertWatchdogPolicy(context.Context, SidecarWatchdogPolicyInput) (SidecarWatchdogPolicy, error)
+	CreateWatchdogProbeObservation(context.Context, SidecarWatchdogProbeObservationInput) (SidecarWatchdogProbeObservation, error)
+	ListWatchdogProbeObservations(context.Context, int, int) ([]SidecarWatchdogProbeObservation, error)
+	CleanupWatchdogProbeObservations(context.Context) (int64, error)
+	PersistWatchdogProbeDecision(context.Context, SidecarWatchdogProbeDecision) (SidecarWatchdogProbeDecisionResult, error)
+	CreateWatchdogHold(context.Context, SidecarWatchdogHoldInput) (SidecarWatchdogHold, error)
+	GetActiveWatchdogHold(context.Context, int, string) (SidecarWatchdogHold, bool, error)
+	ListDueWatchdogHolds(context.Context, int, time.Time) ([]SidecarWatchdogHold, error)
+	CreateWatchdogAction(context.Context, SidecarWatchdogActionInput) (SidecarWatchdogAction, error)
+	ListWatchdogActions(context.Context, int) ([]SidecarWatchdogAction, error)
+}
+
+type watchdogProbeStoreCase struct {
+	name  string
+	ctx   context.Context
+	store watchdogProbeStoreForTest
+}
+
+func watchdogProbeStoreCases(t *testing.T, name string) []watchdogProbeStoreCase {
+	t.Helper()
+	ctx, postgresStore, _ := sidecarStoreForTest(t, name+"_postgres")
+	memoryStore := newMemorySidecarStore(sidecarStoreFixedNow, sidecarStoreSecretKey)
+	return []watchdogProbeStoreCase{
+		{name: "postgres", ctx: ctx, store: postgresStore},
+		{name: "memory", ctx: ctx, store: memoryStore},
+	}
+}
+
+func sidecarStoreFixedNow() time.Time {
+	return time.Date(2026, time.May, 10, 10, 0, 0, 0, time.UTC)
+}
+
+func createTestSidecarInProbeStore(t *testing.T, ctx context.Context, store watchdogProbeStoreForTest, suffix string) SidecarInstance {
+	t.Helper()
+	host := strings.ReplaceAll(suffix, "_", "-") + ".example.test"
+	created, err := store.CreateSidecarInstance(ctx, SidecarInstanceInput{
+		Name:               "Probe Sidecar " + suffix,
+		BaseURL:            "https://" + host + "/",
+		BaseURLCanonical:   "https://" + host,
+		ManagementPassword: "password-" + suffix,
+	})
+	if err != nil {
+		t.Fatalf("create probe test sidecar %s: %v", suffix, err)
+	}
+	return created
+}
+
+func testProbeObservationInput(sidecarID int, authID string, probedAt time.Time) SidecarWatchdogProbeObservationInput {
+	status := 200
+	resetAt := time.Date(2026, time.May, 10, 11, 0, 0, 0, time.UTC)
+	return SidecarWatchdogProbeObservationInput{
+		SidecarID:          sidecarID,
+		AuthID:             authID,
+		AuthIndex:          stringPtr("auth_001"),
+		Provider:           stringPtr("codex"),
+		ProbedAt:           probedAt,
+		ProbeStatus:        "probe_succeeded",
+		UpstreamStatusCode: &status,
+		QuotaExceeded:      true,
+		QuotaReason:        stringPtr("primary_window_exhausted"),
+		QuotaResetAt:       &resetAt,
+		BlockingWindow:     stringPtr("primary"),
+		WindowsJSON:        json.RawMessage(`[{"source":"wham","window_type":"primary","used_percent":95.5,"limit_reached":true,"allowed":false,"reset_at":"2026-05-10T11:00:00Z","limit_window_seconds":3600}]`),
+	}
+}
+
+func testWatchdogHoldInput(sidecarID int, authID string, holdUntil time.Time) SidecarWatchdogHoldInput {
+	return SidecarWatchdogHoldInput{
+		SidecarID:      sidecarID,
+		AuthID:         authID,
+		AuthIndex:      stringPtr("auth_001"),
+		Provider:       stringPtr("codex"),
+		Reason:         watchdogReasonQuotaExceeded,
+		ConditionHash:  "condition-" + authID,
+		TargetPriority: DefaultDeprioritizedPriority,
+		HoldUntil:      &holdUntil,
+		Status:         WatchdogHoldStatusActive,
+	}
+}
+
+func ptrWatchdogHoldInput(input SidecarWatchdogHoldInput) *SidecarWatchdogHoldInput {
+	return &input
+}

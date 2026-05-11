@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
 )
 
 func (s *memorySidecarStore) UpdateSidecarSyncMetadata(_ context.Context, input SidecarSyncMetadataInput) (SidecarInstance, error) {
@@ -272,4 +273,281 @@ func memoryJSON(value json.RawMessage, fallback string) json.RawMessage {
 		trimmed = fallback
 	}
 	return json.RawMessage(trimmed)
+}
+
+func (s *memorySidecarStore) CreateWatchdogProbeObservation(_ context.Context, input SidecarWatchdogProbeObservationInput) (SidecarWatchdogProbeObservation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	observation, err := s.createWatchdogProbeObservationLocked(input)
+	if err != nil {
+		return SidecarWatchdogProbeObservation{}, err
+	}
+	return cloneWatchdogProbeObservation(observation), nil
+}
+
+func (s *memorySidecarStore) ListWatchdogProbeObservations(_ context.Context, sidecarID int, limit int) ([]SidecarWatchdogProbeObservation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if sidecarID <= 0 {
+		return nil, invalidInputError("sidecar_id is required")
+	}
+	items := append([]SidecarWatchdogProbeObservation(nil), s.probeObservations[sidecarID]...)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ProbedAt.Equal(items[j].ProbedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].ProbedAt.After(items[j].ProbedAt)
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	for index := range items {
+		items[index] = cloneWatchdogProbeObservation(items[index])
+	}
+	return items, nil
+}
+
+func (s *memorySidecarStore) CleanupWatchdogProbeObservations(_ context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := s.now().UTC().Add(-time.Duration(WatchdogProbeObservationRetentionDays) * 24 * time.Hour)
+	var deleted int64
+	for sidecarID, observations := range s.probeObservations {
+		kept := observations[:0]
+		for _, observation := range observations {
+			if observation.ProbedAt.Before(cutoff) {
+				deleted++
+				continue
+			}
+			kept = append(kept, observation)
+		}
+		s.probeObservations[sidecarID] = kept
+	}
+	return deleted, nil
+}
+
+func (s *memorySidecarStore) PersistWatchdogProbeDecision(_ context.Context, decision SidecarWatchdogProbeDecision) (SidecarWatchdogProbeDecisionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if decision.SidecarID <= 0 {
+		return SidecarWatchdogProbeDecisionResult{}, invalidInputError("sidecar_id is required")
+	}
+	if _, ok := s.instances[decision.SidecarID]; !ok {
+		return SidecarWatchdogProbeDecisionResult{}, notFoundError("sidecar instance not found")
+	}
+	normalizedObservations := make([]SidecarWatchdogProbeObservationInput, 0, len(decision.Observations))
+	for _, input := range decision.Observations {
+		if input.SidecarID == 0 {
+			input.SidecarID = decision.SidecarID
+		}
+		if input.SidecarID != decision.SidecarID {
+			return SidecarWatchdogProbeDecisionResult{}, invalidInputError("probe observation sidecar_id must match decision sidecar_id")
+		}
+		normalized, err := normalizeWatchdogProbeObservationInput(input, s.now().UTC())
+		if err != nil {
+			return SidecarWatchdogProbeDecisionResult{}, err
+		}
+		normalizedObservations = append(normalizedObservations, normalized)
+	}
+	var createHoldInput *SidecarWatchdogHoldInput
+	if decision.CreateHold != nil {
+		input := *decision.CreateHold
+		if input.SidecarID == 0 {
+			input.SidecarID = decision.SidecarID
+		}
+		if err := s.validateWatchdogHoldCreateLocked(input, decision.SidecarID); err != nil {
+			return SidecarWatchdogProbeDecisionResult{}, err
+		}
+		createHoldInput = &input
+	}
+	var updateHoldInput *SidecarWatchdogProbeHoldUpdate
+	if decision.UpdateHold != nil {
+		input := decision.UpdateHold.Input
+		if input.SidecarID == 0 {
+			input.SidecarID = decision.SidecarID
+		}
+		if input.SidecarID != decision.SidecarID {
+			return SidecarWatchdogProbeDecisionResult{}, invalidInputError("updated hold sidecar_id must match decision sidecar_id")
+		}
+		if err := validateWatchdogHoldUpdateInput(decision.UpdateHold.ID, input); err != nil {
+			return SidecarWatchdogProbeDecisionResult{}, err
+		}
+		if !s.watchdogHoldExistsLocked(decision.UpdateHold.ID, decision.SidecarID) {
+			return SidecarWatchdogProbeDecisionResult{}, notFoundError("sidecar watchdog hold not found")
+		}
+		updateHoldInput = &SidecarWatchdogProbeHoldUpdate{ID: decision.UpdateHold.ID, Input: input}
+	}
+	result := SidecarWatchdogProbeDecisionResult{Observations: make([]SidecarWatchdogProbeObservation, 0, len(normalizedObservations))}
+	for _, input := range normalizedObservations {
+		observation, err := s.createWatchdogProbeObservationLocked(input)
+		if err != nil {
+			return SidecarWatchdogProbeDecisionResult{}, err
+		}
+		result.Observations = append(result.Observations, cloneWatchdogProbeObservation(observation))
+	}
+	if createHoldInput != nil {
+		hold, err := s.createWatchdogHoldLocked(*createHoldInput)
+		if err != nil {
+			return SidecarWatchdogProbeDecisionResult{}, err
+		}
+		cloned := cloneWatchdogHold(hold)
+		result.CreatedHold = &cloned
+	}
+	if updateHoldInput != nil {
+		hold, err := s.updateWatchdogHoldLocked(updateHoldInput.ID, updateHoldInput.Input)
+		if err != nil {
+			return SidecarWatchdogProbeDecisionResult{}, err
+		}
+		cloned := cloneWatchdogHold(hold)
+		result.UpdatedHold = &cloned
+	}
+	if decision.AdvanceProbeCursor {
+		policy := s.setWatchdogProbeCursorLocked(decision.SidecarID, decision.ProbeCursorAuthID)
+		cloned := cloneWatchdogPolicy(policy)
+		result.Policy = &cloned
+	}
+	return result, nil
+}
+
+func (s *memorySidecarStore) ListDueWatchdogHolds(_ context.Context, sidecarID int, dueAt time.Time) ([]SidecarWatchdogHold, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if sidecarID <= 0 {
+		return nil, invalidInputError("sidecar_id is required")
+	}
+	if dueAt.IsZero() {
+		dueAt = s.now().UTC()
+	}
+	items := make([]SidecarWatchdogHold, 0)
+	for _, hold := range s.holds[sidecarID] {
+		if hold.HoldUntil == nil || hold.HoldUntil.After(dueAt) {
+			continue
+		}
+		if hold.Status == WatchdogHoldStatusActive {
+			items = append(items, cloneWatchdogHold(hold))
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].HoldUntil.Equal(*items[j].HoldUntil) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].HoldUntil.Before(*items[j].HoldUntil)
+	})
+	return items, nil
+}
+
+func (s *memorySidecarStore) createWatchdogProbeObservationLocked(input SidecarWatchdogProbeObservationInput) (SidecarWatchdogProbeObservation, error) {
+	normalized, err := normalizeWatchdogProbeObservationInput(input, s.now().UTC())
+	if err != nil {
+		return SidecarWatchdogProbeObservation{}, err
+	}
+	if _, ok := s.instances[normalized.SidecarID]; !ok {
+		return SidecarWatchdogProbeObservation{}, notFoundError("sidecar instance not found")
+	}
+	now := s.now().UTC()
+	observation := SidecarWatchdogProbeObservation{ID: s.nextObservationID, SidecarID: normalized.SidecarID, AuthID: normalized.AuthID, AuthIndex: cloneStringPtr(normalized.AuthIndex), Provider: cloneStringPtr(normalized.Provider), ProbedAt: normalized.ProbedAt.UTC(), ProbeStatus: normalized.ProbeStatus, UpstreamStatusCode: cloneIntPtr(normalized.UpstreamStatusCode), QuotaExceeded: normalized.QuotaExceeded, QuotaReason: cloneStringPtr(normalized.QuotaReason), QuotaResetAt: cloneTimePtr(normalized.QuotaResetAt), BlockingWindow: cloneStringPtr(normalized.BlockingWindow), WindowsJSON: memoryJSON(normalized.WindowsJSON, "[]"), ErrorCode: cloneStringPtr(normalized.ErrorCode), CreatedAt: now}
+	s.nextObservationID++
+	s.probeObservations[normalized.SidecarID] = append(s.probeObservations[normalized.SidecarID], observation)
+	return observation, nil
+}
+
+func (s *memorySidecarStore) validateWatchdogHoldCreateLocked(input SidecarWatchdogHoldInput, decisionSidecarID int) error {
+	if input.SidecarID != decisionSidecarID {
+		return invalidInputError("created hold sidecar_id must match decision sidecar_id")
+	}
+	if err := validateWatchdogHoldCreateInput(input); err != nil {
+		return err
+	}
+	if _, ok := s.instances[input.SidecarID]; !ok {
+		return notFoundError("sidecar instance not found")
+	}
+	if !watchdogHoldStatusBlocksActiveDuplicate(input.Status) {
+		return nil
+	}
+	authID := strings.TrimSpace(input.AuthID)
+	for _, hold := range s.holds[input.SidecarID] {
+		if hold.AuthID == authID && watchdogHoldStatusBlocksActiveDuplicate(hold.Status) {
+			return &StoreError{Code: StoreErrorDuplicateActiveHold, Message: "active sidecar watchdog hold already exists"}
+		}
+	}
+	return nil
+}
+
+func (s *memorySidecarStore) createWatchdogHoldLocked(input SidecarWatchdogHoldInput) (SidecarWatchdogHold, error) {
+	if err := s.validateWatchdogHoldCreateLocked(input, input.SidecarID); err != nil {
+		return SidecarWatchdogHold{}, err
+	}
+	now := s.now().UTC()
+	hold := SidecarWatchdogHold{ID: s.nextHoldID, SidecarID: input.SidecarID, AuthID: strings.TrimSpace(input.AuthID), AuthIndex: cloneStringPtr(input.AuthIndex), Provider: cloneStringPtr(input.Provider), Reason: strings.TrimSpace(input.Reason), ConditionHash: strings.TrimSpace(input.ConditionHash), PreviousPriority: cloneIntPtr(input.PreviousPriority), TargetPriority: input.TargetPriority, HoldUntil: cloneTimePtr(input.HoldUntil), ManualPauseUntil: cloneTimePtr(input.ManualPauseUntil), Status: strings.TrimSpace(input.Status), LastActionID: cloneIntPtr(input.LastActionID), CreatedAt: now, UpdatedAt: now, ReleasedAt: cloneTimePtr(input.ReleasedAt)}
+	s.nextHoldID++
+	s.holds[input.SidecarID] = append(s.holds[input.SidecarID], hold)
+	return hold, nil
+}
+
+func (s *memorySidecarStore) watchdogHoldExistsLocked(id int, sidecarID int) bool {
+	for _, hold := range s.holds[sidecarID] {
+		if hold.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *memorySidecarStore) updateWatchdogHoldLocked(id int, input SidecarWatchdogHoldInput) (SidecarWatchdogHold, error) {
+	if err := validateWatchdogHoldUpdateInput(id, input); err != nil {
+		return SidecarWatchdogHold{}, err
+	}
+	for index, hold := range s.holds[input.SidecarID] {
+		if hold.ID != id {
+			continue
+		}
+		hold.AuthID = strings.TrimSpace(input.AuthID)
+		hold.AuthIndex = cloneStringPtr(input.AuthIndex)
+		hold.Provider = cloneStringPtr(input.Provider)
+		hold.Reason = strings.TrimSpace(input.Reason)
+		hold.ConditionHash = strings.TrimSpace(input.ConditionHash)
+		hold.PreviousPriority = cloneIntPtr(input.PreviousPriority)
+		hold.TargetPriority = input.TargetPriority
+		hold.HoldUntil = cloneTimePtr(input.HoldUntil)
+		hold.ManualPauseUntil = cloneTimePtr(input.ManualPauseUntil)
+		hold.Status = strings.TrimSpace(input.Status)
+		hold.LastActionID = cloneIntPtr(input.LastActionID)
+		hold.ReleasedAt = cloneTimePtr(input.ReleasedAt)
+		hold.UpdatedAt = s.now().UTC()
+		s.holds[input.SidecarID][index] = hold
+		return hold, nil
+	}
+	return SidecarWatchdogHold{}, notFoundError("sidecar watchdog hold not found")
+}
+
+func (s *memorySidecarStore) setWatchdogProbeCursorLocked(sidecarID int, cursorAuthID *string) SidecarWatchdogPolicy {
+	now := s.now().UTC()
+	policy, ok := s.policies[sidecarID]
+	if !ok {
+		policy = SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, CreatedAt: now}
+		s.nextPolicyID++
+	}
+	policy.ProbeCursorAuthID = cloneStringPtr(cursorAuthID)
+	policy.UpdatedAt = now
+	s.policies[sidecarID] = policy
+	return policy
+}
+
+func validateWatchdogHoldCreateInput(input SidecarWatchdogHoldInput) error {
+	if input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.Reason) == "" || strings.TrimSpace(input.ConditionHash) == "" || strings.TrimSpace(input.Status) == "" {
+		return invalidInputError("sidecar_id, auth_id, reason, condition_hash, and status are required")
+	}
+	return nil
+}
+
+func validateWatchdogHoldUpdateInput(id int, input SidecarWatchdogHoldInput) error {
+	if id <= 0 || input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.Reason) == "" || strings.TrimSpace(input.ConditionHash) == "" || strings.TrimSpace(input.Status) == "" {
+		return invalidInputError("id, sidecar_id, auth_id, reason, condition_hash, and status are required")
+	}
+	return nil
+}
+
+func watchdogHoldStatusBlocksActiveDuplicate(status string) bool {
+	trimmed := strings.TrimSpace(status)
+	return trimmed == WatchdogHoldStatusActive || trimmed == WatchdogHoldStatusPaused
 }

@@ -67,6 +67,22 @@ type CLIProxyResponse struct {
 	Path       string
 }
 
+type CLIProxyAPICallRequest struct {
+	AuthIndex string            `json:"authIndex,omitempty"`
+	Method    string            `json:"method"`
+	URL       string            `json:"url"`
+	Header    map[string]string `json:"header,omitempty"`
+	Data      string            `json:"data,omitempty"`
+}
+
+type CLIProxyAPICallResponse struct {
+	StatusCode int                    `json:"status_code"`
+	Header     CLIProxyAPICallHeaders `json:"header,omitempty"`
+	Body       json.RawMessage        `json:"body,omitempty"`
+}
+
+type CLIProxyAPICallHeaders map[string][]string
+
 type CLIProxyClientError struct {
 	Code       CLIProxyErrorCode
 	StatusCode int
@@ -92,6 +108,77 @@ func (err *CLIProxyClientError) Unwrap() error {
 		return nil
 	}
 	return err.Err
+}
+
+func (response *CLIProxyAPICallResponse) UnmarshalJSON(data []byte) error {
+	var payload struct {
+		StatusCode int                    `json:"status_code"`
+		Header     CLIProxyAPICallHeaders `json:"header"`
+		Body       json.RawMessage        `json:"body"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	if len(payload.Body) > 0 && !bytes.Equal(payload.Body, []byte("null")) {
+		var body string
+		if err := json.Unmarshal(payload.Body, &body); err != nil {
+			return fmt.Errorf("api-call body must be a string: %w", err)
+		}
+	}
+	response.StatusCode = payload.StatusCode
+	response.Header = payload.Header
+	response.Body = payload.Body
+	return nil
+}
+
+func (request *CLIProxyAPICallRequest) UnmarshalJSON(data []byte) error {
+	var payload struct {
+		AuthIndex      string            `json:"auth_index"`
+		AuthIndexCamel string            `json:"authIndex"`
+		Method         string            `json:"method"`
+		URL            string            `json:"url"`
+		Header         map[string]string `json:"header"`
+		Data           string            `json:"data"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	request.AuthIndex = payload.AuthIndex
+	if request.AuthIndex == "" {
+		request.AuthIndex = payload.AuthIndexCamel
+	}
+	request.Method = payload.Method
+	request.URL = payload.URL
+	request.Header = payload.Header
+	request.Data = payload.Data
+	return nil
+}
+
+func (headers *CLIProxyAPICallHeaders) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(data, []byte("null")) {
+		*headers = nil
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	parsed := make(CLIProxyAPICallHeaders, len(raw))
+	for key, value := range raw {
+		var values []string
+		if err := json.Unmarshal(value, &values); err == nil {
+			parsed[key] = values
+			continue
+		}
+		var single string
+		if err := json.Unmarshal(value, &single); err == nil {
+			parsed[key] = []string{single}
+			continue
+		}
+		return fmt.Errorf("api-call header %q must be a string or string array", key)
+	}
+	*headers = parsed
+	return nil
 }
 
 type dnsResolver interface {
@@ -120,6 +207,7 @@ var cliProxyManagementPathList = []string{
 	"/codex-api-key",
 	"/vertex-api-key",
 	"/openai-compatibility",
+	"/api-call",
 }
 
 var cliProxyManagementPathAllowlist = map[string]struct{}{
@@ -131,10 +219,20 @@ var cliProxyManagementPathAllowlist = map[string]struct{}{
 	"/codex-api-key":        {},
 	"/vertex-api-key":       {},
 	"/openai-compatibility": {},
+	"/api-call":             {},
 }
 
 func SupportedCLIProxyManagementPaths() []string {
 	return append([]string(nil), cliProxyManagementPathList...)
+}
+
+func (c *CLIProxyClient) CallSidecarAPI(ctx context.Context, target CLIProxyTarget, request CLIProxyAPICallRequest) (CLIProxyAPICallResponse, error) {
+	var response CLIProxyAPICallResponse
+	_, err := c.FetchJSON(ctx, target, http.MethodPost, "/api-call", request, &response)
+	if err != nil {
+		return CLIProxyAPICallResponse{}, err
+	}
+	return response, nil
 }
 
 func NormalizeCLIProxyBaseURL(rawURL string, policy CLIProxyConnectionPolicy) (string, error) {
@@ -272,7 +370,7 @@ func (c *CLIProxyClient) fetchJSONAttempt(ctx context.Context, client *http.Clie
 		return CLIProxyResponse{}, false, &CLIProxyClientError{Code: CLIProxyErrorRequestFailed, Path: managementPath, Err: err}
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= http.StatusInternalServerError && allowRetry {
+	if response.StatusCode >= http.StatusInternalServerError && allowRetry && method == http.MethodGet {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
 		return CLIProxyResponse{StatusCode: response.StatusCode, Path: managementPath}, true, &CLIProxyClientError{Code: CLIProxyErrorUpstreamStatus, StatusCode: response.StatusCode, Path: managementPath}
 	}

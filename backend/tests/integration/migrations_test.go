@@ -31,6 +31,8 @@ var expectedPrismMigrationVersions = []string{
 	"000012_proxy_target_selection_strategies",
 	"000013_partitioned_log_retention",
 	"000014_cli_proxy_sidecars",
+	"000015_sidecar_watchdog_probe_first_quota",
+	"000016_sidecar_watchdog_action_auth_name",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -539,6 +541,7 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		}
 	}
 	assertColumnDataType(t, ctx, conn, "sidecar_instances", "deleted_at", "timestamp with time zone")
+	assertColumnDataType(t, ctx, conn, "sidecar_watchdog_actions", "auth_name", "text")
 	for tableName, columnNames := range map[string][]string{
 		"sidecar_auth_snapshots":     {"recent_requests_json", "model_states_json", "snapshot_json"},
 		"sidecar_provider_snapshots": {"snapshot_json"},

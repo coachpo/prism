@@ -31,11 +31,17 @@ type persistence interface {
 	ListProviderSnapshots(context.Context, int) ([]SidecarProviderSnapshot, error)
 	GetOrCreateWatchdogPolicy(context.Context, int) (SidecarWatchdogPolicy, error)
 	UpsertWatchdogPolicy(context.Context, SidecarWatchdogPolicyInput) (SidecarWatchdogPolicy, error)
+	CreateWatchdogProbeObservation(context.Context, SidecarWatchdogProbeObservationInput) (SidecarWatchdogProbeObservation, error)
+	ListWatchdogProbeObservations(context.Context, int, int) ([]SidecarWatchdogProbeObservation, error)
+	CleanupWatchdogProbeObservations(context.Context) (int64, error)
+	PersistWatchdogProbeDecision(context.Context, SidecarWatchdogProbeDecision) (SidecarWatchdogProbeDecisionResult, error)
 	CreateWatchdogHold(context.Context, SidecarWatchdogHoldInput) (SidecarWatchdogHold, error)
 	GetActiveWatchdogHold(context.Context, int, string) (SidecarWatchdogHold, bool, error)
 	ListActiveWatchdogHolds(context.Context, int) ([]SidecarWatchdogHold, error)
+	ListDueWatchdogHolds(context.Context, int, time.Time) ([]SidecarWatchdogHold, error)
 	UpdateWatchdogHold(context.Context, int, SidecarWatchdogHoldInput) (SidecarWatchdogHold, error)
 	CreateWatchdogAction(context.Context, SidecarWatchdogActionInput) (SidecarWatchdogAction, error)
+	UpdateWatchdogAction(context.Context, int, SidecarWatchdogActionInput) (SidecarWatchdogAction, error)
 }
 
 type actionHistoryPersistence interface {
@@ -123,6 +129,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Get("/sidecars/{sidecar_id}/sync-status", s.handleGetSidecarSyncStatus)
 	api.Get("/sidecars/{sidecar_id}/watchdog-policy", s.handleGetWatchdogPolicy)
 	api.Put("/sidecars/{sidecar_id}/watchdog-policy", s.handleUpdateWatchdogPolicy)
+	api.Patch("/sidecars/{sidecar_id}/watchdog-policy", s.handleUpdateWatchdogPolicy)
 	api.Get("/sidecars/{sidecar_id}/actions", s.handleListActionHistory)
 }
 
@@ -139,19 +146,21 @@ type memorySidecarStore struct {
 	nextPolicyID        int
 	nextHoldID          int
 	nextActionID        int
+	nextObservationID   int
 	instances           map[int]SidecarInstance
 	authSnapshots       map[int]map[string]SidecarAuthSnapshot
 	providerSnapshots   map[int]map[string]SidecarProviderSnapshot
 	policies            map[int]SidecarWatchdogPolicy
 	holds               map[int][]SidecarWatchdogHold
 	actions             map[int][]SidecarWatchdogAction
+	probeObservations   map[int][]SidecarWatchdogProbeObservation
 }
 
 func newMemorySidecarStore(now func() time.Time, secretEncryptionKey string) *memorySidecarStore {
 	if now == nil {
 		now = time.Now
 	}
-	return &memorySidecarStore{now: now, secretEncryptionKey: secretEncryptionKey, nextID: 1, nextSnapshotID: 1, nextPolicyID: 1, nextHoldID: 1, nextActionID: 1, instances: map[int]SidecarInstance{}, authSnapshots: map[int]map[string]SidecarAuthSnapshot{}, providerSnapshots: map[int]map[string]SidecarProviderSnapshot{}, policies: map[int]SidecarWatchdogPolicy{}, holds: map[int][]SidecarWatchdogHold{}, actions: map[int][]SidecarWatchdogAction{}}
+	return &memorySidecarStore{now: now, secretEncryptionKey: secretEncryptionKey, nextID: 1, nextSnapshotID: 1, nextPolicyID: 1, nextHoldID: 1, nextActionID: 1, nextObservationID: 1, instances: map[int]SidecarInstance{}, authSnapshots: map[int]map[string]SidecarAuthSnapshot{}, providerSnapshots: map[int]map[string]SidecarProviderSnapshot{}, policies: map[int]SidecarWatchdogPolicy{}, holds: map[int][]SidecarWatchdogHold{}, actions: map[int][]SidecarWatchdogAction{}, probeObservations: map[int][]SidecarWatchdogProbeObservation{}}
 }
 
 func (s *memorySidecarStore) ListSidecarInstances(context.Context) ([]SidecarInstance, error) {
@@ -255,13 +264,13 @@ func (s *memorySidecarStore) GetOrCreateWatchdogPolicy(_ context.Context, sideca
 		return SidecarWatchdogPolicy{}, notFoundError("sidecar instance not found")
 	}
 	if policy, ok := s.policies[sidecarID]; ok {
-		return policy, nil
+		return cloneWatchdogPolicy(policy), nil
 	}
 	now := s.now().UTC()
-	policy := SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, CreatedAt: now, UpdatedAt: now}
+	policy := SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, CreatedAt: now, UpdatedAt: now}
 	s.nextPolicyID++
 	s.policies[sidecarID] = policy
-	return policy, nil
+	return cloneWatchdogPolicy(policy), nil
 }
 
 func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input SidecarWatchdogPolicyInput) (SidecarWatchdogPolicy, error) {
@@ -276,26 +285,81 @@ func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input Sidec
 		policy = SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: input.SidecarID, CreatedAt: now}
 		s.nextPolicyID++
 	}
-	normalized := normalizePolicyInput(input)
+	preservePrioritizedPriority := ok && input.PrioritizedPriority <= 0
+	preserveProbeBatchSize := ok && input.ProbeBatchSize <= 0
+	preserveProbeTimeoutSeconds := ok && input.ProbeTimeoutSeconds <= 0
+	if preservePrioritizedPriority {
+		input.PrioritizedPriority = policy.PrioritizedPriority
+	}
+	if preserveProbeBatchSize {
+		input.ProbeBatchSize = policy.ProbeBatchSize
+	}
+	if preserveProbeTimeoutSeconds {
+		input.ProbeTimeoutSeconds = policy.ProbeTimeoutSeconds
+	}
+	normalized, err := normalizePolicyInput(input)
+	if err != nil {
+		return SidecarWatchdogPolicy{}, err
+	}
 	policy.Enabled = normalized.Enabled
 	policy.FailureThreshold = normalized.FailureThreshold
 	policy.FailureWindowSeconds = normalized.FailureWindowSeconds
 	policy.FallbackCooldownSeconds = normalized.FallbackCooldownSeconds
 	policy.DeprioritizedPriority = normalized.DeprioritizedPriority
+	if !preservePrioritizedPriority {
+		policy.PrioritizedPriority = normalized.PrioritizedPriority
+	}
 	policy.ManualOverridePauseSeconds = normalized.ManualOverridePauseSeconds
+	if !preserveProbeBatchSize {
+		policy.ProbeBatchSize = normalized.ProbeBatchSize
+	}
+	if !preserveProbeTimeoutSeconds {
+		policy.ProbeTimeoutSeconds = normalized.ProbeTimeoutSeconds
+	}
 	policy.UpdatedAt = now
 	s.policies[input.SidecarID] = policy
-	return policy, nil
+	return cloneWatchdogPolicy(policy), nil
 }
 
 func (s *memorySidecarStore) CreateWatchdogAction(_ context.Context, input SidecarWatchdogActionInput) (SidecarWatchdogAction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now().UTC()
-	action := SidecarWatchdogAction{ID: s.nextActionID, SidecarID: input.SidecarID, AuthSnapshotID: cloneIntPtr(input.AuthSnapshotID), HoldID: cloneIntPtr(input.HoldID), AuthID: cloneStringPtr(input.AuthID), AuthIndex: cloneStringPtr(input.AuthIndex), Provider: cloneStringPtr(input.Provider), ActionType: input.ActionType, Reason: cloneStringPtr(input.Reason), PreviousPriority: cloneIntPtr(input.PreviousPriority), TargetPriority: cloneIntPtr(input.TargetPriority), HoldUntil: cloneTimePtr(input.HoldUntil), Status: input.Status, ErrorMessage: cloneStringPtr(input.ErrorMessage), CreatedAt: now, UpdatedAt: now, CompletedAt: cloneTimePtr(input.CompletedAt)}
+	action := SidecarWatchdogAction{ID: s.nextActionID, SidecarID: input.SidecarID, AuthSnapshotID: cloneIntPtr(input.AuthSnapshotID), HoldID: cloneIntPtr(input.HoldID), AuthID: cloneStringPtr(input.AuthID), AuthName: cloneStringPtr(input.AuthName), AuthIndex: cloneStringPtr(input.AuthIndex), Provider: cloneStringPtr(input.Provider), ActionType: input.ActionType, Reason: cloneStringPtr(input.Reason), PreviousPriority: cloneIntPtr(input.PreviousPriority), TargetPriority: cloneIntPtr(input.TargetPriority), HoldUntil: cloneTimePtr(input.HoldUntil), Status: input.Status, ErrorMessage: cloneStringPtr(input.ErrorMessage), CreatedAt: now, UpdatedAt: now, CompletedAt: cloneTimePtr(input.CompletedAt)}
 	s.nextActionID++
 	s.actions[input.SidecarID] = append(s.actions[input.SidecarID], action)
 	return action, nil
+}
+
+func (s *memorySidecarStore) UpdateWatchdogAction(_ context.Context, id int, input SidecarWatchdogActionInput) (SidecarWatchdogAction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id <= 0 || input.SidecarID <= 0 || strings.TrimSpace(input.ActionType) == "" || strings.TrimSpace(input.Status) == "" {
+		return SidecarWatchdogAction{}, invalidInputError("id, sidecar_id, action_type, and status are required")
+	}
+	for index, action := range s.actions[input.SidecarID] {
+		if action.ID != id {
+			continue
+		}
+		action.AuthSnapshotID = cloneIntPtr(input.AuthSnapshotID)
+		action.HoldID = cloneIntPtr(input.HoldID)
+		action.AuthID = cloneStringPtr(input.AuthID)
+		action.AuthName = cloneStringPtr(input.AuthName)
+		action.AuthIndex = cloneStringPtr(input.AuthIndex)
+		action.Provider = cloneStringPtr(input.Provider)
+		action.ActionType = strings.TrimSpace(input.ActionType)
+		action.Reason = cloneStringPtr(input.Reason)
+		action.PreviousPriority = cloneIntPtr(input.PreviousPriority)
+		action.TargetPriority = cloneIntPtr(input.TargetPriority)
+		action.HoldUntil = cloneTimePtr(input.HoldUntil)
+		action.Status = strings.TrimSpace(input.Status)
+		action.ErrorMessage = cloneStringPtr(input.ErrorMessage)
+		action.CompletedAt = cloneTimePtr(input.CompletedAt)
+		action.UpdatedAt = s.now().UTC()
+		s.actions[input.SidecarID][index] = action
+		return action, nil
+	}
+	return SidecarWatchdogAction{}, notFoundError("sidecar watchdog action not found")
 }
 
 func (s *memorySidecarStore) ListWatchdogActions(_ context.Context, sidecarID int) ([]SidecarWatchdogAction, error) {
@@ -378,11 +442,31 @@ func cloneProviderSnapshot(snapshot SidecarProviderSnapshot) SidecarProviderSnap
 	return copy
 }
 
+func cloneWatchdogPolicy(policy SidecarWatchdogPolicy) SidecarWatchdogPolicy {
+	copy := policy
+	copy.ProbeCursorAuthID = cloneStringPtr(policy.ProbeCursorAuthID)
+	return copy
+}
+
+func cloneWatchdogProbeObservation(observation SidecarWatchdogProbeObservation) SidecarWatchdogProbeObservation {
+	copy := observation
+	copy.AuthIndex = cloneStringPtr(observation.AuthIndex)
+	copy.Provider = cloneStringPtr(observation.Provider)
+	copy.UpstreamStatusCode = cloneIntPtr(observation.UpstreamStatusCode)
+	copy.QuotaReason = cloneStringPtr(observation.QuotaReason)
+	copy.QuotaResetAt = cloneTimePtr(observation.QuotaResetAt)
+	copy.BlockingWindow = cloneStringPtr(observation.BlockingWindow)
+	copy.WindowsJSON = append([]byte(nil), observation.WindowsJSON...)
+	copy.ErrorCode = cloneStringPtr(observation.ErrorCode)
+	return copy
+}
+
 func cloneWatchdogAction(action SidecarWatchdogAction) SidecarWatchdogAction {
 	copy := action
 	copy.AuthSnapshotID = cloneIntPtr(action.AuthSnapshotID)
 	copy.HoldID = cloneIntPtr(action.HoldID)
 	copy.AuthID = cloneStringPtr(action.AuthID)
+	copy.AuthName = cloneStringPtr(action.AuthName)
 	copy.AuthIndex = cloneStringPtr(action.AuthIndex)
 	copy.Provider = cloneStringPtr(action.Provider)
 	copy.Reason = cloneStringPtr(action.Reason)
