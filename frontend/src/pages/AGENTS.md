@@ -34,11 +34,12 @@
 - `statistics/AGENTS.md`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep backend access on the shared frontend API boundary rather than inventing page-local fetch layers.
 - Keep global routes such as `/sidecars`, `/settings`, and `/proxy-api-keys` separate from selected-profile route state.
 - Let route files own bookmarkable query or hash state and the first handoff into local hooks.
 - Parent-cover local route clusters that do not need their own AGENTS file, including dense local helper folders already documented by the page leaves.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 - Do not treat auth pages as protected-shell pages.

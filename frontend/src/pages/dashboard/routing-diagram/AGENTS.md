@@ -30,10 +30,10 @@ routing-diagram/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep parent consumers on the `../routingDiagram.ts` barrel instead of importing these files ad hoc.
 - Keep diagram-specific aggregation, realtime patching, and layout math local to this cluster.
 - Keep chart and shape components rendering-focused; data shaping belongs in the diagram helpers.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

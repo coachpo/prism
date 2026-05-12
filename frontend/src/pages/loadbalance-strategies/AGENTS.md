@@ -22,6 +22,7 @@ loadbalance-strategies/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep backend access on the shared `api.*` boundary; this page should not create a parallel fetch layer.
 - Keep strategy form normalization and request shaping in `loadbalanceStrategyFormState.ts` rather than scattering the rules across dialogs.
 - Match the CRUD/page shell pattern used by other profile-scoped management pages such as pricing templates.
@@ -30,7 +31,6 @@ loadbalance-strategies/
 - Keep failure-status editing, adaptive-routing defaults, full adaptive policy preservation, and payload normalization inside `loadbalanceStrategyFormState.ts`; do not scatter contract shaping across dialog components.
 - Keep kind-aware summary wording in `LoadbalanceStrategiesTable.tsx` and shared page data helpers; do not duplicate family label, objective label, or summary formatting elsewhere.
 - Keep the merged contract forward-only. Do not add compatibility shims, silent coercion, or a fallback path that collapses both families back into one generic strategy type.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

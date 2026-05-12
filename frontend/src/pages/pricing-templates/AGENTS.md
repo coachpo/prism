@@ -23,11 +23,11 @@ pricing-templates/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Reuse the shared pricing-template cache in `@/lib/referenceData` for list bootstrap.
 - Keep CAS-aware edit payload shaping in `usePricingTemplatesPageData.ts`; reopen or refetch on `409` instead of guessing merges.
 - Parse delete conflicts and usage rows through `pricingTemplateFormState.ts` helpers instead of duplicating row normalization.
 - Keep profile scope explicit in copy and behavior; this page follows the selected management profile rather than a global instance scope.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 
