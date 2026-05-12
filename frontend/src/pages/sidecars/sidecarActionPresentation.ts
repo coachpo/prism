@@ -4,28 +4,31 @@ import type { SidecarActionStatusLabel, SidecarActionTypeLabel } from "@/i18n/me
 export type ActionStatusLabels = Record<SidecarActionStatusLabel, string>;
 export type ActionTypeLabels = Record<SidecarActionTypeLabel, string>;
 
-const KNOWN_ACTION_TYPES = new Set<string>([
-  "probe_succeeded",
-  "probe_failed_timeout",
-  "probe_failed_management_auth",
-  "probe_failed_token",
-  "probe_failed_status",
-  "probe_failed_parse",
-  "probe_failed_transport",
-  "probe_skipped_unsupported_provider",
-  "quota_hold_extended",
-]);
+const PROBE_ERROR_PREFIX = "probe_failed_";
+const PROBE_SKIPPED_ACTION = "probe_skipped_unsupported_provider";
 
 function isKnownActionStatus(status: string): status is SidecarActionStatusLabel {
   return status === "succeeded" || status === "success" || status === "skipped" || status === "failed" || status === "error";
 }
 
-export function isKnownActionType(actionType: string): actionType is SidecarActionTypeLabel {
-  return KNOWN_ACTION_TYPES.has(actionType);
+function actionTypeLabelKey(actionType: string): SidecarActionTypeLabel | null {
+  if (actionType === "probe_succeeded") {
+    return "probe_succeeded";
+  }
+  if (actionType === PROBE_SKIPPED_ACTION) {
+    return "probe_skipped";
+  }
+  if (actionType.startsWith(PROBE_ERROR_PREFIX)) {
+    return "probe_error";
+  }
+  if (actionType === "quota_hold_extended") {
+    return "quota_hold_extended";
+  }
+  return null;
 }
 
 export function isProbeActionType(actionType: string) {
-  return actionType === "probe_succeeded" || actionType === "probe_skipped_unsupported_provider" || actionType.startsWith("probe_failed_");
+  return actionType === "probe_succeeded" || actionType === PROBE_SKIPPED_ACTION || actionType.startsWith(PROBE_ERROR_PREFIX);
 }
 
 export function formatActionStatus(status: string, labels: ActionStatusLabels) {
@@ -33,7 +36,8 @@ export function formatActionStatus(status: string, labels: ActionStatusLabels) {
 }
 
 export function formatActionType(actionType: string, labels: ActionTypeLabels) {
-  return isKnownActionType(actionType) ? labels[actionType] : actionType;
+  const labelKey = actionTypeLabelKey(actionType);
+  return labelKey ? labels[labelKey] : actionType;
 }
 
 export function sidecarStatusIntent(status: string): BadgeIntent {
@@ -53,10 +57,10 @@ export function sidecarActionIntent(actionType: string): BadgeIntent {
   if (actionType === "probe_succeeded" || actionType.includes("restore")) {
     return "success";
   }
-  if (actionType === "probe_skipped_unsupported_provider" || actionType === "quota_hold_extended" || actionType.includes("deprioritize")) {
+  if (actionType === PROBE_SKIPPED_ACTION || actionType === "quota_hold_extended" || actionType.includes("deprioritize")) {
     return "warning";
   }
-  if (actionType.startsWith("probe_failed_")) {
+  if (actionType.startsWith(PROBE_ERROR_PREFIX)) {
     return "danger";
   }
   if (actionType.includes("operator")) {

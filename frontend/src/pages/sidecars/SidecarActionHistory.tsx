@@ -16,7 +16,6 @@ import type { SidecarActionHistoryItem } from "@/lib/types";
 import {
   formatActionStatus,
   formatActionType,
-  isKnownActionType,
   isProbeActionType,
   sidecarActionIntent,
   sidecarStatusIntent,
@@ -48,12 +47,17 @@ function redactSensitiveText(value: string | undefined, redactedLabel: string) {
     .replace(/(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)[^\s,;}]+/gi, `$1$2[${redactedLabel}]`);
 }
 
+function knownActionFallback(actionType: string, actionLabels: ActionTypeLabels) {
+  const formatted = formatActionType(actionType, actionLabels);
+  return formatted === actionType ? "—" : formatted;
+}
+
 function formatReason(action: SidecarActionHistoryItem, actionLabels: ActionTypeLabels, redactedLabel: string) {
   if (!action.reason) {
-    return isKnownActionType(action.action_type) ? actionLabels[action.action_type] : "—";
+    return knownActionFallback(action.action_type, actionLabels);
   }
   if (isProbeActionType(action.action_type)) {
-    return isKnownActionType(action.action_type) ? actionLabels[action.action_type] : action.action_type;
+    return formatActionType(action.action_type, actionLabels);
   }
   try {
     const parsed = JSON.parse(action.reason) as { request?: { route?: string; fields?: string[] }; error?: string };
@@ -77,9 +81,8 @@ function formatErrorMessage(action: SidecarActionHistoryItem, actionLabels: Acti
   }
   if (isProbeActionType(action.action_type)) {
     const statusCode = action.error_message.match(/\bstatus=\d{3}\b/)?.[0];
-    return statusCode && isKnownActionType(action.action_type)
-      ? `${actionLabels[action.action_type]} · ${statusCode}`
-      : formatActionType(action.action_type, actionLabels);
+    const label = formatActionType(action.action_type, actionLabels);
+    return statusCode ? `${label} · ${statusCode}` : label;
   }
   return redactSensitiveText(action.error_message, redactedLabel);
 }

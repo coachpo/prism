@@ -93,10 +93,11 @@ export function QuotaInventoryPanel({ loading, mutating, onCancelScan, onStartSc
               </div>
               <Progress value={progress} />
             </div>
-            <div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-3">
-              <span>{copy.quotaScanSucceeded(formatNumber(displayedScan.succeeded_count))}</span>
+            <div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-4">
+              <span>{copy.quotaScanUsing(formatNumber(displayedScan.using_count))}</span>
               <span>{copy.quotaScanQuotaExceeded(formatNumber(displayedScan.quota_exceeded_count))}</span>
-              <span>{copy.quotaScanFailed(formatNumber(displayedScan.failed_count + displayedScan.unsupported_count + displayedScan.missing_index_count))}</span>
+              <span>{copy.quotaScanError(formatNumber(displayedScan.error_count))}</span>
+              <span>{copy.quotaScanSkipped(formatNumber(displayedScan.skipped_count))}</span>
             </div>
             {displayedScan.last_error_code ? <p className="text-xs text-destructive">{copy.quotaScanLastError(displayedScan.last_error_code)}</p> : null}
           </div>

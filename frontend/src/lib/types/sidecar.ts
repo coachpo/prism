@@ -56,9 +56,6 @@ export interface SidecarAuthSnapshot {
   disabled?: boolean;
   unavailable?: boolean;
   priority?: number;
-  quota_exceeded?: boolean;
-  quota_reason?: string;
-  quota_next_recover_at?: string;
   next_retry_after?: string;
   success_count?: number;
   failed_count?: number;
@@ -96,12 +93,16 @@ export interface SidecarWatchdogPolicy {
   failure_threshold: number;
   failure_window_seconds: number;
   fallback_cooldown_seconds: number;
-  deprioritized_priority: number;
-  prioritized_priority: number;
+  using_priority: number;
+  quota_exceeded_priority: number;
+  error_priority: number;
   manual_override_pause_seconds: number;
   probe_batch_size: number;
   probe_timeout_seconds: number;
   probe_batch_cooldown_seconds: number;
+  probe_jitter_min_ms: number;
+  probe_jitter_max_ms: number;
+  cooldown_jitter_percent: number;
   quota_inventory_enabled: boolean;
   initial_scan_enabled: boolean;
   rolling_refresh_enabled: boolean;
@@ -115,19 +116,23 @@ export interface SidecarWatchdogPolicyUpdate {
   failure_threshold?: number;
   failure_window_seconds?: number;
   fallback_cooldown_seconds?: number;
-  deprioritized_priority?: number;
-  prioritized_priority?: number;
+  using_priority?: number;
+  quota_exceeded_priority?: number;
+  error_priority?: number;
   manual_override_pause_seconds?: number;
   probe_batch_size?: number;
   probe_timeout_seconds?: number;
   probe_batch_cooldown_seconds?: number;
+  probe_jitter_min_ms?: number;
+  probe_jitter_max_ms?: number;
+  cooldown_jitter_percent?: number;
   quota_inventory_enabled?: boolean;
   initial_scan_enabled?: boolean;
   rolling_refresh_enabled?: boolean;
   rolling_refresh_after_seconds?: number;
 }
 
-export type SidecarQuotaStateValue = "unknown" | "healthy" | "quota_exceeded" | "disabled" | string;
+export type SidecarQuotaBand = "using" | "quota_exceeded" | "error";
 
 export interface SidecarAuthQuotaState {
   sidecar_id: number;
@@ -137,9 +142,9 @@ export interface SidecarAuthQuotaState {
   auth_index_present: boolean;
   disabled: boolean;
   current_priority?: number;
-  quota_state: SidecarQuotaStateValue;
+  quota_band: SidecarQuotaBand;
   probe_status?: string;
-  quota_reason?: string;
+  reason_code?: string;
   quota_reset_at?: string;
   blocking_window?: string;
   last_snapshot_at?: string;
@@ -163,11 +168,10 @@ export interface SidecarQuotaScanRun {
   requested_by?: string;
   planned_count: number;
   attempted_count: number;
-  succeeded_count: number;
+  using_count: number;
   quota_exceeded_count: number;
-  failed_count: number;
-  unsupported_count: number;
-  missing_index_count: number;
+  error_count: number;
+  skipped_count: number;
   cancel_requested_at?: string;
   started_at?: string;
   completed_at?: string;

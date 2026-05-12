@@ -36,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarActionHistoryItem, SidecarAuthQuotaState, SidecarAuthSnapshot } from "@/lib/types";
+import type { SidecarActionHistoryItem, SidecarAuthQuotaState, SidecarAuthSnapshot, SidecarQuotaBand } from "@/lib/types";
 import {
   formatActionStatus,
   formatActionType,
@@ -54,8 +54,9 @@ interface AuthSearchLabels {
   disabledLabel: string;
   missingPriorityLabel: string;
   priorityLabel: (priority: number) => string;
+  quotaStateLabels: Record<SidecarQuotaBand, string>;
   unavailableLabel: string;
-  unknownStatus: string;
+  unobservedStatus: string;
 }
 
 interface UsageLimitErrorLabels {
@@ -145,14 +146,14 @@ function parseUsageLimitStatusMessage(value: string | undefined) {
   }
 }
 
-function boolState(value: boolean | undefined, enabledLabel: string, disabledLabel: string, unknownLabel: string) {
+function boolState(value: boolean | undefined, enabledLabel: string, disabledLabel: string, fallbackLabel: string) {
   if (value === true) {
     return disabledLabel;
   }
   if (value === false) {
     return enabledLabel;
   }
-  return unknownLabel;
+  return fallbackLabel;
 }
 
 function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
@@ -162,23 +163,23 @@ function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
   if (snapshot.next_retry_after) {
     return "warning";
   }
-  if (snapshot.status === "healthy" || snapshot.status === "available") {
+  if (snapshot.status === "active" || snapshot.status === "available") {
     return "success";
   }
   return snapshot.status ? "info" : "muted";
 }
 
-function quotaStateIntent(quotaState: SidecarAuthQuotaState | undefined): BadgeIntent {
-  if (!quotaState || quotaState.disabled || quotaState.quota_state === "unknown") {
-    return "muted";
-  }
-  if (quotaState.quota_state === "healthy") {
+function quotaBandIntent(quotaBand: SidecarQuotaBand | undefined): BadgeIntent {
+  if (quotaBand === "using") {
     return "success";
   }
-  if (quotaState.quota_state === "quota_exceeded") {
+  if (quotaBand === "quota_exceeded") {
     return "warning";
   }
-  return "info";
+  if (quotaBand === "error") {
+    return "danger";
+  }
+  return "muted";
 }
 
 function summarizeJson(
@@ -251,7 +252,7 @@ function compareAuthByPriorityAsc(left: SidecarAuthSnapshot, right: SidecarAuthS
   return (left.priority ?? 0) - (right.priority ?? 0) || compareAuthByName(left, right);
 }
 
-function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearchLabels) {
+function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, quotaState: SidecarAuthQuotaState | undefined, labels: AuthSearchLabels) {
   const fields = [
     snapshot.name,
     snapshot.auth_id,
@@ -261,9 +262,12 @@ function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearch
     snapshot.status,
     snapshot.status_message,
     labels.priorityLabel(snapshot.priority ?? 0),
-    boolState(snapshot.disabled, labels.enabledLabel, labels.disabledLabel, labels.unknownStatus),
+    boolState(snapshot.disabled, labels.enabledLabel, labels.disabledLabel, labels.unobservedStatus),
   ];
 
+  if (quotaState) {
+    fields.push(quotaState.quota_band, labels.quotaStateLabels[quotaState.quota_band], quotaState.reason_code, quotaState.probe_status);
+  }
   if (snapshot.unavailable) {
     fields.push(labels.unavailableLabel);
   }
@@ -274,12 +278,12 @@ function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearch
   return fields.filter((field): field is string => Boolean(field));
 }
 
-function authMatchesSearch(snapshot: SidecarAuthSnapshot, normalizedSearch: string, labels: AuthSearchLabels) {
+function authMatchesSearch(snapshot: SidecarAuthSnapshot, quotaState: SidecarAuthQuotaState | undefined, normalizedSearch: string, labels: AuthSearchLabels) {
   if (!normalizedSearch) {
     return true;
   }
 
-  return buildAuthSearchFields(snapshot, labels).some((field) => normalizeAuthSearch(field).includes(normalizedSearch));
+  return buildAuthSearchFields(snapshot, quotaState, labels).some((field) => normalizeAuthSearch(field).includes(normalizedSearch));
 }
 
 function compareAuthSnapshots(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot, sortMode: AuthSortMode) {
@@ -381,21 +385,23 @@ export function AuthFilesTable({
     enabledLabel: copy.authEnabledLabel,
     missingPriorityLabel: copy.authMissingPriorityResolves,
     priorityLabel: copy.authPriorityLabel,
+    quotaStateLabels: copy.quotaStateLabels,
     unavailableLabel: copy.authUnavailableLabel,
-    unknownStatus: copy.unknownStatus,
+    unobservedStatus: copy.authUnobservedLabel,
   }), [
     copy.authDisabledLabel,
     copy.authEnabledLabel,
     copy.authMissingPriorityResolves,
     copy.authPriorityLabel,
+    copy.quotaStateLabels,
     copy.authUnavailableLabel,
-    copy.unknownStatus,
+    copy.authUnobservedLabel,
   ]);
   const derivedAuthSnapshots = useMemo(() => {
     return authSnapshots
-      .filter((snapshot) => authMatchesSearch(snapshot, normalizedAuthSearch, authSearchLabels))
+      .filter((snapshot) => authMatchesSearch(snapshot, quotaStatesByAuthId.get(snapshot.auth_id), normalizedAuthSearch, authSearchLabels))
       .sort((left, right) => compareAuthSnapshots(left, right, authSortMode));
-  }, [authSearchLabels, authSnapshots, authSortMode, normalizedAuthSearch]);
+  }, [authSearchLabels, authSnapshots, authSortMode, normalizedAuthSearch, quotaStatesByAuthId]);
   const totalAuthRows = derivedAuthSnapshots.length;
   const totalPages = Math.max(1, Math.ceil(totalAuthRows / pageSize));
   const currentPageIndex = Math.min(pageIndex, totalPages - 1);
@@ -517,7 +523,7 @@ export function AuthFilesTable({
                     const mutating = mutatingAuthKey === snapshot.auth_id;
                     const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
                     const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
-                    const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.unknownStatus);
+                    const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.authUnobservedLabel);
                     const quotaState = quotaStatesByAuthId.get(snapshot.auth_id);
                     const latestObservedAt = quotaState?.last_snapshot_at ?? quotaState?.last_probed_at;
 
@@ -558,7 +564,7 @@ export function AuthFilesTable({
                             ) : (
                               <StatusBadge label={statusBadgeLabel} intent={statusBadgeIntent} />
                             )}
-                            <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.unknownStatus)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
+                            <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.authUnobservedLabel)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
                             {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
                             {snapshot.status_message && !usageLimitError ? (
                               <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span>
@@ -569,8 +575,8 @@ export function AuthFilesTable({
                           <div className="flex min-w-48 flex-col gap-1 text-xs text-muted-foreground">
                             <div className="flex flex-wrap items-center gap-1">
                               <StatusBadge
-                                label={quotaState ? (copy.quotaStateLabels[quotaState.quota_state] ?? quotaState.quota_state) : copy.quotaStateMissing}
-                                intent={quotaStateIntent(quotaState)}
+                                label={quotaState ? copy.quotaStateLabels[quotaState.quota_band] : copy.quotaStateMissing}
+                                intent={quotaBandIntent(quotaState?.quota_band)}
                               />
                               {quotaState?.current_priority !== undefined ? (
                                 <ValueBadge
@@ -582,7 +588,7 @@ export function AuthFilesTable({
                             </div>
                             <span>{copy.quotaStateLatestObserved}</span>
                             {latestObservedAt ? <span>{formatTimestamp(latestObservedAt, locale, messages.common.unavailable)}</span> : null}
-                            {quotaState?.quota_reason ? <span>{copy.quotaStateReason(quotaState.quota_reason)}</span> : null}
+                            {quotaState?.reason_code ? <span>{copy.quotaStateReasonCode(quotaState.reason_code)}</span> : null}
                             {quotaState?.quota_reset_at ? <span>{copy.quotaStateReset(formatTimestamp(quotaState.quota_reset_at, locale, messages.common.unavailable))}</span> : null}
                           </div>
                         </TableCell>

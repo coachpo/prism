@@ -1,14 +1,11 @@
+import type { SidecarQuotaBand } from "@/lib/types";
+
 export type SidecarActionStatusLabel = "succeeded" | "success" | "skipped" | "failed" | "error";
 
 export type SidecarActionTypeLabel =
   | "probe_succeeded"
-  | "probe_failed_timeout"
-  | "probe_failed_management_auth"
-  | "probe_failed_token"
-  | "probe_failed_status"
-  | "probe_failed_parse"
-  | "probe_failed_transport"
-  | "probe_skipped_unsupported_provider"
+  | "probe_error"
+  | "probe_skipped"
   | "quota_hold_extended";
 
 export interface Messages {
@@ -231,6 +228,7 @@ export interface Messages {
     authUsageLimitResetsInSecondsLabel: string;
     authUsageLimitTitle: string;
     authUsageLimitTypeLabel: string;
+    authUnobservedLabel: string;
     authWatchdogColumn: string;
     baseUrlDescription: string;
     baseUrlLabel: string;
@@ -297,24 +295,25 @@ export interface Messages {
     quotaScanCancelSucceeded: string;
     quotaScanDescription: string;
     quotaScanEmpty: string;
-    quotaScanFailed: (count: string) => string;
+    quotaScanError: (count: string) => string;
     quotaScanLastError: (code: string) => string;
     quotaScanProgressLabel: string;
     quotaScanProgressValue: (attempted: string, planned: string) => string;
     quotaScanQuotaExceeded: (count: string) => string;
+    quotaScanSkipped: (count: string) => string;
     quotaScanStart: string;
     quotaScanStartFailed: string;
     quotaScanStartSucceeded: (name: string) => string;
     quotaScanStatusLabels: Record<string, string>;
-    quotaScanSucceeded: (count: string) => string;
     quotaScanTitle: string;
     quotaScanTypeLabels: Record<string, string>;
+    quotaScanUsing: (count: string) => string;
     quotaStateColumn: string;
-    quotaStateLabels: Record<string, string>;
+    quotaStateLabels: Record<SidecarQuotaBand, string>;
     quotaStateLastProbed: (time: string) => string;
     quotaStateLatestObserved: string;
     quotaStateMissing: string;
-    quotaStateReason: (reason: string) => string;
+    quotaStateReasonCode: (reasonCode: string) => string;
     quotaStateReset: (time: string) => string;
     quotaStateWatchdogHold: string;
     redactedLabel: string;
@@ -345,21 +344,28 @@ export interface Messages {
     testFailed: string;
     testSucceeded: (name: string, statusCode: number) => string;
     tlsSkipped: string;
-    unknownStatus: string;
     updateSucceeded: (name: string) => string;
     validationPositiveWholeNumber: (fieldLabel: string) => string;
     viewDetails: string;
+    watchdogCooldownJitterDescription: string;
+    watchdogCooldownJitterLabel: string;
+    watchdogCooldownJitterValidationError: string;
     watchdogDeferred: string;
     watchdogDescription: string;
-    watchdogDeprioritizedPriorityLabel: string;
     watchdogEnabledDescription: string;
     watchdogEnabledLabel: string;
+    watchdogErrorPriorityLabel: string;
     watchdogFailureThresholdLabel: string;
     watchdogFailureWindowLabel: string;
     watchdogFallbackCooldownLabel: string;
     watchdogManualPauseLabel: string;
-    watchdogPrioritizedPriorityDescription: string;
-    watchdogPrioritizedPriorityLabel: string;
+    watchdogProbeJitterDescription: string;
+    watchdogProbeJitterMaxLabel: string;
+    watchdogProbeJitterMinLabel: string;
+    watchdogJitterOrderValidationError: string;
+    watchdogQuotaExceededPriorityLabel: string;
+    watchdogUsingPriorityDescription: string;
+    watchdogUsingPriorityLabel: string;
     watchdogPriorityOrderValidationError: string;
     watchdogPrioritySafetyDescription: string;
     watchdogPrioritySafetyTitle: string;
@@ -2342,7 +2348,7 @@ export const enMessages: Messages = {
     actionHistoryActionColumn: "Action",
     actionHistoryAuthColumn: "Target auth",
     actionHistoryCompletedAt: (time) => `Completed ${time}`,
-    actionHistoryDescription: "Backend-recorded manual mutations and watchdog probe outcomes, including probe success, safe probe failure classes, skipped unsupported providers, hold extensions, deprioritize, and restore outcomes.",
+    actionHistoryDescription: "Backend-recorded manual mutations and watchdog probe outcomes, including using-band probe success, safe probe errors, skipped probes, hold extensions, quota-band moves, and restore outcomes.",
     actionHistoryEmptyDescription: "Manual changes and watchdog decisions will appear here.",
     actionHistoryEmptyTitle: "No actions recorded",
     actionHistoryFromPriority: (priority) => `from ${priority}`,
@@ -2353,13 +2359,8 @@ export const enMessages: Messages = {
     actionStatusLabels: { succeeded: "Succeeded", success: "Success", skipped: "Skipped", failed: "Failed", error: "Error" },
     actionTypeLabels: {
       probe_succeeded: "Probe succeeded",
-      probe_failed_timeout: "Probe timed out",
-      probe_failed_management_auth: "Probe management auth failed",
-      probe_failed_token: "Probe token failed",
-      probe_failed_status: "Probe returned non-OK status",
-      probe_failed_parse: "Probe response parse failed",
-      probe_failed_transport: "Probe transport failed",
-      probe_skipped_unsupported_provider: "Probe skipped: unsupported provider",
+      probe_error: "Probe error",
+      probe_skipped: "Probe skipped",
       quota_hold_extended: "Quota hold extended",
     },
     actionHistoryTimeColumn: "Time",
@@ -2419,6 +2420,7 @@ export const enMessages: Messages = {
     authUsageLimitResetsInSecondsLabel: "Resets in",
     authUsageLimitTitle: "Usage limit",
     authUsageLimitTypeLabel: "Type",
+    authUnobservedLabel: "Not observed",
     authWatchdogColumn: "Watchdog",
     baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",
     baseUrlLabel: "Base URL",
@@ -2485,24 +2487,25 @@ export const enMessages: Messages = {
     quotaScanCancelSucceeded: "Quota scan cancellation requested.",
     quotaScanDescription: "Manual scans enqueue quota checks for the latest observed inventory. Results are not real-time provider truth.",
     quotaScanEmpty: "No quota scan has been recorded for this sidecar yet.",
-    quotaScanFailed: (count) => `Failed/skipped ${count}`,
+    quotaScanError: (count) => `Error ${count}`,
     quotaScanLastError: (code) => `Last error: ${code}`,
     quotaScanProgressLabel: "Scan progress",
     quotaScanProgressValue: (attempted, planned) => `${attempted} of ${planned} attempted`,
     quotaScanQuotaExceeded: (count) => `Quota exceeded ${count}`,
+    quotaScanSkipped: (count) => `Skipped ${count}`,
     quotaScanStart: "Scan quota now",
     quotaScanStartFailed: "Failed to start quota scan.",
     quotaScanStartSucceeded: (name) => `Quota scan started for ${name}.`,
     quotaScanStatusLabels: { queued: "Queued", running: "Running", completed: "Completed", cancelled: "Cancelled", failed: "Failed" },
-    quotaScanSucceeded: (count) => `Healthy ${count}`,
     quotaScanTitle: "Quota scan progress",
     quotaScanTypeLabels: { initial: "Initial", manual: "Manual", scheduled: "Rolling refresh" },
+    quotaScanUsing: (count) => `Using ${count}`,
     quotaStateColumn: "Latest observed quota",
-    quotaStateLabels: { unknown: "Unknown", healthy: "Healthy", quota_exceeded: "Quota exceeded", disabled: "Disabled" },
+    quotaStateLabels: { using: "Using", quota_exceeded: "Quota exceeded", error: "Error" },
     quotaStateLastProbed: (time) => `Last probe ${time}`,
     quotaStateLatestObserved: "Latest observed state, not real-time provider truth.",
     quotaStateMissing: "Not observed",
-    quotaStateReason: (reason) => `Reason: ${reason}`,
+    quotaStateReasonCode: (reasonCode) => `Reason code: ${reasonCode}`,
     quotaStateReset: (time) => `Reset ${time}`,
     quotaStateWatchdogHold: "Watchdog hold",
     redactedLabel: "redacted",
@@ -2533,23 +2536,30 @@ export const enMessages: Messages = {
     testFailed: "Failed to test sidecar connection.",
     testSucceeded: (name, statusCode) => `Connection to ${name} succeeded with HTTP ${statusCode}.`,
     tlsSkipped: "TLS verification skipped",
-    unknownStatus: "unknown",
     updateSucceeded: (name) => `Updated sidecar ${name}.`,
     validationPositiveWholeNumber: (fieldLabel) => `${fieldLabel} must be a positive whole number.`,
     viewDetails: "View details",
+    watchdogCooldownJitterDescription: "Adds bounded randomness to cooldown scheduling so probes do not resume in one burst.",
+    watchdogCooldownJitterLabel: "Cooldown jitter (percent)",
+    watchdogCooldownJitterValidationError: "Cooldown jitter must be between 0 and 100 percent.",
     watchdogDeferred: "Watchdog policy details are managed in the next sidecar task.",
-    watchdogDescription: "Controls when Prism lowers a degraded auth file, probes held auth for recovery, and pauses reconciliation after manual changes.",
-    watchdogDeprioritizedPriorityLabel: "Deprioritized priority",
+    watchdogDescription: "Controls how Prism assigns auth files to using, quota exceeded, and error bands, probes held auth for recovery, and pauses reconciliation after manual changes.",
     watchdogEnabledDescription: "When enabled, Prism can probe held auth files and adjust routing priority without disabling refresh.",
     watchdogEnabledLabel: "Enable watchdog",
+    watchdogErrorPriorityLabel: "Error priority",
     watchdogFailureThresholdLabel: "Failure threshold",
     watchdogFailureWindowLabel: "Failure window (seconds)",
     watchdogFallbackCooldownLabel: "Fallback cooldown (seconds)",
     watchdogManualPauseLabel: "Manual override pause (seconds)",
-    watchdogPrioritizedPriorityDescription: "Discovery probes start at this priority or higher; due holds may still probe below it to decide whether to restore or extend a hold.",
-    watchdogPrioritizedPriorityLabel: "Prioritized priority",
-    watchdogPriorityOrderValidationError: "Deprioritized priority must be lower than prioritized priority.",
-    watchdogPrioritySafetyDescription: "Priority 0 remains the lowest fallback band. Discovery probes use the prioritized threshold, but due holds may still probe lower-priority auth for recovery decisions.",
+    watchdogProbeJitterDescription: "Random delay range added before each quota probe starts.",
+    watchdogProbeJitterMaxLabel: "Probe jitter max (ms)",
+    watchdogProbeJitterMinLabel: "Probe jitter min (ms)",
+    watchdogJitterOrderValidationError: "Probe jitter max must be greater than or equal to probe jitter min.",
+    watchdogQuotaExceededPriorityLabel: "Quota exceeded priority",
+    watchdogUsingPriorityDescription: "Auth files in the using band route at this priority; quota exceeded and error priorities must be no higher.",
+    watchdogUsingPriorityLabel: "Using priority",
+    watchdogPriorityOrderValidationError: "Quota exceeded and error priorities must be less than or equal to using priority.",
+    watchdogPrioritySafetyDescription: "Priority 0 remains the lowest fallback band. Discovery probes use the using band threshold, while due holds may still probe lower-priority auth for recovery decisions.",
     watchdogPrioritySafetyTitle: "Probe priority safety note",
     watchdogInitialScanEnabledDescription: "Create a first quota inventory scan when newly synced auth files have no observed quota state.",
     watchdogInitialScanEnabledLabel: "Initial inventory scan",
@@ -2561,7 +2571,7 @@ export const enMessages: Messages = {
     watchdogQuotaInventoryEnabledLabel: "Quota inventory",
     watchdogRollingRefreshAfterDescription: "Refresh observed quota state after this age when rolling refresh is enabled.",
     watchdogRollingRefreshAfterSecondsLabel: "Rolling refresh after (seconds)",
-    watchdogRollingRefreshEnabledDescription: "Schedule low-priority refresh probes for stale observed quota state; healthy low-priority auth is not automatically reprioritized.",
+    watchdogRollingRefreshEnabledDescription: "Schedule low-priority refresh probes for stale observed quota state; using-band low-priority auth is not automatically reprioritized.",
     watchdogRollingRefreshEnabledLabel: "Rolling refresh",
     watchdogSave: "Save watchdog policy",
     watchdogSaveSucceeded: "Watchdog policy saved.",

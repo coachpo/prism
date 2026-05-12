@@ -93,7 +93,7 @@ export function ProviderInventoryTable({ loading, providerSnapshots }: ProviderI
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-2">
-                        <StatusBadge label={provider.status ?? copy.unknownStatus} intent={provider.disabled ? "danger" : provider.status ? "success" : "muted"} />
+                        <StatusBadge label={provider.status ?? copy.authUnobservedLabel} intent={provider.disabled ? "danger" : provider.status ? "success" : "muted"} />
                         {provider.disabled ? <TypeBadge label={copy.authDisabledLabel} intent="warning" preserveLabel /> : null}
                       </div>
                     </TableCell>
