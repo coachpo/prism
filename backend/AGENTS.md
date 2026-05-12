@@ -64,6 +64,8 @@ backend/
 - Regression boundaries: `tests/AGENTS.md`, `tests/`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep backend docs focused on the live Go runtime.
 - Keep SQL migrations under `migrations/` as the live schema source of truth for startup.
 - Keep management selected-profile behavior separate from runtime active-profile routing; sidecar management is global instance state and does not use selected-profile scope.
@@ -74,7 +76,6 @@ backend/
 - Keep partitioned log tables under `internal/platform/logretention/` and runtime partition ensuring; managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep backend container execution non-root with writable config ownership under `/etc/prism`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
 - Keep implementation detail in the Go ownership tree instead of inventing alternate runtime surfaces.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 - Do not describe Prism as a mixed-runtime backend.

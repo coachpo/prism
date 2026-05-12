@@ -13,6 +13,8 @@
 - Realtime notifications: `realtime.go`, `../../realtime/`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep auth selected-profile neutral unless a route explicitly manages proxy API keys or profile-scoped settings.
 - Keep raw secrets and tokens write-only; response payloads expose metadata or one-time generated values only.
 - Publish runtime-cache changes through the auth runtime-cache seam instead of making runtime handlers query management state.

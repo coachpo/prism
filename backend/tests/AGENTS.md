@@ -19,6 +19,8 @@
 - Bootstrap and bundle fixtures: `../testdata/bootstrap/`, `../testdata/bundles/`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep this doc at the test-tree root, not the leaf level.
 - Do not invent child test AGENTS files.
 - Keep regression notes grounded in current Go package boundaries and live backend ownership docs.
