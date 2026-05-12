@@ -425,7 +425,7 @@ func TestSidecarIntegrationManualQuotaScanLifecycleAndPrivacy(t *testing.T) {
 	statesBody, states := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-states", nil, http.StatusOK)
 	sidecarIntegrationAssertNoLeaks(t, statesBody)
 	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, statesBody, "idx-low", "idx-high")
-	sidecarIntegrationAssertQuotaState(t, states, "auth-a-low", "healthy", true, 0, false)
+	sidecarIntegrationAssertQuotaState(t, states, "auth-a-low", "using", true, 0, false)
 
 	cancelBody, cancelled := sidecarIntegrationRequestJSON(t, router, http.MethodPost, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/"+strconv.Itoa(scanID)+"/cancel", nil, http.StatusAccepted)
 	sidecarIntegrationAssertNoLeaks(t, cancelBody)
@@ -579,8 +579,8 @@ func sidecarIntegrationAssertDBNoLeaks(t *testing.T, conn *pgx.Conn, sidecarID i
 		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_name, auth_index, provider, action_type, reason, error_message), ' ') FROM sidecar_watchdog_actions WHERE sidecar_id = $1), ''),
 		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_name, auth_index, provider, action_type, reason, last_error_message), ' ') FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1), ''),
 		COALESCE((SELECT string_agg(concat_ws(' ', requested_by, cursor_auth_id, status, last_error_code), ' ') FROM sidecar_quota_scan_runs WHERE sidecar_id = $1), ''),
-		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_index, auth_name, provider, state, probe_status, quota_reason, blocking_window, last_error_code), ' ') FROM sidecar_auth_quota_states WHERE sidecar_id = $1), ''),
-		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_index, provider, quota_reason, blocking_window, error_code, windows_json::text), ' ') FROM sidecar_quota_probe_observations WHERE sidecar_id = $1), '')
+		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_index, auth_name, provider, quota_band, probe_status, reason_code, blocking_window, last_error_code), ' ') FROM sidecar_auth_quota_states WHERE sidecar_id = $1), ''),
+		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_index, provider, reason_code, blocking_window, error_code, windows_json::text), ' ') FROM sidecar_quota_probe_observations WHERE sidecar_id = $1), '')
 	)`, sidecarID).Scan(&combined); err != nil {
 		t.Fatalf("collect sidecar persisted strings: %v", err)
 	}
@@ -630,7 +630,7 @@ func sidecarIntegrationAssertQuotaState(t *testing.T, payload map[string]any, au
 		if !ok || item["auth_id"] != authID {
 			continue
 		}
-		if item["quota_state"] != quotaState || item["auth_index_present"] != authIndexPresent || item["active_hold"] != activeHold {
+		if item["quota_band"] != quotaState || item["auth_index_present"] != authIndexPresent || item["active_hold"] != activeHold {
 			t.Fatalf("unexpected quota state for %s: %+v", authID, item)
 		}
 		if item["current_priority"] == nil {
@@ -704,12 +704,12 @@ func sidecarIntegrationEnableProbePolicy(t *testing.T, conn *pgx.Conn, sidecarID
 	t.Helper()
 	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (
 sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
-deprioritized_priority, prioritized_priority, manual_override_pause_seconds, probe_batch_size, probe_timeout_seconds,
+quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds, probe_batch_size, probe_timeout_seconds,
 quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled)
-VALUES ($1, true, 3, 3600, 86400, 0, 1, 1800, $2, $3, false, false, true)
+VALUES ($1, true, 3, 3600, 86400, 0, 1, 0, 1800, $2, $3, false, false, true)
 ON CONFLICT (sidecar_id) DO UPDATE SET enabled = true, failure_threshold = 3,
 failure_window_seconds = 3600, fallback_cooldown_seconds = 86400,
-deprioritized_priority = 0, prioritized_priority = 1, manual_override_pause_seconds = 1800,
+quota_exceeded_priority = 0, using_priority = 1, error_priority = 0, manual_override_pause_seconds = 1800,
 probe_batch_size = $2, probe_timeout_seconds = $3,
 quota_inventory_enabled = false, initial_scan_enabled = false, rolling_refresh_enabled = true,
 updated_at = now()`, sidecarID, batchSize, timeoutSeconds)
@@ -792,9 +792,9 @@ VALUES ($1, $2, $3, $4, $5, $6, 'codex', 'deprioritize', 'quota_exceeded', $7, $
 
 func sidecarIntegrationSetProbeBatchCompletedAt(t *testing.T, conn *pgx.Conn, sidecarID int, completedAt time.Time) {
 	t.Helper()
-	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_last_batch_completed_at)
-VALUES ($1, $2)
-ON CONFLICT (sidecar_id) DO UPDATE SET probe_last_batch_completed_at = EXCLUDED.probe_last_batch_completed_at, updated_at = now()`, sidecarID, completedAt.UTC())
+	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_last_batch_completed_at, probe_next_batch_after)
+VALUES ($1, $2, $2)
+ON CONFLICT (sidecar_id) DO UPDATE SET probe_last_batch_completed_at = EXCLUDED.probe_last_batch_completed_at, probe_next_batch_after = EXCLUDED.probe_next_batch_after, updated_at = now()`, sidecarID, completedAt.UTC())
 	if err != nil {
 		t.Fatalf("set probe batch completion: %v", err)
 	}
@@ -802,7 +802,7 @@ ON CONFLICT (sidecar_id) DO UPDATE SET probe_last_batch_completed_at = EXCLUDED.
 
 func sidecarIntegrationClearProbeBatchCompletedAt(t *testing.T, conn *pgx.Conn, sidecarID int) {
 	t.Helper()
-	_, err := conn.Exec(context.Background(), `UPDATE sidecar_watchdog_policies SET probe_last_batch_completed_at = NULL, updated_at = now() WHERE sidecar_id = $1`, sidecarID)
+	_, err := conn.Exec(context.Background(), `UPDATE sidecar_watchdog_policies SET probe_last_batch_completed_at = NULL, probe_next_batch_after = NULL, updated_at = now() WHERE sidecar_id = $1`, sidecarID)
 	if err != nil {
 		t.Fatalf("clear probe batch completion: %v", err)
 	}

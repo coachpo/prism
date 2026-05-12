@@ -503,16 +503,16 @@ func TestSyncQuotaStateInventoryCoverageAndMissingRows(t *testing.T) {
 		t.Fatalf("initial sync: %v", err)
 	}
 	states := authQuotaStatesByAuthID(t, service, sidecar.ID)
-	if got := states["auth-known"]; got.State != "unknown" || got.QuotaExceeded || got.QuotaReason != nil || got.LastObservationID != nil {
+	if got := states["auth-known"]; got.QuotaBand != quotaBandError || got.QuotaExceeded || got.ReasonCode == nil || *got.ReasonCode != "unknown" || got.LastObservationID != nil {
 		t.Fatalf("known auth quota fields should stay informational, got %+v", got)
 	}
-	if got := states["auth-disabled"]; got.State != "disabled" {
+	if got := states["auth-disabled"]; got.QuotaBand != quotaBandError || got.ReasonCode == nil || *got.ReasonCode != "disabled" {
 		t.Fatalf("disabled auth quota state mismatch, got %+v", got)
 	}
-	if got := states["auth-missing-index"]; got.State != "missing_auth_index" {
+	if got := states["auth-missing-index"]; got.QuotaBand != quotaBandError || got.ReasonCode == nil || *got.ReasonCode != "missing_auth_index" {
 		t.Fatalf("missing auth_index quota state mismatch, got %+v", got)
 	}
-	if got := states["auth-unsupported"]; got.State != "unsupported" {
+	if got := states["auth-unsupported"]; got.QuotaBand != quotaBandError || got.ReasonCode == nil || *got.ReasonCode != "unsupported_provider" {
 		t.Fatalf("unsupported provider quota state mismatch, got %+v", got)
 	}
 
@@ -521,7 +521,7 @@ func TestSyncQuotaStateInventoryCoverageAndMissingRows(t *testing.T) {
 		t.Fatalf("second sync: %v", err)
 	}
 	states = authQuotaStatesByAuthID(t, service, sidecar.ID)
-	if got := states["auth-unsupported"]; got.State != "missing" {
+	if got := states["auth-unsupported"]; got.QuotaBand != quotaBandError || got.ReasonCode == nil || *got.ReasonCode != "missing" {
 		t.Fatalf("missing auth should stay represented after refresh, got %+v", got)
 	}
 	if len(states) != 4 {

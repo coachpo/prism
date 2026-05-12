@@ -260,7 +260,7 @@ func TestWatchdogQuotaStateStaleSnapshotsPreserveSafeView(t *testing.T) {
 		t.Fatalf("sync sidecar: %v", err)
 	}
 	before := listAuthQuotaStates(t, service, sidecar.ID)
-	if len(before) != 1 || before[0].State != "unknown" {
+	if len(before) != 1 || before[0].QuotaBand != quotaBandError || before[0].ReasonCode == nil || *before[0].ReasonCode != "unknown" {
 		t.Fatalf("expected safe quota-state view after sync, got %+v", before)
 	}
 	staleAt := now.Add(-5 * time.Minute)
@@ -276,7 +276,7 @@ func TestWatchdogQuotaStateStaleSnapshotsPreserveSafeView(t *testing.T) {
 		t.Fatalf("expected stale snapshot skip, got %+v", result)
 	}
 	after := listAuthQuotaStates(t, service, sidecar.ID)
-	if len(after) != len(before) || after[0].State != before[0].State || after[0].AuthID != before[0].AuthID {
+	if len(after) != len(before) || after[0].QuotaBand != before[0].QuotaBand || after[0].AuthID != before[0].AuthID {
 		t.Fatalf("stale reconcile must preserve safe quota-state view, before=%+v after=%+v", before, after)
 	}
 }
@@ -528,7 +528,7 @@ func newWatchdogTestService(t *testing.T, now func() time.Time) *Service {
 
 func enableWatchdogPolicy(t *testing.T, service *Service, sidecarID int) {
 	t.Helper()
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds})
 	if err != nil {
 		t.Fatalf("enable watchdog policy: %v", err)
 	}

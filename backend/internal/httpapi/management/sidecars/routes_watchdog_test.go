@@ -15,7 +15,7 @@ import (
 func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 18, 0, 0, 0, time.UTC)
 	service, router, sidecar := newWatchdogRouteTest(t, now)
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 2, FailureWindowSeconds: 120, FallbackCooldownSeconds: 600, DeprioritizedPriority: 2, PrioritizedPriority: 9, ManualOverridePauseSeconds: 300, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10, ProbeBatchCooldownSeconds: intPtr(45), QuotaInventoryEnabled: boolPtr(false), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(7200)})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 2, FailureWindowSeconds: 120, FallbackCooldownSeconds: 600, QuotaExceededPriority: 2, UsingPriority: 9, ManualOverridePauseSeconds: 300, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10, ProbeBatchCooldownSeconds: intPtr(45), QuotaInventoryEnabled: boolPtr(false), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(7200)})
 	if err != nil {
 		t.Fatalf("seed watchdog policy: %v", err)
 	}
@@ -35,11 +35,11 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	}
 	var response watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, recorder, &response)
-	if !response.Enabled || response.DeprioritizedPriority != 2 || response.PrioritizedPriority != 9 || response.ProbeBatchSize != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 {
+	if !response.Enabled || response.QuotaExceededPriority != 2 || response.UsingPriority != 9 || response.ErrorPriority != DefaultErrorPriority || response.ProbeBatchSize != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 {
 		t.Fatalf("unexpected policy response: %+v", response)
 	}
 
-	patch := `{"deprioritized_priority":3,"prioritized_priority":8,"probe_batch_size":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`
+	patch := `{"quota_exceeded_priority":3,"using_priority":8,"error_priority":3,"probe_batch_size":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"probe_jitter_min_ms":25,"probe_jitter_max_ms":50,"cooldown_jitter_percent":10,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`
 	patchRecorder := httptest.NewRecorder()
 	router.ServeHTTP(patchRecorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(patch)))
 	if patchRecorder.Code != http.StatusOK {
@@ -47,7 +47,7 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	}
 	var updated watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, patchRecorder, &updated)
-	if updated.DeprioritizedPriority != 3 || updated.PrioritizedPriority != 8 || updated.ProbeBatchSize != 4 || updated.ProbeTimeoutSeconds != 6 || updated.ProbeBatchCooldownSeconds != 60 || !updated.QuotaInventoryEnabled || !updated.InitialScanEnabled || !updated.RollingRefreshEnabled || updated.RollingRefreshAfterSeconds != 5400 {
+	if updated.QuotaExceededPriority != 3 || updated.UsingPriority != 8 || updated.ErrorPriority != 3 || updated.ProbeBatchSize != 4 || updated.ProbeTimeoutSeconds != 6 || updated.ProbeBatchCooldownSeconds != 60 || updated.ProbeJitterMinMS != 25 || updated.ProbeJitterMaxMS != 50 || updated.CooldownJitterPercent != 10 || !updated.QuotaInventoryEnabled || !updated.InitialScanEnabled || !updated.RollingRefreshEnabled || updated.RollingRefreshAfterSeconds != 5400 {
 		t.Fatalf("unexpected patched policy: %+v", updated)
 	}
 }
@@ -64,7 +64,7 @@ func TestQuotaRouteResponsesHideInternalFields(t *testing.T) {
 	if !ok {
 		t.Fatalf("store does not support quota states")
 	}
-	_, err = stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: "auth-route-hidden", AuthIndex: &authIndex, AuthName: stringPtr("route-hidden.json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, State: "quota_exceeded", ProbeStatus: stringPtr(watchdogProbeStatusSucceeded), LastProbedAt: &now})
+	_, err = stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: "auth-route-hidden", AuthIndex: &authIndex, AuthName: stringPtr("route-hidden.json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, QuotaBand: "quota_exceeded", ProbeStatus: stringPtr(watchdogProbeStatusSucceeded), LastProbedAt: &now})
 	if err != nil {
 		t.Fatalf("seed quota state: %v", err)
 	}
@@ -104,9 +104,9 @@ func TestWatchdogPolicyValidationRejectsProbeBudgetAndPriorities(t *testing.T) {
 		body       string
 		wantDetail string
 	}{
-		{name: "negative deprioritized priority", body: `{"deprioritized_priority":-1}`, wantDetail: "deprioritized_priority"},
-		{name: "negative prioritized priority", body: `{"prioritized_priority":-1}`, wantDetail: "prioritized_priority"},
-		{name: "deprioritized is not below prioritized", body: `{"deprioritized_priority":3,"prioritized_priority":3}`, wantDetail: "deprioritized_priority must be less than prioritized_priority"},
+		{name: "negative quota exceeded priority", body: `{"quota_exceeded_priority":-1}`, wantDetail: "quota_exceeded_priority"},
+		{name: "negative using priority", body: `{"using_priority":-1}`, wantDetail: "using_priority"},
+		{name: "quota exceeded is above using", body: `{"quota_exceeded_priority":4,"using_priority":3}`, wantDetail: "quota_exceeded_priority must be \\u003c= using_priority"},
 		{name: "zero probe batch", body: `{"probe_batch_size":0}`, wantDetail: "probe_batch_size"},
 		{name: "zero probe timeout", body: `{"probe_timeout_seconds":0}`, wantDetail: "probe_timeout_seconds"},
 		{name: "timeout exceeds worker budget", body: `{"probe_timeout_seconds":` + oversizedTimeout + `}`, wantDetail: "worker budget"},
@@ -201,7 +201,7 @@ func TestRedactWatchdogActionHistoryProbeUnsupportedAndQuotaHoldResponse(t *test
 func TestQuotaScanRoutesReturnExpectedStatusCodes(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 19, 30, 0, 0, time.UTC)
 	service, router, sidecar := newWatchdogRouteTest(t, now)
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds), QuotaInventoryEnabled: boolPtr(true), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(DefaultRollingRefreshAfterSeconds)})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds), QuotaInventoryEnabled: boolPtr(true), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(DefaultRollingRefreshAfterSeconds)})
 	if err != nil {
 		t.Fatalf("seed watchdog policy: %v", err)
 	}

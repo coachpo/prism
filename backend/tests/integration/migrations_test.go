@@ -205,8 +205,8 @@ RETURNING id`, sidecarID).Scan(&legacyObservationID); err != nil {
 	if cooldownSeconds != 30 || !quotaInventoryEnabled || !initialScanEnabled || !rollingRefreshEnabled {
 		t.Fatalf("unexpected migrated quota policy defaults: cooldown=%d inventory=%v initial=%v rolling=%v", cooldownSeconds, quotaInventoryEnabled, initialScanEnabled, rollingRefreshEnabled)
 	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_auth_quota_states (sidecar_id, auth_id, auth_index, auth_name, provider, state, last_observation_id)
-VALUES ($1, 'auth-legacy-quota', 'idx-legacy-quota', 'legacy-quota.json', 'codex', 'healthy', $2)`, sidecarID, legacyObservationID); err != nil {
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_auth_quota_states (sidecar_id, auth_id, auth_index, auth_name, provider, quota_band, reason_code, last_observation_id)
+VALUES ($1, 'auth-legacy-quota', 'idx-legacy-quota', 'legacy-quota.json', 'codex', 'error', 'healthy', $2)`, sidecarID, legacyObservationID); err != nil {
 		t.Fatalf("insert quota state referencing renamed observation: %v", err)
 	}
 	if _, err := conn.Exec(testContext, `DELETE FROM sidecar_quota_probe_observations WHERE id = $1`, legacyObservationID); err != nil {
@@ -712,7 +712,7 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		{"sidecar_quota_probe_observations", "probe_status", "text"},
 		{"sidecar_quota_probe_observations", "upstream_status_code", "integer"},
 		{"sidecar_quota_probe_observations", "quota_exceeded", "boolean"},
-		{"sidecar_quota_probe_observations", "quota_reason", "text"},
+		{"sidecar_quota_probe_observations", "reason_code", "text"},
 		{"sidecar_quota_probe_observations", "quota_reset_at", "timestamp with time zone"},
 		{"sidecar_quota_probe_observations", "blocking_window", "text"},
 		{"sidecar_quota_probe_observations", "windows_json", "jsonb"},
@@ -764,11 +764,10 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		{"sidecar_quota_scan_runs", "cursor_auth_id", "text"},
 		{"sidecar_quota_scan_runs", "planned_count", "integer"},
 		{"sidecar_quota_scan_runs", "attempted_count", "integer"},
-		{"sidecar_quota_scan_runs", "succeeded_count", "integer"},
+		{"sidecar_quota_scan_runs", "using_count", "integer"},
 		{"sidecar_quota_scan_runs", "quota_exceeded_count", "integer"},
-		{"sidecar_quota_scan_runs", "failed_count", "integer"},
-		{"sidecar_quota_scan_runs", "unsupported_count", "integer"},
-		{"sidecar_quota_scan_runs", "missing_index_count", "integer"},
+		{"sidecar_quota_scan_runs", "error_count", "integer"},
+		{"sidecar_quota_scan_runs", "skipped_count", "integer"},
 		{"sidecar_quota_scan_runs", "cancel_requested_at", "timestamp with time zone"},
 		{"sidecar_quota_scan_runs", "started_at", "timestamp with time zone"},
 		{"sidecar_quota_scan_runs", "completed_at", "timestamp with time zone"},
@@ -781,10 +780,10 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		{"sidecar_auth_quota_states", "auth_name", "text"},
 		{"sidecar_auth_quota_states", "provider", "text"},
 		{"sidecar_auth_quota_states", "snapshot_observed_at", "timestamp with time zone"},
-		{"sidecar_auth_quota_states", "state", "text"},
+		{"sidecar_auth_quota_states", "quota_band", "text"},
 		{"sidecar_auth_quota_states", "probe_status", "text"},
 		{"sidecar_auth_quota_states", "quota_exceeded", "boolean"},
-		{"sidecar_auth_quota_states", "quota_reason", "text"},
+		{"sidecar_auth_quota_states", "reason_code", "text"},
 		{"sidecar_auth_quota_states", "quota_reset_at", "timestamp with time zone"},
 		{"sidecar_auth_quota_states", "blocking_window", "text"},
 		{"sidecar_auth_quota_states", "last_observation_id", "integer"},
@@ -801,7 +800,7 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_quota_scan_runs_pkey", "PRIMARY KEY (id)")
 	assertIndexUniqueness(t, ctx, conn, "sidecar_quota_scan_runs", "uq_sidecar_quota_scan_runs_active_sidecar", true)
 	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_quota_scan_runs_active_sidecar", "sidecar_id", "queued", "running")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_auth_quota_states_state", "unknown", "healthy", "quota_exceeded", "probe_failed", "unsupported", "missing_auth_index", "disabled", "missing")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_auth_quota_states_band", "using", "quota_exceeded", "error")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_auth_quota_states_pkey", "PRIMARY KEY (sidecar_id, auth_id)")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_auth_quota_states_last_observation_id_fkey", "ON DELETE SET NULL")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_probe_observations_required_text", "btrim(auth_id)", "btrim(probe_status)")
@@ -1636,7 +1635,7 @@ RETURNING id`, "quota inventory constraints", "https://quota.example.test", "htt
 		{name: "refresh positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, rolling_refresh_after_seconds) VALUES ($1, 0)`},
 		{name: "scan type enum", sql: `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'bogus', 'queued')`},
 		{name: "scan status enum", sql: `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'bogus')`},
-		{name: "state enum", sql: `INSERT INTO sidecar_auth_quota_states (sidecar_id, auth_id, state) VALUES ($1, 'auth-bad', 'bogus')`},
+		{name: "quota band enum", sql: `INSERT INTO sidecar_auth_quota_states (sidecar_id, auth_id, quota_band) VALUES ($1, 'auth-bad', 'bogus')`},
 	} {
 		t.Run(query.name, func(t *testing.T) {
 			if _, err := conn.Exec(testContext, query.sql, sidecarID); err == nil {

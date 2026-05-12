@@ -237,7 +237,7 @@ func TestWatchdogDeprioritizePersistsPendingDecisionBeforePriorityPatch(t *testi
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
 	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-pending-deprioritize", "idx-pending-deprioritize", "codex", 10)
-	pendingCheck := expectPendingPatchActionBeforeFieldPatch(upstream, service, sidecar.ID, watchdogActionDeprioritize, DefaultDeprioritizedPriority)
+	pendingCheck := expectPendingPatchActionBeforeFieldPatch(upstream, service, sidecar.ID, watchdogActionDeprioritize, DefaultQuotaExceededPriority)
 
 	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 	if err != nil {
@@ -302,7 +302,7 @@ func TestWatchdogRepairsPendingDeprioritizeAction(t *testing.T) {
 			enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 			reason := watchdogReasonQuotaExceeded
 			previousPriority := 10
-			targetPriority := DefaultDeprioritizedPriority
+			targetPriority := DefaultQuotaExceededPriority
 			authName := "auth-repair-deprioritize.json"
 			pending, err := service.store.CreateWatchdogAction(t.Context(), SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-repair-deprioritize"), AuthName: &authName, AuthIndex: stringPtrFromNonEmpty("idx-repair-deprioritize"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Reason: &reason, PreviousPriority: &previousPriority, TargetPriority: &targetPriority, HoldUntil: &resetAt, Status: watchdogActionStatusPending})
 			if err != nil {
@@ -348,7 +348,7 @@ func TestWatchdogRepairPendingDeprioritizeConfirmsAuthName(t *testing.T) {
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 	reason := watchdogReasonQuotaExceeded
 	previousPriority := 10
-	targetPriority := DefaultDeprioritizedPriority
+	targetPriority := DefaultQuotaExceededPriority
 	selectedName := "auth-repair-name.json"
 	pending, err := service.store.CreateWatchdogAction(t.Context(), SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-repair-name"), AuthName: &selectedName, AuthIndex: stringPtrFromNonEmpty("idx-repair-name"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Reason: &reason, PreviousPriority: &previousPriority, TargetPriority: &targetPriority, HoldUntil: &resetAt, Status: watchdogActionStatusPending})
 	if err != nil {
@@ -794,7 +794,7 @@ func TestWatchdogRollingRefreshOrderingPrefersOldestEligibleAuth(t *testing.T) {
 	older := now.Add(-2 * time.Hour)
 	tie := now.Add(-90 * time.Minute)
 	fresh := now.Add(-10 * time.Minute)
-	policy := SidecarWatchdogPolicy{PrioritizedPriority: 5, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600}
+	policy := SidecarWatchdogPolicy{UsingPriority: 5, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600}
 	snapshots := []SidecarAuthSnapshot{
 		{AuthID: "auth-tie-b", AuthIndex: stringPtr("idx-tie-b"), Provider: stringPtr("codex"), Priority: intPtr(10)},
 		{AuthID: "auth-low", AuthIndex: stringPtr("idx-low"), Provider: stringPtr("codex"), Priority: intPtr(1)},
@@ -883,8 +883,8 @@ func TestWatchdogProbeBatchCooldownGatesQuotaProbesOnly(t *testing.T) {
 
 	now = now.Add(10 * time.Second)
 	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
-	upstream.setAuthFile("auth-due", "idx-due", "codex", DefaultDeprioritizedPriority)
-	upstream.setAuthFile("auth-failure", "idx-failure", "codex", DefaultDeprioritizedPriority)
+	upstream.setAuthFile("auth-due", "idx-due", "codex", DefaultQuotaExceededPriority)
+	upstream.setAuthFile("auth-failure", "idx-failure", "codex", DefaultQuotaExceededPriority)
 	createWatchdogProbeHold(t, service, sidecar.ID, "auth-due", "idx-due", now.Add(-time.Minute))
 	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-second", "idx-second", "codex", 10)
 	seedWatchdogFailureThresholdSnapshot(t, service, sidecar.ID, now, "auth-failure", "idx-failure", "codex", 10, DefaultFailureThreshold)
@@ -1042,8 +1042,8 @@ func TestManualQuotaScanIsAsyncResumableAndCancellable(t *testing.T) {
 		t.Fatalf("store does not support quota state updates")
 	}
 	for _, snapshot := range []string{"auth-a-low", "auth-z-high"} {
-		state, err := stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: snapshot, State: "healthy"})
-		if err != nil || state.State != "healthy" {
+		state, err := stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: snapshot, QuotaBand: quotaBandError, ReasonCode: stringPtr("healthy")})
+		if err != nil || state.QuotaBand != quotaBandError || state.ReasonCode == nil || *state.ReasonCode != "healthy" {
 			t.Fatalf("seed healthy quota state for %s: state=%+v err=%v", snapshot, state, err)
 		}
 	}
@@ -1152,7 +1152,7 @@ func pendingPatchActionVisible(service *Service, sidecarID int, actionType strin
 
 func enableWatchdogProbePolicy(t *testing.T, service *Service, sidecarID int, batchSize int, timeoutSeconds int) {
 	t.Helper()
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: batchSize, ProbeTimeoutSeconds: timeoutSeconds})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: batchSize, ProbeTimeoutSeconds: timeoutSeconds})
 	if err != nil {
 		t.Fatalf("enable probe watchdog policy: %v", err)
 	}
@@ -1193,7 +1193,7 @@ func seedWatchdogFailureThresholdSnapshot(t *testing.T, service *Service, sideca
 func createWatchdogProbeHold(t *testing.T, service *Service, sidecarID int, authID string, authIndex string, holdUntil time.Time) SidecarWatchdogHold {
 	t.Helper()
 	previousPriority := 10
-	hold, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecarID, AuthID: authID, AuthIndex: stringPtrFromNonEmpty(authIndex), Provider: stringPtrFromNonEmpty("codex"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-" + authID, PreviousPriority: &previousPriority, TargetPriority: DefaultDeprioritizedPriority, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive})
+	hold, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecarID, AuthID: authID, AuthIndex: stringPtrFromNonEmpty(authIndex), Provider: stringPtrFromNonEmpty("codex"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-" + authID, PreviousPriority: &previousPriority, TargetPriority: DefaultQuotaExceededPriority, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive})
 	if err != nil {
 		t.Fatalf("create probe hold: %v", err)
 	}

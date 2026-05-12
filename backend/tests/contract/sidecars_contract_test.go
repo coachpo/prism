@@ -150,11 +150,15 @@ func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
 		"failure_threshold":             4,
 		"failure_window_seconds":        120,
 		"fallback_cooldown_seconds":     600,
-		"deprioritized_priority":        0,
-		"prioritized_priority":          2,
+		"quota_exceeded_priority":       0,
+		"using_priority":                2,
+		"error_priority":                0,
 		"manual_override_pause_seconds": 900,
 		"probe_batch_size":              2,
 		"probe_timeout_seconds":         10,
+		"probe_jitter_min_ms":           100,
+		"probe_jitter_max_ms":           1000,
+		"cooldown_jitter_percent":       20,
 		"probe_batch_cooldown_seconds":  45,
 		"quota_inventory_enabled":       true,
 		"initial_scan_enabled":          true,
@@ -167,7 +171,7 @@ func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
 	var updatedPayload map[string]any
 	decodeJSONResponse(t, updated, &updatedPayload)
 	sidecarContractRequirePublicPolicyFields(t, updatedPayload)
-	if sidecarContractNumber(t, updatedPayload, "failure_threshold") != 4 || sidecarContractNumber(t, updatedPayload, "failure_window_seconds") != 120 || sidecarContractNumber(t, updatedPayload, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, updatedPayload, "prioritized_priority") != 2 || sidecarContractNumber(t, updatedPayload, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, updatedPayload, "probe_batch_size") != 2 || sidecarContractNumber(t, updatedPayload, "probe_timeout_seconds") != 10 || sidecarContractNumber(t, updatedPayload, "probe_batch_cooldown_seconds") != 45 || sidecarContractNumber(t, updatedPayload, "rolling_refresh_after_seconds") != 7200 || updatedPayload["quota_inventory_enabled"] != true || updatedPayload["initial_scan_enabled"] != true || updatedPayload["rolling_refresh_enabled"] != false {
+	if sidecarContractNumber(t, updatedPayload, "failure_threshold") != 4 || sidecarContractNumber(t, updatedPayload, "failure_window_seconds") != 120 || sidecarContractNumber(t, updatedPayload, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, updatedPayload, "quota_exceeded_priority") != 0 || sidecarContractNumber(t, updatedPayload, "using_priority") != 2 || sidecarContractNumber(t, updatedPayload, "error_priority") != 0 || sidecarContractNumber(t, updatedPayload, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, updatedPayload, "probe_batch_size") != 2 || sidecarContractNumber(t, updatedPayload, "probe_timeout_seconds") != 10 || sidecarContractNumber(t, updatedPayload, "probe_jitter_min_ms") != 100 || sidecarContractNumber(t, updatedPayload, "probe_jitter_max_ms") != 1000 || sidecarContractNumber(t, updatedPayload, "cooldown_jitter_percent") != 20 || sidecarContractNumber(t, updatedPayload, "probe_batch_cooldown_seconds") != 45 || sidecarContractNumber(t, updatedPayload, "rolling_refresh_after_seconds") != 7200 || updatedPayload["quota_inventory_enabled"] != true || updatedPayload["initial_scan_enabled"] != true || updatedPayload["rolling_refresh_enabled"] != false {
 		t.Fatalf("watchdog policy update did not round-trip public fields: %+v", updatedPayload)
 	}
 }
@@ -203,7 +207,7 @@ func TestSidecarQuotaRoutesRedactInternalState(t *testing.T) {
 	var observationID int
 	if err := authHarness.conn.QueryRow(context.Background(), `INSERT INTO sidecar_quota_probe_observations (
 sidecar_id, auth_id, auth_index, provider, probed_at, probe_status, upstream_status_code,
-quota_exceeded, quota_reason, windows_json)
+quota_exceeded, reason_code, windows_json)
 VALUES ($1, 'contract-auth', $2, 'codex', $3, 'probe_succeeded', 200, false, 'healthy', '[]'::jsonb)
 RETURNING id`, sidecarID, hiddenAuthIndex, now).Scan(&observationID); err != nil {
 		t.Fatalf("seed quota probe observation: %v", err)
@@ -216,9 +220,9 @@ VALUES ($1, 'contract-auth', $2, 'contract-auth.json', 'codex', 'active', false,
 		t.Fatalf("seed quota auth snapshot: %v", err)
 	}
 	if _, err := authHarness.conn.Exec(context.Background(), `INSERT INTO sidecar_auth_quota_states (
-sidecar_id, auth_id, auth_index, auth_name, provider, snapshot_observed_at, state,
-probe_status, quota_exceeded, quota_reason, last_observation_id, last_probed_at)
-VALUES ($1, 'contract-auth', $2, 'contract-auth.json', 'codex', $3, 'healthy', 'probe_succeeded', false, 'healthy', $4, $3)`, sidecarID, hiddenAuthIndex, now, observationID); err != nil {
+sidecar_id, auth_id, auth_index, auth_name, provider, snapshot_observed_at, quota_band,
+probe_status, quota_exceeded, reason_code, last_observation_id, last_probed_at)
+VALUES ($1, 'contract-auth', $2, 'contract-auth.json', 'codex', $3, 'using', 'probe_succeeded', false, 'healthy', $4, $3)`, sidecarID, hiddenAuthIndex, now, observationID); err != nil {
 		t.Fatalf("seed quota auth state: %v", err)
 	}
 	var scanID int
@@ -234,7 +238,7 @@ RETURNING id`, sidecarID, hiddenCursor, now).Scan(&scanID); err != nil {
 	stateBody := readResponseBody(t, states)
 	assertSidecarContractNoSecretLeak(t, stateBody, sidecarContractManagementPassword, hiddenAuthIndex, hiddenCursor, hiddenSnapshotSecret)
 	assertSidecarContractNoInternalQuotaLeak(t, stateBody)
-	if !strings.Contains(stateBody, `"auth_index_present":true`) || !strings.Contains(stateBody, `"current_priority":7`) || !strings.Contains(stateBody, `"quota_state":"healthy"`) || !strings.Contains(stateBody, `"last_snapshot_at":`) || !strings.Contains(stateBody, `"active_hold":false`) {
+	if !strings.Contains(stateBody, `"auth_index_present":true`) || !strings.Contains(stateBody, `"current_priority":7`) || !strings.Contains(stateBody, `"quota_band":"using"`) || !strings.Contains(stateBody, `"reason_code":"healthy"`) || !strings.Contains(stateBody, `"last_snapshot_at":`) || !strings.Contains(stateBody, `"active_hold":false`) {
 		t.Fatalf("quota-state response did not expose the public shape: %s", stateBody)
 	}
 
@@ -366,7 +370,7 @@ func expectedSidecarRouteSurface() map[string][]string {
 
 func sidecarContractRequirePublicPolicyFields(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, field := range []string{"id", "sidecar_id", "enabled", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "probe_batch_cooldown_seconds", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled", "rolling_refresh_after_seconds", "created_at", "updated_at"} {
+	for _, field := range []string{"id", "sidecar_id", "enabled", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "quota_exceeded_priority", "using_priority", "error_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "probe_jitter_min_ms", "probe_jitter_max_ms", "cooldown_jitter_percent", "probe_batch_cooldown_seconds", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled", "rolling_refresh_after_seconds", "created_at", "updated_at"} {
 		if _, ok := payload[field]; !ok {
 			t.Fatalf("watchdog policy payload missing public field %q: %+v", field, payload)
 		}
@@ -381,7 +385,7 @@ func sidecarContractRequirePublicPolicyFields(t *testing.T, payload map[string]a
 			t.Fatalf("watchdog policy %s field must be boolean: %+v", field, payload)
 		}
 	}
-	for _, field := range []string{"id", "sidecar_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "probe_batch_cooldown_seconds", "rolling_refresh_after_seconds"} {
+	for _, field := range []string{"id", "sidecar_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "quota_exceeded_priority", "using_priority", "error_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "probe_jitter_min_ms", "probe_jitter_max_ms", "cooldown_jitter_percent", "probe_batch_cooldown_seconds", "rolling_refresh_after_seconds"} {
 		sidecarContractNumber(t, payload, field)
 	}
 }
