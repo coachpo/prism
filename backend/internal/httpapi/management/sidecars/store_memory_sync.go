@@ -787,11 +787,10 @@ func (s *memorySidecarStore) createQuotaScanRunLocked(input SidecarQuotaScanRunI
 		CursorAuthID:       cloneStringPtr(input.CursorAuthID),
 		PlannedCount:       input.PlannedCount,
 		AttemptedCount:     input.AttemptedCount,
-		SucceededCount:     input.SucceededCount,
+		UsingCount:         input.UsingCount,
 		QuotaExceededCount: input.QuotaExceededCount,
-		FailedCount:        input.FailedCount,
-		UnsupportedCount:   input.UnsupportedCount,
-		MissingIndexCount:  input.MissingIndexCount,
+		ErrorCount:         input.ErrorCount,
+		SkippedCount:       input.SkippedCount,
 		CancelRequestedAt:  cloneTimePtr(input.CancelRequestedAt),
 		StartedAt:          cloneTimePtr(input.StartedAt),
 		CompletedAt:        cloneTimePtr(input.CompletedAt),
@@ -822,11 +821,10 @@ func (s *memorySidecarStore) updateQuotaScanRunLocked(id int, input SidecarQuota
 	run.CursorAuthID = cloneStringPtr(input.CursorAuthID)
 	run.PlannedCount = input.PlannedCount
 	run.AttemptedCount = input.AttemptedCount
-	run.SucceededCount = input.SucceededCount
+	run.UsingCount = input.UsingCount
 	run.QuotaExceededCount = input.QuotaExceededCount
-	run.FailedCount = input.FailedCount
-	run.UnsupportedCount = input.UnsupportedCount
-	run.MissingIndexCount = input.MissingIndexCount
+	run.ErrorCount = input.ErrorCount
+	run.SkippedCount = input.SkippedCount
 	run.CancelRequestedAt = cloneTimePtr(input.CancelRequestedAt)
 	run.StartedAt = cloneTimePtr(input.StartedAt)
 	run.CompletedAt = cloneTimePtr(input.CompletedAt)
@@ -849,7 +847,7 @@ func (s *memorySidecarStore) validateQuotaScanRunInputLocked(input SidecarQuotaS
 	if !validQuotaScanStatus(input.Status) {
 		return invalidInputError("scan status is not supported")
 	}
-	if input.PlannedCount < 0 || input.AttemptedCount < 0 || input.SucceededCount < 0 || input.QuotaExceededCount < 0 || input.FailedCount < 0 || input.UnsupportedCount < 0 || input.MissingIndexCount < 0 {
+	if input.PlannedCount < 0 || input.AttemptedCount < 0 || input.UsingCount < 0 || input.QuotaExceededCount < 0 || input.ErrorCount < 0 || input.SkippedCount < 0 {
 		return invalidInputError("scan counters must be non-negative")
 	}
 	if quotaScanStatusActive(input.Status) {
@@ -875,16 +873,15 @@ func (s *memorySidecarStore) applyQuotaScanRunObservationBatchLocked(sidecarID i
 	run := s.quotaScanRuns[sidecarID][index]
 	for _, observation := range observations {
 		run.AttemptedCount++
-		switch authQuotaStateFromProbeObservation(observation) {
-		case "healthy":
-			run.SucceededCount++
-		case "quota_exceeded":
-			run.SucceededCount++
+		switch quotaBandFromProbeObservation(observation) {
+		case quotaBandUsing:
+			run.UsingCount++
+		case quotaBandQuotaExceeded:
 			run.QuotaExceededCount++
-		case "unsupported":
-			run.UnsupportedCount++
+		case quotaBandError:
+			run.ErrorCount++
 		default:
-			run.FailedCount++
+			run.SkippedCount++
 		}
 	}
 	if cursorAuthID != nil {
@@ -931,7 +928,7 @@ func (s *memorySidecarStore) createWatchdogProbeObservationLocked(input SidecarW
 		return SidecarWatchdogProbeObservation{}, notFoundError("sidecar instance not found")
 	}
 	now := s.now().UTC()
-	observation := SidecarWatchdogProbeObservation{ID: s.nextObservationID, SidecarID: normalized.SidecarID, AuthID: normalized.AuthID, AuthIndex: cloneStringPtr(normalized.AuthIndex), Provider: cloneStringPtr(normalized.Provider), ProbedAt: normalized.ProbedAt.UTC(), ProbeStatus: normalized.ProbeStatus, UpstreamStatusCode: cloneIntPtr(normalized.UpstreamStatusCode), QuotaExceeded: normalized.QuotaExceeded, QuotaReason: cloneStringPtr(normalized.QuotaReason), QuotaResetAt: cloneTimePtr(normalized.QuotaResetAt), BlockingWindow: cloneStringPtr(normalized.BlockingWindow), WindowsJSON: memoryJSON(normalized.WindowsJSON, "[]"), ErrorCode: cloneStringPtr(normalized.ErrorCode), CreatedAt: now}
+	observation := SidecarWatchdogProbeObservation{ID: s.nextObservationID, SidecarID: normalized.SidecarID, AuthID: normalized.AuthID, AuthIndex: cloneStringPtr(normalized.AuthIndex), Provider: cloneStringPtr(normalized.Provider), ProbedAt: normalized.ProbedAt.UTC(), ProbeStatus: normalized.ProbeStatus, UpstreamStatusCode: cloneIntPtr(normalized.UpstreamStatusCode), QuotaBand: normalized.QuotaBand, QuotaExceeded: normalized.QuotaExceeded, ReasonCode: cloneStringPtr(normalized.ReasonCode), QuotaResetAt: cloneTimePtr(normalized.QuotaResetAt), BlockingWindow: cloneStringPtr(normalized.BlockingWindow), WindowsJSON: memoryJSON(normalized.WindowsJSON, "[]"), ErrorCode: cloneStringPtr(normalized.ErrorCode), CreatedAt: now}
 	s.nextObservationID++
 	s.probeObservations[normalized.SidecarID] = append(s.probeObservations[normalized.SidecarID], observation)
 	return observation, nil
@@ -964,10 +961,10 @@ func (s *memorySidecarStore) upsertAuthQuotaStateLocked(input SidecarAuthQuotaSt
 	if input.SnapshotObservedAt != nil {
 		state.SnapshotObservedAt = cloneTimePtr(input.SnapshotObservedAt)
 	}
-	state.State = strings.TrimSpace(input.State)
+	state.QuotaBand = strings.TrimSpace(input.QuotaBand)
 	state.ProbeStatus = cloneStringPtr(input.ProbeStatus)
-	state.QuotaExceeded = input.QuotaExceeded
-	state.QuotaReason = cloneStringPtr(input.QuotaReason)
+	state.QuotaExceeded = state.QuotaBand == quotaBandQuotaExceeded || input.QuotaExceeded
+	state.ReasonCode = cloneStringPtr(input.ReasonCode)
 	state.QuotaResetAt = cloneTimePtr(input.QuotaResetAt)
 	state.BlockingWindow = cloneStringPtr(input.BlockingWindow)
 	state.LastObservationID = cloneIntPtr(input.LastObservationID)
@@ -979,14 +976,14 @@ func (s *memorySidecarStore) upsertAuthQuotaStateLocked(input SidecarAuthQuotaSt
 }
 
 func (s *memorySidecarStore) validateAuthQuotaStateInputLocked(input SidecarAuthQuotaStateInput) error {
-	if input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.State) == "" {
-		return invalidInputError("sidecar_id, auth_id, and state are required")
+	if input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.QuotaBand) == "" {
+		return invalidInputError("sidecar_id, auth_id, and quota_band are required")
 	}
 	if _, ok := s.instances[input.SidecarID]; !ok {
 		return notFoundError("sidecar instance not found")
 	}
-	if !validAuthQuotaState(input.State) {
-		return invalidInputError("quota state is not supported")
+	if !validAuthQuotaBand(input.QuotaBand) {
+		return invalidInputError("quota band is not supported")
 	}
 	return nil
 }
@@ -994,15 +991,16 @@ func (s *memorySidecarStore) validateAuthQuotaStateInputLocked(input SidecarAuth
 func authQuotaStateInputFromProbeObservation(observation SidecarWatchdogProbeObservation) SidecarAuthQuotaStateInput {
 	lastObservationID := observation.ID
 	lastProbedAt := observation.ProbedAt
+	quotaBand := quotaBandFromProbeObservation(observation)
 	return SidecarAuthQuotaStateInput{
 		SidecarID:         observation.SidecarID,
 		AuthID:            observation.AuthID,
 		AuthIndex:         cloneStringPtr(observation.AuthIndex),
 		Provider:          cloneStringPtr(observation.Provider),
-		State:             authQuotaStateFromProbeObservation(observation),
+		QuotaBand:         quotaBand,
 		ProbeStatus:       stringPtrFromNonEmpty(observation.ProbeStatus),
-		QuotaExceeded:     observation.QuotaExceeded,
-		QuotaReason:       cloneStringPtr(observation.QuotaReason),
+		QuotaExceeded:     quotaBand == quotaBandQuotaExceeded || observation.QuotaExceeded,
+		ReasonCode:        cloneStringPtr(observation.ReasonCode),
 		QuotaResetAt:      cloneTimePtr(observation.QuotaResetAt),
 		BlockingWindow:    cloneStringPtr(observation.BlockingWindow),
 		LastObservationID: &lastObservationID,
@@ -1011,22 +1009,26 @@ func authQuotaStateInputFromProbeObservation(observation SidecarWatchdogProbeObs
 	}
 }
 
-func authQuotaStateFromProbeObservation(observation SidecarWatchdogProbeObservation) string {
-	if observation.ProbeStatus == watchdogProbeStatusSkippedUnsupportedProvider {
-		return "unsupported"
+func quotaBandFromProbeObservation(observation SidecarWatchdogProbeObservation) string {
+	if validAuthQuotaBand(observation.QuotaBand) {
+		return strings.TrimSpace(observation.QuotaBand)
 	}
-	if observation.ProbeStatus == watchdogProbeStatusSucceeded {
-		if observation.QuotaExceeded {
-			return "quota_exceeded"
-		}
-		return "healthy"
-	}
-	return "probe_failed"
+	return quotaBandFromProbeStatus(observation.ProbeStatus, observation.QuotaExceeded)
 }
 
-func validAuthQuotaState(value string) bool {
+func quotaBandFromProbeStatus(probeStatus string, quotaExceeded bool) string {
+	if probeStatus == watchdogProbeStatusSucceeded {
+		if quotaExceeded {
+			return quotaBandQuotaExceeded
+		}
+		return quotaBandUsing
+	}
+	return quotaBandError
+}
+
+func validAuthQuotaBand(value string) bool {
 	switch strings.TrimSpace(value) {
-	case "unknown", "healthy", "quota_exceeded", "probe_failed", "unsupported", "missing_auth_index", "disabled", "missing":
+	case quotaBandUsing, quotaBandQuotaExceeded, quotaBandError:
 		return true
 	default:
 		return false
@@ -1106,10 +1108,12 @@ func (s *memorySidecarStore) setWatchdogProbeBatchCompletionLocked(sidecarID int
 	now := s.now().UTC()
 	policy, ok := s.policies[sidecarID]
 	if !ok {
-		policy = SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: DefaultProbeBatchCooldownSeconds, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: DefaultRollingRefreshAfterSeconds, CreatedAt: now}
+		policy = SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ErrorPriority: DefaultErrorPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: DefaultProbeBatchCooldownSeconds, ProbeJitterMinMS: DefaultProbeJitterMinMS, ProbeJitterMaxMS: DefaultProbeJitterMaxMS, CooldownJitterPercent: DefaultCooldownJitterPercent, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: DefaultRollingRefreshAfterSeconds, CreatedAt: now}
 		s.nextPolicyID++
 	}
+	nextBatchAfter := now.Add(time.Duration(normalizedProbeBatchCooldownSeconds(policy)) * time.Second)
 	policy.ProbeLastBatchCompletedAt = &now
+	policy.ProbeNextBatchAfter = &nextBatchAfter
 	policy.UpdatedAt = now
 	s.policies[sidecarID] = policy
 	return policy

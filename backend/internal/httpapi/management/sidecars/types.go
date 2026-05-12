@@ -12,12 +12,16 @@ const (
 	DefaultFailureThreshold               = 3
 	DefaultFailureWindowSeconds           = 3600
 	DefaultFallbackCooldownSeconds        = 86400
-	DefaultDeprioritizedPriority          = 0
-	DefaultPrioritizedPriority            = 1
+	DefaultQuotaExceededPriority          = 0
+	DefaultUsingPriority                  = 1
+	DefaultErrorPriority                  = DefaultQuotaExceededPriority
 	DefaultManualOverridePauseSeconds     = 1800
 	DefaultProbeBatchSize                 = 3
 	DefaultProbeTimeoutSeconds            = 8
 	DefaultProbeBatchCooldownSeconds      = 30
+	DefaultProbeJitterMinMS               = 100
+	DefaultProbeJitterMaxMS               = 1000
+	DefaultCooldownJitterPercent          = 20
 	DefaultRollingRefreshAfterSeconds     = 3600
 	WatchdogProbeObservationRetentionDays = 15
 	ManagementAuthStateUnknown            = "unknown"
@@ -26,6 +30,12 @@ const (
 )
 
 const encryptedSecretPrefix = "enc:"
+
+const (
+	quotaBandUsing         = "using"
+	quotaBandQuotaExceeded = "quota_exceeded"
+	quotaBandError         = "error"
+)
 
 type StoreErrorCode string
 
@@ -206,12 +216,16 @@ type SidecarWatchdogPolicyInput struct {
 	FailureThreshold           int
 	FailureWindowSeconds       int
 	FallbackCooldownSeconds    int
-	DeprioritizedPriority      int
-	PrioritizedPriority        int
+	QuotaExceededPriority      int
+	UsingPriority              int
+	ErrorPriority              int
 	ManualOverridePauseSeconds int
 	ProbeBatchSize             int
 	ProbeTimeoutSeconds        int
 	ProbeBatchCooldownSeconds  *int
+	ProbeJitterMinMS           *int
+	ProbeJitterMaxMS           *int
+	CooldownJitterPercent      *int
 	QuotaInventoryEnabled      *bool
 	InitialScanEnabled         *bool
 	RollingRefreshEnabled      *bool
@@ -225,17 +239,22 @@ type SidecarWatchdogPolicy struct {
 	FailureThreshold           int
 	FailureWindowSeconds       int
 	FallbackCooldownSeconds    int
-	DeprioritizedPriority      int
-	PrioritizedPriority        int
+	QuotaExceededPriority      int
+	UsingPriority              int
+	ErrorPriority              int
 	ManualOverridePauseSeconds int
 	ProbeBatchSize             int
 	ProbeTimeoutSeconds        int
 	ProbeBatchCooldownSeconds  int
+	ProbeJitterMinMS           int
+	ProbeJitterMaxMS           int
+	CooldownJitterPercent      int
 	QuotaInventoryEnabled      bool
 	InitialScanEnabled         bool
 	RollingRefreshEnabled      bool
 	RollingRefreshAfterSeconds int
 	ProbeLastBatchCompletedAt  *time.Time
+	ProbeNextBatchAfter        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 }
@@ -248,8 +267,9 @@ type SidecarWatchdogProbeObservationInput struct {
 	ProbedAt           time.Time
 	ProbeStatus        string
 	UpstreamStatusCode *int
+	QuotaBand          string
 	QuotaExceeded      bool
-	QuotaReason        *string
+	ReasonCode         *string
 	QuotaResetAt       *time.Time
 	BlockingWindow     *string
 	WindowsJSON        json.RawMessage
@@ -265,8 +285,9 @@ type SidecarWatchdogProbeObservation struct {
 	ProbedAt           time.Time
 	ProbeStatus        string
 	UpstreamStatusCode *int
+	QuotaBand          string
 	QuotaExceeded      bool
-	QuotaReason        *string
+	ReasonCode         *string
 	QuotaResetAt       *time.Time
 	BlockingWindow     *string
 	WindowsJSON        json.RawMessage
@@ -427,11 +448,10 @@ type SidecarQuotaScanRunInput struct {
 	CursorAuthID       *string
 	PlannedCount       int
 	AttemptedCount     int
-	SucceededCount     int
+	UsingCount         int
 	QuotaExceededCount int
-	FailedCount        int
-	UnsupportedCount   int
-	MissingIndexCount  int
+	ErrorCount         int
+	SkippedCount       int
 	CancelRequestedAt  *time.Time
 	StartedAt          *time.Time
 	CompletedAt        *time.Time
@@ -447,11 +467,10 @@ type SidecarQuotaScanRun struct {
 	CursorAuthID       *string
 	PlannedCount       int
 	AttemptedCount     int
-	SucceededCount     int
+	UsingCount         int
 	QuotaExceededCount int
-	FailedCount        int
-	UnsupportedCount   int
-	MissingIndexCount  int
+	ErrorCount         int
+	SkippedCount       int
 	CancelRequestedAt  *time.Time
 	StartedAt          *time.Time
 	CompletedAt        *time.Time
@@ -467,10 +486,10 @@ type SidecarAuthQuotaStateInput struct {
 	AuthName           *string
 	Provider           *string
 	SnapshotObservedAt *time.Time
-	State              string
+	QuotaBand          string
 	ProbeStatus        *string
 	QuotaExceeded      bool
-	QuotaReason        *string
+	ReasonCode         *string
 	QuotaResetAt       *time.Time
 	BlockingWindow     *string
 	LastObservationID  *int
@@ -485,10 +504,10 @@ type SidecarAuthQuotaState struct {
 	AuthName           *string
 	Provider           *string
 	SnapshotObservedAt *time.Time
-	State              string
+	QuotaBand          string
 	ProbeStatus        *string
 	QuotaExceeded      bool
-	QuotaReason        *string
+	ReasonCode         *string
 	QuotaResetAt       *time.Time
 	BlockingWindow     *string
 	LastObservationID  *int

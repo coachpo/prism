@@ -26,9 +26,9 @@ type quotaStateResponse struct {
 	AuthIndexPresent bool       `json:"auth_index_present"`
 	Disabled         bool       `json:"disabled"`
 	CurrentPriority  *int       `json:"current_priority,omitempty"`
-	QuotaState       string     `json:"quota_state"`
+	QuotaBand        string     `json:"quota_band"`
 	ProbeStatus      *string    `json:"probe_status,omitempty"`
-	QuotaReason      *string    `json:"quota_reason,omitempty"`
+	ReasonCode       *string    `json:"reason_code,omitempty"`
 	QuotaResetAt     *time.Time `json:"quota_reset_at,omitempty"`
 	BlockingWindow   *string    `json:"blocking_window,omitempty"`
 	LastSnapshotAt   *time.Time `json:"last_snapshot_at,omitempty"`
@@ -49,11 +49,10 @@ type quotaScanResponse struct {
 	RequestedBy        *string    `json:"requested_by,omitempty"`
 	PlannedCount       int        `json:"planned_count"`
 	AttemptedCount     int        `json:"attempted_count"`
-	SucceededCount     int        `json:"succeeded_count"`
+	UsingCount         int        `json:"using_count"`
 	QuotaExceededCount int        `json:"quota_exceeded_count"`
-	FailedCount        int        `json:"failed_count"`
-	UnsupportedCount   int        `json:"unsupported_count"`
-	MissingIndexCount  int        `json:"missing_index_count"`
+	ErrorCount         int        `json:"error_count"`
+	SkippedCount       int        `json:"skipped_count"`
 	CancelRequestedAt  *time.Time `json:"cancel_requested_at,omitempty"`
 	StartedAt          *time.Time `json:"started_at,omitempty"`
 	CompletedAt        *time.Time `json:"completed_at,omitempty"`
@@ -193,7 +192,7 @@ func (s *Service) parseQuotaScanID(w http.ResponseWriter, r *http.Request) (int,
 }
 
 func buildQuotaStateResponse(sidecarID int, state SidecarAuthQuotaState, snapshot *SidecarAuthSnapshot, holdActive bool) quotaStateResponse {
-	disabled := state.State == "disabled"
+	disabled := false
 	var priority *int
 	if snapshot != nil {
 		priority = cloneIntPtr(snapshot.Priority)
@@ -209,9 +208,9 @@ func buildQuotaStateResponse(sidecarID int, state SidecarAuthQuotaState, snapsho
 		AuthIndexPresent: strings.TrimSpace(stringValue(state.AuthIndex)) != "",
 		Disabled:         disabled,
 		CurrentPriority:  priority,
-		QuotaState:       state.State,
+		QuotaBand:        state.QuotaBand,
 		ProbeStatus:      cloneStringPtr(state.ProbeStatus),
-		QuotaReason:      cloneStringPtr(state.QuotaReason),
+		ReasonCode:       cloneStringPtr(state.ReasonCode),
 		QuotaResetAt:     cloneTimePtr(state.QuotaResetAt),
 		BlockingWindow:   cloneStringPtr(state.BlockingWindow),
 		LastSnapshotAt:   cloneTimePtr(state.SnapshotObservedAt),
@@ -230,11 +229,10 @@ func buildQuotaScanResponse(run SidecarQuotaScanRun) quotaScanResponse {
 		RequestedBy:        cloneStringPtr(run.RequestedBy),
 		PlannedCount:       run.PlannedCount,
 		AttemptedCount:     run.AttemptedCount,
-		SucceededCount:     run.SucceededCount,
+		UsingCount:         run.UsingCount,
 		QuotaExceededCount: run.QuotaExceededCount,
-		FailedCount:        run.FailedCount,
-		UnsupportedCount:   run.UnsupportedCount,
-		MissingIndexCount:  run.MissingIndexCount,
+		ErrorCount:         run.ErrorCount,
+		SkippedCount:       run.SkippedCount,
 		CancelRequestedAt:  cloneTimePtr(run.CancelRequestedAt),
 		StartedAt:          cloneTimePtr(run.StartedAt),
 		CompletedAt:        cloneTimePtr(run.CompletedAt),

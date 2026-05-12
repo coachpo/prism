@@ -2008,7 +2008,7 @@ func watchdogSnapshotFromLatestSync(instance SidecarInstance, snapshot SidecarAu
 	return !snapshot.ObservedAt.Before(instance.LastSuccessfulSyncAt.UTC())
 }
 
-func watchdogAuthQuotaStateFromSnapshot(snapshot SidecarAuthSnapshot) string {
+func watchdogAuthQuotaReasonFromSnapshot(snapshot SidecarAuthSnapshot) string {
 	if strings.TrimSpace(stringValue(snapshot.AuthIndex)) == "" {
 		return "missing_auth_index"
 	}
@@ -2017,19 +2017,21 @@ func watchdogAuthQuotaStateFromSnapshot(snapshot SidecarAuthSnapshot) string {
 	}
 	provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(snapshot.Provider))
 	if !sidecarWatchdogProbeProviderSupported(provider) {
-		return "unsupported"
+		return "unsupported_provider"
 	}
 	return "unknown"
 }
 
 func watchdogAuthQuotaStateInputFromSnapshot(snapshot SidecarAuthSnapshot, observedAt time.Time) SidecarAuthQuotaStateInput {
 	observedAt = observedAt.UTC()
-	return SidecarAuthQuotaStateInput{SidecarID: snapshot.SidecarID, AuthID: snapshot.AuthID, AuthIndex: cloneStringPtr(snapshot.AuthIndex), AuthName: stringPtrFromNonEmpty(snapshot.Name), Provider: cloneStringPtr(snapshot.Provider), SnapshotObservedAt: &observedAt, State: watchdogAuthQuotaStateFromSnapshot(snapshot)}
+	reasonCode := watchdogAuthQuotaReasonFromSnapshot(snapshot)
+	return SidecarAuthQuotaStateInput{SidecarID: snapshot.SidecarID, AuthID: snapshot.AuthID, AuthIndex: cloneStringPtr(snapshot.AuthIndex), AuthName: stringPtrFromNonEmpty(snapshot.Name), Provider: cloneStringPtr(snapshot.Provider), SnapshotObservedAt: &observedAt, QuotaBand: quotaBandError, ReasonCode: &reasonCode}
 }
 
 func watchdogMissingAuthQuotaStateInput(state SidecarAuthQuotaState, observedAt time.Time) SidecarAuthQuotaStateInput {
 	observedAt = observedAt.UTC()
-	return SidecarAuthQuotaStateInput{SidecarID: state.SidecarID, AuthID: state.AuthID, AuthIndex: cloneStringPtr(state.AuthIndex), AuthName: cloneStringPtr(state.AuthName), Provider: cloneStringPtr(state.Provider), SnapshotObservedAt: &observedAt, State: "missing"}
+	reasonCode := "missing"
+	return SidecarAuthQuotaStateInput{SidecarID: state.SidecarID, AuthID: state.AuthID, AuthIndex: cloneStringPtr(state.AuthIndex), AuthName: cloneStringPtr(state.AuthName), Provider: cloneStringPtr(state.Provider), SnapshotObservedAt: &observedAt, QuotaBand: quotaBandError, ReasonCode: &reasonCode}
 }
 
 func watchdogAuthEnabled(snapshot SidecarAuthSnapshot) bool {
@@ -2105,7 +2107,7 @@ func quotaStateByAuth(states []SidecarAuthQuotaState) map[string]SidecarAuthQuot
 }
 
 func quotaScanRunToInput(run SidecarQuotaScanRun) SidecarQuotaScanRunInput {
-	return SidecarQuotaScanRunInput{SidecarID: run.SidecarID, ScanType: run.ScanType, Status: run.Status, RequestedBy: cloneStringPtr(run.RequestedBy), CursorAuthID: cloneStringPtr(run.CursorAuthID), PlannedCount: run.PlannedCount, AttemptedCount: run.AttemptedCount, SucceededCount: run.SucceededCount, QuotaExceededCount: run.QuotaExceededCount, FailedCount: run.FailedCount, UnsupportedCount: run.UnsupportedCount, MissingIndexCount: run.MissingIndexCount, CancelRequestedAt: cloneTimePtr(run.CancelRequestedAt), StartedAt: cloneTimePtr(run.StartedAt), CompletedAt: cloneTimePtr(run.CompletedAt), LastErrorCode: cloneStringPtr(run.LastErrorCode)}
+	return SidecarQuotaScanRunInput{SidecarID: run.SidecarID, ScanType: run.ScanType, Status: run.Status, RequestedBy: cloneStringPtr(run.RequestedBy), CursorAuthID: cloneStringPtr(run.CursorAuthID), PlannedCount: run.PlannedCount, AttemptedCount: run.AttemptedCount, UsingCount: run.UsingCount, QuotaExceededCount: run.QuotaExceededCount, ErrorCount: run.ErrorCount, SkippedCount: run.SkippedCount, CancelRequestedAt: cloneTimePtr(run.CancelRequestedAt), StartedAt: cloneTimePtr(run.StartedAt), CompletedAt: cloneTimePtr(run.CompletedAt), LastErrorCode: cloneStringPtr(run.LastErrorCode)}
 }
 
 func cancelQuotaScanRun(ctx context.Context, store quotaScanRunPersistence, run SidecarQuotaScanRun, now time.Time) (SidecarQuotaScanRun, error) {
@@ -2175,7 +2177,7 @@ func watchdogQuotaScanProbeEligible(_ SidecarWatchdogPolicy, scanRun SidecarQuot
 	}
 	if scanRun.ScanType == quotaScanTypeInitial {
 		state, ok := quotaStates[snapshot.AuthID]
-		return ok && strings.TrimSpace(state.State) == "unknown"
+		return ok && strings.TrimSpace(state.QuotaBand) == quotaBandError
 	}
 	return true
 }
@@ -2362,6 +2364,12 @@ func validateWatchdogProbeRuntimePolicy(policy SidecarWatchdogPolicy) error {
 	if batchSize*timeoutSeconds > maxBudgetSeconds {
 		return invalidInputError("probe batch budget exceeds watchdog worker budget")
 	}
+	if policy.ProbeJitterMinMS < 0 || policy.ProbeJitterMaxMS < 0 {
+		return invalidInputError("probe jitter bounds must be non-negative")
+	}
+	if policy.ProbeJitterMaxMS != 0 && policy.ProbeJitterMaxMS < policy.ProbeJitterMinMS {
+		return invalidInputError("probe_jitter_max_ms must be >= probe_jitter_min_ms")
+	}
 	return nil
 }
 
@@ -2407,7 +2415,7 @@ func watchdogProbeObservationInput(sidecarID int, candidate watchdogProbeCandida
 	if err != nil {
 		return SidecarWatchdogProbeObservationInput{}, err
 	}
-	return SidecarWatchdogProbeObservationInput{SidecarID: sidecarID, AuthID: candidate.AuthID, AuthIndex: stringPtrFromNonEmpty(candidate.AuthIndex), Provider: stringPtrFromNonEmpty(candidate.Provider), ProbedAt: now, ProbeStatus: classification.Status, UpstreamStatusCode: cloneIntPtr(classification.UpstreamStatusCode), QuotaExceeded: classification.QuotaExceeded, QuotaReason: cloneStringPtr(classification.QuotaReason), QuotaResetAt: cloneTimePtr(classification.QuotaResetAt), BlockingWindow: cloneStringPtr(classification.BlockingWindow), WindowsJSON: windowsJSON, ErrorCode: cloneStringPtr(classification.ErrorCode)}, nil
+	return SidecarWatchdogProbeObservationInput{SidecarID: sidecarID, AuthID: candidate.AuthID, AuthIndex: stringPtrFromNonEmpty(candidate.AuthIndex), Provider: stringPtrFromNonEmpty(candidate.Provider), ProbedAt: now, ProbeStatus: classification.Status, UpstreamStatusCode: cloneIntPtr(classification.UpstreamStatusCode), QuotaExceeded: classification.QuotaExceeded, ReasonCode: cloneStringPtr(classification.QuotaReason), QuotaResetAt: cloneTimePtr(classification.QuotaResetAt), BlockingWindow: cloneStringPtr(classification.BlockingWindow), WindowsJSON: windowsJSON, ErrorCode: cloneStringPtr(classification.ErrorCode)}, nil
 }
 
 func watchdogHoldUpdateForProbeResult(hold SidecarWatchdogHold, policy SidecarWatchdogPolicy, classification sidecarWatchdogProbeClassification, now time.Time) *SidecarWatchdogHoldInput {
@@ -2461,17 +2469,17 @@ func sidecarWatchdogWorkerSafetyMargin() time.Duration {
 }
 
 func normalizedWatchdogTargetPriority(policy SidecarWatchdogPolicy) int {
-	if policy.DeprioritizedPriority < 0 {
-		return DefaultDeprioritizedPriority
+	if policy.QuotaExceededPriority < 0 {
+		return DefaultQuotaExceededPriority
 	}
-	return policy.DeprioritizedPriority
+	return policy.QuotaExceededPriority
 }
 
 func normalizedPrioritizedPriority(policy SidecarWatchdogPolicy) int {
-	if policy.PrioritizedPriority <= 0 {
-		return DefaultPrioritizedPriority
+	if policy.UsingPriority <= 0 {
+		return DefaultUsingPriority
 	}
-	return policy.PrioritizedPriority
+	return policy.UsingPriority
 }
 
 func normalizedProbeBatchSize(policy SidecarWatchdogPolicy) int {
@@ -2489,6 +2497,9 @@ func normalizedProbeBatchCooldownSeconds(policy SidecarWatchdogPolicy) int {
 }
 
 func watchdogProbeBatchCooldownElapsed(policy SidecarWatchdogPolicy, now time.Time) bool {
+	if policy.ProbeNextBatchAfter != nil && !policy.ProbeNextBatchAfter.IsZero() {
+		return !now.UTC().Before(policy.ProbeNextBatchAfter.UTC())
+	}
 	if policy.ProbeLastBatchCompletedAt == nil || policy.ProbeLastBatchCompletedAt.IsZero() {
 		return true
 	}

@@ -312,7 +312,7 @@ func (s *memorySidecarStore) GetOrCreateWatchdogPolicy(_ context.Context, sideca
 		return cloneWatchdogPolicy(policy), nil
 	}
 	now := s.now().UTC()
-	policy := SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: DefaultProbeBatchCooldownSeconds, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: DefaultRollingRefreshAfterSeconds, CreatedAt: now, UpdatedAt: now}
+	policy := SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ErrorPriority: DefaultErrorPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: DefaultProbeBatchCooldownSeconds, ProbeJitterMinMS: DefaultProbeJitterMinMS, ProbeJitterMaxMS: DefaultProbeJitterMaxMS, CooldownJitterPercent: DefaultCooldownJitterPercent, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: DefaultRollingRefreshAfterSeconds, CreatedAt: now, UpdatedAt: now}
 	s.nextPolicyID++
 	s.policies[sidecarID] = policy
 	return cloneWatchdogPolicy(policy), nil
@@ -330,11 +330,11 @@ func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input Sidec
 		policy = SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: input.SidecarID, CreatedAt: now}
 		s.nextPolicyID++
 	}
-	preservePrioritizedPriority := ok && input.PrioritizedPriority <= 0
+	preserveUsingPriority := ok && input.UsingPriority <= 0
 	preserveProbeBatchSize := ok && input.ProbeBatchSize <= 0
 	preserveProbeTimeoutSeconds := ok && input.ProbeTimeoutSeconds <= 0
-	if preservePrioritizedPriority {
-		input.PrioritizedPriority = policy.PrioritizedPriority
+	if preserveUsingPriority {
+		input.UsingPriority = policy.UsingPriority
 	}
 	if preserveProbeBatchSize {
 		input.ProbeBatchSize = policy.ProbeBatchSize
@@ -350,10 +350,11 @@ func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input Sidec
 	policy.FailureThreshold = normalized.FailureThreshold
 	policy.FailureWindowSeconds = normalized.FailureWindowSeconds
 	policy.FallbackCooldownSeconds = normalized.FallbackCooldownSeconds
-	policy.DeprioritizedPriority = normalized.DeprioritizedPriority
-	if !preservePrioritizedPriority {
-		policy.PrioritizedPriority = normalized.PrioritizedPriority
+	policy.QuotaExceededPriority = normalized.QuotaExceededPriority
+	if !preserveUsingPriority {
+		policy.UsingPriority = normalized.UsingPriority
 	}
+	policy.ErrorPriority = normalized.ErrorPriority
 	policy.ManualOverridePauseSeconds = normalized.ManualOverridePauseSeconds
 	if !preserveProbeBatchSize {
 		policy.ProbeBatchSize = normalized.ProbeBatchSize
@@ -362,6 +363,9 @@ func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input Sidec
 		policy.ProbeTimeoutSeconds = normalized.ProbeTimeoutSeconds
 	}
 	policy.ProbeBatchCooldownSeconds = *normalized.ProbeBatchCooldownSeconds
+	policy.ProbeJitterMinMS = *normalized.ProbeJitterMinMS
+	policy.ProbeJitterMaxMS = *normalized.ProbeJitterMaxMS
+	policy.CooldownJitterPercent = *normalized.CooldownJitterPercent
 	policy.QuotaInventoryEnabled = *normalized.QuotaInventoryEnabled
 	policy.InitialScanEnabled = *normalized.InitialScanEnabled
 	policy.RollingRefreshEnabled = *normalized.RollingRefreshEnabled
@@ -548,7 +552,7 @@ func cloneWatchdogProbeObservation(observation SidecarWatchdogProbeObservation) 
 	copy.AuthIndex = cloneStringPtr(observation.AuthIndex)
 	copy.Provider = cloneStringPtr(observation.Provider)
 	copy.UpstreamStatusCode = cloneIntPtr(observation.UpstreamStatusCode)
-	copy.QuotaReason = cloneStringPtr(observation.QuotaReason)
+	copy.ReasonCode = cloneStringPtr(observation.ReasonCode)
 	copy.QuotaResetAt = cloneTimePtr(observation.QuotaResetAt)
 	copy.BlockingWindow = cloneStringPtr(observation.BlockingWindow)
 	copy.WindowsJSON = append([]byte(nil), observation.WindowsJSON...)
@@ -607,7 +611,7 @@ func cloneAuthQuotaState(state SidecarAuthQuotaState) SidecarAuthQuotaState {
 	copy.Provider = cloneStringPtr(state.Provider)
 	copy.SnapshotObservedAt = cloneTimePtr(state.SnapshotObservedAt)
 	copy.ProbeStatus = cloneStringPtr(state.ProbeStatus)
-	copy.QuotaReason = cloneStringPtr(state.QuotaReason)
+	copy.ReasonCode = cloneStringPtr(state.ReasonCode)
 	copy.QuotaResetAt = cloneTimePtr(state.QuotaResetAt)
 	copy.BlockingWindow = cloneStringPtr(state.BlockingWindow)
 	copy.LastObservationID = cloneIntPtr(state.LastObservationID)
