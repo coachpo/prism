@@ -22,12 +22,12 @@ auth/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep `bootstrap.ts` as the only place that decides between `publicBootstrap`, `status`, `session`, and `refresh` during auth initialization.
 - Keep `broadcast.ts` as the only auth cross-tab signaling layer.
 - Keep `mutations.ts` thin and callback-driven so `AuthContext.tsx` can own state updates while the helpers stay reusable.
 - Keep passive refresh mutation-aware. `refresh.ts` should return early while a login/logout mutation is in flight.
 - Keep the proactive refresh interval and visibility-refresh rules centralized in `refresh.ts`.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

@@ -33,6 +33,7 @@ context/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Use `useAuth()`, `useProfileContext()`, and `useReportingCurrencyContext()` instead of consuming context objects directly.
 - Keep auth bootstrap async and reuse in-flight work instead of duplicating fetches.
 - Keep `selectedProfile` and `activeProfile` distinct in UI and docs. `selectedProfile` scopes management APIs; it does not switch proxy traffic.
@@ -40,7 +41,6 @@ context/
 - Keep reporting-currency readiness keyed to `selectedProfileId`, with fallback and `prime()`/`refresh()` ownership in `ReportingCurrencyContext.tsx` and cache and normalization in `../lib/reportingCurrency.ts`.
 - Keep bootstrap and helper logic in `auth/` and `profile/`, with the provider files focused on composition and exposed state.
 - Let the child AGENTS files own helper-layer detail so this parent stays provider-focused.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

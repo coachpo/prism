@@ -25,12 +25,12 @@ i18n/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep locale selection frontend-only.
 - Keep `document.documentElement.lang` synchronized through `LocaleProvider.tsx`.
 - Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared dual-strategy family, objective wording, and the `sidecarsPage` control-plane copy.
 - Route shared formatting through `format.ts` or `useLocale()` instead of ad hoc `Intl.*` usage.
 - Use `staticMessages.ts` when a non-hook caller needs locale-aware fallback labels, objective labels, or known-label comparisons.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

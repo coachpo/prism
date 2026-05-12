@@ -26,13 +26,13 @@ api/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep `core.ts` as the only place that injects `X-Profile-Id`, applies cookie credentials, and performs one refresh retry for eligible `/api/*` requests.
 - Keep `profileScope.ts` as the only route matcher deciding which management calls receive `X-Profile-Id`; `/api/sidecars/*` stays global and unscoped.
 - Keep grouped endpoint surfaces in their existing modules instead of expanding `api.ts` into a second implementation layer.
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.
 - Keep observability-side query building centralized through `buildQuery()` and typed param objects, including bootstrap-config validation/update requests consumed by `SettingsStartupTab.tsx`.
 - Import statistics through the public `stats` export from `../api.ts` when a caller needs the standalone stats helper; use `api.stats` when staying on the grouped facade.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

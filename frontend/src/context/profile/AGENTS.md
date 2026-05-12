@@ -22,11 +22,11 @@ profile/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep helper modules snapshot-based. `actions.ts` should refresh and re-apply the latest profile snapshot after mutations.
 - Keep selected-profile persistence limited to `persistence.ts` and the provider that calls it.
 - Preserve the fallback order in `selection.ts`: stored profile, then active profile, then default profile, then first available profile.
 - Keep `expected_active_profile_id` activation conflict handling in `actions.ts` so stale active-profile snapshots are refreshed centrally.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

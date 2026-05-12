@@ -10,10 +10,11 @@
 - `../../pages/statistics/UsageStatisticsContent.tsx`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep these components presentation-first.
 - Keep dashboard analytics orchestration and data fetching in the page layer.
 - Keep null-vs-zero rendering rules and metric formatting decisions in the page helpers, not in these renderers.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 - Do not move snapshot orchestration or request-log drilldown state into these shared renderers.

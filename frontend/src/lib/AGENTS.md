@@ -54,6 +54,7 @@ lib/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
 - `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into selected `/api/*` requests.
 - `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`; global sidecar calls intentionally stay out of that allowlist.
@@ -70,7 +71,6 @@ lib/
 - Keep backend payload naming aligned with server schemas, including `vendor_id`, `vendor_key`, fixed `api_family` fields, vendor `icon_key` on vendor payloads only, `expected_active_profile_id`, and stats or request-log identifiers like `ingress_request_id`.
 - Treat `types.ts` as a barrel. Backend-aligned contracts live in `types/` leaf files and should retain server field names.
 - Request-log clipboard fallback behavior is shared infrastructure through `clipboard.ts`; route sheets can supply scoped fallback roots, but copy helpers stay here.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

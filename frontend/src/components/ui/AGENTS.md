@@ -25,6 +25,8 @@ ui/
 - Animated background wrapper used by local surfaces: `topography.tsx`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep this folder focused on primitives and local wrappers only.
 - Keep shell composition, navigation, and route state out of these files.
 - Prefer adapting the local wrapper here before adding one-off styling in parent components.

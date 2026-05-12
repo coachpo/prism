@@ -66,6 +66,8 @@ frontend/
 - Page hierarchy and route-domain handoff, including the global sidecars route: `src/pages/AGENTS.md`, `src/pages/sidecars/AGENTS.md`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Node is `>=24`, package management is `pnpm@10.30.1`, and frontend scripts are `dev`, `build`, `lint`, `preview`, and `test:e2e`.
 - Treat `src/App.tsx` as the source of truth for routes and shell boundaries.
 - Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
@@ -76,7 +78,6 @@ frontend/
 - Keep locale state and shared formatting in `src/i18n/`, not in shell or page code.
 - Keep shadcn/ui additions aligned with `components.json`: `style` `new-york`, Tailwind CSS in `src/index.css`, `lucide` icons, aliases rooted at `@/`, and generated primitives under `src/components/ui/`.
 - Use existing `ui/` primitives and local wrappers before adding one-off markup in pages or shared widgets.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 - Do not add generic React, Vite, or test-runner boilerplate here.

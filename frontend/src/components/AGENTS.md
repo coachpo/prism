@@ -44,6 +44,8 @@ components/
 - `ui/AGENTS.md`: shadcn/ui primitives and local wrappers in `src/components/ui/`.
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep shared components presentation-first.
 - Keep data fetching and route state out of this tree.
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.
@@ -53,7 +55,6 @@ components/
 - Reuse `ui/` primitives before adding one-off markup, and prefer local wrappers in `ui/` when a pattern belongs to the design system.
 - Keep semantic Tailwind tokens, `cn(...)` class composition, and shadcn variant/size props in shared components instead of raw color overrides or bespoke primitive copies.
 - Keep the leaf docs in `ui/` for primitive-level wrappers, and keep this parent focused on the shared widgets above them.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 - Do not move nav-link, profile-dialog, or version-label logic out of `layout/app-layout/`.
