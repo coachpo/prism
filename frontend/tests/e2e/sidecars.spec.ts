@@ -37,9 +37,6 @@ type AuthSnapshot = {
   disabled?: boolean;
   unavailable?: boolean;
   priority?: number;
-  quota_exceeded?: boolean;
-  quota_reason?: string;
-  quota_next_recover_at?: string;
   next_retry_after?: string;
   success_count?: number;
   failed_count?: number;
@@ -67,12 +64,16 @@ type WatchdogPolicy = {
   failure_threshold: number;
   failure_window_seconds: number;
   fallback_cooldown_seconds: number;
-  deprioritized_priority: number;
-  prioritized_priority: number;
+  using_priority: number;
+  quota_exceeded_priority: number;
+  error_priority: number;
   manual_override_pause_seconds: number;
   probe_batch_size: number;
   probe_timeout_seconds: number;
   probe_batch_cooldown_seconds: number;
+  probe_jitter_min_ms: number;
+  probe_jitter_max_ms: number;
+  cooldown_jitter_percent: number;
   quota_inventory_enabled: boolean;
   initial_scan_enabled: boolean;
   rolling_refresh_enabled: boolean;
@@ -108,11 +109,10 @@ type QuotaScan = {
   requested_by?: string;
   planned_count: number;
   attempted_count: number;
-  succeeded_count: number;
+  using_count: number;
   quota_exceeded_count: number;
-  failed_count: number;
-  unsupported_count: number;
-  missing_index_count: number;
+  error_count: number;
+  skipped_count: number;
   cancel_requested_at?: string;
   started_at?: string;
   completed_at?: string;
@@ -168,7 +168,7 @@ function authSnapshot(overrides: Partial<AuthSnapshot>): AuthSnapshot {
     name: "primary-oauth.json",
     provider: "gemini",
     label: "primary",
-    status: "healthy",
+    status: "active",
     disabled: false,
     unavailable: false,
     priority: 20,
@@ -194,16 +194,20 @@ function defaultWatchdogPolicy(): WatchdogPolicy {
     failure_threshold: 3,
     failure_window_seconds: 3600,
     fallback_cooldown_seconds: 86400,
-    deprioritized_priority: 0,
-    prioritized_priority: 1,
+    using_priority: 1,
+    quota_exceeded_priority: 0,
+    error_priority: 0,
     manual_override_pause_seconds: 1800,
     probe_batch_size: 3,
     probe_timeout_seconds: 8,
     probe_batch_cooldown_seconds: 30,
+    probe_jitter_min_ms: 100,
+    probe_jitter_max_ms: 1000,
+    cooldown_jitter_percent: 20,
     quota_inventory_enabled: true,
     initial_scan_enabled: true,
     rolling_refresh_enabled: true,
-    rolling_refresh_after_seconds: 86400,
+    rolling_refresh_after_seconds: 3600,
     created_at: now,
     updated_at: now,
   };
@@ -235,14 +239,15 @@ function defaultActions(): ActionItem[] {
 
 function defaultQuotaStates(): QuotaState[] {
   return [
-    { sidecar_id: 1, auth_id: "auth-primary", auth_name: "primary-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 20, quota_state: "healthy", last_snapshot_at: now, last_probed_at: now, active_hold: false },
-    { sidecar_id: 1, auth_id: "auth-quota", auth_name: "quota-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 0, quota_state: "quota_exceeded", probe_status: "blocked", quota_reason: "daily limit", quota_reset_at: future, last_snapshot_at: now, last_probed_at: now, active_hold: true },
+    { sidecar_id: 1, auth_id: "auth-primary", auth_name: "primary-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 20, quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false },
+    { sidecar_id: 1, auth_id: "auth-quota", auth_name: "quota-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 0, quota_band: "quota_exceeded", probe_status: "blocked", reason_code: "daily_limit", quota_reset_at: future, last_snapshot_at: now, last_probed_at: now, active_hold: true },
+    { sidecar_id: 1, auth_id: "auth-quota-zero", auth_name: "quota-zero.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 0, quota_band: "quota_exceeded", reason_code: "daily_limit", last_snapshot_at: now, last_probed_at: now, active_hold: true },
   ];
 }
 
 function defaultQuotaScans(): QuotaScan[] {
   return [
-    { id: 51, sidecar_id: 1, scan_type: "manual", status: "completed", requested_by: "operator", planned_count: 3, attempted_count: 2, succeeded_count: 1, quota_exceeded_count: 1, failed_count: 0, unsupported_count: 1, missing_index_count: 0, started_at: now, completed_at: now, created_at: now, updated_at: now },
+    { id: 51, sidecar_id: 1, scan_type: "manual", status: "completed", requested_by: "operator", planned_count: 4, attempted_count: 3, using_count: 1, quota_exceeded_count: 1, error_count: 1, skipped_count: 1, started_at: now, completed_at: now, created_at: now, updated_at: now },
   ];
 }
 
@@ -291,7 +296,7 @@ type MockSidecarsApiOptions = {
 function defaultAuthSnapshots(): AuthSnapshot[] {
   return [
     authSnapshot({}),
-    authSnapshot({ id: 12, auth_id: "auth-quota", name: "quota-oauth.json", status: "quota_exceeded", priority: 0, quota_exceeded: true, quota_reason: "daily limit", quota_next_recover_at: future, next_retry_after: future }),
+    authSnapshot({ id: 12, auth_id: "auth-quota", name: "quota-oauth.json", status: "active", priority: 0, next_retry_after: future }),
     authSnapshot({ id: 13, auth_id: "auth-disabled", name: "disabled-oauth.json", provider: "claude", disabled: true, unavailable: true, priority: undefined }),
   ];
 }
@@ -316,7 +321,7 @@ function authFilterSortSnapshots(): AuthSnapshot[] {
     authSnapshot({ id: 105, auth_id: "auth-omega-low", name: "omega-low.json", label: "sort-fixture", priority: 1 }),
     authSnapshot({ id: 106, auth_id: "auth-alpha-missing-a", name: "alpha-missing.json", provider: "claude", label: "provider-fixture", priority: undefined }),
     authSnapshot({ id: 107, auth_id: "auth-alpha-missing-b", name: "alpha-missing.json", provider: "openai", label: "missing-priority-fixture", priority: undefined }),
-    authSnapshot({ id: 108, auth_id: "auth-quota-zero", name: "quota-zero.json", provider: "gemini", label: "quota-fixture", status: "quota_exceeded", priority: 0, quota_exceeded: true, quota_reason: "daily limit" }),
+    authSnapshot({ id: 108, auth_id: "auth-quota-zero", name: "quota-zero.json", provider: "gemini", label: "quota-fixture", status: "active", priority: 0 }),
     ...paginatedMatches,
   ];
 }
@@ -363,7 +368,7 @@ async function mockSidecarsApi(
   };
 
   const quotaStatesFor = (sidecarId: number) => sidecarId === 2
-    ? [{ sidecar_id: 2, auth_id: "auth-edge", auth_name: "edge-oauth.json", provider: "codex", auth_index_present: true, disabled: false, current_priority: 5, quota_state: "healthy", last_snapshot_at: now, last_probed_at: now, active_hold: false }]
+    ? [{ sidecar_id: 2, auth_id: "auth-edge", auth_name: "edge-oauth.json", provider: "codex", auth_index_present: true, disabled: false, current_priority: 5, quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false }]
     : quotaStates;
 
   await page.route("**/*", async (route) => {
@@ -510,19 +515,25 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("Latest observed quota");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Quota Exceeded");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Latest observed state, not real-time provider truth.");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Reason: daily limit");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Reason code: daily_limit");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Watchdog hold");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("priority 0");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText(await page.evaluate(() => new Date("2026-05-10T12:00:00.000Z").toLocaleString()));
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota scan progress");
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Manual");
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Completed");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("2 of 3 attempted");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Healthy 1");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("3 of 4 attempted");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Using 1");
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota exceeded 1");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Failed/skipped 1");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Error 1");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Skipped 1");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Using priority");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Quota exceeded priority");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Error priority");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe jitter min (ms)");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Cooldown jitter (percent)");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe priority safety note");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("due holds may still probe lower-priority auth");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.restore");
