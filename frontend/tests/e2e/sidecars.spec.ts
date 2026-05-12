@@ -615,6 +615,24 @@ test.describe("sidecars management", () => {
     await expectNoRawSecrets(page);
   });
 
+  test("scrolls selected sidecar detail into view from row action", async ({ page }) => {
+    await mockSidecarsApi(page, [sidecar({ id: 1 })]);
+    await page.setViewportSize({ width: 1280, height: 360 });
+
+    await page.goto("/sidecars");
+    const detail = page.getByTestId("sidecar-detail");
+    await expect(detail).toBeAttached();
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "CLIProxyAPI primary" });
+    await primaryRow.getByRole("button", { name: "View details" }).click();
+
+    await expect.poll(async () => detail.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > 0 && rect.top < window.innerHeight;
+    })).toBe(true);
+  });
+
   test("keeps detail responses scoped to the selected sidecar", async ({ page }) => {
     await mockSidecarsApi(
       page,
