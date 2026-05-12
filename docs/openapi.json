@@ -5950,7 +5950,7 @@
           "sidecars"
         ],
         "summary": "List Sidecar Quota States",
-        "description": "Returns latest observed quota state for sidecar auth files. Public items expose current_priority, quota_state, last_snapshot_at, and active_hold, while cooldown timestamps and scan position are backend-only.",
+        "description": "Returns latest observed quota state for sidecar auth files. Public items expose current_priority, quota_band, reason_code, last_snapshot_at, and active_hold. Public quota_band values are using, quota_exceeded, and error only, while detail fields and cooldown timing stay metadata.",
         "operationId": "list_sidecar_quota_states_api_sidecars__sidecar_id__quota_states_get",
         "parameters": [
           {
@@ -6155,7 +6155,7 @@
           "sidecars"
         ],
         "summary": "Update Sidecar Watchdog Policy",
-        "description": "Replaces public watchdog policy fields, including prioritized_priority, deprioritized_priority, probe_batch_size, and probe_timeout_seconds.",
+        "description": "Replaces public watchdog policy fields, including using_priority, quota_exceeded_priority, error_priority, probe_batch_size, probe_timeout_seconds, probe_jitter_min_ms, probe_jitter_max_ms, and cooldown_jitter_percent.",
         "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_put",
         "parameters": [
           {
@@ -6195,7 +6195,7 @@
           "sidecars"
         ],
         "summary": "Update Sidecar Watchdog Policy",
-        "description": "Partially updates public watchdog policy fields, including prioritized_priority, deprioritized_priority, probe_batch_size, and probe_timeout_seconds.",
+        "description": "Partially updates public watchdog policy fields, including using_priority, quota_exceeded_priority, error_priority, probe_batch_size, probe_timeout_seconds, probe_jitter_min_ms, probe_jitter_max_ms, and cooldown_jitter_percent.",
         "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_patch",
         "parameters": [
           {
@@ -17135,9 +17135,16 @@
           "auth_index_present": { "type": "boolean" },
           "disabled": { "type": "boolean" },
           "current_priority": { "type": "integer", "nullable": true },
-          "quota_state": { "type": "string" },
+          "quota_band": {
+            "type": "string",
+            "enum": [
+              "using",
+              "quota_exceeded",
+              "error"
+            ]
+          },
           "probe_status": { "type": "string", "nullable": true },
-          "quota_reason": { "type": "string", "nullable": true },
+          "reason_code": { "type": "string", "nullable": true },
           "quota_reset_at": { "type": "string", "format": "date-time", "nullable": true },
           "blocking_window": { "type": "string", "nullable": true },
           "last_snapshot_at": { "type": "string", "format": "date-time", "nullable": true },
@@ -17150,7 +17157,7 @@
           "auth_id",
           "auth_index_present",
           "disabled",
-          "quota_state",
+          "quota_band",
           "active_hold"
         ],
         "additionalProperties": false
@@ -17180,11 +17187,10 @@
           "requested_by": { "type": "string", "nullable": true },
           "planned_count": { "type": "integer" },
           "attempted_count": { "type": "integer" },
-          "succeeded_count": { "type": "integer" },
+          "using_count": { "type": "integer" },
           "quota_exceeded_count": { "type": "integer" },
-          "failed_count": { "type": "integer" },
-          "unsupported_count": { "type": "integer" },
-          "missing_index_count": { "type": "integer" },
+          "error_count": { "type": "integer" },
+          "skipped_count": { "type": "integer" },
           "cancel_requested_at": { "type": "string", "format": "date-time", "nullable": true },
           "started_at": { "type": "string", "format": "date-time", "nullable": true },
           "completed_at": { "type": "string", "format": "date-time", "nullable": true },
@@ -17199,11 +17205,10 @@
           "status",
           "planned_count",
           "attempted_count",
-          "succeeded_count",
+          "using_count",
           "quota_exceeded_count",
-          "failed_count",
-          "unsupported_count",
-          "missing_index_count",
+          "error_count",
+          "skipped_count",
           "created_at",
           "updated_at"
         ],
@@ -17253,13 +17258,17 @@
           "fallback_cooldown_seconds": {
             "type": "integer"
           },
-          "deprioritized_priority": {
+          "using_priority": {
             "type": "integer",
-            "description": "Priority assigned while a quota or failure hold is active. Must be lower than prioritized_priority."
+            "description": "Priority restored for auth files in the using band. Must be greater than or equal to quota_exceeded_priority and error_priority."
           },
-          "prioritized_priority": {
+          "quota_exceeded_priority": {
             "type": "integer",
-            "description": "Priority restored after successful probe-first recovery. Must be greater than deprioritized_priority."
+            "description": "Priority assigned while the quota_exceeded band has an active hold. Must be less than or equal to using_priority."
+          },
+          "error_priority": {
+            "type": "integer",
+            "description": "Priority assigned while the error band has an active hold. Must be less than or equal to using_priority."
           },
           "manual_override_pause_seconds": {
             "type": "integer"
@@ -17275,6 +17284,18 @@
           "probe_batch_cooldown_seconds": {
             "type": "integer",
             "description": "Cooldown between quota probe batches for this sidecar."
+          },
+          "probe_jitter_min_ms": {
+            "type": "integer",
+            "description": "Minimum per-probe jitter in milliseconds."
+          },
+          "probe_jitter_max_ms": {
+            "type": "integer",
+            "description": "Maximum per-probe jitter in milliseconds. Must be greater than or equal to probe_jitter_min_ms."
+          },
+          "cooldown_jitter_percent": {
+            "type": "integer",
+            "description": "Percent jitter applied to cooldown scheduling. Must be between 0 and 100."
           },
           "quota_inventory_enabled": {
             "type": "boolean"
@@ -17304,12 +17325,16 @@
           "failure_threshold",
           "failure_window_seconds",
           "fallback_cooldown_seconds",
-          "deprioritized_priority",
-          "prioritized_priority",
+          "using_priority",
+          "quota_exceeded_priority",
+          "error_priority",
           "manual_override_pause_seconds",
           "probe_batch_size",
           "probe_timeout_seconds",
           "probe_batch_cooldown_seconds",
+          "probe_jitter_min_ms",
+          "probe_jitter_max_ms",
+          "cooldown_jitter_percent",
           "quota_inventory_enabled",
           "initial_scan_enabled",
           "rolling_refresh_enabled",
@@ -17334,13 +17359,17 @@
           "fallback_cooldown_seconds": {
             "type": "integer"
           },
-          "deprioritized_priority": {
+          "using_priority": {
             "type": "integer",
-            "description": "Priority assigned while a quota or failure hold is active. Must be lower than prioritized_priority."
+            "description": "Priority restored for auth files in the using band. Must be greater than or equal to quota_exceeded_priority and error_priority."
           },
-          "prioritized_priority": {
+          "quota_exceeded_priority": {
             "type": "integer",
-            "description": "Priority restored after successful probe-first recovery. Must be greater than deprioritized_priority."
+            "description": "Priority assigned while the quota_exceeded band has an active hold. Must be less than or equal to using_priority."
+          },
+          "error_priority": {
+            "type": "integer",
+            "description": "Priority assigned while the error band has an active hold. Must be less than or equal to using_priority."
           },
           "manual_override_pause_seconds": {
             "type": "integer"
@@ -17356,6 +17385,18 @@
           "probe_batch_cooldown_seconds": {
             "type": "integer",
             "description": "Cooldown between quota probe batches for this sidecar."
+          },
+          "probe_jitter_min_ms": {
+            "type": "integer",
+            "description": "Minimum per-probe jitter in milliseconds."
+          },
+          "probe_jitter_max_ms": {
+            "type": "integer",
+            "description": "Maximum per-probe jitter in milliseconds. Must be greater than or equal to probe_jitter_min_ms."
+          },
+          "cooldown_jitter_percent": {
+            "type": "integer",
+            "description": "Percent jitter applied to cooldown scheduling. Must be between 0 and 100."
           },
           "quota_inventory_enabled": {
             "type": "boolean"
