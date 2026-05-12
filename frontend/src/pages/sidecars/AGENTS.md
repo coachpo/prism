@@ -19,8 +19,13 @@ sidecars/
 ```
 
 ## WHERE TO LOOK
+
 - Thin route shell and page header: `../SidecarsPage.tsx`.
 - Route mount and global navigation metadata: `../../App.tsx`, `../../components/layout/app-layout/navigationProfileConfig.ts`.
 - Backend client facade: `../../lib/api/sidecars.ts`, exported through `../../lib/api.ts`.
 - Payload types: `../../lib/types/sidecar.ts`, re-exported by `../../lib/types.ts`.
 - Visible copy and toasts: `../../i18n/messages/en.ts`, `../../i18n/messages/zh-CN.ts` under `sidecarsPage`.
+
+## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.

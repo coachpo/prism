@@ -45,6 +45,7 @@ sections/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep these files focused on section rendering, local field composition, and section-specific copy.
 - Let `VendorManagementSection.tsx` and `VendorCatalogTransportCard.tsx` stay rendering-focused; bootstrap, catalog import/export parsing, preview state, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
 - Let vendor section UI show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.
@@ -52,7 +53,6 @@ sections/
 - Pull bootstrap, dirty-state derivation, and save orchestration from the parent settings hooks instead of rebuilding that logic inside section components.
 - Keep section IDs and save-state wiring aligned with the parent settings helpers.
 - Let `BillingCurrencySection.tsx` stay a rendering boundary. The hooks that own costing changes live in `../costing/`.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 

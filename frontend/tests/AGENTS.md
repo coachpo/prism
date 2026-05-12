@@ -20,6 +20,8 @@
 - Shared test helpers: `helpers/loadTsModule.mjs`
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep this doc summary-level.
 - Keep browser flows in `e2e/` and seam contracts in the named sibling folders.
 - Keep shared test-only utilities in `helpers/` instead of scattering loader glue across suites.

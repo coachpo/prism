@@ -31,12 +31,12 @@ costing/
 
 ## CONVENTIONS
 
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep costing data normalized through `normalizeCostingForm()` before dirty checks or saves.
 - Preserve the split between billing saves and timezone saves. Timezone save depends on a valid saved billing state.
 - Load FX mapping endpoint choices from the selected model's connections inside the CRUD hook, not inside presentation components.
 - Reuse `settingsPageHelpers.ts` for mapping keys, validation, formatting, and default state.
 - After reporting-currency writes, use the provider refresh/prime seam instead of creating a local currency cache.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 
