@@ -34,10 +34,14 @@ sidecars/
 - Regression coverage: `routes*_test.go`, `sync_test.go`, `watchdog*_test.go`, `store_test.go`, `client_test.go`, `cliproxy_contract_test.go`, `../../../../tests/{contract,integration}/sidecars*_test.go`.
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Treat sidecar management as global instance control-plane state; it does not use selected-profile `X-Profile-Id` scope.
 - Keep management passwords write-only. Responses expose `credential_state` metadata and the mask string only.
 - Keep live auth/provider inventory owned by CLIProxyAPI; Prism persists normalized snapshots and watchdog/action state.
 - Keep the CLIProxyAPI management path allowlist tight: `/auth-files`, `/auth-files/status`, `/auth-files/fields`, and the five provider inventory paths.
+- Treat `/auth-files` as a strict top-level `files` envelope; old `auth_files`, missing `files`, null `files`, or non-array `files` payloads fail closed.
+- Keep provider inventory as a separate read-only supplement, never as an auth-snapshot fallback.
 - Keep private-network, insecure-HTTP, TLS-skip, request-timeout, and management-auth pause behavior on the sidecar instance policy.
 - Keep `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile` as bounded low-background workers with queue limit 1 and no priority elevation.
 
@@ -45,4 +49,5 @@ sidecars/
 - Do not let the browser call CLIProxyAPI directly; all sidecar traffic goes through the Prism backend service.
 - Do not persist or return raw management passwords, provider secrets, auth tokens, action payload secrets, or unredacted snapshot fields.
 - Do not add destructive or unsupported CLIProxyAPI management paths such as `/usage-queue` to the allowlist.
+- Do not accept legacy `auth_files` envelopes or hide auth-sync contract violations behind provider inventory fallback.
 - Do not make sidecar workers borrow runtime/management request-path capacity or run above low-background priority.

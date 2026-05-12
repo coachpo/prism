@@ -30,7 +30,7 @@
 
 ## Root-Cause Evidence Collected
 - Historical finding: the sync code was reading `/auth-files` with a stale local envelope mapping, so it missed the live CLIProxyAPI top-level `files` array.
-- The live upstream contract is top-level `files`; old top-level `auth_files` payloads are not supported by Prism and should fail closed.
+- The finding was merged into the live owner: `backend/internal/httpapi/management/sidecars/AGENTS.md` now owns the `/auth-files` envelope rule.
 - The same sync pass separately reads provider-specific endpoints and successfully normalizes provider snapshots from `/codex-api-key` and related provider routes.
 - Live evidence showed provider inventory while the auth snapshot path stayed empty, which identified an auth-files envelope mismatch rather than provider inventory being the supported fallback.
 - Because no auth snapshots existed during this historical run, there was no safe auth target for the allowed priority-adjustment mutation.
@@ -46,7 +46,7 @@
 - These paths remain covered by the automated sidecar tests listed above.
 
 ## Follow-Up Resolution
-- This historical gap is addressed by the auth-files contract fix plan: Prism reads the live top-level `files` envelope, rejects old or malformed envelopes, and keeps provider inventory as a separate read-only supplement.
+- This historical gap is addressed by the current backend sidecars contract documented in `backend/internal/httpapi/management/sidecars/AGENTS.md`.
 - Later evidence for the fix is stored under `.sisyphus/evidence/cliproxyapi-live-sync.txt`, `.sisyphus/evidence/cliproxyapi-read-only-sync.txt`, and `.sisyphus/evidence/cliproxyapi-auth-table-large.png`.
 - Priority adjustment was not smoked in this archived run because the stale envelope mapping produced no auth snapshots at that time.
 

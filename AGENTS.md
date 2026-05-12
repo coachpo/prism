@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-10 | branch: main | commit: 144ee24 -->
+<!-- Generated: 2026-05-12 | branch: main | commit: bd0b656 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -46,13 +46,13 @@ prism/
 - `backend/tests/AGENTS.md`: backend contract, integration, runtime, partitioned-log, Dockerfile, sidecar, and priority regression boundary.
 - `frontend/AGENTS.md`: frontend monorepo directory root for routes, shared shell, context, typed browser/backend seams, and child ownership routers under `src/`.
 - `frontend/src/pages/AGENTS.md`: route-domain handoff for mounted page surfaces and page-owned drill-down clusters.
-- `frontend/src/pages/dashboard/AGENTS.md`, `frontend/src/pages/model-detail/AGENTS.md`, `frontend/src/pages/request-logs/AGENTS.md`, `frontend/src/pages/settings/AGENTS.md`, `frontend/src/pages/sidecars/AGENTS.md`, and `frontend/src/pages/statistics/AGENTS.md`: dense route-domain leaves and their parent-covered local clusters.
+- `frontend/src/pages/dashboard/AGENTS.md`, `frontend/src/pages/model-detail/AGENTS.md`, `frontend/src/pages/request-logs/AGENTS.md`, `frontend/src/pages/settings/AGENTS.md`, `frontend/src/pages/sidecars/AGENTS.md`, and `frontend/src/pages/statistics/AGENTS.md`: dense route-domain leaves; dashboard and settings point to their own deeper child docs.
 - `frontend/src/pages/endpoints/AGENTS.md`, `frontend/src/pages/loadbalance-strategies/AGENTS.md`, `frontend/src/pages/models/AGENTS.md`, `frontend/src/pages/pricing-templates/AGENTS.md`, and `frontend/src/pages/proxy-api-keys/AGENTS.md`: profile-scoped or global management route leaves.
-- `frontend/src/components/AGENTS.md`: shared shell and widget handoff for `layout/app-layout`, loadbalance, statistics, and `ui/`.
-- `frontend/src/context/AGENTS.md`: provider-layer handoff for auth, selected-profile management scope, and selected-profile keyed reporting-currency readiness.
+- `frontend/src/components/AGENTS.md`: shared shell and widget handoff for `layout/app-layout`, loadbalance, statistics, and `ui/` child leaves.
+- `frontend/src/context/AGENTS.md`: provider-layer handoff for auth, selected-profile management scope, and reporting-currency readiness; `auth/` and `profile/` own helper leaves.
 - `frontend/src/hooks/AGENTS.md`: shared hook handoff for realtime subscriptions, polling, and timezone formatting.
 - `frontend/src/i18n/AGENTS.md`: locale and formatting handoff for catalogs, static labels, and shared Intl helpers.
-- `frontend/src/lib/AGENTS.md`: typed backend/browser integration handoff for `api/`, websocket helpers, reference data, and reporting currency.
+- `frontend/src/lib/AGENTS.md`: typed backend/browser integration handoff for `api/`, websocket helpers, reference data, and reporting currency; `api/` and `websocket/` own split-helper leaves.
 - `frontend/tests/AGENTS.md`: frontend Playwright e2e, server/main/model-detail/loadbalance, and lib contract boundary.
 - `docs/AGENTS.md`: docs ownership, source-of-truth routing, archive boundaries, and active-plan handoff out of `docs/`.
 - `docs/archive/AGENTS.md`: archive boundary for finished notes and retained evidence.
@@ -95,6 +95,8 @@ cd frontend && pnpm run test:e2e
 ```
 
 ## CONVENTIONS
+
+- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 - Keep this file focused on repo-wide facts and cross-directory boundaries.
 - Point downward instead of repeating leaf-level implementation detail here.
 - Keep launcher docs aligned with `start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, same-origin proxying, `PRISM_VITE_PROXY_ENABLED`, `PRISM_VITE_PROXY_TARGET`, and local CORS wiring.
@@ -104,7 +106,6 @@ cd frontend && pnpm run test:e2e
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
 - Keep active implementation plans out of `docs/`; store working plans under `.sisyphus/plans/`, and use `docs/archive/` only for finished notes or retained evidence.
-- When doing upgrade work, backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested. Prefer the best current implementation shape over preserving the old one. Do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
 
 ## ANTI-PATTERNS
 - Do not describe `backend/` or `frontend/` as external repos, gitlinks, or separately released submodules. They are root-owned monorepo directories.
@@ -116,4 +117,3 @@ cd frontend && pnpm run test:e2e
 - Do not bypass partitioned log-retention ownership with direct cleanup or partition creation outside `backend/internal/platform/logretention/` and runtime partition ensuring.
 - Do not move the backend container back to root execution or a writable app-local default config path without updating Dockerfile contract tests and docs.
 - Do not strand upgrade guidance in archive notes or compatibility layers when the live docs can state the target contract directly.
-d upgrade guidance in archive notes or compatibility layers when the live docs can state the target contract directly.
