@@ -1359,7 +1359,7 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ### 1.10 Sidecars (Global CLIProxyAPI Control Plane)
 
-Sidecar routes are global management routes. They omit `X-Profile-Id` and operate on instance-wide CLIProxyAPI registrations. Prism stores sidecar metadata, normalized inventory snapshots, watchdog policy/holds, and redacted action history; CLIProxyAPI remains the source of truth for live auth/provider state.
+Sidecar routes are global management routes. They omit `X-Profile-Id` and operate on instance-wide CLIProxyAPI registrations. Prism stores sidecar metadata, normalized inventory snapshots, watchdog policy and holds, pending repair actions, latest observed quota state, quota scan progress, and redacted retained action history; CLIProxyAPI remains the source of truth for live auth/provider state.
 
 #### List Sidecars
 ```
@@ -1399,7 +1399,19 @@ GET /api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}
 GET /api/sidecars/{sidecar_id}/providers
 GET /api/sidecars/{sidecar_id}/provider-snapshots
 ```
-`auth-files` is the operator-facing alias for the latest auth snapshots. Provider snapshots are normalized from CLIProxyAPI provider inventory endpoints for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. Snapshot payloads are redacted before storage or display.
+`auth-files` is the operator-facing alias for the latest auth snapshots. Provider snapshots are normalized from CLIProxyAPI provider inventory endpoints for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. Snapshot payloads are redacted before storage or display. Snapshot `quota_*` values are inventory metadata only; public quota authority comes from the latest observed quota state routes.
+
+#### Quota State and Scan Runs
+```
+GET /api/sidecars/{sidecar_id}/quota-states
+GET /api/sidecars/{sidecar_id}/quota-scans
+GET /api/sidecars/{sidecar_id}/quota-scans/current
+POST /api/sidecars/{sidecar_id}/quota-scans
+POST /api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel
+```
+`GET /quota-states` returns `{ "items": SidecarAuthQuotaState[] }`, one latest observed row per known auth file when quota inventory is enabled. The public item contract includes `auth_id`, optional `auth_name`, optional `provider`, `auth_index_present`, `disabled`, optional `current_priority`, `quota_state`, optional `probe_status`, optional `quota_reason`, optional `quota_reset_at`, optional `blocking_window`, optional `last_snapshot_at`, optional `last_probed_at`, optional `last_error_code`, and `active_hold`. Responses do not expose raw probe payloads, provider identity payloads, cooldown timestamps, or scan position.
+
+`GET /quota-scans` returns recent initial, manual, and scheduled scan runs. `GET /quota-scans/current` returns the active queued or running scan when one exists. `POST /quota-scans` starts a manual asynchronous scan and accepts optional `requested_by` plus `replace_active`; active scan replacement cancels the old run before queuing the new one. Scan responses include `scan_type`, `status`, `planned_count`, `attempted_count`, `succeeded_count`, `quota_exceeded_count`, `failed_count`, `unsupported_count`, `missing_index_count`, optional cancellation and completion timestamps, optional `last_error_code`, and timestamps. `POST /quota-scans/{scan_id}/cancel` marks a queued or running scan for cancellation and returns the updated run.
 
 #### Auth-File Mutations and Watchdog
 ```
@@ -1412,11 +1424,11 @@ GET /api/sidecars/{sidecar_id}/actions
 ```
 Status mutations accept `disabled` plus optional `allow_watchdog`. Field mutations accept allowed operational fields such as `priority`, `proxy_url`, `headers`, `custom_headers`, `prefix`, `note`, `allow_watchdog`, and `force_live`; only `x-correlation-id`, `x-request-id`, and `x-trace-id` custom header names are accepted.
 
-Watchdog policy requests and responses expose `enabled`, `failure_threshold`, `failure_window_seconds`, `fallback_cooldown_seconds`, `deprioritized_priority`, `prioritized_priority`, `manual_override_pause_seconds`, `probe_batch_size`, and `probe_timeout_seconds`. `PUT` replaces the editable policy fields, while `PATCH` accepts a partial update. Positive integer thresholds, windows, cooldowns, batch sizes, and timeouts are required when present. Priority validation requires `deprioritized_priority >= 0`, `prioritized_priority >= 0`, and `deprioritized_priority < prioritized_priority`. Probe budget validation keeps `probe_timeout_seconds` and `probe_batch_size * probe_timeout_seconds` within the bounded watchdog worker budget.
+Watchdog policy requests and responses expose `enabled`, `failure_threshold`, `failure_window_seconds`, `fallback_cooldown_seconds`, `deprioritized_priority`, `prioritized_priority`, `manual_override_pause_seconds`, `probe_batch_size`, `probe_timeout_seconds`, `probe_batch_cooldown_seconds`, `quota_inventory_enabled`, `initial_scan_enabled`, `rolling_refresh_enabled`, and `rolling_refresh_after_seconds`. `PUT` replaces the editable policy fields, while `PATCH` accepts a partial update. Positive integer thresholds, windows, cooldowns, batch sizes, timeouts, and refresh windows are required when present. Priority validation requires `deprioritized_priority >= 0`, `prioritized_priority >= 0`, and `deprioritized_priority < prioritized_priority`. Probe budget validation keeps `probe_timeout_seconds` and `probe_batch_size * probe_timeout_seconds` within the bounded watchdog worker budget, and `probe_batch_cooldown_seconds` prevents repeated quota probes from starving other sidecar work.
 
 The sidecar watchdog uses probe-first quota authority. Recovery and quota decisions come from active CLIProxyAPI `/api-call` probes, not from stored snapshot `quota_*` fields. In v1, Prism only builds quota probes for `codex` and `chatgpt` provider keys, using a wrapped `GET https://chatgpt.com/backend-api/wham/usage` request through CLIProxyAPI with token substitution handled by the sidecar. Unsupported providers are skipped with an explicit probe action outcome.
 
-Action-history responses redact token, secret, password, and authorization-like text. Probe action types include `probe_succeeded`, `probe_failed_timeout`, `probe_failed_management_auth`, `probe_failed_token`, `probe_failed_status`, `probe_failed_parse`, `probe_failed_transport`, and `probe_skipped_unsupported_provider`. When a probe confirms quota is still blocking an auth file, the public action type is `quota_hold_extended`. Probe observations remain an internal sanitized store record and public API responses do not expose raw probe payloads, provider identity payloads, or internal probe cursor state.
+Action-history responses read retained `sidecar_watchdog_actions` rows and redact token, secret, password, and authorization-like text. Pending repairs live separately in `sidecar_watchdog_pending_actions` until workers claim and finish them. Probe action types include `probe_succeeded`, `probe_failed_timeout`, `probe_failed_management_auth`, `probe_failed_token`, `probe_failed_status`, `probe_failed_parse`, `probe_failed_transport`, and `probe_skipped_unsupported_provider`. When a probe confirms quota is still blocking an auth file, the public action type is `quota_hold_extended`. Probe observations remain an internal sanitized store record and public API responses do not expose raw probe payloads, provider identity payloads, cooldown timestamps, or scan position.
 
 ---
 
@@ -1904,7 +1916,7 @@ GET /api/settings/log-retention
 PUT /api/settings/log-retention
 ```
 
-These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles. Request-log, audit-log, statistics, and load-balance list/detail APIs still filter by selected profile, but retention settings do not.
+These routes are global and do not use `X-Profile-Id`. They store the instance-wide normal retention policy for all profiles and retained sidecar action history. Request-log, audit-log, statistics, and load-balance list/detail APIs still filter by selected profile, but retention settings do not. Sidecar action history is global.
 
 Request and response fields:
 | Field | Type | Description |
@@ -1913,6 +1925,7 @@ Request and response fields:
 | `audit_logs_retention_days` | integer or null | Global audit-log retention days. `null` disables the stored policy. |
 | `statistics_retention_days` | integer or null | Global `usage_request_events` retention days. `null` disables the stored policy. |
 | `loadbalance_events_retention_days` | integer or null | Global load-balance event retention days. `null` disables the stored policy. |
+| `sidecar_action_history_retention_days` | integer or null | Global retained `sidecar_watchdog_actions` days. `null` disables the stored policy. |
 
 Response `200`:
 ```json
@@ -1920,7 +1933,8 @@ Response `200`:
   "request_logs_retention_days": 30,
   "audit_logs_retention_days": 90,
   "statistics_retention_days": 90,
-  "loadbalance_events_retention_days": 30
+  "loadbalance_events_retention_days": 30,
+  "sidecar_action_history_retention_days": 30
 }
 ```
 
@@ -1943,7 +1957,7 @@ Request:
 }
 ```
 
-Allowed `table` values are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`. Provide either `cutoff` or `delete_all=true`. If both are omitted, Prism computes `cutoff` from the stored global policy for that table; if no policy exists, it returns `400`.
+Allowed `table` values are `request_logs`, `audit_logs`, `usage_request_events`, `loadbalance_events`, and `sidecar_watchdog_actions`. Provide either `cutoff` or `delete_all=true`. If both are omitted, Prism computes `cutoff` from the stored global policy for that table; if no policy exists, it returns `400`.
 
 Response `202`:
 ```json

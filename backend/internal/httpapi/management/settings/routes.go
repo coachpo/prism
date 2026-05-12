@@ -172,6 +172,7 @@ func (s *Service) handlePutRetentionSettings(w http.ResponseWriter, r *http.Requ
 		settingsRow.AuditLogsRetentionDays = requestBody.AuditLogsRetentionDays
 		settingsRow.StatisticsRetentionDays = requestBody.StatisticsRetentionDays
 		settingsRow.LoadbalanceEventsRetentionDays = requestBody.LoadbalanceEventsRetentionDays
+		settingsRow.SidecarActionHistoryRetentionDays = requestBody.SidecarActionHistoryRetentionDays
 		settingsRow.UpdatedAt = s.nowUTC()
 		if err := updateLogRetentionSettings(r.Context(), tx, settingsRow); err != nil {
 			return retentionSettingsResponse{}, err
@@ -233,6 +234,8 @@ func retentionDaysForTable(settingsRow logRetentionSettingsRow, tableName string
 		return settingsRow.StatisticsRetentionDays
 	case "loadbalance_events":
 		return settingsRow.LoadbalanceEventsRetentionDays
+	case "sidecar_watchdog_actions":
+		return settingsRow.SidecarActionHistoryRetentionDays
 	default:
 		return nil
 	}
@@ -269,10 +272,11 @@ func buildTimezonePreferenceResponse(settingsRow userSettingsRow) timezonePrefer
 
 func buildRetentionSettingsResponse(settingsRow logRetentionSettingsRow) retentionSettingsResponse {
 	return retentionSettingsResponse{
-		RequestLogsRetentionDays:       settingsRow.RequestLogsRetentionDays,
-		AuditLogsRetentionDays:         settingsRow.AuditLogsRetentionDays,
-		StatisticsRetentionDays:        settingsRow.StatisticsRetentionDays,
-		LoadbalanceEventsRetentionDays: settingsRow.LoadbalanceEventsRetentionDays,
+		RequestLogsRetentionDays:          settingsRow.RequestLogsRetentionDays,
+		AuditLogsRetentionDays:            settingsRow.AuditLogsRetentionDays,
+		StatisticsRetentionDays:           settingsRow.StatisticsRetentionDays,
+		LoadbalanceEventsRetentionDays:    settingsRow.LoadbalanceEventsRetentionDays,
+		SidecarActionHistoryRetentionDays: settingsRow.SidecarActionHistoryRetentionDays,
 	}
 }
 

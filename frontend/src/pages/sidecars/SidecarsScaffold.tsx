@@ -2,6 +2,7 @@ import { useLocale } from "@/i18n/useLocale";
 import { AuthFilesTable } from "./AuthFilesTable";
 import { DeleteSidecarDialog } from "./DeleteSidecarDialog";
 import { ProviderInventoryTable } from "./ProviderInventoryTable";
+import { QuotaInventoryPanel } from "./QuotaInventoryPanel";
 import { SidecarActionHistory } from "./SidecarActionHistory";
 import { SidecarDialog } from "./SidecarDialog";
 import { SidecarsTable } from "./SidecarsTable";
@@ -43,18 +44,28 @@ export function SidecarsScaffold() {
             mutatingAuthKey={pageData.mutatingAuthKey}
             onPatchPriority={pageData.handlePatchAuthPriority}
             onPatchStatus={pageData.handlePatchAuthStatus}
+            quotaStates={pageData.quotaStates}
           />
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.7fr)]">
             <ProviderInventoryTable
               loading={pageData.sidecarDetailLoading}
               providerSnapshots={pageData.providerSnapshots}
             />
-            <WatchdogPolicyPanel
-              loading={pageData.sidecarDetailLoading}
-              onSave={pageData.handleSaveWatchdogPolicy}
-              policy={pageData.watchdogPolicy}
-              saving={pageData.watchdogPolicySaving}
-            />
+            <div className="space-y-6">
+              <QuotaInventoryPanel
+                loading={pageData.sidecarDetailLoading}
+                mutating={pageData.quotaScanMutating}
+                onCancelScan={pageData.handleCancelQuotaScan}
+                onStartScan={pageData.handleStartQuotaScan}
+                scans={pageData.quotaScans}
+              />
+              <WatchdogPolicyPanel
+                loading={pageData.sidecarDetailLoading}
+                onSave={pageData.handleSaveWatchdogPolicy}
+                policy={pageData.watchdogPolicy}
+                saving={pageData.watchdogPolicySaving}
+              />
+            </div>
           </div>
           <SidecarActionHistory actions={pageData.actionHistory} loading={pageData.sidecarDetailLoading} />
         </div>

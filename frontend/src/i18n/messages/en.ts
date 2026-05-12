@@ -291,6 +291,32 @@ export interface Messages {
     providerObservedColumn: string;
     providerSnapshotColumn: string;
     providerTitle: string;
+    quotaScanAutomaticActive: string;
+    quotaScanCancel: string;
+    quotaScanCancelFailed: string;
+    quotaScanCancelSucceeded: string;
+    quotaScanDescription: string;
+    quotaScanEmpty: string;
+    quotaScanFailed: (count: string) => string;
+    quotaScanLastError: (code: string) => string;
+    quotaScanProgressLabel: string;
+    quotaScanProgressValue: (attempted: string, planned: string) => string;
+    quotaScanQuotaExceeded: (count: string) => string;
+    quotaScanStart: string;
+    quotaScanStartFailed: string;
+    quotaScanStartSucceeded: (name: string) => string;
+    quotaScanStatusLabels: Record<string, string>;
+    quotaScanSucceeded: (count: string) => string;
+    quotaScanTitle: string;
+    quotaScanTypeLabels: Record<string, string>;
+    quotaStateColumn: string;
+    quotaStateLabels: Record<string, string>;
+    quotaStateLastProbed: (time: string) => string;
+    quotaStateLatestObserved: string;
+    quotaStateMissing: string;
+    quotaStateReason: (reason: string) => string;
+    quotaStateReset: (time: string) => string;
+    quotaStateWatchdogHold: string;
     redactedLabel: string;
     requestTimeoutLabel: string;
     runtimeSectionTitle: string;
@@ -337,8 +363,18 @@ export interface Messages {
     watchdogPriorityOrderValidationError: string;
     watchdogPrioritySafetyDescription: string;
     watchdogPrioritySafetyTitle: string;
+    watchdogInitialScanEnabledDescription: string;
+    watchdogInitialScanEnabledLabel: string;
     watchdogProbeBatchSizeLabel: string;
+    watchdogProbeBatchCooldownDescription: string;
+    watchdogProbeBatchCooldownSecondsLabel: string;
     watchdogProbeTimeoutSecondsLabel: string;
+    watchdogQuotaInventoryEnabledDescription: string;
+    watchdogQuotaInventoryEnabledLabel: string;
+    watchdogRollingRefreshAfterDescription: string;
+    watchdogRollingRefreshAfterSecondsLabel: string;
+    watchdogRollingRefreshEnabledDescription: string;
+    watchdogRollingRefreshEnabledLabel: string;
     watchdogSave: string;
     watchdogSaveSucceeded: string;
     watchdogTitle: string;
@@ -903,6 +939,7 @@ export interface Messages {
     cleanupTypeAudits: string;
     cleanupTypeLoadbalanceEvents: string;
     cleanupTypeRequests: string;
+    cleanupTypeSidecarActionHistory: string;
     cleanupTypeStatistics: string;
     dataType: string;
     delete: string;
@@ -990,6 +1027,7 @@ export interface Messages {
     savingRetention: string;
     selectDataType: string;
     selectRetention: string;
+    sidecarActionHistoryPolicy: string;
     statisticsPolicy: string;
     title: string;
   };
@@ -2441,6 +2479,32 @@ export const enMessages: Messages = {
     providerObservedColumn: "Observed",
     providerSnapshotColumn: "Masked snapshot",
     providerTitle: "Provider inventory",
+    quotaScanAutomaticActive: "Automatic scan in progress; manual cancellation is available only for manual scans.",
+    quotaScanCancel: "Cancel scan",
+    quotaScanCancelFailed: "Failed to cancel quota scan.",
+    quotaScanCancelSucceeded: "Quota scan cancellation requested.",
+    quotaScanDescription: "Manual scans enqueue quota checks for the latest observed inventory. Results are not real-time provider truth.",
+    quotaScanEmpty: "No quota scan has been recorded for this sidecar yet.",
+    quotaScanFailed: (count) => `Failed/skipped ${count}`,
+    quotaScanLastError: (code) => `Last error: ${code}`,
+    quotaScanProgressLabel: "Scan progress",
+    quotaScanProgressValue: (attempted, planned) => `${attempted} of ${planned} attempted`,
+    quotaScanQuotaExceeded: (count) => `Quota exceeded ${count}`,
+    quotaScanStart: "Scan quota now",
+    quotaScanStartFailed: "Failed to start quota scan.",
+    quotaScanStartSucceeded: (name) => `Quota scan started for ${name}.`,
+    quotaScanStatusLabels: { queued: "Queued", running: "Running", completed: "Completed", cancelled: "Cancelled", failed: "Failed" },
+    quotaScanSucceeded: (count) => `Healthy ${count}`,
+    quotaScanTitle: "Quota scan progress",
+    quotaScanTypeLabels: { initial: "Initial", manual: "Manual", scheduled: "Rolling refresh" },
+    quotaStateColumn: "Latest observed quota",
+    quotaStateLabels: { unknown: "Unknown", healthy: "Healthy", quota_exceeded: "Quota exceeded", disabled: "Disabled" },
+    quotaStateLastProbed: (time) => `Last probe ${time}`,
+    quotaStateLatestObserved: "Latest observed state, not real-time provider truth.",
+    quotaStateMissing: "Not observed",
+    quotaStateReason: (reason) => `Reason: ${reason}`,
+    quotaStateReset: (time) => `Reset ${time}`,
+    quotaStateWatchdogHold: "Watchdog hold",
     redactedLabel: "redacted",
     requestTimeoutLabel: "Request timeout (seconds)",
     runtimeSectionTitle: "Runtime behavior",
@@ -2487,12 +2551,22 @@ export const enMessages: Messages = {
     watchdogPriorityOrderValidationError: "Deprioritized priority must be lower than prioritized priority.",
     watchdogPrioritySafetyDescription: "Priority 0 remains the lowest fallback band. Discovery probes use the prioritized threshold, but due holds may still probe lower-priority auth for recovery decisions.",
     watchdogPrioritySafetyTitle: "Probe priority safety note",
+    watchdogInitialScanEnabledDescription: "Create a first quota inventory scan when newly synced auth files have no observed quota state.",
+    watchdogInitialScanEnabledLabel: "Initial inventory scan",
     watchdogProbeBatchSizeLabel: "Probe batch size",
+    watchdogProbeBatchCooldownDescription: "Minimum pause between watchdog probe batches; this does not expose internal cooldown timestamps.",
+    watchdogProbeBatchCooldownSecondsLabel: "Probe batch cooldown (seconds)",
     watchdogProbeTimeoutSecondsLabel: "Probe timeout (seconds)",
+    watchdogQuotaInventoryEnabledDescription: "Maintain latest observed quota state for auth files without treating it as live provider truth.",
+    watchdogQuotaInventoryEnabledLabel: "Quota inventory",
+    watchdogRollingRefreshAfterDescription: "Refresh observed quota state after this age when rolling refresh is enabled.",
+    watchdogRollingRefreshAfterSecondsLabel: "Rolling refresh after (seconds)",
+    watchdogRollingRefreshEnabledDescription: "Schedule low-priority refresh probes for stale observed quota state; healthy low-priority auth is not automatically reprioritized.",
+    watchdogRollingRefreshEnabledLabel: "Rolling refresh",
     watchdogSave: "Save watchdog policy",
     watchdogSaveSucceeded: "Watchdog policy saved.",
     watchdogTitle: "Watchdog policy",
-    watchdogValidationError: "Thresholds, windows, probe batch size, and probe timeout must be positive whole numbers; priorities must be zero or greater.",
+    watchdogValidationError: "Thresholds, windows, probe batch size, probe cooldown, probe timeout, and rolling refresh age must be positive whole numbers; priorities must be zero or greater.",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
@@ -3078,6 +3152,7 @@ export const enMessages: Messages = {
     cleanupTypeAudits: "Audit Logs",
     cleanupTypeLoadbalanceEvents: "Loadbalance Events",
     cleanupTypeRequests: "Request Logs",
+    cleanupTypeSidecarActionHistory: "Sidecar Action History",
     cleanupTypeStatistics: "Statistics Data",
     dataType: "Data type",
     delete: "Delete",
@@ -3157,14 +3232,14 @@ export const enMessages: Messages = {
     deleteOlderThan: "Delete data older than",
     deletionFailed: "Deletion failed",
     deletionRequested: (label, jobId, statusUrl) => `${label} cleanup job ${jobId} created. Track it at ${statusUrl}; storage may shrink after the job completes.`,
-    description: "Set instance-wide log retention for all profiles and create cleanup jobs with explicit confirmation controls.",
+    description: "Set instance-wide data retention for all profiles and create cleanup jobs with explicit confirmation controls.",
     invalidRetentionOption: "Select a valid retention option",
     keepForever: "Keep forever",
     loadbalanceEventsPolicy: "Load-balance event retention",
     requestLogsPolicy: "Request log retention",
     retentionDays: (days) => `${days} days`,
     retentionLoadedFailed: "Failed to load retention settings",
-    retentionPolicyDescription: "Choose how long request logs, audit logs, statistics, and load-balance events are retained across every profile before cleanup jobs apply.",
+    retentionPolicyDescription: "Choose how long request logs, audit logs, statistics, load-balance events, and sidecar action history are retained before cleanup jobs apply.",
     retentionPolicyTitle: "Retention policy",
     retentionUpdateFailed: "Failed to update retention settings",
     retentionUpdated: "Retention settings updated",
@@ -3172,6 +3247,7 @@ export const enMessages: Messages = {
     savingRetention: "Saving...",
     selectDataType: "Select data type",
     selectRetention: "Select retention",
+    sidecarActionHistoryPolicy: "Sidecar action history retention",
     statisticsPolicy: "Statistics retention",
     title: "Retention & Deletion",
   },

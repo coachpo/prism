@@ -155,6 +155,11 @@ func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
 		"manual_override_pause_seconds": 900,
 		"probe_batch_size":              2,
 		"probe_timeout_seconds":         10,
+		"probe_batch_cooldown_seconds":  45,
+		"quota_inventory_enabled":       true,
+		"initial_scan_enabled":          true,
+		"rolling_refresh_enabled":       false,
+		"rolling_refresh_after_seconds": 7200,
 	}, nil)
 	assertStatus(t, updated, http.StatusOK)
 	updatedBody := readResponseBody(t, updated)
@@ -162,8 +167,99 @@ func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
 	var updatedPayload map[string]any
 	decodeJSONResponse(t, updated, &updatedPayload)
 	sidecarContractRequirePublicPolicyFields(t, updatedPayload)
-	if sidecarContractNumber(t, updatedPayload, "failure_threshold") != 4 || sidecarContractNumber(t, updatedPayload, "failure_window_seconds") != 120 || sidecarContractNumber(t, updatedPayload, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, updatedPayload, "prioritized_priority") != 2 || sidecarContractNumber(t, updatedPayload, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, updatedPayload, "probe_batch_size") != 2 || sidecarContractNumber(t, updatedPayload, "probe_timeout_seconds") != 10 {
+	if sidecarContractNumber(t, updatedPayload, "failure_threshold") != 4 || sidecarContractNumber(t, updatedPayload, "failure_window_seconds") != 120 || sidecarContractNumber(t, updatedPayload, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, updatedPayload, "prioritized_priority") != 2 || sidecarContractNumber(t, updatedPayload, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, updatedPayload, "probe_batch_size") != 2 || sidecarContractNumber(t, updatedPayload, "probe_timeout_seconds") != 10 || sidecarContractNumber(t, updatedPayload, "probe_batch_cooldown_seconds") != 45 || sidecarContractNumber(t, updatedPayload, "rolling_refresh_after_seconds") != 7200 || updatedPayload["quota_inventory_enabled"] != true || updatedPayload["initial_scan_enabled"] != true || updatedPayload["rolling_refresh_enabled"] != false {
 		t.Fatalf("watchdog policy update did not round-trip public fields: %+v", updatedPayload)
+	}
+}
+
+func TestSidecarQuotaRoutesRedactInternalState(t *testing.T) {
+	authHarness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, authHarness, "sidecar-quota-admin", "sidecar-quota-password-123", "sidecar-quota@example.com")
+	sidecarHarness := newSidecarContractHarness(t, authHarness)
+	login := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/auth/login", map[string]any{
+		"username":         "sidecar-quota-admin",
+		"password":         "sidecar-quota-password-123",
+		"session_duration": "7_days",
+	}, nil)
+	assertStatus(t, login, http.StatusOK)
+	create := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/sidecars", map[string]any{
+		"name":                    "Quota Contract Sidecar",
+		"base_url":                "http://127.0.0.1:19092",
+		"management_password":     sidecarContractManagementPassword,
+		"allow_private_network":   true,
+		"allow_insecure_http":     true,
+		"sync_interval_seconds":   60,
+		"request_timeout_seconds": 5,
+	}, nil)
+	assertStatus(t, create, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, create, &created)
+	sidecarID := sidecarContractNumber(t, created, "id")
+
+	hiddenAuthIndex := "contract-hidden-auth-index"
+	hiddenCursor := "contract-hidden-scan-cursor"
+	hiddenSnapshotSecret := "contract-hidden-snapshot-secret"
+	now := time.Date(2026, time.May, 11, 20, 0, 0, 0, time.UTC)
+	var observationID int
+	if err := authHarness.conn.QueryRow(context.Background(), `INSERT INTO sidecar_quota_probe_observations (
+sidecar_id, auth_id, auth_index, provider, probed_at, probe_status, upstream_status_code,
+quota_exceeded, quota_reason, windows_json)
+VALUES ($1, 'contract-auth', $2, 'codex', $3, 'probe_succeeded', 200, false, 'healthy', '[]'::jsonb)
+RETURNING id`, sidecarID, hiddenAuthIndex, now).Scan(&observationID); err != nil {
+		t.Fatalf("seed quota probe observation: %v", err)
+	}
+	if _, err := authHarness.conn.Exec(context.Background(), `INSERT INTO sidecar_auth_snapshots (
+sidecar_id, auth_id, auth_index, name, provider, status, disabled, priority,
+recent_requests_json, model_states_json, snapshot_json, observed_at)
+VALUES ($1, 'contract-auth', $2, 'contract-auth.json', 'codex', 'active', false, 7,
+'[]'::jsonb, $3::jsonb, $4::jsonb, $5)`, sidecarID, hiddenAuthIndex, `{"codex":{"api_key":"`+hiddenSnapshotSecret+`"}}`, `{"api_key":"`+hiddenSnapshotSecret+`"}`, now); err != nil {
+		t.Fatalf("seed quota auth snapshot: %v", err)
+	}
+	if _, err := authHarness.conn.Exec(context.Background(), `INSERT INTO sidecar_auth_quota_states (
+sidecar_id, auth_id, auth_index, auth_name, provider, snapshot_observed_at, state,
+probe_status, quota_exceeded, quota_reason, last_observation_id, last_probed_at)
+VALUES ($1, 'contract-auth', $2, 'contract-auth.json', 'codex', $3, 'healthy', 'probe_succeeded', false, 'healthy', $4, $3)`, sidecarID, hiddenAuthIndex, now, observationID); err != nil {
+		t.Fatalf("seed quota auth state: %v", err)
+	}
+	var scanID int
+	if err := authHarness.conn.QueryRow(context.Background(), `INSERT INTO sidecar_quota_scan_runs (
+sidecar_id, scan_type, status, requested_by, cursor_auth_id, planned_count, attempted_count, started_at)
+VALUES ($1, 'manual', 'running', 'contract-operator', $2, 2, 1, $3)
+RETURNING id`, sidecarID, hiddenCursor, now).Scan(&scanID); err != nil {
+		t.Fatalf("seed quota scan run: %v", err)
+	}
+
+	states := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodGet, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-states", nil, nil)
+	assertStatus(t, states, http.StatusOK)
+	stateBody := readResponseBody(t, states)
+	assertSidecarContractNoSecretLeak(t, stateBody, sidecarContractManagementPassword, hiddenAuthIndex, hiddenCursor, hiddenSnapshotSecret)
+	assertSidecarContractNoInternalQuotaLeak(t, stateBody)
+	if !strings.Contains(stateBody, `"auth_index_present":true`) || !strings.Contains(stateBody, `"current_priority":7`) || !strings.Contains(stateBody, `"quota_state":"healthy"`) || !strings.Contains(stateBody, `"last_snapshot_at":`) || !strings.Contains(stateBody, `"active_hold":false`) {
+		t.Fatalf("quota-state response did not expose the public shape: %s", stateBody)
+	}
+
+	current := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodGet, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, nil)
+	assertStatus(t, current, http.StatusOK)
+	currentBody := readResponseBody(t, current)
+	assertSidecarContractNoSecretLeak(t, currentBody, hiddenCursor, hiddenAuthIndex, hiddenSnapshotSecret)
+	assertSidecarContractNoInternalQuotaLeak(t, currentBody)
+	if !strings.Contains(currentBody, `"status":"running"`) || !strings.Contains(currentBody, `"attempted_count":1`) {
+		t.Fatalf("quota-scan current response did not expose safe scan state: %s", currentBody)
+	}
+
+	cancel := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/"+strconv.Itoa(scanID)+"/cancel", nil, nil)
+	assertStatus(t, cancel, http.StatusAccepted)
+	cancelBody := readResponseBody(t, cancel)
+	assertSidecarContractNoSecretLeak(t, cancelBody, hiddenCursor, hiddenAuthIndex, hiddenSnapshotSecret)
+	assertSidecarContractNoInternalQuotaLeak(t, cancelBody)
+	if !strings.Contains(cancelBody, `"status":"cancelled"`) {
+		t.Fatalf("quota-scan cancel response did not expose cancelled status: %s", cancelBody)
+	}
+
+	currentAfterCancel := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodGet, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, nil)
+	assertStatus(t, currentAfterCancel, http.StatusNoContent)
+	if body := readResponseBody(t, currentAfterCancel); body != "" {
+		t.Fatalf("quota-scan current response should be empty after cancel, got %q", body)
 	}
 }
 
@@ -270,20 +366,22 @@ func expectedSidecarRouteSurface() map[string][]string {
 
 func sidecarContractRequirePublicPolicyFields(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, field := range []string{"id", "sidecar_id", "enabled", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "created_at", "updated_at"} {
+	for _, field := range []string{"id", "sidecar_id", "enabled", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "probe_batch_cooldown_seconds", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled", "rolling_refresh_after_seconds", "created_at", "updated_at"} {
 		if _, ok := payload[field]; !ok {
 			t.Fatalf("watchdog policy payload missing public field %q: %+v", field, payload)
 		}
 	}
-	for _, internal := range []string{"probe_cursor_auth_id"} {
+	for _, internal := range []string{"probe_cursor_auth_id", "probe_last_batch_completed_at"} {
 		if _, ok := payload[internal]; ok {
 			t.Fatalf("watchdog policy payload exposed internal field %q: %+v", internal, payload)
 		}
 	}
-	if _, ok := payload["enabled"].(bool); !ok {
-		t.Fatalf("watchdog policy enabled field must be boolean: %+v", payload)
+	for _, field := range []string{"enabled", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled"} {
+		if _, ok := payload[field].(bool); !ok {
+			t.Fatalf("watchdog policy %s field must be boolean: %+v", field, payload)
+		}
 	}
-	for _, field := range []string{"id", "sidecar_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds"} {
+	for _, field := range []string{"id", "sidecar_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "deprioritized_priority", "prioritized_priority", "manual_override_pause_seconds", "probe_batch_size", "probe_timeout_seconds", "probe_batch_cooldown_seconds", "rolling_refresh_after_seconds"} {
 		sidecarContractNumber(t, payload, field)
 	}
 }
@@ -299,6 +397,15 @@ func sidecarContractNumber(t *testing.T, payload map[string]any, field string) i
 
 func sidecarContractStringIn(values []string, want string) bool {
 	return slices.Contains(values, want)
+}
+
+func assertSidecarContractNoInternalQuotaLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, marker := range []string{`"auth_index":`, `"cursor_auth_id":`, `"last_observation_id":`} {
+		if strings.Contains(value, marker) {
+			t.Fatalf("sidecar quota contract payload leaked internal marker %q in %s", marker, value)
+		}
+	}
 }
 
 func assertSidecarContractNoSecretLeak(t *testing.T, value string, secrets ...string) {

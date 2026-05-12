@@ -19,7 +19,11 @@ import {
 
 type RetentionSettingKey = keyof Pick<
   RetentionSettingsResponse,
-  "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days" | "loadbalance_events_retention_days"
+  | "request_logs_retention_days"
+  | "statistics_retention_days"
+  | "audit_logs_retention_days"
+  | "loadbalance_events_retention_days"
+  | "sidecar_action_history_retention_days"
 >;
 
 interface RetentionDeletionSectionProps {
@@ -106,14 +110,16 @@ export function RetentionDeletionSection({
                 <div className="h-9 animate-pulse rounded bg-muted" />
                 <div className="h-9 animate-pulse rounded bg-muted" />
                 <div className="h-9 animate-pulse rounded bg-muted" />
+                <div className="h-9 animate-pulse rounded bg-muted" />
               </div>
             ) : retentionSettings ? (
-              <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <div className="mt-4 grid gap-3 md:grid-cols-5">
                 {[
                   { key: "request_logs_retention_days", label: copy.requestLogsPolicy, value: retentionSettings.request_logs_retention_days },
                   { key: "statistics_retention_days", label: copy.statisticsPolicy, value: retentionSettings.statistics_retention_days },
                   { key: "audit_logs_retention_days", label: copy.auditLogsPolicy, value: retentionSettings.audit_logs_retention_days },
                   { key: "loadbalance_events_retention_days", label: copy.loadbalanceEventsPolicy, value: retentionSettings.loadbalance_events_retention_days },
+                  { key: "sidecar_action_history_retention_days", label: copy.sidecarActionHistoryPolicy, value: retentionSettings.sidecar_action_history_retention_days },
                 ].map(({ key, label, value }) => (
                   <div key={key} className="space-y-2">
                     <Label>{label}</Label>
@@ -153,6 +159,7 @@ export function RetentionDeletionSection({
                   <SelectItem value="statistics">{dialogCopy.cleanupTypeStatistics}</SelectItem>
                   <SelectItem value="audits">{dialogCopy.cleanupTypeAudits}</SelectItem>
                   <SelectItem value="loadbalance_events">{dialogCopy.cleanupTypeLoadbalanceEvents}</SelectItem>
+                  <SelectItem value="sidecar_action_history">{dialogCopy.cleanupTypeSidecarActionHistory}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

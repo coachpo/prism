@@ -1,6 +1,7 @@
 package sidecars
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -475,6 +476,84 @@ func TestAuthFilesEnvelopeAcceptsEmptyFilesArray(t *testing.T) {
 	if len(files) != 0 {
 		t.Fatalf("expected zero auth file rows, got %+v", files)
 	}
+}
+
+func TestSyncQuotaStateInventoryCoverageAndMissingRows(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	authPayloads := []string{
+		`{"files":[{"id":"auth-known","auth_index":"auth-known","name":"known.json","provider":"codex","label":"Known","status":"active","disabled":false,"priority":10,"quota":{"exceeded":true,"reason":"rate_limit","next_recover_at":"2026-05-10T12:30:00Z"}},{"id":"auth-disabled","auth_index":"auth-disabled","name":"disabled.json","provider":"codex","label":"Disabled","status":"active","disabled":true,"priority":10},{"id":"auth-missing-index","name":"missing-index.json","provider":"codex","label":"Missing Index","status":"active","disabled":false,"priority":10},{"id":"auth-unsupported","auth_index":"auth-unsupported","name":"unsupported.json","provider":"gemini","label":"Unsupported","status":"active","disabled":false,"priority":10}]}`,
+		`{"files":[{"id":"auth-known","auth_index":"auth-known","name":"known.json","provider":"codex","label":"Known","status":"active","disabled":false,"priority":10},{"id":"auth-disabled","auth_index":"auth-disabled","name":"disabled.json","provider":"codex","label":"Disabled","status":"active","disabled":true,"priority":10},{"id":"auth-missing-index","name":"missing-index.json","provider":"codex","label":"Missing Index","status":"active","disabled":false,"priority":10}]}`,
+	}
+	authFileCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v0/management/auth-files" {
+			payload := authPayloads[min(authFileCalls, len(authPayloads)-1)]
+			authFileCalls++
+			writeSyncJSON(w, payload)
+			return
+		}
+		serveSyncFixturePath(t, w, r)
+	}))
+	defer server.Close()
+
+	service := newSyncTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
+
+	if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+	states := authQuotaStatesByAuthID(t, service, sidecar.ID)
+	if got := states["auth-known"]; got.State != "unknown" || got.QuotaExceeded || got.QuotaReason != nil || got.LastObservationID != nil {
+		t.Fatalf("known auth quota fields should stay informational, got %+v", got)
+	}
+	if got := states["auth-disabled"]; got.State != "disabled" {
+		t.Fatalf("disabled auth quota state mismatch, got %+v", got)
+	}
+	if got := states["auth-missing-index"]; got.State != "missing_auth_index" {
+		t.Fatalf("missing auth_index quota state mismatch, got %+v", got)
+	}
+	if got := states["auth-unsupported"]; got.State != "unsupported" {
+		t.Fatalf("unsupported provider quota state mismatch, got %+v", got)
+	}
+
+	now = now.Add(time.Minute)
+	if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	states = authQuotaStatesByAuthID(t, service, sidecar.ID)
+	if got := states["auth-unsupported"]; got.State != "missing" {
+		t.Fatalf("missing auth should stay represented after refresh, got %+v", got)
+	}
+	if len(states) != 4 {
+		t.Fatalf("expected full inventory coverage to preserve missing row, got %+v", states)
+	}
+}
+
+func authQuotaStatesByAuthID(t *testing.T, service *Service, sidecarID int) map[string]SidecarAuthQuotaState {
+	t.Helper()
+	states := listAuthQuotaStates(t, service, sidecarID)
+	byAuthID := make(map[string]SidecarAuthQuotaState, len(states))
+	for _, state := range states {
+		byAuthID[state.AuthID] = state
+	}
+	return byAuthID
+}
+
+type authQuotaStateLister interface {
+	ListAuthQuotaStates(context.Context, int) ([]SidecarAuthQuotaState, error)
+}
+
+func listAuthQuotaStates(t *testing.T, service *Service, sidecarID int) []SidecarAuthQuotaState {
+	t.Helper()
+	store, ok := service.store.(authQuotaStateLister)
+	if !ok {
+		t.Fatalf("service store does not support auth quota states")
+	}
+	states, err := store.ListAuthQuotaStates(t.Context(), sidecarID)
+	if err != nil {
+		t.Fatalf("list auth quota states: %v", err)
+	}
+	return states
 }
 
 func newSyncTestService(t *testing.T, now func() time.Time) *Service {

@@ -101,6 +101,11 @@ export interface SidecarWatchdogPolicy {
   manual_override_pause_seconds: number;
   probe_batch_size: number;
   probe_timeout_seconds: number;
+  probe_batch_cooldown_seconds: number;
+  quota_inventory_enabled: boolean;
+  initial_scan_enabled: boolean;
+  rolling_refresh_enabled: boolean;
+  rolling_refresh_after_seconds: number;
   created_at: string;
   updated_at: string;
 }
@@ -115,6 +120,69 @@ export interface SidecarWatchdogPolicyUpdate {
   manual_override_pause_seconds?: number;
   probe_batch_size?: number;
   probe_timeout_seconds?: number;
+  probe_batch_cooldown_seconds?: number;
+  quota_inventory_enabled?: boolean;
+  initial_scan_enabled?: boolean;
+  rolling_refresh_enabled?: boolean;
+  rolling_refresh_after_seconds?: number;
+}
+
+export type SidecarQuotaStateValue = "unknown" | "healthy" | "quota_exceeded" | "disabled" | string;
+
+export interface SidecarAuthQuotaState {
+  sidecar_id: number;
+  auth_id: string;
+  auth_name?: string;
+  provider?: string;
+  auth_index_present: boolean;
+  disabled: boolean;
+  current_priority?: number;
+  quota_state: SidecarQuotaStateValue;
+  probe_status?: string;
+  quota_reason?: string;
+  quota_reset_at?: string;
+  blocking_window?: string;
+  last_snapshot_at?: string;
+  last_probed_at?: string;
+  last_error_code?: string;
+  active_hold: boolean;
+}
+
+export interface SidecarAuthQuotaStateListResponse {
+  items: SidecarAuthQuotaState[];
+}
+
+export type SidecarQuotaScanStatus = "queued" | "running" | "completed" | "cancelled" | "failed" | string;
+export type SidecarQuotaScanType = "initial" | "manual" | "scheduled" | string;
+
+export interface SidecarQuotaScanRun {
+  id: number;
+  sidecar_id: number;
+  scan_type: SidecarQuotaScanType;
+  status: SidecarQuotaScanStatus;
+  requested_by?: string;
+  planned_count: number;
+  attempted_count: number;
+  succeeded_count: number;
+  quota_exceeded_count: number;
+  failed_count: number;
+  unsupported_count: number;
+  missing_index_count: number;
+  cancel_requested_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  last_error_code?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SidecarQuotaScanRunListResponse {
+  items: SidecarQuotaScanRun[];
+}
+
+export interface SidecarQuotaScanCreateInput {
+  requested_by?: string;
+  replace_active?: boolean;
 }
 
 export interface SidecarTestConnectionResponse {

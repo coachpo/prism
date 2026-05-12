@@ -18,18 +18,18 @@ type queryExecutor interface {
 }
 
 func loadOrCreateLogRetentionSettings(ctx context.Context, exec queryExecutor, currentTime time.Time) (logRetentionSettingsRow, error) {
-	record, err := scanLogRetentionSettingsRow(exec.QueryRow(ctx, `SELECT request_logs_retention_days, audit_logs_retention_days, statistics_retention_days, loadbalance_events_retention_days, created_at, updated_at FROM log_retention_settings WHERE singleton_key = 'global' FOR UPDATE`))
+	record, err := scanLogRetentionSettingsRow(exec.QueryRow(ctx, `SELECT request_logs_retention_days, audit_logs_retention_days, statistics_retention_days, loadbalance_events_retention_days, sidecar_action_history_retention_days, created_at, updated_at FROM log_retention_settings WHERE singleton_key = 'global' FOR UPDATE`))
 	if err == nil {
 		return record, nil
 	}
 	if err != pgx.ErrNoRows {
 		return logRetentionSettingsRow{}, fmt.Errorf("load global log retention settings: %w", err)
 	}
-	return scanLogRetentionSettingsRow(exec.QueryRow(ctx, `INSERT INTO log_retention_settings (singleton_key, created_at, updated_at) VALUES ('global', $1, $1) ON CONFLICT (singleton_key) DO UPDATE SET singleton_key = EXCLUDED.singleton_key RETURNING request_logs_retention_days, audit_logs_retention_days, statistics_retention_days, loadbalance_events_retention_days, created_at, updated_at`, currentTime))
+	return scanLogRetentionSettingsRow(exec.QueryRow(ctx, `INSERT INTO log_retention_settings (singleton_key, created_at, updated_at) VALUES ('global', $1, $1) ON CONFLICT (singleton_key) DO UPDATE SET singleton_key = EXCLUDED.singleton_key RETURNING request_logs_retention_days, audit_logs_retention_days, statistics_retention_days, loadbalance_events_retention_days, sidecar_action_history_retention_days, created_at, updated_at`, currentTime))
 }
 
 func updateLogRetentionSettings(ctx context.Context, exec queryExecutor, record logRetentionSettingsRow) error {
-	_, err := exec.Exec(ctx, `UPDATE log_retention_settings SET request_logs_retention_days = $1, audit_logs_retention_days = $2, statistics_retention_days = $3, loadbalance_events_retention_days = $4, updated_at = $5 WHERE singleton_key = 'global'`, record.RequestLogsRetentionDays, record.AuditLogsRetentionDays, record.StatisticsRetentionDays, record.LoadbalanceEventsRetentionDays, record.UpdatedAt)
+	_, err := exec.Exec(ctx, `UPDATE log_retention_settings SET request_logs_retention_days = $1, audit_logs_retention_days = $2, statistics_retention_days = $3, loadbalance_events_retention_days = $4, sidecar_action_history_retention_days = $5, updated_at = $6 WHERE singleton_key = 'global'`, record.RequestLogsRetentionDays, record.AuditLogsRetentionDays, record.StatisticsRetentionDays, record.LoadbalanceEventsRetentionDays, record.SidecarActionHistoryRetentionDays, record.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("update global log retention settings: %w", err)
 	}
@@ -42,13 +42,15 @@ func scanLogRetentionSettingsRow(row pgx.Row) (logRetentionSettingsRow, error) {
 	var auditLogsRetentionDays sql.NullInt32
 	var statisticsRetentionDays sql.NullInt32
 	var loadbalanceEventsRetentionDays sql.NullInt32
-	if err := row.Scan(&requestLogsRetentionDays, &auditLogsRetentionDays, &statisticsRetentionDays, &loadbalanceEventsRetentionDays, &record.CreatedAt, &record.UpdatedAt); err != nil {
+	var sidecarActionHistoryRetentionDays sql.NullInt32
+	if err := row.Scan(&requestLogsRetentionDays, &auditLogsRetentionDays, &statisticsRetentionDays, &loadbalanceEventsRetentionDays, &sidecarActionHistoryRetentionDays, &record.CreatedAt, &record.UpdatedAt); err != nil {
 		return logRetentionSettingsRow{}, err
 	}
 	record.RequestLogsRetentionDays = nullableIntValue(requestLogsRetentionDays)
 	record.AuditLogsRetentionDays = nullableIntValue(auditLogsRetentionDays)
 	record.StatisticsRetentionDays = nullableIntValue(statisticsRetentionDays)
 	record.LoadbalanceEventsRetentionDays = nullableIntValue(loadbalanceEventsRetentionDays)
+	record.SidecarActionHistoryRetentionDays = nullableIntValue(sidecarActionHistoryRetentionDays)
 	return record, nil
 }
 

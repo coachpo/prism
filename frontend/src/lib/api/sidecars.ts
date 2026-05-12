@@ -1,11 +1,15 @@
 import type {
   SidecarActionHistoryListResponse,
   SidecarAuthMutationResponse,
+  SidecarAuthQuotaStateListResponse,
   SidecarAuthSnapshot,
   SidecarAuthSnapshotListResponse,
   SidecarInstance,
   SidecarListResponse,
   SidecarProviderSnapshotListResponse,
+  SidecarQuotaScanCreateInput,
+  SidecarQuotaScanRun,
+  SidecarQuotaScanRunListResponse,
   SidecarSyncResponse,
   SidecarTestConnectionResponse,
   SidecarWatchdogPolicy,
@@ -88,4 +92,17 @@ export const sidecars = {
     }),
   actionHistory: (sidecarId: number) =>
     request<SidecarActionHistoryListResponse>(`/api/sidecars/${sidecarId}/actions`),
+  quotaStates: (sidecarId: number) =>
+    request<SidecarAuthQuotaStateListResponse>(`/api/sidecars/${sidecarId}/quota-states`),
+  quotaScans: (sidecarId: number) =>
+    request<SidecarQuotaScanRunListResponse>(`/api/sidecars/${sidecarId}/quota-scans`),
+  startQuotaScan: (sidecarId: number, data: SidecarQuotaScanCreateInput = {}) =>
+    request<SidecarQuotaScanRun>(`/api/sidecars/${sidecarId}/quota-scans`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  cancelQuotaScan: (sidecarId: number, scanId: number) =>
+    request<SidecarQuotaScanRun>(`/api/sidecars/${sidecarId}/quota-scans/${scanId}/cancel`, {
+      method: "POST",
+    }),
 };

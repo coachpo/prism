@@ -15,14 +15,14 @@ import (
 func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 18, 0, 0, 0, time.UTC)
 	service, router, sidecar := newWatchdogRouteTest(t, now)
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 2, FailureWindowSeconds: 120, FallbackCooldownSeconds: 600, DeprioritizedPriority: 2, PrioritizedPriority: 9, ManualOverridePauseSeconds: 300, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 2, FailureWindowSeconds: 120, FallbackCooldownSeconds: 600, DeprioritizedPriority: 2, PrioritizedPriority: 9, ManualOverridePauseSeconds: 300, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10, ProbeBatchCooldownSeconds: intPtr(45), QuotaInventoryEnabled: boolPtr(false), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(7200)})
 	if err != nil {
 		t.Fatalf("seed watchdog policy: %v", err)
 	}
-	cursorAuthID := "hidden-cursor-auth"
-	_, err = service.store.PersistWatchdogProbeDecision(t.Context(), SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, AdvanceProbeCursor: true, ProbeCursorAuthID: &cursorAuthID})
+	hiddenBatchAuthID := "hidden-batch-auth"
+	_, err = service.store.PersistQuotaProbeDecision(t.Context(), SidecarQuotaPersistDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, hiddenBatchAuthID, now)}})
 	if err != nil {
-		t.Fatalf("seed hidden probe cursor: %v", err)
+		t.Fatalf("seed hidden batch completion: %v", err)
 	}
 
 	recorder := httptest.NewRecorder()
@@ -30,16 +30,16 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("get policy status = %d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if body := recorder.Body.String(); strings.Contains(body, "probe_cursor_auth_id") || strings.Contains(body, cursorAuthID) {
-		t.Fatalf("policy response leaked hidden cursor: %s", body)
+	if body := recorder.Body.String(); strings.Contains(body, "probe_last_batch_completed_at") || strings.Contains(body, hiddenBatchAuthID) {
+		t.Fatalf("policy response leaked hidden fields: %s", body)
 	}
 	var response watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, recorder, &response)
-	if !response.Enabled || response.DeprioritizedPriority != 2 || response.PrioritizedPriority != 9 || response.ProbeBatchSize != 2 || response.ProbeTimeoutSeconds != 10 {
+	if !response.Enabled || response.DeprioritizedPriority != 2 || response.PrioritizedPriority != 9 || response.ProbeBatchSize != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 {
 		t.Fatalf("unexpected policy response: %+v", response)
 	}
 
-	patch := `{"deprioritized_priority":3,"prioritized_priority":8,"probe_batch_size":4,"probe_timeout_seconds":6}`
+	patch := `{"deprioritized_priority":3,"prioritized_priority":8,"probe_batch_size":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`
 	patchRecorder := httptest.NewRecorder()
 	router.ServeHTTP(patchRecorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(patch)))
 	if patchRecorder.Code != http.StatusOK {
@@ -47,12 +47,51 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	}
 	var updated watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, patchRecorder, &updated)
-	if updated.DeprioritizedPriority != 3 || updated.PrioritizedPriority != 8 || updated.ProbeBatchSize != 4 || updated.ProbeTimeoutSeconds != 6 {
+	if updated.DeprioritizedPriority != 3 || updated.PrioritizedPriority != 8 || updated.ProbeBatchSize != 4 || updated.ProbeTimeoutSeconds != 6 || updated.ProbeBatchCooldownSeconds != 60 || !updated.QuotaInventoryEnabled || !updated.InitialScanEnabled || !updated.RollingRefreshEnabled || updated.RollingRefreshAfterSeconds != 5400 {
 		t.Fatalf("unexpected patched policy: %+v", updated)
 	}
-	stored, err := service.store.GetOrCreateWatchdogPolicy(t.Context(), sidecar.ID)
-	if err != nil || stored.ProbeCursorAuthID == nil || *stored.ProbeCursorAuthID != cursorAuthID {
-		t.Fatalf("hidden cursor should remain internal and preserved, policy=%+v err=%v", stored, err)
+}
+
+func TestQuotaRouteResponsesHideInternalFields(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 19, 0, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	authIndex := "private-route-auth-index"
+	_, err := service.store.SaveAuthSnapshot(t.Context(), SidecarAuthSnapshotInput{SidecarID: sidecar.ID, AuthID: "auth-route-hidden", AuthIndex: &authIndex, Name: "route-hidden.json", Provider: stringPtr("codex"), Priority: intPtr(9), SnapshotJSON: json.RawMessage(`{"id":"auth-route-hidden"}`), ObservedAt: now})
+	if err != nil {
+		t.Fatalf("seed auth snapshot: %v", err)
+	}
+	stateStore, ok := service.store.(authQuotaStateStore)
+	if !ok {
+		t.Fatalf("store does not support quota states")
+	}
+	_, err = stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: "auth-route-hidden", AuthIndex: &authIndex, AuthName: stringPtr("route-hidden.json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, State: "quota_exceeded", ProbeStatus: stringPtr(watchdogProbeStatusSucceeded), LastProbedAt: &now})
+	if err != nil {
+		t.Fatalf("seed quota state: %v", err)
+	}
+	privateScanCursor := "private-scan-cursor"
+	_, err = service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, CursorAuthID: &privateScanCursor, PlannedCount: 2, AttemptedCount: 1, StartedAt: &now})
+	if err != nil {
+		t.Fatalf("seed quota scan: %v", err)
+	}
+
+	stateRecorder := httptest.NewRecorder()
+	router.ServeHTTP(stateRecorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-states", nil))
+	if stateRecorder.Code != http.StatusOK {
+		t.Fatalf("quota states status = %d body=%s", stateRecorder.Code, stateRecorder.Body.String())
+	}
+	if body := stateRecorder.Body.String(); strings.Contains(body, `"auth_index":`) || strings.Contains(body, authIndex) || !strings.Contains(body, `"auth_index_present":true`) {
+		t.Fatalf("quota state response leaked internal auth index or missed presence flag: %s", body)
+	}
+
+	for _, path := range []string{"/sidecars/" + strconv.Itoa(sidecar.ID) + "/quota-scans/current", "/sidecars/" + strconv.Itoa(sidecar.ID) + "/quota-scans"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("quota scan route %s status = %d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+		if body := recorder.Body.String(); strings.Contains(body, "cursor_auth_id") || strings.Contains(body, privateScanCursor) {
+			t.Fatalf("quota scan response leaked private cursor: %s", body)
+		}
 	}
 }
 
@@ -76,6 +115,31 @@ func TestWatchdogPolicyValidationRejectsProbeBudgetAndPriorities(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2026, time.May, 11, 18, 15, 0, 0, time.UTC)
+			_, router, sidecar := newWatchdogRouteTest(t, now)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(tt.body)))
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("patch policy status = %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), tt.wantDetail) {
+				t.Fatalf("validation response %q missing %q", recorder.Body.String(), tt.wantDetail)
+			}
+		})
+	}
+}
+
+func TestWatchdogPolicyRejectsInvalidCooldown(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantDetail string
+	}{
+		{name: "probe batch cooldown", body: `{"probe_batch_cooldown_seconds":0}`, wantDetail: "probe_batch_cooldown_seconds"},
+		{name: "rolling refresh after", body: `{"rolling_refresh_after_seconds":0}`, wantDetail: "rolling_refresh_after_seconds"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, time.May, 11, 18, 45, 0, 0, time.UTC)
 			_, router, sidecar := newWatchdogRouteTest(t, now)
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(tt.body)))
@@ -131,6 +195,34 @@ func TestRedactWatchdogActionHistoryProbeUnsupportedAndQuotaHoldResponse(t *test
 	quota := itemsByType[watchdogActionQuotaHoldExtended]
 	if quota.Reason == nil || *quota.Reason != "quota_exceeded:five_hour" || quota.HoldUntil == nil || !quota.HoldUntil.Equal(holdUntil) {
 		t.Fatalf("quota hold extension not shaped distinctly: %+v", quota)
+	}
+}
+
+func TestQuotaScanRoutesReturnExpectedStatusCodes(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 19, 30, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, DeprioritizedPriority: DefaultDeprioritizedPriority, PrioritizedPriority: DefaultPrioritizedPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds), QuotaInventoryEnabled: boolPtr(true), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(DefaultRollingRefreshAfterSeconds)})
+	if err != nil {
+		t.Fatalf("seed watchdog policy: %v", err)
+	}
+
+	current := httptest.NewRecorder()
+	router.ServeHTTP(current, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-scans/current", nil))
+	if current.Code != http.StatusNoContent {
+		t.Fatalf("expected inactive current scan to return %d, got %d body=%s", http.StatusNoContent, current.Code, current.Body.String())
+	}
+	if body := current.Body.String(); body != "" {
+		t.Fatalf("expected inactive current scan response body to be empty, got %q", body)
+	}
+
+	run, err := service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 1, AttemptedCount: 1, StartedAt: &now})
+	if err != nil {
+		t.Fatalf("seed active quota scan: %v", err)
+	}
+	cancel := httptest.NewRecorder()
+	router.ServeHTTP(cancel, httptest.NewRequest(http.MethodPost, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-scans/"+strconv.Itoa(run.ID)+"/cancel", nil))
+	if cancel.Code != http.StatusAccepted {
+		t.Fatalf("expected cancel to return %d, got %d body=%s", http.StatusAccepted, cancel.Code, cancel.Body.String())
 	}
 }
 

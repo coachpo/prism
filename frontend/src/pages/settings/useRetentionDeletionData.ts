@@ -12,12 +12,17 @@ import {
 import type { SettingsSaveSection } from "./settingsSaveTypes";
 
 interface UseRetentionDeletionDataInput {
+  enabled: boolean;
   setRecentlySavedSection?: (section: SettingsSaveSection | null) => void;
 }
 
 type RetentionSettingKey = keyof Pick<
   RetentionSettingsResponse,
-  "request_logs_retention_days" | "statistics_retention_days" | "audit_logs_retention_days" | "loadbalance_events_retention_days"
+  | "request_logs_retention_days"
+  | "statistics_retention_days"
+  | "audit_logs_retention_days"
+  | "loadbalance_events_retention_days"
+  | "sidecar_action_history_retention_days"
 >;
 
 const CLEANUP_TABLES: Record<DeleteCleanupType, LogRetentionTable> = {
@@ -25,13 +30,15 @@ const CLEANUP_TABLES: Record<DeleteCleanupType, LogRetentionTable> = {
   statistics: "usage_request_events",
   audits: "audit_logs",
   loadbalance_events: "loadbalance_events",
+  sidecar_action_history: "sidecar_watchdog_actions",
 };
 
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 export function useRetentionDeletionData({
+  enabled,
   setRecentlySavedSection,
-}: UseRetentionDeletionDataInput = {}) {
+}: UseRetentionDeletionDataInput) {
   const deleteKeyword = getStaticMessages().settingsDialogs.deleteConfirmKeyword;
   const [cleanupType, setCleanupType] = useState<CleanupType>("");
   const [retentionPreset, setRetentionPreset] = useState<RetentionPreset>("");
@@ -67,10 +74,15 @@ export function useRetentionDeletionData({
       || savedRetentionSettings.statistics_retention_days !== retentionSettings.statistics_retention_days
       || savedRetentionSettings.audit_logs_retention_days !== retentionSettings.audit_logs_retention_days
       || savedRetentionSettings.loadbalance_events_retention_days !== retentionSettings.loadbalance_events_retention_days
+      || savedRetentionSettings.sidecar_action_history_retention_days !== retentionSettings.sidecar_action_history_retention_days
     );
   }, [retentionSettings, savedRetentionSettings]);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     let active = true;
 
     setRetentionSettingsLoading(true);
@@ -98,7 +110,7 @@ export function useRetentionDeletionData({
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
 
   const handleOpenDeleteConfirm = () => {
     const messages = getStaticMessages();
@@ -179,6 +191,7 @@ export function useRetentionDeletionData({
         statistics_retention_days: retentionSettings.statistics_retention_days,
         audit_logs_retention_days: retentionSettings.audit_logs_retention_days,
         loadbalance_events_retention_days: retentionSettings.loadbalance_events_retention_days,
+        sidecar_action_history_retention_days: retentionSettings.sidecar_action_history_retention_days,
       });
       setSavedRetentionSettings(updated);
       setRetentionSettings(updated);

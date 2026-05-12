@@ -151,7 +151,7 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	assertStatus(t, initial, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, initial, &payload)
-	if payload["request_logs_retention_days"] != nil || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != nil || payload["loadbalance_events_retention_days"] != nil {
+	if payload["request_logs_retention_days"] != nil || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != nil || payload["loadbalance_events_retention_days"] != nil || payload["sidecar_action_history_retention_days"] != nil {
 		t.Fatalf("expected default global retention settings payload, got %+v", payload)
 	}
 
@@ -171,16 +171,17 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 		http.MethodPut,
 		"/api/settings/log-retention",
 		map[string]any{
-			"request_logs_retention_days":       14,
-			"statistics_retention_days":         30,
-			"audit_logs_retention_days":         7,
-			"loadbalance_events_retention_days": 45,
+			"request_logs_retention_days":           14,
+			"statistics_retention_days":             30,
+			"audit_logs_retention_days":             7,
+			"loadbalance_events_retention_days":     45,
+			"sidecar_action_history_retention_days": 60,
 		},
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, updated, http.StatusOK)
 	decodeJSONResponse(t, updated, &payload)
-	if payload["request_logs_retention_days"] != float64(14) || payload["statistics_retention_days"] != float64(30) || payload["audit_logs_retention_days"] != float64(7) || payload["loadbalance_events_retention_days"] != float64(45) {
+	if payload["request_logs_retention_days"] != float64(14) || payload["statistics_retention_days"] != float64(30) || payload["audit_logs_retention_days"] != float64(7) || payload["loadbalance_events_retention_days"] != float64(45) || payload["sidecar_action_history_retention_days"] != float64(60) {
 		t.Fatalf("expected persisted global retention settings payload, got %+v", payload)
 	}
 
@@ -190,23 +191,24 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 		http.MethodPut,
 		"/api/settings/log-retention",
 		map[string]any{
-			"request_logs_retention_days":       21,
-			"statistics_retention_days":         nil,
-			"audit_logs_retention_days":         90,
-			"loadbalance_events_retention_days": nil,
+			"request_logs_retention_days":           21,
+			"statistics_retention_days":             nil,
+			"audit_logs_retention_days":             90,
+			"loadbalance_events_retention_days":     nil,
+			"sidecar_action_history_retention_days": 60,
 		},
 		modelHeader(defaultProfileID),
 	)
 	assertStatus(t, cleared, http.StatusOK)
 	decodeJSONResponse(t, cleared, &payload)
-	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil {
+	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil || payload["sidecar_action_history_retention_days"] != float64(60) {
 		t.Fatalf("expected global retention settings clear/update payload, got %+v", payload)
 	}
 
 	loaded := harness.requestJSON(t, harness.client, http.MethodGet, "/api/settings/log-retention", nil, modelHeader(defaultProfileID))
 	assertStatus(t, loaded, http.StatusOK)
 	decodeJSONResponse(t, loaded, &payload)
-	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil {
+	if payload["request_logs_retention_days"] != float64(21) || payload["statistics_retention_days"] != nil || payload["audit_logs_retention_days"] != float64(90) || payload["loadbalance_events_retention_days"] != nil || payload["sidecar_action_history_retention_days"] != float64(60) {
 		t.Fatalf("expected global retention settings round-trip to persist, got %+v", payload)
 	}
 
@@ -220,7 +222,7 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 		harness.client,
 		http.MethodPost,
 		"/api/maintenance/log-retention/jobs",
-		map[string]any{"table": "request_logs", "delete_all": true, "reason": "contract guardrail"},
+		map[string]any{"table": "sidecar_watchdog_actions", "reason": "contract guardrail"},
 		withHeader(modelHeader(defaultProfileID), "Idempotency-Key", "s11-log-retention-job"),
 	)
 	assertStatus(t, jobResponse, http.StatusAccepted)
@@ -229,7 +231,7 @@ func TestGlobalLogRetentionSettingsAndJobs(t *testing.T) {
 	jobID, ok := jobPayload["job_id"].(string)
 	statusURL, _ := jobPayload["status_url"].(string)
 	scope := asMap(t, jobPayload["scope"])
-	if !ok || jobID == "" || jobPayload["state"] != "queued" || statusURL != "/api/management/jobs/"+jobID || jobResponse.Header.Get("Location") != statusURL || scope["table"] != "request_logs" || scope["delete_all"] != true {
+	if !ok || jobID == "" || jobPayload["state"] != "queued" || statusURL != "/api/management/jobs/"+jobID || jobResponse.Header.Get("Location") != statusURL || scope["table"] != "sidecar_watchdog_actions" || scope["cutoff"] == nil {
 		t.Fatalf("expected log-retention job response schema and scope, got %+v with Location %q", jobPayload, jobResponse.Header.Get("Location"))
 	}
 	if _, exists := jobPayload["status"]; exists {

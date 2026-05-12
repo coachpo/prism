@@ -308,6 +308,7 @@ func TestWatchdogRepairsPendingDeprioritizeAction(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create pending deprioritize action: %v", err)
 			}
+			createWatchdogPendingQueueRow(t, service, pending)
 
 			result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 			if err != nil {
@@ -327,8 +328,8 @@ func TestWatchdogRepairsPendingDeprioritizeAction(t *testing.T) {
 			if err != nil || len(holds) != 1 {
 				t.Fatalf("expected repaired deprioritize hold, holds=%+v err=%v", holds, err)
 			}
-			if holds[0].LastActionID == nil || *holds[0].LastActionID != pending.ID || holds[0].PreviousPriority == nil || *holds[0].PreviousPriority != previousPriority {
-				t.Fatalf("repaired hold does not reference consumed pending action: %+v", holds[0])
+			if holds[0].PreviousPriority == nil || *holds[0].PreviousPriority != previousPriority {
+				t.Fatalf("repaired hold lost the previous priority state: %+v", holds[0])
 			}
 		})
 	}
@@ -353,6 +354,7 @@ func TestWatchdogRepairPendingDeprioritizeConfirmsAuthName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pending deprioritize action: %v", err)
 	}
+	createWatchdogPendingQueueRow(t, service, pending)
 
 	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 	if err != nil {
@@ -398,6 +400,7 @@ func TestWatchdogRepairsPendingRestoreAction(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create pending restore action: %v", err)
 			}
+			createWatchdogPendingQueueRow(t, service, pending)
 
 			result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 			if err != nil {
@@ -437,6 +440,7 @@ func TestWatchdogRepairPendingRestoreConfirmsAuthName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create pending restore action: %v", err)
 	}
+	createWatchdogPendingQueueRow(t, service, pending)
 
 	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 	if err != nil {
@@ -784,7 +788,43 @@ func TestWatchdogDueHoldBypassesStaleSnapshotForProbe(t *testing.T) {
 	}
 }
 
-func TestWatchdogCursorAdvancesOnlyAfterPersistedDiscoveryAttempt(t *testing.T) {
+func TestWatchdogRollingRefreshOrderingPrefersOldestEligibleAuth(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 13, 45, 0, 0, time.UTC)
+	oldest := now.Add(-3 * time.Hour)
+	older := now.Add(-2 * time.Hour)
+	tie := now.Add(-90 * time.Minute)
+	fresh := now.Add(-10 * time.Minute)
+	policy := SidecarWatchdogPolicy{PrioritizedPriority: 5, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600}
+	snapshots := []SidecarAuthSnapshot{
+		{AuthID: "auth-tie-b", AuthIndex: stringPtr("idx-tie-b"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-low", AuthIndex: stringPtr("idx-low"), Provider: stringPtr("codex"), Priority: intPtr(1)},
+		{AuthID: "auth-fresh", AuthIndex: stringPtr("idx-fresh"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-never", AuthIndex: stringPtr("idx-never"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-held", AuthIndex: stringPtr("idx-held"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-oldest", AuthIndex: stringPtr("idx-oldest"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-tie-a", AuthIndex: stringPtr("idx-tie-a"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-older", AuthIndex: stringPtr("idx-older"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+	}
+	quotaStates := map[string]SidecarAuthQuotaState{
+		"auth-fresh":  {AuthID: "auth-fresh", LastProbedAt: &fresh},
+		"auth-oldest": {AuthID: "auth-oldest", LastProbedAt: &oldest},
+		"auth-older":  {AuthID: "auth-older", LastProbedAt: &older},
+		"auth-tie-a":  {AuthID: "auth-tie-a", LastProbedAt: &tie},
+		"auth-tie-b":  {AuthID: "auth-tie-b", LastProbedAt: &tie},
+	}
+
+	candidates := watchdogRollingRefreshProbeCandidates(policy, snapshots, map[string]struct{}{"auth-held": struct{}{}}, quotaStates, now)
+	got := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		got = append(got, candidate.AuthID)
+	}
+	want := []string{"auth-never", "auth-oldest", "auth-older", "auth-tie-a", "auth-tie-b"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("rolling refresh candidates = %v, want %v", got, want)
+	}
+}
+
+func TestWatchdogBatchCompletionAdvancesOnlyAfterPersistedProbeAttempt(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 14, 0, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
 	defer upstream.Close()
@@ -797,25 +837,139 @@ func TestWatchdogCursorAdvancesOnlyAfterPersistedDiscoveryAttempt(t *testing.T) 
 	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-probe", "idx-probe", "codex", 10)
 
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
-		t.Fatalf("reconcile discovery cursor: %v", err)
+		t.Fatalf("reconcile discovery batch: %v", err)
 	}
 	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-probe"}) {
 		t.Fatalf("unsupported and missing-index snapshots must not consume budget, got %v", calls)
 	}
 	policy, err := service.store.GetOrCreateWatchdogPolicy(t.Context(), sidecar.ID)
-	if err != nil || policy.ProbeCursorAuthID == nil || *policy.ProbeCursorAuthID != "auth-probe" {
-		t.Fatalf("cursor should advance to persisted discovery probe, policy=%+v err=%v", policy, err)
+	if err != nil || policy.ProbeLastBatchCompletedAt == nil {
+		t.Fatalf("persisted discovery probe should stamp hidden batch completion marker, policy=%+v err=%v", policy, err)
 	}
 
 	now = now.Add(time.Minute)
-	upstream.setProbeResponse("idx-due-cursor", watchdogProbeTestResponse{StatusCode: http.StatusInternalServerError, Body: `{"error":"upstream"}`})
-	createWatchdogProbeHold(t, service, sidecar.ID, "auth-due-cursor", "idx-due-cursor", now.Add(-time.Minute))
+	upstream.setProbeResponse("idx-due-batch", watchdogProbeTestResponse{StatusCode: http.StatusInternalServerError, Body: `{"error":"upstream"}`})
+	createWatchdogProbeHold(t, service, sidecar.ID, "auth-due-batch", "idx-due-batch", now.Add(-time.Minute))
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
-		t.Fatalf("reconcile due-only cursor: %v", err)
+		t.Fatalf("reconcile due-only batch: %v", err)
 	}
 	policy, err = service.store.GetOrCreateWatchdogPolicy(t.Context(), sidecar.ID)
-	if err != nil || policy.ProbeCursorAuthID == nil || *policy.ProbeCursorAuthID != "auth-probe" {
-		t.Fatalf("due-hold-only run must not advance discovery cursor, policy=%+v err=%v", policy, err)
+	if err != nil || policy.ProbeLastBatchCompletedAt == nil {
+		t.Fatalf("due-hold-only run must still leave hidden batch completion recorded, policy=%+v err=%v", policy, err)
+	}
+}
+
+func TestWatchdogProbeBatchCooldownGatesQuotaProbesOnly(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 14, 30, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 75)
+	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-first", "idx-first", "codex", 10)
+
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("reconcile initial probe batch: %v", err)
+	}
+	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-first"}) {
+		t.Fatalf("initial batch should probe first auth once, got %v", calls)
+	}
+	policy, err := service.store.GetOrCreateWatchdogPolicy(t.Context(), sidecar.ID)
+	if err != nil || policy.ProbeLastBatchCompletedAt == nil {
+		t.Fatalf("initial probe should stamp cooldown state, policy=%+v err=%v", policy, err)
+	}
+	firstBatchCompletedAt := *policy.ProbeLastBatchCompletedAt
+
+	now = now.Add(10 * time.Second)
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	upstream.setAuthFile("auth-due", "idx-due", "codex", DefaultDeprioritizedPriority)
+	upstream.setAuthFile("auth-failure", "idx-failure", "codex", DefaultDeprioritizedPriority)
+	createWatchdogProbeHold(t, service, sidecar.ID, "auth-due", "idx-due", now.Add(-time.Minute))
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-second", "idx-second", "codex", 10)
+	seedWatchdogFailureThresholdSnapshot(t, service, sidecar.ID, now, "auth-failure", "idx-failure", "codex", 10, DefaultFailureThreshold)
+
+	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+	if err != nil {
+		t.Fatalf("reconcile within cooldown: %v", err)
+	}
+	if !result.Reconciled {
+		t.Fatalf("failure-threshold work should still run inside probe cooldown, got %+v", result)
+	}
+	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-first"}) {
+		t.Fatalf("cooldown must suppress due-hold and discovery api probes, got %v", calls)
+	}
+	if got := upstream.fieldPatchPriorities(); len(got) != 0 {
+		t.Fatalf("already-deprioritized failure threshold should not patch priority, got %v", got)
+	}
+	holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID)
+	if err != nil || !watchdogTestHasActiveHold(holds, "auth-failure") {
+		t.Fatalf("non-probe failure threshold should still create a hold, holds=%+v err=%v", holds, err)
+	}
+	policy, err = service.store.GetOrCreateWatchdogPolicy(t.Context(), sidecar.ID)
+	if err != nil || policy.ProbeLastBatchCompletedAt == nil || !policy.ProbeLastBatchCompletedAt.Equal(firstBatchCompletedAt) {
+		t.Fatalf("cooldown-skipped tick must not advance batch completion, policy=%+v err=%v", policy, err)
+	}
+
+	now = now.Add(25 * time.Second)
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("reconcile after cooldown: %v", err)
+	}
+	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-first", "idx-due"}) {
+		t.Fatalf("due hold should probe first after cooldown reopens, got %v", calls)
+	}
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10}) {
+		t.Fatalf("due hold restore should resume after cooldown reopens, got %v", got)
+	}
+}
+
+func TestWatchdogFailureThresholdStillRunsWhenSnapshotsAreStaleOrPaused(t *testing.T) {
+	cases := []struct {
+		name    string
+		prepare func(*testing.T, *Service, int, time.Time)
+	}{
+		{name: "stale snapshots", prepare: func(t *testing.T, service *Service, sidecarID int, now time.Time) {
+			markWatchdogSnapshotsStale(t, service, sidecarID, now)
+		}},
+		{name: "management auth paused", prepare: func(t *testing.T, service *Service, sidecarID int, now time.Time) {
+			pauseUntil := now.Add(time.Hour)
+			staleAfter := now.Add(2 * time.Hour)
+			_, err := service.store.UpdateSidecarSyncMetadata(t.Context(), SidecarSyncMetadataInput{SidecarID: sidecarID, LastSyncAt: now, LastSuccessfulSyncAt: &now, SnapshotStaleAfter: &staleAfter, ManagementAuthState: ManagementAuthStateValid, AuthFailurePauseUntil: &pauseUntil})
+			if err != nil {
+				t.Fatalf("mark watchdog snapshots paused: %v", err)
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, time.May, 11, 15, 0, 0, 0, time.UTC)
+			upstream := newWatchdogUpstream(t, watchdogUpstreamAuth{Priority: 20, FailureCount: DefaultFailureThreshold})
+			defer upstream.Close()
+			service := newWatchdogTestService(t, func() time.Time { return now })
+			sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
+			enableWatchdogPolicy(t, service, sidecar.ID)
+			seedWatchdogSnapshot(t, service, sidecar.ID, now, watchdogUpstreamAuth{Priority: 20, FailureCount: DefaultFailureThreshold})
+			tc.prepare(t, service, sidecar.ID, now)
+
+			result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+			if err != nil {
+				t.Fatalf("reconcile %s: %v", tc.name, err)
+			}
+			if result.Skipped {
+				t.Fatalf("failure-threshold work should not be skipped for %s, got %+v", tc.name, result)
+			}
+			if !result.Reconciled {
+				t.Fatalf("failure-threshold work should still reconcile for %s, got %+v actions=%+v", tc.name, result, listWatchdogActions(t, service, sidecar.ID))
+			}
+			holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID)
+			if err != nil {
+				t.Fatalf("list active holds for %s: %v", tc.name, err)
+			}
+			if !watchdogTestHasActiveHold(holds, watchdogAuthID) {
+				t.Fatalf("expected failure-threshold hold for %s, holds=%+v", tc.name, holds)
+			}
+		})
 	}
 }
 
@@ -853,12 +1007,88 @@ func TestWatchdogDueHoldFailureCooldownPreventsStarvation(t *testing.T) {
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
 		t.Fatalf("first starvation reconcile: %v", err)
 	}
-	now = now.Add(time.Second)
+	now = now.Add(time.Duration(DefaultProbeBatchCooldownSeconds+1) * time.Second)
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
 		t.Fatalf("second starvation reconcile: %v", err)
 	}
 	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-starve-1", "idx-starve-2"}) {
-		t.Fatalf("failed first due hold should cool down so second can run, got %v", calls)
+		t.Fatalf("failed first due hold should cool down so second can run after batch cooldown, got %v", calls)
+	}
+}
+
+func TestManualQuotaScanIsAsyncResumableAndCancellable(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 17, 0, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	upstream.setAuthFile("auth-a-low", "idx-low", "codex", 0)
+	upstream.setAuthFile("auth-z-high", "idx-high", "codex", 0)
+	upstream.setProbeResponse("idx-low", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	upstream.setProbeResponse("idx-high", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 76)
+	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-a-low", "idx-low", "codex", 0)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-z-high", "idx-high", "codex", 0)
+	snapshots, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
+	if err != nil {
+		t.Fatalf("list auth snapshots: %v", err)
+	}
+	if err := service.materializeAuthQuotaStates(t.Context(), sidecar.ID, snapshots, now); err != nil {
+		t.Fatalf("materialize quota states: %v", err)
+	}
+	stateStore, ok := service.store.(authQuotaStateStore)
+	if !ok {
+		t.Fatalf("store does not support quota state updates")
+	}
+	for _, snapshot := range []string{"auth-a-low", "auth-z-high"} {
+		state, err := stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: snapshot, State: "healthy"})
+		if err != nil || state.State != "healthy" {
+			t.Fatalf("seed healthy quota state for %s: state=%+v err=%v", snapshot, state, err)
+		}
+	}
+	scanRun, err := service.StartManualQuotaScan(t.Context(), sidecar.ID, nil, false)
+	if err != nil {
+		t.Fatalf("start manual quota scan: %v", err)
+	}
+	if scanRun.Status != quotaScanStatusQueued || scanRun.PlannedCount != 2 {
+		t.Fatalf("manual quota scan not queued with planned inventory: %+v", scanRun)
+	}
+	if calls := upstream.apiCallAuthIndexes(); len(calls) != 0 {
+		t.Fatalf("manual quota scan must not probe before reconcile, got %v", calls)
+	}
+	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+	if err != nil {
+		t.Fatalf("first manual quota reconcile: %v", err)
+	}
+	if !slices.Equal(upstream.apiCallAuthIndexes(), []string{"idx-low"}) {
+		t.Fatalf("manual quota scan must include low priority auth first, got %v", upstream.apiCallAuthIndexes())
+	}
+	if got := upstream.fieldPatchPriorities(); len(got) != 0 {
+		t.Fatalf("healthy manual scan must not reprioritize authfiles, got %v", got)
+	}
+	if result.Probed != 1 {
+		t.Fatalf("expected one manual probe on first reconcile, got %+v", result)
+	}
+	reloadedRun, ok, err := service.store.(quotaScanRunPersistence).GetQuotaScanRun(t.Context(), sidecar.ID, scanRun.ID)
+	if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.Status != quotaScanStatusRunning {
+		t.Fatalf("manual scan should stay resumable after one tick: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+	}
+	cancelled, err := service.CancelQuotaScanRun(t.Context(), sidecar.ID, scanRun.ID)
+	if err != nil {
+		t.Fatalf("cancel manual quota scan: %v", err)
+	}
+	if cancelled.Status != quotaScanStatusCancelled || cancelled.CompletedAt == nil || cancelled.CancelRequestedAt == nil {
+		t.Fatalf("manual quota scan cancellation not persisted: %+v", cancelled)
+	}
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("post-cancel manual quota reconcile: %v", err)
+	}
+	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-low"}) {
+		t.Fatalf("cancelled manual scan must stop future probe selection, got %v", calls)
+	}
+	if got := upstream.fieldPatchPriorities(); len(got) != 0 {
+		t.Fatalf("cancelled manual scan must not reprioritize authfiles, got %v", got)
 	}
 }
 
@@ -882,6 +1112,14 @@ func assertPendingPatchActionObserved(t *testing.T, pendingCheck <-chan error) {
 		}
 	default:
 		t.Fatal("field patch happened without observing a pending watchdog decision")
+	}
+}
+
+func createWatchdogPendingQueueRow(t *testing.T, service *Service, action SidecarWatchdogAction) {
+	t.Helper()
+	_, err := service.store.CreateWatchdogPendingAction(t.Context(), SidecarWatchdogPendingActionInput{SidecarID: action.SidecarID, HoldID: cloneIntPtr(action.HoldID), ActionHistoryCreatedAt: action.CreatedAt, ActionHistoryID: action.ID, AuthID: cloneStringPtr(action.AuthID), AuthName: cloneStringPtr(action.AuthName), AuthIndex: cloneStringPtr(action.AuthIndex), Provider: cloneStringPtr(action.Provider), ActionType: action.ActionType, Reason: cloneStringPtr(action.Reason), PreviousPriority: cloneIntPtr(action.PreviousPriority), TargetPriority: cloneIntPtr(action.TargetPriority), HoldUntil: cloneTimePtr(action.HoldUntil)})
+	if err != nil {
+		t.Fatalf("create pending watchdog queue row: %v", err)
 	}
 }
 
@@ -934,6 +1172,24 @@ func seedWatchdogProbeSnapshot(t *testing.T, service *Service, sidecarID int, ob
 	}
 }
 
+func seedWatchdogFailureThresholdSnapshot(t *testing.T, service *Service, sidecarID int, observedAt time.Time, authID string, authIndex string, provider string, priority int, failureCount int) {
+	t.Helper()
+	recentRequests, err := json.Marshal([]map[string]any{{"window_start": observedAt.Add(-time.Minute).Format(time.RFC3339), "window_end": observedAt.Format(time.RFC3339), "failure_count": failureCount}})
+	if err != nil {
+		t.Fatalf("marshal failure threshold requests: %v", err)
+	}
+	snapshotJSON, err := json.Marshal(watchdogProbeAuthPayload(authID, authIndex, provider, priority))
+	if err != nil {
+		t.Fatalf("marshal failure threshold snapshot: %v", err)
+	}
+	disabled := false
+	unavailable := false
+	_, err = service.store.SaveAuthSnapshot(t.Context(), SidecarAuthSnapshotInput{SidecarID: sidecarID, AuthID: authID, AuthIndex: stringPtrFromNonEmpty(authIndex), Name: authID + ".json", Provider: stringPtrFromNonEmpty(provider), Label: stringPtrFromNonEmpty(authID), Status: stringPtrFromNonEmpty("active"), Disabled: &disabled, Unavailable: &unavailable, Priority: &priority, FailedCount: &failureCount, RecentRequestsJSON: recentRequests, ModelStatesJSON: json.RawMessage(`{}`), SnapshotJSON: snapshotJSON, ObservedAt: observedAt})
+	if err != nil {
+		t.Fatalf("save failure threshold snapshot: %v", err)
+	}
+}
+
 func createWatchdogProbeHold(t *testing.T, service *Service, sidecarID int, authID string, authIndex string, holdUntil time.Time) SidecarWatchdogHold {
 	t.Helper()
 	previousPriority := 10
@@ -942,6 +1198,15 @@ func createWatchdogProbeHold(t *testing.T, service *Service, sidecarID int, auth
 		t.Fatalf("create probe hold: %v", err)
 	}
 	return hold
+}
+
+func watchdogTestHasActiveHold(holds []SidecarWatchdogHold, authID string) bool {
+	for _, hold := range holds {
+		if hold.AuthID == authID && hold.Status == WatchdogHoldStatusActive {
+			return true
+		}
+	}
+	return false
 }
 
 func markWatchdogSnapshotsStale(t *testing.T, service *Service, sidecarID int, now time.Time) {
@@ -1016,15 +1281,19 @@ type failingProbeDecisionStore struct {
 }
 
 func (s *failingProbeDecisionStore) PersistWatchdogProbeDecision(ctx context.Context, decision SidecarWatchdogProbeDecision) (SidecarWatchdogProbeDecisionResult, error) {
+	return s.PersistQuotaProbeDecision(ctx, decision)
+}
+
+func (s *failingProbeDecisionStore) PersistQuotaProbeDecision(ctx context.Context, decision SidecarQuotaPersistDecision) (SidecarQuotaPersistResult, error) {
 	if decision.CreateHold != nil && s.failCreateHoldDecisions > 0 {
 		s.failCreateHoldDecisions--
-		return SidecarWatchdogProbeDecisionResult{}, errInjectedProbeDecisionFailure
+		return SidecarQuotaPersistResult{}, errInjectedProbeDecisionFailure
 	}
 	if decision.UpdateHold != nil && s.failUpdateHoldDecisions > 0 {
 		s.failUpdateHoldDecisions--
-		return SidecarWatchdogProbeDecisionResult{}, errInjectedProbeDecisionFailure
+		return SidecarQuotaPersistResult{}, errInjectedProbeDecisionFailure
 	}
-	return s.persistence.PersistWatchdogProbeDecision(ctx, decision)
+	return s.persistence.PersistQuotaProbeDecision(ctx, decision)
 }
 
 func (s *failingProbeDecisionStore) ListWatchdogActions(ctx context.Context, sidecarID int) ([]SidecarWatchdogAction, error) {

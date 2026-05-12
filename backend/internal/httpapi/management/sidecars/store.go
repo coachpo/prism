@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
+	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
 
 type Store struct {
@@ -438,6 +440,214 @@ func (s *Store) ListAuthSnapshots(ctx context.Context, sidecarID int) ([]Sidecar
 	return records, nil
 }
 
+func (s *Store) UpsertAuthQuotaState(ctx context.Context, input SidecarAuthQuotaStateInput) (SidecarAuthQuotaState, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarAuthQuotaState{}, err
+	}
+	record, err := s.upsertAuthQuotaState(ctx, s.pool, input)
+	if err != nil {
+		return SidecarAuthQuotaState{}, mapStoreError(err)
+	}
+	return record, nil
+}
+
+func (s *Store) GetAuthQuotaState(ctx context.Context, sidecarID int, authID string) (SidecarAuthQuotaState, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarAuthQuotaState{}, false, err
+	}
+	if sidecarID <= 0 || strings.TrimSpace(authID) == "" {
+		return SidecarAuthQuotaState{}, false, invalidInputError("sidecar_id and auth_id are required")
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarAuthQuotaStateSelectColumns+` FROM sidecar_auth_quota_states WHERE sidecar_id = $1 AND auth_id = $2`, sidecarID, strings.TrimSpace(authID))
+	record, err := scanSidecarAuthQuotaState(row)
+	if err == pgx.ErrNoRows {
+		return SidecarAuthQuotaState{}, false, nil
+	}
+	if err != nil {
+		return SidecarAuthQuotaState{}, false, fmt.Errorf("load sidecar auth quota state: %w", err)
+	}
+	return record, true, nil
+}
+
+func (s *Store) ListAuthQuotaStates(ctx context.Context, sidecarID int) ([]SidecarAuthQuotaState, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	if sidecarID <= 0 {
+		return nil, invalidInputError("sidecar_id is required")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+sidecarAuthQuotaStateSelectColumns+` FROM sidecar_auth_quota_states WHERE sidecar_id = $1 ORDER BY auth_id ASC`, sidecarID)
+	if err != nil {
+		return nil, fmt.Errorf("query sidecar auth quota states: %w", err)
+	}
+	defer rows.Close()
+	records := make([]SidecarAuthQuotaState, 0)
+	for rows.Next() {
+		record, scanErr := scanSidecarAuthQuotaState(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sidecar auth quota states: %w", err)
+	}
+	return records, nil
+}
+
+func (s *Store) CreateQuotaScanRun(ctx context.Context, input SidecarQuotaScanRunInput) (SidecarQuotaScanRun, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarQuotaScanRun{}, err
+	}
+	record, err := insertQuotaScanRun(ctx, s.pool, input)
+	if err != nil {
+		return SidecarQuotaScanRun{}, mapStoreError(err)
+	}
+	return record, nil
+}
+
+func insertQuotaScanRun(ctx context.Context, executor sidecarSQLExecutor, input SidecarQuotaScanRunInput) (SidecarQuotaScanRun, error) {
+	if err := validateQuotaScanRunInput(input); err != nil {
+		return SidecarQuotaScanRun{}, err
+	}
+	row := executor.QueryRow(ctx, `INSERT INTO sidecar_quota_scan_runs (
+sidecar_id, scan_type, status, requested_by, cursor_auth_id, planned_count,
+attempted_count, succeeded_count, quota_exceeded_count, failed_count,
+unsupported_count, missing_index_count, cancel_requested_at, started_at,
+completed_at, last_error_code)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING `+sidecarQuotaScanRunSelectColumns,
+		input.SidecarID, strings.TrimSpace(input.ScanType), strings.TrimSpace(input.Status), nullStringArg(input.RequestedBy), nullStringArg(input.CursorAuthID), input.PlannedCount,
+		input.AttemptedCount, input.SucceededCount, input.QuotaExceededCount, input.FailedCount, input.UnsupportedCount, input.MissingIndexCount,
+		nullTimeArg(input.CancelRequestedAt), nullTimeArg(input.StartedAt), nullTimeArg(input.CompletedAt), nullStringArg(input.LastErrorCode),
+	)
+	return scanSidecarQuotaScanRun(row)
+}
+
+func (s *Store) UpdateQuotaScanRun(ctx context.Context, id int, input SidecarQuotaScanRunInput) (SidecarQuotaScanRun, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarQuotaScanRun{}, err
+	}
+	if id <= 0 {
+		return SidecarQuotaScanRun{}, invalidInputError("id is required")
+	}
+	if err := validateQuotaScanRunInput(input); err != nil {
+		return SidecarQuotaScanRun{}, err
+	}
+	row := s.pool.QueryRow(ctx, `UPDATE sidecar_quota_scan_runs SET
+scan_type = $1, status = $2, requested_by = $3, cursor_auth_id = $4,
+planned_count = $5, attempted_count = $6, succeeded_count = $7,
+quota_exceeded_count = $8, failed_count = $9, unsupported_count = $10,
+missing_index_count = $11, cancel_requested_at = $12, started_at = $13,
+completed_at = $14, last_error_code = $15, updated_at = now()
+WHERE sidecar_id = $16 AND id = $17
+RETURNING `+sidecarQuotaScanRunSelectColumns,
+		strings.TrimSpace(input.ScanType), strings.TrimSpace(input.Status), nullStringArg(input.RequestedBy), nullStringArg(input.CursorAuthID),
+		input.PlannedCount, input.AttemptedCount, input.SucceededCount, input.QuotaExceededCount, input.FailedCount, input.UnsupportedCount,
+		input.MissingIndexCount, nullTimeArg(input.CancelRequestedAt), nullTimeArg(input.StartedAt), nullTimeArg(input.CompletedAt), nullStringArg(input.LastErrorCode),
+		input.SidecarID, id,
+	)
+	record, err := scanSidecarQuotaScanRun(row)
+	if err == pgx.ErrNoRows {
+		return SidecarQuotaScanRun{}, notFoundError("sidecar quota scan run not found")
+	}
+	if err != nil {
+		return SidecarQuotaScanRun{}, mapStoreError(err)
+	}
+	return record, nil
+}
+
+func (s *Store) GetQuotaScanRun(ctx context.Context, sidecarID int, id int) (SidecarQuotaScanRun, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarQuotaScanRun{}, false, err
+	}
+	if sidecarID <= 0 || id <= 0 {
+		return SidecarQuotaScanRun{}, false, invalidInputError("sidecar_id and id are required")
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarQuotaScanRunSelectColumns+` FROM sidecar_quota_scan_runs WHERE sidecar_id = $1 AND id = $2`, sidecarID, id)
+	record, err := scanSidecarQuotaScanRun(row)
+	if err == pgx.ErrNoRows {
+		return SidecarQuotaScanRun{}, false, nil
+	}
+	if err != nil {
+		return SidecarQuotaScanRun{}, false, fmt.Errorf("load sidecar quota scan run: %w", err)
+	}
+	return record, true, nil
+}
+
+func (s *Store) ListQuotaScanRuns(ctx context.Context, sidecarID int) ([]SidecarQuotaScanRun, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	if sidecarID <= 0 {
+		return nil, invalidInputError("sidecar_id is required")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+sidecarQuotaScanRunSelectColumns+` FROM sidecar_quota_scan_runs WHERE sidecar_id = $1 ORDER BY created_at DESC, id DESC`, sidecarID)
+	if err != nil {
+		return nil, fmt.Errorf("query sidecar quota scan runs: %w", err)
+	}
+	defer rows.Close()
+	records := make([]SidecarQuotaScanRun, 0)
+	for rows.Next() {
+		record, scanErr := scanSidecarQuotaScanRun(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sidecar quota scan runs: %w", err)
+	}
+	return records, nil
+}
+
+func validateQuotaScanRunInput(input SidecarQuotaScanRunInput) error {
+	if input.SidecarID <= 0 || strings.TrimSpace(input.ScanType) == "" || strings.TrimSpace(input.Status) == "" {
+		return invalidInputError("sidecar_id, scan_type, and status are required")
+	}
+	if !validQuotaScanType(input.ScanType) {
+		return invalidInputError("scan_type is not supported")
+	}
+	if !validQuotaScanStatus(input.Status) {
+		return invalidInputError("scan status is not supported")
+	}
+	if input.PlannedCount < 0 || input.AttemptedCount < 0 || input.SucceededCount < 0 || input.QuotaExceededCount < 0 || input.FailedCount < 0 || input.UnsupportedCount < 0 || input.MissingIndexCount < 0 {
+		return invalidInputError("scan counters must be non-negative")
+	}
+	return nil
+}
+
+func (s *Store) upsertAuthQuotaState(ctx context.Context, executor sidecarSQLExecutor, input SidecarAuthQuotaStateInput) (SidecarAuthQuotaState, error) {
+	if input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.State) == "" {
+		return SidecarAuthQuotaState{}, invalidInputError("sidecar_id, auth_id, and state are required")
+	}
+	if !validAuthQuotaState(input.State) {
+		return SidecarAuthQuotaState{}, invalidInputError("quota state is not supported")
+	}
+	row := executor.QueryRow(ctx, `INSERT INTO sidecar_auth_quota_states (
+sidecar_id, auth_id, auth_index, auth_name, provider, snapshot_observed_at, state, probe_status,
+quota_exceeded, quota_reason, quota_reset_at, blocking_window, last_observation_id, last_probed_at,
+last_error_code)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+ON CONFLICT (sidecar_id, auth_id) DO UPDATE SET
+auth_index = COALESCE(EXCLUDED.auth_index, sidecar_auth_quota_states.auth_index),
+auth_name = COALESCE(EXCLUDED.auth_name, sidecar_auth_quota_states.auth_name),
+provider = COALESCE(EXCLUDED.provider, sidecar_auth_quota_states.provider),
+snapshot_observed_at = COALESCE(EXCLUDED.snapshot_observed_at, sidecar_auth_quota_states.snapshot_observed_at),
+state = EXCLUDED.state, probe_status = EXCLUDED.probe_status,
+quota_exceeded = EXCLUDED.quota_exceeded, quota_reason = EXCLUDED.quota_reason, quota_reset_at = EXCLUDED.quota_reset_at,
+blocking_window = EXCLUDED.blocking_window, last_observation_id = EXCLUDED.last_observation_id,
+last_probed_at = EXCLUDED.last_probed_at, last_error_code = EXCLUDED.last_error_code, updated_at = now()
+RETURNING `+sidecarAuthQuotaStateSelectColumns,
+		input.SidecarID, strings.TrimSpace(input.AuthID), nullStringArg(input.AuthIndex), nullStringArg(input.AuthName), nullStringArg(input.Provider), nullTimeArg(input.SnapshotObservedAt), strings.TrimSpace(input.State), nullStringArg(input.ProbeStatus), input.QuotaExceeded, nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaResetAt), nullStringArg(input.BlockingWindow), nullIntArg(input.LastObservationID), nullTimeArg(input.LastProbedAt), nullStringArg(input.LastErrorCode),
+	)
+	record, err := scanSidecarAuthQuotaState(row)
+	if err != nil {
+		return SidecarAuthQuotaState{}, err
+	}
+	return record, nil
+}
+
 func (s *Store) SaveProviderSnapshot(ctx context.Context, input SidecarProviderSnapshotInput) (SidecarProviderSnapshot, error) {
 	if err := s.requirePool(); err != nil {
 		return SidecarProviderSnapshot{}, err
@@ -608,24 +818,31 @@ func (s *Store) UpsertWatchdogPolicy(ctx context.Context, input SidecarWatchdogP
 	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (
 sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
 deprioritized_priority, prioritized_priority, manual_override_pause_seconds,
-probe_batch_size, probe_timeout_seconds)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+probe_batch_size, probe_timeout_seconds, probe_batch_cooldown_seconds,
+quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled, rolling_refresh_after_seconds)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 ON CONFLICT (sidecar_id) DO UPDATE SET enabled = EXCLUDED.enabled,
 failure_threshold = EXCLUDED.failure_threshold, failure_window_seconds = EXCLUDED.failure_window_seconds,
 fallback_cooldown_seconds = EXCLUDED.fallback_cooldown_seconds,
 deprioritized_priority = EXCLUDED.deprioritized_priority,
-prioritized_priority = CASE WHEN $11 THEN sidecar_watchdog_policies.prioritized_priority ELSE EXCLUDED.prioritized_priority END,
+prioritized_priority = EXCLUDED.prioritized_priority,
 manual_override_pause_seconds = EXCLUDED.manual_override_pause_seconds,
-probe_batch_size = CASE WHEN $12 THEN sidecar_watchdog_policies.probe_batch_size ELSE EXCLUDED.probe_batch_size END,
-probe_timeout_seconds = CASE WHEN $13 THEN sidecar_watchdog_policies.probe_timeout_seconds ELSE EXCLUDED.probe_timeout_seconds END,
+probe_batch_size = EXCLUDED.probe_batch_size,
+probe_timeout_seconds = EXCLUDED.probe_timeout_seconds,
+probe_batch_cooldown_seconds = EXCLUDED.probe_batch_cooldown_seconds,
+quota_inventory_enabled = EXCLUDED.quota_inventory_enabled,
+initial_scan_enabled = EXCLUDED.initial_scan_enabled,
+rolling_refresh_enabled = EXCLUDED.rolling_refresh_enabled,
+rolling_refresh_after_seconds = EXCLUDED.rolling_refresh_after_seconds,
 updated_at = now()
 RETURNING `+sidecarWatchdogPolicySelectColumns,
 		normalized.SidecarID, normalized.Enabled, normalized.FailureThreshold,
 		normalized.FailureWindowSeconds, normalized.FallbackCooldownSeconds,
 		normalized.DeprioritizedPriority, normalized.PrioritizedPriority,
 		normalized.ManualOverridePauseSeconds, normalized.ProbeBatchSize,
-		normalized.ProbeTimeoutSeconds, preservePrioritizedPriority,
-		preserveProbeBatchSize, preserveProbeTimeoutSeconds,
+		normalized.ProbeTimeoutSeconds, *normalized.ProbeBatchCooldownSeconds,
+		*normalized.QuotaInventoryEnabled, *normalized.InitialScanEnabled,
+		*normalized.RollingRefreshEnabled, *normalized.RollingRefreshAfterSeconds,
 	)
 	record, err := scanSidecarWatchdogPolicy(row)
 	if err != nil {
@@ -652,7 +869,7 @@ func (s *Store) ListWatchdogProbeObservations(ctx context.Context, sidecarID int
 	if sidecarID <= 0 {
 		return nil, invalidInputError("sidecar_id is required")
 	}
-	query := `SELECT ` + sidecarWatchdogProbeObservationSelectColumns + ` FROM sidecar_watchdog_probe_observations WHERE sidecar_id = $1 ORDER BY probed_at DESC, id DESC`
+	query := `SELECT ` + sidecarWatchdogProbeObservationSelectColumns + ` FROM sidecar_quota_probe_observations WHERE sidecar_id = $1 ORDER BY probed_at DESC, id DESC`
 	args := []any{sidecarID}
 	if limit > 0 {
 		query += ` LIMIT $2`
@@ -682,7 +899,7 @@ func (s *Store) CleanupWatchdogProbeObservations(ctx context.Context) (int64, er
 		return 0, err
 	}
 	cutoff := s.currentTime().Add(-time.Duration(WatchdogProbeObservationRetentionDays) * 24 * time.Hour)
-	result, err := s.pool.Exec(ctx, `DELETE FROM sidecar_watchdog_probe_observations WHERE probed_at < $1`, cutoff)
+	result, err := s.pool.Exec(ctx, `DELETE FROM sidecar_quota_probe_observations WHERE probed_at < $1`, cutoff)
 	if err != nil {
 		return 0, mapStoreError(err)
 	}
@@ -719,30 +936,60 @@ func (s *Store) ListDueWatchdogHolds(ctx context.Context, sidecarID int, dueAt t
 }
 
 func (s *Store) PersistWatchdogProbeDecision(ctx context.Context, decision SidecarWatchdogProbeDecision) (SidecarWatchdogProbeDecisionResult, error) {
+	return s.PersistQuotaProbeDecision(ctx, decision)
+}
+
+func (s *Store) PersistQuotaProbeDecision(ctx context.Context, decision SidecarQuotaPersistDecision) (SidecarQuotaPersistResult, error) {
 	if err := s.requirePool(); err != nil {
-		return SidecarWatchdogProbeDecisionResult{}, err
+		return SidecarQuotaPersistResult{}, err
 	}
 	if decision.SidecarID <= 0 {
-		return SidecarWatchdogProbeDecisionResult{}, invalidInputError("sidecar_id is required")
+		return SidecarQuotaPersistResult{}, invalidInputError("sidecar_id is required")
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return SidecarWatchdogProbeDecisionResult{}, fmt.Errorf("begin sidecar watchdog probe decision: %w", err)
+		return SidecarQuotaPersistResult{}, fmt.Errorf("begin sidecar quota persist decision: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	result := SidecarWatchdogProbeDecisionResult{Observations: make([]SidecarWatchdogProbeObservation, 0, len(decision.Observations))}
+	result := SidecarQuotaPersistResult{
+		Observations: make([]SidecarWatchdogProbeObservation, 0, len(decision.Observations)),
+		QuotaStates:  make([]SidecarAuthQuotaState, 0, len(decision.Observations)+len(decision.QuotaStates)),
+	}
 	for _, input := range decision.Observations {
 		if input.SidecarID == 0 {
 			input.SidecarID = decision.SidecarID
 		}
 		if input.SidecarID != decision.SidecarID {
-			return SidecarWatchdogProbeDecisionResult{}, invalidInputError("probe observation sidecar_id must match decision sidecar_id")
+			return SidecarQuotaPersistResult{}, invalidInputError("probe observation sidecar_id must match decision sidecar_id")
 		}
 		record, insertErr := s.insertWatchdogProbeObservation(ctx, tx, input)
 		if insertErr != nil {
-			return SidecarWatchdogProbeDecisionResult{}, mapStoreError(insertErr)
+			return SidecarQuotaPersistResult{}, mapStoreError(insertErr)
 		}
 		result.Observations = append(result.Observations, record)
+		state, stateErr := s.upsertAuthQuotaState(ctx, tx, authQuotaStateInputFromProbeObservation(record))
+		if stateErr != nil {
+			return SidecarQuotaPersistResult{}, mapStoreError(stateErr)
+		}
+		result.QuotaStates = append(result.QuotaStates, state)
+	}
+	for _, input := range decision.QuotaStates {
+		stateInput, normalizeErr := quotaPersistStateInput(decision.SidecarID, input)
+		if normalizeErr != nil {
+			return SidecarQuotaPersistResult{}, normalizeErr
+		}
+		state, stateErr := s.upsertAuthQuotaState(ctx, tx, stateInput)
+		if stateErr != nil {
+			return SidecarQuotaPersistResult{}, mapStoreError(stateErr)
+		}
+		result.QuotaStates = append(result.QuotaStates, state)
+	}
+	if decision.ScanRunID != nil && len(result.Observations) > 0 {
+		scanRun, scanErr := updateQuotaScanRunObservationBatch(ctx, tx, decision.SidecarID, *decision.ScanRunID, result.Observations, decision.CursorAuthID)
+		if scanErr != nil {
+			return SidecarQuotaPersistResult{}, mapStoreError(scanErr)
+		}
+		result.ScanRun = &scanRun
 	}
 	if decision.CreateHold != nil {
 		input := *decision.CreateHold
@@ -750,11 +997,11 @@ func (s *Store) PersistWatchdogProbeDecision(ctx context.Context, decision Sidec
 			input.SidecarID = decision.SidecarID
 		}
 		if input.SidecarID != decision.SidecarID {
-			return SidecarWatchdogProbeDecisionResult{}, invalidInputError("created hold sidecar_id must match decision sidecar_id")
+			return SidecarQuotaPersistResult{}, invalidInputError("created hold sidecar_id must match decision sidecar_id")
 		}
 		hold, createErr := insertWatchdogHold(ctx, tx, input)
 		if createErr != nil {
-			return SidecarWatchdogProbeDecisionResult{}, mapStoreError(createErr)
+			return SidecarQuotaPersistResult{}, mapStoreError(createErr)
 		}
 		result.CreatedHold = &hold
 	}
@@ -764,25 +1011,35 @@ func (s *Store) PersistWatchdogProbeDecision(ctx context.Context, decision Sidec
 			input.SidecarID = decision.SidecarID
 		}
 		if input.SidecarID != decision.SidecarID {
-			return SidecarWatchdogProbeDecisionResult{}, invalidInputError("updated hold sidecar_id must match decision sidecar_id")
+			return SidecarQuotaPersistResult{}, invalidInputError("updated hold sidecar_id must match decision sidecar_id")
 		}
 		hold, updateErr := updateWatchdogHold(ctx, tx, decision.UpdateHold.ID, input)
 		if updateErr != nil {
-			return SidecarWatchdogProbeDecisionResult{}, mapStoreError(updateErr)
+			return SidecarQuotaPersistResult{}, mapStoreError(updateErr)
 		}
 		result.UpdatedHold = &hold
 	}
-	if decision.AdvanceProbeCursor {
-		policy, cursorErr := updateWatchdogProbeCursor(ctx, tx, decision.SidecarID, decision.ProbeCursorAuthID)
-		if cursorErr != nil {
-			return SidecarWatchdogProbeDecisionResult{}, mapStoreError(cursorErr)
+	if len(result.Observations) > 0 {
+		policy, policyErr := updateWatchdogProbeBatchCompletion(ctx, tx, decision.SidecarID)
+		if policyErr != nil {
+			return SidecarQuotaPersistResult{}, mapStoreError(policyErr)
 		}
 		result.Policy = &policy
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return SidecarWatchdogProbeDecisionResult{}, fmt.Errorf("commit sidecar watchdog probe decision: %w", err)
+		return SidecarQuotaPersistResult{}, fmt.Errorf("commit sidecar quota persist decision: %w", err)
 	}
 	return result, nil
+}
+
+func quotaPersistStateInput(sidecarID int, input SidecarAuthQuotaStateInput) (SidecarAuthQuotaStateInput, error) {
+	if input.SidecarID == 0 {
+		input.SidecarID = sidecarID
+	}
+	if input.SidecarID != sidecarID {
+		return SidecarAuthQuotaStateInput{}, invalidInputError("quota state sidecar_id must match decision sidecar_id")
+	}
+	return input, nil
 }
 
 func (s *Store) insertWatchdogProbeObservation(ctx context.Context, executor sidecarSQLExecutor, input SidecarWatchdogProbeObservationInput) (SidecarWatchdogProbeObservation, error) {
@@ -790,7 +1047,7 @@ func (s *Store) insertWatchdogProbeObservation(ctx context.Context, executor sid
 	if err != nil {
 		return SidecarWatchdogProbeObservation{}, err
 	}
-	row := executor.QueryRow(ctx, `INSERT INTO sidecar_watchdog_probe_observations (
+	row := executor.QueryRow(ctx, `INSERT INTO sidecar_quota_probe_observations (
 sidecar_id, auth_id, auth_index, provider, probed_at, probe_status,
 upstream_status_code, quota_exceeded, quota_reason, quota_reset_at,
 blocking_window, windows_json, error_code)
@@ -804,14 +1061,55 @@ RETURNING `+sidecarWatchdogProbeObservationSelectColumns,
 	return scanSidecarWatchdogProbeObservation(row)
 }
 
-func updateWatchdogProbeCursor(ctx context.Context, executor sidecarSQLExecutor, sidecarID int, cursorAuthID *string) (SidecarWatchdogPolicy, error) {
+func updateQuotaScanRunObservationBatch(ctx context.Context, executor sidecarSQLExecutor, sidecarID int, scanRunID int, observations []SidecarWatchdogProbeObservation, cursorAuthID *string) (SidecarQuotaScanRun, error) {
+	if sidecarID <= 0 || scanRunID <= 0 {
+		return SidecarQuotaScanRun{}, invalidInputError("sidecar_id and scan_run_id are required")
+	}
+	attempted := len(observations)
+	succeeded := 0
+	quotaExceeded := 0
+	failed := 0
+	unsupported := 0
+	for _, observation := range observations {
+		switch authQuotaStateFromProbeObservation(observation) {
+		case "healthy":
+			succeeded++
+		case "quota_exceeded":
+			succeeded++
+			quotaExceeded++
+		case "unsupported":
+			unsupported++
+		default:
+			failed++
+		}
+	}
+	row := executor.QueryRow(ctx, `UPDATE sidecar_quota_scan_runs SET
+attempted_count = attempted_count + $1,
+succeeded_count = succeeded_count + $2,
+quota_exceeded_count = quota_exceeded_count + $3,
+failed_count = failed_count + $4,
+unsupported_count = unsupported_count + $5,
+cursor_auth_id = CASE WHEN $6::text IS NULL THEN cursor_auth_id ELSE $6::text END,
+updated_at = now()
+WHERE sidecar_id = $7 AND id = $8
+RETURNING `+sidecarQuotaScanRunSelectColumns,
+		attempted, succeeded, quotaExceeded, failed, unsupported, nullStringArg(cursorAuthID), sidecarID, scanRunID,
+	)
+	record, err := scanSidecarQuotaScanRun(row)
+	if err == pgx.ErrNoRows {
+		return SidecarQuotaScanRun{}, notFoundError("sidecar quota scan run not found")
+	}
+	return record, err
+}
+
+func updateWatchdogProbeBatchCompletion(ctx context.Context, executor sidecarSQLExecutor, sidecarID int) (SidecarWatchdogPolicy, error) {
 	if sidecarID <= 0 {
 		return SidecarWatchdogPolicy{}, invalidInputError("sidecar_id is required")
 	}
-	row := executor.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_cursor_auth_id)
-VALUES ($1, $2)
-ON CONFLICT (sidecar_id) DO UPDATE SET probe_cursor_auth_id = EXCLUDED.probe_cursor_auth_id, updated_at = now()
-RETURNING `+sidecarWatchdogPolicySelectColumns, sidecarID, nullStringArg(cursorAuthID))
+	row := executor.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_last_batch_completed_at)
+VALUES ($1, now())
+ON CONFLICT (sidecar_id) DO UPDATE SET probe_last_batch_completed_at = EXCLUDED.probe_last_batch_completed_at, updated_at = now()
+RETURNING `+sidecarWatchdogPolicySelectColumns, sidecarID)
 	return scanSidecarWatchdogPolicy(row)
 }
 
@@ -832,13 +1130,13 @@ func insertWatchdogHold(ctx context.Context, executor sidecarSQLExecutor, input 
 	}
 	row := executor.QueryRow(ctx, `INSERT INTO sidecar_watchdog_holds (
 sidecar_id, auth_id, auth_index, provider, reason, condition_hash, previous_priority,
-target_priority, hold_until, manual_pause_until, status, last_action_id, released_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+target_priority, hold_until, manual_pause_until, status, released_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING `+sidecarWatchdogHoldSelectColumns,
 		input.SidecarID, strings.TrimSpace(input.AuthID), nullStringArg(input.AuthIndex), nullStringArg(input.Provider),
 		strings.TrimSpace(input.Reason), strings.TrimSpace(input.ConditionHash), nullIntArg(input.PreviousPriority),
 		input.TargetPriority, nullTimeArg(input.HoldUntil), nullTimeArg(input.ManualPauseUntil), strings.TrimSpace(input.Status),
-		nullIntArg(input.LastActionID), nullTimeArg(input.ReleasedAt),
+		nullTimeArg(input.ReleasedAt),
 	)
 	return scanSidecarWatchdogHold(row)
 }
@@ -902,13 +1200,13 @@ func updateWatchdogHold(ctx context.Context, executor sidecarSQLExecutor, id int
 	row := executor.QueryRow(ctx, `UPDATE sidecar_watchdog_holds SET
 	auth_index = $2, provider = $3, reason = $4, condition_hash = $5,
 	previous_priority = $6, target_priority = $7, hold_until = $8,
-	manual_pause_until = $9, status = $10, last_action_id = $11,
-	released_at = $12, updated_at = now()
-WHERE id = $1 AND sidecar_id = $13
+	manual_pause_until = $9, status = $10,
+	released_at = $11, updated_at = now()
+WHERE id = $1 AND sidecar_id = $12
 RETURNING `+sidecarWatchdogHoldSelectColumns,
 		id, nullStringArg(input.AuthIndex), nullStringArg(input.Provider), strings.TrimSpace(input.Reason), strings.TrimSpace(input.ConditionHash),
 		nullIntArg(input.PreviousPriority), input.TargetPriority, nullTimeArg(input.HoldUntil), nullTimeArg(input.ManualPauseUntil), strings.TrimSpace(input.Status),
-		nullIntArg(input.LastActionID), nullTimeArg(input.ReleasedAt), input.SidecarID,
+		nullTimeArg(input.ReleasedAt), input.SidecarID,
 	)
 	record, err := scanSidecarWatchdogHold(row)
 	if err == pgx.ErrNoRows {
@@ -995,6 +1293,174 @@ func (s *Store) ListWatchdogActions(ctx context.Context, sidecarID int) ([]Sidec
 	return records, nil
 }
 
+func (s *Store) GetWatchdogActionByHistoryKey(ctx context.Context, sidecarID int, createdAt time.Time, id int) (SidecarWatchdogAction, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogAction{}, false, err
+	}
+	if sidecarID <= 0 || id <= 0 || createdAt.IsZero() {
+		return SidecarWatchdogAction{}, false, invalidInputError("sidecar_id, created_at, and id are required")
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarWatchdogActionSelectColumns+` FROM sidecar_watchdog_actions WHERE sidecar_id = $1 AND created_at = $2 AND id = $3`, sidecarID, createdAt.UTC(), id)
+	record, err := scanSidecarWatchdogAction(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogAction{}, false, nil
+	}
+	if err != nil {
+		return SidecarWatchdogAction{}, false, fmt.Errorf("load sidecar watchdog action by history key: %w", err)
+	}
+	return record, true, nil
+}
+
+func (s *Store) CreateWatchdogPendingAction(ctx context.Context, input SidecarWatchdogPendingActionInput) (SidecarWatchdogPendingAction, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPendingAction{}, err
+	}
+	if input.SidecarID <= 0 || input.ActionHistoryCreatedAt.IsZero() || input.ActionHistoryID <= 0 || strings.TrimSpace(input.ActionType) == "" {
+		return SidecarWatchdogPendingAction{}, invalidInputError("sidecar_id, action_history_created_at, action_history_id, and action_type are required")
+	}
+	if input.AttemptCount < 0 {
+		return SidecarWatchdogPendingAction{}, invalidInputError("attempt_count must be non-negative")
+	}
+	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_pending_actions (
+	sidecar_id, hold_id, action_history_created_at, action_history_id, auth_id, auth_name, auth_index, provider,
+	action_type, reason, previous_priority, target_priority, hold_until, attempt_count, last_attempt_at, last_error_message)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+	RETURNING `+sidecarWatchdogPendingActionSelectColumns,
+		input.SidecarID, nullIntArg(input.HoldID), input.ActionHistoryCreatedAt.UTC(), input.ActionHistoryID, nullStringArg(input.AuthID), nullStringArg(input.AuthName), nullStringArg(input.AuthIndex), nullStringArg(input.Provider),
+		strings.TrimSpace(input.ActionType), nullStringArg(input.Reason), nullIntArg(input.PreviousPriority), nullIntArg(input.TargetPriority), nullTimeArg(input.HoldUntil), input.AttemptCount, nullTimeArg(input.LastAttemptAt), nullStringArg(input.LastErrorMessage),
+	)
+	record, err := scanSidecarWatchdogPendingAction(row)
+	if err != nil {
+		return SidecarWatchdogPendingAction{}, mapStoreError(err)
+	}
+	return record, nil
+}
+
+func (s *Store) UpdateWatchdogPendingAction(ctx context.Context, id int, input SidecarWatchdogPendingActionInput) (SidecarWatchdogPendingAction, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPendingAction{}, err
+	}
+	if id <= 0 || input.SidecarID <= 0 || input.ActionHistoryCreatedAt.IsZero() || input.ActionHistoryID <= 0 || strings.TrimSpace(input.ActionType) == "" {
+		return SidecarWatchdogPendingAction{}, invalidInputError("id, sidecar_id, action_history_created_at, action_history_id, and action_type are required")
+	}
+	if input.AttemptCount < 0 {
+		return SidecarWatchdogPendingAction{}, invalidInputError("attempt_count must be non-negative")
+	}
+	row := s.pool.QueryRow(ctx, `UPDATE sidecar_watchdog_pending_actions SET
+	hold_id = $2, action_history_created_at = $3, action_history_id = $4, auth_id = $5, auth_name = $6, auth_index = $7,
+	provider = $8, action_type = $9, reason = $10, previous_priority = $11, target_priority = $12,
+	hold_until = $13, attempt_count = $14, last_attempt_at = $15, last_error_message = $16, updated_at = now()
+	WHERE id = $1 AND sidecar_id = $17
+	RETURNING `+sidecarWatchdogPendingActionSelectColumns,
+		id, nullIntArg(input.HoldID), input.ActionHistoryCreatedAt.UTC(), input.ActionHistoryID, nullStringArg(input.AuthID), nullStringArg(input.AuthName), nullStringArg(input.AuthIndex), nullStringArg(input.Provider),
+		strings.TrimSpace(input.ActionType), nullStringArg(input.Reason), nullIntArg(input.PreviousPriority), nullIntArg(input.TargetPriority), nullTimeArg(input.HoldUntil), input.AttemptCount, nullTimeArg(input.LastAttemptAt), nullStringArg(input.LastErrorMessage), input.SidecarID,
+	)
+	record, err := scanSidecarWatchdogPendingAction(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogPendingAction{}, notFoundError("sidecar watchdog pending action not found")
+	}
+	if err != nil {
+		return SidecarWatchdogPendingAction{}, mapStoreError(err)
+	}
+	return record, nil
+}
+
+func (s *Store) ListWatchdogPendingActions(ctx context.Context, sidecarID int) ([]SidecarWatchdogPendingAction, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+sidecarWatchdogPendingActionSelectColumns+` FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1 ORDER BY created_at ASC, id ASC`, sidecarID)
+	if err != nil {
+		return nil, fmt.Errorf("query sidecar watchdog pending actions: %w", err)
+	}
+	defer rows.Close()
+	records := make([]SidecarWatchdogPendingAction, 0)
+	for rows.Next() {
+		record, scanErr := scanSidecarWatchdogPendingAction(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sidecar watchdog pending actions: %w", err)
+	}
+	return records, nil
+}
+
+func (s *Store) ClaimWatchdogPendingActions(ctx context.Context, sidecarID int, limit int) ([]SidecarWatchdogPendingAction, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	if sidecarID <= 0 {
+		return nil, invalidInputError("sidecar_id is required")
+	}
+	claimed, err := pgxutil.InTxValue(ctx, s.pool, "sidecar_watchdog_pending_actions_claim", func(tx pgx.Tx) ([]SidecarWatchdogPendingAction, error) {
+		query := `WITH claimable AS (SELECT id FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1 AND action_type IN ('deprioritize', 'restore') ORDER BY created_at ASC, id ASC`
+		args := []any{sidecarID}
+		if limit > 0 {
+			query += ` LIMIT $2`
+			args = append(args, limit)
+		}
+		query += ` FOR UPDATE SKIP LOCKED) UPDATE sidecar_watchdog_pending_actions pending SET attempt_count = pending.attempt_count + 1, last_attempt_at = now(), last_error_message = NULL, updated_at = now() FROM claimable WHERE pending.id = claimable.id RETURNING ` + sidecarWatchdogPendingActionClaimColumns
+		rows, err := tx.Query(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("claim sidecar watchdog pending actions: %w", err)
+		}
+		defer rows.Close()
+		records := make([]SidecarWatchdogPendingAction, 0)
+		for rows.Next() {
+			record, scanErr := scanSidecarWatchdogPendingAction(rows)
+			if scanErr != nil {
+				return nil, scanErr
+			}
+			records = append(records, record)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate claimed sidecar watchdog pending actions: %w", err)
+		}
+		sort.Slice(records, func(i, j int) bool {
+			if records[i].CreatedAt.Equal(records[j].CreatedAt) {
+				return records[i].ID < records[j].ID
+			}
+			return records[i].CreatedAt.Before(records[j].CreatedAt)
+		})
+		return records, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return claimed, nil
+}
+
+func (s *Store) DeleteWatchdogPendingAction(ctx context.Context, sidecarID int, id int) (bool, error) {
+	if err := s.requirePool(); err != nil {
+		return false, err
+	}
+	if sidecarID <= 0 || id <= 0 {
+		return false, invalidInputError("sidecar_id and id are required")
+	}
+	commandTag, err := s.pool.Exec(ctx, `DELETE FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1 AND id = $2`, sidecarID, id)
+	if err != nil {
+		return false, fmt.Errorf("delete sidecar watchdog pending action: %w", err)
+	}
+	return commandTag.RowsAffected() > 0, nil
+}
+
+func (s *Store) DeleteWatchdogPendingActionByHistoryKey(ctx context.Context, sidecarID int, createdAt time.Time, id int) (bool, error) {
+	if err := s.requirePool(); err != nil {
+		return false, err
+	}
+	if sidecarID <= 0 || id <= 0 || createdAt.IsZero() {
+		return false, invalidInputError("sidecar_id, created_at, and id are required")
+	}
+	commandTag, err := s.pool.Exec(ctx, `DELETE FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1 AND action_history_created_at = $2 AND action_history_id = $3`, sidecarID, createdAt.UTC(), id)
+	if err != nil {
+		return false, fmt.Errorf("delete sidecar watchdog pending action by history key: %w", err)
+	}
+	return commandTag.RowsAffected() > 0, nil
+}
+
 const sidecarInstanceSelectColumns = `id, name, base_url, base_url_canonical, management_password, enabled, environment_label,
 sync_interval_seconds, request_timeout_seconds, allow_private_network, allow_insecure_http,
 skip_tls_verify, last_sync_at, last_successful_sync_at, snapshot_stale_after,
@@ -1005,24 +1471,42 @@ status_message, disabled, unavailable, priority, quota_exceeded, quota_reason,
 quota_next_recover_at, next_retry_after, success_count, failed_count,
 recent_requests_json, model_states_json, snapshot_json, observed_at, created_at, updated_at`
 
+const sidecarAuthQuotaStateSelectColumns = `sidecar_id, auth_id, auth_index, auth_name, provider, snapshot_observed_at,
+state, probe_status, quota_exceeded, quota_reason, quota_reset_at, blocking_window,
+last_observation_id, last_probed_at, last_error_code, created_at, updated_at`
+
+const sidecarQuotaScanRunSelectColumns = `id, sidecar_id, scan_type, status, requested_by, cursor_auth_id,
+planned_count, attempted_count, succeeded_count, quota_exceeded_count, failed_count,
+unsupported_count, missing_index_count, cancel_requested_at, started_at, completed_at,
+last_error_code, created_at, updated_at`
+
 const sidecarProviderSnapshotSelectColumns = `id, sidecar_id, provider_key, provider_item_key, name, label,
 status, disabled, snapshot_json, observed_at, created_at, updated_at`
 
 const sidecarWatchdogPolicySelectColumns = `id, sidecar_id, enabled, failure_threshold, failure_window_seconds,
 fallback_cooldown_seconds, deprioritized_priority, prioritized_priority, manual_override_pause_seconds,
-probe_batch_size, probe_timeout_seconds, probe_cursor_auth_id, created_at, updated_at`
+probe_batch_size, probe_timeout_seconds, probe_batch_cooldown_seconds, quota_inventory_enabled,
+initial_scan_enabled, rolling_refresh_enabled, rolling_refresh_after_seconds, probe_last_batch_completed_at,
+created_at, updated_at`
 
 const sidecarWatchdogProbeObservationSelectColumns = `id, sidecar_id, auth_id, auth_index, provider, probed_at,
 probe_status, upstream_status_code, quota_exceeded, quota_reason, quota_reset_at,
 blocking_window, windows_json, error_code, created_at`
 
 const sidecarWatchdogHoldSelectColumns = `id, sidecar_id, auth_id, auth_index, provider, reason, condition_hash,
-previous_priority, target_priority, hold_until, manual_pause_until, status, last_action_id,
-created_at, updated_at, released_at`
+previous_priority, target_priority, hold_until, manual_pause_until, status, created_at, updated_at, released_at`
 
 const sidecarWatchdogActionSelectColumns = `id, sidecar_id, auth_snapshot_id, hold_id, auth_id, auth_name, auth_index,
 provider, action_type, reason, previous_priority, target_priority, hold_until, status,
 error_message, created_at, updated_at, completed_at`
+
+const sidecarWatchdogPendingActionSelectColumns = `id, sidecar_id, hold_id, action_history_created_at, action_history_id,
+auth_id, auth_name, auth_index, provider, action_type, reason, previous_priority,
+target_priority, hold_until, attempt_count, last_attempt_at, last_error_message, created_at, updated_at`
+
+const sidecarWatchdogPendingActionClaimColumns = `pending.id, pending.sidecar_id, pending.hold_id, pending.action_history_created_at, pending.action_history_id,
+pending.auth_id, pending.auth_name, pending.auth_index, pending.provider, pending.action_type, pending.reason, pending.previous_priority,
+pending.target_priority, pending.hold_until, pending.attempt_count, pending.last_attempt_at, pending.last_error_message, pending.created_at, pending.updated_at`
 
 func (s *Store) normalizeInstanceInput(input SidecarInstanceInput) (SidecarInstanceInput, error) {
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.BaseURL) == "" || strings.TrimSpace(input.BaseURLCanonical) == "" {
@@ -1084,6 +1568,26 @@ func normalizePolicyInput(input SidecarWatchdogPolicyInput) (SidecarWatchdogPoli
 	}
 	if input.ProbeTimeoutSeconds <= 0 {
 		input.ProbeTimeoutSeconds = DefaultProbeTimeoutSeconds
+	}
+	if input.ProbeBatchCooldownSeconds == nil || *input.ProbeBatchCooldownSeconds <= 0 {
+		value := DefaultProbeBatchCooldownSeconds
+		input.ProbeBatchCooldownSeconds = &value
+	}
+	if input.QuotaInventoryEnabled == nil {
+		value := true
+		input.QuotaInventoryEnabled = &value
+	}
+	if input.InitialScanEnabled == nil {
+		value := true
+		input.InitialScanEnabled = &value
+	}
+	if input.RollingRefreshEnabled == nil {
+		value := true
+		input.RollingRefreshEnabled = &value
+	}
+	if input.RollingRefreshAfterSeconds == nil || *input.RollingRefreshAfterSeconds <= 0 {
+		value := DefaultRollingRefreshAfterSeconds
+		input.RollingRefreshAfterSeconds = &value
 	}
 	if input.DeprioritizedPriority < 0 || input.PrioritizedPriority < 0 {
 		return SidecarWatchdogPolicyInput{}, invalidInputError("watchdog priorities must be non-negative")
@@ -1220,6 +1724,89 @@ func scanSidecarAuthSnapshot(scanner interface{ Scan(...any) error }) (SidecarAu
 	return record, nil
 }
 
+func scanSidecarAuthQuotaState(scanner interface{ Scan(...any) error }) (SidecarAuthQuotaState, error) {
+	var record SidecarAuthQuotaState
+	var authIndex, authName, provider, state, probeStatus, quotaReason, blockingWindow, lastErrorCode sql.NullString
+	var snapshotObservedAt, quotaResetAt, lastProbedAt, createdAt, updatedAt sql.NullTime
+	var quotaExceeded sql.NullBool
+	var lastObservationID sql.NullInt64
+	err := scanner.Scan(
+		&record.SidecarID,
+		&record.AuthID,
+		&authIndex,
+		&authName,
+		&provider,
+		&snapshotObservedAt,
+		&state,
+		&probeStatus,
+		&quotaExceeded,
+		&quotaReason,
+		&quotaResetAt,
+		&blockingWindow,
+		&lastObservationID,
+		&lastProbedAt,
+		&lastErrorCode,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return SidecarAuthQuotaState{}, err
+	}
+	record.AuthIndex = stringFromNull(authIndex)
+	record.AuthName = stringFromNull(authName)
+	record.Provider = stringFromNull(provider)
+	record.SnapshotObservedAt = timeFromNull(snapshotObservedAt)
+	record.State = strings.TrimSpace(stringValue(stringFromNull(state)))
+	record.ProbeStatus = stringFromNull(probeStatus)
+	record.QuotaExceeded = boolValue(boolFromNull(quotaExceeded), false)
+	record.QuotaReason = stringFromNull(quotaReason)
+	record.QuotaResetAt = timeFromNull(quotaResetAt)
+	record.BlockingWindow = stringFromNull(blockingWindow)
+	record.LastObservationID = intFromNull(lastObservationID)
+	record.LastProbedAt = timeFromNull(lastProbedAt)
+	record.LastErrorCode = stringFromNull(lastErrorCode)
+	record.CreatedAt = createdAt.Time
+	record.UpdatedAt = updatedAt.Time
+	return record, nil
+}
+
+func scanSidecarQuotaScanRun(scanner interface{ Scan(...any) error }) (SidecarQuotaScanRun, error) {
+	var record SidecarQuotaScanRun
+	var requestedBy, cursorAuthID, lastErrorCode sql.NullString
+	var cancelRequestedAt, startedAt, completedAt sql.NullTime
+	err := scanner.Scan(
+		&record.ID,
+		&record.SidecarID,
+		&record.ScanType,
+		&record.Status,
+		&requestedBy,
+		&cursorAuthID,
+		&record.PlannedCount,
+		&record.AttemptedCount,
+		&record.SucceededCount,
+		&record.QuotaExceededCount,
+		&record.FailedCount,
+		&record.UnsupportedCount,
+		&record.MissingIndexCount,
+		&cancelRequestedAt,
+		&startedAt,
+		&completedAt,
+		&lastErrorCode,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	)
+	if err != nil {
+		return SidecarQuotaScanRun{}, err
+	}
+	record.RequestedBy = stringFromNull(requestedBy)
+	record.CursorAuthID = stringFromNull(cursorAuthID)
+	record.CancelRequestedAt = timeFromNull(cancelRequestedAt)
+	record.StartedAt = timeFromNull(startedAt)
+	record.CompletedAt = timeFromNull(completedAt)
+	record.LastErrorCode = stringFromNull(lastErrorCode)
+	return record, nil
+}
+
 func scanSidecarProviderSnapshot(scanner interface{ Scan(...any) error }) (SidecarProviderSnapshot, error) {
 	var record SidecarProviderSnapshot
 	var name, label, status sql.NullString
@@ -1252,7 +1839,7 @@ func scanSidecarProviderSnapshot(scanner interface{ Scan(...any) error }) (Sidec
 
 func scanSidecarWatchdogPolicy(scanner interface{ Scan(...any) error }) (SidecarWatchdogPolicy, error) {
 	var record SidecarWatchdogPolicy
-	var probeCursorAuthID sql.NullString
+	var probeLastBatchCompletedAt sql.NullTime
 	err := scanner.Scan(
 		&record.ID,
 		&record.SidecarID,
@@ -1265,14 +1852,19 @@ func scanSidecarWatchdogPolicy(scanner interface{ Scan(...any) error }) (Sidecar
 		&record.ManualOverridePauseSeconds,
 		&record.ProbeBatchSize,
 		&record.ProbeTimeoutSeconds,
-		&probeCursorAuthID,
+		&record.ProbeBatchCooldownSeconds,
+		&record.QuotaInventoryEnabled,
+		&record.InitialScanEnabled,
+		&record.RollingRefreshEnabled,
+		&record.RollingRefreshAfterSeconds,
+		&probeLastBatchCompletedAt,
 		&record.CreatedAt,
 		&record.UpdatedAt,
 	)
 	if err != nil {
 		return SidecarWatchdogPolicy{}, err
 	}
-	record.ProbeCursorAuthID = stringFromNull(probeCursorAuthID)
+	record.ProbeLastBatchCompletedAt = timeFromNull(probeLastBatchCompletedAt)
 	return record, nil
 }
 
@@ -1316,7 +1908,7 @@ func scanSidecarWatchdogProbeObservation(scanner interface{ Scan(...any) error }
 func scanSidecarWatchdogHold(scanner interface{ Scan(...any) error }) (SidecarWatchdogHold, error) {
 	var record SidecarWatchdogHold
 	var authIndex, provider sql.NullString
-	var previousPriority, lastActionID sql.NullInt64
+	var previousPriority sql.NullInt64
 	var holdUntil, manualPauseUntil, releasedAt sql.NullTime
 	err := scanner.Scan(
 		&record.ID,
@@ -1331,7 +1923,6 @@ func scanSidecarWatchdogHold(scanner interface{ Scan(...any) error }) (SidecarWa
 		&holdUntil,
 		&manualPauseUntil,
 		&record.Status,
-		&lastActionID,
 		&record.CreatedAt,
 		&record.UpdatedAt,
 		&releasedAt,
@@ -1344,7 +1935,6 @@ func scanSidecarWatchdogHold(scanner interface{ Scan(...any) error }) (SidecarWa
 	record.PreviousPriority = intFromNull(previousPriority)
 	record.HoldUntil = timeFromNull(holdUntil)
 	record.ManualPauseUntil = timeFromNull(manualPauseUntil)
-	record.LastActionID = intFromNull(lastActionID)
 	record.ReleasedAt = timeFromNull(releasedAt)
 	return record, nil
 }
@@ -1389,6 +1979,57 @@ func scanSidecarWatchdogAction(scanner interface{ Scan(...any) error }) (Sidecar
 	record.HoldUntil = timeFromNull(holdUntil)
 	record.ErrorMessage = stringFromNull(errorMessage)
 	record.CompletedAt = timeFromNull(completedAt)
+	return record, nil
+}
+
+func scanSidecarWatchdogPendingAction(scanner interface{ Scan(...any) error }) (SidecarWatchdogPendingAction, error) {
+	var record SidecarWatchdogPendingAction
+	var holdID, actionHistoryID, previousPriority, targetPriority, attemptCount sql.NullInt64
+	var authID, authName, authIndex, provider, actionType, reason, lastErrorMessage sql.NullString
+	var actionHistoryCreatedAt, holdUntil, lastAttemptAt, createdAt, updatedAt sql.NullTime
+	err := scanner.Scan(
+		&record.ID,
+		&record.SidecarID,
+		&holdID,
+		&actionHistoryCreatedAt,
+		&actionHistoryID,
+		&authID,
+		&authName,
+		&authIndex,
+		&provider,
+		&actionType,
+		&reason,
+		&previousPriority,
+		&targetPriority,
+		&holdUntil,
+		&attemptCount,
+		&lastAttemptAt,
+		&lastErrorMessage,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return SidecarWatchdogPendingAction{}, err
+	}
+	record.HoldID = intFromNull(holdID)
+	record.ActionHistoryCreatedAt = actionHistoryCreatedAt.Time
+	record.ActionHistoryID = int(actionHistoryID.Int64)
+	record.AuthID = stringFromNull(authID)
+	record.AuthName = stringFromNull(authName)
+	record.AuthIndex = stringFromNull(authIndex)
+	record.Provider = stringFromNull(provider)
+	record.ActionType = strings.TrimSpace(actionType.String)
+	record.Reason = stringFromNull(reason)
+	record.PreviousPriority = intFromNull(previousPriority)
+	record.TargetPriority = intFromNull(targetPriority)
+	record.HoldUntil = timeFromNull(holdUntil)
+	if attemptCount.Valid {
+		record.AttemptCount = int(attemptCount.Int64)
+	}
+	record.LastAttemptAt = timeFromNull(lastAttemptAt)
+	record.LastErrorMessage = stringFromNull(lastErrorMessage)
+	record.CreatedAt = createdAt.Time
+	record.UpdatedAt = updatedAt.Time
 	return record, nil
 }
 
@@ -1572,6 +2213,8 @@ func mapStoreError(err error) error {
 				return &StoreError{Code: StoreErrorDuplicateSidecarCanonicalURL, Message: "sidecar canonical base URL already exists", Err: err}
 			case "uq_sidecar_watchdog_holds_active_auth":
 				return &StoreError{Code: StoreErrorDuplicateActiveHold, Message: "active sidecar watchdog hold already exists", Err: err}
+			case "uq_sidecar_quota_scan_runs_active_sidecar":
+				return &StoreError{Code: StoreErrorInvalidInput, Message: "active quota scan run already exists for sidecar", Err: err}
 			}
 		}
 		if pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22P02" {

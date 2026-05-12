@@ -117,7 +117,8 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 	if err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
-	if _, err := s.store.ReplaceAuthSnapshots(ctx, instance.ID, authInputs); err != nil {
+	authSnapshots, err := s.store.ReplaceAuthSnapshots(ctx, instance.ID, authInputs)
+	if err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
 	providerSnapshotCount := 0
@@ -135,6 +136,9 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 			}
 			providerSnapshotCount++
 		}
+	}
+	if err := s.materializeAuthQuotaStates(ctx, instance.ID, authSnapshots, syncedAt); err != nil {
+		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
 	updated, err := s.finishSyncSuccess(ctx, instance, syncedAt)
 	if err != nil {
@@ -174,6 +178,38 @@ func (s *Service) collectSidecarSnapshots(ctx context.Context, sidecarID int, ob
 		providerBatches = append(providerBatches, SidecarProviderSnapshotBatch{ProviderKey: endpoint.ResponseKey, Inputs: inputs, Replace: true})
 	}
 	return authInputs, providerBatches, nil
+}
+
+type authQuotaStateStore interface {
+	ListAuthQuotaStates(context.Context, int) ([]SidecarAuthQuotaState, error)
+	UpsertAuthQuotaState(context.Context, SidecarAuthQuotaStateInput) (SidecarAuthQuotaState, error)
+}
+
+func (s *Service) materializeAuthQuotaStates(ctx context.Context, sidecarID int, snapshots []SidecarAuthSnapshot, observedAt time.Time) error {
+	stateStore, ok := s.store.(authQuotaStateStore)
+	if !ok {
+		return nil
+	}
+	currentAuthIDs := make(map[string]struct{}, len(snapshots))
+	for _, snapshot := range snapshots {
+		currentAuthIDs[snapshot.AuthID] = struct{}{}
+		if _, err := stateStore.UpsertAuthQuotaState(ctx, watchdogAuthQuotaStateInputFromSnapshot(snapshot, observedAt)); err != nil {
+			return err
+		}
+	}
+	existingStates, err := stateStore.ListAuthQuotaStates(ctx, sidecarID)
+	if err != nil {
+		return err
+	}
+	for _, state := range existingStates {
+		if _, ok := currentAuthIDs[state.AuthID]; ok {
+			continue
+		}
+		if _, err := stateStore.UpsertAuthQuotaState(ctx, watchdogMissingAuthQuotaStateInput(state, observedAt)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) finishSyncSuccess(ctx context.Context, instance SidecarInstance, syncedAt time.Time) (SidecarInstance, error) {

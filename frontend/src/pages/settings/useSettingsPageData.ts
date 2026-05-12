@@ -6,6 +6,7 @@ import { useReportingCurrencyContext } from "@/context/ReportingCurrencyContext"
 import { useLocale } from "@/i18n/useLocale";
 import { renderSectionSaveState } from "./sectionSaveState";
 import type { SettingsSaveSection } from "./settingsSaveTypes";
+import { SETTINGS_TABS, type SettingsTab } from "./settingsPageHelpers";
 import { useAuditConfigurationData } from "./useAuditConfigurationData";
 import { useAuthenticationSettingsData } from "./useAuthenticationSettingsData";
 import { useConfigBackupData } from "./useConfigBackupData";
@@ -13,7 +14,7 @@ import { useCostingSettingsData } from "./useCostingSettingsData";
 import { useRetentionDeletionData } from "./useRetentionDeletionData";
 import { useVendorManagementData } from "./useVendorManagementData";
 
-export function useSettingsPageData() {
+export function useSettingsPageData(activeTab: SettingsTab) {
   const navigate = useNavigate();
   const { messages } = useLocale();
   const { refreshAuth } = useAuth();
@@ -29,16 +30,31 @@ export function useSettingsPageData() {
     bumpRevision,
     selectedProfileId: selectedProfile?.id ?? null,
   });
-  const auth = useAuthenticationSettingsData({ navigate, refreshAuth, revision });
+  const isProfileTabActive = activeTab === SETTINGS_TABS.profile;
+  const isGlobalTabActive = activeTab === SETTINGS_TABS.global;
+  const auth = useAuthenticationSettingsData({
+    enabled: isGlobalTabActive,
+    navigate,
+    refreshAuth,
+    revision,
+  });
   const costing = useCostingSettingsData({
     bumpRevision,
+    enabled: isProfileTabActive,
     primeReportingCurrency,
     revision,
     setRecentlySavedSection,
   });
-  const audit = useAuditConfigurationData({ revision });
-  const retention = useRetentionDeletionData({ setRecentlySavedSection });
-  const vendorManagement = useVendorManagementData({ bumpRevision, revision });
+  const audit = useAuditConfigurationData({ enabled: isProfileTabActive, revision });
+  const retention = useRetentionDeletionData({
+    enabled: isGlobalTabActive,
+    setRecentlySavedSection,
+  });
+  const vendorManagement = useVendorManagementData({
+    bumpRevision,
+    enabled: isGlobalTabActive,
+    revision,
+  });
   const { vendors: auditVendors, ...auditData } = audit;
 
   useEffect(() => {

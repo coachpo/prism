@@ -20,6 +20,7 @@ import (
 	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	"github.com/coachpo/prism/backend/internal/platform/background"
 	"github.com/coachpo/prism/backend/internal/platform/config"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
 )
 
 const sidecarIntegrationManagementSecret = "integration-management-secret"
@@ -121,8 +122,19 @@ func TestSidecarIntegrationProbeLifecycleDeprioritizesRestoresAndExtendsHold(t *
 	}
 	upstream.assertFieldPatchPriorities(t, []int{0})
 	upstream.assertAPICalls(t, []string{"idx-codex-lifecycle"})
+	sidecarIntegrationSetProbeBatchCompletedAt(t, conn, sidecarID, now)
 	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-lifecycle", 10, 0, resetAt)
 	sidecarIntegrationAssertProbeObservation(t, conn, sidecarID, "auth-codex-lifecycle", "probe_succeeded", true, 0)
+	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 1)
+	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
+
+	result, err = service.ReconcileSidecarWatchdog(ctx, sidecarID)
+	if err != nil || !result.Reconciled || result.Probed != 0 {
+		t.Fatalf("expected pending deprioritize repair before due-hold probe, result=%+v err=%v", result, err)
+	}
+	upstream.assertAPICalls(t, []string{"idx-codex-lifecycle"})
+	sidecarIntegrationClearProbeBatchCompletedAt(t, conn, sidecarID)
+	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 0)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 
 	now = resetAt.Add(time.Minute)
@@ -200,7 +212,7 @@ func TestConcurrentLeaseWatchdogIntegrationReconcileSkipsOverlap(t *testing.T) {
 	upstream.assertAPICalls(t, []string{"idx-codex-concurrent"})
 	upstream.assertFieldPatchPriorities(t, []int{0})
 	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-concurrent", 10, 0, resetAt)
-	sidecarIntegrationAssertProbeCursor(t, conn, sidecarID, "auth-codex-concurrent")
+	sidecarIntegrationAssertPolicyCursorRemoved(t, conn)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
 
@@ -310,12 +322,13 @@ func TestSidecarIntegrationProbeCursorRotation(t *testing.T) {
 	if _, err := service.ReconcileSidecarWatchdog(ctx, sidecarID); err != nil {
 		t.Fatalf("first cursor reconcile: %v", err)
 	}
+	sidecarIntegrationSetProbeBatchCompletedAt(t, conn, sidecarID, now)
 	now = now.Add(time.Minute)
 	if _, err := service.ReconcileSidecarWatchdog(ctx, sidecarID); err != nil {
 		t.Fatalf("second cursor reconcile: %v", err)
 	}
 	upstream.assertAPICalls(t, []string{"idx-codex-a", "idx-codex-b"})
-	sidecarIntegrationAssertProbeCursor(t, conn, sidecarID, "auth-codex-b")
+	sidecarIntegrationAssertPolicyCursorRemoved(t, conn)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
 
@@ -370,6 +383,115 @@ func TestSidecarIntegrationWatchdogManagementAuthPauseSkipsProbes(t *testing.T) 
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
 
+func TestSidecarIntegrationManualQuotaScanLifecycleAndPrivacy(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	now := time.Date(2026, time.May, 11, 17, 0, 0, 0, time.UTC)
+	conn, service, router := newSidecarIntegrationServiceRouterWithNow(t, ctx, func() time.Time { return now })
+	upstream := newSidecarIntegrationUpstream(t)
+	defer upstream.Close()
+	upstream.setAuthFiles(
+		sidecarIntegrationCodexAuthFixture("auth-a-low", "idx-low", 0),
+		sidecarIntegrationCodexAuthFixture("auth-z-high", "idx-high", 0),
+	)
+	upstream.setAPICallResponse("idx-low", sidecarIntegrationAPICallResponse{StatusCode: http.StatusOK, Body: sidecarIntegrationHealthyUsageBody()})
+	upstream.setAPICallResponse("idx-high", sidecarIntegrationAPICallResponse{StatusCode: http.StatusOK, Body: sidecarIntegrationHealthyUsageBody()})
+	sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "manual-quota-scan")
+	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, 2)
+	sidecarIntegrationEnableQuotaInventory(t, conn, sidecarID)
+
+	startBody, scan := sidecarIntegrationRequestJSON(t, router, http.MethodPost, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans", map[string]any{"requested_by": "integration-operator"}, http.StatusAccepted)
+	sidecarIntegrationAssertNoLeaks(t, startBody)
+	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, startBody, "idx-low", "idx-high")
+	if scan["status"] != "queued" || sidecarIntegrationInt(t, scan["planned_count"], "planned_count") != 2 {
+		t.Fatalf("expected queued manual quota scan with two planned auths, got %+v", scan)
+	}
+	scanID := sidecarIntegrationInt(t, scan["id"], "id")
+	upstream.assertAPICalls(t, nil)
+
+	result, err := service.ReconcileSidecarWatchdog(ctx, sidecarID)
+	if err != nil || result.Probed != 1 {
+		t.Fatalf("expected first scan reconcile to probe one auth, result=%+v err=%v", result, err)
+	}
+	upstream.assertAPICalls(t, []string{"idx-low"})
+
+	currentBody, current := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, http.StatusOK)
+	sidecarIntegrationAssertNoLeaks(t, currentBody)
+	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, currentBody, "idx-low", "idx-high")
+	if current["status"] != "running" || sidecarIntegrationInt(t, current["attempted_count"], "attempted_count") != 1 {
+		t.Fatalf("expected running scan after first probe, got %+v", current)
+	}
+
+	statesBody, states := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-states", nil, http.StatusOK)
+	sidecarIntegrationAssertNoLeaks(t, statesBody)
+	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, statesBody, "idx-low", "idx-high")
+	sidecarIntegrationAssertQuotaState(t, states, "auth-a-low", "healthy", true, 0, false)
+
+	cancelBody, cancelled := sidecarIntegrationRequestJSON(t, router, http.MethodPost, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/"+strconv.Itoa(scanID)+"/cancel", nil, http.StatusAccepted)
+	sidecarIntegrationAssertNoLeaks(t, cancelBody)
+	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, cancelBody, "idx-low", "idx-high")
+	if cancelled["status"] != "cancelled" || cancelled["cancel_requested_at"] == nil || cancelled["completed_at"] == nil {
+		t.Fatalf("expected cancelled quota scan lifecycle fields, got %+v", cancelled)
+	}
+	missingBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, http.StatusNoContent)
+	sidecarIntegrationAssertNoLeaks(t, missingBody)
+	listBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans", nil, http.StatusOK)
+	sidecarIntegrationAssertNoLeaks(t, listBody)
+	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, listBody, "idx-low", "idx-high")
+	if !strings.Contains(listBody, "cancelled") {
+		t.Fatalf("expected cancelled scan in scan history, got %s", listBody)
+	}
+	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
+}
+
+func TestSidecarIntegrationWatchdogWorkerCooldownSkipsFailedHoldAcrossTicks(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	now := time.Date(2026, time.May, 11, 18, 0, 0, 0, time.UTC)
+	conn, service, router := newSidecarIntegrationServiceRouterWithNow(t, ctx, func() time.Time { return now })
+	upstream := newSidecarIntegrationUpstream(t)
+	defer upstream.Close()
+	upstream.setAPICallResponse("idx-cooldown-1", sidecarIntegrationAPICallResponse{StatusCode: http.StatusInternalServerError, Body: `{"error":"upstream"}`})
+	upstream.setAPICallResponse("idx-cooldown-2", sidecarIntegrationAPICallResponse{StatusCode: http.StatusInternalServerError, Body: `{"error":"upstream"}`})
+	sidecarID := sidecarIntegrationCreateOnlySidecar(t, conn, router, upstream, "cooldown-worker")
+	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, 2)
+	sidecarIntegrationInsertWatchdogHold(t, conn, sidecarID, "auth-cooldown-1", "idx-cooldown-1", "codex", 10, 0, now.Add(-2*time.Hour))
+	sidecarIntegrationInsertWatchdogHold(t, conn, sidecarID, "auth-cooldown-2", "idx-cooldown-2", "codex", 10, 0, now.Add(-time.Hour))
+
+	sidecarIntegrationRunWatchdogWorker(t, ctx, service, "first failed hold")
+	upstream.assertAPICalls(t, []string{"idx-cooldown-1"})
+	now = now.Add(time.Second)
+	sidecarIntegrationRunWatchdogWorker(t, ctx, service, "second failed hold")
+	upstream.assertAPICalls(t, []string{"idx-cooldown-1", "idx-cooldown-2"})
+	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
+}
+
+func TestSidecarIntegrationQueueBackedRepairPatchesAndClearsPendingAction(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	now := time.Date(2026, time.May, 11, 19, 0, 0, 0, time.UTC)
+	conn, service, router := newSidecarIntegrationServiceRouterWithNow(t, ctx, func() time.Time { return now })
+	upstream := newSidecarIntegrationUpstream(t)
+	defer upstream.Close()
+	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-queue-repair", "idx-queue-repair", 10))
+	sidecarID := sidecarIntegrationCreateOnlySidecar(t, conn, router, upstream, "queue-repair")
+	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, 2)
+	holdUntil := now.Add(2 * time.Hour)
+	sidecarIntegrationInsertPendingRepairAction(t, conn, sidecarID, now, "auth-queue-repair", "auth-queue-repair.json", "idx-queue-repair", 10, 0, holdUntil)
+	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 1)
+	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
+
+	result, err := service.ReconcileSidecarWatchdog(ctx, sidecarID)
+	if err != nil || !result.Reconciled || result.QuotaHeld != 1 {
+		t.Fatalf("expected pending queue repair to patch and create hold, result=%+v err=%v", result, err)
+	}
+	upstream.assertFieldPatchPriorities(t, []int{0})
+	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 0)
+	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-queue-repair", 10, 0, holdUntil)
+	sidecarIntegrationAssertAction(t, conn, sidecarID, "deprioritize", "succeeded")
+	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
+}
+
 func newSidecarIntegrationRouter(t *testing.T, ctx context.Context) (*pgx.Conn, http.Handler) {
 	t.Helper()
 	conn, _, router := newSidecarIntegrationServiceRouter(t, ctx)
@@ -403,6 +525,10 @@ func newSidecarIntegrationServiceRouterPoolWithNow(t *testing.T, ctx context.Con
 		t.Fatalf("open sidecar integration pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	retentionStore := logretention.NewStore(logretention.Options{Pool: pool, Now: now})
+	if err := retentionStore.EnsurePartitionHorizonForTable(ctx, "sidecar_watchdog_actions"); err != nil {
+		t.Fatalf("ensure sidecar action-history partitions: %v", err)
+	}
 	service, err := managementsidecars.NewService(config.Settings{SecretEncryptionKey: "sidecar-integration-secret"}, managementsidecars.Options{Pool: pool, Now: now})
 	if err != nil {
 		t.Fatalf("build sidecar integration service: %v", err)
@@ -450,8 +576,11 @@ func sidecarIntegrationAssertDBNoLeaks(t *testing.T, conn *pgx.Conn, sidecarID i
 		COALESCE((SELECT string_agg(snapshot_json::text, ' ') FROM sidecar_auth_snapshots WHERE sidecar_id = $1), ''),
 		COALESCE((SELECT string_agg(snapshot_json::text, ' ') FROM sidecar_provider_snapshots WHERE sidecar_id = $1), ''),
 		COALESCE((SELECT string_agg(concat_ws(' ', reason, condition_hash), ' ') FROM sidecar_watchdog_holds WHERE sidecar_id = $1), ''),
-		COALESCE((SELECT string_agg(concat_ws(' ', reason, error_message), ' ') FROM sidecar_watchdog_actions WHERE sidecar_id = $1), ''),
-		COALESCE((SELECT string_agg(concat_ws(' ', auth_index, provider, quota_reason, blocking_window, error_code, windows_json::text), ' ') FROM sidecar_watchdog_probe_observations WHERE sidecar_id = $1), '')
+		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_name, auth_index, provider, action_type, reason, error_message), ' ') FROM sidecar_watchdog_actions WHERE sidecar_id = $1), ''),
+		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_name, auth_index, provider, action_type, reason, last_error_message), ' ') FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1), ''),
+		COALESCE((SELECT string_agg(concat_ws(' ', requested_by, cursor_auth_id, status, last_error_code), ' ') FROM sidecar_quota_scan_runs WHERE sidecar_id = $1), ''),
+		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_index, auth_name, provider, state, probe_status, quota_reason, blocking_window, last_error_code), ' ') FROM sidecar_auth_quota_states WHERE sidecar_id = $1), ''),
+		COALESCE((SELECT string_agg(concat_ws(' ', auth_id, auth_index, provider, quota_reason, blocking_window, error_code, windows_json::text), ' ') FROM sidecar_quota_probe_observations WHERE sidecar_id = $1), '')
 	)`, sidecarID).Scan(&combined); err != nil {
 		t.Fatalf("collect sidecar persisted strings: %v", err)
 	}
@@ -478,6 +607,61 @@ func sidecarIntegrationAssertNoLeaks(t *testing.T, value string) {
 		if strings.Contains(value, secret) {
 			t.Fatalf("sidecar integration value leaked %q in %s", secret, value)
 		}
+	}
+}
+
+func sidecarIntegrationAssertQuotaRouteNoInternalLeak(t *testing.T, value string, internals ...string) {
+	t.Helper()
+	for _, marker := range append([]string{`"auth_index":`, `"cursor_auth_id":`, `"last_observation_id":`}, internals...) {
+		if strings.Contains(value, marker) {
+			t.Fatalf("quota route leaked internal marker %q in %s", marker, value)
+		}
+	}
+}
+
+func sidecarIntegrationAssertQuotaState(t *testing.T, payload map[string]any, authID string, quotaState string, authIndexPresent bool, currentPriority int, activeHold bool) {
+	t.Helper()
+	items, ok := payload["items"].([]any)
+	if !ok {
+		t.Fatalf("expected quota-state items array, got %+v", payload)
+	}
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok || item["auth_id"] != authID {
+			continue
+		}
+		if item["quota_state"] != quotaState || item["auth_index_present"] != authIndexPresent || item["active_hold"] != activeHold {
+			t.Fatalf("unexpected quota state for %s: %+v", authID, item)
+		}
+		if item["current_priority"] == nil {
+			t.Fatalf("expected current_priority for %s, got %+v", authID, item)
+		}
+		if sidecarIntegrationInt(t, item["current_priority"], "current_priority") != currentPriority {
+			t.Fatalf("unexpected current_priority for %s: %+v", authID, item)
+		}
+		if lastSnapshotAt, ok := item["last_snapshot_at"]; ok && lastSnapshotAt == nil {
+			t.Fatalf("expected last_snapshot_at for %s when present, got %+v", authID, item)
+		}
+		return
+	}
+	t.Fatalf("quota state for %s not found in %+v", authID, payload)
+}
+
+func sidecarIntegrationRunWatchdogWorker(t *testing.T, ctx context.Context, service *managementsidecars.Service, label string) {
+	t.Helper()
+	scheduler := background.NewScheduler(background.Config{})
+	if err := service.RegisterBackgroundWorker(scheduler); err != nil {
+		t.Fatalf("register sidecar workers for %s: %v", label, err)
+	}
+	if err := scheduler.Start(ctx); err != nil {
+		t.Fatalf("start sidecar worker scheduler for %s: %v", label, err)
+	}
+	defer func() { _ = scheduler.Stop(context.Background(), time.Now().Add(time.Second)) }()
+	if got := scheduler.Submit(ctx, background.JobRequest{Worker: managementsidecars.SidecarWatchdogWorkerName}); got.Status != background.SubmitAccepted {
+		t.Fatalf("submit watchdog worker for %s: %+v", label, got)
+	}
+	if drain := scheduler.Drain(ctx, time.Now().Add(5*time.Second)); drain.TimedOut || drain.Failed != 0 {
+		t.Fatalf("watchdog worker drain failed for %s: %+v", label, drain)
 	}
 }
 
@@ -520,14 +704,27 @@ func sidecarIntegrationEnableProbePolicy(t *testing.T, conn *pgx.Conn, sidecarID
 	t.Helper()
 	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (
 sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
-deprioritized_priority, prioritized_priority, manual_override_pause_seconds, probe_batch_size, probe_timeout_seconds)
-VALUES ($1, true, 3, 3600, 86400, 0, 1, 1800, $2, $3)
+deprioritized_priority, prioritized_priority, manual_override_pause_seconds, probe_batch_size, probe_timeout_seconds,
+quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled)
+VALUES ($1, true, 3, 3600, 86400, 0, 1, 1800, $2, $3, false, false, true)
 ON CONFLICT (sidecar_id) DO UPDATE SET enabled = true, failure_threshold = 3,
 failure_window_seconds = 3600, fallback_cooldown_seconds = 86400,
 deprioritized_priority = 0, prioritized_priority = 1, manual_override_pause_seconds = 1800,
-probe_batch_size = $2, probe_timeout_seconds = $3, probe_cursor_auth_id = NULL, updated_at = now()`, sidecarID, batchSize, timeoutSeconds)
+probe_batch_size = $2, probe_timeout_seconds = $3,
+quota_inventory_enabled = false, initial_scan_enabled = false, rolling_refresh_enabled = true,
+updated_at = now()`, sidecarID, batchSize, timeoutSeconds)
 	if err != nil {
 		t.Fatalf("enable probe policy: %v", err)
+	}
+}
+
+func sidecarIntegrationEnableQuotaInventory(t *testing.T, conn *pgx.Conn, sidecarID int) {
+	t.Helper()
+	_, err := conn.Exec(context.Background(), `UPDATE sidecar_watchdog_policies
+SET quota_inventory_enabled = true, initial_scan_enabled = true, rolling_refresh_enabled = false, updated_at = now()
+WHERE sidecar_id = $1`, sidecarID)
+	if err != nil {
+		t.Fatalf("enable quota inventory policy: %v", err)
 	}
 }
 
@@ -544,7 +741,7 @@ VALUES ($1, $2, $3, $4, 'quota_exceeded', $5, $6, $7, $8, 'active')`, sidecarID,
 
 func sidecarIntegrationInsertProbeObservation(t *testing.T, conn *pgx.Conn, sidecarID int, authID string, probedAt time.Time) {
 	t.Helper()
-	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_probe_observations (
+	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_quota_probe_observations (
 sidecar_id, auth_id, auth_index, provider, probed_at, probe_status, quota_exceeded, windows_json)
 VALUES ($1, $2, $3, 'codex', $4, 'probe_succeeded', false, '[]'::jsonb)`, sidecarID, authID, "idx-"+authID, probedAt)
 	if err != nil {
@@ -571,6 +768,43 @@ SET auth_failure_pause_until = $2, management_auth_state = 'invalid_management_a
 WHERE id = $1`, sidecarID, pausedUntil)
 	if err != nil {
 		t.Fatalf("pause sidecar management auth: %v", err)
+	}
+}
+
+func sidecarIntegrationInsertPendingRepairAction(t *testing.T, conn *pgx.Conn, sidecarID int, createdAt time.Time, authID string, authName string, authIndex string, previousPriority int, targetPriority int, holdUntil time.Time) {
+	t.Helper()
+	var actionID int
+	if err := conn.QueryRow(context.Background(), `INSERT INTO sidecar_watchdog_actions (
+sidecar_id, auth_id, auth_name, auth_index, provider, action_type, reason,
+previous_priority, target_priority, hold_until, status, created_at, updated_at)
+VALUES ($1, $2, $3, $4, 'codex', 'deprioritize', 'quota_exceeded', $5, $6, $7, 'pending', $8, $8)
+RETURNING id`, sidecarID, authID, authName, authIndex, previousPriority, targetPriority, holdUntil, createdAt).Scan(&actionID); err != nil {
+		t.Fatalf("insert pending repair action history: %v", err)
+	}
+	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_pending_actions (
+sidecar_id, action_history_created_at, action_history_id, auth_id, auth_name, auth_index,
+provider, action_type, reason, previous_priority, target_priority, hold_until)
+VALUES ($1, $2, $3, $4, $5, $6, 'codex', 'deprioritize', 'quota_exceeded', $7, $8, $9)`, sidecarID, createdAt, actionID, authID, authName, authIndex, previousPriority, targetPriority, holdUntil)
+	if err != nil {
+		t.Fatalf("insert pending repair queue row: %v", err)
+	}
+}
+
+func sidecarIntegrationSetProbeBatchCompletedAt(t *testing.T, conn *pgx.Conn, sidecarID int, completedAt time.Time) {
+	t.Helper()
+	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_last_batch_completed_at)
+VALUES ($1, $2)
+ON CONFLICT (sidecar_id) DO UPDATE SET probe_last_batch_completed_at = EXCLUDED.probe_last_batch_completed_at, updated_at = now()`, sidecarID, completedAt.UTC())
+	if err != nil {
+		t.Fatalf("set probe batch completion: %v", err)
+	}
+}
+
+func sidecarIntegrationClearProbeBatchCompletedAt(t *testing.T, conn *pgx.Conn, sidecarID int) {
+	t.Helper()
+	_, err := conn.Exec(context.Background(), `UPDATE sidecar_watchdog_policies SET probe_last_batch_completed_at = NULL, updated_at = now() WHERE sidecar_id = $1`, sidecarID)
+	if err != nil {
+		t.Fatalf("clear probe batch completion: %v", err)
 	}
 }
 
@@ -614,7 +848,7 @@ func sidecarIntegrationAssertNoActiveHolds(t *testing.T, conn *pgx.Conn, sidecar
 func sidecarIntegrationAssertProbeObservation(t *testing.T, conn *pgx.Conn, sidecarID int, authID string, status string, quotaExceeded bool, upstreamStatus int) {
 	t.Helper()
 	var count int
-	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM sidecar_watchdog_probe_observations
+	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM sidecar_quota_probe_observations
 WHERE sidecar_id = $1 AND auth_id = $2 AND probe_status = $3 AND quota_exceeded = $4
 AND (($5 = 0 AND upstream_status_code IS NULL) OR upstream_status_code = $5)`, sidecarID, authID, status, quotaExceeded, upstreamStatus).Scan(&count); err != nil {
 		t.Fatalf("count probe observations: %v", err)
@@ -646,6 +880,17 @@ func sidecarIntegrationAssertActionCount(t *testing.T, conn *pgx.Conn, sidecarID
 	}
 }
 
+func sidecarIntegrationAssertPendingActionCount(t *testing.T, conn *pgx.Conn, sidecarID int, want int) {
+	t.Helper()
+	var count int
+	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM sidecar_watchdog_pending_actions WHERE sidecar_id = $1`, sidecarID).Scan(&count); err != nil {
+		t.Fatalf("count pending watchdog actions: %v", err)
+	}
+	if count != want {
+		t.Fatalf("pending watchdog action count = %d want %d for sidecar %d", count, want, sidecarID)
+	}
+}
+
 func sidecarIntegrationAssertActionMissing(t *testing.T, conn *pgx.Conn, sidecarID int, actionType string) {
 	t.Helper()
 	var count int
@@ -657,21 +902,27 @@ func sidecarIntegrationAssertActionMissing(t *testing.T, conn *pgx.Conn, sidecar
 	}
 }
 
-func sidecarIntegrationAssertProbeCursor(t *testing.T, conn *pgx.Conn, sidecarID int, want string) {
+func sidecarIntegrationAssertPolicyCursorRemoved(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
-	var got string
-	if err := conn.QueryRow(context.Background(), `SELECT COALESCE(probe_cursor_auth_id, '') FROM sidecar_watchdog_policies WHERE sidecar_id = $1`, sidecarID).Scan(&got); err != nil {
-		t.Fatalf("load probe cursor: %v", err)
+	var exists bool
+	if err := conn.QueryRow(context.Background(), `SELECT EXISTS (
+		SELECT 1
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'sidecar_watchdog_policies'
+		  AND column_name = 'probe_cursor_auth_id'
+	)`).Scan(&exists); err != nil {
+		t.Fatalf("check probe cursor column absence: %v", err)
 	}
-	if got != want {
-		t.Fatalf("probe cursor = %q want %q", got, want)
+	if exists {
+		t.Fatalf("expected probe_cursor_auth_id to be removed from sidecar_watchdog_policies")
 	}
 }
 
 func sidecarIntegrationAssertObservationRetained(t *testing.T, conn *pgx.Conn, sidecarID int, authID string, wantPresent bool) {
 	t.Helper()
 	var count int
-	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM sidecar_watchdog_probe_observations WHERE sidecar_id = $1 AND auth_id = $2`, sidecarID, authID).Scan(&count); err != nil {
+	if err := conn.QueryRow(context.Background(), `SELECT count(*) FROM sidecar_quota_probe_observations WHERE sidecar_id = $1 AND auth_id = $2`, sidecarID, authID).Scan(&count); err != nil {
 		t.Fatalf("count retained observations: %v", err)
 	}
 	if (count > 0) != wantPresent {

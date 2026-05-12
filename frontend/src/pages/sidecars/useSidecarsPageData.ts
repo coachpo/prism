@@ -4,9 +4,11 @@ import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
   SidecarActionHistoryItem,
+  SidecarAuthQuotaState,
   SidecarAuthSnapshot,
   SidecarInstance,
   SidecarProviderSnapshot,
+  SidecarQuotaScanRun,
   SidecarWatchdogPolicy,
   SidecarWatchdogPolicyUpdate,
 } from "@/lib/types";
@@ -43,10 +45,14 @@ export function useSidecarsPageData() {
   const [providerSnapshots, setProviderSnapshots] = useState<SidecarProviderSnapshot[]>([]);
   const [watchdogPolicy, setWatchdogPolicy] = useState<SidecarWatchdogPolicy | null>(null);
   const [actionHistory, setActionHistory] = useState<SidecarActionHistoryItem[]>([]);
+  const [quotaStates, setQuotaStates] = useState<SidecarAuthQuotaState[]>([]);
+  const [quotaScans, setQuotaScans] = useState<SidecarQuotaScanRun[]>([]);
   const [sidecarDetailLoading, setSidecarDetailLoading] = useState(false);
   const [watchdogPolicySaving, setWatchdogPolicySaving] = useState(false);
+  const [quotaScanMutating, setQuotaScanMutating] = useState<"start" | "cancel" | null>(null);
   const [mutatingAuthKey, setMutatingAuthKey] = useState<string | null>(null);
   const detailRequestIdRef = useRef(0);
+  const detailInFlightRef = useRef<Promise<void> | null>(null);
 
   const sortedSidecars = useMemo(
     () => [...sidecars].sort((left, right) => left.name.localeCompare(right.name)),
@@ -62,37 +68,71 @@ export function useSidecarsPageData() {
     setProviderSnapshots([]);
     setWatchdogPolicy(null);
     setActionHistory([]);
+    setQuotaStates([]);
+    setQuotaScans([]);
   }, []);
 
-  const fetchSidecarDetail = useCallback(async (sidecarId: number) => {
+  const fetchSidecarDetail = useCallback(async (sidecarId: number, options: FetchOptions = {}) => {
     const messages = getStaticMessages();
+    if (options.silent && detailInFlightRef.current) {
+      return;
+    }
     const requestId = detailRequestIdRef.current + 1;
     detailRequestIdRef.current = requestId;
-    clearSidecarDetail();
-    setSidecarDetailLoading(true);
-    try {
-      const [authResponse, providerResponse, policyResponse, actionsResponse] = await Promise.all([
-        api.sidecars.authSnapshots(sidecarId),
-        api.sidecars.providerSnapshots(sidecarId),
-        api.sidecars.watchdogPolicy(sidecarId),
-        api.sidecars.actionHistory(sidecarId),
-      ]);
-      if (detailRequestIdRef.current !== requestId) {
-        return;
-      }
-      setAuthSnapshots(authResponse.items);
-      setProviderSnapshots(providerResponse.items);
-      setWatchdogPolicy(policyResponse);
-      setActionHistory(actionsResponse.items);
-    } catch (error) {
-      if (detailRequestIdRef.current !== requestId) {
-        return;
-      }
+    if (!options.silent) {
       clearSidecarDetail();
-      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.loadSingleFailed);
+      setSidecarDetailLoading(true);
+    }
+
+    if (detailInFlightRef.current) {
+      await detailInFlightRef.current;
+      if (detailRequestIdRef.current !== requestId) {
+        return;
+      }
+    }
+
+    const loadPromise = (async () => {
+      const isCurrentRequest = () => detailRequestIdRef.current === requestId;
+      try {
+        const authResponse = await api.sidecars.authSnapshots(sidecarId);
+        if (!isCurrentRequest()) return;
+        const providerResponse = await api.sidecars.providerSnapshots(sidecarId);
+        if (!isCurrentRequest()) return;
+        const policyResponse = await api.sidecars.watchdogPolicy(sidecarId);
+        if (!isCurrentRequest()) return;
+        const actionsResponse = await api.sidecars.actionHistory(sidecarId);
+        if (!isCurrentRequest()) return;
+        const quotaStateResponse = await api.sidecars.quotaStates(sidecarId);
+        if (!isCurrentRequest()) return;
+        const quotaScanResponse = await api.sidecars.quotaScans(sidecarId);
+        if (!isCurrentRequest()) return;
+        setAuthSnapshots(authResponse.items);
+        setProviderSnapshots(providerResponse.items);
+        setWatchdogPolicy(policyResponse);
+        setActionHistory(actionsResponse.items);
+        setQuotaStates(quotaStateResponse.items);
+        setQuotaScans(quotaScanResponse.items);
+      } catch (error) {
+        if (!isCurrentRequest()) {
+          return;
+        }
+        if (!options.silent) {
+          clearSidecarDetail();
+          toast.error(error instanceof Error ? error.message : messages.sidecarsPage.loadSingleFailed);
+        }
+      } finally {
+        if (isCurrentRequest() && !options.silent) {
+          setSidecarDetailLoading(false);
+        }
+      }
+    })();
+
+    detailInFlightRef.current = loadPromise;
+    try {
+      await loadPromise;
     } finally {
-      if (detailRequestIdRef.current === requestId) {
-        setSidecarDetailLoading(false);
+      if (detailInFlightRef.current === loadPromise) {
+        detailInFlightRef.current = null;
       }
     }
   }, [clearSidecarDetail]);
@@ -144,12 +184,18 @@ export function useSidecarsPageData() {
     const poll = () => {
       if (typeof document === "undefined" || !document.hidden) {
         void fetchSidecars({ silent: true });
+        if (selectedSidecarId !== null) {
+          void fetchSidecarDetail(selectedSidecarId, { silent: true });
+        }
       }
     };
     const intervalId = window.setInterval(poll, POLL_INTERVAL_MS);
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         void fetchSidecars({ silent: true });
+        if (selectedSidecarId !== null) {
+          void fetchSidecarDetail(selectedSidecarId, { silent: true });
+        }
       }
     };
 
@@ -158,7 +204,7 @@ export function useSidecarsPageData() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchSidecars]);
+  }, [fetchSidecarDetail, fetchSidecars, selectedSidecarId]);
 
   const openCreateSidecarDialog = () => {
     setEditingSidecar(null);
@@ -289,6 +335,42 @@ export function useSidecarsPageData() {
     }
   };
 
+  const handleStartQuotaScan = async () => {
+    const messages = getStaticMessages();
+    if (selectedSidecarId === null) {
+      return;
+    }
+    setQuotaScanMutating("start");
+    try {
+      const scan = await api.sidecars.startQuotaScan(selectedSidecarId, { replace_active: false });
+      setQuotaScans((current) => [scan, ...current.filter((item) => item.id !== scan.id)]);
+      toast.success(messages.sidecarsPage.quotaScanStartSucceeded(selectedSidecar?.name ?? String(selectedSidecarId)));
+      await fetchSidecarDetail(selectedSidecarId, { silent: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.quotaScanStartFailed);
+    } finally {
+      setQuotaScanMutating(null);
+    }
+  };
+
+  const handleCancelQuotaScan = async (scan: SidecarQuotaScanRun) => {
+    const messages = getStaticMessages();
+    if (selectedSidecarId === null) {
+      return;
+    }
+    setQuotaScanMutating("cancel");
+    try {
+      const cancelled = await api.sidecars.cancelQuotaScan(selectedSidecarId, scan.id);
+      setQuotaScans((current) => current.map((item) => (item.id === cancelled.id ? cancelled : item)));
+      toast.success(messages.sidecarsPage.quotaScanCancelSucceeded);
+      await fetchSidecarDetail(selectedSidecarId, { silent: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.quotaScanCancelFailed);
+    } finally {
+      setQuotaScanMutating(null);
+    }
+  };
+
   const handlePatchAuthStatus = async (snapshot: SidecarAuthSnapshot, disabled: boolean, allowWatchdog: boolean) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
@@ -344,8 +426,11 @@ export function useSidecarsPageData() {
     providerSnapshots,
     watchdogPolicy,
     actionHistory,
+    quotaStates,
+    quotaScans,
     sidecarDetailLoading,
     watchdogPolicySaving,
+    quotaScanMutating,
     mutatingAuthKey,
     setSelectedSidecarId: handleSelectSidecar,
     openCreateSidecarDialog,
@@ -358,6 +443,8 @@ export function useSidecarsPageData() {
     handleTestConnection,
     handleManualSync,
     handleSaveWatchdogPolicy,
+    handleStartQuotaScan,
+    handleCancelQuotaScan,
     handlePatchAuthStatus,
     handlePatchAuthPriority,
     refreshSidecars: fetchSidecars,

@@ -26,6 +26,11 @@ type WatchdogPolicyForm = {
   manual_override_pause_seconds: string;
   probe_batch_size: string;
   probe_timeout_seconds: string;
+  probe_batch_cooldown_seconds: string;
+  quota_inventory_enabled: boolean;
+  initial_scan_enabled: boolean;
+  rolling_refresh_enabled: boolean;
+  rolling_refresh_after_seconds: string;
 };
 
 const DEFAULT_FORM: WatchdogPolicyForm = {
@@ -38,6 +43,11 @@ const DEFAULT_FORM: WatchdogPolicyForm = {
   manual_override_pause_seconds: "1800",
   probe_batch_size: "3",
   probe_timeout_seconds: "8",
+  probe_batch_cooldown_seconds: "30",
+  quota_inventory_enabled: true,
+  initial_scan_enabled: true,
+  rolling_refresh_enabled: true,
+  rolling_refresh_after_seconds: "86400",
 };
 
 function formFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyForm {
@@ -54,6 +64,11 @@ function formFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyFor
     manual_override_pause_seconds: String(policy.manual_override_pause_seconds),
     probe_batch_size: String(policy.probe_batch_size),
     probe_timeout_seconds: String(policy.probe_timeout_seconds),
+    probe_batch_cooldown_seconds: String(policy.probe_batch_cooldown_seconds),
+    quota_inventory_enabled: policy.quota_inventory_enabled,
+    initial_scan_enabled: policy.initial_scan_enabled,
+    rolling_refresh_enabled: policy.rolling_refresh_enabled,
+    rolling_refresh_after_seconds: String(policy.rolling_refresh_after_seconds),
   };
 }
 
@@ -100,6 +115,30 @@ function Field({
   );
 }
 
+function ToggleRow({
+  checked,
+  description,
+  id,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  description: string;
+  id: string;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-lg border bg-muted/20 p-4">
+      <div className="space-y-1">
+        <Label htmlFor={id} className="text-sm font-medium">{label}</Label>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} aria-label={label} />
+    </div>
+  );
+}
+
 export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: WatchdogPolicyPanelProps) {
   const { messages } = useLocale();
   const copy = messages.sidecarsPage;
@@ -118,6 +157,8 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
     manual_override_pause_seconds: parseWholeNumber(form.manual_override_pause_seconds, 1),
     probe_batch_size: parseWholeNumber(form.probe_batch_size, 1),
     probe_timeout_seconds: parseWholeNumber(form.probe_timeout_seconds, 1),
+    probe_batch_cooldown_seconds: parseWholeNumber(form.probe_batch_cooldown_seconds, 1),
+    rolling_refresh_after_seconds: parseWholeNumber(form.rolling_refresh_after_seconds, 1),
   }), [form]);
 
   const priorityOrderError = parsed.deprioritized_priority !== null
@@ -144,6 +185,11 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
       manual_override_pause_seconds: parsed.manual_override_pause_seconds ?? undefined,
       probe_batch_size: parsed.probe_batch_size ?? undefined,
       probe_timeout_seconds: parsed.probe_timeout_seconds ?? undefined,
+      probe_batch_cooldown_seconds: parsed.probe_batch_cooldown_seconds ?? undefined,
+      quota_inventory_enabled: form.quota_inventory_enabled,
+      initial_scan_enabled: form.initial_scan_enabled,
+      rolling_refresh_enabled: form.rolling_refresh_enabled,
+      rolling_refresh_after_seconds: parsed.rolling_refresh_after_seconds ?? undefined,
     });
   };
 
@@ -164,13 +210,13 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
           </div>
         ) : (
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-            <div className="flex items-start justify-between gap-4 rounded-lg border bg-muted/20 p-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">{copy.watchdogEnabledLabel}</p>
-                <p className="text-xs text-muted-foreground">{copy.watchdogEnabledDescription}</p>
-              </div>
-              <Switch checked={form.enabled} onCheckedChange={(checked) => updateField("enabled", checked)} aria-label={copy.watchdogEnabledLabel} />
-            </div>
+            <ToggleRow
+              id="watchdog-enabled"
+              checked={form.enabled}
+              label={copy.watchdogEnabledLabel}
+              description={copy.watchdogEnabledDescription}
+              onChange={(checked) => updateField("enabled", checked)}
+            />
 
             <div className="grid gap-3 md:grid-cols-2">
               <Field id="watchdog-failure-threshold" label={copy.watchdogFailureThresholdLabel} min={1} value={form.failure_threshold} error={parsed.failure_threshold === null} onChange={(value) => updateField("failure_threshold", value)} />
@@ -181,6 +227,32 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
               <Field id="watchdog-prioritized-priority" label={copy.watchdogPrioritizedPriorityLabel} min={0} value={form.prioritized_priority} error={parsed.prioritized_priority === null || priorityOrderError} description={copy.watchdogPrioritizedPriorityDescription} onChange={(value) => updateField("prioritized_priority", value)} />
               <Field id="watchdog-probe-batch-size" label={copy.watchdogProbeBatchSizeLabel} min={1} value={form.probe_batch_size} error={parsed.probe_batch_size === null} onChange={(value) => updateField("probe_batch_size", value)} />
               <Field id="watchdog-probe-timeout" label={copy.watchdogProbeTimeoutSecondsLabel} min={1} value={form.probe_timeout_seconds} error={parsed.probe_timeout_seconds === null} onChange={(value) => updateField("probe_timeout_seconds", value)} />
+              <Field id="watchdog-probe-batch-cooldown" label={copy.watchdogProbeBatchCooldownSecondsLabel} min={1} value={form.probe_batch_cooldown_seconds} error={parsed.probe_batch_cooldown_seconds === null} description={copy.watchdogProbeBatchCooldownDescription} onChange={(value) => updateField("probe_batch_cooldown_seconds", value)} />
+              <Field id="watchdog-rolling-refresh-after" label={copy.watchdogRollingRefreshAfterSecondsLabel} min={1} value={form.rolling_refresh_after_seconds} error={parsed.rolling_refresh_after_seconds === null} description={copy.watchdogRollingRefreshAfterDescription} onChange={(value) => updateField("rolling_refresh_after_seconds", value)} />
+            </div>
+
+            <div className="grid gap-3">
+              <ToggleRow
+                id="watchdog-quota-inventory-enabled"
+                checked={form.quota_inventory_enabled}
+                label={copy.watchdogQuotaInventoryEnabledLabel}
+                description={copy.watchdogQuotaInventoryEnabledDescription}
+                onChange={(checked) => updateField("quota_inventory_enabled", checked)}
+              />
+              <ToggleRow
+                id="watchdog-initial-scan-enabled"
+                checked={form.initial_scan_enabled}
+                label={copy.watchdogInitialScanEnabledLabel}
+                description={copy.watchdogInitialScanEnabledDescription}
+                onChange={(checked) => updateField("initial_scan_enabled", checked)}
+              />
+              <ToggleRow
+                id="watchdog-rolling-refresh-enabled"
+                checked={form.rolling_refresh_enabled}
+                label={copy.watchdogRollingRefreshEnabledLabel}
+                description={copy.watchdogRollingRefreshEnabledDescription}
+                onChange={(checked) => updateField("rolling_refresh_enabled", checked)}
+              />
             </div>
 
             <Alert className="border-warning/30 bg-warning/10">

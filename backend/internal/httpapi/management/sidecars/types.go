@@ -17,6 +17,8 @@ const (
 	DefaultManualOverridePauseSeconds     = 1800
 	DefaultProbeBatchSize                 = 3
 	DefaultProbeTimeoutSeconds            = 8
+	DefaultProbeBatchCooldownSeconds      = 30
+	DefaultRollingRefreshAfterSeconds     = 3600
 	WatchdogProbeObservationRetentionDays = 15
 	ManagementAuthStateUnknown            = "unknown"
 	ManagementAuthStateValid              = "valid"
@@ -209,6 +211,11 @@ type SidecarWatchdogPolicyInput struct {
 	ManualOverridePauseSeconds int
 	ProbeBatchSize             int
 	ProbeTimeoutSeconds        int
+	ProbeBatchCooldownSeconds  *int
+	QuotaInventoryEnabled      *bool
+	InitialScanEnabled         *bool
+	RollingRefreshEnabled      *bool
+	RollingRefreshAfterSeconds *int
 }
 
 type SidecarWatchdogPolicy struct {
@@ -223,7 +230,12 @@ type SidecarWatchdogPolicy struct {
 	ManualOverridePauseSeconds int
 	ProbeBatchSize             int
 	ProbeTimeoutSeconds        int
-	ProbeCursorAuthID          *string
+	ProbeBatchCooldownSeconds  int
+	QuotaInventoryEnabled      bool
+	InitialScanEnabled         bool
+	RollingRefreshEnabled      bool
+	RollingRefreshAfterSeconds int
+	ProbeLastBatchCompletedAt  *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 }
@@ -267,21 +279,30 @@ type SidecarWatchdogProbeHoldUpdate struct {
 	Input SidecarWatchdogHoldInput
 }
 
-type SidecarWatchdogProbeDecision struct {
-	SidecarID          int
-	Observations       []SidecarWatchdogProbeObservationInput
-	CreateHold         *SidecarWatchdogHoldInput
-	UpdateHold         *SidecarWatchdogProbeHoldUpdate
-	AdvanceProbeCursor bool
-	ProbeCursorAuthID  *string
+type SidecarQuotaPersistDecision struct {
+	SidecarID     int
+	Observations  []SidecarWatchdogProbeObservationInput
+	QuotaStates   []SidecarAuthQuotaStateInput
+	CreateHold    *SidecarWatchdogHoldInput
+	UpdateHold    *SidecarWatchdogProbeHoldUpdate
+	AdvanceCursor bool
+	CursorAuthID  *string
+	ScanRunID     *int
 }
 
-type SidecarWatchdogProbeDecisionResult struct {
-	Observations []SidecarWatchdogProbeObservation
-	CreatedHold  *SidecarWatchdogHold
-	UpdatedHold  *SidecarWatchdogHold
-	Policy       *SidecarWatchdogPolicy
+type SidecarQuotaPersistResult struct {
+	Observations   []SidecarWatchdogProbeObservation
+	CreatedHold    *SidecarWatchdogHold
+	UpdatedHold    *SidecarWatchdogHold
+	PendingActions []SidecarWatchdogPendingAction
+	ScanRun        *SidecarQuotaScanRun
+	QuotaStates    []SidecarAuthQuotaState
+	Policy         *SidecarWatchdogPolicy
 }
+
+type SidecarWatchdogProbeDecision = SidecarQuotaPersistDecision
+
+type SidecarWatchdogProbeDecisionResult = SidecarQuotaPersistResult
 
 type SidecarWatchdogHoldInput struct {
 	SidecarID        int
@@ -355,4 +376,124 @@ type SidecarWatchdogAction struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	CompletedAt      *time.Time
+}
+
+type SidecarWatchdogPendingActionInput struct {
+	SidecarID              int
+	HoldID                 *int
+	ActionHistoryCreatedAt time.Time
+	ActionHistoryID        int
+	AuthID                 *string
+	AuthName               *string
+	AuthIndex              *string
+	Provider               *string
+	ActionType             string
+	Reason                 *string
+	PreviousPriority       *int
+	TargetPriority         *int
+	HoldUntil              *time.Time
+	AttemptCount           int
+	LastAttemptAt          *time.Time
+	LastErrorMessage       *string
+}
+
+type SidecarWatchdogPendingAction struct {
+	ID                     int
+	SidecarID              int
+	HoldID                 *int
+	ActionHistoryCreatedAt time.Time
+	ActionHistoryID        int
+	AuthID                 *string
+	AuthName               *string
+	AuthIndex              *string
+	Provider               *string
+	ActionType             string
+	Reason                 *string
+	PreviousPriority       *int
+	TargetPriority         *int
+	HoldUntil              *time.Time
+	AttemptCount           int
+	LastAttemptAt          *time.Time
+	LastErrorMessage       *string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type SidecarQuotaScanRunInput struct {
+	SidecarID          int
+	ScanType           string
+	Status             string
+	RequestedBy        *string
+	CursorAuthID       *string
+	PlannedCount       int
+	AttemptedCount     int
+	SucceededCount     int
+	QuotaExceededCount int
+	FailedCount        int
+	UnsupportedCount   int
+	MissingIndexCount  int
+	CancelRequestedAt  *time.Time
+	StartedAt          *time.Time
+	CompletedAt        *time.Time
+	LastErrorCode      *string
+}
+
+type SidecarQuotaScanRun struct {
+	ID                 int
+	SidecarID          int
+	ScanType           string
+	Status             string
+	RequestedBy        *string
+	CursorAuthID       *string
+	PlannedCount       int
+	AttemptedCount     int
+	SucceededCount     int
+	QuotaExceededCount int
+	FailedCount        int
+	UnsupportedCount   int
+	MissingIndexCount  int
+	CancelRequestedAt  *time.Time
+	StartedAt          *time.Time
+	CompletedAt        *time.Time
+	LastErrorCode      *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type SidecarAuthQuotaStateInput struct {
+	SidecarID          int
+	AuthID             string
+	AuthIndex          *string
+	AuthName           *string
+	Provider           *string
+	SnapshotObservedAt *time.Time
+	State              string
+	ProbeStatus        *string
+	QuotaExceeded      bool
+	QuotaReason        *string
+	QuotaResetAt       *time.Time
+	BlockingWindow     *string
+	LastObservationID  *int
+	LastProbedAt       *time.Time
+	LastErrorCode      *string
+}
+
+type SidecarAuthQuotaState struct {
+	SidecarID          int
+	AuthID             string
+	AuthIndex          *string
+	AuthName           *string
+	Provider           *string
+	SnapshotObservedAt *time.Time
+	State              string
+	ProbeStatus        *string
+	QuotaExceeded      bool
+	QuotaReason        *string
+	QuotaResetAt       *time.Time
+	BlockingWindow     *string
+	LastObservationID  *int
+	LastProbedAt       *time.Time
+	LastErrorCode      *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }

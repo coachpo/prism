@@ -258,9 +258,9 @@ sidecar_instances (global)
   network policy flags, management_auth_state, sync metadata
       | 1:N observations/actions, 1:1 watchdog policy
       v
-sidecar_auth_snapshots / sidecar_provider_snapshots / sidecar_watchdog_policies / sidecar_watchdog_holds / sidecar_watchdog_actions
+  sidecar_auth_snapshots / sidecar_provider_snapshots / sidecar_watchdog_policies / sidecar_watchdog_holds / sidecar_watchdog_pending_actions / sidecar_watchdog_actions
   sidecar_id FK -> sidecar_instances.id
-  normalized auth/provider observations plus watchdog policy, holds, and action history
+  normalized auth/provider observations plus watchdog policy, holds, pending repair queue, retained history, quota states, and scan runs
 ```
 
 ## 2. Table Definitions
@@ -709,17 +709,22 @@ Sidecar tables are global instance state. They are not profile-scoped and do not
 | `sidecar_instances` | Sidecar registration, canonical base URL, encrypted management password, enabled flag, sync interval, request timeout, network policy flags, management-auth state, pause metadata, and sync timestamps. |
 | `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, quota/retry metadata, recent requests, model states, redacted snapshot JSON, and observation time. Snapshot quota fields are retained as observed inventory metadata, not watchdog quota authority. |
 | `sidecar_provider_snapshots` | Normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
-| `sidecar_watchdog_policies` | One per-sidecar watchdog settings row: enabled, failure threshold/window, fallback cooldown, deprioritized priority, prioritized priority, manual-override pause duration, probe batch size, probe timeout seconds, and internal probe cursor state. Public API responses expose the policy fields except internal cursor state. |
+| `sidecar_watchdog_policies` | One per-sidecar watchdog settings row: enabled, failure threshold/window, fallback cooldown, deprioritized priority, prioritized priority, manual-override pause duration, probe batch size, probe timeout seconds, `probe_batch_cooldown_seconds`, quota inventory switches, initial scan switch, rolling refresh switch, rolling refresh age, and latest batch completion metadata. |
 | `sidecar_watchdog_holds` | Active, paused, or released holds created by watchdog reconciliation or operator mutations. |
-| `sidecar_watchdog_actions` | Redacted audit trail for instance CRUD, connection tests, manual sync, operator patches, watchdog deprioritize/restore/skips, probe outcomes, quota hold extensions, and policy updates. |
+| `sidecar_watchdog_pending_actions` | Live repair queue for watchdog deprioritize, restore, skip, probe, and quota-hold follow-up work. Rows carry the actionable payload, retry state, claim state, and a soft link to retained action history when one exists. |
+| `sidecar_watchdog_actions` | Partitioned retained audit trail for instance CRUD, connection tests, manual sync, operator patches, watchdog deprioritize/restore/skips, probe outcomes, quota hold extensions, and policy updates. |
 | `sidecar_watchdog_probe_observations` | Sanitized append-only probe observations from watchdog quota checks, including sidecar, auth id/index, provider key, probe timestamp, probe status, upstream status code, normalized quota result, quota reset, blocking window, safe window summaries, and safe error code. Raw probe requests, raw responses, token material, and provider identity payloads are never stored here. |
+| `sidecar_auth_quota_states` | Latest observed quota inventory per sidecar auth id, including optional auth name, provider, snapshot observation time, current state, probe status, quota reason, reset time, blocking window, last observation link, last probe time, and safe error code. Public responses also derive auth index presence, disabled state, priority, and active-hold state. |
+| `sidecar_quota_scan_runs` | Asynchronous quota scan progress for initial, manual, and scheduled scans, including status, requester, private scan position, planned count, outcome counters, cancellation marker, start/completion timestamps, and safe last error code. |
 
 Ownership notes:
 - Active `sidecar_instances` rows are unique on `lower(name)` and `base_url_canonical` among non-deleted registrations.
 - Stored management passwords use the backend secret-encryption key and are write-only at the API boundary.
 - Snapshot, action, and probe-observation JSON must not persist raw token, secret, password, API-key, authorization, raw provider response, or raw provider identity values.
-- The sidecar watchdog treats active `/api-call` probe observations as quota authority. Snapshot `quota_*` fields remain inventory observations only.
+- The sidecar watchdog treats active `/api-call` probe observations as quota authority. Snapshot `quota_*` fields remain inventory observations only, while `sidecar_auth_quota_states` is the public latest observed quota view.
 - Probe observations are retained for 15 days; the watchdog worker removes older rows after reconcile work.
+- `sidecar_watchdog_pending_actions` owns live repair state and is not operator history. `sidecar_watchdog_actions` owns retained action history and is managed by global retention through `sidecar_action_history_retention_days`.
+- `sidecar_quota_scan_runs` may keep private scan position for resumable work, but public quota scan responses expose progress counters and status rather than internal position.
 - Sync and watchdog work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
 
 ### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)

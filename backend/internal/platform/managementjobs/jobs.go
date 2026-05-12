@@ -296,10 +296,11 @@ func (s *Store) ScheduleGlobalLogRetention(ctx context.Context) error {
 }
 
 type globalLogRetentionSettings struct {
-	RequestLogsRetentionDays       *int
-	AuditLogsRetentionDays         *int
-	StatisticsRetentionDays        *int
-	LoadbalanceEventsRetentionDays *int
+	RequestLogsRetentionDays          *int
+	AuditLogsRetentionDays            *int
+	StatisticsRetentionDays           *int
+	LoadbalanceEventsRetentionDays    *int
+	SidecarActionHistoryRetentionDays *int
 }
 
 type globalLogRetentionPolicy struct {
@@ -313,6 +314,7 @@ func (settings globalLogRetentionSettings) policies() []globalLogRetentionPolicy
 		{Table: "audit_logs", RetentionDays: settings.AuditLogsRetentionDays},
 		{Table: "usage_request_events", RetentionDays: settings.StatisticsRetentionDays},
 		{Table: "loadbalance_events", RetentionDays: settings.LoadbalanceEventsRetentionDays},
+		{Table: "sidecar_watchdog_actions", RetentionDays: settings.SidecarActionHistoryRetentionDays},
 	}
 }
 
@@ -322,7 +324,8 @@ func (s *Store) loadGlobalLogRetentionSettings(ctx context.Context) (globalLogRe
 	var auditLogsRetentionDays *int32
 	var statisticsRetentionDays *int32
 	var loadbalanceEventsRetentionDays *int32
-	err := s.pool.QueryRow(ctx, `SELECT request_logs_retention_days, audit_logs_retention_days, statistics_retention_days, loadbalance_events_retention_days FROM log_retention_settings WHERE singleton_key = 'global'`).Scan(&requestLogsRetentionDays, &auditLogsRetentionDays, &statisticsRetentionDays, &loadbalanceEventsRetentionDays)
+	var sidecarActionHistoryRetentionDays *int32
+	err := s.pool.QueryRow(ctx, `SELECT request_logs_retention_days, audit_logs_retention_days, statistics_retention_days, loadbalance_events_retention_days, sidecar_action_history_retention_days FROM log_retention_settings WHERE singleton_key = 'global'`).Scan(&requestLogsRetentionDays, &auditLogsRetentionDays, &statisticsRetentionDays, &loadbalanceEventsRetentionDays, &sidecarActionHistoryRetentionDays)
 	if err != nil {
 		return globalLogRetentionSettings{}, fmt.Errorf("load global log retention settings: %w", err)
 	}
@@ -330,6 +333,7 @@ func (s *Store) loadGlobalLogRetentionSettings(ctx context.Context) (globalLogRe
 	settings.AuditLogsRetentionDays = int32PtrToIntPtr(auditLogsRetentionDays)
 	settings.StatisticsRetentionDays = int32PtrToIntPtr(statisticsRetentionDays)
 	settings.LoadbalanceEventsRetentionDays = int32PtrToIntPtr(loadbalanceEventsRetentionDays)
+	settings.SidecarActionHistoryRetentionDays = int32PtrToIntPtr(sidecarActionHistoryRetentionDays)
 	return settings, nil
 }
 

@@ -242,6 +242,45 @@ func TestWatchdogSkipsStaleSnapshots(t *testing.T) {
 	}
 }
 
+func TestWatchdogQuotaStateStaleSnapshotsPreserveSafeView(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v0/management/auth-files" {
+			writeSyncJSON(w, `{"files":[{"id":"auth-stale-safe","auth_index":"auth-stale-safe","name":"stale-safe.json","provider":"codex","label":"Stale Safe","status":"active","disabled":false,"priority":10}]}`)
+			return
+		}
+		serveSyncFixturePath(t, w, r)
+	}))
+	defer server.Close()
+
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
+	enableWatchdogPolicy(t, service, sidecar.ID)
+	if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("sync sidecar: %v", err)
+	}
+	before := listAuthQuotaStates(t, service, sidecar.ID)
+	if len(before) != 1 || before[0].State != "unknown" {
+		t.Fatalf("expected safe quota-state view after sync, got %+v", before)
+	}
+	staleAt := now.Add(-5 * time.Minute)
+	_, err := service.store.UpdateSidecarSyncMetadata(t.Context(), SidecarSyncMetadataInput{SidecarID: sidecar.ID, LastSyncAt: staleAt, LastSuccessfulSyncAt: &staleAt, SnapshotStaleAfter: &staleAt, ManagementAuthState: ManagementAuthStateValid})
+	if err != nil {
+		t.Fatalf("mark snapshots stale: %v", err)
+	}
+	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+	if err != nil {
+		t.Fatalf("reconcile stale watchdog: %v", err)
+	}
+	if !result.Skipped || result.SkipReason != watchdogActionSkippedStaleSnapshot {
+		t.Fatalf("expected stale snapshot skip, got %+v", result)
+	}
+	after := listAuthQuotaStates(t, service, sidecar.ID)
+	if len(after) != len(before) || after[0].State != before[0].State || after[0].AuthID != before[0].AuthID {
+		t.Fatalf("stale reconcile must preserve safe quota-state view, before=%+v after=%+v", before, after)
+	}
+}
+
 func TestWatchdogSkipsAuthSnapshotFromPreviousSync(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 	upstream := newWatchdogUpstream(t, watchdogUpstreamAuth{Priority: 20, QuotaExceeded: true})
@@ -284,7 +323,7 @@ func TestWatchdogManualOverridePausesAutomation(t *testing.T) {
 	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
 	previousPriority := 20
 	holdUntil := now.Add(-time.Minute)
-	_, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecar.ID, AuthID: watchdogAuthID, AuthIndex: stringPtr(watchdogAuthIndex), Provider: stringPtr("gemini"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-quota", PreviousPriority: &previousPriority, TargetPriority: 0, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive, LastActionID: intPtr(1)})
+	_, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecar.ID, AuthID: watchdogAuthID, AuthIndex: stringPtr(watchdogAuthIndex), Provider: stringPtr("gemini"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-quota", PreviousPriority: &previousPriority, TargetPriority: 0, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive})
 	if err != nil {
 		t.Fatalf("create active hold: %v", err)
 	}

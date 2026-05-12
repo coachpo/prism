@@ -5944,13 +5944,188 @@
         }
       }
     },
+    "/api/sidecars/{sidecar_id}/quota-states": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Quota States",
+        "description": "Returns latest observed quota state for sidecar auth files. Public items expose current_priority, quota_state, last_snapshot_at, and active_hold, while cooldown timestamps and scan position are backend-only.",
+        "operationId": "list_sidecar_quota_states_api_sidecars__sidecar_id__quota_states_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthQuotaStateListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/quota-scans": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Quota Scans",
+        "description": "Returns recent quota scan runs with public progress counters.",
+        "operationId": "list_sidecar_quota_scans_api_sidecars__sidecar_id__quota_scans_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarQuotaScanRunListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Start Sidecar Quota Scan",
+        "description": "Starts a manual asynchronous quota scan and returns the queued or running scan run.",
+        "operationId": "start_sidecar_quota_scan_api_sidecars__sidecar_id__quota_scans_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarQuotaScanCreateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarQuotaScanRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/quota-scans/current": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Current Sidecar Quota Scan",
+        "description": "Returns the current queued or running quota scan when present.",
+        "operationId": "get_current_sidecar_quota_scan_api_sidecars__sidecar_id__quota_scans_current_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarQuotaScanRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel": {
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Cancel Sidecar Quota Scan",
+        "description": "Marks a queued or running quota scan for cancellation and returns the updated run.",
+        "operationId": "cancel_sidecar_quota_scan_api_sidecars__sidecar_id__quota_scans__scan_id__cancel_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "scan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarQuotaScanRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sidecars/{sidecar_id}/watchdog-policy": {
       "get": {
         "tags": [
           "sidecars"
         ],
         "summary": "Get Sidecar Watchdog Policy",
-        "description": "Returns the public probe-first watchdog policy fields. Internal probe cursor state is not exposed.",
+        "description": "Returns the public probe-first watchdog policy fields. Backend-only probe scheduling state is not exposed.",
         "operationId": "get_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_get",
         "parameters": [
           {
@@ -9492,6 +9667,17 @@
               }
             ],
             "title": "Loadbalance Events Retention Days"
+          },
+          "sidecar_action_history_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sidecar Action History Retention Days"
           }
         },
         "type": "object",
@@ -9499,7 +9685,8 @@
           "request_logs_retention_days",
           "audit_logs_retention_days",
           "statistics_retention_days",
-          "loadbalance_events_retention_days"
+          "loadbalance_events_retention_days",
+          "sidecar_action_history_retention_days"
         ],
         "title": "LogRetentionSettingsResponse"
       },
@@ -9552,6 +9739,18 @@
               }
             ],
             "title": "Loadbalance Events Retention Days"
+          },
+          "sidecar_action_history_retention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sidecar Action History Retention Days"
           }
         },
         "type": "object",
@@ -16926,6 +17125,113 @@
         ],
         "additionalProperties": false
       },
+      "SidecarAuthQuotaState": {
+        "type": "object",
+        "properties": {
+          "sidecar_id": { "type": "integer" },
+          "auth_id": { "type": "string" },
+          "auth_name": { "type": "string", "nullable": true },
+          "provider": { "type": "string", "nullable": true },
+          "auth_index_present": { "type": "boolean" },
+          "disabled": { "type": "boolean" },
+          "current_priority": { "type": "integer", "nullable": true },
+          "quota_state": { "type": "string" },
+          "probe_status": { "type": "string", "nullable": true },
+          "quota_reason": { "type": "string", "nullable": true },
+          "quota_reset_at": { "type": "string", "format": "date-time", "nullable": true },
+          "blocking_window": { "type": "string", "nullable": true },
+          "last_snapshot_at": { "type": "string", "format": "date-time", "nullable": true },
+          "last_probed_at": { "type": "string", "format": "date-time", "nullable": true },
+          "last_error_code": { "type": "string", "nullable": true },
+          "active_hold": { "type": "boolean" }
+        },
+        "required": [
+          "sidecar_id",
+          "auth_id",
+          "auth_index_present",
+          "disabled",
+          "quota_state",
+          "active_hold"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthQuotaStateListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarAuthQuotaState"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarQuotaScanRun": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "sidecar_id": { "type": "integer" },
+          "scan_type": { "type": "string" },
+          "status": { "type": "string" },
+          "requested_by": { "type": "string", "nullable": true },
+          "planned_count": { "type": "integer" },
+          "attempted_count": { "type": "integer" },
+          "succeeded_count": { "type": "integer" },
+          "quota_exceeded_count": { "type": "integer" },
+          "failed_count": { "type": "integer" },
+          "unsupported_count": { "type": "integer" },
+          "missing_index_count": { "type": "integer" },
+          "cancel_requested_at": { "type": "string", "format": "date-time", "nullable": true },
+          "started_at": { "type": "string", "format": "date-time", "nullable": true },
+          "completed_at": { "type": "string", "format": "date-time", "nullable": true },
+          "last_error_code": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "scan_type",
+          "status",
+          "planned_count",
+          "attempted_count",
+          "succeeded_count",
+          "quota_exceeded_count",
+          "failed_count",
+          "unsupported_count",
+          "missing_index_count",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarQuotaScanRunListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarQuotaScanRun"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarQuotaScanCreateInput": {
+        "type": "object",
+        "properties": {
+          "requested_by": { "type": "string" },
+          "replace_active": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
       "SidecarWatchdogPolicy": {
         "type": "object",
         "properties": {
@@ -16966,6 +17272,22 @@
             "type": "integer",
             "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes."
           },
+          "probe_batch_cooldown_seconds": {
+            "type": "integer",
+            "description": "Cooldown between quota probe batches for this sidecar."
+          },
+          "quota_inventory_enabled": {
+            "type": "boolean"
+          },
+          "initial_scan_enabled": {
+            "type": "boolean"
+          },
+          "rolling_refresh_enabled": {
+            "type": "boolean"
+          },
+          "rolling_refresh_after_seconds": {
+            "type": "integer"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -16987,6 +17309,11 @@
           "manual_override_pause_seconds",
           "probe_batch_size",
           "probe_timeout_seconds",
+          "probe_batch_cooldown_seconds",
+          "quota_inventory_enabled",
+          "initial_scan_enabled",
+          "rolling_refresh_enabled",
+          "rolling_refresh_after_seconds",
           "created_at",
           "updated_at"
         ],
@@ -17025,6 +17352,22 @@
           "probe_timeout_seconds": {
             "type": "integer",
             "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes."
+          },
+          "probe_batch_cooldown_seconds": {
+            "type": "integer",
+            "description": "Cooldown between quota probe batches for this sidecar."
+          },
+          "quota_inventory_enabled": {
+            "type": "boolean"
+          },
+          "initial_scan_enabled": {
+            "type": "boolean"
+          },
+          "rolling_refresh_enabled": {
+            "type": "boolean"
+          },
+          "rolling_refresh_after_seconds": {
+            "type": "integer"
           }
         },
         "additionalProperties": false

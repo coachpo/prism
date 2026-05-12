@@ -20,6 +20,7 @@ import {
 
 interface UseVendorManagementDataInput {
   bumpRevision: () => void;
+  enabled: boolean;
   revision: number;
 }
 
@@ -28,7 +29,7 @@ function buildVendorCatalogExportFilename(now: Date = new Date()) {
   return `prism-vendor-catalog-v1-${date}.json`;
 }
 
-export function useVendorManagementData({ bumpRevision, revision }: UseVendorManagementDataInput) {
+export function useVendorManagementData({ bumpRevision, enabled, revision }: UseVendorManagementDataInput) {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorsLoading, setVendorsLoading] = useState(false);
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
@@ -110,8 +111,12 @@ export function useVendorManagementData({ bumpRevision, revision }: UseVendorMan
   }, [revision]);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     void fetchVendors();
-  }, [fetchVendors]);
+  }, [enabled, fetchVendors]);
 
   const handleCatalogExport = async () => {
     const messages = getStaticMessages();

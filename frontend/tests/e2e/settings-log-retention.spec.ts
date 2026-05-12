@@ -25,6 +25,7 @@ function createRetentionSettings() {
     statistics_retention_days: 30,
     audit_logs_retention_days: 30,
     loadbalance_events_retention_days: 30,
+    sidecar_action_history_retention_days: 30,
   };
 }
 type RetentionPayload = ReturnType<typeof createRetentionSettings>;
@@ -141,10 +142,11 @@ async function openSettingsGlobalRetention(page: Page) {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "Global" }).click();
   await expect(page.getByText("Changes here apply to all profiles and the entire Prism instance.")).toBeVisible();
-  await expect(page.getByText("Set instance-wide log retention for all profiles")).toBeVisible();
-  await expect(page.getByText("retained across every profile before cleanup jobs apply")).toBeVisible();
+  await expect(page.getByText("Set instance-wide data retention for all profiles and create cleanup jobs with explicit confirmation controls.")).toBeVisible();
+  await expect(page.getByText("Choose how long request logs, audit logs, statistics, load-balance events, and sidecar action history are retained before cleanup jobs apply.")).toBeVisible();
   await expect(page.getByText("Cleanup jobs apply across all profiles")).toBeVisible();
   await expect(page.getByText("Load-balance event retention")).toBeVisible();
+  await expect(page.getByText("Sidecar action history retention")).toBeVisible();
 }
 test("global retention settings save all log tables through the global endpoint", async ({ page }) => {
   const { retentionUpdates } = await mockSettingsRoutes(page);
@@ -154,6 +156,7 @@ test("global retention settings save all log tables through the global endpoint"
   await selectCardOption(page, "Statistics retention", "365 days");
   await selectCardOption(page, "Audit log retention", "Keep forever");
   await selectCardOption(page, "Load-balance event retention", "90 days");
+  await selectCardOption(page, "Sidecar action history retention", "7 days");
   await page.getByRole("button", { name: "Save retention" }).click();
 
   await expect.poll(() => retentionUpdates.length).toBe(1);
@@ -165,6 +168,7 @@ test("global retention settings save all log tables through the global endpoint"
       statistics_retention_days: 365,
       audit_logs_retention_days: null,
       loadbalance_events_retention_days: 90,
+      sidecar_action_history_retention_days: 7,
     },
   });
   await expect(page.getByText("Retention settings updated")).toBeVisible();

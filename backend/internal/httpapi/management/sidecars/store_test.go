@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/endpointdomain"
+	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
@@ -621,6 +622,10 @@ func sidecarMigratedPool(t *testing.T, ctx context.Context, name string) *pgxpoo
 	if err != nil {
 		t.Fatalf("open sidecar store pool: %v", err)
 	}
+	retentionStore := logretention.NewStore(logretention.Options{Pool: pool})
+	if err := retentionStore.EnsurePartitionHorizonForTable(ctx, "sidecar_watchdog_actions"); err != nil {
+		t.Fatalf("ensure sidecar action history partitions: %v", err)
+	}
 	t.Cleanup(pool.Close)
 	return pool
 }
@@ -806,7 +811,7 @@ func TestWatchdogPolicyProbeFieldsRoundTripAndValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get default policy: %v", err)
 			}
-			if policy.PrioritizedPriority != DefaultPrioritizedPriority || policy.ProbeBatchSize != DefaultProbeBatchSize || policy.ProbeTimeoutSeconds != DefaultProbeTimeoutSeconds || policy.ProbeCursorAuthID != nil {
+			if policy.PrioritizedPriority != DefaultPrioritizedPriority || policy.ProbeBatchSize != DefaultProbeBatchSize || policy.ProbeTimeoutSeconds != DefaultProbeTimeoutSeconds {
 				t.Fatalf("unexpected default probe policy fields: %+v", policy)
 			}
 			updated, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
@@ -825,7 +830,7 @@ func TestWatchdogPolicyProbeFieldsRoundTripAndValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reload custom probe policy: %v", err)
 			}
-			if reloaded.PrioritizedPriority != 5 || reloaded.ProbeBatchSize != 2 || reloaded.ProbeTimeoutSeconds != 10 {
+			if reloaded.PrioritizedPriority != 5 || reloaded.ProbeBatchSize != 2 || reloaded.ProbeTimeoutSeconds != 10 || reloaded.ProbeBatchCooldownSeconds != DefaultProbeBatchCooldownSeconds || reloaded.ProbeLastBatchCompletedAt != nil {
 				t.Fatalf("custom probe policy did not round-trip: %+v", reloaded)
 			}
 			visibleUpdate, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
@@ -961,32 +966,26 @@ func TestWatchdogProbeDecisionStoreAtomicity(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, store := testCase.ctx, testCase.store
 			sidecar := createTestSidecarInProbeStore(t, ctx, store, "probe_atomic_"+testCase.name)
-			cursor := "auth-next"
 			decision := SidecarWatchdogProbeDecision{
 				SidecarID: sidecar.ID,
 				Observations: []SidecarWatchdogProbeObservationInput{
 					testProbeObservationInput(sidecar.ID, "auth-atomic", sidecarStoreFixedNow()),
 				},
-				CreateHold:         ptrWatchdogHoldInput(testWatchdogHoldInput(sidecar.ID, "auth-atomic", sidecarStoreFixedNow().Add(time.Hour))),
-				AdvanceProbeCursor: true,
-				ProbeCursorAuthID:  &cursor,
+				CreateHold: ptrWatchdogHoldInput(testWatchdogHoldInput(sidecar.ID, "auth-atomic", sidecarStoreFixedNow().Add(time.Hour))),
 			}
 			result, err := store.PersistWatchdogProbeDecision(ctx, decision)
 			if err != nil {
 				t.Fatalf("persist probe decision: %v", err)
 			}
-			if len(result.Observations) != 1 || result.CreatedHold == nil || result.Policy == nil || result.Policy.ProbeCursorAuthID == nil || *result.Policy.ProbeCursorAuthID != cursor {
+			if len(result.Observations) != 1 || result.CreatedHold == nil || result.Policy == nil || result.Policy.ProbeLastBatchCompletedAt == nil {
 				t.Fatalf("probe decision result missing atomic state: %+v", result)
 			}
-			badCursor := "auth-bad"
 			badObservation := testProbeObservationInput(sidecar.ID, "auth-bad", sidecarStoreFixedNow().Add(time.Minute))
 			badObservation.WindowsJSON = json.RawMessage(`[{"raw_body":"secret-payload"}]`)
 			_, err = store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{
-				SidecarID:          sidecar.ID,
-				Observations:       []SidecarWatchdogProbeObservationInput{badObservation},
-				CreateHold:         ptrWatchdogHoldInput(testWatchdogHoldInput(sidecar.ID, "auth-bad", sidecarStoreFixedNow().Add(2*time.Hour))),
-				AdvanceProbeCursor: true,
-				ProbeCursorAuthID:  &badCursor,
+				SidecarID:    sidecar.ID,
+				Observations: []SidecarWatchdogProbeObservationInput{badObservation},
+				CreateHold:   ptrWatchdogHoldInput(testWatchdogHoldInput(sidecar.ID, "auth-bad", sidecarStoreFixedNow().Add(2*time.Hour))),
 			})
 			if !IsStoreError(err, StoreErrorInvalidInput) {
 				t.Fatalf("expected invalid atomic decision error, got %v", err)
@@ -1005,8 +1004,454 @@ func TestWatchdogProbeDecisionStoreAtomicity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reload policy after failed decision: %v", err)
 			}
-			if policy.ProbeCursorAuthID == nil || *policy.ProbeCursorAuthID != cursor {
-				t.Fatalf("failed decision mutated cursor: %+v", policy)
+			if policy.ProbeLastBatchCompletedAt == nil {
+				t.Fatalf("failed decision should preserve prior batch completion state: %+v", policy)
+			}
+		})
+	}
+}
+
+func TestWatchdogQuotaStateProbeDecisionPersistence(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_state_probe_decision") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_state_probe_"+testCase.name)
+			decision := SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, "auth-quota", sidecarStoreFixedNow())}}
+			result, err := store.PersistWatchdogProbeDecision(ctx, decision)
+			if err != nil {
+				t.Fatalf("persist probe decision: %v", err)
+			}
+			if len(result.QuotaStates) != 1 || result.QuotaStates[0].State != "quota_exceeded" || result.QuotaStates[0].LastObservationID == nil || *result.QuotaStates[0].LastObservationID != result.Observations[0].ID {
+				t.Fatalf("probe decision should materialize quota state from observation, got %+v", result.QuotaStates)
+			}
+			type authQuotaStateReader interface {
+				ListAuthQuotaStates(context.Context, int) ([]SidecarAuthQuotaState, error)
+			}
+			reader, ok := store.(authQuotaStateReader)
+			if !ok {
+				t.Fatalf("store does not expose auth quota states")
+			}
+			states, err := reader.ListAuthQuotaStates(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("list quota states: %v", err)
+			}
+			if len(states) != 1 || states[0].AuthID != "auth-quota" || states[0].State != "quota_exceeded" {
+				t.Fatalf("quota state not persisted from probe decision, states=%+v", states)
+			}
+		})
+	}
+}
+
+func TestWatchdogQuotaStateProbeDecisionPreservesSnapshotMetadata(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_state_probe_metadata") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_state_probe_metadata_"+testCase.name)
+			snapshotObservedAt := sidecarStoreFixedNow().Add(-time.Hour)
+			_, err := store.PersistQuotaProbeDecision(ctx, SidecarQuotaPersistDecision{
+				SidecarID: sidecar.ID,
+				QuotaStates: []SidecarAuthQuotaStateInput{{
+					AuthID: "auth-quota-metadata", AuthIndex: stringPtr("snapshot_index"),
+					AuthName: stringPtr("metadata.json"), Provider: stringPtr("gemini"),
+					SnapshotObservedAt: &snapshotObservedAt, State: "unknown",
+				}},
+			})
+			if err != nil {
+				t.Fatalf("seed snapshot quota state: %v", err)
+			}
+			observation := testProbeObservationInput(sidecar.ID, "auth-quota-metadata", sidecarStoreFixedNow())
+			observation.AuthIndex = nil
+			observation.Provider = nil
+			result, err := store.PersistQuotaProbeDecision(ctx, SidecarQuotaPersistDecision{
+				SidecarID:    sidecar.ID,
+				Observations: []SidecarWatchdogProbeObservationInput{observation},
+			})
+			if err != nil {
+				t.Fatalf("persist metadata probe observation: %v", err)
+			}
+			probeFieldsRefreshed := len(result.Observations) == 1 &&
+				len(result.QuotaStates) == 1 &&
+				result.QuotaStates[0].LastObservationID != nil &&
+				*result.QuotaStates[0].LastObservationID == result.Observations[0].ID
+			if !probeFieldsRefreshed {
+				t.Fatalf("probe observation did not refresh quota probe fields: %+v", result.QuotaStates)
+			}
+			states := listQuotaStatesForProbeStore(t, ctx, store, sidecar.ID)
+			if len(states) != 1 {
+				t.Fatalf("expected one quota state, got %+v", states)
+			}
+			state := states[0]
+			metadataPreserved := stringValue(state.AuthIndex) == "snapshot_index" &&
+				stringValue(state.AuthName) == "metadata.json" &&
+				stringValue(state.Provider) == "gemini" &&
+				state.SnapshotObservedAt != nil && state.SnapshotObservedAt.Equal(snapshotObservedAt)
+			if !metadataPreserved {
+				t.Fatalf("probe-derived update blanked snapshot metadata: %+v", state)
+			}
+			stateRefreshed := state.State == "quota_exceeded" &&
+				state.ProbeStatus != nil && *state.ProbeStatus == watchdogProbeStatusSucceeded
+			if !stateRefreshed {
+				t.Fatalf("probe-derived update did not refresh latest observation state: %+v", state)
+			}
+		})
+	}
+}
+
+func TestWatchdogQuotaPersistObservationAdvancesCooldownWithPersistedAttempt(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_persist_cooldown") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_persist_cooldown_"+testCase.name)
+
+			result, err := store.PersistQuotaProbeDecision(ctx, SidecarQuotaPersistDecision{
+				SidecarID:    sidecar.ID,
+				Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, "auth-cooldown", sidecarStoreFixedNow())},
+			})
+			if err != nil {
+				t.Fatalf("persist quota probe decision: %v", err)
+			}
+			if len(result.Observations) != 1 || result.Policy == nil || result.Policy.ProbeLastBatchCompletedAt == nil {
+				t.Fatalf("persisted probe attempt did not advance cooldown: %+v", result)
+			}
+			policy, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("reload policy after quota persist: %v", err)
+			}
+			if policy.ProbeLastBatchCompletedAt == nil {
+				t.Fatalf("cooldown timestamp was not persisted: %+v", policy)
+			}
+		})
+	}
+}
+
+func TestWatchdogQuotaPersistCooldownGateIgnoresZeroAttemptStateOnlyBatch(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_persist_zero_attempt") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_persist_zero_"+testCase.name)
+			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 1})
+			if err != nil {
+				t.Fatalf("create quota scan run: %v", err)
+			}
+			scanProgressMarker := "auth-after-zero"
+
+			result, err := store.PersistQuotaProbeDecision(ctx, SidecarQuotaPersistDecision{
+				SidecarID: sidecar.ID,
+				QuotaStates: []SidecarAuthQuotaStateInput{{
+					AuthID:    "auth-unsupported",
+					AuthIndex: stringPtr("auth_unsupported"),
+					Provider:  stringPtr("gemini"),
+					State:     "unsupported",
+				}},
+				ScanRunID:    &scanRun.ID,
+				CursorAuthID: &scanProgressMarker,
+			})
+			if err != nil {
+				t.Fatalf("persist state-only quota decision: %v", err)
+			}
+			if len(result.Observations) != 0 || result.Policy != nil || result.ScanRun != nil || len(result.QuotaStates) != 1 {
+				t.Fatalf("zero-attempt persist mutated attempted-only state: %+v", result)
+			}
+			states := listQuotaStatesForProbeStore(t, ctx, store, sidecar.ID)
+			if len(states) != 1 || states[0].AuthID != "auth-unsupported" || states[0].State != "unsupported" {
+				t.Fatalf("state-only quota persist did not write latest state: %+v", states)
+			}
+			policy, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("reload policy after state-only persist: %v", err)
+			}
+			if policy.ProbeLastBatchCompletedAt != nil {
+				t.Fatalf("zero-attempt persist advanced cooldown: %+v", policy)
+			}
+			reloadedRun, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
+			if err != nil || !ok || reloadedRun.AttemptedCount != 0 || reloadedRun.CursorAuthID != nil {
+				t.Fatalf("zero-attempt persist advanced scan progress: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+			}
+		})
+	}
+}
+
+func TestWatchdogQuotaPersistAtomicRollbackCoversAllState(t *testing.T) {
+	now := sidecarStoreFixedNow()
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_persist_atomic_rollback") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_persist_rollback_"+testCase.name)
+			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusRunning, PlannedCount: 2})
+			if err != nil {
+				t.Fatalf("create quota scan run: %v", err)
+			}
+			if _, err := store.CreateWatchdogHold(ctx, testWatchdogHoldInput(sidecar.ID, "auth-conflict", now.Add(time.Hour))); err != nil {
+				t.Fatalf("seed active hold: %v", err)
+			}
+			cursor := "auth-after-conflict"
+			conflictingHold := testWatchdogHoldInput(sidecar.ID, "auth-conflict", now.Add(2*time.Hour))
+
+			_, err = store.PersistQuotaProbeDecision(ctx, SidecarQuotaPersistDecision{
+				SidecarID:    sidecar.ID,
+				Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, "auth-conflict", now)},
+				QuotaStates: []SidecarAuthQuotaStateInput{{
+					AuthID:    "auth-state-only",
+					AuthIndex: stringPtr("auth_state_only"),
+					Provider:  stringPtr("gemini"),
+					State:     "unsupported",
+				}},
+				CreateHold:   &conflictingHold,
+				ScanRunID:    &scanRun.ID,
+				CursorAuthID: &cursor,
+			})
+			if !IsStoreError(err, StoreErrorDuplicateActiveHold) {
+				t.Fatalf("expected duplicate hold rollback error, got %v", err)
+			}
+			observations, err := store.ListWatchdogProbeObservations(ctx, sidecar.ID, 10)
+			if err != nil || len(observations) != 0 {
+				t.Fatalf("failed quota persist mutated observations: observations=%+v err=%v", observations, err)
+			}
+			for _, state := range listQuotaStatesForProbeStore(t, ctx, store, sidecar.ID) {
+				if state.AuthID == "auth-conflict" || state.AuthID == "auth-state-only" {
+					t.Fatalf("failed quota persist mutated quota state: %+v", state)
+				}
+			}
+			reloadedRun, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
+			if err != nil || !ok || reloadedRun.AttemptedCount != 0 || reloadedRun.CursorAuthID != nil {
+				t.Fatalf("failed quota persist mutated scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+			}
+			policy, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
+			if err != nil {
+				t.Fatalf("reload policy after failed quota persist: %v", err)
+			}
+			if policy.ProbeLastBatchCompletedAt != nil {
+				t.Fatalf("failed quota persist advanced cooldown: %+v", policy)
+			}
+			if _, ok, err := store.GetActiveWatchdogHold(ctx, sidecar.ID, "auth-conflict"); err != nil || !ok {
+				t.Fatalf("failed quota persist removed existing hold: ok=%v err=%v", ok, err)
+			}
+		})
+	}
+}
+
+func TestWatchdogActionHistoryAndPendingQueueRemainDecoupled(t *testing.T) {
+	type pendingActionStore interface {
+		watchdogProbeStoreForTest
+		GetWatchdogActionByHistoryKey(context.Context, int, time.Time, int) (SidecarWatchdogAction, bool, error)
+		CreateWatchdogPendingAction(context.Context, SidecarWatchdogPendingActionInput) (SidecarWatchdogPendingAction, error)
+		ListWatchdogPendingActions(context.Context, int) ([]SidecarWatchdogPendingAction, error)
+		ClaimWatchdogPendingActions(context.Context, int, int) ([]SidecarWatchdogPendingAction, error)
+		DeleteWatchdogPendingAction(context.Context, int, int) (bool, error)
+	}
+	for _, testCase := range watchdogProbeStoreCases(t, "watchdog_queue_history_decoupled") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			queueStore, ok := store.(pendingActionStore)
+			if !ok {
+				t.Fatalf("store does not support pending watchdog actions")
+			}
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "queue_history_"+testCase.name)
+			authID := "auth-queue-history"
+			authName := "queue-history.json"
+			action, err := queueStore.CreateWatchdogAction(ctx, SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: &authID, AuthName: &authName, ActionType: watchdogActionDeprioritize, Status: watchdogActionStatusPending, TargetPriority: intPtr(0)})
+			if err != nil {
+				t.Fatalf("create action history row: %v", err)
+			}
+			pending, err := queueStore.CreateWatchdogPendingAction(ctx, SidecarWatchdogPendingActionInput{SidecarID: sidecar.ID, ActionHistoryCreatedAt: action.CreatedAt, ActionHistoryID: action.ID, AuthID: &authID, AuthName: &authName, ActionType: action.ActionType, TargetPriority: intPtr(0)})
+			if err != nil {
+				t.Fatalf("create pending queue row: %v", err)
+			}
+			claimed, err := queueStore.ClaimWatchdogPendingActions(ctx, sidecar.ID, 1)
+			if err != nil || len(claimed) != 1 || claimed[0].ID != pending.ID || claimed[0].AttemptCount != 1 {
+				t.Fatalf("claim pending queue row: claimed=%+v err=%v", claimed, err)
+			}
+			loadedAction, found, err := queueStore.GetWatchdogActionByHistoryKey(ctx, sidecar.ID, action.CreatedAt, action.ID)
+			if err != nil || !found || loadedAction.Status != watchdogActionStatusPending {
+				t.Fatalf("queue claim mutated retained history: action=%+v found=%v err=%v", loadedAction, found, err)
+			}
+			deleted, err := queueStore.DeleteWatchdogPendingAction(ctx, sidecar.ID, pending.ID)
+			if err != nil || !deleted {
+				t.Fatalf("delete pending queue row: deleted=%v err=%v", deleted, err)
+			}
+			pendingRows, err := queueStore.ListWatchdogPendingActions(ctx, sidecar.ID)
+			if err != nil || len(pendingRows) != 0 {
+				t.Fatalf("pending queue delete did not clear queue: rows=%+v err=%v", pendingRows, err)
+			}
+			actions, err := queueStore.ListWatchdogActions(ctx, sidecar.ID)
+			if err != nil || len(actions) != 1 || actions[0].ID != action.ID || actions[0].Status != watchdogActionStatusPending {
+				t.Fatalf("pending queue delete mutated retained history: actions=%+v err=%v", actions, err)
+			}
+		})
+	}
+}
+
+func TestMemorySidecarStoreModelParity(t *testing.T) {
+	ctx := context.Background()
+	store := newMemorySidecarStore(sidecarStoreFixedNow, sidecarStoreSecretKey)
+	sidecar := createTestSidecarInProbeStore(t, ctx, store, "memory_model_parity")
+
+	policy, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true})
+	if err != nil {
+		t.Fatalf("upsert memory watchdog policy: %v", err)
+	}
+	if policy.ProbeBatchCooldownSeconds != DefaultProbeBatchCooldownSeconds || !policy.QuotaInventoryEnabled || !policy.InitialScanEnabled || !policy.RollingRefreshEnabled || policy.RollingRefreshAfterSeconds != DefaultRollingRefreshAfterSeconds {
+		t.Fatalf("memory policy missing expanded defaults: %+v", policy)
+	}
+
+	action, err := store.CreateWatchdogAction(ctx, SidecarWatchdogActionInput{SidecarID: sidecar.ID, ActionType: watchdogActionDeprioritize, Status: watchdogActionStatusPending})
+	if err != nil {
+		t.Fatalf("create memory action history row: %v", err)
+	}
+	pending, err := store.CreateWatchdogPendingAction(ctx, SidecarWatchdogPendingActionInput{SidecarID: sidecar.ID, ActionHistoryCreatedAt: action.CreatedAt, ActionHistoryID: action.ID, ActionType: action.ActionType})
+	if err != nil {
+		t.Fatalf("create memory pending queue row: %v", err)
+	}
+	pendingRows, err := store.ListWatchdogPendingActions(ctx, sidecar.ID)
+	if err != nil || len(pendingRows) != 1 || pendingRows[0].ID != pending.ID {
+		t.Fatalf("pending queue row not listed independently: rows=%+v err=%v", pendingRows, err)
+	}
+	if deleted, err := store.DeleteWatchdogPendingAction(ctx, sidecar.ID, pending.ID); err != nil || !deleted {
+		t.Fatalf("delete memory pending row: deleted=%v err=%v", deleted, err)
+	}
+	pendingRows, err = store.ListWatchdogPendingActions(ctx, sidecar.ID)
+	if err != nil || len(pendingRows) != 0 {
+		t.Fatalf("pending queue delete did not clear queue: rows=%+v err=%v", pendingRows, err)
+	}
+	actions, err := store.ListWatchdogActions(ctx, sidecar.ID)
+	if err != nil || len(actions) != 1 || actions[0].ID != action.ID {
+		t.Fatalf("pending queue delete mutated retained history: actions=%+v err=%v", actions, err)
+	}
+
+	scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "running", PlannedCount: 2})
+	if err != nil {
+		t.Fatalf("create memory scan run: %v", err)
+	}
+	if _, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "manual", Status: "queued"}); !IsStoreError(err, StoreErrorInvalidInput) {
+		t.Fatalf("expected active memory scan conflict, got %v", err)
+	}
+	completedAt := sidecarStoreFixedNow().Add(time.Minute)
+	if _, err := store.UpdateQuotaScanRun(ctx, scanRun.ID, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "completed", PlannedCount: 2, CompletedAt: &completedAt}); err != nil {
+		t.Fatalf("complete memory scan run: %v", err)
+	}
+	state, err := store.UpsertAuthQuotaState(ctx, SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: "auth-memory", AuthName: stringPtr("auth-memory.json"), State: "unknown"})
+	if err != nil || state.State != "unknown" || stringValue(state.AuthName) != "auth-memory.json" {
+		t.Fatalf("upsert memory quota state: state=%+v err=%v", state, err)
+	}
+}
+
+func TestMemoryProbeDecisionPersistsQuotaStateAndScanAtomically(t *testing.T) {
+	now := sidecarStoreFixedNow()
+	ctx := context.Background()
+	store := newMemorySidecarStore(func() time.Time { return now }, sidecarStoreSecretKey)
+	sidecar := createTestSidecarInProbeStore(t, ctx, store, "memory_probe_atomic")
+	scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "running", PlannedCount: 2})
+	if err != nil {
+		t.Fatalf("create memory scan run: %v", err)
+	}
+	cursor := "auth-next"
+	decision := SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, "auth-memory-quota", now)}, AdvanceCursor: true, CursorAuthID: &cursor, ScanRunID: &scanRun.ID}
+
+	result, err := store.PersistWatchdogProbeDecision(ctx, decision)
+	if err != nil {
+		t.Fatalf("persist memory probe decision: %v", err)
+	}
+	if len(result.Observations) != 1 || len(result.QuotaStates) != 1 || result.ScanRun == nil || result.Policy == nil || result.Policy.ProbeLastBatchCompletedAt == nil {
+		t.Fatalf("memory probe decision missing merged state: %+v", result)
+	}
+	if result.QuotaStates[0].State != "quota_exceeded" || result.QuotaStates[0].LastObservationID == nil || *result.QuotaStates[0].LastObservationID != result.Observations[0].ID {
+		t.Fatalf("memory quota state not derived from observation: %+v", result.QuotaStates[0])
+	}
+	if result.ScanRun.AttemptedCount != 1 || result.ScanRun.SucceededCount != 1 || result.ScanRun.QuotaExceededCount != 1 || stringValue(result.ScanRun.CursorAuthID) != cursor {
+		t.Fatalf("memory scan run not updated atomically: %+v", result.ScanRun)
+	}
+
+	badObservation := testProbeObservationInput(sidecar.ID, "auth-memory-bad", now.Add(time.Minute))
+	badObservation.WindowsJSON = json.RawMessage(`[{"]raw_body":"secret-payload"}]`)
+	_, err = store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{badObservation}, ScanRunID: &scanRun.ID})
+	if !IsStoreError(err, StoreErrorInvalidInput) {
+		t.Fatalf("expected invalid memory decision error, got %v", err)
+	}
+	observations, err := store.ListWatchdogProbeObservations(ctx, sidecar.ID, 10)
+	if err != nil || len(observations) != 1 || observations[0].AuthID != "auth-memory-quota" {
+		t.Fatalf("failed memory decision mutated observations: observations=%+v err=%v", observations, err)
+	}
+	states, err := store.ListAuthQuotaStates(ctx, sidecar.ID)
+	if err != nil || len(states) != 1 || states[0].AuthID != "auth-memory-quota" {
+		t.Fatalf("failed memory decision mutated quota states: states=%+v err=%v", states, err)
+	}
+	reloadedRun, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
+	if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.QuotaExceededCount != 1 {
+		t.Fatalf("failed memory decision mutated scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+	}
+}
+
+func TestQuotaScanRunLifecycleAndReplaceParity(t *testing.T) {
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_scan_lifecycle") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_scan_lifecycle_"+testCase.name)
+			activeRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusRunning, PlannedCount: 2})
+			if err != nil {
+				t.Fatalf("create active quota scan run: %v", err)
+			}
+			if _, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusQueued, PlannedCount: 1}); !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected active quota scan conflict, got %v", err)
+			}
+			cancelledAt := sidecarStoreFixedNow().Add(time.Minute)
+			cancelled, err := store.UpdateQuotaScanRun(ctx, activeRun.ID, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusCancelled, PlannedCount: 2, CancelRequestedAt: &cancelledAt, CompletedAt: &cancelledAt})
+			if err != nil {
+				t.Fatalf("cancel active quota scan run: %v", err)
+			}
+			if cancelled.Status != quotaScanStatusCancelled || cancelled.CancelRequestedAt == nil || cancelled.CompletedAt == nil {
+				t.Fatalf("cancelled scan run missing persisted cancellation metadata: %+v", cancelled)
+			}
+			replacement, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusQueued, PlannedCount: 1})
+			if err != nil {
+				t.Fatalf("create replacement quota scan run: %v", err)
+			}
+			if replacement.ID == activeRun.ID || replacement.Status != quotaScanStatusQueued {
+				t.Fatalf("replacement scan run did not persist correctly: active=%+v replacement=%+v", cancelled, replacement)
+			}
+			runs, err := store.ListQuotaScanRuns(ctx, sidecar.ID)
+			if err != nil || len(runs) != 2 {
+				t.Fatalf("list quota scan runs after replace: runs=%+v err=%v", runs, err)
+			}
+		})
+	}
+}
+
+func TestQuotaScanRunDecisionPersistsProgressAndRollsBack(t *testing.T) {
+	now := sidecarStoreFixedNow()
+	for _, testCase := range watchdogProbeStoreCases(t, "quota_scan_progress") {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx, store := testCase.ctx, testCase.store
+			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_scan_progress_"+testCase.name)
+			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusRunning, PlannedCount: 2})
+			if err != nil {
+				t.Fatalf("create quota scan run: %v", err)
+			}
+			cursor := "auth-next"
+			decision := SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, "auth-memory-quota", now)}, AdvanceCursor: true, CursorAuthID: &cursor, ScanRunID: &scanRun.ID}
+			result, err := store.PersistWatchdogProbeDecision(ctx, decision)
+			if err != nil {
+				t.Fatalf("persist quota scan decision: %v", err)
+			}
+			if len(result.Observations) != 1 || len(result.QuotaStates) != 1 || result.ScanRun == nil || result.ScanRun.AttemptedCount != 1 || result.ScanRun.QuotaExceededCount != 1 || stringValue(result.ScanRun.CursorAuthID) != cursor {
+				t.Fatalf("quota scan decision did not persist progress: %+v", result.ScanRun)
+			}
+			reloadedRun, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
+			if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.SucceededCount != 1 || reloadedRun.QuotaExceededCount != 1 || stringValue(reloadedRun.CursorAuthID) != cursor {
+				t.Fatalf("reloaded quota scan run missing persisted counters: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+			}
+			badObservation := testProbeObservationInput(sidecar.ID, "auth-memory-bad", now.Add(time.Minute))
+			badObservation.WindowsJSON = json.RawMessage(`[{"raw_body":"secret-payload"}]`)
+			_, err = store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{badObservation}, ScanRunID: &scanRun.ID})
+			if !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid quota scan decision error, got %v", err)
+			}
+			observations, err := store.ListWatchdogProbeObservations(ctx, sidecar.ID, 10)
+			if err != nil || len(observations) != 1 || observations[0].AuthID != "auth-memory-quota" {
+				t.Fatalf("failed quota scan decision mutated observations: observations=%+v err=%v", observations, err)
+			}
+			reloadedRun, ok, err = store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
+			if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.QuotaExceededCount != 1 {
+				t.Fatalf("failed quota scan decision mutated scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
 			}
 		})
 	}
@@ -1074,6 +1519,11 @@ type watchdogProbeStoreForTest interface {
 	ListWatchdogProbeObservations(context.Context, int, int) ([]SidecarWatchdogProbeObservation, error)
 	CleanupWatchdogProbeObservations(context.Context) (int64, error)
 	PersistWatchdogProbeDecision(context.Context, SidecarWatchdogProbeDecision) (SidecarWatchdogProbeDecisionResult, error)
+	PersistQuotaProbeDecision(context.Context, SidecarQuotaPersistDecision) (SidecarQuotaPersistResult, error)
+	CreateQuotaScanRun(context.Context, SidecarQuotaScanRunInput) (SidecarQuotaScanRun, error)
+	UpdateQuotaScanRun(context.Context, int, SidecarQuotaScanRunInput) (SidecarQuotaScanRun, error)
+	GetQuotaScanRun(context.Context, int, int) (SidecarQuotaScanRun, bool, error)
+	ListQuotaScanRuns(context.Context, int) ([]SidecarQuotaScanRun, error)
 	CreateWatchdogHold(context.Context, SidecarWatchdogHoldInput) (SidecarWatchdogHold, error)
 	GetActiveWatchdogHold(context.Context, int, string) (SidecarWatchdogHold, bool, error)
 	ListDueWatchdogHolds(context.Context, int, time.Time) ([]SidecarWatchdogHold, error)
@@ -1151,4 +1601,20 @@ func testWatchdogHoldInput(sidecarID int, authID string, holdUntil time.Time) Si
 
 func ptrWatchdogHoldInput(input SidecarWatchdogHoldInput) *SidecarWatchdogHoldInput {
 	return &input
+}
+
+func listQuotaStatesForProbeStore(t *testing.T, ctx context.Context, store watchdogProbeStoreForTest, sidecarID int) []SidecarAuthQuotaState {
+	t.Helper()
+	type authQuotaStateReader interface {
+		ListAuthQuotaStates(context.Context, int) ([]SidecarAuthQuotaState, error)
+	}
+	reader, ok := store.(authQuotaStateReader)
+	if !ok {
+		t.Fatalf("store does not expose auth quota states")
+	}
+	states, err := reader.ListAuthQuotaStates(ctx, sidecarID)
+	if err != nil {
+		t.Fatalf("list quota states: %v", err)
+	}
+	return states
 }

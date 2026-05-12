@@ -11,6 +11,7 @@ function getMessages() {
 }
 
 export function useCostingSettingsBootstrap(
+  enabled: boolean,
   revision: number,
   primeReportingCurrency: (currency: CostingSettingsUpdate) => void,
 ) {
@@ -64,9 +65,13 @@ export function useCostingSettingsBootstrap(
   }, [primeReportingCurrency]);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     void fetchCostingSettings();
     void fetchModels();
-  }, [fetchCostingSettings, fetchModels]);
+  }, [enabled, fetchCostingSettings, fetchModels]);
 
   return {
     costingForm,

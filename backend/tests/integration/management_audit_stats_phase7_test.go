@@ -3,6 +3,7 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -105,7 +106,7 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 		t.Fatalf("create settings service: %v", err)
 	}
 	router := chiRouterForSettings(service)
-	put := httptest.NewRequest(http.MethodPut, "/settings/log-retention", bytes.NewBufferString(`{"request_logs_retention_days":3,"audit_logs_retention_days":4,"statistics_retention_days":5,"loadbalance_events_retention_days":6}`))
+	put := httptest.NewRequest(http.MethodPut, "/settings/log-retention", bytes.NewBufferString(`{"request_logs_retention_days":3,"audit_logs_retention_days":4,"statistics_retention_days":5,"loadbalance_events_retention_days":6,"sidecar_action_history_retention_days":8}`))
 	put.Header.Set("X-Profile-Id", "999999")
 	put.Header.Set("Content-Type", "application/json")
 	putRecorder := httptest.NewRecorder()
@@ -116,15 +117,23 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 	get := httptest.NewRequest(http.MethodGet, "/settings/log-retention", nil)
 	getRecorder := httptest.NewRecorder()
 	router.ServeHTTP(getRecorder, get)
-	if getRecorder.Code != http.StatusOK || !strings.Contains(getRecorder.Body.String(), `"loadbalance_events_retention_days":6`) {
+	if getRecorder.Code != http.StatusOK || !strings.Contains(getRecorder.Body.String(), `"loadbalance_events_retention_days":6`) || !strings.Contains(getRecorder.Body.String(), `"sidecar_action_history_retention_days":8`) {
 		t.Fatalf("GET /settings/log-retention status=%d body=%s", getRecorder.Code, getRecorder.Body.String())
 	}
-	post := httptest.NewRequest(http.MethodPost, "/maintenance/log-retention/jobs", bytes.NewBufferString(`{"table":"usage_request_events","delete_all":true}`))
+	post := httptest.NewRequest(http.MethodPost, "/maintenance/log-retention/jobs", bytes.NewBufferString(`{"table":"sidecar_watchdog_actions","reason":"global sidecar retention"}`))
 	post.Header.Set("Content-Type", "application/json")
 	postRecorder := httptest.NewRecorder()
 	router.ServeHTTP(postRecorder, post)
 	if postRecorder.Code != http.StatusAccepted || !strings.Contains(postRecorder.Body.String(), `"job_id"`) {
 		t.Fatalf("POST /maintenance/log-retention/jobs status=%d body=%s", postRecorder.Code, postRecorder.Body.String())
+	}
+	var jobPayload map[string]any
+	if err := json.Unmarshal(postRecorder.Body.Bytes(), &jobPayload); err != nil {
+		t.Fatalf("decode log retention job response: %v", err)
+	}
+	scope, ok := jobPayload["scope"].(map[string]any)
+	if !ok || scope["table"] != "sidecar_watchdog_actions" || scope["cutoff"] == nil {
+		t.Fatalf("expected sidecar watchdog action retention job cutoff fallback, got %+v", jobPayload)
 	}
 }
 

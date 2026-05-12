@@ -7,6 +7,7 @@ import { useCostingSettingsSave } from "./costing/useCostingSettingsSave";
 
 interface UseCostingSettingsDataInput {
   bumpRevision: () => void;
+  enabled: boolean;
   primeReportingCurrency: (currency: CostingSettingsUpdate) => void;
   revision: number;
   setRecentlySavedSection: (section: SettingsSaveSection) => void;
@@ -14,11 +15,12 @@ interface UseCostingSettingsDataInput {
 
 export function useCostingSettingsData({
   bumpRevision,
+  enabled,
   primeReportingCurrency,
   revision,
   setRecentlySavedSection,
 }: UseCostingSettingsDataInput) {
-  const bootstrap = useCostingSettingsBootstrap(revision, primeReportingCurrency);
+  const bootstrap = useCostingSettingsBootstrap(enabled, revision, primeReportingCurrency);
   const mapping = useCostingMappingCrud({
     costingForm: bootstrap.costingForm,
     setCostingForm: bootstrap.setCostingForm,

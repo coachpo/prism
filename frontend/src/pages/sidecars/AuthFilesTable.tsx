@@ -36,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarActionHistoryItem, SidecarAuthSnapshot } from "@/lib/types";
+import type { SidecarActionHistoryItem, SidecarAuthQuotaState, SidecarAuthSnapshot } from "@/lib/types";
 import {
   formatActionStatus,
   formatActionType,
@@ -84,6 +84,7 @@ interface AuthFilesTableProps {
   mutatingAuthKey: string | null;
   onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number, allowWatchdog: boolean) => Promise<void>;
   onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean, allowWatchdog: boolean) => Promise<void>;
+  quotaStates: SidecarAuthQuotaState[];
 }
 
 const AUTH_PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
@@ -165,6 +166,19 @@ function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
     return "success";
   }
   return snapshot.status ? "info" : "muted";
+}
+
+function quotaStateIntent(quotaState: SidecarAuthQuotaState | undefined): BadgeIntent {
+  if (!quotaState || quotaState.disabled || quotaState.quota_state === "unknown") {
+    return "muted";
+  }
+  if (quotaState.quota_state === "healthy") {
+    return "success";
+  }
+  if (quotaState.quota_state === "quota_exceeded") {
+    return "warning";
+  }
+  return "info";
 }
 
 function summarizeJson(
@@ -344,6 +358,7 @@ export function AuthFilesTable({
   mutatingAuthKey,
   onPatchPriority,
   onPatchStatus,
+  quotaStates,
 }: AuthFilesTableProps) {
   const { formatNumber, locale, messages } = useLocale();
   const copy = messages.sidecarsPage;
@@ -356,6 +371,10 @@ export function AuthFilesTable({
   const [pageSize, setPageSize] = useState<number>(DEFAULT_AUTH_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
   const latestAction = useMemo(() => latestActionByAuthId(actionHistory), [actionHistory]);
+  const quotaStatesByAuthId = useMemo(
+    () => new Map(quotaStates.map((state) => [state.auth_id, state])),
+    [quotaStates],
+  );
   const normalizedAuthSearch = normalizeAuthSearch(authSearch);
   const authSearchLabels = useMemo<AuthSearchLabels>(() => ({
     disabledLabel: copy.authDisabledLabel,
@@ -482,6 +501,7 @@ export function AuthFilesTable({
                   <TableRow>
                     <TableHead>{copy.authAuthFileColumn}</TableHead>
                     <TableHead>{copy.authStateColumn}</TableHead>
+                    <TableHead>{copy.quotaStateColumn}</TableHead>
                     <TableHead>{copy.authPriorityColumn}</TableHead>
                     <TableHead>{copy.authRetryColumn}</TableHead>
                     <TableHead>{copy.authRequestsColumn}</TableHead>
@@ -498,6 +518,8 @@ export function AuthFilesTable({
                     const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
                     const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
                     const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.unknownStatus);
+                    const quotaState = quotaStatesByAuthId.get(snapshot.auth_id);
+                    const latestObservedAt = quotaState?.last_snapshot_at ?? quotaState?.last_probed_at;
 
                     return (
                       <TableRow key={snapshot.auth_id}>
@@ -541,6 +563,27 @@ export function AuthFilesTable({
                             {snapshot.status_message && !usageLimitError ? (
                               <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span>
                             ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell data-testid={`quota-state-${snapshot.auth_id}`}>
+                          <div className="flex min-w-48 flex-col gap-1 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <StatusBadge
+                                label={quotaState ? (copy.quotaStateLabels[quotaState.quota_state] ?? quotaState.quota_state) : copy.quotaStateMissing}
+                                intent={quotaStateIntent(quotaState)}
+                              />
+                              {quotaState?.current_priority !== undefined ? (
+                                <ValueBadge
+                                  label={copy.authPriorityLabel(quotaState.current_priority)}
+                                  intent={quotaState.current_priority === 0 ? "warning" : "info"}
+                                />
+                              ) : null}
+                              {quotaState?.active_hold ? <TypeBadge label={copy.quotaStateWatchdogHold} intent="warning" preserveLabel /> : null}
+                            </div>
+                            <span>{copy.quotaStateLatestObserved}</span>
+                            {latestObservedAt ? <span>{formatTimestamp(latestObservedAt, locale, messages.common.unavailable)}</span> : null}
+                            {quotaState?.quota_reason ? <span>{copy.quotaStateReason(quotaState.quota_reason)}</span> : null}
+                            {quotaState?.quota_reset_at ? <span>{copy.quotaStateReset(formatTimestamp(quotaState.quota_reset_at, locale, messages.common.unavailable))}</span> : null}
                           </div>
                         </TableCell>
                         <TableCell>

@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
+import type { SidecarAuthQuotaState } from "../../src/lib/types";
 
 type Sidecar = {
   id: number;
@@ -71,6 +72,11 @@ type WatchdogPolicy = {
   manual_override_pause_seconds: number;
   probe_batch_size: number;
   probe_timeout_seconds: number;
+  probe_batch_cooldown_seconds: number;
+  quota_inventory_enabled: boolean;
+  initial_scan_enabled: boolean;
+  rolling_refresh_enabled: boolean;
+  rolling_refresh_after_seconds: number;
   created_at: string;
   updated_at: string;
 };
@@ -90,6 +96,29 @@ type ActionItem = {
   created_at: string;
   updated_at: string;
   completed_at?: string;
+};
+
+type QuotaState = SidecarAuthQuotaState;
+
+type QuotaScan = {
+  id: number;
+  sidecar_id: number;
+  scan_type: string;
+  status: string;
+  requested_by?: string;
+  planned_count: number;
+  attempted_count: number;
+  succeeded_count: number;
+  quota_exceeded_count: number;
+  failed_count: number;
+  unsupported_count: number;
+  missing_index_count: number;
+  cancel_requested_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  last_error_code?: string;
+  created_at: string;
+  updated_at: string;
 };
 
 const now = "2026-05-10T12:00:00.000Z";
@@ -170,6 +199,11 @@ function defaultWatchdogPolicy(): WatchdogPolicy {
     manual_override_pause_seconds: 1800,
     probe_batch_size: 3,
     probe_timeout_seconds: 8,
+    probe_batch_cooldown_seconds: 30,
+    quota_inventory_enabled: true,
+    initial_scan_enabled: true,
+    rolling_refresh_enabled: true,
+    rolling_refresh_after_seconds: 86400,
     created_at: now,
     updated_at: now,
   };
@@ -196,6 +230,19 @@ function defaultActions(): ActionItem[] {
     { id: 41, sidecar_id: 1, auth_id: "auth-primary", provider: "gemini", action_type: "watchdog.deprioritize", status: "succeeded", reason: "quota_exceeded", previous_priority: 20, target_priority: 0, hold_until: future, created_at: now, updated_at: now, completed_at: now },
     { id: 42, sidecar_id: 1, auth_id: "auth-disabled", provider: "claude", action_type: "watchdog.restore", status: "skipped", reason: "manual_pause", previous_priority: 0, target_priority: 10, created_at: now, updated_at: now },
     { id: 43, sidecar_id: 1, auth_id: "auth-quota", provider: "gemini", action_type: "operator_patch", status: "failed", reason: "status", error_message: "upstream rejected", created_at: now, updated_at: now },
+  ];
+}
+
+function defaultQuotaStates(): QuotaState[] {
+  return [
+    { sidecar_id: 1, auth_id: "auth-primary", auth_name: "primary-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 20, quota_state: "healthy", last_snapshot_at: now, last_probed_at: now, active_hold: false },
+    { sidecar_id: 1, auth_id: "auth-quota", auth_name: "quota-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 0, quota_state: "quota_exceeded", probe_status: "blocked", quota_reason: "daily limit", quota_reset_at: future, last_snapshot_at: now, last_probed_at: now, active_hold: true },
+  ];
+}
+
+function defaultQuotaScans(): QuotaScan[] {
+  return [
+    { id: 51, sidecar_id: 1, scan_type: "manual", status: "completed", requested_by: "operator", planned_count: 3, attempted_count: 2, succeeded_count: 1, quota_exceeded_count: 1, failed_count: 0, unsupported_count: 1, missing_index_count: 0, started_at: now, completed_at: now, created_at: now, updated_at: now },
   ];
 }
 
@@ -228,7 +275,9 @@ function writeSecretProofEvidence(bodyText: string, calls: string[]) {
     ...calls,
   ].join("\n");
 
-  rawSecretValues.forEach((secret) => expect(proof).not.toContain(secret));
+  rawSecretValues.forEach((secret) => {
+    expect(proof).not.toContain(secret);
+  });
   mkdirSync(dirname(evidencePaths.secretProof), { recursive: true });
   writeFileSync(evidencePaths.secretProof, proof);
 }
@@ -292,6 +341,8 @@ async function mockSidecarsApi(
   const providerSnapshots = defaultProviderSnapshots();
   let watchdogPolicy = defaultWatchdogPolicy();
   const actions = defaultActions();
+  const quotaStates = defaultQuotaStates();
+  const quotaScans = defaultQuotaScans();
   const calls: string[] = [];
 
   const delayDetail = async (sidecarId: number) => {
@@ -310,6 +361,10 @@ async function mockSidecarsApi(
       ? [authSnapshot({ id: 22, sidecar_id: 2, auth_id: "auth-edge", name: "edge-oauth.json", provider: "codex", priority: 5 })]
       : authSnapshots;
   };
+
+  const quotaStatesFor = (sidecarId: number) => sidecarId === 2
+    ? [{ sidecar_id: 2, auth_id: "auth-edge", auth_name: "edge-oauth.json", provider: "codex", auth_index_present: true, disabled: false, current_priority: 5, quota_state: "healthy", last_snapshot_at: now, last_probed_at: now, active_hold: false }]
+    : quotaStates;
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -371,6 +426,18 @@ async function mockSidecarsApi(
       const sidecarId = Number(actionsMatch[1]);
       await delayDetail(sidecarId);
       return json(route, { items: sidecarId === 2 ? [] : actions });
+    }
+    const quotaStatesMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/quota-states$/);
+    if (quotaStatesMatch && request.method() === "GET") {
+      const sidecarId = Number(quotaStatesMatch[1]);
+      await delayDetail(sidecarId);
+      return json(route, { items: quotaStatesFor(sidecarId) });
+    }
+    const quotaScansMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/quota-scans$/);
+    if (quotaScansMatch && request.method() === "GET") {
+      const sidecarId = Number(quotaScansMatch[1]);
+      await delayDetail(sidecarId);
+      return json(route, { items: sidecarId === 2 ? [] : quotaScans });
     }
 
     const mutationMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/auth-files\/([^/]+)\/(status|fields)$/);
@@ -439,13 +506,29 @@ test.describe("sidecars management", () => {
 
     await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("quota-oauth.json");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Priority 0 is not exclusion");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Priority 0 remains a last-resort option.");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Latest observed quota");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Quota Exceeded");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Latest observed state, not real-time provider truth.");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Reason: daily limit");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Watchdog hold");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("priority 0");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText(await page.evaluate(() => new Date("2026-05-10T12:00:00.000Z").toLocaleString()));
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota scan progress");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Manual");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Completed");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("2 of 3 attempted");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Healthy 1");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota exceeded 1");
+    await expect(page.getByTestId("quota-scan-progress")).toContainText("Failed/skipped 1");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe priority safety note");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("due holds may still probe lower-priority auth");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.restore");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("Failed");
+    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-states");
+    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-scans");
     await expectNoRawSecrets(page);
     await page.screenshot({ path: evidencePaths.detail, fullPage: true });
 

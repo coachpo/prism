@@ -185,9 +185,11 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 
 1. The sidecars page is global instance control-plane UI, not selected-profile configuration.
 2. Operators register CLIProxyAPI sidecar base URLs, management passwords, sync intervals, request timeout, and network policy flags.
-3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, tune watchdog policy, and review redacted action history.
+3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, review latest observed quota state, start and cancel quota scans, tune watchdog policy, and review redacted action history.
 4. Auth-file status and field mutations flow through Prism backend routes; the browser never calls CLIProxyAPI directly.
 5. Sidecar sync and watchdog background work run as low-priority bounded scheduler jobs.
+6. Quota inventory reads use latest observed state and scan progress counters. Internal cooldown timestamps and scan position stay backend-only.
+7. Operator history comes from retained `sidecar_watchdog_actions`; live repairs are queued separately in `sidecar_watchdog_pending_actions`.
 
 **Backend touchpoints**
 
@@ -205,6 +207,11 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `GET /api/sidecars/{sidecar_id}/provider-snapshots`
 - `GET /api/sidecars/{sidecar_id}/providers`
 - `GET /api/sidecars/{sidecar_id}/sync-status`
+- `GET /api/sidecars/{sidecar_id}/quota-states`
+- `GET /api/sidecars/{sidecar_id}/quota-scans`
+- `GET /api/sidecars/{sidecar_id}/quota-scans/current`
+- `POST /api/sidecars/{sidecar_id}/quota-scans`
+- `POST /api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel`
 - `GET /api/sidecars/{sidecar_id}/watchdog-policy`
 - `PUT /api/sidecars/{sidecar_id}/watchdog-policy`
 - `GET /api/sidecars/{sidecar_id}/actions`
@@ -299,6 +306,8 @@ The configuration-operations flow is explicit in both lanes:
 - `GET /api/settings/log-retention`
 - `PUT /api/settings/log-retention`
 - `POST /api/maintenance/log-retention/jobs`
+
+Global log retention covers `request_logs`, `audit_logs`, `usage_request_events`, `loadbalance_events`, and retained sidecar action history through `sidecar_action_history_retention_days`. It does not manage the live `sidecar_watchdog_pending_actions` repair queue.
 
 Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is a profile-scoped config readiness route and requires `X-Profile-Id`.
 

@@ -12,6 +12,7 @@ import type {
 import { toast } from "sonner";
 
 interface UseAuditConfigurationDataInput {
+  enabled: boolean;
   revision: number;
 }
 
@@ -44,7 +45,7 @@ export function getVendorAuditCaptureMode(
   return vendor.audit_capture_bodies ? "full" : "metadata_only";
 }
 
-export function useAuditConfigurationData({ revision }: UseAuditConfigurationDataInput) {
+export function useAuditConfigurationData({ enabled, revision }: UseAuditConfigurationDataInput) {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [blocklistRules, setBlocklistRules] = useState<HeaderBlocklistRule[]>([]);
   const [userAgentClientRules, setUserAgentClientRules] = useState<UserAgentClientRule[]>([]);
@@ -146,10 +147,14 @@ export function useAuditConfigurationData({ revision }: UseAuditConfigurationDat
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     void fetchVendors();
     void fetchRules();
     void fetchUserAgentClientRules();
-  }, [fetchUserAgentClientRules, fetchVendors, fetchRules]);
+  }, [enabled, fetchUserAgentClientRules, fetchVendors, fetchRules]);
 
   const systemRules = useMemo(() => blocklistRules.filter((rule) => rule.is_system), [blocklistRules]);
   const customRules = useMemo(() => blocklistRules.filter((rule) => !rule.is_system), [blocklistRules]);

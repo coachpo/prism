@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { validateAuthPassword } from "./settingsPageHelpers";
 
 interface UseAuthenticationSettingsDataInput {
+  enabled: boolean;
   navigate: NavigateFunction;
   refreshAuth: () => Promise<void>;
   revision: number;
@@ -22,6 +23,7 @@ function getMessages() {
 }
 
 export function useAuthenticationSettingsData({
+  enabled,
   navigate,
   refreshAuth,
   revision,
@@ -58,9 +60,13 @@ export function useAuthenticationSettingsData({
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     void revision;
     void fetchAuthSettings();
-  }, [fetchAuthSettings, revision]);
+  }, [enabled, fetchAuthSettings, revision]);
 
   const authPasswordError = useMemo(() => validateAuthPassword(authPassword), [authPassword]);
   const authPasswordMismatch = useMemo(

@@ -15,6 +15,11 @@ type watchdogPolicyUpdateRequest struct {
 	ManualOverridePauseSeconds *int  `json:"manual_override_pause_seconds"`
 	ProbeBatchSize             *int  `json:"probe_batch_size"`
 	ProbeTimeoutSeconds        *int  `json:"probe_timeout_seconds"`
+	ProbeBatchCooldownSeconds  *int  `json:"probe_batch_cooldown_seconds"`
+	QuotaInventoryEnabled      *bool `json:"quota_inventory_enabled"`
+	InitialScanEnabled         *bool `json:"initial_scan_enabled"`
+	RollingRefreshEnabled      *bool `json:"rolling_refresh_enabled"`
+	RollingRefreshAfterSeconds *int  `json:"rolling_refresh_after_seconds"`
 }
 
 type watchdogPolicyResponse struct {
@@ -29,6 +34,11 @@ type watchdogPolicyResponse struct {
 	ManualOverridePauseSeconds int       `json:"manual_override_pause_seconds"`
 	ProbeBatchSize             int       `json:"probe_batch_size"`
 	ProbeTimeoutSeconds        int       `json:"probe_timeout_seconds"`
+	ProbeBatchCooldownSeconds  int       `json:"probe_batch_cooldown_seconds"`
+	QuotaInventoryEnabled      bool      `json:"quota_inventory_enabled"`
+	InitialScanEnabled         bool      `json:"initial_scan_enabled"`
+	RollingRefreshEnabled      bool      `json:"rolling_refresh_enabled"`
+	RollingRefreshAfterSeconds int       `json:"rolling_refresh_after_seconds"`
 	CreatedAt                  time.Time `json:"created_at"`
 	UpdatedAt                  time.Time `json:"updated_at"`
 }
@@ -85,7 +95,12 @@ func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Requ
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	input := SidecarWatchdogPolicyInput{SidecarID: id, Enabled: current.Enabled, FailureThreshold: current.FailureThreshold, FailureWindowSeconds: current.FailureWindowSeconds, FallbackCooldownSeconds: current.FallbackCooldownSeconds, DeprioritizedPriority: current.DeprioritizedPriority, PrioritizedPriority: current.PrioritizedPriority, ManualOverridePauseSeconds: current.ManualOverridePauseSeconds, ProbeBatchSize: current.ProbeBatchSize, ProbeTimeoutSeconds: current.ProbeTimeoutSeconds}
+	probeBatchCooldown := current.ProbeBatchCooldownSeconds
+	quotaInventoryEnabled := current.QuotaInventoryEnabled
+	initialScanEnabled := current.InitialScanEnabled
+	rollingRefreshEnabled := current.RollingRefreshEnabled
+	rollingRefreshAfterSeconds := current.RollingRefreshAfterSeconds
+	input := SidecarWatchdogPolicyInput{SidecarID: id, Enabled: current.Enabled, FailureThreshold: current.FailureThreshold, FailureWindowSeconds: current.FailureWindowSeconds, FallbackCooldownSeconds: current.FallbackCooldownSeconds, DeprioritizedPriority: current.DeprioritizedPriority, PrioritizedPriority: current.PrioritizedPriority, ManualOverridePauseSeconds: current.ManualOverridePauseSeconds, ProbeBatchSize: current.ProbeBatchSize, ProbeTimeoutSeconds: current.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: &probeBatchCooldown, QuotaInventoryEnabled: &quotaInventoryEnabled, InitialScanEnabled: &initialScanEnabled, RollingRefreshEnabled: &rollingRefreshEnabled, RollingRefreshAfterSeconds: &rollingRefreshAfterSeconds}
 	if requestBody.Enabled != nil {
 		input.Enabled = *requestBody.Enabled
 	}
@@ -145,6 +160,29 @@ func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Requ
 		}
 		input.ProbeTimeoutSeconds = *requestBody.ProbeTimeoutSeconds
 	}
+	if requestBody.ProbeBatchCooldownSeconds != nil {
+		if *requestBody.ProbeBatchCooldownSeconds < 1 {
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "probe_batch_cooldown_seconds must be >= 1")
+			return
+		}
+		input.ProbeBatchCooldownSeconds = requestBody.ProbeBatchCooldownSeconds
+	}
+	if requestBody.QuotaInventoryEnabled != nil {
+		input.QuotaInventoryEnabled = requestBody.QuotaInventoryEnabled
+	}
+	if requestBody.InitialScanEnabled != nil {
+		input.InitialScanEnabled = requestBody.InitialScanEnabled
+	}
+	if requestBody.RollingRefreshEnabled != nil {
+		input.RollingRefreshEnabled = requestBody.RollingRefreshEnabled
+	}
+	if requestBody.RollingRefreshAfterSeconds != nil {
+		if *requestBody.RollingRefreshAfterSeconds < 1 {
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "rolling_refresh_after_seconds must be >= 1")
+			return
+		}
+		input.RollingRefreshAfterSeconds = requestBody.RollingRefreshAfterSeconds
+	}
 	if err := validateWatchdogPolicyUpdateInput(input); err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
@@ -171,6 +209,12 @@ func validateWatchdogPolicyUpdateInput(input SidecarWatchdogPolicyInput) error {
 	if input.ProbeTimeoutSeconds < 1 {
 		return invalidInputError("probe_timeout_seconds must be >= 1")
 	}
+	if input.ProbeBatchCooldownSeconds != nil && *input.ProbeBatchCooldownSeconds < 1 {
+		return invalidInputError("probe_batch_cooldown_seconds must be >= 1")
+	}
+	if input.RollingRefreshAfterSeconds != nil && *input.RollingRefreshAfterSeconds < 1 {
+		return invalidInputError("rolling_refresh_after_seconds must be >= 1")
+	}
 	return validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeBatchSize: input.ProbeBatchSize, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds})
 }
 
@@ -196,7 +240,7 @@ func (s *Service) handleListActionHistory(w http.ResponseWriter, r *http.Request
 }
 
 func buildWatchdogPolicyResponse(policy SidecarWatchdogPolicy) watchdogPolicyResponse {
-	return watchdogPolicyResponse{ID: policy.ID, SidecarID: policy.SidecarID, Enabled: policy.Enabled, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, DeprioritizedPriority: policy.DeprioritizedPriority, PrioritizedPriority: policy.PrioritizedPriority, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, ProbeBatchSize: policy.ProbeBatchSize, ProbeTimeoutSeconds: policy.ProbeTimeoutSeconds, CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt}
+	return watchdogPolicyResponse{ID: policy.ID, SidecarID: policy.SidecarID, Enabled: policy.Enabled, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, DeprioritizedPriority: policy.DeprioritizedPriority, PrioritizedPriority: policy.PrioritizedPriority, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, ProbeBatchSize: policy.ProbeBatchSize, ProbeTimeoutSeconds: policy.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: policy.ProbeBatchCooldownSeconds, QuotaInventoryEnabled: policy.QuotaInventoryEnabled, InitialScanEnabled: policy.InitialScanEnabled, RollingRefreshEnabled: policy.RollingRefreshEnabled, RollingRefreshAfterSeconds: policy.RollingRefreshAfterSeconds, CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt}
 }
 
 func buildActionRecordResponse(action SidecarWatchdogAction) actionRecordResponse {

@@ -25,7 +25,7 @@ export function SettingsPage() {
     isAuditConfigurationFocused,
     jumpToSection,
   } = useSettingsPageSectionState();
-  const data = useSettingsPageData();
+  const data = useSettingsPageData(activeTab);
 
   const handleJumpToSection = (sectionId: string) => {
     const target = document.getElementById(sectionId);

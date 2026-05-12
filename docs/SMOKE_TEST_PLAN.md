@@ -206,6 +206,11 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/sidecars/{sidecar_id}/providers` | O09 |
 | `GET /api/sidecars/{sidecar_id}/provider-snapshots` | O09 |
 | `GET /api/sidecars/{sidecar_id}/sync-status` | O16 |
+| `GET /api/sidecars/{sidecar_id}/quota-states` | O17 |
+| `GET /api/sidecars/{sidecar_id}/quota-scans` | O18 |
+| `GET /api/sidecars/{sidecar_id}/quota-scans/current` | O18 |
+| `POST /api/sidecars/{sidecar_id}/quota-scans` | O18 |
+| `POST /api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel` | O18 |
 | `GET /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
 | `PUT /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
 | `GET /api/sidecars/{sidecar_id}/actions` | O12 |
@@ -620,13 +625,15 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | O07 | P0 | Manual sync | Success updates auth/provider snapshots and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
 | O08 | P0 | Auth inventory read | `auth-files` and `auth-snapshots` return normalized, redacted auth observations |
 | O09 | P0 | Provider inventory read | Provider snapshots are normalized for supported provider keys and do not expose raw secrets |
-| O10 | P0 | Watchdog policy read/update | Policy defaults load; valid updates persist and invalid non-positive values are rejected |
+| O10 | P0 | Watchdog policy read/update | Policy defaults load, including `probe_batch_cooldown_seconds` and quota inventory flags; valid updates persist and invalid non-positive values are rejected |
 | O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, and can select a detail row |
-| O12 | P0 | Action history redaction | Action rows redact authorization, token, secret, key, and password-like text |
+| O12 | P0 | Action history redaction and retention | Action rows redact authorization, token, secret, key, and password-like text; `sidecar_action_history_retention_days` is visible in log-retention settings |
 | O13 | P1 | Auth status mutation with watchdog confirmation | Status patch succeeds only through Prism backend and records an operator action |
 | O14 | P1 | Auth priority/field mutation | Field patch accepts allowed fields/header names and rejects unsupported fields |
 | O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile` reject elevated priority overrides |
 | O16 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
+| O17 | P0 | Quota state inventory read | `quota-states` returns latest observed state, probe status, reset/blocking data, auth index presence, and active-hold flag without cooldown timestamps or scan position |
+| O18 | P0 | Manual quota scan lifecycle | Starting a scan returns queued/running progress counters; current and list routes show progress; cancel marks the run without exposing internal scan position |
 
 ---
 
@@ -651,7 +658,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 - All `P0` tests pass.
 - No proxy contract regressions in routing/failover/logging/audit.
-- No sidecar secret leakage in sidecar responses, snapshots, action history, run notes, or screenshots.
+- No sidecar secret leakage in sidecar responses, snapshots, quota state, scan progress, action history, run notes, or screenshots.
 - Any `P1` failure is triaged with reproducible payloads and logs.
 
 ---
