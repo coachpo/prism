@@ -25,7 +25,7 @@ type WatchdogPolicyForm = {
   quota_exceeded_priority: string;
   error_priority: string;
   manual_override_pause_seconds: string;
-  probe_batch_size: string;
+  probe_concurrency: string;
   probe_timeout_seconds: string;
   probe_batch_cooldown_seconds: string;
   probe_jitter_min_ms: string;
@@ -46,7 +46,7 @@ const DEFAULT_FORM: WatchdogPolicyForm = {
   quota_exceeded_priority: "0",
   error_priority: "0",
   manual_override_pause_seconds: "1800",
-  probe_batch_size: "3",
+  probe_concurrency: "3",
   probe_timeout_seconds: "8",
   probe_batch_cooldown_seconds: "30",
   probe_jitter_min_ms: "100",
@@ -71,7 +71,7 @@ function formFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyFor
     quota_exceeded_priority: String(policy.quota_exceeded_priority),
     error_priority: String(policy.error_priority),
     manual_override_pause_seconds: String(policy.manual_override_pause_seconds),
-    probe_batch_size: String(policy.probe_batch_size),
+    probe_concurrency: String(policy.probe_concurrency),
     probe_timeout_seconds: String(policy.probe_timeout_seconds),
     probe_batch_cooldown_seconds: String(policy.probe_batch_cooldown_seconds),
     probe_jitter_min_ms: String(policy.probe_jitter_min_ms),
@@ -168,7 +168,7 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
     quota_exceeded_priority: parseWholeNumber(form.quota_exceeded_priority, 0),
     error_priority: parseWholeNumber(form.error_priority, 0),
     manual_override_pause_seconds: parseWholeNumber(form.manual_override_pause_seconds, 1),
-    probe_batch_size: parseWholeNumber(form.probe_batch_size, 1),
+    probe_concurrency: parseWholeNumber(form.probe_concurrency, 1),
     probe_timeout_seconds: parseWholeNumber(form.probe_timeout_seconds, 1),
     probe_batch_cooldown_seconds: parseWholeNumber(form.probe_batch_cooldown_seconds, 1),
     probe_jitter_min_ms: parseWholeNumber(form.probe_jitter_min_ms, 0),
@@ -205,7 +205,7 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
       quota_exceeded_priority: parsed.quota_exceeded_priority ?? undefined,
       error_priority: parsed.error_priority ?? undefined,
       manual_override_pause_seconds: parsed.manual_override_pause_seconds ?? undefined,
-      probe_batch_size: parsed.probe_batch_size ?? undefined,
+      probe_concurrency: parsed.probe_concurrency ?? undefined,
       probe_timeout_seconds: parsed.probe_timeout_seconds ?? undefined,
       probe_batch_cooldown_seconds: parsed.probe_batch_cooldown_seconds ?? undefined,
       probe_jitter_min_ms: parsed.probe_jitter_min_ms ?? undefined,
@@ -251,7 +251,7 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
               <Field id="watchdog-using-priority" label={copy.watchdogUsingPriorityLabel} min={0} value={form.using_priority} error={parsed.using_priority === null || priorityOrderError} description={copy.watchdogUsingPriorityDescription} onChange={(value) => updateField("using_priority", value)} />
               <Field id="watchdog-quota-exceeded-priority" label={copy.watchdogQuotaExceededPriorityLabel} min={0} value={form.quota_exceeded_priority} error={parsed.quota_exceeded_priority === null || priorityOrderError} onChange={(value) => updateField("quota_exceeded_priority", value)} />
               <Field id="watchdog-error-priority" label={copy.watchdogErrorPriorityLabel} min={0} value={form.error_priority} error={parsed.error_priority === null || priorityOrderError} onChange={(value) => updateField("error_priority", value)} />
-              <Field id="watchdog-probe-batch-size" label={copy.watchdogProbeBatchSizeLabel} min={1} value={form.probe_batch_size} error={parsed.probe_batch_size === null} onChange={(value) => updateField("probe_batch_size", value)} />
+              <Field id="watchdog-probe-concurrency" label={copy.watchdogProbeConcurrencyLabel} min={1} value={form.probe_concurrency} error={parsed.probe_concurrency === null} onChange={(value) => updateField("probe_concurrency", value)} />
               <Field id="watchdog-probe-timeout" label={copy.watchdogProbeTimeoutSecondsLabel} min={1} value={form.probe_timeout_seconds} error={parsed.probe_timeout_seconds === null} onChange={(value) => updateField("probe_timeout_seconds", value)} />
               <Field id="watchdog-probe-batch-cooldown" label={copy.watchdogProbeBatchCooldownSecondsLabel} min={1} value={form.probe_batch_cooldown_seconds} error={parsed.probe_batch_cooldown_seconds === null} description={copy.watchdogProbeBatchCooldownDescription} onChange={(value) => updateField("probe_batch_cooldown_seconds", value)} />
               <Field id="watchdog-probe-jitter-min" label={copy.watchdogProbeJitterMinLabel} min={0} value={form.probe_jitter_min_ms} error={parsed.probe_jitter_min_ms === null || jitterOrderError} onChange={(value) => updateField("probe_jitter_min_ms", value)} />

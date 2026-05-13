@@ -371,7 +371,7 @@ export const zhCNMessages: Messages = {
     watchdogPrioritySafetyTitle: "探测优先级安全提示",
     watchdogInitialScanEnabledDescription: "当新同步的 auth 文件没有已观测配额状态时创建初始清单扫描。",
     watchdogInitialScanEnabledLabel: "初始清单扫描",
-    watchdogProbeBatchSizeLabel: "探测批量大小",
+    watchdogProbeConcurrencyLabel: "探测并发数",
     watchdogProbeBatchCooldownDescription: "Watchdog 探测批次之间的最小间隔；不会暴露内部冷却时间戳。",
     watchdogProbeBatchCooldownSecondsLabel: "探测批次冷却（秒）",
     watchdogProbeTimeoutSecondsLabel: "探测超时（秒）",
@@ -384,7 +384,7 @@ export const zhCNMessages: Messages = {
     watchdogSave: "保存 watchdog 策略",
     watchdogSaveSucceeded: "Watchdog 策略已保存。",
     watchdogTitle: "Watchdog 策略",
-    watchdogValidationError: "阈值、窗口、探测批量大小、探测冷却、探测超时和滚动刷新间隔必须为正整数；优先级必须为 0 或更大。",
+    watchdogValidationError: "阈值、窗口、探测并发数、探测冷却、探测超时和滚动刷新间隔必须为正整数；优先级必须为 0 或更大。",
   },
   loadbalanceStrategyDialog: {
     addTitle: "新增负载均衡策略",
@@ -2191,3 +2191,4 @@ export const zhCNMessages: Messages = {
     system: "跟随系统",
   },
 };
+;

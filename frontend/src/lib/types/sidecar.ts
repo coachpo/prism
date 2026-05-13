@@ -97,7 +97,7 @@ export interface SidecarWatchdogPolicy {
   quota_exceeded_priority: number;
   error_priority: number;
   manual_override_pause_seconds: number;
-  probe_batch_size: number;
+  probe_concurrency: number;
   probe_timeout_seconds: number;
   probe_batch_cooldown_seconds: number;
   probe_jitter_min_ms: number;
@@ -120,7 +120,7 @@ export interface SidecarWatchdogPolicyUpdate {
   quota_exceeded_priority?: number;
   error_priority?: number;
   manual_override_pause_seconds?: number;
-  probe_batch_size?: number;
+  probe_concurrency?: number;
   probe_timeout_seconds?: number;
   probe_batch_cooldown_seconds?: number;
   probe_jitter_min_ms?: number;

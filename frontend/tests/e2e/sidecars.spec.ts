@@ -68,7 +68,7 @@ type WatchdogPolicy = {
   quota_exceeded_priority: number;
   error_priority: number;
   manual_override_pause_seconds: number;
-  probe_batch_size: number;
+  probe_concurrency: number;
   probe_timeout_seconds: number;
   probe_batch_cooldown_seconds: number;
   probe_jitter_min_ms: number;
@@ -198,7 +198,7 @@ function defaultWatchdogPolicy(): WatchdogPolicy {
     quota_exceeded_priority: 0,
     error_priority: 0,
     manual_override_pause_seconds: 1800,
-    probe_batch_size: 3,
+    probe_concurrency: 3,
     probe_timeout_seconds: 8,
     probe_batch_cooldown_seconds: 30,
     probe_jitter_min_ms: 100,
@@ -532,6 +532,9 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Using priority");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Quota exceeded priority");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Error priority");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe concurrency");
+    await expect(page.locator("#watchdog-probe-concurrency")).toBeVisible();
+    await expect(page.locator("#watchdog-probe-concurrency")).toHaveValue("3");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe jitter min (ms)");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Cooldown jitter (percent)");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe priority safety note");

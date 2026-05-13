@@ -371,7 +371,7 @@ export interface Messages {
     watchdogPrioritySafetyTitle: string;
     watchdogInitialScanEnabledDescription: string;
     watchdogInitialScanEnabledLabel: string;
-    watchdogProbeBatchSizeLabel: string;
+    watchdogProbeConcurrencyLabel: string;
     watchdogProbeBatchCooldownDescription: string;
     watchdogProbeBatchCooldownSecondsLabel: string;
     watchdogProbeTimeoutSecondsLabel: string;
@@ -2563,7 +2563,7 @@ export const enMessages: Messages = {
     watchdogPrioritySafetyTitle: "Probe priority safety note",
     watchdogInitialScanEnabledDescription: "Create a first quota inventory scan when newly synced auth files have no observed quota state.",
     watchdogInitialScanEnabledLabel: "Initial inventory scan",
-    watchdogProbeBatchSizeLabel: "Probe batch size",
+    watchdogProbeConcurrencyLabel: "Probe concurrency",
     watchdogProbeBatchCooldownDescription: "Minimum pause between watchdog probe batches; this does not expose internal cooldown timestamps.",
     watchdogProbeBatchCooldownSecondsLabel: "Probe batch cooldown (seconds)",
     watchdogProbeTimeoutSecondsLabel: "Probe timeout (seconds)",
@@ -2576,7 +2576,7 @@ export const enMessages: Messages = {
     watchdogSave: "Save watchdog policy",
     watchdogSaveSucceeded: "Watchdog policy saved.",
     watchdogTitle: "Watchdog policy",
-    watchdogValidationError: "Thresholds, windows, probe batch size, probe cooldown, probe timeout, and rolling refresh age must be positive whole numbers; priorities must be zero or greater.",
+    watchdogValidationError: "Thresholds, windows, probe concurrency, probe cooldown, probe timeout, and rolling refresh age must be positive whole numbers; priorities must be zero or greater.",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
