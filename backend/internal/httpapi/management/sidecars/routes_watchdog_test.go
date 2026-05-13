@@ -15,7 +15,7 @@ import (
 func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 18, 0, 0, 0, time.UTC)
 	service, router, sidecar := newWatchdogRouteTest(t, now)
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 2, FailureWindowSeconds: 120, FallbackCooldownSeconds: 600, QuotaExceededPriority: 2, UsingPriority: 9, ManualOverridePauseSeconds: 300, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10, ProbeBatchCooldownSeconds: intPtr(45), QuotaInventoryEnabled: boolPtr(false), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(7200)})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 2, FailureWindowSeconds: 120, FallbackCooldownSeconds: 600, QuotaExceededPriority: 2, UsingPriority: 9, ManualOverridePauseSeconds: 300, ProbeConcurrency: 2, ProbeTimeoutSeconds: 10, ProbeBatchCooldownSeconds: intPtr(45), QuotaInventoryEnabled: boolPtr(false), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(7200)})
 	if err != nil {
 		t.Fatalf("seed watchdog policy: %v", err)
 	}
@@ -33,21 +33,27 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	if body := recorder.Body.String(); strings.Contains(body, "probe_last_batch_completed_at") || strings.Contains(body, hiddenBatchAuthID) {
 		t.Fatalf("policy response leaked hidden fields: %s", body)
 	}
+	if body := recorder.Body.String(); !strings.Contains(body, `"probe_concurrency":2`) || strings.Contains(body, "probe_batch_size") {
+		t.Fatalf("policy response used unexpected probe concurrency fields: %s", body)
+	}
 	var response watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, recorder, &response)
-	if !response.Enabled || response.QuotaExceededPriority != 2 || response.UsingPriority != 9 || response.ErrorPriority != DefaultErrorPriority || response.ProbeBatchSize != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 {
+	if !response.Enabled || response.QuotaExceededPriority != 2 || response.UsingPriority != 9 || response.ErrorPriority != DefaultErrorPriority || response.ProbeConcurrency != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 {
 		t.Fatalf("unexpected policy response: %+v", response)
 	}
 
-	patch := `{"quota_exceeded_priority":3,"using_priority":8,"error_priority":3,"probe_batch_size":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"probe_jitter_min_ms":25,"probe_jitter_max_ms":50,"cooldown_jitter_percent":10,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`
+	patch := `{"quota_exceeded_priority":3,"using_priority":8,"error_priority":3,"probe_concurrency":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"probe_jitter_min_ms":25,"probe_jitter_max_ms":50,"cooldown_jitter_percent":10,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`
 	patchRecorder := httptest.NewRecorder()
 	router.ServeHTTP(patchRecorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(patch)))
 	if patchRecorder.Code != http.StatusOK {
 		t.Fatalf("patch policy status = %d body=%s", patchRecorder.Code, patchRecorder.Body.String())
 	}
+	if body := patchRecorder.Body.String(); !strings.Contains(body, `"probe_concurrency":4`) || strings.Contains(body, "probe_batch_size") {
+		t.Fatalf("patched policy response used unexpected probe concurrency fields: %s", body)
+	}
 	var updated watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, patchRecorder, &updated)
-	if updated.QuotaExceededPriority != 3 || updated.UsingPriority != 8 || updated.ErrorPriority != 3 || updated.ProbeBatchSize != 4 || updated.ProbeTimeoutSeconds != 6 || updated.ProbeBatchCooldownSeconds != 60 || updated.ProbeJitterMinMS != 25 || updated.ProbeJitterMaxMS != 50 || updated.CooldownJitterPercent != 10 || !updated.QuotaInventoryEnabled || !updated.InitialScanEnabled || !updated.RollingRefreshEnabled || updated.RollingRefreshAfterSeconds != 5400 {
+	if updated.QuotaExceededPriority != 3 || updated.UsingPriority != 8 || updated.ErrorPriority != 3 || updated.ProbeConcurrency != 4 || updated.ProbeTimeoutSeconds != 6 || updated.ProbeBatchCooldownSeconds != 60 || updated.ProbeJitterMinMS != 25 || updated.ProbeJitterMaxMS != 50 || updated.CooldownJitterPercent != 10 || !updated.QuotaInventoryEnabled || !updated.InitialScanEnabled || !updated.RollingRefreshEnabled || updated.RollingRefreshAfterSeconds != 5400 {
 		t.Fatalf("unexpected patched policy: %+v", updated)
 	}
 }
@@ -95,10 +101,9 @@ func TestQuotaRouteResponsesHideInternalFields(t *testing.T) {
 	}
 }
 
-func TestWatchdogPolicyValidationRejectsProbeBudgetAndPriorities(t *testing.T) {
-	maxBudget := watchdogProbeBudgetMaxSeconds()
+func TestWatchdogPolicyValidationRejectsProbeTimeoutBudgetAndPriorities(t *testing.T) {
+	maxBudget := watchdogProbeConcurrencyBudgetMaxSeconds()
 	oversizedTimeout := strconv.Itoa(maxBudget + 1)
-	oversizedBatchTimeout := strconv.Itoa(maxBudget/2 + 1)
 	tests := []struct {
 		name       string
 		body       string
@@ -107,10 +112,9 @@ func TestWatchdogPolicyValidationRejectsProbeBudgetAndPriorities(t *testing.T) {
 		{name: "negative quota exceeded priority", body: `{"quota_exceeded_priority":-1}`, wantDetail: "quota_exceeded_priority"},
 		{name: "negative using priority", body: `{"using_priority":-1}`, wantDetail: "using_priority"},
 		{name: "quota exceeded is above using", body: `{"quota_exceeded_priority":4,"using_priority":3}`, wantDetail: "quota_exceeded_priority must be \\u003c= using_priority"},
-		{name: "zero probe batch", body: `{"probe_batch_size":0}`, wantDetail: "probe_batch_size"},
+		{name: "zero probe concurrency", body: `{"probe_concurrency":0}`, wantDetail: "probe_concurrency"},
 		{name: "zero probe timeout", body: `{"probe_timeout_seconds":0}`, wantDetail: "probe_timeout_seconds"},
 		{name: "timeout exceeds worker budget", body: `{"probe_timeout_seconds":` + oversizedTimeout + `}`, wantDetail: "worker budget"},
-		{name: "batch timeout exceeds worker budget", body: `{"probe_batch_size":2,"probe_timeout_seconds":` + oversizedBatchTimeout + `}`, wantDetail: "batch budget"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,6 +129,22 @@ func TestWatchdogPolicyValidationRejectsProbeBudgetAndPriorities(t *testing.T) {
 				t.Fatalf("validation response %q missing %q", recorder.Body.String(), tt.wantDetail)
 			}
 		})
+	}
+}
+
+func TestWatchdogPolicyValidationAcceptsConcurrentTimeoutWithinPerProbeBudget(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 18, 30, 0, 0, time.UTC)
+	_, router, sidecar := newWatchdogRouteTest(t, now)
+	maxBudget := watchdogProbeConcurrencyBudgetMaxSeconds()
+	body := `{"probe_concurrency":` + strconv.Itoa(MaxProbeConcurrency) + `,"probe_timeout_seconds":` + strconv.Itoa(maxBudget) + `}`
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch policy status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	responseBody := recorder.Body.String()
+	if !strings.Contains(responseBody, `"probe_concurrency":`+strconv.Itoa(MaxProbeConcurrency)) || !strings.Contains(responseBody, `"probe_timeout_seconds":`+strconv.Itoa(maxBudget)) {
+		t.Fatalf("policy response missing concurrent per-probe budget settings: %s", responseBody)
 	}
 }
 
@@ -201,7 +221,7 @@ func TestRedactWatchdogActionHistoryProbeUnsupportedAndQuotaHoldResponse(t *test
 func TestQuotaScanRoutesReturnExpectedStatusCodes(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 19, 30, 0, 0, time.UTC)
 	service, router, sidecar := newWatchdogRouteTest(t, now)
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds), QuotaInventoryEnabled: boolPtr(true), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(DefaultRollingRefreshAfterSeconds)})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: DefaultProbeConcurrency, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds), QuotaInventoryEnabled: boolPtr(true), InitialScanEnabled: boolPtr(false), RollingRefreshEnabled: boolPtr(false), RollingRefreshAfterSeconds: intPtr(DefaultRollingRefreshAfterSeconds)})
 	if err != nil {
 		t.Fatalf("seed watchdog policy: %v", err)
 	}
