@@ -700,19 +700,19 @@ func sidecarIntegrationCreateAndSyncSidecar(t *testing.T, conn *pgx.Conn, router
 	return sidecarID
 }
 
-func sidecarIntegrationEnableProbePolicy(t *testing.T, conn *pgx.Conn, sidecarID int, batchSize int, timeoutSeconds int) {
+func sidecarIntegrationEnableProbePolicy(t *testing.T, conn *pgx.Conn, sidecarID int, probeConcurrency int, timeoutSeconds int) {
 	t.Helper()
 	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (
 sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
-quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds, probe_batch_size, probe_timeout_seconds,
+quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds, probe_concurrency, probe_timeout_seconds,
 quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled)
 VALUES ($1, true, 3, 3600, 86400, 0, 1, 0, 1800, $2, $3, false, false, true)
 ON CONFLICT (sidecar_id) DO UPDATE SET enabled = true, failure_threshold = 3,
 failure_window_seconds = 3600, fallback_cooldown_seconds = 86400,
 quota_exceeded_priority = 0, using_priority = 1, error_priority = 0, manual_override_pause_seconds = 1800,
-probe_batch_size = $2, probe_timeout_seconds = $3,
+probe_concurrency = $2, probe_timeout_seconds = $3,
 quota_inventory_enabled = false, initial_scan_enabled = false, rolling_refresh_enabled = true,
-updated_at = now()`, sidecarID, batchSize, timeoutSeconds)
+updated_at = now()`, sidecarID, probeConcurrency, timeoutSeconds)
 	if err != nil {
 		t.Fatalf("enable probe policy: %v", err)
 	}

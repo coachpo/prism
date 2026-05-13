@@ -37,6 +37,7 @@ var expectedPrismMigrationVersions = []string{
 	"000016_sidecar_watchdog_action_auth_name",
 	"000017_sidecar_watchdog_action_history_retention_split",
 	"000018_sidecar_quota_inventory_and_cooldown",
+	"000019_sidecar_watchdog_probe_concurrency",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -219,6 +220,49 @@ VALUES ($1, 'auth-legacy-quota', 'idx-legacy-quota', 'legacy-quota.json', 'codex
 	if !observationCleared {
 		t.Fatalf("expected quota state observation reference to clear on renamed observation delete")
 	}
+}
+
+func TestSidecarWatchdogProbeConcurrencyMigrationBackfillsBatchSizeAndDropsOldColumn(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "sidecar_probe_concurrency_migration")
+	defer func() { _ = conn.Close(testContext) }()
+
+	applyMigrationsThrough(t, testContext, conn, "000018_sidecar_quota_inventory_and_cooldown")
+	var sidecarID int
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
+VALUES ($1, $2, $3, $4)
+RETURNING id`, "probe-concurrency-migration-sidecar", "https://probe-concurrency-migration.example.test", "https://probe-concurrency-migration.example.test", "enc:probe-concurrency").Scan(&sidecarID); err != nil {
+		t.Fatalf("seed sidecar before probe concurrency migration: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled, probe_batch_size, probe_timeout_seconds) VALUES ($1, true, 7, 1)`, sidecarID); err != nil {
+		t.Fatalf("seed policy batch size before probe concurrency migration: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run probe concurrency migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected probe concurrency migration to apply, got %q", result.Outcome)
+	}
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, "000019_sidecar_watchdog_probe_concurrency"))
+	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
+
+	var probeConcurrency int
+	if err := conn.QueryRow(testContext, `SELECT probe_concurrency FROM sidecar_watchdog_policies WHERE sidecar_id = $1`, sidecarID).Scan(&probeConcurrency); err != nil {
+		t.Fatalf("load migrated probe concurrency: %v", err)
+	}
+	if probeConcurrency != 7 {
+		t.Fatalf("expected probe_concurrency to preserve legacy probe_batch_size 7, got %d", probeConcurrency)
+	}
+	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "probe_concurrency", "integer")
+	assertColumnMissing(t, testContext, conn, "sidecar_watchdog_policies", "probe_batch_size")
+	assertConstraintDefinitionContains(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25")
+	assertConstraintDefinitionExcludes(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
 }
 
 func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
@@ -746,11 +790,13 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	assertColumnMissing(t, ctx, conn, "sidecar_quota_probe_observations", "updated_at")
 	assertColumnMissing(t, ctx, conn, "sidecar_watchdog_holds", "last_action_id")
 	assertColumnMissing(t, ctx, conn, "sidecar_watchdog_policies", "probe_cursor_auth_id")
+	assertColumnMissing(t, ctx, conn, "sidecar_watchdog_policies", "probe_batch_size")
 	for _, column := range []struct {
 		tableName  string
 		columnName string
 		dataType   string
 	}{
+		{"sidecar_watchdog_policies", "probe_concurrency", "integer"},
 		{"sidecar_watchdog_policies", "probe_batch_cooldown_seconds", "integer"},
 		{"sidecar_watchdog_policies", "probe_last_batch_completed_at", "timestamp with time zone"},
 		{"sidecar_watchdog_policies", "quota_inventory_enabled", "boolean"},
@@ -794,7 +840,8 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	} {
 		assertColumnDataType(t, ctx, conn, column.tableName, column.columnName, column.dataType)
 	}
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_cooldown_seconds > 0", "rolling_refresh_after_seconds > 0")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25", "probe_batch_cooldown_seconds > 0", "rolling_refresh_after_seconds > 0")
+	assertConstraintDefinitionExcludes(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_scan_type", "initial", "manual", "scheduled")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "queued", "running", "completed", "cancelled", "failed")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_quota_scan_runs_pkey", "PRIMARY KEY (id)")
@@ -904,6 +951,19 @@ func assertConstraintDefinitionContains(t *testing.T, ctx context.Context, conn 
 	for _, fragment := range fragments {
 		if !strings.Contains(definition, fragment) {
 			t.Fatalf("expected constraint %s definition %q to contain %q", constraintName, definition, fragment)
+		}
+	}
+}
+
+func assertConstraintDefinitionExcludes(t *testing.T, ctx context.Context, conn *pgx.Conn, constraintName string, fragments ...string) {
+	t.Helper()
+	var definition string
+	if err := conn.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, constraintName).Scan(&definition); err != nil {
+		t.Fatalf("load constraint definition %s: %v", constraintName, err)
+	}
+	for _, fragment := range fragments {
+		if strings.Contains(definition, fragment) {
+			t.Fatalf("expected constraint %s definition %q not to contain %q", constraintName, definition, fragment)
 		}
 	}
 }
@@ -1631,6 +1691,9 @@ RETURNING id`, "quota inventory constraints", "https://quota.example.test", "htt
 		name string
 		sql  string
 	}{
+		{name: "probe concurrency positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency) VALUES ($1, 0)`},
+		{name: "probe concurrency max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency) VALUES ($1, 9)`},
+		{name: "probe timeout max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_timeout_seconds) VALUES ($1, 26)`},
 		{name: "cooldown positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_batch_cooldown_seconds) VALUES ($1, 0)`},
 		{name: "refresh positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, rolling_refresh_after_seconds) VALUES ($1, 0)`},
 		{name: "scan type enum", sql: `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'bogus', 'queued')`},
@@ -1642,6 +1705,10 @@ RETURNING id`, "quota inventory constraints", "https://quota.example.test", "htt
 				t.Fatalf("expected %s to fail schema validation", query.name)
 			}
 		})
+	}
+
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency, probe_timeout_seconds) VALUES ($1, 8, 25)`, sidecarID); err != nil {
+		t.Fatalf("expected concurrent probe policy to allow max concurrency with max timeout: %v", err)
 	}
 
 	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'queued')`, sidecarID); err != nil {
