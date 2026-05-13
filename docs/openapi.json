@@ -6155,7 +6155,7 @@
           "sidecars"
         ],
         "summary": "Update Sidecar Watchdog Policy",
-        "description": "Replaces public watchdog policy fields, including using_priority, quota_exceeded_priority, error_priority, probe_batch_size, probe_timeout_seconds, probe_jitter_min_ms, probe_jitter_max_ms, and cooldown_jitter_percent.",
+        "description": "Replaces public watchdog policy fields, including using_priority, quota_exceeded_priority, error_priority, probe_concurrency, probe_timeout_seconds, probe_jitter_min_ms, probe_jitter_max_ms, and cooldown_jitter_percent.",
         "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_put",
         "parameters": [
           {
@@ -6195,7 +6195,7 @@
           "sidecars"
         ],
         "summary": "Update Sidecar Watchdog Policy",
-        "description": "Partially updates public watchdog policy fields, including using_priority, quota_exceeded_priority, error_priority, probe_batch_size, probe_timeout_seconds, probe_jitter_min_ms, probe_jitter_max_ms, and cooldown_jitter_percent.",
+        "description": "Partially updates public watchdog policy fields, including using_priority, quota_exceeded_priority, error_priority, probe_concurrency, probe_timeout_seconds, probe_jitter_min_ms, probe_jitter_max_ms, and cooldown_jitter_percent.",
         "operationId": "update_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_patch",
         "parameters": [
           {
@@ -17273,9 +17273,9 @@
           "manual_override_pause_seconds": {
             "type": "integer"
           },
-          "probe_batch_size": {
+          "probe_concurrency": {
             "type": "integer",
-            "description": "Maximum number of auth files to probe in one bounded watchdog reconcile pass."
+            "description": "Maximum number of auth files to probe concurrently in one bounded watchdog reconcile wave."
           },
           "probe_timeout_seconds": {
             "type": "integer",
@@ -17329,7 +17329,7 @@
           "quota_exceeded_priority",
           "error_priority",
           "manual_override_pause_seconds",
-          "probe_batch_size",
+          "probe_concurrency",
           "probe_timeout_seconds",
           "probe_batch_cooldown_seconds",
           "probe_jitter_min_ms",
@@ -17374,9 +17374,9 @@
           "manual_override_pause_seconds": {
             "type": "integer"
           },
-          "probe_batch_size": {
+          "probe_concurrency": {
             "type": "integer",
-            "description": "Maximum number of auth files to probe in one bounded watchdog reconcile pass."
+            "description": "Maximum number of auth files to probe concurrently in one bounded watchdog reconcile wave."
           },
           "probe_timeout_seconds": {
             "type": "integer",
