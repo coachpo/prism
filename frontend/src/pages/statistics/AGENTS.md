@@ -29,7 +29,7 @@ statistics/
 
 ## CONVENTIONS
 
-- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Treat local persisted presentation state as the source of truth for dashboard analytics preferences that should survive reloads. The current shared statistics surface does not expose a dedicated route-level query-param contract.
 - Keep usage-snapshot orchestration in `useUsageStatisticsPageData.ts`, not in section or table components.
 - Treat backend snapshot currency as the source of truth for rendered statistics money. The frontend reporting-currency layer controls selected-profile readiness and trust, but statistics components should not refetch costing settings or recompute backend stats.

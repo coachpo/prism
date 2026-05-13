@@ -29,7 +29,7 @@ proxy-api-keys/
 
 ## CONVENTIONS
 
-- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Treat proxy API key management as a global auth-settings workflow, not a selected-profile feature.
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()`.
 - Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.

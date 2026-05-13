@@ -26,7 +26,7 @@ models/
 
 ## CONVENTIONS
 
-- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Bootstrap models and vendors from `@/lib/referenceData`, then patch the local list with `setSharedModels()` after mutations.
 - Keep proxy/native validation, strategy attachment rules, vendor selection, and `api_family` handling in `modelFormState.ts` instead of scattering them across dialog components.
 - Keep ordered proxy-target add/remove/reorder state in `modelFormState.ts`; `ModelDialog.tsx` should stay a thin rendering layer over that logic.

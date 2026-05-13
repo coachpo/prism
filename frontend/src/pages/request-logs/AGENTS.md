@@ -36,7 +36,7 @@ request-logs/
 
 ## CONVENTIONS
 
-- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Treat URL as the source of truth for the retained browse filters to support deep-linking.
 - Keep audit payload fetching lazy and isolated from the main request-list fetch lifecycle. The detail hook should fetch audit data only when the sheet is open and the audit tab is active.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.
