@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -838,7 +839,7 @@ type watchdogProbeRun struct {
 }
 
 func newWatchdogProbeRun(policy SidecarWatchdogPolicy, startedAt time.Time) watchdogProbeRun {
-	return watchdogProbeRun{remaining: normalizedProbeBatchSize(policy), policy: policy, startedAt: startedAt}
+	return watchdogProbeRun{remaining: normalizedProbeConcurrency(policy), policy: policy, startedAt: startedAt}
 }
 
 func (run *watchdogProbeRun) nextTimeout(now time.Time) (time.Duration, bool) {
@@ -852,6 +853,55 @@ func (run *watchdogProbeRun) consume() {
 	if run != nil && run.remaining > 0 {
 		run.remaining--
 	}
+}
+
+type watchdogProbeWaveResult struct {
+	Candidate      watchdogProbeCandidate
+	Classification sidecarWatchdogProbeClassification
+	Observation    SidecarWatchdogProbeObservationInput
+}
+
+func (s *Service) executeWatchdogProbeWave(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, candidates []watchdogProbeCandidate, run *watchdogProbeRun, now time.Time) ([]watchdogProbeWaveResult, error) {
+	if len(candidates) == 0 || run == nil || run.remaining <= 0 {
+		return nil, nil
+	}
+	waveSize := len(candidates)
+	if run.remaining < waveSize {
+		waveSize = run.remaining
+	}
+
+	results := make([]watchdogProbeWaveResult, waveSize)
+	errs := make([]error, waveSize)
+	launched := 0
+	var wg sync.WaitGroup
+	for i := 0; i < waveSize; i++ {
+		timeout, ok := run.nextTimeout(time.Now().UTC())
+		if !ok {
+			break
+		}
+		candidate := candidates[i]
+		resultIndex := i
+		run.consume()
+		launched++
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			classification, observation, err := s.runWatchdogProbe(ctx, instance, policy, candidate, timeout, now)
+			if err != nil {
+				errs[resultIndex] = err
+				return
+			}
+			results[resultIndex] = watchdogProbeWaveResult{Candidate: candidate, Classification: classification, Observation: observation}
+		}()
+	}
+	wg.Wait()
+
+	for _, err := range errs[:launched] {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return results[:launched], nil
 }
 
 func (s *Service) loadQuotaScanPlanningContext(ctx context.Context, sidecarID int) (SidecarInstance, SidecarWatchdogPolicy, []SidecarAuthSnapshot, map[string]struct{}, error) {
@@ -952,24 +1002,33 @@ func (s *Service) reconcileQuotaScanRunBatch(ctx context.Context, instance Sidec
 		_, err := completeQuotaScanRun(ctx, scanStore, scanRun, now)
 		return outcome, err
 	}
-	for _, candidate := range candidates {
-		if scanRun.AttemptedCount >= scanRun.PlannedCount {
-			break
-		}
-		timeout, ok := run.nextTimeout(time.Now().UTC())
-		if !ok {
-			break
-		}
-		classification, observation, err := s.runWatchdogProbe(ctx, instance, policy, candidate, timeout, now)
-		if err != nil {
-			return outcome, err
-		}
+	remainingPlanned := scanRun.PlannedCount - scanRun.AttemptedCount
+	if remainingPlanned < 0 {
+		remainingPlanned = 0
+	}
+	waveLimit := len(candidates)
+	if waveLimit > remainingPlanned {
+		waveLimit = remainingPlanned
+	}
+	if waveLimit > run.remaining {
+		waveLimit = run.remaining
+	}
+	if waveLimit <= 0 {
+		return outcome, nil
+	}
+	waveCandidates := candidates[:waveLimit]
+	results, err := s.executeWatchdogProbeWave(ctx, instance, policy, waveCandidates, run, now)
+	if err != nil {
+		return outcome, err
+	}
+	for index, result := range results {
+		candidate := waveCandidates[index]
+		classification := result.Classification
 		cursorAuthID := candidate.AuthID
-		decisionResult, err := s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{observation}, AdvanceCursor: true, CursorAuthID: &cursorAuthID, ScanRunID: &scanRun.ID})
+		decisionResult, err := s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{result.Observation}, AdvanceCursor: true, CursorAuthID: &cursorAuthID, ScanRunID: &scanRun.ID})
 		if err != nil {
 			return outcome, err
 		}
-		run.consume()
 		outcome.Attempted++
 		if decisionResult.ScanRun != nil {
 			scanRun = *decisionResult.ScanRun
@@ -998,20 +1057,24 @@ func (s *Service) reconcileQuotaScanRunBatch(ctx context.Context, instance Sidec
 
 func (s *Service) reconcileDueWatchdogProbeBatch(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, holds []SidecarWatchdogHold, snapshotByAuth map[string]SidecarAuthSnapshot, run *watchdogProbeRun, now time.Time) (watchdogProbeBatchOutcome, error) {
 	outcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	candidates := make([]watchdogProbeCandidate, 0, len(holds))
+	candidateHolds := make([]SidecarWatchdogHold, 0, len(holds))
 	for _, hold := range holds {
 		candidate, ok := watchdogDueHoldProbeCandidate(hold, now)
 		if !ok {
 			continue
 		}
-		timeout, ok := run.nextTimeout(time.Now().UTC())
-		if !ok {
-			break
-		}
-		classification, observation, err := s.runWatchdogProbe(ctx, instance, policy, candidate, timeout, now)
-		if err != nil {
-			return outcome, err
-		}
-		run.consume()
+		candidates = append(candidates, candidate)
+		candidateHolds = append(candidateHolds, hold)
+	}
+
+	results, err := s.executeWatchdogProbeWave(ctx, instance, policy, candidates, run, now)
+	if err != nil {
+		return outcome, err
+	}
+	for index, result := range results {
+		hold := candidateHolds[index]
+		classification := result.Classification
 		outcome.Attempted++
 		if watchdogProbeClassificationFailed(classification) {
 			outcome.ProbeFailed++
@@ -1022,7 +1085,7 @@ func (s *Service) reconcileDueWatchdogProbeBatch(ctx context.Context, instance S
 		outcome.ProcessedHoldIDs[hold.ID] = struct{}{}
 		outcome.ProcessedAuthIDs[hold.AuthID] = struct{}{}
 
-		decision := SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{observation}}
+		decision := SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{result.Observation}}
 		if update := watchdogHoldUpdateForProbeResult(hold, policy, classification, now); update != nil {
 			decision.UpdateHold = &SidecarWatchdogProbeHoldUpdate{ID: hold.ID, Input: *update}
 		}
@@ -1049,28 +1112,25 @@ func (s *Service) reconcileDiscoveryWatchdogProbeBatch(ctx context.Context, inst
 		return watchdogProbeBatchOutcome{}, err
 	}
 	outcome := watchdogProbeBatchOutcome{UnsupportedSkipped: unsupportedSkipped, ActionCount: unsupportedActions, ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
-	for _, candidate := range watchdogRollingRefreshProbeCandidates(policy, snapshots, activeHoldAuths, quotaStates, now) {
-		timeout, ok := run.nextTimeout(time.Now().UTC())
-		if !ok {
-			break
-		}
-		classification, observation, err := s.runWatchdogProbe(ctx, instance, policy, candidate, timeout, now)
-		if err != nil {
+	candidates := watchdogRollingRefreshProbeCandidates(policy, snapshots, activeHoldAuths, quotaStates, now)
+	results, err := s.executeWatchdogProbeWave(ctx, instance, policy, candidates, run, now)
+	if err != nil {
+		return outcome, err
+	}
+	for index, result := range results {
+		candidate := candidates[index]
+		classification := result.Classification
+		cursorAuthID := candidate.AuthID
+		if _, err := s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{result.Observation}, AdvanceCursor: true, CursorAuthID: &cursorAuthID}); err != nil {
 			return outcome, err
 		}
-		run.consume()
+		outcome.Attempted++
 		if watchdogProbeClassificationFailed(classification) {
 			outcome.ProbeFailed++
 		}
 		if classification.Status == watchdogProbeStatusSkippedUnsupportedProvider {
 			outcome.UnsupportedSkipped++
 		}
-		cursorAuthID := candidate.AuthID
-		_, err = s.store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{observation}, AdvanceCursor: true, CursorAuthID: &cursorAuthID})
-		if err != nil {
-			return outcome, err
-		}
-		outcome.Attempted++
 		outcome.ProcessedAuthIDs[candidate.AuthID] = struct{}{}
 		actionOutcome, err := s.applyDiscoveryWatchdogProbeResult(ctx, instance, policy, candidate, classification, now)
 		if err != nil {
@@ -2355,14 +2415,16 @@ func intFromAny(value any) int {
 }
 
 func validateWatchdogProbeRuntimePolicy(policy SidecarWatchdogPolicy) error {
-	batchSize := normalizedProbeBatchSize(policy)
+	if policy.ProbeConcurrency <= 0 {
+		return invalidInputError("probe_concurrency must be >= 1")
+	}
+	if policy.ProbeConcurrency > MaxProbeConcurrency {
+		return invalidInputError(fmt.Sprintf("probe_concurrency must be <= %d", MaxProbeConcurrency))
+	}
 	timeoutSeconds := normalizedProbeTimeoutSeconds(policy)
-	maxBudgetSeconds := watchdogProbeBudgetMaxSeconds()
+	maxBudgetSeconds := watchdogProbeConcurrencyBudgetMaxSeconds()
 	if timeoutSeconds > maxBudgetSeconds {
 		return invalidInputError("probe_timeout_seconds exceeds watchdog worker budget")
-	}
-	if batchSize*timeoutSeconds > maxBudgetSeconds {
-		return invalidInputError("probe batch budget exceeds watchdog worker budget")
 	}
 	if policy.ProbeJitterMinMS < 0 || policy.ProbeJitterMaxMS < 0 {
 		return invalidInputError("probe jitter bounds must be non-negative")
@@ -2482,11 +2544,11 @@ func normalizedPrioritizedPriority(policy SidecarWatchdogPolicy) int {
 	return policy.UsingPriority
 }
 
-func normalizedProbeBatchSize(policy SidecarWatchdogPolicy) int {
-	if policy.ProbeBatchSize <= 0 {
-		return DefaultProbeBatchSize
+func normalizedProbeConcurrency(policy SidecarWatchdogPolicy) int {
+	if policy.ProbeConcurrency <= 0 {
+		return DefaultProbeConcurrency
 	}
-	return policy.ProbeBatchSize
+	return policy.ProbeConcurrency
 }
 
 func normalizedProbeBatchCooldownSeconds(policy SidecarWatchdogPolicy) int {

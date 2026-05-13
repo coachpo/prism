@@ -312,7 +312,7 @@ func (s *memorySidecarStore) GetOrCreateWatchdogPolicy(_ context.Context, sideca
 		return cloneWatchdogPolicy(policy), nil
 	}
 	now := s.now().UTC()
-	policy := SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ErrorPriority: DefaultErrorPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: DefaultProbeBatchSize, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: DefaultProbeBatchCooldownSeconds, ProbeJitterMinMS: DefaultProbeJitterMinMS, ProbeJitterMaxMS: DefaultProbeJitterMaxMS, CooldownJitterPercent: DefaultCooldownJitterPercent, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: DefaultRollingRefreshAfterSeconds, CreatedAt: now, UpdatedAt: now}
+	policy := SidecarWatchdogPolicy{ID: s.nextPolicyID, SidecarID: sidecarID, Enabled: false, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ErrorPriority: DefaultErrorPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: DefaultProbeConcurrency, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: DefaultProbeBatchCooldownSeconds, ProbeJitterMinMS: DefaultProbeJitterMinMS, ProbeJitterMaxMS: DefaultProbeJitterMaxMS, CooldownJitterPercent: DefaultCooldownJitterPercent, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: DefaultRollingRefreshAfterSeconds, CreatedAt: now, UpdatedAt: now}
 	s.nextPolicyID++
 	s.policies[sidecarID] = policy
 	return cloneWatchdogPolicy(policy), nil
@@ -331,13 +331,13 @@ func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input Sidec
 		s.nextPolicyID++
 	}
 	preserveUsingPriority := ok && input.UsingPriority <= 0
-	preserveProbeBatchSize := ok && input.ProbeBatchSize <= 0
+	preserveProbeConcurrency := ok && input.ProbeConcurrency <= 0
 	preserveProbeTimeoutSeconds := ok && input.ProbeTimeoutSeconds <= 0
 	if preserveUsingPriority {
 		input.UsingPriority = policy.UsingPriority
 	}
-	if preserveProbeBatchSize {
-		input.ProbeBatchSize = policy.ProbeBatchSize
+	if preserveProbeConcurrency {
+		input.ProbeConcurrency = policy.ProbeConcurrency
 	}
 	if preserveProbeTimeoutSeconds {
 		input.ProbeTimeoutSeconds = policy.ProbeTimeoutSeconds
@@ -356,8 +356,8 @@ func (s *memorySidecarStore) UpsertWatchdogPolicy(_ context.Context, input Sidec
 	}
 	policy.ErrorPriority = normalized.ErrorPriority
 	policy.ManualOverridePauseSeconds = normalized.ManualOverridePauseSeconds
-	if !preserveProbeBatchSize {
-		policy.ProbeBatchSize = normalized.ProbeBatchSize
+	if !preserveProbeConcurrency {
+		policy.ProbeConcurrency = normalized.ProbeConcurrency
 	}
 	if !preserveProbeTimeoutSeconds {
 		policy.ProbeTimeoutSeconds = normalized.ProbeTimeoutSeconds

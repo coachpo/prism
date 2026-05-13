@@ -28,6 +28,7 @@ type watchdogProbeTestUpstream struct {
 	authFilesPayload string
 	authFilesCalls   int
 	responses        map[string]watchdogProbeTestResponse
+	apiCallHook      func(string)
 }
 
 type watchdogProbeTestResponse struct {
@@ -55,6 +56,12 @@ func (u *watchdogProbeTestUpstream) setProbeResponse(authIndex string, response 
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.responses[authIndex] = response
+}
+
+func (u *watchdogProbeTestUpstream) setAPICallHook(hook func(string)) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.apiCallHook = hook
 }
 
 func (u *watchdogProbeTestUpstream) setAuthFile(authID string, authIndex string, provider string, priority int) {
@@ -127,7 +134,11 @@ func (u *watchdogProbeTestUpstream) serveAPICall(w http.ResponseWriter, r *http.
 	u.mu.Lock()
 	u.calls = append(u.calls, request.AuthIndex)
 	response, ok := u.responses[request.AuthIndex]
+	hook := u.apiCallHook
 	u.mu.Unlock()
+	if hook != nil {
+		hook(request.AuthIndex)
+	}
 	if !ok {
 		response = watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()}
 	}
@@ -788,6 +799,108 @@ func TestWatchdogDueHoldBypassesStaleSnapshotForProbe(t *testing.T) {
 	}
 }
 
+func TestWatchdogDueHoldWaveFlushesInHoldOrder(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 13, 30, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	upstream.setAuthFile("auth-due-wave-a", "idx-due-wave-a", "codex", DefaultQuotaExceededPriority)
+	upstream.setAuthFile("auth-due-wave-b", "idx-due-wave-b", "codex", DefaultQuotaExceededPriority)
+	upstream.setProbeResponse("idx-due-wave-a", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody(), Delay: 150 * time.Millisecond})
+	upstream.setProbeResponse("idx-due-wave-b", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	released := false
+	releaseProbes := func() {
+		if !released {
+			close(release)
+			released = true
+		}
+	}
+	defer releaseProbes()
+	upstream.setAPICallHook(func(authIndex string) {
+		started <- authIndex
+		<-release
+	})
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 78)
+	enableWatchdogProbePolicy(t, service, sidecar.ID, 2, 2)
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-due-wave-a", "idx-due-wave-a", "codex", DefaultQuotaExceededPriority)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-due-wave-b", "idx-due-wave-b", "codex", DefaultQuotaExceededPriority)
+	createWatchdogProbeHold(t, service, sidecar.ID, "auth-due-wave-a", "idx-due-wave-a", now.Add(-2*time.Hour))
+	createWatchdogProbeHold(t, service, sidecar.ID, "auth-due-wave-b", "idx-due-wave-b", now.Add(-time.Hour))
+
+	type reconcileResult struct {
+		result SidecarWatchdogResult
+		err    error
+	}
+	done := make(chan reconcileResult, 1)
+	go func() {
+		result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+		done <- reconcileResult{result: result, err: err}
+	}()
+	waitForStarted := func() string {
+		t.Helper()
+		select {
+		case authIndex := <-started:
+			return authIndex
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for due-hold probe to start")
+			return ""
+		}
+	}
+	startedAuthIndexes := []string{waitForStarted(), waitForStarted()}
+	if !slices.Contains(startedAuthIndexes, "idx-due-wave-a") || !slices.Contains(startedAuthIndexes, "idx-due-wave-b") {
+		t.Fatalf("expected both due holds to start before release, got %v", startedAuthIndexes)
+	}
+	select {
+	case result := <-done:
+		t.Fatalf("due-hold wave completed before blocked probes were released: %+v", result)
+	default:
+	}
+	releaseProbes()
+
+	var reconcile reconcileResult
+	select {
+	case reconcile = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for due-hold wave reconcile")
+	}
+	if reconcile.err != nil {
+		t.Fatalf("reconcile due-hold wave: %v", reconcile.err)
+	}
+	if reconcile.result.Probed != 2 || reconcile.result.Restored != 2 || reconcile.result.ActionCount != 2 || !reconcile.result.Reconciled {
+		t.Fatalf("expected two due holds restored from one wave, got %+v", reconcile.result)
+	}
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10, 10}) {
+		t.Fatalf("expected two sequential restore patches, got %v", got)
+	}
+	observations, err := service.store.ListWatchdogProbeObservations(t.Context(), sidecar.ID, 10)
+	if err != nil {
+		t.Fatalf("list probe observations: %v", err)
+	}
+	observationIDs := map[string]int{}
+	for _, observation := range observations {
+		observationIDs[observation.AuthID] = observation.ID
+	}
+	if observationIDs["auth-due-wave-a"] == 0 || observationIDs["auth-due-wave-b"] == 0 || observationIDs["auth-due-wave-a"] >= observationIDs["auth-due-wave-b"] {
+		t.Fatalf("due-hold observations should persist in hold order despite probe completion order, ids=%+v observations=%+v", observationIDs, observations)
+	}
+	restoreActionIDs := map[string]int{}
+	for _, action := range listWatchdogActions(t, service, sidecar.ID) {
+		if action.ActionType == watchdogActionRestore && action.Status == watchdogActionStatusSucceeded {
+			restoreActionIDs[stringValue(action.AuthID)] = action.ID
+		}
+	}
+	if restoreActionIDs["auth-due-wave-a"] == 0 || restoreActionIDs["auth-due-wave-b"] == 0 || restoreActionIDs["auth-due-wave-a"] >= restoreActionIDs["auth-due-wave-b"] {
+		t.Fatalf("due-hold restore actions should apply in hold order, ids=%+v", restoreActionIDs)
+	}
+	holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID)
+	if err != nil || len(holds) != 0 {
+		t.Fatalf("expected both due holds released, holds=%+v err=%v", holds, err)
+	}
+}
+
 func TestWatchdogRollingRefreshOrderingPrefersOldestEligibleAuth(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 13, 45, 0, 0, time.UTC)
 	oldest := now.Add(-3 * time.Hour)
@@ -975,7 +1088,7 @@ func TestWatchdogFailureThresholdStillRunsWhenSnapshotsAreStaleOrPaused(t *testi
 
 func TestWatchdogTimeoutUsesWorkerBudgetSafetyMargin(t *testing.T) {
 	startedAt := time.Date(2026, time.May, 11, 15, 0, 0, 0, time.UTC)
-	policy := SidecarWatchdogPolicy{ProbeBatchSize: 1, ProbeTimeoutSeconds: 20}
+	policy := SidecarWatchdogPolicy{ProbeConcurrency: 1, ProbeTimeoutSeconds: 20}
 	timeout, ok := watchdogEffectiveProbeTimeout(policy, startedAt, startedAt)
 	if !ok || timeout != 20*time.Second {
 		t.Fatalf("initial effective timeout = %v ok=%v, want 20s true", timeout, ok)
@@ -987,8 +1100,157 @@ func TestWatchdogTimeoutUsesWorkerBudgetSafetyMargin(t *testing.T) {
 	if timeout, ok = watchdogEffectiveProbeTimeout(policy, startedAt, startedAt.Add(26*time.Second)); ok || timeout != 0 {
 		t.Fatalf("expired worker budget timeout = %v ok=%v, want 0 false", timeout, ok)
 	}
-	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeBatchSize: 2, ProbeTimeoutSeconds: 13}); !IsStoreError(err, StoreErrorInvalidInput) {
-		t.Fatalf("expected oversized worker budget validation error, got %v", err)
+	maxBudgetSeconds := watchdogProbeConcurrencyBudgetMaxSeconds()
+	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: maxBudgetSeconds}); err != nil {
+		t.Fatalf("expected max concurrency with max per-probe timeout to be valid, got %v", err)
+	}
+	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: 1, ProbeTimeoutSeconds: maxBudgetSeconds + 1}); !IsStoreError(err, StoreErrorInvalidInput) {
+		t.Fatalf("expected oversized per-probe timeout validation error, got %v", err)
+	}
+}
+
+func TestWatchdogProbeConcurrencyContractValidation(t *testing.T) {
+	if DefaultProbeConcurrency != 3 {
+		t.Fatalf("DefaultProbeConcurrency = %d, want 3", DefaultProbeConcurrency)
+	}
+	if MaxProbeConcurrency != 8 {
+		t.Fatalf("MaxProbeConcurrency = %d, want 8", MaxProbeConcurrency)
+	}
+	if got := normalizedProbeConcurrency(SidecarWatchdogPolicy{}); got != DefaultProbeConcurrency {
+		t.Fatalf("normalized default concurrency = %d, want %d", got, DefaultProbeConcurrency)
+	}
+
+	cases := []struct {
+		name        string
+		policy      SidecarWatchdogPolicy
+		wantInvalid bool
+	}{
+		{name: "valid single concurrency", policy: SidecarWatchdogPolicy{ProbeConcurrency: 1, ProbeTimeoutSeconds: 1}},
+		{name: "valid default concurrency", policy: SidecarWatchdogPolicy{ProbeConcurrency: DefaultProbeConcurrency, ProbeTimeoutSeconds: 1}},
+		{name: "valid max concurrency", policy: SidecarWatchdogPolicy{ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: 1}},
+		{name: "valid max concurrency with max per-probe timeout", policy: SidecarWatchdogPolicy{ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: watchdogProbeConcurrencyBudgetMaxSeconds()}},
+		{name: "invalid zero concurrency", policy: SidecarWatchdogPolicy{ProbeConcurrency: 0, ProbeTimeoutSeconds: 1}, wantInvalid: true},
+		{name: "invalid nine concurrency", policy: SidecarWatchdogPolicy{ProbeConcurrency: 9, ProbeTimeoutSeconds: 1}, wantInvalid: true},
+		{name: "invalid timeout above per-probe budget", policy: SidecarWatchdogPolicy{ProbeConcurrency: 1, ProbeTimeoutSeconds: watchdogProbeConcurrencyBudgetMaxSeconds() + 1}, wantInvalid: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateWatchdogProbeRuntimePolicy(tc.policy)
+			if tc.wantInvalid && !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid input error, got %v", err)
+			}
+			if !tc.wantInvalid && err != nil {
+				t.Fatalf("expected valid policy, got %v", err)
+			}
+		})
+	}
+}
+
+func TestWatchdogConcurrentWaveOverlapsSlowProbes(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 15, 30, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	delay := 200 * time.Millisecond
+	upstream.setProbeResponse("idx-wave-a", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody(), Delay: delay})
+	upstream.setProbeResponse("idx-wave-b", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody(), Delay: delay})
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	upstream.setAPICallHook(func(authIndex string) {
+		started <- authIndex
+		<-release
+	})
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 76)
+	policy := SidecarWatchdogPolicy{ProbeConcurrency: 2, ProbeTimeoutSeconds: 2, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds}
+	run := newWatchdogProbeRun(policy, time.Now().UTC())
+	candidates := []watchdogProbeCandidate{
+		{AuthID: "auth-wave-a", AuthIndex: "idx-wave-a", Provider: "codex"},
+		{AuthID: "auth-wave-b", AuthIndex: "idx-wave-b", Provider: "codex"},
+	}
+	type waveResult struct {
+		results []watchdogProbeWaveResult
+		err     error
+	}
+	done := make(chan waveResult, 1)
+	startedAt := time.Now()
+	go func() {
+		results, err := service.executeWatchdogProbeWave(t.Context(), sidecar, policy, candidates, &run, now)
+		done <- waveResult{results: results, err: err}
+	}()
+
+	seen := map[string]struct{}{}
+	for i := 0; i < len(candidates); i++ {
+		select {
+		case authIndex := <-started:
+			seen[authIndex] = struct{}{}
+		case <-time.After(750 * time.Millisecond):
+			close(release)
+			t.Fatalf("timed out waiting for two concurrent probe starts, saw %v", seen)
+		}
+	}
+	for _, authIndex := range []string{"idx-wave-a", "idx-wave-b"} {
+		if _, ok := seen[authIndex]; !ok {
+			close(release)
+			t.Fatalf("missing concurrent start for %s, saw %v", authIndex, seen)
+		}
+	}
+	close(release)
+
+	select {
+	case wave := <-done:
+		elapsed := time.Since(startedAt)
+		if wave.err != nil {
+			t.Fatalf("execute concurrent wave: %v", wave.err)
+		}
+		if len(wave.results) != len(candidates) {
+			t.Fatalf("wave results = %d, want %d", len(wave.results), len(candidates))
+		}
+		if elapsed >= 2*delay+200*time.Millisecond {
+			t.Fatalf("slow probes did not overlap enough, elapsed=%v delay=%v", elapsed, delay)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for concurrent wave to finish")
+	}
+}
+
+func TestWatchdogConcurrentWavePreservesInputOrderAndBudget(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 15, 35, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	upstream.setProbeResponse("idx-wave-slow", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody(), Delay: 200 * time.Millisecond})
+	upstream.setProbeResponse("idx-wave-fast", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	upstream.setProbeResponse("idx-wave-extra", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 77)
+	policy := SidecarWatchdogPolicy{ProbeConcurrency: 2, ProbeTimeoutSeconds: 2, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds}
+	run := newWatchdogProbeRun(policy, time.Now().UTC())
+	candidates := []watchdogProbeCandidate{
+		{AuthID: "auth-wave-slow", AuthIndex: "idx-wave-slow", Provider: "codex"},
+		{AuthID: "auth-wave-fast", AuthIndex: "idx-wave-fast", Provider: "codex"},
+		{AuthID: "auth-wave-extra", AuthIndex: "idx-wave-extra", Provider: "codex"},
+	}
+
+	results, err := service.executeWatchdogProbeWave(t.Context(), sidecar, policy, candidates, &run, now)
+	if err != nil {
+		t.Fatalf("execute ordered wave: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("wave results = %d, want 2", len(results))
+	}
+	for i, wantAuthID := range []string{"auth-wave-slow", "auth-wave-fast"} {
+		if results[i].Candidate.AuthID != wantAuthID || results[i].Observation.AuthID != wantAuthID {
+			t.Fatalf("result %d = candidate %q observation %q, want %q", i, results[i].Candidate.AuthID, results[i].Observation.AuthID, wantAuthID)
+		}
+		if results[i].Classification.Status != watchdogProbeStatusSucceeded {
+			t.Fatalf("result %d status = %q, want %q", i, results[i].Classification.Status, watchdogProbeStatusSucceeded)
+		}
+	}
+	if run.remaining != 0 {
+		t.Fatalf("remaining budget = %d, want 0", run.remaining)
+	}
+	calls := upstream.apiCallAuthIndexes()
+	if len(calls) != 2 || slices.Contains(calls, "idx-wave-extra") {
+		t.Fatalf("wave should only launch budgeted probes, calls=%v", calls)
 	}
 }
 
@@ -1092,6 +1354,97 @@ func TestManualQuotaScanIsAsyncResumableAndCancellable(t *testing.T) {
 	}
 }
 
+func TestWatchdogQuotaScanUsesOrderedConcurrentWaveAndCompletes(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 17, 15, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	upstream.setProbeResponse("idx-a", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	upstream.setProbeResponse("idx-b", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	upstream.setProbeResponse("idx-c", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	firstStarted := make(chan struct{}, 1)
+	secondStarted := make(chan struct{}, 1)
+	releaseFirst := make(chan struct{})
+	upstream.setAPICallHook(func(authIndex string) {
+		switch authIndex {
+		case "idx-a":
+			select {
+			case firstStarted <- struct{}{}:
+			default:
+			}
+			<-releaseFirst
+		case "idx-b":
+			select {
+			case secondStarted <- struct{}{}:
+			default:
+			}
+		}
+	})
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 77)
+	policy := SidecarWatchdogPolicy{ProbeConcurrency: 3, ProbeTimeoutSeconds: 5, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds}
+	scanRun, err := service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusQueued, PlannedCount: 2})
+	if err != nil {
+		t.Fatalf("create quota scan run: %v", err)
+	}
+	snapshots := []SidecarAuthSnapshot{
+		{SidecarID: sidecar.ID, AuthID: "auth-a", AuthIndex: stringPtr("idx-a"), Name: "auth-a.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(10)},
+		{SidecarID: sidecar.ID, AuthID: "auth-b", AuthIndex: stringPtr("idx-b"), Name: "auth-b.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(10)},
+		{SidecarID: sidecar.ID, AuthID: "auth-c", AuthIndex: stringPtr("idx-c"), Name: "auth-c.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(10)},
+	}
+	run := newWatchdogProbeRun(policy, time.Now().UTC())
+	resultCh := make(chan struct {
+		outcome watchdogProbeBatchOutcome
+		err     error
+	}, 1)
+	go func() {
+		outcome, err := service.reconcileQuotaScanRunBatch(t.Context(), sidecar, policy, snapshots, map[string]struct{}{}, map[string]SidecarAuthQuotaState{}, scanRun, &run, now)
+		resultCh <- struct {
+			outcome watchdogProbeBatchOutcome
+			err     error
+		}{outcome: outcome, err: err}
+	}()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first quota probe to start")
+	}
+	select {
+	case <-secondStarted:
+		close(releaseFirst)
+	case <-time.After(time.Second):
+		close(releaseFirst)
+		t.Fatal("quota scan did not launch the second probe concurrently")
+	}
+	var result struct {
+		outcome watchdogProbeBatchOutcome
+		err     error
+	}
+	select {
+	case result = <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ordered quota scan reconcile")
+	}
+	if result.err != nil {
+		t.Fatalf("reconcile quota scan batch: %v", result.err)
+	}
+	if calls := upstream.apiCallAuthIndexes(); len(calls) != 2 || !slices.Contains(calls, "idx-a") || !slices.Contains(calls, "idx-b") || slices.Contains(calls, "idx-c") {
+		t.Fatalf("quota scan should launch only the planned auths, got %v", calls)
+	}
+	if result.outcome.Attempted != 2 || result.outcome.ProbeFailed != 0 {
+		t.Fatalf("unexpected quota scan outcome: %+v", result.outcome)
+	}
+	reloadedRun, ok, err := service.store.(quotaScanRunPersistence).GetQuotaScanRun(t.Context(), sidecar.ID, scanRun.ID)
+	if err != nil || !ok {
+		t.Fatalf("reload completed quota scan run: ok=%v err=%v", ok, err)
+	}
+	if reloadedRun.Status != quotaScanStatusCompleted || reloadedRun.AttemptedCount != 2 || reloadedRun.PlannedCount != 2 || reloadedRun.CompletedAt == nil {
+		t.Fatalf("quota scan did not complete with preserved counts: %+v", reloadedRun)
+	}
+	if stringValue(reloadedRun.CursorAuthID) != "auth-b" {
+		t.Fatalf("quota scan cursor advanced out of order: %+v", reloadedRun)
+	}
+}
+
 func expectPendingPatchActionBeforeFieldPatch(upstream *watchdogProbeTestUpstream, service *Service, sidecarID int, actionType string, targetPriority int) <-chan error {
 	pendingCheck := make(chan error, 1)
 	upstream.setFieldPatchHook(func() {
@@ -1150,9 +1503,9 @@ func pendingPatchActionVisible(service *Service, sidecarID int, actionType strin
 	return fmt.Errorf("missing pending %s decision before priority patch in %+v", actionType, actions)
 }
 
-func enableWatchdogProbePolicy(t *testing.T, service *Service, sidecarID int, batchSize int, timeoutSeconds int) {
+func enableWatchdogProbePolicy(t *testing.T, service *Service, sidecarID int, probeConcurrency int, timeoutSeconds int) {
 	t.Helper()
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeBatchSize: batchSize, ProbeTimeoutSeconds: timeoutSeconds})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: probeConcurrency, ProbeTimeoutSeconds: timeoutSeconds})
 	if err != nil {
 		t.Fatalf("enable probe watchdog policy: %v", err)
 	}
@@ -1298,4 +1651,91 @@ func (s *failingProbeDecisionStore) PersistQuotaProbeDecision(ctx context.Contex
 
 func (s *failingProbeDecisionStore) ListWatchdogActions(ctx context.Context, sidecarID int) ([]SidecarWatchdogAction, error) {
 	return s.persistence.(actionHistoryPersistence).ListWatchdogActions(ctx, sidecarID)
+}
+func TestWatchdogDiscoveryProbeBatchUsesConcurrentWaveAndFlushesSequentially(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 18, 0, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	upstream.setProbeResponse("idx-discovery-a", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody(), Delay: 200 * time.Millisecond})
+	upstream.setProbeResponse("idx-discovery-b", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	skipCheck := make(chan error, 1)
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 90)
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: 5, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: 2, ProbeTimeoutSeconds: 2, RollingRefreshEnabled: boolPtr(true), RollingRefreshAfterSeconds: intPtr(3600)})
+	if err != nil {
+		t.Fatalf("enable discovery watchdog policy: %v", err)
+	}
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-discovery-a", "idx-discovery-a", "codex", 10)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-discovery-b", "idx-discovery-b", "codex", 10)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-unsupported", "idx-unsupported", "gemini", 10)
+	lister := service.store.(actionHistoryPersistence)
+	var checkOnce sync.Once
+	upstream.setAPICallHook(func(authIndex string) {
+		checkOnce.Do(func() {
+			actions, err := lister.ListWatchdogActions(context.Background(), sidecar.ID)
+			if err != nil {
+				skipCheck <- fmt.Errorf("list watchdog actions before discovery wave: %w", err)
+				return
+			}
+			if got := countWatchdogActions(actions, watchdogProbeStatusSkippedUnsupportedProvider); got != 1 {
+				skipCheck <- fmt.Errorf("expected unsupported discovery skip before first probe, got %d actions=%+v", got, actions)
+				return
+			}
+			skipCheck <- nil
+		})
+		started <- authIndex
+		<-release
+	})
+	resultCh := make(chan struct {
+		outcome SidecarWatchdogResult
+		err     error
+	}, 1)
+	go func() {
+		outcome, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
+		resultCh <- struct {
+			outcome SidecarWatchdogResult
+			err     error
+		}{outcome: outcome, err: err}
+	}()
+	startedAuths := map[string]struct{}{}
+	for len(startedAuths) < 2 {
+		select {
+		case authIndex := <-started:
+			startedAuths[authIndex] = struct{}{}
+			if len(startedAuths) == 1 {
+				select {
+				case err := <-skipCheck:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("timed out waiting for unsupported skip to record before the discovery wave")
+				}
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for concurrent discovery probes, started=%v", startedAuths)
+		}
+	}
+	close(release)
+	result := <-resultCh
+	if result.err != nil {
+		t.Fatalf("reconcile discovery batch: %v", result.err)
+	}
+	if result.outcome.Probed != 2 || result.outcome.UnsupportedSkipped != 1 || result.outcome.ActionCount != 1 {
+		t.Fatalf("unexpected discovery reconcile result: %+v", result.outcome)
+	}
+	observations, err := service.store.ListWatchdogProbeObservations(t.Context(), sidecar.ID, 10)
+	if err != nil {
+		t.Fatalf("list discovery observations: %v", err)
+	}
+	if got := []string{observations[0].AuthID, observations[1].AuthID}; !slices.Equal(got, []string{"auth-discovery-b", "auth-discovery-a"}) {
+		t.Fatalf("expected ordered sequential flush, observations=%+v", observations)
+	}
+	actions := listWatchdogActions(t, service, sidecar.ID)
+	if got := countWatchdogActions(actions, watchdogProbeStatusSkippedUnsupportedProvider); got != 1 {
+		t.Fatalf("unsupported discovery skips should record once, got %d actions=%+v", got, actions)
+	}
 }

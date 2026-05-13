@@ -811,26 +811,26 @@ func TestWatchdogPolicyProbeFieldsRoundTripAndValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get default policy: %v", err)
 			}
-			if policy.UsingPriority != DefaultUsingPriority || policy.ProbeBatchSize != DefaultProbeBatchSize || policy.ProbeTimeoutSeconds != DefaultProbeTimeoutSeconds {
+			if policy.UsingPriority != DefaultUsingPriority || policy.ProbeConcurrency != DefaultProbeConcurrency || policy.ProbeTimeoutSeconds != DefaultProbeTimeoutSeconds {
 				t.Fatalf("unexpected default probe policy fields: %+v", policy)
 			}
 			updated, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
 				SidecarID: sidecar.ID, Enabled: true, FailureThreshold: 5,
 				FailureWindowSeconds: 7200, FallbackCooldownSeconds: 3600,
 				QuotaExceededPriority: 2, UsingPriority: 5,
-				ManualOverridePauseSeconds: 900, ProbeBatchSize: 2, ProbeTimeoutSeconds: 10,
+				ManualOverridePauseSeconds: 900, ProbeConcurrency: 2, ProbeTimeoutSeconds: 10,
 			})
 			if err != nil {
 				t.Fatalf("upsert custom probe policy: %v", err)
 			}
-			if !updated.Enabled || updated.QuotaExceededPriority != 2 || updated.UsingPriority != 5 || updated.ProbeBatchSize != 2 || updated.ProbeTimeoutSeconds != 10 {
+			if !updated.Enabled || updated.QuotaExceededPriority != 2 || updated.UsingPriority != 5 || updated.ProbeConcurrency != 2 || updated.ProbeTimeoutSeconds != 10 {
 				t.Fatalf("custom probe policy not persisted: %+v", updated)
 			}
 			reloaded, err := store.GetOrCreateWatchdogPolicy(ctx, sidecar.ID)
 			if err != nil {
 				t.Fatalf("reload custom probe policy: %v", err)
 			}
-			if reloaded.UsingPriority != 5 || reloaded.ProbeBatchSize != 2 || reloaded.ProbeTimeoutSeconds != 10 || reloaded.ProbeBatchCooldownSeconds != DefaultProbeBatchCooldownSeconds || reloaded.ProbeLastBatchCompletedAt != nil {
+			if reloaded.UsingPriority != 5 || reloaded.ProbeConcurrency != 2 || reloaded.ProbeTimeoutSeconds != 10 || reloaded.ProbeBatchCooldownSeconds != DefaultProbeBatchCooldownSeconds || reloaded.ProbeLastBatchCompletedAt != nil {
 				t.Fatalf("custom probe policy did not round-trip: %+v", reloaded)
 			}
 			visibleUpdate, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
@@ -841,16 +841,35 @@ func TestWatchdogPolicyProbeFieldsRoundTripAndValidation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("upsert visible-only policy fields: %v", err)
 			}
-			if visibleUpdate.UsingPriority != 5 || visibleUpdate.ProbeBatchSize != 2 || visibleUpdate.ProbeTimeoutSeconds != 10 {
+			if visibleUpdate.UsingPriority != 5 || visibleUpdate.ProbeConcurrency != 2 || visibleUpdate.ProbeTimeoutSeconds != 10 {
 				t.Fatalf("visible-only policy update clobbered hidden probe fields: %+v", visibleUpdate)
 			}
-			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 3, UsingPriority: 2, ProbeBatchSize: 1, ProbeTimeoutSeconds: 1})
+			singleConcurrency, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 0, UsingPriority: 5, ProbeConcurrency: 1, ProbeTimeoutSeconds: 1})
+			if err != nil {
+				t.Fatalf("expected probe_concurrency=1 to be valid, got %v", err)
+			}
+			if singleConcurrency.ProbeConcurrency != 1 {
+				t.Fatalf("probe_concurrency=1 did not persist: %+v", singleConcurrency)
+			}
+			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 3, UsingPriority: 2, ProbeConcurrency: 1, ProbeTimeoutSeconds: 1})
 			if !IsStoreError(err, StoreErrorInvalidInput) {
 				t.Fatalf("expected invalid priority policy error, got %v", err)
 			}
-			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 0, UsingPriority: 5, ProbeBatchSize: 4, ProbeTimeoutSeconds: 8})
+			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 0, UsingPriority: 5, ProbeConcurrency: MaxProbeConcurrency + 1, ProbeTimeoutSeconds: 1})
 			if !IsStoreError(err, StoreErrorInvalidInput) {
-				t.Fatalf("expected invalid probe budget policy error, got %v", err)
+				t.Fatalf("expected invalid probe concurrency policy error, got %v", err)
+			}
+			maxProbeTimeoutSeconds := watchdogProbeConcurrencyBudgetMaxSeconds()
+			parallelBudget, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 0, UsingPriority: 5, ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: maxProbeTimeoutSeconds})
+			if err != nil {
+				t.Fatalf("expected max concurrency with max per-probe timeout to be valid, got %v", err)
+			}
+			if parallelBudget.ProbeConcurrency != MaxProbeConcurrency || parallelBudget.ProbeTimeoutSeconds != maxProbeTimeoutSeconds {
+				t.Fatalf("parallel probe budget policy did not persist: %+v", parallelBudget)
+			}
+			_, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 0, UsingPriority: 5, ProbeConcurrency: 1, ProbeTimeoutSeconds: maxProbeTimeoutSeconds + 1})
+			if !IsStoreError(err, StoreErrorInvalidInput) {
+				t.Fatalf("expected invalid per-probe timeout policy error, got %v", err)
 			}
 		})
 	}

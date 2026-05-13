@@ -16,7 +16,8 @@ const (
 	DefaultUsingPriority                  = 1
 	DefaultErrorPriority                  = DefaultQuotaExceededPriority
 	DefaultManualOverridePauseSeconds     = 1800
-	DefaultProbeBatchSize                 = 3
+	DefaultProbeConcurrency               = 3
+	MaxProbeConcurrency                   = 8
 	DefaultProbeTimeoutSeconds            = 8
 	DefaultProbeBatchCooldownSeconds      = 30
 	DefaultProbeJitterMinMS               = 100
@@ -220,7 +221,7 @@ type SidecarWatchdogPolicyInput struct {
 	UsingPriority              int
 	ErrorPriority              int
 	ManualOverridePauseSeconds int
-	ProbeBatchSize             int
+	ProbeConcurrency           int
 	ProbeTimeoutSeconds        int
 	ProbeBatchCooldownSeconds  *int
 	ProbeJitterMinMS           *int
@@ -243,7 +244,7 @@ type SidecarWatchdogPolicy struct {
 	UsingPriority              int
 	ErrorPriority              int
 	ManualOverridePauseSeconds int
-	ProbeBatchSize             int
+	ProbeConcurrency           int
 	ProbeTimeoutSeconds        int
 	ProbeBatchCooldownSeconds  int
 	ProbeJitterMinMS           int

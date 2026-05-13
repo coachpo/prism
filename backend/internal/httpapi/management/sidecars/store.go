@@ -794,9 +794,9 @@ func (s *Store) UpsertWatchdogPolicy(ctx context.Context, input SidecarWatchdogP
 		return SidecarWatchdogPolicy{}, invalidInputError("sidecar_id is required")
 	}
 	preserveUsingPriority := input.UsingPriority <= 0
-	preserveProbeBatchSize := input.ProbeBatchSize <= 0
+	preserveProbeConcurrency := input.ProbeConcurrency <= 0
 	preserveProbeTimeoutSeconds := input.ProbeTimeoutSeconds <= 0
-	if preserveUsingPriority || preserveProbeBatchSize || preserveProbeTimeoutSeconds {
+	if preserveUsingPriority || preserveProbeConcurrency || preserveProbeTimeoutSeconds {
 		existing, existingErr := s.GetOrCreateWatchdogPolicy(ctx, input.SidecarID)
 		if existingErr != nil {
 			return SidecarWatchdogPolicy{}, existingErr
@@ -804,8 +804,8 @@ func (s *Store) UpsertWatchdogPolicy(ctx context.Context, input SidecarWatchdogP
 		if preserveUsingPriority {
 			input.UsingPriority = existing.UsingPriority
 		}
-		if preserveProbeBatchSize {
-			input.ProbeBatchSize = existing.ProbeBatchSize
+		if preserveProbeConcurrency {
+			input.ProbeConcurrency = existing.ProbeConcurrency
 		}
 		if preserveProbeTimeoutSeconds {
 			input.ProbeTimeoutSeconds = existing.ProbeTimeoutSeconds
@@ -818,7 +818,7 @@ func (s *Store) UpsertWatchdogPolicy(ctx context.Context, input SidecarWatchdogP
 	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (
 sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
 quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds,
-probe_batch_size, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
+probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
 probe_jitter_max_ms, cooldown_jitter_percent, quota_inventory_enabled, initial_scan_enabled,
 rolling_refresh_enabled, rolling_refresh_after_seconds)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
@@ -829,7 +829,7 @@ quota_exceeded_priority = EXCLUDED.quota_exceeded_priority,
 using_priority = EXCLUDED.using_priority,
 error_priority = EXCLUDED.error_priority,
 manual_override_pause_seconds = EXCLUDED.manual_override_pause_seconds,
-probe_batch_size = EXCLUDED.probe_batch_size,
+probe_concurrency = EXCLUDED.probe_concurrency,
 probe_timeout_seconds = EXCLUDED.probe_timeout_seconds,
 probe_batch_cooldown_seconds = EXCLUDED.probe_batch_cooldown_seconds,
 probe_jitter_min_ms = EXCLUDED.probe_jitter_min_ms,
@@ -844,7 +844,7 @@ RETURNING `+sidecarWatchdogPolicySelectColumns,
 		normalized.SidecarID, normalized.Enabled, normalized.FailureThreshold,
 		normalized.FailureWindowSeconds, normalized.FallbackCooldownSeconds,
 		normalized.QuotaExceededPriority, normalized.UsingPriority, normalized.ErrorPriority,
-		normalized.ManualOverridePauseSeconds, normalized.ProbeBatchSize,
+		normalized.ManualOverridePauseSeconds, normalized.ProbeConcurrency,
 		normalized.ProbeTimeoutSeconds, *normalized.ProbeBatchCooldownSeconds,
 		*normalized.ProbeJitterMinMS, *normalized.ProbeJitterMaxMS, *normalized.CooldownJitterPercent,
 		*normalized.QuotaInventoryEnabled, *normalized.InitialScanEnabled,
@@ -1493,7 +1493,7 @@ status, disabled, snapshot_json, observed_at, created_at, updated_at`
 
 const sidecarWatchdogPolicySelectColumns = `id, sidecar_id, enabled, failure_threshold, failure_window_seconds,
 fallback_cooldown_seconds, quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds,
-probe_batch_size, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
+probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
 probe_jitter_max_ms, cooldown_jitter_percent, quota_inventory_enabled, initial_scan_enabled,
 rolling_refresh_enabled, rolling_refresh_after_seconds, probe_last_batch_completed_at, probe_next_batch_after,
 created_at, updated_at`
@@ -1572,8 +1572,8 @@ func normalizePolicyInput(input SidecarWatchdogPolicyInput) (SidecarWatchdogPoli
 	if input.ManualOverridePauseSeconds <= 0 {
 		input.ManualOverridePauseSeconds = DefaultManualOverridePauseSeconds
 	}
-	if input.ProbeBatchSize <= 0 {
-		input.ProbeBatchSize = DefaultProbeBatchSize
+	if input.ProbeConcurrency <= 0 {
+		input.ProbeConcurrency = DefaultProbeConcurrency
 	}
 	if input.ProbeTimeoutSeconds <= 0 {
 		input.ProbeTimeoutSeconds = DefaultProbeTimeoutSeconds
@@ -1622,13 +1622,13 @@ func normalizePolicyInput(input SidecarWatchdogPolicyInput) (SidecarWatchdogPoli
 	if *input.ProbeJitterMaxMS < *input.ProbeJitterMinMS {
 		return SidecarWatchdogPolicyInput{}, invalidInputError("probe_jitter_max_ms must be >= probe_jitter_min_ms")
 	}
-	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeBatchSize: input.ProbeBatchSize, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeJitterMinMS: *input.ProbeJitterMinMS, ProbeJitterMaxMS: *input.ProbeJitterMaxMS}); err != nil {
+	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeJitterMinMS: *input.ProbeJitterMinMS, ProbeJitterMaxMS: *input.ProbeJitterMaxMS}); err != nil {
 		return SidecarWatchdogPolicyInput{}, err
 	}
 	return input, nil
 }
 
-func watchdogProbeBudgetMaxSeconds() int {
+func watchdogProbeConcurrencyBudgetMaxSeconds() int {
 	budget := int((sidecarWatchdogWorkerTimeout - sidecarWatchdogWorkerSafetyMargin()) / time.Second)
 	if budget < 1 {
 		return 1
@@ -1873,7 +1873,7 @@ func scanSidecarWatchdogPolicy(scanner interface{ Scan(...any) error }) (Sidecar
 		&record.UsingPriority,
 		&record.ErrorPriority,
 		&record.ManualOverridePauseSeconds,
-		&record.ProbeBatchSize,
+		&record.ProbeConcurrency,
 		&record.ProbeTimeoutSeconds,
 		&record.ProbeBatchCooldownSeconds,
 		&record.ProbeJitterMinMS,
