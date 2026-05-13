@@ -19,7 +19,7 @@ websocket/
 
 ## CONVENTIONS
 
-- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Keep raw websocket message builders and parsing in `protocol.ts`.
 - Keep channel subscription ref-count math in `subscriptions.ts`; `../websocket.ts` consumes the helpers but should not duplicate the logic.
 - Keep URL construction and reconnect timing policy in `transport.ts`, while `../websocket.ts` owns the actual socket lifecycle and event handlers.
