@@ -1,10 +1,10 @@
 # FRONTEND SETTINGS SECTIONS KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/sections/` owns the rendered settings sections used by `../../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, shared vendor management, audit and privacy, header-blocklist rules, user-agent or client rules, billing and currency, backup, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` UI clusters. Keep it focused on section rendering, not the shell or costing orchestration.
+`pages/settings/sections/` owns the rendered settings sections used by `../../SettingsPage.tsx`. This folder covers the section-level UI for auth setup, shared vendor management, audit and privacy, header-blocklist rules, user-agent or client rules, billing and currency, backup, retention and deletion, and timezone preferences, plus the nested `authentication/` and `billing-currency/` leaf clusters. Keep it focused on section rendering, not the shell or costing orchestration.
 
 ## STRUCTURE
-```
+```text
 sections/
 ├── AuthenticationSection.tsx
 ├── VendorManagementSection.tsx
@@ -23,7 +23,7 @@ sections/
 ├── RetentionDeletionSection.tsx
 ├── TimezoneSection.tsx
 ├── authentication/                # Auth status, setup grid, and recovery-email auth UI cluster
-└── billing-currency/              # Reporting currency card and FX mapping UI pieces
+└── billing-currency/AGENTS.md     # Reporting currency and FX mapping leaf cluster
 ```
 
 ## WHERE TO LOOK
@@ -31,7 +31,7 @@ sections/
 - Auth setup and verified-email prerequisites: `AuthenticationSection.tsx`, `authentication/`
 - Shared vendor-catalog table, catalog import/export preview transport, and Global-tab entrypoints for create/edit/delete flows: `VendorManagementSection.tsx`, `VendorCatalogTransportCard.tsx`
 - Audit and privacy defaults, header blocklist, user-agent or client rule management, vendor toggles, and rules-panel rendering stay vendor-based today, even though request logs and statistics now filter by `api_family`: `AuditConfigurationSection.tsx`, `AuditConfigurationDefaultsCard.tsx`, `AuditConfigurationHeaderBlocklistCard.tsx`, `AuditConfigurationUserAgentClientRulesCard.tsx`, `AuditConfigurationVendorToggles.tsx`, `AuditConfigurationRulesPanel.tsx`, `AuditConfigurationRuleActions.tsx`, `AuditConfigurationRuleSection.tsx`, `AuditConfigurationRuleTable.tsx`
-- Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/`
+- Billing and currency section shell that renders reporting currency and FX mapping UI, while staying separate from costing state: `BillingCurrencySection.tsx`, `billing-currency/AGENTS.md`
 - Backup and config import or export section: `BackupSection.tsx`
 - Retention and deletion section: `RetentionDeletionSection.tsx`
 - Timezone preference section: `TimezoneSection.tsx`
@@ -41,11 +41,11 @@ sections/
 ## LOCAL CLUSTERS
 
 - `authentication/`: auth status cards, setup field shells, and the nested `authentication/AGENTS.md` leaf
-- `billing-currency/`: `ReportingCurrencyCard.tsx`, `FxMappingForm.tsx`, `FxMappingsSummary.tsx`, and `FxMappingsTable.tsx`
+- `billing-currency/`: `ReportingCurrencyCard.tsx`, `FxMappingForm.tsx`, `FxMappingsSummary.tsx`, and `FxMappingsTable.tsx`; its leaf doc lives at `billing-currency/AGENTS.md`
 
 ## CONVENTIONS
 
-- When doing upgrade work, first account for this project stage: This application is under development, it doesn't have users at the moment. Backward compatibility with the pre-upgrade implementation is not a goal unless explicitly requested; prefer the best current implementation shape over preserving the old one, and do not add compatibility shims, dual paths, or fallback behavior solely to preserve the old interface.
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - Keep these files focused on section rendering, local field composition, and section-specific copy.
 - Let `VendorManagementSection.tsx` and `VendorCatalogTransportCard.tsx` stay rendering-focused; bootstrap, catalog import/export parsing, preview state, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
 - Let vendor section UI show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.
@@ -57,5 +57,5 @@ sections/
 ## ANTI-PATTERNS
 
 - Do not move auth setup logic out of `authentication/`.
-- Do not move FX mapping CRUD state into `billing-currency/` presentation components. That boundary belongs to `../costing/`.
-- Do not invent extra settings sections or nested AGENTS files beyond the local clusters already covered here. `authentication/AGENTS.md` is the one justified nested leaf; `billing-currency/` remains parent-covered.
+- Do not move FX mapping CRUD state into `billing-currency/AGENTS.md` presentation components. That boundary belongs to `../costing/`.
+- Do not invent extra settings sections or nested AGENTS files beyond the local clusters already covered here. `authentication/AGENTS.md` and `billing-currency/AGENTS.md` are the justified nested leaves.
