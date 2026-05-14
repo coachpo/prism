@@ -55,26 +55,24 @@ export function SidecarsScaffold() {
             onPatchStatus={pageData.handlePatchAuthStatus}
             quotaStates={pageData.quotaStates}
           />
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.7fr)]">
-            <ProviderInventoryTable
+          <ProviderInventoryTable
+            loading={pageData.sidecarDetailLoading}
+            providerSnapshots={pageData.providerSnapshots}
+          />
+          <div className="space-y-6">
+            <QuotaInventoryPanel
               loading={pageData.sidecarDetailLoading}
-              providerSnapshots={pageData.providerSnapshots}
+              mutating={pageData.quotaScanMutating}
+              onCancelScan={pageData.handleCancelQuotaScan}
+              onStartScan={pageData.handleStartQuotaScan}
+              scans={pageData.quotaScans}
             />
-            <div className="space-y-6">
-              <QuotaInventoryPanel
-                loading={pageData.sidecarDetailLoading}
-                mutating={pageData.quotaScanMutating}
-                onCancelScan={pageData.handleCancelQuotaScan}
-                onStartScan={pageData.handleStartQuotaScan}
-                scans={pageData.quotaScans}
-              />
-              <WatchdogPolicyPanel
-                loading={pageData.sidecarDetailLoading}
-                onSave={pageData.handleSaveWatchdogPolicy}
-                policy={pageData.watchdogPolicy}
-                saving={pageData.watchdogPolicySaving}
-              />
-            </div>
+            <WatchdogPolicyPanel
+              loading={pageData.sidecarDetailLoading}
+              onSave={pageData.handleSaveWatchdogPolicy}
+              policy={pageData.watchdogPolicy}
+              saving={pageData.watchdogPolicySaving}
+            />
           </div>
           <SidecarActionHistory actions={pageData.actionHistory} loading={pageData.sidecarDetailLoading} />
         </div>
