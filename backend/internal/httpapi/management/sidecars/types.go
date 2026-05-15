@@ -12,14 +12,18 @@ const (
 	DefaultFailureThreshold               = 3
 	DefaultFailureWindowSeconds           = 3600
 	DefaultFallbackCooldownSeconds        = 86400
-	DefaultQuotaExceededPriority          = 0
-	DefaultUsingPriority                  = 1
-	DefaultErrorPriority                  = DefaultQuotaExceededPriority
+	DefaultWorkingPriority                = 99
+	DefaultEmptyQuotaPriority             = 90
+	DefaultInitialPriority                = 50
+	DefaultErrorPriority                  = 10
+	DefaultQuotaExceededPriority          = DefaultEmptyQuotaPriority
+	DefaultUsingPriority                  = DefaultWorkingPriority
 	DefaultManualOverridePauseSeconds     = 1800
 	DefaultProbeConcurrency               = 3
 	MaxProbeConcurrency                   = 8
 	DefaultProbeTimeoutSeconds            = 8
 	DefaultProbeBatchCooldownSeconds      = 30
+	DefaultWatchdogSweepIntervalSeconds   = 3600
 	DefaultProbeJitterMinMS               = 100
 	DefaultProbeJitterMaxMS               = 1000
 	DefaultCooldownJitterPercent          = 20
@@ -44,6 +48,7 @@ const (
 	StoreErrorDuplicateSidecarName         StoreErrorCode = "duplicate_sidecar_name"
 	StoreErrorDuplicateSidecarCanonicalURL StoreErrorCode = "duplicate_sidecar_canonical_url"
 	StoreErrorDuplicateActiveHold          StoreErrorCode = "duplicate_active_hold"
+	StoreErrorConflict                     StoreErrorCode = "conflict"
 	StoreErrorNotFound                     StoreErrorCode = "not_found"
 	StoreErrorInvalidInput                 StoreErrorCode = "invalid_input"
 )
@@ -219,6 +224,9 @@ type SidecarWatchdogPolicyInput struct {
 	FallbackCooldownSeconds    int
 	QuotaExceededPriority      int
 	UsingPriority              int
+	WorkingPriority            int
+	EmptyQuotaPriority         int
+	InitialPriority            int
 	ErrorPriority              int
 	ManualOverridePauseSeconds int
 	ProbeConcurrency           int
@@ -236,12 +244,17 @@ type SidecarWatchdogPolicyInput struct {
 type SidecarWatchdogPolicy struct {
 	ID                         int
 	SidecarID                  int
+	ActiveRevisionID           *int64
+	PendingRevisionID          *int64
 	Enabled                    bool
 	FailureThreshold           int
 	FailureWindowSeconds       int
 	FallbackCooldownSeconds    int
 	QuotaExceededPriority      int
 	UsingPriority              int
+	WorkingPriority            int
+	EmptyQuotaPriority         int
+	InitialPriority            int
 	ErrorPriority              int
 	ManualOverridePauseSeconds int
 	ProbeConcurrency           int
@@ -258,6 +271,138 @@ type SidecarWatchdogPolicy struct {
 	ProbeNextBatchAfter        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+}
+
+type SidecarWatchdogPolicyRevisionInput struct {
+	SidecarID                    int
+	Enabled                      bool
+	WatchdogSweepIntervalSeconds int
+	ProbeConcurrency             int
+	ProbeTimeoutSeconds          int
+	ProbeBatchCooldownSeconds    int
+	ProbeJitterMinMS             int
+	ProbeJitterMaxMS             int
+	CooldownJitterPercent        int
+	UsingPriority                int
+	QuotaExceededPriority        int
+	WorkingPriority              int
+	EmptyQuotaPriority           int
+	InitialPriority              int
+	ErrorPriority                int
+	FailureThreshold             int
+	FailureWindowSeconds         int
+	FallbackCooldownSeconds      int
+	ManualOverridePauseSeconds   int
+	QuotaInventoryEnabled        bool
+	InitialScanEnabled           bool
+	RollingRefreshEnabled        bool
+	RollingRefreshAfterSeconds   int
+}
+type SidecarWatchdogPolicyRevision struct {
+	ID                           int64
+	PolicyID                     int
+	SidecarID                    int
+	Enabled                      bool
+	WatchdogSweepIntervalSeconds int
+	ProbeConcurrency             int
+	ProbeTimeoutSeconds          int
+	ProbeBatchCooldownSeconds    int
+	ProbeJitterMinMS             int
+	ProbeJitterMaxMS             int
+	CooldownJitterPercent        int
+	UsingPriority                int
+	QuotaExceededPriority        int
+	WorkingPriority              int
+	EmptyQuotaPriority           int
+	InitialPriority              int
+	ErrorPriority                int
+	FailureThreshold             int
+	FailureWindowSeconds         int
+	FallbackCooldownSeconds      int
+	ManualOverridePauseSeconds   int
+	QuotaInventoryEnabled        bool
+	InitialScanEnabled           bool
+	RollingRefreshEnabled        bool
+	RollingRefreshAfterSeconds   int
+	CreatedAt                    time.Time
+}
+type SidecarWatchdogPolicyRevisionState struct {
+	Policy            SidecarWatchdogPolicy
+	ActiveRevision    *SidecarWatchdogPolicyRevision
+	PendingRevision   *SidecarWatchdogPolicyRevision
+	HasPendingChanges bool
+	ActiveSweep       *SidecarWatchdogSweep
+}
+type SidecarWatchdogSweepStatus string
+
+const (
+	SidecarWatchdogSweepStatusRunning   SidecarWatchdogSweepStatus = "running"
+	SidecarWatchdogSweepStatusPaused    SidecarWatchdogSweepStatus = "paused"
+	SidecarWatchdogSweepStatusCompleted SidecarWatchdogSweepStatus = "completed"
+	SidecarWatchdogSweepStatusFailed    SidecarWatchdogSweepStatus = "failed"
+	SidecarWatchdogSweepStatusCancelled SidecarWatchdogSweepStatus = "cancelled"
+)
+
+type SidecarWatchdogSweepMutationOutcome string
+
+const (
+	SidecarWatchdogSweepMutationOutcomeUpdated  SidecarWatchdogSweepMutationOutcome = "updated"
+	SidecarWatchdogSweepMutationOutcomeNotFound SidecarWatchdogSweepMutationOutcome = "not_found"
+)
+
+type SidecarWatchdogSweepInput struct {
+	SweepID          string
+	SidecarID        int
+	PolicyRevisionID int64
+	Status           string
+	SnapshotJSON     json.RawMessage
+	NextItemIndex    int
+	BatchIndex       int
+	NextBatchAfter   *time.Time
+	LastHeartbeatAt  *time.Time
+	LeaseExpiresAt   *time.Time
+	PauseReason      *string
+	FailureReason    *string
+	StartedAt        time.Time
+	CompletedAt      *time.Time
+}
+type SidecarWatchdogSweep struct {
+	SweepID          string
+	SidecarID        int
+	PolicyRevisionID int64
+	Status           string
+	SnapshotJSON     json.RawMessage
+	NextItemIndex    int
+	BatchIndex       int
+	NextBatchAfter   *time.Time
+	LastHeartbeatAt  *time.Time
+	LeaseExpiresAt   *time.Time
+	PauseReason      *string
+	FailureReason    *string
+	StartedAt        time.Time
+	CompletedAt      *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+type SidecarWatchdogSweepHeartbeatInput struct {
+	SweepID        string
+	HeartbeatAt    time.Time
+	LeaseExpiresAt *time.Time
+}
+type SidecarWatchdogSweepCheckpointInput struct {
+	SweepID         string
+	NextItemIndex   int
+	BatchIndex      int
+	NextBatchAfter  *time.Time
+	LastHeartbeatAt *time.Time
+	LeaseExpiresAt  *time.Time
+	PauseReason     *string
+	FailureReason   *string
+	CompletedAt     *time.Time
+}
+type SidecarWatchdogSweepMutationResult struct {
+	Outcome SidecarWatchdogSweepMutationOutcome
+	Sweep   SidecarWatchdogSweep
 }
 
 type SidecarWatchdogProbeObservationInput struct {

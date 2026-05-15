@@ -773,10 +773,14 @@ func (s *Store) GetOrCreateWatchdogPolicy(ctx context.Context, sidecarID int) (S
 	if err := s.requirePool(); err != nil {
 		return SidecarWatchdogPolicy{}, err
 	}
+	return getOrCreateWatchdogPolicy(ctx, s.pool, sidecarID)
+}
+
+func getOrCreateWatchdogPolicy(ctx context.Context, executor sidecarSQLExecutor, sidecarID int) (SidecarWatchdogPolicy, error) {
 	if sidecarID <= 0 {
 		return SidecarWatchdogPolicy{}, invalidInputError("sidecar_id is required")
 	}
-	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (sidecar_id) VALUES ($1)
+	row := executor.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (sidecar_id) VALUES ($1)
 ON CONFLICT (sidecar_id) DO UPDATE SET sidecar_id = sidecar_watchdog_policies.sidecar_id
 RETURNING `+sidecarWatchdogPolicySelectColumns, sidecarID)
 	record, err := scanSidecarWatchdogPolicy(row)
@@ -793,21 +797,30 @@ func (s *Store) UpsertWatchdogPolicy(ctx context.Context, input SidecarWatchdogP
 	if input.SidecarID <= 0 {
 		return SidecarWatchdogPolicy{}, invalidInputError("sidecar_id is required")
 	}
-	preserveUsingPriority := input.UsingPriority <= 0
-	preserveProbeConcurrency := input.ProbeConcurrency <= 0
-	preserveProbeTimeoutSeconds := input.ProbeTimeoutSeconds <= 0
-	if preserveUsingPriority || preserveProbeConcurrency || preserveProbeTimeoutSeconds {
-		existing, existingErr := s.GetOrCreateWatchdogPolicy(ctx, input.SidecarID)
-		if existingErr != nil {
-			return SidecarWatchdogPolicy{}, existingErr
+	if input.UsingPriority <= 0 || input.WorkingPriority <= 0 || input.EmptyQuotaPriority <= 0 || input.InitialPriority <= 0 || input.ErrorPriority <= 0 || input.ProbeConcurrency <= 0 || input.ProbeTimeoutSeconds <= 0 {
+		existing, err := s.GetOrCreateWatchdogPolicy(ctx, input.SidecarID)
+		if err != nil {
+			return SidecarWatchdogPolicy{}, err
 		}
-		if preserveUsingPriority {
+		if input.UsingPriority <= 0 {
 			input.UsingPriority = existing.UsingPriority
 		}
-		if preserveProbeConcurrency {
+		if input.WorkingPriority <= 0 {
+			input.WorkingPriority = existing.WorkingPriority
+		}
+		if input.EmptyQuotaPriority <= 0 {
+			input.EmptyQuotaPriority = existing.EmptyQuotaPriority
+		}
+		if input.InitialPriority <= 0 {
+			input.InitialPriority = existing.InitialPriority
+		}
+		if input.ErrorPriority <= 0 {
+			input.ErrorPriority = existing.ErrorPriority
+		}
+		if input.ProbeConcurrency <= 0 {
 			input.ProbeConcurrency = existing.ProbeConcurrency
 		}
-		if preserveProbeTimeoutSeconds {
+		if input.ProbeTimeoutSeconds <= 0 {
 			input.ProbeTimeoutSeconds = existing.ProbeTimeoutSeconds
 		}
 	}
@@ -815,46 +828,437 @@ func (s *Store) UpsertWatchdogPolicy(ctx context.Context, input SidecarWatchdogP
 	if err != nil {
 		return SidecarWatchdogPolicy{}, err
 	}
-	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (
-sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
-quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds,
-probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
-probe_jitter_max_ms, cooldown_jitter_percent, quota_inventory_enabled, initial_scan_enabled,
-rolling_refresh_enabled, rolling_refresh_after_seconds)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-ON CONFLICT (sidecar_id) DO UPDATE SET enabled = EXCLUDED.enabled,
-failure_threshold = EXCLUDED.failure_threshold, failure_window_seconds = EXCLUDED.failure_window_seconds,
-fallback_cooldown_seconds = EXCLUDED.fallback_cooldown_seconds,
-quota_exceeded_priority = EXCLUDED.quota_exceeded_priority,
-using_priority = EXCLUDED.using_priority,
-error_priority = EXCLUDED.error_priority,
-manual_override_pause_seconds = EXCLUDED.manual_override_pause_seconds,
-probe_concurrency = EXCLUDED.probe_concurrency,
-probe_timeout_seconds = EXCLUDED.probe_timeout_seconds,
-probe_batch_cooldown_seconds = EXCLUDED.probe_batch_cooldown_seconds,
-probe_jitter_min_ms = EXCLUDED.probe_jitter_min_ms,
-probe_jitter_max_ms = EXCLUDED.probe_jitter_max_ms,
-cooldown_jitter_percent = EXCLUDED.cooldown_jitter_percent,
-quota_inventory_enabled = EXCLUDED.quota_inventory_enabled,
-initial_scan_enabled = EXCLUDED.initial_scan_enabled,
-rolling_refresh_enabled = EXCLUDED.rolling_refresh_enabled,
-rolling_refresh_after_seconds = EXCLUDED.rolling_refresh_after_seconds,
-updated_at = now()
-RETURNING `+sidecarWatchdogPolicySelectColumns,
-		normalized.SidecarID, normalized.Enabled, normalized.FailureThreshold,
-		normalized.FailureWindowSeconds, normalized.FallbackCooldownSeconds,
-		normalized.QuotaExceededPriority, normalized.UsingPriority, normalized.ErrorPriority,
-		normalized.ManualOverridePauseSeconds, normalized.ProbeConcurrency,
-		normalized.ProbeTimeoutSeconds, *normalized.ProbeBatchCooldownSeconds,
-		*normalized.ProbeJitterMinMS, *normalized.ProbeJitterMaxMS, *normalized.CooldownJitterPercent,
-		*normalized.QuotaInventoryEnabled, *normalized.InitialScanEnabled,
-		*normalized.RollingRefreshEnabled, *normalized.RollingRefreshAfterSeconds,
-	)
+	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds, quota_exceeded_priority, using_priority, working_priority, empty_quota_priority, initial_priority, error_priority, manual_override_pause_seconds, probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms, probe_jitter_max_ms, cooldown_jitter_percent, quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled, rolling_refresh_after_seconds) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) ON CONFLICT (sidecar_id) DO UPDATE SET enabled=EXCLUDED.enabled, failure_threshold=EXCLUDED.failure_threshold, failure_window_seconds=EXCLUDED.failure_window_seconds, fallback_cooldown_seconds=EXCLUDED.fallback_cooldown_seconds, quota_exceeded_priority=EXCLUDED.quota_exceeded_priority, using_priority=EXCLUDED.using_priority, working_priority=EXCLUDED.working_priority, empty_quota_priority=EXCLUDED.empty_quota_priority, initial_priority=EXCLUDED.initial_priority, error_priority=EXCLUDED.error_priority, manual_override_pause_seconds=EXCLUDED.manual_override_pause_seconds, probe_concurrency=EXCLUDED.probe_concurrency, probe_timeout_seconds=EXCLUDED.probe_timeout_seconds, probe_batch_cooldown_seconds=EXCLUDED.probe_batch_cooldown_seconds, probe_jitter_min_ms=EXCLUDED.probe_jitter_min_ms, probe_jitter_max_ms=EXCLUDED.probe_jitter_max_ms, cooldown_jitter_percent=EXCLUDED.cooldown_jitter_percent, quota_inventory_enabled=EXCLUDED.quota_inventory_enabled, initial_scan_enabled=EXCLUDED.initial_scan_enabled, rolling_refresh_enabled=EXCLUDED.rolling_refresh_enabled, rolling_refresh_after_seconds=EXCLUDED.rolling_refresh_after_seconds, updated_at=now() RETURNING `+sidecarWatchdogPolicySelectColumns, normalized.SidecarID, normalized.Enabled, normalized.FailureThreshold, normalized.FailureWindowSeconds, normalized.FallbackCooldownSeconds, normalized.QuotaExceededPriority, normalized.UsingPriority, normalized.WorkingPriority, normalized.EmptyQuotaPriority, normalized.InitialPriority, normalized.ErrorPriority, normalized.ManualOverridePauseSeconds, normalized.ProbeConcurrency, normalized.ProbeTimeoutSeconds, *normalized.ProbeBatchCooldownSeconds, *normalized.ProbeJitterMinMS, *normalized.ProbeJitterMaxMS, *normalized.CooldownJitterPercent, *normalized.QuotaInventoryEnabled, *normalized.InitialScanEnabled, *normalized.RollingRefreshEnabled, *normalized.RollingRefreshAfterSeconds)
 	record, err := scanSidecarWatchdogPolicy(row)
 	if err != nil {
 		return SidecarWatchdogPolicy{}, mapStoreError(err)
 	}
 	return record, nil
+}
+
+func (s *Store) GetWatchdogPolicyRevision(ctx context.Context, id int64) (SidecarWatchdogPolicyRevision, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPolicyRevision{}, false, err
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarWatchdogPolicyRevisionSelectColumns+` FROM sidecar_watchdog_policy_revisions WHERE id=$1`, id)
+	rec, err := scanSidecarWatchdogPolicyRevision(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogPolicyRevision{}, false, nil
+	}
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, false, mapStoreError(err)
+	}
+	return rec, true, nil
+}
+func (s *Store) CreateWatchdogPolicyRevision(ctx context.Context, input SidecarWatchdogPolicyRevisionInput) (SidecarWatchdogPolicyRevision, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
+	rec, err := createWatchdogPolicyRevision(ctx, s.pool, input)
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, mapStoreError(err)
+	}
+	return rec, nil
+}
+func (s *Store) UpsertWatchdogPolicyRevision(ctx context.Context, input SidecarWatchdogPolicyRevisionInput) (SidecarWatchdogPolicyRevision, error) {
+	return s.CreateWatchdogPolicyRevision(ctx, input)
+}
+func (s *Store) CreatePendingWatchdogPolicyRevision(ctx context.Context, input SidecarWatchdogPolicyRevisionInput) (SidecarWatchdogPolicyRevisionState, error) {
+	return s.SavePendingWatchdogPolicyRevision(ctx, input, nil)
+}
+func (s *Store) SavePendingWatchdogPolicyRevision(ctx context.Context, input SidecarWatchdogPolicyRevisionInput, expectedRevisionID *int64) (SidecarWatchdogPolicyRevisionState, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	policy, err := getOrCreateWatchdogPolicy(ctx, tx, input.SidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	row := tx.QueryRow(ctx, `SELECT `+sidecarWatchdogPolicySelectColumns+` FROM sidecar_watchdog_policies WHERE id=$1 FOR UPDATE`, policy.ID)
+	locked, err := scanSidecarWatchdogPolicy(row)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	if expectedRevisionID != nil && !watchdogPolicyExpectedRevisionMatches(locked, *expectedRevisionID) {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("stale watchdog policy revision")
+	}
+	rev, err := createWatchdogPolicyRevision(ctx, tx, input)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	row = tx.QueryRow(ctx, `UPDATE sidecar_watchdog_policies SET pending_revision_id=$2, updated_at=now() WHERE id=$1 RETURNING `+sidecarWatchdogPolicySelectColumns, rev.PolicyID, rev.ID)
+	updated, err := scanSidecarWatchdogPolicy(row)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	return s.revisionStateFromPolicy(ctx, updated)
+}
+func (s *Store) GetWatchdogPolicyRevisionState(ctx context.Context, sidecarID int) (SidecarWatchdogPolicyRevisionState, error) {
+	policy, err := s.GetOrCreateWatchdogPolicy(ctx, sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	return s.revisionStateFromPolicy(ctx, policy)
+}
+func (s *Store) ApplyPendingWatchdogPolicyRevision(ctx context.Context, sidecarID int) (SidecarWatchdogPolicyRevisionState, error) {
+	policy, err := s.GetOrCreateWatchdogPolicy(ctx, sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	if policy.PendingRevisionID == nil {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("pending watchdog policy revision not found")
+	}
+	if policy.ActiveRevisionID != nil {
+		return s.ApplyWatchdogPolicyRevision(ctx, sidecarID, *policy.PendingRevisionID, *policy.ActiveRevisionID)
+	}
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	row := s.pool.QueryRow(ctx, `UPDATE sidecar_watchdog_policies SET active_revision_id=pending_revision_id, pending_revision_id=NULL, updated_at=now() WHERE sidecar_id=$1 AND pending_revision_id IS NOT NULL RETURNING `+sidecarWatchdogPolicySelectColumns, sidecarID)
+	updated, err := scanSidecarWatchdogPolicy(row)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	return s.revisionStateFromPolicy(ctx, updated)
+}
+func (s *Store) ApplyWatchdogPolicyRevision(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64) (SidecarWatchdogPolicyRevisionState, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	if sidecarID <= 0 || targetRevisionID <= 0 || expectedRevisionID <= 0 {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("sidecar_id, target_revision_id, and expected_revision_id are required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	policy, err := getOrCreateWatchdogPolicy(ctx, tx, sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	row := tx.QueryRow(ctx, `SELECT `+sidecarWatchdogPolicySelectColumns+` FROM sidecar_watchdog_policies WHERE id=$1 FOR UPDATE`, policy.ID)
+	locked, err := scanSidecarWatchdogPolicy(row)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	if locked.ActiveRevisionID == nil || *locked.ActiveRevisionID != expectedRevisionID {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("stale watchdog policy revision")
+	}
+	revision, ok, err := getWatchdogPolicyRevision(ctx, tx, targetRevisionID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	if !ok || revision.SidecarID != sidecarID || revision.PolicyID != locked.ID {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("target watchdog policy revision not found")
+	}
+	row = tx.QueryRow(ctx, `UPDATE sidecar_watchdog_policies SET active_revision_id=$2, pending_revision_id=NULL, updated_at=now() WHERE id=$1 RETURNING `+sidecarWatchdogPolicySelectColumns, locked.ID, targetRevisionID)
+	updated, err := scanSidecarWatchdogPolicy(row)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	return s.revisionStateFromPolicy(ctx, updated)
+}
+func (s *Store) EnsureActiveWatchdogPolicyRevision(ctx context.Context, policy SidecarWatchdogPolicy) (SidecarWatchdogPolicyRevision, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
+	if policy.SidecarID <= 0 {
+		return SidecarWatchdogPolicyRevision{}, invalidInputError("sidecar_id is required")
+	}
+	if policy.ActiveRevisionID != nil {
+		revision, ok, err := s.GetWatchdogPolicyRevision(ctx, *policy.ActiveRevisionID)
+		if err != nil {
+			return SidecarWatchdogPolicyRevision{}, err
+		}
+		if ok {
+			return revision, nil
+		}
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	row := tx.QueryRow(ctx, `SELECT `+sidecarWatchdogPolicySelectColumns+` FROM sidecar_watchdog_policies WHERE sidecar_id=$1 FOR UPDATE`, policy.SidecarID)
+	locked, err := scanSidecarWatchdogPolicy(row)
+	if err == pgx.ErrNoRows {
+		locked, err = getOrCreateWatchdogPolicy(ctx, tx, policy.SidecarID)
+	}
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, mapStoreError(err)
+	}
+	if locked.ActiveRevisionID != nil {
+		revision, ok, err := getWatchdogPolicyRevision(ctx, tx, *locked.ActiveRevisionID)
+		if err != nil {
+			return SidecarWatchdogPolicyRevision{}, mapStoreError(err)
+		}
+		if ok {
+			if err := tx.Commit(ctx); err != nil {
+				return SidecarWatchdogPolicyRevision{}, err
+			}
+			return revision, nil
+		}
+	}
+	revision, err := createWatchdogPolicyRevision(ctx, tx, watchdogPolicyRevisionInputFromPolicy(locked))
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, mapStoreError(err)
+	}
+	row = tx.QueryRow(ctx, `UPDATE sidecar_watchdog_policies SET active_revision_id=$2, updated_at=now() WHERE sidecar_id=$1 RETURNING `+sidecarWatchdogPolicySelectColumns, policy.SidecarID, revision.ID)
+	if _, err := scanSidecarWatchdogPolicy(row); err != nil {
+		return SidecarWatchdogPolicyRevision{}, mapStoreError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
+	return revision, nil
+}
+
+func getWatchdogPolicyRevision(ctx context.Context, ex sidecarSQLExecutor, id int64) (SidecarWatchdogPolicyRevision, bool, error) {
+	row := ex.QueryRow(ctx, `SELECT `+sidecarWatchdogPolicyRevisionSelectColumns+` FROM sidecar_watchdog_policy_revisions WHERE id=$1`, id)
+	rec, err := scanSidecarWatchdogPolicyRevision(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogPolicyRevision{}, false, nil
+	}
+	return rec, true, err
+}
+
+func createWatchdogPolicyRevision(ctx context.Context, ex sidecarSQLExecutor, input SidecarWatchdogPolicyRevisionInput) (SidecarWatchdogPolicyRevision, error) {
+	if input.SidecarID <= 0 {
+		return SidecarWatchdogPolicyRevision{}, invalidInputError("sidecar_id is required")
+	}
+	policy, err := getOrCreateWatchdogPolicy(ctx, ex, input.SidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
+	n := normalizeWatchdogPolicyRevisionInput(input)
+	row := ex.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, enabled, watchdog_sweep_interval_seconds, probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms, probe_jitter_max_ms, cooldown_jitter_percent, using_priority, quota_exceeded_priority, working_priority, empty_quota_priority, initial_priority, error_priority, failure_threshold, failure_window_seconds, fallback_cooldown_seconds, manual_override_pause_seconds, quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled, rolling_refresh_after_seconds) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING `+sidecarWatchdogPolicyRevisionSelectColumns, policy.ID, n.SidecarID, n.Enabled, n.WatchdogSweepIntervalSeconds, n.ProbeConcurrency, n.ProbeTimeoutSeconds, n.ProbeBatchCooldownSeconds, n.ProbeJitterMinMS, n.ProbeJitterMaxMS, n.CooldownJitterPercent, n.UsingPriority, n.QuotaExceededPriority, n.WorkingPriority, n.EmptyQuotaPriority, n.InitialPriority, n.ErrorPriority, n.FailureThreshold, n.FailureWindowSeconds, n.FallbackCooldownSeconds, n.ManualOverridePauseSeconds, n.QuotaInventoryEnabled, n.InitialScanEnabled, n.RollingRefreshEnabled, n.RollingRefreshAfterSeconds)
+	return scanSidecarWatchdogPolicyRevision(row)
+}
+func (s *Store) UpsertWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepInput) (SidecarWatchdogSweep, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogSweep{}, err
+	}
+	n, err := normalizeWatchdogSweepInput(input, s.currentTime())
+	if err != nil {
+		return SidecarWatchdogSweep{}, err
+	}
+	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_sweeps (
+	sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, next_item_index, batch_index,
+	next_batch_after, last_heartbeat_at, lease_expires_at, pause_reason, failure_reason, started_at, completed_at)
+VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+ON CONFLICT (sweep_id) DO UPDATE SET
+	status=EXCLUDED.status,
+	next_item_index=EXCLUDED.next_item_index,
+	batch_index=EXCLUDED.batch_index,
+	next_batch_after=EXCLUDED.next_batch_after,
+	last_heartbeat_at=EXCLUDED.last_heartbeat_at,
+	lease_expires_at=EXCLUDED.lease_expires_at,
+	pause_reason=EXCLUDED.pause_reason,
+	failure_reason=EXCLUDED.failure_reason,
+	completed_at=EXCLUDED.completed_at,
+	updated_at=now()
+RETURNING `+sidecarWatchdogSweepSelectColumns,
+		n.SweepID, n.SidecarID, n.PolicyRevisionID, n.Status, n.SnapshotJSON, n.NextItemIndex, n.BatchIndex,
+		nullTimeArg(n.NextBatchAfter), nullTimeArg(n.LastHeartbeatAt), nullTimeArg(n.LeaseExpiresAt), nullStringArg(n.PauseReason), nullStringArg(n.FailureReason), n.StartedAt, nullTimeArg(n.CompletedAt))
+	rec, err := scanSidecarWatchdogSweep(row)
+	if err != nil {
+		return SidecarWatchdogSweep{}, mapStoreError(err)
+	}
+	if sidecarWatchdogSweepStatusIsTerminal(rec.Status) {
+		if _, err := s.pruneOlderTerminalWatchdogSweeps(ctx, rec.SidecarID); err != nil {
+			return SidecarWatchdogSweep{}, err
+		}
+	}
+	return rec, nil
+}
+func (s *Store) GetWatchdogSweep(ctx context.Context, sweepID string) (SidecarWatchdogSweep, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogSweep{}, false, err
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarWatchdogSweepSelectColumns+` FROM sidecar_watchdog_sweeps WHERE sweep_id=$1`, strings.TrimSpace(sweepID))
+	rec, err := scanSidecarWatchdogSweep(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogSweep{}, false, nil
+	}
+	if err != nil {
+		return SidecarWatchdogSweep{}, false, mapStoreError(err)
+	}
+	return rec, true, nil
+}
+func (s *Store) GetActiveWatchdogSweep(ctx context.Context, sidecarID int) (SidecarWatchdogSweep, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogSweep{}, false, err
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarWatchdogSweepSelectColumns+` FROM sidecar_watchdog_sweeps WHERE sidecar_id=$1 AND status IN ($2,$3) ORDER BY started_at ASC, created_at ASC LIMIT 1`, sidecarID, string(SidecarWatchdogSweepStatusRunning), string(SidecarWatchdogSweepStatusPaused))
+	rec, err := scanSidecarWatchdogSweep(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogSweep{}, false, nil
+	}
+	if err != nil {
+		return SidecarWatchdogSweep{}, false, mapStoreError(err)
+	}
+	return rec, true, nil
+}
+func (s *Store) GetLatestCompletedWatchdogSweep(ctx context.Context, sidecarID int) (SidecarWatchdogSweep, bool, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogSweep{}, false, err
+	}
+	if sidecarID <= 0 {
+		return SidecarWatchdogSweep{}, false, invalidInputError("sidecar_id is required")
+	}
+	row := s.pool.QueryRow(ctx, `SELECT `+sidecarWatchdogSweepSelectColumns+` FROM sidecar_watchdog_sweeps WHERE sidecar_id=$1 AND status=$2 AND completed_at IS NOT NULL ORDER BY completed_at DESC, created_at DESC LIMIT 1`, sidecarID, string(SidecarWatchdogSweepStatusCompleted))
+	rec, err := scanSidecarWatchdogSweep(row)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogSweep{}, false, nil
+	}
+	if err != nil {
+		return SidecarWatchdogSweep{}, false, mapStoreError(err)
+	}
+	return rec, true, nil
+}
+
+func (s *Store) RecoverStaleWatchdogSweeps(ctx context.Context, sidecarID int, now time.Time) (int, error) {
+	if err := s.requirePool(); err != nil {
+		return 0, err
+	}
+	if sidecarID <= 0 {
+		return 0, invalidInputError("sidecar_id is required")
+	}
+	if now.IsZero() {
+		now = s.currentTime()
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE sidecar_watchdog_sweeps SET status=$3, lease_expires_at=NULL, pause_reason=COALESCE(pause_reason, $4), updated_at=now() WHERE sidecar_id=$1 AND status=$2 AND (lease_expires_at IS NULL OR lease_expires_at <= $5)`, sidecarID, string(SidecarWatchdogSweepStatusRunning), string(SidecarWatchdogSweepStatusPaused), "stale_heartbeat", now.UTC())
+	if err != nil {
+		return 0, mapStoreError(err)
+	}
+	return int(result.RowsAffected()), nil
+}
+
+func (s *Store) ResumeWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusPaused, SidecarWatchdogSweepStatusRunning)
+}
+func (s *Store) CompleteWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusCompleted)
+}
+func (s *Store) PauseWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusPaused)
+}
+func (s *Store) FailWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusFailed)
+}
+func (s *Store) HeartbeatWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepHeartbeatInput) (SidecarWatchdogSweepMutationResult, error) {
+	n, err := normalizeWatchdogSweepHeartbeatInput(input, s.currentTime())
+	if err != nil {
+		return SidecarWatchdogSweepMutationResult{}, err
+	}
+	row := s.pool.QueryRow(ctx, `UPDATE sidecar_watchdog_sweeps SET last_heartbeat_at=$2, lease_expires_at=$3, updated_at=now() WHERE sweep_id=$1 AND status IN ($4,$5) RETURNING `+sidecarWatchdogSweepSelectColumns, n.SweepID, n.HeartbeatAt, nullTimeArg(n.LeaseExpiresAt), string(SidecarWatchdogSweepStatusRunning), string(SidecarWatchdogSweepStatusPaused))
+	return scanWatchdogSweepMutation(row)
+}
+func (s *Store) updateWatchdogSweepStatus(ctx context.Context, input SidecarWatchdogSweepCheckpointInput, from SidecarWatchdogSweepStatus, to SidecarWatchdogSweepStatus) (SidecarWatchdogSweepMutationResult, error) {
+	if err := s.requirePool(); err != nil {
+		return SidecarWatchdogSweepMutationResult{}, err
+	}
+	n, err := normalizeWatchdogSweepCheckpointInput(input, s.currentTime())
+	if err != nil {
+		return SidecarWatchdogSweepMutationResult{}, err
+	}
+	completed := n.CompletedAt
+	if to == SidecarWatchdogSweepStatusCompleted || to == SidecarWatchdogSweepStatusFailed {
+		if completed == nil {
+			now := s.currentTime()
+			completed = &now
+		}
+	}
+	leaseExpiresAt := n.LeaseExpiresAt
+	if to == SidecarWatchdogSweepStatusCompleted || to == SidecarWatchdogSweepStatusFailed || to == SidecarWatchdogSweepStatusCancelled || to == SidecarWatchdogSweepStatusPaused {
+		leaseExpiresAt = nil
+	}
+	row := s.pool.QueryRow(ctx, `UPDATE sidecar_watchdog_sweeps SET
+	status=$2,
+	next_item_index=$3,
+	batch_index=$4,
+	next_batch_after=$5,
+	last_heartbeat_at=$6,
+	lease_expires_at=$7,
+	pause_reason=$8,
+	failure_reason=$9,
+	completed_at=$10,
+	updated_at=now()
+WHERE sweep_id=$1 AND status=$11
+RETURNING `+sidecarWatchdogSweepSelectColumns,
+		n.SweepID, string(to), n.NextItemIndex, n.BatchIndex, nullTimeArg(n.NextBatchAfter), nullTimeArg(n.LastHeartbeatAt), nullTimeArg(leaseExpiresAt), nullStringArg(n.PauseReason), nullStringArg(n.FailureReason), nullTimeArg(completed), string(from))
+	result, err := scanWatchdogSweepMutation(row)
+	if err != nil || result.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated || !sidecarWatchdogSweepStatusIsTerminal(result.Sweep.Status) {
+		return result, err
+	}
+	if _, err := s.pruneOlderTerminalWatchdogSweeps(ctx, result.Sweep.SidecarID); err != nil {
+		return SidecarWatchdogSweepMutationResult{}, err
+	}
+	return result, nil
+}
+func (s *Store) pruneOlderTerminalWatchdogSweeps(ctx context.Context, sidecarID int) (int, error) {
+	result, err := s.pool.Exec(ctx, `DELETE FROM sidecar_watchdog_sweeps
+WHERE sidecar_id=$1
+  AND status IN ($2,$3,$4)
+  AND sweep_id <> (
+    SELECT sweep_id FROM sidecar_watchdog_sweeps
+    WHERE sidecar_id=$1 AND status IN ($2,$3,$4)
+    ORDER BY completed_at DESC NULLS LAST, updated_at DESC, created_at DESC, sweep_id DESC
+    LIMIT 1
+  )`, sidecarID, string(SidecarWatchdogSweepStatusCompleted), string(SidecarWatchdogSweepStatusFailed), string(SidecarWatchdogSweepStatusCancelled))
+	if err != nil {
+		return 0, mapStoreError(err)
+	}
+	return int(result.RowsAffected()), nil
+}
+func sidecarWatchdogSweepStatusIsTerminal(status string) bool {
+	switch SidecarWatchdogSweepStatus(status) {
+	case SidecarWatchdogSweepStatusCompleted, SidecarWatchdogSweepStatusFailed, SidecarWatchdogSweepStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+func (s *Store) revisionStateFromPolicy(ctx context.Context, policy SidecarWatchdogPolicy) (SidecarWatchdogPolicyRevisionState, error) {
+	state := SidecarWatchdogPolicyRevisionState{Policy: policy, HasPendingChanges: policy.PendingRevisionID != nil}
+	if policy.ActiveRevisionID != nil {
+		r, ok, err := s.GetWatchdogPolicyRevision(ctx, *policy.ActiveRevisionID)
+		if err != nil {
+			return state, err
+		}
+		if ok {
+			state.ActiveRevision = &r
+		}
+	}
+	if policy.PendingRevisionID != nil {
+		r, ok, err := s.GetWatchdogPolicyRevision(ctx, *policy.PendingRevisionID)
+		if err != nil {
+			return state, err
+		}
+		if ok {
+			state.PendingRevision = &r
+		}
+	}
+	sw, ok, err := s.GetActiveWatchdogSweep(ctx, policy.SidecarID)
+	if err != nil {
+		return state, err
+	}
+	if ok {
+		state.ActiveSweep = &sw
+	}
+	return state, nil
 }
 
 func (s *Store) CreateWatchdogProbeObservation(ctx context.Context, input SidecarWatchdogProbeObservationInput) (SidecarWatchdogProbeObservation, error) {
@@ -1491,12 +1895,22 @@ created_at, updated_at`
 const sidecarProviderSnapshotSelectColumns = `id, sidecar_id, provider_key, provider_item_key, name, label,
 status, disabled, snapshot_json, observed_at, created_at, updated_at`
 
-const sidecarWatchdogPolicySelectColumns = `id, sidecar_id, enabled, failure_threshold, failure_window_seconds,
-fallback_cooldown_seconds, quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds,
+const sidecarWatchdogPolicySelectColumns = `id, sidecar_id, active_revision_id, pending_revision_id, enabled, failure_threshold, failure_window_seconds,
+fallback_cooldown_seconds, quota_exceeded_priority, using_priority, working_priority, empty_quota_priority, initial_priority, error_priority, manual_override_pause_seconds,
 probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
 probe_jitter_max_ms, cooldown_jitter_percent, quota_inventory_enabled, initial_scan_enabled,
 rolling_refresh_enabled, rolling_refresh_after_seconds, probe_last_batch_completed_at, probe_next_batch_after,
 created_at, updated_at`
+
+const sidecarWatchdogPolicyRevisionSelectColumns = `id, policy_id, sidecar_id, enabled, watchdog_sweep_interval_seconds,
+probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms,
+probe_jitter_max_ms, cooldown_jitter_percent, using_priority, quota_exceeded_priority, working_priority, empty_quota_priority, initial_priority, error_priority,
+failure_threshold, failure_window_seconds, fallback_cooldown_seconds, manual_override_pause_seconds,
+quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled, rolling_refresh_after_seconds, created_at`
+
+const sidecarWatchdogSweepSelectColumns = `sweep_id, sidecar_id, policy_revision_id, status, snapshot_json,
+next_item_index, batch_index, next_batch_after, last_heartbeat_at, lease_expires_at, pause_reason,
+failure_reason, started_at, completed_at, created_at, updated_at`
 
 const sidecarWatchdogProbeObservationSelectColumns = `id, sidecar_id, auth_id, auth_index, provider, probed_at,
 probe_status, upstream_status_code, quota_band, quota_exceeded, reason_code, quota_reset_at,
@@ -1566,7 +1980,16 @@ func normalizePolicyInput(input SidecarWatchdogPolicyInput) (SidecarWatchdogPoli
 	if input.UsingPriority <= 0 {
 		input.UsingPriority = DefaultUsingPriority
 	}
-	if input.ErrorPriority < 0 {
+	if input.WorkingPriority <= 0 {
+		input.WorkingPriority = DefaultWorkingPriority
+	}
+	if input.EmptyQuotaPriority <= 0 {
+		input.EmptyQuotaPriority = DefaultEmptyQuotaPriority
+	}
+	if input.InitialPriority <= 0 {
+		input.InitialPriority = DefaultInitialPriority
+	}
+	if input.ErrorPriority <= 0 {
 		input.ErrorPriority = DefaultErrorPriority
 	}
 	if input.ManualOverridePauseSeconds <= 0 {
@@ -1610,20 +2033,101 @@ func normalizePolicyInput(input SidecarWatchdogPolicyInput) (SidecarWatchdogPoli
 		value := DefaultRollingRefreshAfterSeconds
 		input.RollingRefreshAfterSeconds = &value
 	}
-	if input.QuotaExceededPriority < 0 || input.UsingPriority < 0 || input.ErrorPriority < 0 {
-		return SidecarWatchdogPolicyInput{}, invalidInputError("watchdog priorities must be non-negative")
+	if input.QuotaExceededPriority < 0 || input.UsingPriority < 0 {
+		return SidecarWatchdogPolicyInput{}, invalidInputError("legacy watchdog priorities must be non-negative")
 	}
 	if input.QuotaExceededPriority > input.UsingPriority {
 		return SidecarWatchdogPolicyInput{}, invalidInputError("quota_exceeded_priority must be <= using_priority")
 	}
-	if input.ErrorPriority > input.UsingPriority {
-		return SidecarWatchdogPolicyInput{}, invalidInputError("error_priority must be <= using_priority")
+	if input.WorkingPriority < input.EmptyQuotaPriority || input.EmptyQuotaPriority < input.InitialPriority || input.InitialPriority < input.ErrorPriority {
+		return SidecarWatchdogPolicyInput{}, invalidInputError("watchdog priority bands must satisfy working_priority >= empty_quota_priority >= initial_priority >= error_priority")
 	}
 	if *input.ProbeJitterMaxMS < *input.ProbeJitterMinMS {
 		return SidecarWatchdogPolicyInput{}, invalidInputError("probe_jitter_max_ms must be >= probe_jitter_min_ms")
 	}
 	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeJitterMinMS: *input.ProbeJitterMinMS, ProbeJitterMaxMS: *input.ProbeJitterMaxMS}); err != nil {
 		return SidecarWatchdogPolicyInput{}, err
+	}
+	return input, nil
+}
+
+func normalizeWatchdogPolicyRevisionInput(input SidecarWatchdogPolicyRevisionInput) SidecarWatchdogPolicyRevisionInput {
+	policyInput, _ := normalizePolicyInput(SidecarWatchdogPolicyInput{SidecarID: input.SidecarID, Enabled: input.Enabled, FailureThreshold: input.FailureThreshold, FailureWindowSeconds: input.FailureWindowSeconds, FallbackCooldownSeconds: input.FallbackCooldownSeconds, QuotaExceededPriority: input.QuotaExceededPriority, UsingPriority: input.UsingPriority, WorkingPriority: input.WorkingPriority, EmptyQuotaPriority: input.EmptyQuotaPriority, InitialPriority: input.InitialPriority, ErrorPriority: input.ErrorPriority, ManualOverridePauseSeconds: input.ManualOverridePauseSeconds, ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: &input.ProbeBatchCooldownSeconds, ProbeJitterMinMS: &input.ProbeJitterMinMS, ProbeJitterMaxMS: &input.ProbeJitterMaxMS, CooldownJitterPercent: &input.CooldownJitterPercent, QuotaInventoryEnabled: &input.QuotaInventoryEnabled, InitialScanEnabled: &input.InitialScanEnabled, RollingRefreshEnabled: &input.RollingRefreshEnabled, RollingRefreshAfterSeconds: &input.RollingRefreshAfterSeconds})
+	input.Enabled = policyInput.Enabled
+	input.FailureThreshold = policyInput.FailureThreshold
+	input.FailureWindowSeconds = policyInput.FailureWindowSeconds
+	input.FallbackCooldownSeconds = policyInput.FallbackCooldownSeconds
+	input.QuotaExceededPriority = policyInput.QuotaExceededPriority
+	input.UsingPriority = policyInput.UsingPriority
+	input.WorkingPriority = policyInput.WorkingPriority
+	input.EmptyQuotaPriority = policyInput.EmptyQuotaPriority
+	input.InitialPriority = policyInput.InitialPriority
+	input.ErrorPriority = policyInput.ErrorPriority
+	input.ManualOverridePauseSeconds = policyInput.ManualOverridePauseSeconds
+	input.ProbeConcurrency = policyInput.ProbeConcurrency
+	input.ProbeTimeoutSeconds = policyInput.ProbeTimeoutSeconds
+	input.ProbeBatchCooldownSeconds = *policyInput.ProbeBatchCooldownSeconds
+	input.ProbeJitterMinMS = *policyInput.ProbeJitterMinMS
+	input.ProbeJitterMaxMS = *policyInput.ProbeJitterMaxMS
+	input.CooldownJitterPercent = *policyInput.CooldownJitterPercent
+	input.QuotaInventoryEnabled = *policyInput.QuotaInventoryEnabled
+	input.InitialScanEnabled = *policyInput.InitialScanEnabled
+	input.RollingRefreshEnabled = *policyInput.RollingRefreshEnabled
+	input.RollingRefreshAfterSeconds = *policyInput.RollingRefreshAfterSeconds
+	if input.WatchdogSweepIntervalSeconds <= 0 {
+		input.WatchdogSweepIntervalSeconds = DefaultWatchdogSweepIntervalSeconds
+	}
+	return input
+}
+func latestWatchdogPolicyRevisionID(policy SidecarWatchdogPolicy) *int64 {
+	if policy.PendingRevisionID != nil {
+		return policy.PendingRevisionID
+	}
+	return policy.ActiveRevisionID
+}
+
+func watchdogPolicyExpectedRevisionMatches(policy SidecarWatchdogPolicy, expectedRevisionID int64) bool {
+	latest := latestWatchdogPolicyRevisionID(policy)
+	return latest != nil && *latest == expectedRevisionID
+}
+
+func normalizeWatchdogSweepInput(input SidecarWatchdogSweepInput, now time.Time) (SidecarWatchdogSweepInput, error) {
+	input.SweepID = strings.TrimSpace(input.SweepID)
+	input.Status = strings.TrimSpace(input.Status)
+	if input.SweepID == "" || input.SidecarID <= 0 || input.PolicyRevisionID <= 0 || input.Status == "" {
+		return SidecarWatchdogSweepInput{}, invalidInputError("sweep_id, sidecar_id, policy_revision_id, and status are required")
+	}
+	if input.NextItemIndex < 0 || input.BatchIndex < 0 {
+		return SidecarWatchdogSweepInput{}, invalidInputError("sweep checkpoint indexes must be non-negative")
+	}
+	if len(bytes.TrimSpace(input.SnapshotJSON)) == 0 {
+		input.SnapshotJSON = json.RawMessage("[]")
+	}
+	if input.StartedAt.IsZero() {
+		input.StartedAt = now
+	}
+	return input, nil
+}
+func normalizeWatchdogSweepHeartbeatInput(input SidecarWatchdogSweepHeartbeatInput, now time.Time) (SidecarWatchdogSweepHeartbeatInput, error) {
+	input.SweepID = strings.TrimSpace(input.SweepID)
+	if input.SweepID == "" {
+		return SidecarWatchdogSweepHeartbeatInput{}, invalidInputError("sweep_id is required")
+	}
+	if input.HeartbeatAt.IsZero() {
+		input.HeartbeatAt = now
+	}
+	return input, nil
+}
+func normalizeWatchdogSweepCheckpointInput(input SidecarWatchdogSweepCheckpointInput, now time.Time) (SidecarWatchdogSweepCheckpointInput, error) {
+	input.SweepID = strings.TrimSpace(input.SweepID)
+	if input.SweepID == "" {
+		return SidecarWatchdogSweepCheckpointInput{}, invalidInputError("sweep_id is required")
+	}
+	if input.NextItemIndex < 0 || input.BatchIndex < 0 {
+		return SidecarWatchdogSweepCheckpointInput{}, invalidInputError("sweep checkpoint indexes must be non-negative")
+	}
+	if input.LastHeartbeatAt == nil {
+		input.LastHeartbeatAt = &now
 	}
 	return input, nil
 }
@@ -1861,39 +2365,56 @@ func scanSidecarProviderSnapshot(scanner interface{ Scan(...any) error }) (Sidec
 
 func scanSidecarWatchdogPolicy(scanner interface{ Scan(...any) error }) (SidecarWatchdogPolicy, error) {
 	var record SidecarWatchdogPolicy
+	var activeRevisionID, pendingRevisionID sql.NullInt64
 	var probeLastBatchCompletedAt, probeNextBatchAfter sql.NullTime
-	err := scanner.Scan(
-		&record.ID,
-		&record.SidecarID,
-		&record.Enabled,
-		&record.FailureThreshold,
-		&record.FailureWindowSeconds,
-		&record.FallbackCooldownSeconds,
-		&record.QuotaExceededPriority,
-		&record.UsingPriority,
-		&record.ErrorPriority,
-		&record.ManualOverridePauseSeconds,
-		&record.ProbeConcurrency,
-		&record.ProbeTimeoutSeconds,
-		&record.ProbeBatchCooldownSeconds,
-		&record.ProbeJitterMinMS,
-		&record.ProbeJitterMaxMS,
-		&record.CooldownJitterPercent,
-		&record.QuotaInventoryEnabled,
-		&record.InitialScanEnabled,
-		&record.RollingRefreshEnabled,
-		&record.RollingRefreshAfterSeconds,
-		&probeLastBatchCompletedAt,
-		&probeNextBatchAfter,
-		&record.CreatedAt,
-		&record.UpdatedAt,
-	)
+	err := scanner.Scan(&record.ID, &record.SidecarID, &activeRevisionID, &pendingRevisionID, &record.Enabled, &record.FailureThreshold, &record.FailureWindowSeconds, &record.FallbackCooldownSeconds, &record.QuotaExceededPriority, &record.UsingPriority, &record.WorkingPriority, &record.EmptyQuotaPriority, &record.InitialPriority, &record.ErrorPriority, &record.ManualOverridePauseSeconds, &record.ProbeConcurrency, &record.ProbeTimeoutSeconds, &record.ProbeBatchCooldownSeconds, &record.ProbeJitterMinMS, &record.ProbeJitterMaxMS, &record.CooldownJitterPercent, &record.QuotaInventoryEnabled, &record.InitialScanEnabled, &record.RollingRefreshEnabled, &record.RollingRefreshAfterSeconds, &probeLastBatchCompletedAt, &probeNextBatchAfter, &record.CreatedAt, &record.UpdatedAt)
 	if err != nil {
 		return SidecarWatchdogPolicy{}, err
 	}
+	record.ActiveRevisionID = int64FromNull(activeRevisionID)
+	record.PendingRevisionID = int64FromNull(pendingRevisionID)
 	record.ProbeLastBatchCompletedAt = timeFromNull(probeLastBatchCompletedAt)
 	record.ProbeNextBatchAfter = timeFromNull(probeNextBatchAfter)
 	return record, nil
+}
+
+func scanSidecarWatchdogPolicyRevision(scanner interface{ Scan(...any) error }) (SidecarWatchdogPolicyRevision, error) {
+	var record SidecarWatchdogPolicyRevision
+	err := scanner.Scan(&record.ID, &record.PolicyID, &record.SidecarID, &record.Enabled, &record.WatchdogSweepIntervalSeconds, &record.ProbeConcurrency, &record.ProbeTimeoutSeconds, &record.ProbeBatchCooldownSeconds, &record.ProbeJitterMinMS, &record.ProbeJitterMaxMS, &record.CooldownJitterPercent, &record.UsingPriority, &record.QuotaExceededPriority, &record.WorkingPriority, &record.EmptyQuotaPriority, &record.InitialPriority, &record.ErrorPriority, &record.FailureThreshold, &record.FailureWindowSeconds, &record.FallbackCooldownSeconds, &record.ManualOverridePauseSeconds, &record.QuotaInventoryEnabled, &record.InitialScanEnabled, &record.RollingRefreshEnabled, &record.RollingRefreshAfterSeconds, &record.CreatedAt)
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
+	return record, nil
+}
+
+func scanSidecarWatchdogSweep(scanner interface{ Scan(...any) error }) (SidecarWatchdogSweep, error) {
+	var record SidecarWatchdogSweep
+	var nextBatchAfter, lastHeartbeatAt, leaseExpiresAt, completedAt sql.NullTime
+	var pauseReason, failureReason sql.NullString
+	var snapshotJSON []byte
+	err := scanner.Scan(&record.SweepID, &record.SidecarID, &record.PolicyRevisionID, &record.Status, &snapshotJSON, &record.NextItemIndex, &record.BatchIndex, &nextBatchAfter, &lastHeartbeatAt, &leaseExpiresAt, &pauseReason, &failureReason, &record.StartedAt, &completedAt, &record.CreatedAt, &record.UpdatedAt)
+	if err != nil {
+		return SidecarWatchdogSweep{}, err
+	}
+	record.SnapshotJSON = cloneJSON(snapshotJSON)
+	record.NextBatchAfter = timeFromNull(nextBatchAfter)
+	record.LastHeartbeatAt = timeFromNull(lastHeartbeatAt)
+	record.LeaseExpiresAt = timeFromNull(leaseExpiresAt)
+	record.PauseReason = stringFromNull(pauseReason)
+	record.FailureReason = stringFromNull(failureReason)
+	record.CompletedAt = timeFromNull(completedAt)
+	return record, nil
+}
+
+func scanWatchdogSweepMutation(scanner interface{ Scan(...any) error }) (SidecarWatchdogSweepMutationResult, error) {
+	record, err := scanSidecarWatchdogSweep(scanner)
+	if err == pgx.ErrNoRows {
+		return SidecarWatchdogSweepMutationResult{Outcome: SidecarWatchdogSweepMutationOutcomeNotFound}, nil
+	}
+	if err != nil {
+		return SidecarWatchdogSweepMutationResult{}, mapStoreError(err)
+	}
+	return SidecarWatchdogSweepMutationResult{Outcome: SidecarWatchdogSweepMutationOutcomeUpdated, Sweep: record}, nil
 }
 
 func scanSidecarWatchdogProbeObservation(scanner interface{ Scan(...any) error }) (SidecarWatchdogProbeObservation, error) {
@@ -2253,6 +2774,8 @@ func mapStoreError(err error) error {
 				return &StoreError{Code: StoreErrorDuplicateActiveHold, Message: "active sidecar watchdog hold already exists", Err: err}
 			case "uq_sidecar_quota_scan_runs_active_sidecar":
 				return &StoreError{Code: StoreErrorInvalidInput, Message: "active quota scan run already exists for sidecar", Err: err}
+			case "uq_sidecar_watchdog_sweeps_active_sidecar":
+				return &StoreError{Code: StoreErrorInvalidInput, Message: "active watchdog sweep already exists for sidecar", Err: err}
 			}
 		}
 		if pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "22P02" {
@@ -2264,6 +2787,10 @@ func mapStoreError(err error) error {
 
 func invalidInputError(message string) error {
 	return &StoreError{Code: StoreErrorInvalidInput, Message: message}
+}
+
+func conflictError(message string) error {
+	return &StoreError{Code: StoreErrorConflict, Message: message}
 }
 
 func notFoundError(message string) error {
@@ -2326,6 +2853,14 @@ func intFromNull(value sql.NullInt64) *int {
 		return nil
 	}
 	copied := int(value.Int64)
+	return &copied
+}
+
+func int64FromNull(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	copied := value.Int64
 	return &copied
 }
 

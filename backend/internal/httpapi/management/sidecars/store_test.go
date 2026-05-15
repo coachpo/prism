@@ -502,7 +502,7 @@ func TestSidecarWatchdogPersistenceContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get default watchdog policy: %v", err)
 	}
-	if policy.Enabled || policy.QuotaExceededPriority != DefaultQuotaExceededPriority {
+	if policy.Enabled || policy.QuotaExceededPriority != DefaultQuotaExceededPriority || policy.WorkingPriority != DefaultWorkingPriority || policy.EmptyQuotaPriority != DefaultEmptyQuotaPriority || policy.InitialPriority != DefaultInitialPriority || policy.ErrorPriority != DefaultErrorPriority {
 		t.Fatalf("unexpected default policy: %+v", policy)
 	}
 	policy, err = store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{
@@ -945,6 +945,146 @@ func TestWatchdogProbeObservationRetention(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApplyPendingWatchdogPolicyRevision(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_policy_revision_apply")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_policy_revision")
+	active, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create active revision: %v", err)
+	}
+	if _, err := store.CreatePendingWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 5, ProbeTimeoutSeconds: 6}); err != nil {
+		t.Fatalf("create pending revision: %v", err)
+	}
+	state, err := store.ApplyPendingWatchdogPolicyRevision(ctx, sidecar.ID)
+	if err != nil {
+		t.Fatalf("apply pending revision: %v", err)
+	}
+	if state.Policy.ActiveRevisionID == nil || *state.Policy.ActiveRevisionID == active.ID || state.Policy.PendingRevisionID != nil || state.ActiveRevision == nil || state.ActiveRevision.ProbeConcurrency != 5 || state.HasPendingChanges {
+		t.Fatalf("pending revision was not applied: %+v", state)
+	}
+}
+
+func TestResumePausedWatchdogSweep(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_resume")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_sweep_resume")
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create revision: %v", err)
+	}
+	paused, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-resume", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: json.RawMessage(`[]`), NextItemIndex: 3, BatchIndex: 1})
+	if err != nil {
+		t.Fatalf("create paused sweep: %v", err)
+	}
+	result, err := store.ResumeWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: paused.SweepID, NextItemIndex: 4, BatchIndex: 2})
+	if err != nil {
+		t.Fatalf("resume sweep: %v", err)
+	}
+	if result.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated || result.Sweep.Status != string(SidecarWatchdogSweepStatusRunning) || result.Sweep.NextItemIndex != 4 || result.Sweep.BatchIndex != 2 {
+		t.Fatalf("unexpected resume result: %+v", result)
+	}
+}
+
+func TestCompleteWatchdogSweep(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_complete")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_sweep_complete")
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create revision: %v", err)
+	}
+	running, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-complete", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: json.RawMessage(`[]`)})
+	if err != nil {
+		t.Fatalf("create running sweep: %v", err)
+	}
+	result, err := store.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: running.SweepID, NextItemIndex: 10, BatchIndex: 3})
+	if err != nil {
+		t.Fatalf("complete sweep: %v", err)
+	}
+	if result.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated || result.Sweep.Status != string(SidecarWatchdogSweepStatusCompleted) || result.Sweep.CompletedAt == nil || result.Sweep.LeaseExpiresAt != nil {
+		t.Fatalf("unexpected completion result: %+v", result)
+	}
+}
+
+func TestWatchdogPrunesOlderTerminalSweeps(t *testing.T) {
+	ctx, store, pool := sidecarStoreForTest(t, "watchdog_sweep_prunes_old_terminal")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_sweep_prunes_old_terminal")
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create revision: %v", err)
+	}
+	now := sidecarStoreFixedNow()
+	insertWatchdogSweepRowForPruning(t, ctx, pool, "sweep-old-completed", sidecar.ID, revision.ID, string(SidecarWatchdogSweepStatusCompleted), now.Add(-3*time.Hour), now.Add(-2*time.Hour))
+	insertWatchdogSweepRowForPruning(t, ctx, pool, "sweep-old-failed", sidecar.ID, revision.ID, string(SidecarWatchdogSweepStatusFailed), now.Add(-2*time.Hour), now.Add(-time.Hour))
+	running, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-new-completed", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: json.RawMessage(`[]`), StartedAt: now.Add(-time.Minute)})
+	if err != nil {
+		t.Fatalf("create running sweep: %v", err)
+	}
+	if _, err := store.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: running.SweepID, CompletedAt: &now}); err != nil {
+		t.Fatalf("complete latest sweep: %v", err)
+	}
+	if _, ok, err := store.GetWatchdogSweep(ctx, "sweep-old-completed"); err != nil || ok {
+		t.Fatalf("old completed sweep retained: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.GetWatchdogSweep(ctx, "sweep-old-failed"); err != nil || ok {
+		t.Fatalf("old failed sweep retained: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.GetWatchdogSweep(ctx, "sweep-new-completed"); err != nil || !ok {
+		t.Fatalf("latest completed sweep missing: ok=%v err=%v", ok, err)
+	}
+	terminalCount := countWatchdogSweepsForPruning(t, ctx, pool, sidecar.ID, true)
+	if terminalCount != 1 {
+		t.Fatalf("terminal sweep count = %d, want 1", terminalCount)
+	}
+}
+
+func TestWatchdogLatestTerminalSweepRetained(t *testing.T) {
+	ctx, store, pool := sidecarStoreForTest(t, "watchdog_sweep_retains_latest_terminal")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_sweep_retains_latest_terminal")
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create revision: %v", err)
+	}
+	now := sidecarStoreFixedNow()
+	insertWatchdogSweepRowForPruning(t, ctx, pool, "sweep-existing-latest", sidecar.ID, revision.ID, string(SidecarWatchdogSweepStatusCompleted), now.Add(-time.Hour), now)
+	running, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-completed-older", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: json.RawMessage(`[]`), StartedAt: now.Add(-2 * time.Hour)})
+	if err != nil {
+		t.Fatalf("create running sweep: %v", err)
+	}
+	olderCompletedAt := now.Add(-30 * time.Minute)
+	if _, err := store.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: running.SweepID, CompletedAt: &olderCompletedAt}); err != nil {
+		t.Fatalf("complete older sweep: %v", err)
+	}
+	if _, ok, err := store.GetWatchdogSweep(ctx, "sweep-existing-latest"); err != nil || !ok {
+		t.Fatalf("latest terminal sweep missing: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.GetWatchdogSweep(ctx, "sweep-completed-older"); err != nil || ok {
+		t.Fatalf("older terminal sweep retained: ok=%v err=%v", ok, err)
+	}
+	latest, ok, err := store.GetLatestCompletedWatchdogSweep(ctx, sidecar.ID)
+	if err != nil || !ok || latest.SweepID != "sweep-existing-latest" {
+		t.Fatalf("latest completed sweep = %+v ok=%v err=%v", latest, ok, err)
+	}
+}
+
+func insertWatchdogSweepRowForPruning(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sweepID string, sidecarID int, revisionID int64, status string, startedAt time.Time, completedAt time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at, completed_at) VALUES ($1,$2,$3,$4,'[]'::jsonb,$5,$6)`, sweepID, sidecarID, revisionID, status, startedAt, completedAt); err != nil {
+		t.Fatalf("insert watchdog sweep %s: %v", sweepID, err)
+	}
+}
+
+func countWatchdogSweepsForPruning(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sidecarID int, terminalOnly bool) int {
+	t.Helper()
+	query := `SELECT count(*) FROM sidecar_watchdog_sweeps WHERE sidecar_id=$1`
+	if terminalOnly {
+		query += ` AND status IN ('completed','failed','cancelled')`
+	}
+	var count int
+	if err := pool.QueryRow(ctx, query, sidecarID).Scan(&count); err != nil {
+		t.Fatalf("count watchdog sweeps: %v", err)
+	}
+	return count
 }
 
 func TestWatchdogDueHoldStoreOrdering(t *testing.T) {
