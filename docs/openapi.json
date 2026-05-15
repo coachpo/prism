@@ -6011,8 +6011,8 @@
         "tags": [
           "sidecars"
         ],
-        "summary": "Start Sidecar Quota Scan",
-        "description": "Starts a manual asynchronous quota scan and returns the queued or running scan run.",
+        "summary": "Create Sidecar Quota Scan Projection",
+        "description": "Records a completed manual quota-scan projection row and materializes any executable work as watchdog child sweep items.",
         "operationId": "start_sidecar_quota_scan_api_sidecars__sidecar_id__quota_scans_post",
         "parameters": [
           {
@@ -6034,8 +6034,8 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "Successful Response",
+          "202": {
+            "description": "Accepted projection row",
             "content": {
               "application/json": {
                 "schema": {
@@ -6052,8 +6052,8 @@
         "tags": [
           "sidecars"
         ],
-        "summary": "Get Current Sidecar Quota Scan",
-        "description": "Returns the current queued or running quota scan when present.",
+        "summary": "Get Current Sidecar Quota Scan Projection",
+        "description": "Returns 204 in the projection-only model because quota scan rows no longer own executable work.",
         "operationId": "get_current_sidecar_quota_scan_api_sidecars__sidecar_id__quota_scans_current_get",
         "parameters": [
           {
@@ -6067,7 +6067,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Active projection response if a future compatible route ever exposes one",
             "content": {
               "application/json": {
                 "schema": {
@@ -6075,6 +6075,9 @@
                 }
               }
             }
+          },
+          "204": {
+            "description": "No current executable quota scan exists"
           }
         }
       }
@@ -6084,8 +6087,8 @@
         "tags": [
           "sidecars"
         ],
-        "summary": "Cancel Sidecar Quota Scan",
-        "description": "Marks a queued or running quota scan for cancellation and returns the updated run.",
+        "summary": "Cancel Sidecar Quota Scan Projection",
+        "description": "Idempotently returns the stored terminal quota-scan projection row; executable work is cancelled through watchdog sweep supersession, not scan-run state.",
         "operationId": "cancel_sidecar_quota_scan_api_sidecars__sidecar_id__quota_scans__scan_id__cancel_post",
         "parameters": [
           {
@@ -6106,8 +6109,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful Response",
+          "202": {
+            "description": "Accepted terminal projection response",
             "content": {
               "application/json": {
                 "schema": {
@@ -6239,6 +6242,51 @@
         "summary": "Apply Sidecar Watchdog Policy Revision",
         "description": "Promotes an immutable watchdog policy revision to active using expected_revision_id optimistic concurrency. Active sweeps remain pinned to their starting revision.",
         "operationId": "apply_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_apply_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarWatchdogPolicyApply"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarWatchdogPolicy"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale or invalid watchdog policy revision"
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/watchdog-policy/apply-and-restart": {
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Apply Sidecar Watchdog Policy Revision And Restart Sweep",
+        "description": "Promotes an immutable watchdog policy revision to active using expected_revision_id optimistic concurrency and supersedes the active sweep plus queued or leased child items.",
+        "operationId": "apply_and_restart_sidecar_watchdog_policy_api_sidecars__sidecar_id__watchdog_policy_apply_and_restart_post",
         "parameters": [
           {
             "name": "sidecar_id",
@@ -17487,10 +17535,21 @@
           "status": { "type": "string" },
           "policy_revision_id": { "type": "integer" },
           "started_at": { "type": "string", "format": "date-time" },
-          "next_batch_after": { "type": "string", "format": "date-time", "nullable": true },
-          "restart_requested_at": { "type": "string", "format": "date-time", "nullable": true },
-          "next_item_index": { "type": "integer" },
-          "total_items": { "type": "integer" }
+          "progress": { "$ref": "#/components/schemas/SidecarWatchdogActiveSweepProgress" }
+        },
+        "additionalProperties": false
+      },
+      "SidecarWatchdogActiveSweepProgress": {
+        "type": "object",
+        "properties": {
+          "total_items": { "type": "integer" },
+          "pending_items": { "type": "integer" },
+          "active_items": { "type": "integer" },
+          "succeeded_items": { "type": "integer" },
+          "failed_items": { "type": "integer" },
+          "cancelled_items": { "type": "integer" },
+          "superseded_items": { "type": "integer" },
+          "terminal_items": { "type": "integer" }
         },
         "additionalProperties": false
       },
