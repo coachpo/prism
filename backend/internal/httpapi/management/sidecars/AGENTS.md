@@ -27,9 +27,9 @@ sidecars/
 - Instance CRUD, masked credential state, and connection test: `routes.go`.
 - Snapshot sync and status payloads: `routes_sync.go`, `sync.go`, `providers.go`.
 - Auth-file operator mutations and redacted audit trail: `routes_mutations.go`, `actions.go`.
-- Watchdog policy, hold, restore/deprioritize, and action history: `routes_watchdog.go`, `watchdog.go`.
+- Watchdog policy, parent sweep, child sweep items, hold, restore/deprioritize, and action history: `routes_watchdog.go`, `watchdog.go`.
 - CLIProxyAPI network/auth policy and supported management paths: `client.go`, `cliproxy_contract_test.go`.
-- Durable tables and uniqueness constraints: `../../../../migrations/000014_cli_proxy_sidecars.sql`.
+- Durable tables and uniqueness constraints: `../../../../migrations/000014_cli_proxy_sidecars.sql`, `../../../../migrations/000020_sidecar_watchdog_policy_revisions_and_sweeps.sql`, and `../../../../migrations/000022_sidecar_watchdog_sweep_items.sql`.
 - Lifecycle wiring and worker priority: `../../../platform/lifecycle/production.go`, `worker.go`, `../../../../tests/priority/sidecar_worker_priority_test.go`.
 - Regression coverage: `routes*_test.go`, `sync_test.go`, `watchdog*_test.go`, `store_test.go`, `client_test.go`, `cliproxy_contract_test.go`, `../../../../tests/{contract,integration}/sidecars*_test.go`.
 
@@ -43,6 +43,10 @@ sidecars/
 - Treat `/auth-files` as a strict top-level `files` envelope; old `auth_files`, missing `files`, null `files`, or non-array `files` payloads fail closed.
 - Keep provider inventory as a separate read-only supplement, never as an auth-snapshot fallback.
 - Keep private-network, insecure-HTTP, TLS-skip, request-timeout, and management-auth pause behavior on the sidecar instance policy.
+- Keep one authoritative running or paused parent sweep per sidecar, with mandatory `sidecar_watchdog_sweep_items` child rows as the executable work source.
+- Keep `active_sweep.progress` as the route/UI projection for child item status counts; do not expose cursor, batch, lease, or restart internals as the operator progress contract.
+- Keep policy save, apply, and apply-and-restart semantics distinct: save writes pending revisions, apply affects future sweeps only, and apply-and-restart supersedes active parent and child work.
+- Keep `sidecar_quota_scan_runs` projection/history only. Initial inventory, manual scan, rolling refresh, and due-hold probe work must execute through child sweep items, not active quota-scan rows.
 - Keep `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile` as bounded low-background workers with queue limit 1 and no priority elevation.
 
 ## ANTI-PATTERNS
