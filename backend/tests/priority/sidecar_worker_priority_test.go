@@ -65,7 +65,7 @@ func TestSidecarWorkerPriorityRunsAsBoundedLowBackgroundJobs(t *testing.T) {
 		if !call.hasMetadata || call.metadata.Priority != platformpriority.PriorityBackground || call.metadata.BackgroundSubclass != platformpriority.BackgroundSubclassLow {
 			t.Fatalf("sidecar worker used wrong priority metadata: %+v", call)
 		}
-		if !call.hasDeadline || call.timeout <= 0 || call.timeout > 31*time.Second {
+		if !call.hasDeadline || call.timeout <= 0 || call.timeout > 126*time.Second {
 			t.Fatalf("sidecar worker did not receive bounded timeout context: %+v", call)
 		}
 	}
@@ -110,7 +110,7 @@ func TestSidecarWorkerPriorityLifecycleAvoidsRuntimeLanes(t *testing.T) {
 	workerSource := readSidecarPriorityBackendFile(t, "internal/httpapi/management/sidecars/worker.go")
 	for _, marker := range []string{
 		"sidecarSyncWorkerTimeout      = 30 * time.Second",
-		"sidecarWatchdogWorkerTimeout      = 30 * time.Second",
+		"sidecarWatchdogWorkerTimeout      = 125 * time.Second",
 		"Priority:         background.PriorityLowBackground",
 		"MaxPriority:      background.PriorityLowBackground",
 		"Timeout:          sidecarSyncWorkerTimeout",

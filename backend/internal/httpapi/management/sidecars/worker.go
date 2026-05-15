@@ -19,7 +19,7 @@ const (
 
 	sidecarWatchdogWorkerInterval     = 30 * time.Second
 	sidecarWatchdogWorkerInitialDelay = 20 * time.Second
-	sidecarWatchdogWorkerTimeout      = 30 * time.Second
+	sidecarWatchdogWorkerTimeout      = 125 * time.Second
 )
 
 func (s *Service) RegisterBackgroundWorker(scheduler *background.Scheduler) error {

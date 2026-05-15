@@ -861,6 +861,9 @@ func TestWatchdogPolicyProbeFieldsRoundTripAndValidation(t *testing.T) {
 				t.Fatalf("expected invalid probe concurrency policy error, got %v", err)
 			}
 			maxProbeTimeoutSeconds := watchdogProbeConcurrencyBudgetMaxSeconds()
+			if maxProbeTimeoutSeconds != 120 {
+				t.Fatalf("expected watchdog probe timeout budget to be 120s, got %ds", maxProbeTimeoutSeconds)
+			}
 			parallelBudget, err := store.UpsertWatchdogPolicy(ctx, SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, QuotaExceededPriority: 0, UsingPriority: 5, ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: maxProbeTimeoutSeconds})
 			if err != nil {
 				t.Fatalf("expected max concurrency with max per-probe timeout to be valid, got %v", err)

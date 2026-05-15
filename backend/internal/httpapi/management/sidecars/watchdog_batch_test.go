@@ -1365,14 +1365,17 @@ func TestWatchdogTimeoutUsesWorkerBudgetSafetyMargin(t *testing.T) {
 	if !ok || timeout != 20*time.Second {
 		t.Fatalf("initial launch timeout = %v ok=%v, want 20s true", timeout, ok)
 	}
-	timeout, ok = run.nextLaunchTimeout(startedAt.Add(5 * time.Second))
+	timeout, ok = run.nextLaunchTimeout(startedAt.Add(100 * time.Second))
 	if !ok || timeout != 20*time.Second {
 		t.Fatalf("last safe launch timeout = %v ok=%v, want 20s true", timeout, ok)
 	}
-	if timeout, ok = run.nextLaunchTimeout(startedAt.Add(6 * time.Second)); ok || timeout != 0 {
+	if timeout, ok = run.nextLaunchTimeout(startedAt.Add(101 * time.Second)); ok || timeout != 0 {
 		t.Fatalf("unsafe launch budget timeout = %v ok=%v, want 0 false", timeout, ok)
 	}
 	maxBudgetSeconds := watchdogProbeConcurrencyBudgetMaxSeconds()
+	if maxBudgetSeconds != 120 {
+		t.Fatalf("watchdog probe timeout budget = %ds, want 120s", maxBudgetSeconds)
+	}
 	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: maxBudgetSeconds}); err != nil {
 		t.Fatalf("expected max concurrency with max per-probe timeout to be valid, got %v", err)
 	}

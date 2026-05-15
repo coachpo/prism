@@ -433,6 +433,9 @@ func TestMissingPriorityMapsToInitial(t *testing.T) {
 
 func TestWatchdogPolicyValidationRejectsProbeTimeoutBudgetAndPriorities(t *testing.T) {
 	maxBudget := watchdogProbeConcurrencyBudgetMaxSeconds()
+	if maxBudget != 120 {
+		t.Fatalf("expected watchdog probe timeout budget to be 120s, got %ds", maxBudget)
+	}
 	oversizedTimeout := strconv.Itoa(maxBudget + 1)
 	tests := []struct {
 		name       string
@@ -473,6 +476,9 @@ func TestWatchdogPolicyValidationAcceptsConcurrentTimeoutWithinPerProbeBudget(t 
 	_, router, sidecar := newWatchdogRouteTest(t, now)
 	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
 	maxBudget := watchdogProbeConcurrencyBudgetMaxSeconds()
+	if maxBudget != 120 {
+		t.Fatalf("expected watchdog probe timeout budget to be 120s, got %ds", maxBudget)
+	}
 	body := watchdogPolicyPatchWithExpectedRevision(initial.ActiveRevision.ID, `{"probe_concurrency":`+strconv.Itoa(MaxProbeConcurrency)+`,"probe_timeout_seconds":`+strconv.Itoa(maxBudget)+`}`)
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(body)))
