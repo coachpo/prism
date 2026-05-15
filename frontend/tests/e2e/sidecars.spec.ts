@@ -97,10 +97,16 @@ type WatchdogPolicy = Omit<WatchdogPolicyRevision, "policy_id" | "created_at"> &
     status: string;
     policy_revision_id: number;
     started_at: string;
-    next_batch_after?: string;
-    restart_requested_at?: string;
-    next_item_index: number;
-    total_items: number;
+    progress: {
+      total_items: number;
+      pending_items: number;
+      active_items: number;
+      succeeded_items: number;
+      failed_items: number;
+      cancelled_items: number;
+      superseded_items: number;
+      terminal_items: number;
+    };
   };
   created_at: string;
   updated_at: string;
@@ -246,7 +252,26 @@ function watchdogRevision(overrides: Partial<WatchdogPolicyRevision> = {}): Watc
   };
 }
 
-function watchdogPolicyFromRevisions(activeRevision: WatchdogPolicyRevision, pendingRevision?: WatchdogPolicyRevision): WatchdogPolicy {
+function activeSweepForRevision(revisionId: number): WatchdogPolicy["active_sweep"] {
+  return {
+    sweep_id: `sweep-${revisionId}`,
+    status: "running",
+    policy_revision_id: revisionId,
+    started_at: now,
+    progress: {
+      total_items: 4,
+      pending_items: 2,
+      active_items: 1,
+      succeeded_items: 1,
+      failed_items: 0,
+      cancelled_items: 0,
+      superseded_items: 0,
+      terminal_items: 1,
+    },
+  };
+}
+
+function watchdogPolicyFromRevisions(activeRevision: WatchdogPolicyRevision, pendingRevision?: WatchdogPolicyRevision, activeSweep: WatchdogPolicy["active_sweep"] = activeSweepForRevision(activeRevision.id)): WatchdogPolicy {
   return {
     ...activeRevision,
     id: activeRevision.policy_id,
@@ -255,7 +280,7 @@ function watchdogPolicyFromRevisions(activeRevision: WatchdogPolicyRevision, pen
     has_pending_changes: Boolean(pendingRevision),
     active_revision: activeRevision,
     pending_revision: pendingRevision,
-    active_sweep: undefined,
+    active_sweep: activeSweep,
     created_at: now,
     updated_at: now,
   };
@@ -398,6 +423,7 @@ async function mockSidecarsApi(
   let authSnapshots = options.authSnapshots ? [...options.authSnapshots] : defaultAuthSnapshots();
   const providerSnapshots = defaultProviderSnapshots();
   let watchdogPolicy = defaultWatchdogPolicy();
+  let nextWatchdogRevisionId = 202;
   const actions = defaultActions();
   const quotaStates = defaultQuotaStates();
   const quotaScans = defaultQuotaScans();
@@ -478,15 +504,22 @@ async function mockSidecarsApi(
     if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy$/) && request.method() === "PUT") {
       const payload = JSON.parse(request.postData() ?? "{}");
       const baseRevision = watchdogPolicy.pending_revision ?? watchdogPolicy.active_revision ?? watchdogRevision();
-      const pendingRevision = watchdogRevision({ ...baseRevision, ...payload, id: 202, created_at: now });
-      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.active_revision ?? baseRevision, pendingRevision);
+      const pendingRevision = watchdogRevision({ ...baseRevision, ...payload, id: nextWatchdogRevisionId++, created_at: now });
+      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.active_revision ?? baseRevision, pendingRevision, watchdogPolicy.active_sweep);
       return json(route, watchdogPolicy);
     }
     if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy\/apply$/) && request.method() === "POST") {
       if (!watchdogPolicy.pending_revision) {
         return json(route, { error: "missing pending revision" }, 409);
       }
-      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.pending_revision);
+      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.pending_revision, undefined, watchdogPolicy.active_sweep);
+      return json(route, watchdogPolicy);
+    }
+    if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy\/apply-and-restart$/) && request.method() === "POST") {
+      if (!watchdogPolicy.pending_revision) {
+        return json(route, { error: "missing pending revision" }, 409);
+      }
+      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.pending_revision, undefined, undefined);
       return json(route, watchdogPolicy);
     }
     const actionsMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/actions$/);
@@ -569,6 +602,13 @@ test.describe("sidecars management", () => {
 
   test("renders sidecar detail inventory, policy, actions, and priority warning", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on("pageerror", (error) => consoleErrors.push(error.message));
 
     await page.goto("/sidecars");
 
@@ -585,19 +625,15 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Watchdog hold");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("priority 90");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText(await page.evaluate(() => new Date("2026-05-10T12:00:00.000Z").toLocaleString()));
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota scan progress");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Manual");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Completed");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("3 of 4 attempted");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Using 1");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota exceeded 1");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Error 1");
-    await expect(page.getByTestId("quota-scan-progress")).toContainText("Skipped 1");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Editing mode");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Active revision");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Pending revision");
+    await expect(page.getByTestId("watchdog-active-sweep-summary")).toContainText("Authoritative active sweep");
+    await expect(page.getByTestId("watchdog-active-sweep-summary")).toContainText("1 active, 2 pending, 1 terminal of 4 child items");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("cursor");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("next batch");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Sweep interval (seconds)");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Rest period after a sweep completes");
     await expect(page.locator("#watchdog-sweep-interval")).toHaveValue("3600");
@@ -610,6 +646,10 @@ test.describe("sidecars management", () => {
     await expect(page.locator("#watchdog-probe-batch-cooldown")).toHaveValue("30");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe jitter min (ms)");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Cooldown jitter (percent)");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Child work sources");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Initial inventory items");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Rolling refresh items");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("Automatic scan coverage");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Priority-state safety note");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.restore");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("from Empty-quota");
@@ -617,7 +657,7 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("sidecar-action-history")).toContainText("Already at target");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("Failed");
     await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-states");
-    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-scans");
+    expect(api.calls).not.toContain("GET /api/sidecars/1/quota-scans");
     await expectNoRawSecrets(page);
     await page.screenshot({ path: evidencePaths.detail, fullPage: true });
 
@@ -631,10 +671,20 @@ test.describe("sidecars management", () => {
     await page.getByRole("button", { name: "Save as pending policy" }).click();
     await expect.poll(() => api.calls).toContain("PUT /api/sidecars/1/watchdog-policy");
     await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Pending changes require apply");
+    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Apply to future sweeps");
+    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Apply and restart watchdog");
     await page.getByTestId("watchdog-apply-policy").click();
     await expect.poll(() => api.calls).toContain("POST /api/sidecars/1/watchdog-policy/apply");
+    await expect(page.getByTestId("watchdog-active-sweep-summary")).toContainText("revision #101");
+    await page.getByLabel("Sweep interval (seconds)").fill("5400");
+    await page.getByRole("button", { name: "Save as pending policy" }).click();
+    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Apply and restart watchdog");
+    await page.getByTestId("watchdog-apply-restart-policy").click();
+    await expect.poll(() => api.calls).toContain("POST /api/sidecars/1/watchdog-policy/apply-and-restart");
+    await expect(page.getByTestId("watchdog-active-sweep-summary")).toBeHidden();
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.deprioritize");
     await expectNoRawSecrets(page);
+    expect(consoleErrors).toEqual([]);
     await page.screenshot({ path: evidencePaths.watchdogActions, fullPage: true });
   });
 

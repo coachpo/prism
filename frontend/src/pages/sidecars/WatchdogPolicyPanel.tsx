@@ -17,8 +17,10 @@ interface WatchdogPolicyPanelProps {
   applying: boolean;
   loading: boolean;
   onApply: () => Promise<void>;
+  onApplyAndRestart: () => Promise<void>;
   onSave: (payload: WatchdogPolicyFormUpdate) => Promise<void>;
   policy: SidecarWatchdogPolicy | null;
+  restarting: boolean;
   saving: boolean;
 }
 
@@ -197,7 +199,7 @@ function formatTimestamp(value: string | undefined, locale: string, fallback: st
   return date.toLocaleString(locale);
 }
 
-export function WatchdogPolicyPanel({ applying, loading, onApply, onSave, policy, saving }: WatchdogPolicyPanelProps) {
+export function WatchdogPolicyPanel({ applying, loading, onApply, onApplyAndRestart, onSave, policy, restarting, saving }: WatchdogPolicyPanelProps) {
   const { locale, messages } = useLocale();
   const copy = messages.sidecarsPage;
   const [form, setForm] = useState<WatchdogPolicyForm>(() => formFromPolicy(policy));
@@ -275,7 +277,9 @@ export function WatchdogPolicyPanel({ applying, loading, onApply, onSave, policy
   const activeRevision = policy?.active_revision;
   const pendingRevision = policy?.pending_revision;
   const activeSweep = policy?.active_sweep;
+  const policyMutating = saving || applying || restarting;
   const canApply = Boolean(policy?.has_pending_changes && activeRevision && pendingRevision);
+  const canApplyAndRestart = canApply && Boolean(activeSweep);
   const revisionModeLabel = policy?.has_pending_changes ? copy.watchdogPendingRevisionLabel : copy.watchdogActiveRevisionLabel;
 
   return (
@@ -307,25 +311,34 @@ export function WatchdogPolicyPanel({ applying, loading, onApply, onSave, policy
                 <AlertTitle>{copy.watchdogPendingApplyTitle}</AlertTitle>
                 <AlertDescription className="space-y-3">
                   <p>{copy.watchdogPendingApplyDescription}</p>
-                  <Button type="button" size="sm" onClick={() => void onApply()} disabled={!canApply || applying || saving} data-testid="watchdog-apply-policy">
-                    {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    {copy.watchdogApplyPending}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" onClick={() => void onApply()} disabled={!canApply || policyMutating} data-testid="watchdog-apply-policy">
+                      {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      {copy.watchdogApplyPending}
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => void onApplyAndRestart()} disabled={!canApplyAndRestart || policyMutating} data-testid="watchdog-apply-restart-policy">
+                      {restarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                      {copy.watchdogApplyAndRestart}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{activeSweep ? copy.watchdogApplyRestartHint : copy.watchdogApplyRestartUnavailable}</p>
                 </AlertDescription>
               </Alert>
             ) : null}
 
             {activeSweep ? (
-              <Alert className="border-info/30 bg-info/10">
+              <Alert className="border-info/30 bg-info/10" data-testid="watchdog-active-sweep-summary">
                 <Clock className="h-4 w-4" />
                 <AlertTitle>{copy.watchdogActiveSweepTitle}</AlertTitle>
                 <AlertDescription>
                   {copy.watchdogActiveSweepDescription(
                     activeSweep.status,
                     String(activeSweep.policy_revision_id),
-                    String(activeSweep.next_item_index),
-                    String(activeSweep.total_items),
-                    formatTimestamp(activeSweep.next_batch_after, locale, messages.common.unavailable),
+                    String(activeSweep.progress.active_items),
+                    String(activeSweep.progress.pending_items),
+                    String(activeSweep.progress.terminal_items),
+                    String(activeSweep.progress.total_items),
+                    formatTimestamp(activeSweep.started_at, locale, messages.common.unavailable),
                   )}
                 </AlertDescription>
               </Alert>
@@ -379,7 +392,7 @@ export function WatchdogPolicyPanel({ applying, loading, onApply, onSave, policy
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" disabled={saving || applying || validationError}>
+              <Button type="submit" disabled={policyMutating || validationError}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {copy.watchdogSave}
               </Button>

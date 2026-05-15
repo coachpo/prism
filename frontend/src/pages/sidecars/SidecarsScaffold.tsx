@@ -3,7 +3,6 @@ import { useLocale } from "@/i18n/useLocale";
 import { AuthFilesTable } from "./AuthFilesTable";
 import { DeleteSidecarDialog } from "./DeleteSidecarDialog";
 import { ProviderInventoryTable } from "./ProviderInventoryTable";
-import { QuotaInventoryPanel } from "./QuotaInventoryPanel";
 import { SidecarActionHistory } from "./SidecarActionHistory";
 import { SidecarDialog } from "./SidecarDialog";
 import { SidecarsTable } from "./SidecarsTable";
@@ -60,19 +59,14 @@ export function SidecarsScaffold() {
             providerSnapshots={pageData.providerSnapshots}
           />
           <div className="space-y-6">
-            <QuotaInventoryPanel
-              loading={pageData.sidecarDetailLoading}
-              mutating={pageData.quotaScanMutating}
-              onCancelScan={pageData.handleCancelQuotaScan}
-              onStartScan={pageData.handleStartQuotaScan}
-              scans={pageData.quotaScans}
-            />
             <WatchdogPolicyPanel
               applying={pageData.watchdogPolicyApplying}
               loading={pageData.sidecarDetailLoading}
               onApply={pageData.handleApplyWatchdogPolicy}
+              onApplyAndRestart={pageData.handleApplyAndRestartWatchdogPolicy}
               onSave={pageData.handleSaveWatchdogPolicy}
               policy={pageData.watchdogPolicy}
+              restarting={pageData.watchdogPolicyRestarting}
               saving={pageData.watchdogPolicySaving}
             />
           </div>
