@@ -633,7 +633,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 			statusCode = http.StatusBadRequest
 		case StoreErrorNotFound:
 			statusCode = http.StatusNotFound
-		case StoreErrorDuplicateSidecarName, StoreErrorDuplicateSidecarCanonicalURL, StoreErrorDuplicateActiveHold:
+		case StoreErrorDuplicateSidecarName, StoreErrorDuplicateSidecarCanonicalURL, StoreErrorDuplicateActiveHold, StoreErrorConflict:
 			statusCode = http.StatusConflict
 		}
 		writeError(w, r, corsSnapshot, statusCode, storeErr.Error())

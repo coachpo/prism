@@ -26,6 +26,7 @@ type quotaStateResponse struct {
 	AuthIndexPresent bool       `json:"auth_index_present"`
 	Disabled         bool       `json:"disabled"`
 	CurrentPriority  *int       `json:"current_priority,omitempty"`
+	PriorityState    string     `json:"priority_state"`
 	QuotaBand        string     `json:"quota_band"`
 	ProbeStatus      *string    `json:"probe_status,omitempty"`
 	ReasonCode       *string    `json:"reason_code,omitempty"`
@@ -81,6 +82,12 @@ func (s *Service) handleListQuotaStates(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
+	policyState, err := s.getWatchdogPolicyRevisionState(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	policy := policyState.Policy
 	snapshotByAuth := make(map[string]SidecarAuthSnapshot, len(snapshots))
 	for _, snapshot := range snapshots {
 		snapshotByAuth[snapshot.AuthID] = snapshot
@@ -94,7 +101,7 @@ func (s *Service) handleListQuotaStates(w http.ResponseWriter, r *http.Request) 
 			snapshotCopy := snapshot
 			snapshotPtr = &snapshotCopy
 		}
-		items = append(items, buildQuotaStateResponse(id, state, snapshotPtr, hasAuth(activeHoldAuths, state.AuthID)))
+		items = append(items, buildQuotaStateResponse(id, state, snapshotPtr, hasAuth(activeHoldAuths, state.AuthID), policy))
 	}
 	writeJSON(w, http.StatusOK, quotaStateListResponse{Items: items})
 }
@@ -191,7 +198,7 @@ func (s *Service) parseQuotaScanID(w http.ResponseWriter, r *http.Request) (int,
 	return id, true
 }
 
-func buildQuotaStateResponse(sidecarID int, state SidecarAuthQuotaState, snapshot *SidecarAuthSnapshot, holdActive bool) quotaStateResponse {
+func buildQuotaStateResponse(sidecarID int, state SidecarAuthQuotaState, snapshot *SidecarAuthSnapshot, holdActive bool, policy SidecarWatchdogPolicy) quotaStateResponse {
 	disabled := false
 	var priority *int
 	if snapshot != nil {
@@ -208,6 +215,7 @@ func buildQuotaStateResponse(sidecarID int, state SidecarAuthQuotaState, snapsho
 		AuthIndexPresent: strings.TrimSpace(stringValue(state.AuthIndex)) != "",
 		Disabled:         disabled,
 		CurrentPriority:  priority,
+		PriorityState:    derivePriorityState(policy, priority),
 		QuotaBand:        state.QuotaBand,
 		ProbeStatus:      cloneStringPtr(state.ProbeStatus),
 		ReasonCode:       cloneStringPtr(state.ReasonCode),
