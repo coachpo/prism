@@ -333,6 +333,16 @@ type SidecarWatchdogPolicyRevisionState struct {
 	HasPendingChanges bool
 	ActiveSweep       *SidecarWatchdogSweep
 }
+
+type SidecarWatchdogPolicyApplyMode string
+
+const (
+	SidecarWatchdogPolicyApplyFuture     SidecarWatchdogPolicyApplyMode = "future"
+	SidecarWatchdogPolicyApplyAndRestart SidecarWatchdogPolicyApplyMode = "apply_and_restart"
+)
+
+const watchdogPolicyRestartSupersedeReason = "policy_revision_superseded"
+
 type SidecarWatchdogSweepStatus string
 
 const (
@@ -351,38 +361,48 @@ const (
 )
 
 type SidecarWatchdogSweepInput struct {
-	SweepID          string
-	SidecarID        int
-	PolicyRevisionID int64
-	Status           string
-	SnapshotJSON     json.RawMessage
-	NextItemIndex    int
-	BatchIndex       int
-	NextBatchAfter   *time.Time
-	LastHeartbeatAt  *time.Time
-	LeaseExpiresAt   *time.Time
-	PauseReason      *string
-	FailureReason    *string
-	StartedAt        time.Time
-	CompletedAt      *time.Time
+	SweepID                       string
+	SidecarID                     int
+	PolicyRevisionID              int64
+	Status                        string
+	SnapshotJSON                  json.RawMessage
+	NextItemIndex                 int
+	BatchIndex                    int
+	NextBatchAfter                *time.Time
+	LastHeartbeatAt               *time.Time
+	LeaseExpiresAt                *time.Time
+	PauseReason                   *string
+	FailureReason                 *string
+	RestartRequestedAt            *time.Time
+	RestartTargetPolicyRevisionID *int64
+	RestartReason                 *string
+	CancelRequestedAt             *time.Time
+	CancelReason                  *string
+	StartedAt                     time.Time
+	CompletedAt                   *time.Time
 }
 type SidecarWatchdogSweep struct {
-	SweepID          string
-	SidecarID        int
-	PolicyRevisionID int64
-	Status           string
-	SnapshotJSON     json.RawMessage
-	NextItemIndex    int
-	BatchIndex       int
-	NextBatchAfter   *time.Time
-	LastHeartbeatAt  *time.Time
-	LeaseExpiresAt   *time.Time
-	PauseReason      *string
-	FailureReason    *string
-	StartedAt        time.Time
-	CompletedAt      *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	SweepID                       string
+	SidecarID                     int
+	PolicyRevisionID              int64
+	Status                        string
+	SnapshotJSON                  json.RawMessage
+	NextItemIndex                 int
+	BatchIndex                    int
+	NextBatchAfter                *time.Time
+	LastHeartbeatAt               *time.Time
+	LeaseExpiresAt                *time.Time
+	PauseReason                   *string
+	FailureReason                 *string
+	RestartRequestedAt            *time.Time
+	RestartTargetPolicyRevisionID *int64
+	RestartReason                 *string
+	CancelRequestedAt             *time.Time
+	CancelReason                  *string
+	StartedAt                     time.Time
+	CompletedAt                   *time.Time
+	CreatedAt                     time.Time
+	UpdatedAt                     time.Time
 }
 type SidecarWatchdogSweepHeartbeatInput struct {
 	SweepID        string
@@ -403,6 +423,107 @@ type SidecarWatchdogSweepCheckpointInput struct {
 type SidecarWatchdogSweepMutationResult struct {
 	Outcome SidecarWatchdogSweepMutationOutcome
 	Sweep   SidecarWatchdogSweep
+}
+
+type SidecarWatchdogSweepItemStatus string
+
+const (
+	SidecarWatchdogSweepItemStatusQueued     SidecarWatchdogSweepItemStatus = "queued"
+	SidecarWatchdogSweepItemStatusLeased     SidecarWatchdogSweepItemStatus = "leased"
+	SidecarWatchdogSweepItemStatusSucceeded  SidecarWatchdogSweepItemStatus = "succeeded"
+	SidecarWatchdogSweepItemStatusFailed     SidecarWatchdogSweepItemStatus = "failed"
+	SidecarWatchdogSweepItemStatusCancelled  SidecarWatchdogSweepItemStatus = "cancelled"
+	SidecarWatchdogSweepItemStatusSuperseded SidecarWatchdogSweepItemStatus = "superseded"
+)
+
+type SidecarWatchdogSweepItemInput struct {
+	SweepID             string
+	SidecarID           int
+	PolicyRevisionID    int64
+	ItemIndex           int
+	Source              string
+	SourceRank          int
+	Priority            int
+	DueAt               *time.Time
+	AuthID              string
+	AuthIndex           *string
+	Provider            *string
+	HoldID              *int
+	AuthSnapshotID      *int
+	SelectionJSON       json.RawMessage
+	Status              string
+	LeaseOwner          *string
+	LeaseExpiresAt      *time.Time
+	AttemptToken        int
+	StartedAt           *time.Time
+	CompletedAt         *time.Time
+	ResultObservationID *int
+	LastErrorCode       *string
+}
+
+type SidecarWatchdogSweepItem struct {
+	ID                  int64
+	SweepID             string
+	SidecarID           int
+	PolicyRevisionID    int64
+	ItemIndex           int
+	Source              string
+	SourceRank          int
+	Priority            int
+	DueAt               *time.Time
+	AuthID              string
+	AuthIndex           *string
+	Provider            *string
+	HoldID              *int
+	AuthSnapshotID      *int
+	SelectionJSON       json.RawMessage
+	Status              string
+	LeaseOwner          *string
+	LeaseExpiresAt      *time.Time
+	AttemptToken        int
+	StartedAt           *time.Time
+	CompletedAt         *time.Time
+	ResultObservationID *int
+	LastErrorCode       *string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type SidecarWatchdogSweepItemClaimInput struct {
+	SweepID        string
+	SidecarID      int
+	StartItemIndex int
+	Limit          int
+	LeaseOwner     string
+	LeaseExpiresAt time.Time
+	ClaimedAt      time.Time
+}
+
+type SidecarWatchdogSweepItemCommitOutcome string
+
+const (
+	SidecarWatchdogSweepItemCommitOutcomeCommitted SidecarWatchdogSweepItemCommitOutcome = "committed"
+	SidecarWatchdogSweepItemCommitOutcomeDuplicate SidecarWatchdogSweepItemCommitOutcome = "duplicate"
+	SidecarWatchdogSweepItemCommitOutcomeStale     SidecarWatchdogSweepItemCommitOutcome = "stale"
+)
+
+type SidecarWatchdogSweepItemCommitInput struct {
+	SweepID             string
+	SidecarID           int
+	ItemID              int64
+	ItemIndex           int
+	AttemptToken        int
+	LeaseOwner          string
+	Status              string
+	CompletedAt         time.Time
+	ResultObservationID *int
+	LastErrorCode       *string
+}
+
+type SidecarWatchdogSweepItemCommitResult struct {
+	Outcome SidecarWatchdogSweepItemCommitOutcome
+	Item    *SidecarWatchdogSweepItem
+	Sweep   *SidecarWatchdogSweep
 }
 
 type SidecarWatchdogProbeObservationInput struct {
@@ -447,24 +568,26 @@ type SidecarWatchdogProbeHoldUpdate struct {
 }
 
 type SidecarQuotaPersistDecision struct {
-	SidecarID     int
-	Observations  []SidecarWatchdogProbeObservationInput
-	QuotaStates   []SidecarAuthQuotaStateInput
-	CreateHold    *SidecarWatchdogHoldInput
-	UpdateHold    *SidecarWatchdogProbeHoldUpdate
-	AdvanceCursor bool
-	CursorAuthID  *string
-	ScanRunID     *int
+	SidecarID       int
+	Observations    []SidecarWatchdogProbeObservationInput
+	QuotaStates     []SidecarAuthQuotaStateInput
+	CreateHold      *SidecarWatchdogHoldInput
+	UpdateHold      *SidecarWatchdogProbeHoldUpdate
+	AdvanceCursor   bool
+	CursorAuthID    *string
+	ScanRunID       *int
+	SweepItemCommit *SidecarWatchdogSweepItemCommitInput
 }
 
 type SidecarQuotaPersistResult struct {
-	Observations   []SidecarWatchdogProbeObservation
-	CreatedHold    *SidecarWatchdogHold
-	UpdatedHold    *SidecarWatchdogHold
-	PendingActions []SidecarWatchdogPendingAction
-	ScanRun        *SidecarQuotaScanRun
-	QuotaStates    []SidecarAuthQuotaState
-	Policy         *SidecarWatchdogPolicy
+	Observations    []SidecarWatchdogProbeObservation
+	CreatedHold     *SidecarWatchdogHold
+	UpdatedHold     *SidecarWatchdogHold
+	PendingActions  []SidecarWatchdogPendingAction
+	ScanRun         *SidecarQuotaScanRun
+	QuotaStates     []SidecarAuthQuotaState
+	Policy          *SidecarWatchdogPolicy
+	SweepItemCommit *SidecarWatchdogSweepItemCommitResult
 }
 
 type SidecarWatchdogProbeDecision = SidecarQuotaPersistDecision

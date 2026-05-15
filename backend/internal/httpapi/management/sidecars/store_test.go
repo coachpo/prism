@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1006,6 +1007,333 @@ func TestCompleteWatchdogSweep(t *testing.T) {
 	}
 }
 
+func TestWatchdogSweepItemRoundTrip(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_item_roundtrip")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_sweep_item_roundtrip")
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create revision: %v", err)
+	}
+	now := sidecarStoreFixedNow()
+	restartReason := "apply_and_restart"
+	sweep, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{
+		SweepID: "sweep-items-roundtrip", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID,
+		Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: json.RawMessage(`[]`),
+		RestartRequestedAt: &now, RestartTargetPolicyRevisionID: &revision.ID, RestartReason: &restartReason,
+	})
+	if err != nil {
+		t.Fatalf("create sweep with durable restart intent: %v", err)
+	}
+	if sweep.RestartRequestedAt == nil || sweep.RestartTargetPolicyRevisionID == nil || *sweep.RestartTargetPolicyRevisionID != revision.ID || stringValue(sweep.RestartReason) != restartReason {
+		t.Fatalf("restart intent did not persist on parent sweep: %+v", sweep)
+	}
+	leaseOwner := "worker-a"
+	leaseExpiresAt := now.Add(time.Minute)
+	completedAt := now.Add(2 * time.Minute)
+	items, err := store.CreateWatchdogSweepItems(ctx, sweep.SweepID, []SidecarWatchdogSweepItemInput{
+		{SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, ItemIndex: 0, Source: watchdogSweepSourceManualScanProbe, SourceRank: 10, Priority: 90, DueAt: &now, AuthID: "auth-a", SelectionJSON: json.RawMessage(`{"frozen":true}`)},
+		{SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, ItemIndex: 1, Source: watchdogSweepSourceRollingRefreshProbe, SourceRank: 30, Priority: 50, AuthID: "auth-b", Status: string(SidecarWatchdogSweepItemStatusLeased), LeaseOwner: &leaseOwner, LeaseExpiresAt: &leaseExpiresAt, AttemptToken: 1},
+		{SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, ItemIndex: 2, Source: watchdogSweepSourceDueHoldProbe, SourceRank: 0, Priority: 99, AuthID: "auth-c", Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: &completedAt},
+	})
+	if err != nil {
+		t.Fatalf("create sweep items: %v", err)
+	}
+	if len(items) != 3 || items[0].Status != string(SidecarWatchdogSweepItemStatusQueued) || items[1].AttemptToken != 1 || items[2].CompletedAt == nil {
+		t.Fatalf("unexpected created sweep items: %+v", items)
+	}
+	listed, err := store.ListWatchdogSweepItems(ctx, sweep.SweepID)
+	if err != nil {
+		t.Fatalf("list sweep items: %v", err)
+	}
+	if len(listed) != 3 || listed[0].AuthID != "auth-a" || listed[1].AuthID != "auth-b" || listed[2].AuthID != "auth-c" {
+		t.Fatalf("sweep items did not round-trip in item_index order: %+v", listed)
+	}
+	requireJSONEqual(t, listed[0].SelectionJSON, `{"frozen":true}`)
+	_, err = store.CreateWatchdogSweepItems(ctx, sweep.SweepID, []SidecarWatchdogSweepItemInput{{SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, ItemIndex: 0, Source: watchdogSweepSourceManualScanProbe, SourceRank: 10, AuthID: "auth-duplicate"}})
+	if err == nil {
+		t.Fatal("expected duplicate sweep item index to fail")
+	}
+	_, err = store.CreateWatchdogSweepItems(ctx, sweep.SweepID, []SidecarWatchdogSweepItemInput{{SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, ItemIndex: 3, Source: watchdogSweepSourceManualScanProbe, SourceRank: 10, AuthID: "auth-bad-lease", Status: string(SidecarWatchdogSweepItemStatusLeased)}})
+	if !IsStoreError(err, StoreErrorInvalidInput) {
+		t.Fatalf("expected leased item without token metadata to fail validation, got %v", err)
+	}
+}
+
+func TestWatchdogSweepIllegalTransitionsAreRejected(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_illegal_transitions")
+	_, _, sweep, _ := createWatchdogStoreSweepForTest(t, ctx, store, "illegal_transitions", SidecarWatchdogSweepStatusRunning, nil)
+
+	resume, err := store.ResumeWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+	if err != nil || resume.Outcome != SidecarWatchdogSweepMutationOutcomeNotFound {
+		t.Fatalf("running sweep must reject resume: result=%+v err=%v", resume, err)
+	}
+	paused, err := store.PauseWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: 1, BatchIndex: 1})
+	if err != nil || paused.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated || paused.Sweep.Status != string(SidecarWatchdogSweepStatusPaused) {
+		t.Fatalf("pause running sweep: result=%+v err=%v", paused, err)
+	}
+
+	for _, attempt := range []struct {
+		name   string
+		mutate func() (SidecarWatchdogSweepMutationResult, error)
+	}{
+		{name: "complete paused", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+		{name: "fail paused", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.FailWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+		{name: "cancel paused", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.CancelWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+	} {
+		result, err := attempt.mutate()
+		if err != nil || result.Outcome != SidecarWatchdogSweepMutationOutcomeNotFound {
+			t.Fatalf("%s should be rejected without mutation: result=%+v err=%v", attempt.name, result, err)
+		}
+	}
+	loaded, ok, err := store.GetWatchdogSweep(ctx, sweep.SweepID)
+	if err != nil || !ok || loaded.Status != string(SidecarWatchdogSweepStatusPaused) || loaded.CompletedAt != nil {
+		t.Fatalf("illegal paused transitions mutated sweep: loaded=%+v ok=%v err=%v", loaded, ok, err)
+	}
+
+	resumed, err := store.ResumeWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: loaded.NextItemIndex, BatchIndex: loaded.BatchIndex})
+	if err != nil || resumed.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated {
+		t.Fatalf("resume paused sweep: result=%+v err=%v", resumed, err)
+	}
+	completedAt := sidecarStoreFixedNow().Add(time.Minute)
+	completed, err := store.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: 1, BatchIndex: 1, CompletedAt: &completedAt})
+	if err != nil || completed.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated || completed.Sweep.Status != string(SidecarWatchdogSweepStatusCompleted) {
+		t.Fatalf("complete resumed sweep: result=%+v err=%v", completed, err)
+	}
+	for _, attempt := range []struct {
+		name   string
+		mutate func() (SidecarWatchdogSweepMutationResult, error)
+	}{
+		{name: "resume completed", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.ResumeWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+		{name: "complete completed", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+		{name: "fail completed", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.FailWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+		{name: "cancel completed", mutate: func() (SidecarWatchdogSweepMutationResult, error) {
+			return store.CancelWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID})
+		}},
+	} {
+		result, err := attempt.mutate()
+		if err != nil || result.Outcome != SidecarWatchdogSweepMutationOutcomeNotFound {
+			t.Fatalf("%s should be rejected after terminal completion: result=%+v err=%v", attempt.name, result, err)
+		}
+	}
+}
+
+func TestWatchdogSweepItemLeaseClaimIsSingleOwnerAndTokenAdvances(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_item_single_claim")
+	_, _, sweep, _ := createWatchdogStoreSweepForTest(t, ctx, store, "single_claim", SidecarWatchdogSweepStatusRunning, []SidecarWatchdogSweepItemInput{{AuthID: "auth-single-claim"}})
+	now := sidecarStoreFixedNow()
+
+	first, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, Limit: 1, LeaseOwner: "worker-a", LeaseExpiresAt: now.Add(time.Minute), ClaimedAt: now})
+	if err != nil || len(first) != 1 || first[0].AttemptToken != 1 || stringValue(first[0].LeaseOwner) != "worker-a" {
+		t.Fatalf("first child lease claim failed: claimed=%+v err=%v", first, err)
+	}
+	blocked, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, Limit: 1, LeaseOwner: "worker-b", LeaseExpiresAt: now.Add(2 * time.Minute), ClaimedAt: now.Add(time.Second)})
+	if err != nil || len(blocked) != 0 {
+		t.Fatalf("active child lease should block a second owner: claimed=%+v err=%v", blocked, err)
+	}
+	reclaimedAt := now.Add(2 * time.Minute)
+	reclaimed, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, Limit: 1, LeaseOwner: "worker-b", LeaseExpiresAt: reclaimedAt.Add(time.Minute), ClaimedAt: reclaimedAt})
+	if err != nil || len(reclaimed) != 1 || reclaimed[0].ID != first[0].ID || reclaimed[0].AttemptToken != 2 || stringValue(reclaimed[0].LeaseOwner) != "worker-b" {
+		t.Fatalf("expired child lease should advance token for new owner: claimed=%+v first=%+v err=%v", reclaimed, first, err)
+	}
+}
+
+func TestWatchdogSweepItemCommitRejectsStaleLeaseTokenAfterReclaim(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_item_stale_token")
+	_, _, sweep, _ := createWatchdogStoreSweepForTest(t, ctx, store, "stale_token", SidecarWatchdogSweepStatusRunning, []SidecarWatchdogSweepItemInput{{AuthID: "auth-stale-token"}})
+	now := sidecarStoreFixedNow()
+	first, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, Limit: 1, LeaseOwner: "worker-a", LeaseExpiresAt: now.Add(time.Minute), ClaimedAt: now})
+	if err != nil || len(first) != 1 {
+		t.Fatalf("claim original lease: claimed=%+v err=%v", first, err)
+	}
+	reclaimedAt := now.Add(2 * time.Minute)
+	reclaimed, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, Limit: 1, LeaseOwner: "worker-b", LeaseExpiresAt: reclaimedAt.Add(time.Minute), ClaimedAt: reclaimedAt})
+	if err != nil || len(reclaimed) != 1 {
+		t.Fatalf("reclaim expired lease: claimed=%+v err=%v", reclaimed, err)
+	}
+
+	staleCommit := SidecarWatchdogSweepItemCommitInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, ItemID: first[0].ID, ItemIndex: first[0].ItemIndex, AttemptToken: first[0].AttemptToken, LeaseOwner: "worker-a", Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: reclaimedAt.Add(10 * time.Second)}
+	staleResult, err := store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sweep.SidecarID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sweep.SidecarID, "auth-stale-token", reclaimedAt)}, SweepItemCommit: &staleCommit})
+	if err != nil || staleResult.SweepItemCommit == nil || staleResult.SweepItemCommit.Outcome != SidecarWatchdogSweepItemCommitOutcomeStale || len(staleResult.Observations) != 0 || len(staleResult.QuotaStates) != 0 {
+		t.Fatalf("stale lease-token commit should be fenced before side effects: result=%+v err=%v", staleResult, err)
+	}
+	listed, err := store.ListWatchdogSweepItems(ctx, sweep.SweepID)
+	if err != nil || len(listed) != 1 || listed[0].Status != string(SidecarWatchdogSweepItemStatusLeased) || listed[0].AttemptToken != reclaimed[0].AttemptToken || stringValue(listed[0].LeaseOwner) != "worker-b" || listed[0].ResultObservationID != nil {
+		t.Fatalf("stale commit mutated reclaimed lease: items=%+v err=%v", listed, err)
+	}
+
+	currentCommit := SidecarWatchdogSweepItemCommitInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, ItemID: reclaimed[0].ID, ItemIndex: reclaimed[0].ItemIndex, AttemptToken: reclaimed[0].AttemptToken, LeaseOwner: "worker-b", Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: reclaimedAt.Add(20 * time.Second)}
+	currentResult, err := store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sweep.SidecarID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sweep.SidecarID, "auth-stale-token", reclaimedAt.Add(20*time.Second))}, SweepItemCommit: &currentCommit})
+	if err != nil || currentResult.SweepItemCommit == nil || currentResult.SweepItemCommit.Outcome != SidecarWatchdogSweepItemCommitOutcomeCommitted || len(currentResult.Observations) != 1 {
+		t.Fatalf("current lease-token commit should succeed: result=%+v err=%v", currentResult, err)
+	}
+}
+
+func TestWatchdogSweepItemDuplicateCommitIsIdempotent(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_item_duplicate_commit")
+	_, _, sweep, _ := createWatchdogStoreSweepForTest(t, ctx, store, "duplicate_commit", SidecarWatchdogSweepStatusRunning, []SidecarWatchdogSweepItemInput{{AuthID: "auth-duplicate-commit"}})
+	now := sidecarStoreFixedNow()
+	claimed, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, Limit: 1, LeaseOwner: "worker-a", LeaseExpiresAt: now.Add(time.Minute), ClaimedAt: now})
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim duplicate commit item: claimed=%+v err=%v", claimed, err)
+	}
+	commit := SidecarWatchdogSweepItemCommitInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, ItemID: claimed[0].ID, ItemIndex: claimed[0].ItemIndex, AttemptToken: claimed[0].AttemptToken, LeaseOwner: "worker-a", Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: now.Add(time.Second)}
+	first, err := store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sweep.SidecarID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sweep.SidecarID, "auth-duplicate-commit", now.Add(time.Second))}, SweepItemCommit: &commit})
+	if err != nil || first.SweepItemCommit == nil || first.SweepItemCommit.Outcome != SidecarWatchdogSweepItemCommitOutcomeCommitted || len(first.Observations) != 1 {
+		t.Fatalf("first commit failed: result=%+v err=%v", first, err)
+	}
+	duplicate, err := store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sweep.SidecarID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sweep.SidecarID, "auth-duplicate-replay", now.Add(2*time.Second))}, SweepItemCommit: &commit})
+	if err != nil || duplicate.SweepItemCommit == nil || duplicate.SweepItemCommit.Outcome != SidecarWatchdogSweepItemCommitOutcomeDuplicate || len(duplicate.Observations) != 0 || len(duplicate.QuotaStates) != 0 {
+		t.Fatalf("duplicate commit should be idempotent before side effects: result=%+v err=%v", duplicate, err)
+	}
+	observations, err := store.ListWatchdogProbeObservations(ctx, sweep.SidecarID, 10)
+	if err != nil || len(observations) != 1 || observations[0].AuthID != "auth-duplicate-commit" {
+		t.Fatalf("duplicate commit wrote extra observations: observations=%+v err=%v", observations, err)
+	}
+}
+
+func TestWatchdogSweepCursorAdvancesAcrossContiguousTerminalItems(t *testing.T) {
+	ctx, store, _ := sidecarStoreForTest(t, "watchdog_sweep_cursor_contiguous")
+	now := sidecarStoreFixedNow()
+	_, _, sweep, _ := createWatchdogStoreSweepForTest(t, ctx, store, "cursor_contiguous", SidecarWatchdogSweepStatusRunning, []SidecarWatchdogSweepItemInput{
+		{ItemIndex: 0, AuthID: "auth-cursor-0", Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: &now},
+		{ItemIndex: 1, AuthID: "auth-cursor-1"},
+		{ItemIndex: 2, AuthID: "auth-cursor-2", Status: string(SidecarWatchdogSweepItemStatusFailed), CompletedAt: &now},
+		{ItemIndex: 3, AuthID: "auth-cursor-3"},
+	})
+	claimed, err := store.ClaimWatchdogSweepItems(ctx, SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, StartItemIndex: 1, Limit: 1, LeaseOwner: "worker-cursor", LeaseExpiresAt: now.Add(time.Minute), ClaimedAt: now})
+	if err != nil || len(claimed) != 1 || claimed[0].ItemIndex != 1 {
+		t.Fatalf("claim cursor gap item: claimed=%+v err=%v", claimed, err)
+	}
+	commit := SidecarWatchdogSweepItemCommitInput{SweepID: sweep.SweepID, SidecarID: sweep.SidecarID, ItemID: claimed[0].ID, ItemIndex: claimed[0].ItemIndex, AttemptToken: claimed[0].AttemptToken, LeaseOwner: "worker-cursor", Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: now.Add(time.Second)}
+	result, err := store.PersistWatchdogProbeDecision(ctx, SidecarWatchdogProbeDecision{SidecarID: sweep.SidecarID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sweep.SidecarID, "auth-cursor-1", now.Add(time.Second))}, SweepItemCommit: &commit})
+	if err != nil || result.SweepItemCommit == nil || result.SweepItemCommit.Outcome != SidecarWatchdogSweepItemCommitOutcomeCommitted || result.SweepItemCommit.Sweep == nil || result.SweepItemCommit.Sweep.NextItemIndex != 3 {
+		t.Fatalf("cursor did not advance across contiguous terminal prefix: result=%+v err=%v", result, err)
+	}
+	loaded, ok, err := store.GetWatchdogSweep(ctx, sweep.SweepID)
+	if err != nil || !ok || loaded.NextItemIndex != 3 {
+		t.Fatalf("persisted cursor mismatch after contiguous advancement: sweep=%+v ok=%v err=%v", loaded, ok, err)
+	}
+	items, err := store.ListWatchdogSweepItems(ctx, sweep.SweepID)
+	if err != nil || len(items) != 4 || items[3].Status != string(SidecarWatchdogSweepItemStatusQueued) {
+		t.Fatalf("cursor advancement should not terminalize non-contiguous tail: items=%+v err=%v", items, err)
+	}
+}
+
+func TestWatchdogRuntimeMigrationCancelsLegacyActiveRows(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := sidecarPostgresHarness(t)
+	databaseName := "watchdog_runtime_migration_" + sidecarRandomSuffix(t)
+	conn := harness.openDatabase(t, ctx, databaseName)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+
+	beforeRunner, err := migrate.New(migrate.Options{MigrationsDir: sidecarMigrationsBeforeForStoreTest(t, "000022_sidecar_watchdog_sweep_items")})
+	if err != nil {
+		t.Fatalf("build pre-cleanup migration runner: %v", err)
+	}
+	if _, err := beforeRunner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations before cleanup: %v", err)
+	}
+	var sidecarID int
+	if err := conn.QueryRow(ctx, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password) VALUES ('Legacy runtime sidecar', 'https://legacy-runtime.example.test', 'https://legacy-runtime.example.test', 'enc:fixture') RETURNING id`).Scan(&sidecarID); err != nil {
+		t.Fatalf("insert legacy sidecar: %v", err)
+	}
+	var policyID int
+	if err := conn.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policies (sidecar_id) VALUES ($1) RETURNING id`, sidecarID).Scan(&policyID); err != nil {
+		t.Fatalf("insert legacy policy: %v", err)
+	}
+	var revisionID int64
+	if err := conn.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id) VALUES ($1, $2) RETURNING id`, policyID, sidecarID).Scan(&revisionID); err != nil {
+		t.Fatalf("insert legacy revision: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `UPDATE sidecar_watchdog_policies SET active_revision_id=$2 WHERE id=$1`, policyID, revisionID); err != nil {
+		t.Fatalf("activate legacy revision: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, lease_expires_at) VALUES ('legacy-active-sweep', $1, $2, 'running', '[]'::jsonb, now() + interval '5 minutes')`, sidecarID, revisionID); err != nil {
+		t.Fatalf("insert legacy active sweep: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'queued')`, sidecarID); err != nil {
+		t.Fatalf("insert legacy active quota scan: %v", err)
+	}
+
+	fullRunner, err := migrate.New(migrate.Options{})
+	if err != nil {
+		t.Fatalf("build full migration runner: %v", err)
+	}
+	result, err := fullRunner.Run(ctx, conn)
+	if err != nil {
+		t.Fatalf("run cleanup migration: %v", err)
+	}
+	if !stringSliceContainsForStoreTest(result.Versions, "000022_sidecar_watchdog_sweep_items") {
+		t.Fatalf("cleanup migration was not applied: %+v", result)
+	}
+	var sweepStatus string
+	var sweepCompleted, sweepLeaseCleared, sweepCancelRequested bool
+	var sweepFailureReason, sweepCancelReason string
+	if err := conn.QueryRow(ctx, `SELECT status, completed_at IS NOT NULL, lease_expires_at IS NULL, cancel_requested_at IS NOT NULL, COALESCE(failure_reason,''), COALESCE(cancel_reason,'') FROM sidecar_watchdog_sweeps WHERE sweep_id='legacy-active-sweep'`).Scan(&sweepStatus, &sweepCompleted, &sweepLeaseCleared, &sweepCancelRequested, &sweepFailureReason, &sweepCancelReason); err != nil {
+		t.Fatalf("load migrated legacy sweep: %v", err)
+	}
+	if sweepStatus != string(SidecarWatchdogSweepStatusCancelled) || !sweepCompleted || !sweepLeaseCleared || !sweepCancelRequested || sweepFailureReason != "legacy_runtime_discarded" || sweepCancelReason != "legacy_runtime_discarded" {
+		t.Fatalf("legacy active sweep was not deterministically cancelled: status=%s completed=%v leaseCleared=%v cancelRequested=%v failure=%q cancel=%q", sweepStatus, sweepCompleted, sweepLeaseCleared, sweepCancelRequested, sweepFailureReason, sweepCancelReason)
+	}
+	var scanStatus, scanError string
+	var scanCompleted bool
+	if err := conn.QueryRow(ctx, `SELECT status, completed_at IS NOT NULL, COALESCE(last_error_code,'') FROM sidecar_quota_scan_runs WHERE sidecar_id=$1`, sidecarID).Scan(&scanStatus, &scanCompleted, &scanError); err != nil {
+		t.Fatalf("load migrated legacy quota scan: %v", err)
+	}
+	if scanStatus != quotaScanStatusCancelled || !scanCompleted || scanError != "legacy_runtime_discarded" {
+		t.Fatalf("legacy active quota scan was not demoted to terminal projection: status=%s completed=%v error=%q", scanStatus, scanCompleted, scanError)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'running')`, sidecarID); err == nil {
+		t.Fatal("cleanup migration must reject new executable quota scan rows")
+	}
+}
+
+func TestWatchdogRuntimeSchemaMigrationCleanup(t *testing.T) {
+	ctx, store, pool := sidecarStoreForTest(t, "watchdog_runtime_schema_cleanup")
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_runtime_schema_cleanup")
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create revision: %v", err)
+	}
+	if _, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-active-parent", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: json.RawMessage(`[]`)}); err != nil {
+		t.Fatalf("create active parent sweep: %v", err)
+	}
+	_, err = store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-second-active-parent", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: json.RawMessage(`[]`)})
+	if !IsStoreError(err, StoreErrorInvalidInput) {
+		t.Fatalf("expected active parent uniqueness to reject second active sweep, got %v", err)
+	}
+	_, err = store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 1})
+	if !IsStoreError(err, StoreErrorInvalidInput) {
+		t.Fatalf("expected executable quota scan run creation to be rejected, got %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'running')`, sidecar.ID); err == nil {
+		t.Fatal("expected schema to reject active quota scan run status")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'completed'), ($1, 'scheduled', 'failed')`, sidecar.ID); err != nil {
+		t.Fatalf("projection-only quota scan history should remain insertable: %v", err)
+	}
+	var activeScanIndexExists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_sidecar_quota_scan_runs_active_sidecar')`).Scan(&activeScanIndexExists); err != nil {
+		t.Fatalf("check legacy active scan index absence: %v", err)
+	}
+	if activeScanIndexExists {
+		t.Fatal("legacy active quota scan index should be removed")
+	}
+}
+
 func TestWatchdogPrunesOlderTerminalSweeps(t *testing.T) {
 	ctx, store, pool := sidecarStoreForTest(t, "watchdog_sweep_prunes_old_terminal")
 	sidecar := createTestSidecar(t, ctx, store, "watchdog_sweep_prunes_old_terminal")
@@ -1085,6 +1413,88 @@ func countWatchdogSweepsForPruning(t *testing.T, ctx context.Context, pool *pgxp
 		t.Fatalf("count watchdog sweeps: %v", err)
 	}
 	return count
+}
+
+func createWatchdogStoreSweepForTest(t *testing.T, ctx context.Context, store *Store, suffix string, status SidecarWatchdogSweepStatus, itemInputs []SidecarWatchdogSweepItemInput) (SidecarInstance, SidecarWatchdogPolicyRevision, SidecarWatchdogSweep, []SidecarWatchdogSweepItem) {
+	t.Helper()
+	sidecar := createTestSidecar(t, ctx, store, "watchdog_"+suffix)
+	revision, err := store.CreateWatchdogPolicyRevision(ctx, SidecarWatchdogPolicyRevisionInput{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 2, ProbeTimeoutSeconds: 3})
+	if err != nil {
+		t.Fatalf("create watchdog policy revision: %v", err)
+	}
+	sweep, err := store.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: "sweep-" + suffix, SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(status), SnapshotJSON: json.RawMessage(`[]`)})
+	if err != nil {
+		t.Fatalf("create watchdog sweep: %v", err)
+	}
+	if len(itemInputs) == 0 {
+		return sidecar, revision, sweep, nil
+	}
+	inputs := make([]SidecarWatchdogSweepItemInput, 0, len(itemInputs))
+	for index, input := range itemInputs {
+		if strings.TrimSpace(input.SweepID) == "" {
+			input.SweepID = sweep.SweepID
+		}
+		if input.SidecarID == 0 {
+			input.SidecarID = sidecar.ID
+		}
+		if input.PolicyRevisionID == 0 {
+			input.PolicyRevisionID = revision.ID
+		}
+		if input.ItemIndex == 0 && index > 0 {
+			input.ItemIndex = index
+		}
+		if strings.TrimSpace(input.Source) == "" {
+			input.Source = watchdogSweepSourceRollingRefreshProbe
+		}
+		if input.SourceRank == 0 {
+			input.SourceRank = watchdogSweepSourceRank(input.Source)
+		}
+		if strings.TrimSpace(input.AuthID) == "" {
+			input.AuthID = fmt.Sprintf("auth-%s-%d", suffix, index)
+		}
+		inputs = append(inputs, input)
+	}
+	items, err := store.CreateWatchdogSweepItems(ctx, sweep.SweepID, inputs)
+	if err != nil {
+		t.Fatalf("create watchdog sweep items: %v", err)
+	}
+	return sidecar, revision, sweep, items
+}
+
+func sidecarMigrationsBeforeForStoreTest(t *testing.T, excludedVersion string) string {
+	t.Helper()
+	sourceDir := migrate.DefaultMigrationsDir()
+	targetDir := t.TempDir()
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		version := strings.TrimSuffix(entry.Name(), ".sql")
+		if version >= excludedVersion {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(sourceDir, entry.Name()))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(targetDir, entry.Name()), raw, 0o600); err != nil {
+			t.Fatalf("copy migration %s: %v", entry.Name(), err)
+		}
+	}
+	return targetDir
+}
+
+func stringSliceContainsForStoreTest(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWatchdogDueHoldStoreOrdering(t *testing.T) {
@@ -1288,7 +1698,7 @@ func TestWatchdogQuotaPersistCooldownGateIgnoresZeroAttemptStateOnlyBatch(t *tes
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, store := testCase.ctx, testCase.store
 			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_persist_zero_"+testCase.name)
-			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 1})
+			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusCompleted, PlannedCount: 1})
 			if err != nil {
 				t.Fatalf("create quota scan run: %v", err)
 			}
@@ -1337,7 +1747,7 @@ func TestWatchdogQuotaPersistAtomicRollbackCoversAllState(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, store := testCase.ctx, testCase.store
 			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_persist_rollback_"+testCase.name)
-			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusRunning, PlannedCount: 2})
+			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusCompleted, PlannedCount: 2})
 			if err != nil {
 				t.Fatalf("create quota scan run: %v", err)
 			}
@@ -1479,7 +1889,7 @@ func TestMemorySidecarStoreModelParity(t *testing.T) {
 		t.Fatalf("pending queue delete mutated retained history: actions=%+v err=%v", actions, err)
 	}
 
-	scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "running", PlannedCount: 2})
+	scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "completed", PlannedCount: 2})
 	if err != nil {
 		t.Fatalf("create memory scan run: %v", err)
 	}
@@ -1501,7 +1911,7 @@ func TestMemoryProbeDecisionPersistsQuotaStateAndScanAtomically(t *testing.T) {
 	ctx := context.Background()
 	store := newMemorySidecarStore(func() time.Time { return now }, sidecarStoreSecretKey)
 	sidecar := createTestSidecarInProbeStore(t, ctx, store, "memory_probe_atomic")
-	scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "running", PlannedCount: 2})
+	scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: "initial", Status: "completed", PlannedCount: 2})
 	if err != nil {
 		t.Fatalf("create memory scan run: %v", err)
 	}
@@ -1512,14 +1922,15 @@ func TestMemoryProbeDecisionPersistsQuotaStateAndScanAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("persist memory probe decision: %v", err)
 	}
-	if len(result.Observations) != 1 || len(result.QuotaStates) != 1 || result.ScanRun == nil || result.Policy == nil || result.Policy.ProbeLastBatchCompletedAt == nil {
-		t.Fatalf("memory probe decision missing merged state: %+v", result)
+	if len(result.Observations) != 1 || len(result.QuotaStates) != 1 || result.ScanRun != nil || result.Policy == nil || result.Policy.ProbeLastBatchCompletedAt == nil {
+		t.Fatalf("memory probe decision missing merged state or mutated projection-only scan run: %+v", result)
 	}
 	if result.QuotaStates[0].QuotaBand != "quota_exceeded" || result.QuotaStates[0].LastObservationID == nil || *result.QuotaStates[0].LastObservationID != result.Observations[0].ID {
 		t.Fatalf("memory quota state not derived from observation: %+v", result.QuotaStates[0])
 	}
-	if result.ScanRun.AttemptedCount != 1 || result.ScanRun.UsingCount != 0 || result.ScanRun.QuotaExceededCount != 1 || result.ScanRun.ErrorCount != 0 || stringValue(result.ScanRun.CursorAuthID) != cursor {
-		t.Fatalf("memory scan run not updated atomically: %+v", result.ScanRun)
+	reloadedProjection, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
+	if err != nil || !ok || reloadedProjection.AttemptedCount != 0 || reloadedProjection.CursorAuthID != nil {
+		t.Fatalf("projection-only scan run was mutated: run=%+v ok=%v err=%v", reloadedProjection, ok, err)
 	}
 
 	badObservation := testProbeObservationInput(sidecar.ID, "auth-memory-bad", now.Add(time.Minute))
@@ -1537,8 +1948,8 @@ func TestMemoryProbeDecisionPersistsQuotaStateAndScanAtomically(t *testing.T) {
 		t.Fatalf("failed memory decision mutated quota states: states=%+v err=%v", states, err)
 	}
 	reloadedRun, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
-	if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.QuotaExceededCount != 1 {
-		t.Fatalf("failed memory decision mutated scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+	if err != nil || !ok || reloadedRun.AttemptedCount != 0 || reloadedRun.QuotaExceededCount != 0 {
+		t.Fatalf("failed memory decision mutated projection scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
 	}
 }
 
@@ -1547,7 +1958,7 @@ func TestQuotaScanRunLifecycleAndReplaceParity(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, store := testCase.ctx, testCase.store
 			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_scan_lifecycle_"+testCase.name)
-			activeRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusRunning, PlannedCount: 2})
+			activeRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusCompleted, PlannedCount: 2})
 			if err != nil {
 				t.Fatalf("create active quota scan run: %v", err)
 			}
@@ -1562,12 +1973,12 @@ func TestQuotaScanRunLifecycleAndReplaceParity(t *testing.T) {
 			if cancelled.Status != quotaScanStatusCancelled || cancelled.CancelRequestedAt == nil || cancelled.CompletedAt == nil {
 				t.Fatalf("cancelled scan run missing persisted cancellation metadata: %+v", cancelled)
 			}
-			replacement, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusQueued, PlannedCount: 1})
+			replacement, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusFailed, PlannedCount: 1})
 			if err != nil {
-				t.Fatalf("create replacement quota scan run: %v", err)
+				t.Fatalf("create replacement quota scan projection: %v", err)
 			}
-			if replacement.ID == activeRun.ID || replacement.Status != quotaScanStatusQueued {
-				t.Fatalf("replacement scan run did not persist correctly: active=%+v replacement=%+v", cancelled, replacement)
+			if replacement.ID == activeRun.ID || replacement.Status != quotaScanStatusFailed {
+				t.Fatalf("replacement scan projection did not persist correctly: active=%+v replacement=%+v", cancelled, replacement)
 			}
 			runs, err := store.ListQuotaScanRuns(ctx, sidecar.ID)
 			if err != nil || len(runs) != 2 {
@@ -1583,7 +1994,7 @@ func TestQuotaScanRunDecisionPersistsProgressAndRollsBack(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, store := testCase.ctx, testCase.store
 			sidecar := createTestSidecarInProbeStore(t, ctx, store, "quota_scan_progress_"+testCase.name)
-			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusRunning, PlannedCount: 2})
+			scanRun, err := store.CreateQuotaScanRun(ctx, SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeInitial, Status: quotaScanStatusCompleted, PlannedCount: 2})
 			if err != nil {
 				t.Fatalf("create quota scan run: %v", err)
 			}
@@ -1593,12 +2004,12 @@ func TestQuotaScanRunDecisionPersistsProgressAndRollsBack(t *testing.T) {
 			if err != nil {
 				t.Fatalf("persist quota scan decision: %v", err)
 			}
-			if len(result.Observations) != 1 || len(result.QuotaStates) != 1 || result.ScanRun == nil || result.ScanRun.AttemptedCount != 1 || result.ScanRun.QuotaExceededCount != 1 || stringValue(result.ScanRun.CursorAuthID) != cursor {
-				t.Fatalf("quota scan decision did not persist progress: %+v", result.ScanRun)
+			if len(result.Observations) != 1 || len(result.QuotaStates) != 1 || result.ScanRun != nil {
+				t.Fatalf("quota scan decision mutated projection-only scan progress: %+v", result.ScanRun)
 			}
 			reloadedRun, ok, err := store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
-			if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.UsingCount != 0 || reloadedRun.QuotaExceededCount != 1 || reloadedRun.ErrorCount != 0 || stringValue(reloadedRun.CursorAuthID) != cursor {
-				t.Fatalf("reloaded quota scan run missing persisted counters: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+			if err != nil || !ok || reloadedRun.AttemptedCount != 0 || reloadedRun.UsingCount != 0 || reloadedRun.QuotaExceededCount != 0 || reloadedRun.ErrorCount != 0 || reloadedRun.CursorAuthID != nil {
+				t.Fatalf("projection-only quota scan run was mutated: run=%+v ok=%v err=%v", reloadedRun, ok, err)
 			}
 			badObservation := testProbeObservationInput(sidecar.ID, "auth-memory-bad", now.Add(time.Minute))
 			badObservation.WindowsJSON = json.RawMessage(`[{"raw_body":"secret-payload"}]`)
@@ -1611,8 +2022,8 @@ func TestQuotaScanRunDecisionPersistsProgressAndRollsBack(t *testing.T) {
 				t.Fatalf("failed quota scan decision mutated observations: observations=%+v err=%v", observations, err)
 			}
 			reloadedRun, ok, err = store.GetQuotaScanRun(ctx, sidecar.ID, scanRun.ID)
-			if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.QuotaExceededCount != 1 {
-				t.Fatalf("failed quota scan decision mutated scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
+			if err != nil || !ok || reloadedRun.AttemptedCount != 0 || reloadedRun.QuotaExceededCount != 0 {
+				t.Fatalf("failed quota scan decision mutated projection scan run: run=%+v ok=%v err=%v", reloadedRun, ok, err)
 			}
 		})
 	}

@@ -610,6 +610,9 @@ func validateQuotaScanRunInput(input SidecarQuotaScanRunInput) error {
 	if !validQuotaScanStatus(input.Status) {
 		return invalidInputError("scan status is not supported")
 	}
+	if quotaScanStatusActive(input.Status) {
+		return invalidInputError("sidecar_quota_scan_runs is projection-only; executable work must use watchdog sweep items")
+	}
 	if input.PlannedCount < 0 || input.AttemptedCount < 0 || input.UsingCount < 0 || input.QuotaExceededCount < 0 || input.ErrorCount < 0 || input.SkippedCount < 0 {
 		return invalidInputError("scan counters must be non-negative")
 	}
@@ -930,6 +933,14 @@ func (s *Store) ApplyPendingWatchdogPolicyRevision(ctx context.Context, sidecarI
 	return s.revisionStateFromPolicy(ctx, updated)
 }
 func (s *Store) ApplyWatchdogPolicyRevision(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64) (SidecarWatchdogPolicyRevisionState, error) {
+	return s.applyWatchdogPolicyRevision(ctx, sidecarID, targetRevisionID, expectedRevisionID, SidecarWatchdogPolicyApplyFuture, time.Time{})
+}
+
+func (s *Store) ApplyAndRestartWatchdogPolicyRevision(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64, now time.Time) (SidecarWatchdogPolicyRevisionState, error) {
+	return s.applyWatchdogPolicyRevision(ctx, sidecarID, targetRevisionID, expectedRevisionID, SidecarWatchdogPolicyApplyAndRestart, now)
+}
+
+func (s *Store) applyWatchdogPolicyRevision(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64, mode SidecarWatchdogPolicyApplyMode, now time.Time) (SidecarWatchdogPolicyRevisionState, error) {
 	if err := s.requirePool(); err != nil {
 		return SidecarWatchdogPolicyRevisionState{}, err
 	}
@@ -953,6 +964,9 @@ func (s *Store) ApplyWatchdogPolicyRevision(ctx context.Context, sidecarID int, 
 	if locked.ActiveRevisionID == nil || *locked.ActiveRevisionID != expectedRevisionID {
 		return SidecarWatchdogPolicyRevisionState{}, conflictError("stale watchdog policy revision")
 	}
+	if locked.PendingRevisionID == nil || *locked.PendingRevisionID != targetRevisionID {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("target watchdog policy revision is not pending")
+	}
 	revision, ok, err := getWatchdogPolicyRevision(ctx, tx, targetRevisionID)
 	if err != nil {
 		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
@@ -964,6 +978,41 @@ func (s *Store) ApplyWatchdogPolicyRevision(ctx context.Context, sidecarID int, 
 	updated, err := scanSidecarWatchdogPolicy(row)
 	if err != nil {
 		return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+	}
+	if mode == SidecarWatchdogPolicyApplyAndRestart {
+		if now.IsZero() {
+			now = s.currentTime()
+		}
+		if _, err := tx.Exec(ctx, `WITH superseded AS (
+	UPDATE sidecar_watchdog_sweeps
+	SET status=$4,
+		lease_expires_at=NULL,
+		pause_reason=NULL,
+		failure_reason=$5,
+		restart_requested_at=$6,
+		restart_target_policy_revision_id=$7,
+		restart_reason=$5,
+		cancel_requested_at=$6,
+		cancel_reason=$5,
+		completed_at=$6,
+		updated_at=now()
+	WHERE sidecar_id=$1 AND status IN ($2,$3)
+	RETURNING sweep_id
+)
+UPDATE sidecar_watchdog_sweep_items item
+SET status=$8,
+	lease_owner=NULL,
+	lease_expires_at=NULL,
+	completed_at=$6,
+	last_error_code=$5,
+	updated_at=now()
+FROM superseded
+WHERE item.sweep_id = superseded.sweep_id
+  AND item.status IN ($9,$10)`, sidecarID,
+			string(SidecarWatchdogSweepStatusRunning), string(SidecarWatchdogSweepStatusPaused), string(SidecarWatchdogSweepStatusCancelled), watchdogPolicyRestartSupersedeReason, now.UTC(), targetRevisionID,
+			string(SidecarWatchdogSweepItemStatusSuperseded), string(SidecarWatchdogSweepItemStatusQueued), string(SidecarWatchdogSweepItemStatusLeased)); err != nil {
+			return SidecarWatchdogPolicyRevisionState{}, mapStoreError(err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return SidecarWatchdogPolicyRevisionState{}, err
@@ -1042,7 +1091,10 @@ func createWatchdogPolicyRevision(ctx context.Context, ex sidecarSQLExecutor, in
 	if err != nil {
 		return SidecarWatchdogPolicyRevision{}, err
 	}
-	n := normalizeWatchdogPolicyRevisionInput(input)
+	n, err := normalizeWatchdogPolicyRevisionInput(input)
+	if err != nil {
+		return SidecarWatchdogPolicyRevision{}, err
+	}
 	row := ex.QueryRow(ctx, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, enabled, watchdog_sweep_interval_seconds, probe_concurrency, probe_timeout_seconds, probe_batch_cooldown_seconds, probe_jitter_min_ms, probe_jitter_max_ms, cooldown_jitter_percent, using_priority, quota_exceeded_priority, working_priority, empty_quota_priority, initial_priority, error_priority, failure_threshold, failure_window_seconds, fallback_cooldown_seconds, manual_override_pause_seconds, quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled, rolling_refresh_after_seconds) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING `+sidecarWatchdogPolicyRevisionSelectColumns, policy.ID, n.SidecarID, n.Enabled, n.WatchdogSweepIntervalSeconds, n.ProbeConcurrency, n.ProbeTimeoutSeconds, n.ProbeBatchCooldownSeconds, n.ProbeJitterMinMS, n.ProbeJitterMaxMS, n.CooldownJitterPercent, n.UsingPriority, n.QuotaExceededPriority, n.WorkingPriority, n.EmptyQuotaPriority, n.InitialPriority, n.ErrorPriority, n.FailureThreshold, n.FailureWindowSeconds, n.FallbackCooldownSeconds, n.ManualOverridePauseSeconds, n.QuotaInventoryEnabled, n.InitialScanEnabled, n.RollingRefreshEnabled, n.RollingRefreshAfterSeconds)
 	return scanSidecarWatchdogPolicyRevision(row)
 }
@@ -1056,8 +1108,10 @@ func (s *Store) UpsertWatchdogSweep(ctx context.Context, input SidecarWatchdogSw
 	}
 	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_watchdog_sweeps (
 	sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, next_item_index, batch_index,
-	next_batch_after, last_heartbeat_at, lease_expires_at, pause_reason, failure_reason, started_at, completed_at)
-VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+	next_batch_after, last_heartbeat_at, lease_expires_at, pause_reason, failure_reason,
+	restart_requested_at, restart_target_policy_revision_id, restart_reason, cancel_requested_at,
+	cancel_reason, started_at, completed_at)
+VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 ON CONFLICT (sweep_id) DO UPDATE SET
 	status=EXCLUDED.status,
 	next_item_index=EXCLUDED.next_item_index,
@@ -1067,11 +1121,18 @@ ON CONFLICT (sweep_id) DO UPDATE SET
 	lease_expires_at=EXCLUDED.lease_expires_at,
 	pause_reason=EXCLUDED.pause_reason,
 	failure_reason=EXCLUDED.failure_reason,
+	restart_requested_at=EXCLUDED.restart_requested_at,
+	restart_target_policy_revision_id=EXCLUDED.restart_target_policy_revision_id,
+	restart_reason=EXCLUDED.restart_reason,
+	cancel_requested_at=EXCLUDED.cancel_requested_at,
+	cancel_reason=EXCLUDED.cancel_reason,
 	completed_at=EXCLUDED.completed_at,
 	updated_at=now()
 RETURNING `+sidecarWatchdogSweepSelectColumns,
 		n.SweepID, n.SidecarID, n.PolicyRevisionID, n.Status, n.SnapshotJSON, n.NextItemIndex, n.BatchIndex,
-		nullTimeArg(n.NextBatchAfter), nullTimeArg(n.LastHeartbeatAt), nullTimeArg(n.LeaseExpiresAt), nullStringArg(n.PauseReason), nullStringArg(n.FailureReason), n.StartedAt, nullTimeArg(n.CompletedAt))
+		nullTimeArg(n.NextBatchAfter), nullTimeArg(n.LastHeartbeatAt), nullTimeArg(n.LeaseExpiresAt), nullStringArg(n.PauseReason), nullStringArg(n.FailureReason),
+		nullTimeArg(n.RestartRequestedAt), nullInt64Arg(n.RestartTargetPolicyRevisionID), nullStringArg(n.RestartReason), nullTimeArg(n.CancelRequestedAt), nullStringArg(n.CancelReason),
+		n.StartedAt, nullTimeArg(n.CompletedAt))
 	rec, err := scanSidecarWatchdogSweep(row)
 	if err != nil {
 		return SidecarWatchdogSweep{}, mapStoreError(err)
@@ -1083,6 +1144,155 @@ RETURNING `+sidecarWatchdogSweepSelectColumns,
 	}
 	return rec, nil
 }
+
+func (s *Store) CreateWatchdogSweepItems(ctx context.Context, sweepID string, inputs []SidecarWatchdogSweepItemInput) ([]SidecarWatchdogSweepItem, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	sweepID = strings.TrimSpace(sweepID)
+	if sweepID == "" {
+		return nil, invalidInputError("sweep_id is required")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin watchdog sweep item creation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	records := make([]SidecarWatchdogSweepItem, 0, len(inputs))
+	now := s.currentTime()
+	for _, input := range inputs {
+		if strings.TrimSpace(input.SweepID) == "" {
+			input.SweepID = sweepID
+		}
+		if strings.TrimSpace(input.SweepID) != sweepID {
+			return nil, invalidInputError("sweep item sweep_id must match batch sweep_id")
+		}
+		record, insertErr := insertWatchdogSweepItem(ctx, tx, input, now)
+		if insertErr != nil {
+			return nil, mapStoreError(insertErr)
+		}
+		records = append(records, record)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit watchdog sweep item creation: %w", err)
+	}
+	return records, nil
+}
+
+func insertWatchdogSweepItem(ctx context.Context, executor sidecarSQLExecutor, input SidecarWatchdogSweepItemInput, now time.Time) (SidecarWatchdogSweepItem, error) {
+	n, err := normalizeWatchdogSweepItemInput(input, now)
+	if err != nil {
+		return SidecarWatchdogSweepItem{}, err
+	}
+	row := executor.QueryRow(ctx, `INSERT INTO sidecar_watchdog_sweep_items (
+	sweep_id, sidecar_id, policy_revision_id, item_index, source, source_rank, priority, due_at,
+	auth_id, auth_index, provider, hold_id, auth_snapshot_id, selection_json, status, lease_owner,
+	lease_expires_at, attempt_token, started_at, completed_at, result_observation_id, last_error_code)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21,$22)
+RETURNING `+sidecarWatchdogSweepItemSelectColumns,
+		n.SweepID, n.SidecarID, n.PolicyRevisionID, n.ItemIndex, n.Source, n.SourceRank, n.Priority, nullTimeArg(n.DueAt),
+		n.AuthID, nullStringArg(n.AuthIndex), nullStringArg(n.Provider), nullIntArg(n.HoldID), nullIntArg(n.AuthSnapshotID),
+		jsonbString(n.SelectionJSON, "{}"), n.Status, nullStringArg(n.LeaseOwner), nullTimeArg(n.LeaseExpiresAt), n.AttemptToken,
+		nullTimeArg(n.StartedAt), nullTimeArg(n.CompletedAt), nullIntArg(n.ResultObservationID), nullStringArg(n.LastErrorCode))
+	return scanSidecarWatchdogSweepItem(row)
+}
+
+func (s *Store) ListWatchdogSweepItems(ctx context.Context, sweepID string) ([]SidecarWatchdogSweepItem, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	sweepID = strings.TrimSpace(sweepID)
+	if sweepID == "" {
+		return nil, invalidInputError("sweep_id is required")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+sidecarWatchdogSweepItemSelectColumns+` FROM sidecar_watchdog_sweep_items WHERE sweep_id=$1 ORDER BY item_index ASC`, sweepID)
+	if err != nil {
+		return nil, fmt.Errorf("query watchdog sweep items: %w", err)
+	}
+	defer rows.Close()
+	records := make([]SidecarWatchdogSweepItem, 0)
+	for rows.Next() {
+		record, scanErr := scanSidecarWatchdogSweepItem(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate watchdog sweep items: %w", err)
+	}
+	return records, nil
+}
+
+func (s *Store) ClaimWatchdogSweepItems(ctx context.Context, input SidecarWatchdogSweepItemClaimInput) ([]SidecarWatchdogSweepItem, error) {
+	if err := s.requirePool(); err != nil {
+		return nil, err
+	}
+	n, err := normalizeWatchdogSweepItemClaimInput(input, s.currentTime())
+	if err != nil {
+		return nil, err
+	}
+	claimed, err := pgxutil.InTxValue(ctx, s.pool, "sidecar_watchdog_sweep_items_claim", func(tx pgx.Tx) ([]SidecarWatchdogSweepItem, error) {
+		rows, err := tx.Query(ctx, `WITH claimable AS (
+	SELECT item.id
+	FROM sidecar_watchdog_sweep_items item
+	JOIN sidecar_watchdog_sweeps sweep ON sweep.sweep_id = item.sweep_id
+	WHERE item.sweep_id = $1
+	  AND item.sidecar_id = $2
+	  AND item.item_index >= $3
+	  AND sweep.status IN ($4,$5)
+	  AND sweep.restart_requested_at IS NULL
+	  AND sweep.cancel_requested_at IS NULL
+	  AND (
+	    item.status = $6
+	    OR (item.status = $7 AND item.lease_expires_at <= $8)
+	  )
+	ORDER BY item.item_index ASC
+	LIMIT $9
+	FOR UPDATE OF item, sweep SKIP LOCKED
+)
+UPDATE sidecar_watchdog_sweep_items item SET
+	status = $7,
+	lease_owner = $10,
+	lease_expires_at = $11,
+	attempt_token = item.attempt_token + 1,
+	started_at = COALESCE(item.started_at, $8),
+	completed_at = NULL,
+	result_observation_id = NULL,
+	last_error_code = NULL,
+	updated_at = now()
+FROM claimable
+WHERE item.id = claimable.id
+RETURNING `+qualifiedSidecarWatchdogSweepItemSelectColumns("item"),
+			n.SweepID, n.SidecarID, n.StartItemIndex,
+			string(SidecarWatchdogSweepStatusRunning), string(SidecarWatchdogSweepStatusPaused),
+			string(SidecarWatchdogSweepItemStatusQueued), string(SidecarWatchdogSweepItemStatusLeased),
+			n.ClaimedAt, n.Limit, n.LeaseOwner, n.LeaseExpiresAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("claim watchdog sweep items: %w", err)
+		}
+		defer rows.Close()
+		records := make([]SidecarWatchdogSweepItem, 0)
+		for rows.Next() {
+			record, scanErr := scanSidecarWatchdogSweepItem(rows)
+			if scanErr != nil {
+				return nil, scanErr
+			}
+			records = append(records, record)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate claimed watchdog sweep items: %w", err)
+		}
+		sort.Slice(records, func(i, j int) bool { return records[i].ItemIndex < records[j].ItemIndex })
+		return records, nil
+	})
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return claimed, nil
+}
+
 func (s *Store) GetWatchdogSweep(ctx context.Context, sweepID string) (SidecarWatchdogSweep, bool, error) {
 	if err := s.requirePool(); err != nil {
 		return SidecarWatchdogSweep{}, false, err
@@ -1157,6 +1367,21 @@ func (s *Store) PauseWatchdogSweep(ctx context.Context, input SidecarWatchdogSwe
 }
 func (s *Store) FailWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
 	return s.updateWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusFailed)
+}
+func (s *Store) CancelWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	result, err := s.updateWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusCancelled)
+	if err != nil || result.Outcome != SidecarWatchdogSweepMutationOutcomeUpdated {
+		return result, err
+	}
+	reason := stringValue(input.FailureReason)
+	if reason == "" {
+		reason = stringValue(input.PauseReason)
+	}
+	if reason == "" {
+		reason = string(SidecarWatchdogSweepStatusCancelled)
+	}
+	_, err = s.pool.Exec(ctx, `UPDATE sidecar_watchdog_sweep_items SET status=$2, lease_owner=NULL, lease_expires_at=NULL, completed_at=$3, result_observation_id=NULL, last_error_code=$4, updated_at=now() WHERE sweep_id=$1 AND status IN ($5,$6)`, input.SweepID, string(SidecarWatchdogSweepItemStatusCancelled), nullTimeArg(result.Sweep.CompletedAt), reason, string(SidecarWatchdogSweepItemStatusQueued), string(SidecarWatchdogSweepItemStatusLeased))
+	return result, mapStoreError(err)
 }
 func (s *Store) HeartbeatWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepHeartbeatInput) (SidecarWatchdogSweepMutationResult, error) {
 	n, err := normalizeWatchdogSweepHeartbeatInput(input, s.currentTime())
@@ -1361,9 +1586,25 @@ func (s *Store) PersistQuotaProbeDecision(ctx context.Context, decision SidecarQ
 		return SidecarQuotaPersistResult{}, fmt.Errorf("begin sidecar quota persist decision: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	now := s.currentTime()
 	result := SidecarQuotaPersistResult{
 		Observations: make([]SidecarWatchdogProbeObservation, 0, len(decision.Observations)),
 		QuotaStates:  make([]SidecarAuthQuotaState, 0, len(decision.Observations)+len(decision.QuotaStates)),
+	}
+	var itemCommit *watchdogSweepItemCommitState
+	if decision.SweepItemCommit != nil {
+		commitState, commitResult, commitErr := prepareWatchdogSweepItemCommit(ctx, tx, *decision.SweepItemCommit, decision.SidecarID, now)
+		if commitErr != nil {
+			return SidecarQuotaPersistResult{}, mapStoreError(commitErr)
+		}
+		result.SweepItemCommit = commitResult
+		if commitState == nil {
+			if err := tx.Commit(ctx); err != nil {
+				return SidecarQuotaPersistResult{}, fmt.Errorf("commit stale watchdog sweep item decision: %w", err)
+			}
+			return result, nil
+		}
+		itemCommit = commitState
 	}
 	for _, input := range decision.Observations {
 		if input.SidecarID == 0 {
@@ -1394,13 +1635,6 @@ func (s *Store) PersistQuotaProbeDecision(ctx context.Context, decision SidecarQ
 		}
 		result.QuotaStates = append(result.QuotaStates, state)
 	}
-	if decision.ScanRunID != nil && len(result.Observations) > 0 {
-		scanRun, scanErr := updateQuotaScanRunObservationBatch(ctx, tx, decision.SidecarID, *decision.ScanRunID, result.Observations, decision.CursorAuthID)
-		if scanErr != nil {
-			return SidecarQuotaPersistResult{}, mapStoreError(scanErr)
-		}
-		result.ScanRun = &scanRun
-	}
 	if decision.CreateHold != nil {
 		input := *decision.CreateHold
 		if input.SidecarID == 0 {
@@ -1429,6 +1663,17 @@ func (s *Store) PersistQuotaProbeDecision(ctx context.Context, decision SidecarQ
 		}
 		result.UpdatedHold = &hold
 	}
+	if itemCommit != nil {
+		if itemCommit.input.ResultObservationID == nil && len(result.Observations) > 0 {
+			observationID := result.Observations[0].ID
+			itemCommit.input.ResultObservationID = &observationID
+		}
+		commitResult, commitErr := commitWatchdogSweepItem(ctx, tx, *itemCommit)
+		if commitErr != nil {
+			return SidecarQuotaPersistResult{}, mapStoreError(commitErr)
+		}
+		result.SweepItemCommit = commitResult
+	}
 	if len(result.Observations) > 0 {
 		policy, policyErr := updateWatchdogProbeBatchCompletion(ctx, tx, decision.SidecarID)
 		if policyErr != nil {
@@ -1440,6 +1685,117 @@ func (s *Store) PersistQuotaProbeDecision(ctx context.Context, decision SidecarQ
 		return SidecarQuotaPersistResult{}, fmt.Errorf("commit sidecar quota persist decision: %w", err)
 	}
 	return result, nil
+}
+
+type watchdogSweepItemCommitState struct {
+	input SidecarWatchdogSweepItemCommitInput
+	item  SidecarWatchdogSweepItem
+}
+
+func prepareWatchdogSweepItemCommit(ctx context.Context, tx pgx.Tx, input SidecarWatchdogSweepItemCommitInput, decisionSidecarID int, now time.Time) (*watchdogSweepItemCommitState, *SidecarWatchdogSweepItemCommitResult, error) {
+	n, err := normalizeWatchdogSweepItemCommitInput(input, decisionSidecarID, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	row := tx.QueryRow(ctx, `SELECT `+qualifiedSidecarWatchdogSweepItemSelectColumns("item")+`
+FROM sidecar_watchdog_sweep_items item
+JOIN sidecar_watchdog_sweeps sweep ON sweep.sweep_id = item.sweep_id
+WHERE item.id=$1 AND item.sweep_id=$2 AND item.sidecar_id=$3 AND item.item_index=$4
+FOR UPDATE OF item`, n.ItemID, n.SweepID, n.SidecarID, n.ItemIndex)
+	item, err := scanSidecarWatchdogSweepItem(row)
+	if err == pgx.ErrNoRows {
+		return nil, &SidecarWatchdogSweepItemCommitResult{Outcome: SidecarWatchdogSweepItemCommitOutcomeStale}, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if watchdogSweepItemStatusIsTerminal(item.Status) {
+		outcome := SidecarWatchdogSweepItemCommitOutcomeStale
+		if item.AttemptToken == n.AttemptToken && item.Status == n.Status {
+			outcome = SidecarWatchdogSweepItemCommitOutcomeDuplicate
+		}
+		copy := item
+		return nil, &SidecarWatchdogSweepItemCommitResult{Outcome: outcome, Item: &copy}, nil
+	}
+	if item.Status != string(SidecarWatchdogSweepItemStatusLeased) || item.AttemptToken != n.AttemptToken || stringValue(item.LeaseOwner) != n.LeaseOwner || item.LeaseExpiresAt == nil || !item.LeaseExpiresAt.After(now.UTC()) {
+		copy := item
+		return nil, &SidecarWatchdogSweepItemCommitResult{Outcome: SidecarWatchdogSweepItemCommitOutcomeStale, Item: &copy}, nil
+	}
+	var parentStatus string
+	var restartRequestedAt sql.NullTime
+	var cancelRequestedAt sql.NullTime
+	if err := tx.QueryRow(ctx, `SELECT status, restart_requested_at, cancel_requested_at FROM sidecar_watchdog_sweeps WHERE sweep_id=$1 AND sidecar_id=$2 FOR UPDATE`, n.SweepID, n.SidecarID).Scan(&parentStatus, &restartRequestedAt, &cancelRequestedAt); err == pgx.ErrNoRows {
+		copy := item
+		return nil, &SidecarWatchdogSweepItemCommitResult{Outcome: SidecarWatchdogSweepItemCommitOutcomeStale, Item: &copy}, nil
+	} else if err != nil {
+		return nil, nil, err
+	}
+	if restartRequestedAt.Valid || cancelRequestedAt.Valid || (parentStatus != string(SidecarWatchdogSweepStatusRunning) && parentStatus != string(SidecarWatchdogSweepStatusPaused)) {
+		copy := item
+		return nil, &SidecarWatchdogSweepItemCommitResult{Outcome: SidecarWatchdogSweepItemCommitOutcomeStale, Item: &copy}, nil
+	}
+	return &watchdogSweepItemCommitState{input: n, item: item}, nil, nil
+}
+
+func commitWatchdogSweepItem(ctx context.Context, tx pgx.Tx, state watchdogSweepItemCommitState) (*SidecarWatchdogSweepItemCommitResult, error) {
+	row := tx.QueryRow(ctx, `UPDATE sidecar_watchdog_sweep_items SET
+	status=$1,
+	lease_owner=NULL,
+	lease_expires_at=NULL,
+	completed_at=$2,
+	result_observation_id=$3,
+	last_error_code=$4,
+	updated_at=now()
+WHERE id=$5 AND sweep_id=$6 AND sidecar_id=$7 AND item_index=$8 AND status=$9 AND attempt_token=$10
+RETURNING `+sidecarWatchdogSweepItemSelectColumns,
+		state.input.Status, state.input.CompletedAt, nullIntArg(state.input.ResultObservationID), nullStringArg(state.input.LastErrorCode),
+		state.input.ItemID, state.input.SweepID, state.input.SidecarID, state.input.ItemIndex, string(SidecarWatchdogSweepItemStatusLeased), state.input.AttemptToken,
+	)
+	item, err := scanSidecarWatchdogSweepItem(row)
+	if err == pgx.ErrNoRows {
+		return &SidecarWatchdogSweepItemCommitResult{Outcome: SidecarWatchdogSweepItemCommitOutcomeStale}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sweep, err := advanceWatchdogSweepCursorFromTerminalItems(ctx, tx, item.SweepID)
+	if err != nil {
+		return nil, err
+	}
+	return &SidecarWatchdogSweepItemCommitResult{Outcome: SidecarWatchdogSweepItemCommitOutcomeCommitted, Item: &item, Sweep: sweep}, nil
+}
+
+func advanceWatchdogSweepCursorFromTerminalItems(ctx context.Context, tx pgx.Tx, sweepID string) (*SidecarWatchdogSweep, error) {
+	rows, err := tx.Query(ctx, `SELECT item_index, status FROM sidecar_watchdog_sweep_items WHERE sweep_id=$1 ORDER BY item_index ASC FOR UPDATE`, sweepID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	nextIndex := 0
+	for rows.Next() {
+		var itemIndex int
+		var status string
+		if err := rows.Scan(&itemIndex, &status); err != nil {
+			return nil, err
+		}
+		if itemIndex != nextIndex || !watchdogSweepItemStatusIsTerminal(status) {
+			break
+		}
+		nextIndex++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	row := tx.QueryRow(ctx, `UPDATE sidecar_watchdog_sweeps SET next_item_index = GREATEST(next_item_index, $2), updated_at=now() WHERE sweep_id=$1 AND status IN ($3,$4) RETURNING `+sidecarWatchdogSweepSelectColumns, sweepID, nextIndex, string(SidecarWatchdogSweepStatusRunning), string(SidecarWatchdogSweepStatusPaused))
+	sweep, err := scanSidecarWatchdogSweep(row)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &sweep, nil
 }
 
 func quotaPersistStateInput(sidecarID int, input SidecarAuthQuotaStateInput) (SidecarAuthQuotaStateInput, error) {
@@ -1910,7 +2266,25 @@ quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled, rolling_
 
 const sidecarWatchdogSweepSelectColumns = `sweep_id, sidecar_id, policy_revision_id, status, snapshot_json,
 next_item_index, batch_index, next_batch_after, last_heartbeat_at, lease_expires_at, pause_reason,
-failure_reason, started_at, completed_at, created_at, updated_at`
+failure_reason, restart_requested_at, restart_target_policy_revision_id, restart_reason,
+cancel_requested_at, cancel_reason, started_at, completed_at, created_at, updated_at`
+
+const sidecarWatchdogSweepItemSelectColumns = `id, sweep_id, sidecar_id, policy_revision_id, item_index,
+source, source_rank, priority, due_at, auth_id, auth_index, provider, hold_id, auth_snapshot_id,
+selection_json, status, lease_owner, lease_expires_at, attempt_token, started_at, completed_at,
+result_observation_id, last_error_code, created_at, updated_at`
+
+func qualifiedSidecarWatchdogSweepItemSelectColumns(alias string) string {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return sidecarWatchdogSweepItemSelectColumns
+	}
+	columns := strings.Split(sidecarWatchdogSweepItemSelectColumns, ",")
+	for index, column := range columns {
+		columns[index] = alias + "." + strings.TrimSpace(column)
+	}
+	return strings.Join(columns, ", ")
+}
 
 const sidecarWatchdogProbeObservationSelectColumns = `id, sidecar_id, auth_id, auth_index, provider, probed_at,
 probe_status, upstream_status_code, quota_band, quota_exceeded, reason_code, quota_reset_at,
@@ -2051,8 +2425,11 @@ func normalizePolicyInput(input SidecarWatchdogPolicyInput) (SidecarWatchdogPoli
 	return input, nil
 }
 
-func normalizeWatchdogPolicyRevisionInput(input SidecarWatchdogPolicyRevisionInput) SidecarWatchdogPolicyRevisionInput {
-	policyInput, _ := normalizePolicyInput(SidecarWatchdogPolicyInput{SidecarID: input.SidecarID, Enabled: input.Enabled, FailureThreshold: input.FailureThreshold, FailureWindowSeconds: input.FailureWindowSeconds, FallbackCooldownSeconds: input.FallbackCooldownSeconds, QuotaExceededPriority: input.QuotaExceededPriority, UsingPriority: input.UsingPriority, WorkingPriority: input.WorkingPriority, EmptyQuotaPriority: input.EmptyQuotaPriority, InitialPriority: input.InitialPriority, ErrorPriority: input.ErrorPriority, ManualOverridePauseSeconds: input.ManualOverridePauseSeconds, ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: &input.ProbeBatchCooldownSeconds, ProbeJitterMinMS: &input.ProbeJitterMinMS, ProbeJitterMaxMS: &input.ProbeJitterMaxMS, CooldownJitterPercent: &input.CooldownJitterPercent, QuotaInventoryEnabled: &input.QuotaInventoryEnabled, InitialScanEnabled: &input.InitialScanEnabled, RollingRefreshEnabled: &input.RollingRefreshEnabled, RollingRefreshAfterSeconds: &input.RollingRefreshAfterSeconds})
+func normalizeWatchdogPolicyRevisionInput(input SidecarWatchdogPolicyRevisionInput) (SidecarWatchdogPolicyRevisionInput, error) {
+	policyInput, err := normalizePolicyInput(SidecarWatchdogPolicyInput{SidecarID: input.SidecarID, Enabled: input.Enabled, FailureThreshold: input.FailureThreshold, FailureWindowSeconds: input.FailureWindowSeconds, FallbackCooldownSeconds: input.FallbackCooldownSeconds, QuotaExceededPriority: input.QuotaExceededPriority, UsingPriority: input.UsingPriority, WorkingPriority: input.WorkingPriority, EmptyQuotaPriority: input.EmptyQuotaPriority, InitialPriority: input.InitialPriority, ErrorPriority: input.ErrorPriority, ManualOverridePauseSeconds: input.ManualOverridePauseSeconds, ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: &input.ProbeBatchCooldownSeconds, ProbeJitterMinMS: &input.ProbeJitterMinMS, ProbeJitterMaxMS: &input.ProbeJitterMaxMS, CooldownJitterPercent: &input.CooldownJitterPercent, QuotaInventoryEnabled: &input.QuotaInventoryEnabled, InitialScanEnabled: &input.InitialScanEnabled, RollingRefreshEnabled: &input.RollingRefreshEnabled, RollingRefreshAfterSeconds: &input.RollingRefreshAfterSeconds})
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionInput{}, err
+	}
 	input.Enabled = policyInput.Enabled
 	input.FailureThreshold = policyInput.FailureThreshold
 	input.FailureWindowSeconds = policyInput.FailureWindowSeconds
@@ -2077,7 +2454,10 @@ func normalizeWatchdogPolicyRevisionInput(input SidecarWatchdogPolicyRevisionInp
 	if input.WatchdogSweepIntervalSeconds <= 0 {
 		input.WatchdogSweepIntervalSeconds = DefaultWatchdogSweepIntervalSeconds
 	}
-	return input
+	if err := validateWatchdogPolicyRevisionInput(input); err != nil {
+		return SidecarWatchdogPolicyRevisionInput{}, err
+	}
+	return input, nil
 }
 func latestWatchdogPolicyRevisionID(policy SidecarWatchdogPolicy) *int64 {
 	if policy.PendingRevisionID != nil {
@@ -2130,6 +2510,114 @@ func normalizeWatchdogSweepCheckpointInput(input SidecarWatchdogSweepCheckpointI
 		input.LastHeartbeatAt = &now
 	}
 	return input, nil
+}
+
+func normalizeWatchdogSweepItemInput(input SidecarWatchdogSweepItemInput, now time.Time) (SidecarWatchdogSweepItemInput, error) {
+	input.SweepID = strings.TrimSpace(input.SweepID)
+	input.Source = strings.TrimSpace(input.Source)
+	input.AuthID = strings.TrimSpace(input.AuthID)
+	input.Status = strings.TrimSpace(input.Status)
+	if input.Status == "" {
+		input.Status = string(SidecarWatchdogSweepItemStatusQueued)
+	}
+	if input.SweepID == "" || input.SidecarID <= 0 || input.PolicyRevisionID <= 0 || input.Source == "" || input.AuthID == "" {
+		return SidecarWatchdogSweepItemInput{}, invalidInputError("sweep_id, sidecar_id, policy_revision_id, source, and auth_id are required")
+	}
+	if input.ItemIndex < 0 || input.SourceRank < 0 || input.Priority < 0 || input.AttemptToken < 0 {
+		return SidecarWatchdogSweepItemInput{}, invalidInputError("sweep item indexes, priority, and attempt_token must be non-negative")
+	}
+	if !validWatchdogSweepItemStatus(input.Status) {
+		return SidecarWatchdogSweepItemInput{}, invalidInputError("watchdog sweep item status is not supported")
+	}
+	if len(bytes.TrimSpace(input.SelectionJSON)) == 0 {
+		input.SelectionJSON = json.RawMessage("{}")
+	}
+	if err := validateJSONObjectInput(input.SelectionJSON, "sweep item selection_json"); err != nil {
+		return SidecarWatchdogSweepItemInput{}, err
+	}
+	if input.Status == string(SidecarWatchdogSweepItemStatusLeased) {
+		if input.LeaseOwner == nil || strings.TrimSpace(*input.LeaseOwner) == "" || input.LeaseExpiresAt == nil || input.AttemptToken <= 0 {
+			return SidecarWatchdogSweepItemInput{}, invalidInputError("leased sweep items require lease_owner, lease_expires_at, and a positive attempt_token")
+		}
+	}
+	if watchdogSweepItemStatusIsTerminal(input.Status) && input.CompletedAt == nil {
+		completedAt := now
+		input.CompletedAt = &completedAt
+	}
+	if !watchdogSweepItemStatusIsTerminal(input.Status) {
+		input.CompletedAt = nil
+	}
+	return input, nil
+}
+
+func normalizeWatchdogSweepItemClaimInput(input SidecarWatchdogSweepItemClaimInput, now time.Time) (SidecarWatchdogSweepItemClaimInput, error) {
+	input.SweepID = strings.TrimSpace(input.SweepID)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	if input.SweepID == "" || input.SidecarID <= 0 || input.LeaseOwner == "" {
+		return SidecarWatchdogSweepItemClaimInput{}, invalidInputError("sweep_id, sidecar_id, and lease_owner are required")
+	}
+	if input.StartItemIndex < 0 {
+		return SidecarWatchdogSweepItemClaimInput{}, invalidInputError("start_item_index must be non-negative")
+	}
+	if input.Limit <= 0 {
+		input.Limit = DefaultProbeConcurrency
+	}
+	if input.ClaimedAt.IsZero() {
+		input.ClaimedAt = now
+	}
+	input.ClaimedAt = input.ClaimedAt.UTC()
+	if input.LeaseExpiresAt.IsZero() {
+		input.LeaseExpiresAt = watchdogSweepLeaseExpiresAt(input.ClaimedAt)
+	}
+	input.LeaseExpiresAt = input.LeaseExpiresAt.UTC()
+	if !input.LeaseExpiresAt.After(input.ClaimedAt) {
+		return SidecarWatchdogSweepItemClaimInput{}, invalidInputError("lease_expires_at must be after claimed_at")
+	}
+	return input, nil
+}
+
+func normalizeWatchdogSweepItemCommitInput(input SidecarWatchdogSweepItemCommitInput, decisionSidecarID int, now time.Time) (SidecarWatchdogSweepItemCommitInput, error) {
+	input.SweepID = strings.TrimSpace(input.SweepID)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	input.Status = strings.TrimSpace(input.Status)
+	if input.SidecarID == 0 {
+		input.SidecarID = decisionSidecarID
+	}
+	if input.SweepID == "" || input.SidecarID <= 0 || input.ItemID <= 0 || input.ItemIndex < 0 || input.AttemptToken <= 0 || input.LeaseOwner == "" {
+		return SidecarWatchdogSweepItemCommitInput{}, invalidInputError("sweep_id, sidecar_id, item_id, item_index, attempt_token, and lease_owner are required")
+	}
+	if decisionSidecarID > 0 && input.SidecarID != decisionSidecarID {
+		return SidecarWatchdogSweepItemCommitInput{}, invalidInputError("sweep item commit sidecar_id must match decision sidecar_id")
+	}
+	if input.Status == "" {
+		input.Status = string(SidecarWatchdogSweepItemStatusSucceeded)
+	}
+	if !watchdogSweepItemStatusIsTerminal(input.Status) || input.Status == string(SidecarWatchdogSweepItemStatusCancelled) || input.Status == string(SidecarWatchdogSweepItemStatusSuperseded) {
+		return SidecarWatchdogSweepItemCommitInput{}, invalidInputError("sweep item commit status must be succeeded or failed")
+	}
+	if input.CompletedAt.IsZero() {
+		input.CompletedAt = now
+	}
+	input.CompletedAt = input.CompletedAt.UTC()
+	return input, nil
+}
+
+func validWatchdogSweepItemStatus(status string) bool {
+	switch SidecarWatchdogSweepItemStatus(strings.TrimSpace(status)) {
+	case SidecarWatchdogSweepItemStatusQueued, SidecarWatchdogSweepItemStatusLeased, SidecarWatchdogSweepItemStatusSucceeded, SidecarWatchdogSweepItemStatusFailed, SidecarWatchdogSweepItemStatusCancelled, SidecarWatchdogSweepItemStatusSuperseded:
+		return true
+	default:
+		return false
+	}
+}
+
+func watchdogSweepItemStatusIsTerminal(status string) bool {
+	switch SidecarWatchdogSweepItemStatus(strings.TrimSpace(status)) {
+	case SidecarWatchdogSweepItemStatusSucceeded, SidecarWatchdogSweepItemStatusFailed, SidecarWatchdogSweepItemStatusCancelled, SidecarWatchdogSweepItemStatusSuperseded:
+		return true
+	default:
+		return false
+	}
 }
 
 func watchdogProbeConcurrencyBudgetMaxSeconds() int {
@@ -2389,10 +2877,33 @@ func scanSidecarWatchdogPolicyRevision(scanner interface{ Scan(...any) error }) 
 
 func scanSidecarWatchdogSweep(scanner interface{ Scan(...any) error }) (SidecarWatchdogSweep, error) {
 	var record SidecarWatchdogSweep
-	var nextBatchAfter, lastHeartbeatAt, leaseExpiresAt, completedAt sql.NullTime
-	var pauseReason, failureReason sql.NullString
+	var nextBatchAfter, lastHeartbeatAt, leaseExpiresAt, restartRequestedAt, cancelRequestedAt, completedAt sql.NullTime
+	var restartTargetPolicyRevisionID sql.NullInt64
+	var pauseReason, failureReason, restartReason, cancelReason sql.NullString
 	var snapshotJSON []byte
-	err := scanner.Scan(&record.SweepID, &record.SidecarID, &record.PolicyRevisionID, &record.Status, &snapshotJSON, &record.NextItemIndex, &record.BatchIndex, &nextBatchAfter, &lastHeartbeatAt, &leaseExpiresAt, &pauseReason, &failureReason, &record.StartedAt, &completedAt, &record.CreatedAt, &record.UpdatedAt)
+	err := scanner.Scan(
+		&record.SweepID,
+		&record.SidecarID,
+		&record.PolicyRevisionID,
+		&record.Status,
+		&snapshotJSON,
+		&record.NextItemIndex,
+		&record.BatchIndex,
+		&nextBatchAfter,
+		&lastHeartbeatAt,
+		&leaseExpiresAt,
+		&pauseReason,
+		&failureReason,
+		&restartRequestedAt,
+		&restartTargetPolicyRevisionID,
+		&restartReason,
+		&cancelRequestedAt,
+		&cancelReason,
+		&record.StartedAt,
+		&completedAt,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	)
 	if err != nil {
 		return SidecarWatchdogSweep{}, err
 	}
@@ -2402,7 +2913,63 @@ func scanSidecarWatchdogSweep(scanner interface{ Scan(...any) error }) (SidecarW
 	record.LeaseExpiresAt = timeFromNull(leaseExpiresAt)
 	record.PauseReason = stringFromNull(pauseReason)
 	record.FailureReason = stringFromNull(failureReason)
+	record.RestartRequestedAt = timeFromNull(restartRequestedAt)
+	record.RestartTargetPolicyRevisionID = int64FromNull(restartTargetPolicyRevisionID)
+	record.RestartReason = stringFromNull(restartReason)
+	record.CancelRequestedAt = timeFromNull(cancelRequestedAt)
+	record.CancelReason = stringFromNull(cancelReason)
 	record.CompletedAt = timeFromNull(completedAt)
+	return record, nil
+}
+
+func scanSidecarWatchdogSweepItem(scanner interface{ Scan(...any) error }) (SidecarWatchdogSweepItem, error) {
+	var record SidecarWatchdogSweepItem
+	var dueAt, leaseExpiresAt, startedAt, completedAt sql.NullTime
+	var authIndex, provider, leaseOwner, lastErrorCode sql.NullString
+	var holdID, authSnapshotID, resultObservationID sql.NullInt64
+	var selectionJSON []byte
+	err := scanner.Scan(
+		&record.ID,
+		&record.SweepID,
+		&record.SidecarID,
+		&record.PolicyRevisionID,
+		&record.ItemIndex,
+		&record.Source,
+		&record.SourceRank,
+		&record.Priority,
+		&dueAt,
+		&record.AuthID,
+		&authIndex,
+		&provider,
+		&holdID,
+		&authSnapshotID,
+		&selectionJSON,
+		&record.Status,
+		&leaseOwner,
+		&leaseExpiresAt,
+		&record.AttemptToken,
+		&startedAt,
+		&completedAt,
+		&resultObservationID,
+		&lastErrorCode,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	)
+	if err != nil {
+		return SidecarWatchdogSweepItem{}, err
+	}
+	record.DueAt = timeFromNull(dueAt)
+	record.AuthIndex = stringFromNull(authIndex)
+	record.Provider = stringFromNull(provider)
+	record.HoldID = intFromNull(holdID)
+	record.AuthSnapshotID = intFromNull(authSnapshotID)
+	record.SelectionJSON = cloneJSON(selectionJSON)
+	record.LeaseOwner = stringFromNull(leaseOwner)
+	record.LeaseExpiresAt = timeFromNull(leaseExpiresAt)
+	record.StartedAt = timeFromNull(startedAt)
+	record.CompletedAt = timeFromNull(completedAt)
+	record.ResultObservationID = intFromNull(resultObservationID)
+	record.LastErrorCode = stringFromNull(lastErrorCode)
 	return record, nil
 }
 
@@ -2715,6 +3282,18 @@ func validateJSONBInput(raw json.RawMessage, field string) error {
 	return nil
 }
 
+func validateJSONObjectInput(raw json.RawMessage, field string) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
+		return invalidInputError(field + " must be a JSON object")
+	}
+	return nil
+}
+
 func walkSidecarSnapshotJSON(value any, visit func(string, any)) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -2772,8 +3351,6 @@ func mapStoreError(err error) error {
 				return &StoreError{Code: StoreErrorDuplicateSidecarCanonicalURL, Message: "sidecar canonical base URL already exists", Err: err}
 			case "uq_sidecar_watchdog_holds_active_auth":
 				return &StoreError{Code: StoreErrorDuplicateActiveHold, Message: "active sidecar watchdog hold already exists", Err: err}
-			case "uq_sidecar_quota_scan_runs_active_sidecar":
-				return &StoreError{Code: StoreErrorInvalidInput, Message: "active quota scan run already exists for sidecar", Err: err}
 			case "uq_sidecar_watchdog_sweeps_active_sidecar":
 				return &StoreError{Code: StoreErrorInvalidInput, Message: "active watchdog sweep already exists for sidecar", Err: err}
 			}
@@ -2819,6 +3396,13 @@ func nullBoolArg(value *bool) any {
 }
 
 func nullIntArg(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullInt64Arg(value *int64) any {
 	if value == nil {
 		return nil
 	}
