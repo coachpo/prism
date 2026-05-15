@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"sort"
 	"strings"
@@ -22,6 +23,18 @@ const (
 	watchdogActionStatusSucceeded = "succeeded"
 	watchdogActionStatusFailed    = "failed"
 	watchdogActionStatusSkipped   = "skipped"
+
+	watchdogPriorityStateWorking    = "working"
+	watchdogPriorityStateEmptyQuota = "empty-quota"
+	watchdogPriorityStateInitial    = "initial"
+	watchdogPriorityStateError      = "error"
+
+	watchdogActionMutationOutcomePatched         = "patched"
+	watchdogActionMutationOutcomeAlreadyAtTarget = "already_at_target"
+	watchdogActionMutationOutcomeSkipped         = "skipped"
+	watchdogActionMutationOutcomeFailed          = "failed"
+	watchdogActionMutationOutcomePending         = "pending"
+	watchdogActionMutationOutcomeSucceeded       = "succeeded"
 
 	watchdogActionDeprioritize                = "deprioritize"
 	watchdogActionRestore                     = "restore"
@@ -221,10 +234,11 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		result.SkipReason = "sidecar_disabled"
 		return result, nil
 	}
-	policy, err := s.store.GetOrCreateWatchdogPolicy(ctx, sidecarID)
+	policyState, err := s.getWatchdogPolicyRevisionState(ctx, sidecarID)
 	if err != nil {
 		return result, err
 	}
+	policy := policyState.Policy
 	if !policy.Enabled {
 		result.Skipped = true
 		result.SkipReason = "watchdog_disabled"
@@ -236,15 +250,16 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 	}
 	syncPaused := sidecarSyncPaused(instance, now)
 
+	processedHoldAuths := map[string]struct{}{}
 	pendingOutcomes, pendingErr := s.repairPendingWatchdogPatchActions(ctx, instance, policy, now)
 	for _, outcome := range pendingOutcomes {
 		result.applyHoldOutcome(outcome)
+		if outcome.ProcessedAuthID != "" {
+			processedHoldAuths[outcome.ProcessedAuthID] = struct{}{}
+		}
 	}
 	if pendingErr != nil {
 		return result, pendingErr
-	}
-	if len(pendingOutcomes) > 0 {
-		return result, nil
 	}
 
 	dueHolds, err := s.store.ListDueWatchdogHolds(ctx, sidecarID, now)
@@ -273,27 +288,13 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		return result, err
 	}
 
-	probeRun := newWatchdogProbeRun(policy, time.Now().UTC())
-	probeBatchAllowed := watchdogProbeBatchCooldownElapsed(policy, now) && !syncPaused
-	dueOutcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
-	if probeBatchAllowed || staleSnapshots {
-		var dueErr error
-		dueOutcome, dueErr = s.reconcileDueWatchdogProbeBatch(ctx, instance, policy, dueHolds, snapshotByAuth, &probeRun, now)
-		if dueErr != nil {
-			return result, dueErr
-		}
-		result.applyProbeOutcome(dueOutcome)
-	}
-
 	activeHoldAuths := watchdogActiveHoldAuthSet(activeHolds)
-	processedHoldAuths := map[string]struct{}{}
 	if !syncPaused {
 		for _, hold := range activeHolds {
-			if _, processed := dueOutcome.ProcessedHoldIDs[hold.ID]; processed {
-				processedHoldAuths[hold.AuthID] = struct{}{}
+			if _, processed := processedHoldAuths[hold.AuthID]; processed {
 				continue
 			}
-			if watchdogDueHoldProbeCandidateEligible(hold, now) && !staleSnapshots {
+			if watchdogDueHoldProbeCandidateEligible(hold, now) {
 				processedHoldAuths[hold.AuthID] = struct{}{}
 				continue
 			}
@@ -308,34 +309,15 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		}
 	}
 
-	if probeBatchAllowed && !staleSnapshots {
-		quotaStates, err := s.listQuotaStatesByAuth(ctx, sidecarID)
-		if err != nil {
-			return result, err
-		}
-		scanRun, hasScanRun, err := s.ensureActiveQuotaScanRun(ctx, sidecarID, policy, freshSnapshots, activeHoldAuths, quotaStates)
-		if err != nil {
-			return result, err
-		}
-		if hasScanRun {
-			scanOutcome, scanErr := s.reconcileQuotaScanRunBatch(ctx, instance, policy, freshSnapshots, activeHoldAuths, quotaStates, scanRun, &probeRun, now)
-			if scanErr != nil {
-				return result, scanErr
-			}
-			result.applyProbeOutcome(scanOutcome)
-			for authID := range scanOutcome.ProcessedAuthIDs {
-				processedHoldAuths[authID] = struct{}{}
-			}
-		}
-
-		discoveryOutcome, discoveryErr := s.reconcileDiscoveryWatchdogProbeBatch(ctx, instance, policy, freshSnapshots, activeHoldAuths, quotaStates, &probeRun, now)
-		if discoveryErr != nil {
-			return result, discoveryErr
-		}
-		result.applyProbeOutcome(discoveryOutcome)
-		for authID := range discoveryOutcome.ProcessedAuthIDs {
-			processedHoldAuths[authID] = struct{}{}
-		}
+	sweepAttempted := 0
+	sweepOutcome, sweepErr := s.reconcileWatchdogProbeSweep(ctx, instance, policy, dueHolds, snapshotByAuth, freshSnapshots, activeHolds, activeHoldAuths, syncPaused, staleSnapshots, now)
+	if sweepErr != nil {
+		return result, sweepErr
+	}
+	result.applyProbeOutcome(sweepOutcome)
+	sweepAttempted = sweepOutcome.Attempted
+	for authID := range sweepOutcome.ProcessedAuthIDs {
+		processedHoldAuths[authID] = struct{}{}
 	}
 
 	for _, snapshot := range snapshots {
@@ -360,7 +342,7 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 		}
 		result.applyHoldOutcome(outcome)
 	}
-	if staleSnapshots && dueOutcome.Attempted > 0 {
+	if staleSnapshots && sweepAttempted > 0 {
 		return result, nil
 	}
 	if !result.Reconciled && result.ActionCount == 0 {
@@ -398,6 +380,7 @@ func (s *Service) ReconcileSidecarWatchdog(ctx context.Context, sidecarID int) (
 
 type watchdogHoldOutcome struct {
 	Processed          bool
+	ProcessedAuthID    string
 	Released           bool
 	Reconciled         bool
 	ActionRecorded     bool
@@ -496,6 +479,9 @@ func (s *Service) repairPendingWatchdogPatchActions(ctx context.Context, instanc
 		}
 		action = mergePendingWatchdogActionPayload(action, pendingAction)
 		outcome, repairErr := s.repairPendingWatchdogPatchAction(ctx, instance, policy, action, now)
+		if authID := strings.TrimSpace(stringValue(action.AuthID)); authID != "" {
+			outcome.ProcessedAuthID = authID
+		}
 		outcomes = append(outcomes, outcome)
 		if repairErr != nil {
 			if err := s.markPendingWatchdogActionAttemptError(ctx, pendingAction, repairErr, now); err != nil {
@@ -591,6 +577,7 @@ func (s *Service) repairPendingWatchdogDeprioritizeAction(ctx context.Context, i
 
 	livePriority := watchdogAuthPriority(live)
 	if livePriority <= *action.TargetPriority {
+		action.Reason = watchdogAlreadyAtTargetReason()
 		return s.completePendingWatchdogDeprioritizeAction(ctx, action, now)
 	}
 	if action.PreviousPriority != nil && livePriority != *action.PreviousPriority {
@@ -736,6 +723,7 @@ func (s *Service) repairPendingWatchdogRestoreAction(ctx context.Context, instan
 
 	currentPriority := watchdogAuthPriority(live)
 	if currentPriority == *restorePriority {
+		action.Reason = watchdogAlreadyAtTargetReason()
 		return s.completePendingWatchdogRestoreAction(ctx, hold, action, nil, now)
 	}
 	if currentPriority != hold.TargetPriority {
@@ -833,25 +821,45 @@ func (s *Service) finalizePendingWatchdogAction(ctx context.Context, action Side
 }
 
 type watchdogProbeRun struct {
-	remaining int
-	policy    SidecarWatchdogPolicy
-	startedAt time.Time
+	remaining       int
+	policy          SidecarWatchdogPolicy
+	startedAt       time.Time
+	budgetExhausted bool
 }
 
 func newWatchdogProbeRun(policy SidecarWatchdogPolicy, startedAt time.Time) watchdogProbeRun {
 	return watchdogProbeRun{remaining: normalizedProbeConcurrency(policy), policy: policy, startedAt: startedAt}
 }
 
-func (run *watchdogProbeRun) nextTimeout(now time.Time) (time.Duration, bool) {
+func (run *watchdogProbeRun) nextLaunchTimeout(now time.Time) (time.Duration, bool) {
 	if run == nil || run.remaining <= 0 {
 		return 0, false
 	}
-	return watchdogEffectiveProbeTimeout(run.policy, run.startedAt, now)
+	startedAt := run.startedAt
+	if startedAt.IsZero() {
+		startedAt = now
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	policyTimeout := time.Duration(normalizedProbeTimeoutSeconds(run.policy)) * time.Second
+	workerDeadline := startedAt.UTC().Add(sidecarWatchdogWorkerTimeout)
+	required := policyTimeout + sidecarWatchdogWorkerSafetyMargin()
+	if now.UTC().Add(required).After(workerDeadline) {
+		return 0, false
+	}
+	return policyTimeout, true
 }
 
 func (run *watchdogProbeRun) consume() {
 	if run != nil && run.remaining > 0 {
 		run.remaining--
+	}
+}
+
+func (run *watchdogProbeRun) markBudgetExhausted() {
+	if run != nil {
+		run.budgetExhausted = true
 	}
 }
 
@@ -875,8 +883,9 @@ func (s *Service) executeWatchdogProbeWave(ctx context.Context, instance Sidecar
 	launched := 0
 	var wg sync.WaitGroup
 	for i := 0; i < waveSize; i++ {
-		timeout, ok := run.nextTimeout(time.Now().UTC())
+		timeout, ok := run.nextLaunchTimeout(time.Now().UTC())
 		if !ok {
+			run.markBudgetExhausted()
 			break
 		}
 		candidate := candidates[i]
@@ -893,6 +902,9 @@ func (s *Service) executeWatchdogProbeWave(ctx context.Context, instance Sidecar
 			}
 			results[resultIndex] = watchdogProbeWaveResult{Candidate: candidate, Classification: classification, Observation: observation}
 		}()
+		if i+1 < waveSize {
+			watchdogWaitProbeLaunchJitter(ctx, policy)
+		}
 	}
 	wg.Wait()
 
@@ -904,6 +916,40 @@ func (s *Service) executeWatchdogProbeWave(ctx context.Context, instance Sidecar
 	return results[:launched], nil
 }
 
+func watchdogWaitProbeLaunchJitter(ctx context.Context, policy SidecarWatchdogPolicy) {
+	delay := watchdogProbeLaunchJitter(policy)
+	if delay <= 0 {
+		return
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+func watchdogProbeLaunchJitter(policy SidecarWatchdogPolicy) time.Duration {
+	minMS := policy.ProbeJitterMinMS
+	maxMS := policy.ProbeJitterMaxMS
+	if minMS < 0 {
+		minMS = 0
+	}
+	if maxMS < 0 {
+		maxMS = 0
+	}
+	if maxMS < minMS {
+		maxMS = minMS
+	}
+	if maxMS == 0 {
+		return 0
+	}
+	if maxMS == minMS {
+		return time.Duration(minMS) * time.Millisecond
+	}
+	return time.Duration(minMS+rand.Intn(maxMS-minMS+1)) * time.Millisecond
+}
+
 func (s *Service) loadQuotaScanPlanningContext(ctx context.Context, sidecarID int) (SidecarInstance, SidecarWatchdogPolicy, []SidecarAuthSnapshot, map[string]struct{}, error) {
 	instance, found, err := s.store.GetSidecarInstance(ctx, sidecarID)
 	if err != nil {
@@ -912,10 +958,11 @@ func (s *Service) loadQuotaScanPlanningContext(ctx context.Context, sidecarID in
 	if !found {
 		return SidecarInstance{}, SidecarWatchdogPolicy{}, nil, nil, notFoundError("sidecar instance not found")
 	}
-	policy, err := s.store.GetOrCreateWatchdogPolicy(ctx, sidecarID)
+	policyState, err := s.getWatchdogPolicyRevisionState(ctx, sidecarID)
 	if err != nil {
 		return SidecarInstance{}, SidecarWatchdogPolicy{}, nil, nil, err
 	}
+	policy := policyState.Policy
 	snapshots, err := s.store.ListAuthSnapshots(ctx, sidecarID)
 	if err != nil {
 		return SidecarInstance{}, SidecarWatchdogPolicy{}, nil, nil, err
@@ -962,7 +1009,7 @@ func (s *Service) ensureActiveQuotaScanRun(ctx context.Context, sidecarID int, p
 	if activeRun, active := activeQuotaScanRun(runs); active {
 		return activeRun, true, nil
 	}
-	if !policy.InitialScanEnabled || len(quotaStates) == 0 {
+	if !policy.InitialScanEnabled {
 		return SidecarQuotaScanRun{}, false, nil
 	}
 	plannedCount := len(watchdogQuotaScanProbeCandidates(policy, SidecarQuotaScanRun{ScanType: quotaScanTypeInitial}, snapshots, activeHoldAuths, quotaStates))
@@ -1206,7 +1253,7 @@ func (s *Service) applyDiscoveryWatchdogProbeResult(ctx context.Context, instanc
 		if err != nil {
 			return outcome, err
 		}
-		if _, err := s.recordHoldActionAndUpdate(ctx, hold, live, watchdogActionDeprioritize, watchdogActionStatusSucceeded, &reason, nil, now); err != nil {
+		if _, err := s.recordHoldActionAndUpdate(ctx, hold, live, watchdogActionDeprioritize, watchdogActionStatusSucceeded, watchdogAlreadyAtTargetReason(), nil, now); err != nil {
 			return outcome, err
 		}
 		outcome.ActionRecorded = true
@@ -1476,7 +1523,7 @@ func (s *Service) restoreWatchdogHoldAfterHealthyProbe(ctx context.Context, inst
 	}
 	currentPriority := watchdogAuthPriority(live)
 	if currentPriority == *hold.PreviousPriority {
-		action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, watchdogActionStatusSucceeded, &hold.Reason, nil, now)
+		action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, watchdogActionStatusSucceeded, watchdogAlreadyAtTargetReason(), nil, now)
 		if err != nil {
 			return outcome, err
 		}
@@ -1653,7 +1700,7 @@ func (s *Service) reconcileWatchdogHold(ctx context.Context, instance SidecarIns
 	}
 	currentPriority := watchdogAuthPriority(live)
 	if currentPriority == *hold.PreviousPriority {
-		action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, watchdogActionStatusSucceeded, &hold.Reason, nil, now)
+		action, err := s.createHoldAction(ctx, hold, live, watchdogActionRestore, watchdogActionStatusSucceeded, watchdogAlreadyAtTargetReason(), nil, now)
 		if err != nil {
 			return outcome, err
 		}
@@ -1756,7 +1803,7 @@ func (s *Service) reconcileWatchdogDeprioritize(ctx context.Context, instance Si
 		if err != nil {
 			return outcome, err
 		}
-		if _, err := s.recordHoldActionAndUpdate(ctx, hold, live, watchdogActionDeprioritize, watchdogActionStatusSucceeded, &reason, nil, now); err != nil {
+		if _, err := s.recordHoldActionAndUpdate(ctx, hold, live, watchdogActionDeprioritize, watchdogActionStatusSucceeded, watchdogAlreadyAtTargetReason(), nil, now); err != nil {
 			return outcome, err
 		}
 		outcome.ActionRecorded = true
@@ -2102,6 +2149,94 @@ func watchdogAuthPriority(snapshot SidecarAuthSnapshot) int {
 	return intPtrValue(snapshot.Priority)
 }
 
+type watchdogPriorityThresholds struct {
+	Working    int
+	EmptyQuota int
+	Initial    int
+	Error      int
+}
+
+func derivePriorityState(policy SidecarWatchdogPolicy, priority *int) string {
+	if priority == nil || *priority <= 0 {
+		return watchdogPriorityStateInitial
+	}
+	thresholds := watchdogPriorityThresholdsForPolicy(policy)
+	value := *priority
+	if value >= thresholds.Working {
+		return watchdogPriorityStateWorking
+	}
+	if value >= thresholds.EmptyQuota {
+		return watchdogPriorityStateEmptyQuota
+	}
+	if value >= thresholds.Initial {
+		return watchdogPriorityStateInitial
+	}
+	return watchdogPriorityStateError
+}
+
+func watchdogPriorityThresholdsForPolicy(policy SidecarWatchdogPolicy) watchdogPriorityThresholds {
+	working := positiveIntOrDefault(policy.WorkingPriority, DefaultWorkingPriority)
+	emptyQuota := positiveIntOrDefault(policy.EmptyQuotaPriority, DefaultEmptyQuotaPriority)
+	initial := positiveIntOrDefault(policy.InitialPriority, DefaultInitialPriority)
+	errorPriority := positiveIntOrDefault(policy.ErrorPriority, DefaultErrorPriority)
+	if emptyQuota > working {
+		emptyQuota = working
+	}
+	if initial > emptyQuota {
+		initial = emptyQuota
+	}
+	if errorPriority > initial {
+		errorPriority = initial
+	}
+	return watchdogPriorityThresholds{Working: working, EmptyQuota: emptyQuota, Initial: initial, Error: errorPriority}
+}
+
+func positiveIntOrDefault(value int, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func watchdogActionMutationOutcome(actionType string, action SidecarWatchdogAction) string {
+	switch action.Status {
+	case watchdogActionStatusFailed:
+		return watchdogActionMutationOutcomeFailed
+	case watchdogActionStatusSkipped:
+		return watchdogActionMutationOutcomeSkipped
+	case watchdogActionStatusPending:
+		return watchdogActionMutationOutcomePending
+	case watchdogActionStatusSucceeded:
+		if actionReasonIsAlreadyAtTarget(action) {
+			return watchdogActionMutationOutcomeAlreadyAtTarget
+		}
+		if watchdogActionTypeMutatesPriority(actionType) {
+			return watchdogActionMutationOutcomePatched
+		}
+		return watchdogActionMutationOutcomeSucceeded
+	default:
+		return strings.TrimSpace(action.Status)
+	}
+}
+
+func watchdogActionTypeMutatesPriority(actionType string) bool {
+	switch strings.TrimSpace(actionType) {
+	case watchdogActionDeprioritize, watchdogActionRestore, watchdogActionOperatorPatch:
+		return true
+	default:
+		return false
+	}
+}
+
+func actionReasonIsAlreadyAtTarget(action SidecarWatchdogAction) bool {
+	return strings.TrimSpace(stringValue(action.Reason)) == watchdogActionMutationOutcomeAlreadyAtTarget
+}
+
+func watchdogAlreadyAtTargetReason() *string {
+	reason := watchdogActionMutationOutcomeAlreadyAtTarget
+	return &reason
+}
+
 type watchdogProbeCandidate struct {
 	AuthID    string
 	AuthIndex string
@@ -2147,6 +2282,32 @@ func watchdogActiveHoldAuthSet(holds []SidecarWatchdogHold) map[string]struct{} 
 		}
 	}
 	return active
+}
+
+func sortWatchdogDueHoldProbeCandidates(candidates []watchdogProbeCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		iPriority := watchdogProbeCandidatePriority(candidates[i])
+		jPriority := watchdogProbeCandidatePriority(candidates[j])
+		if iPriority != jPriority {
+			return iPriority > jPriority
+		}
+		iDueAt := watchdogDueHoldCandidateDueAt(candidates[i])
+		jDueAt := watchdogDueHoldCandidateDueAt(candidates[j])
+		if (iDueAt == nil) != (jDueAt == nil) {
+			return iDueAt == nil
+		}
+		if iDueAt != nil && !iDueAt.Equal(*jDueAt) {
+			return iDueAt.Before(*jDueAt)
+		}
+		return candidates[i].AuthID < candidates[j].AuthID
+	})
+}
+
+func watchdogDueHoldCandidateDueAt(candidate watchdogProbeCandidate) *time.Time {
+	if candidate.Hold == nil {
+		return nil
+	}
+	return candidate.Hold.HoldUntil
 }
 
 func activeQuotaScanRun(runs []SidecarQuotaScanRun) (SidecarQuotaScanRun, bool) {
@@ -2215,16 +2376,48 @@ func watchdogQuotaScanProbeCandidates(policy SidecarWatchdogPolicy, scanRun Side
 		provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(snapshot.Provider))
 		candidates = append(candidates, watchdogProbeCandidate{AuthID: strings.TrimSpace(snapshot.AuthID), AuthIndex: strings.TrimSpace(stringValue(snapshot.AuthIndex)), Provider: provider, Snapshot: &snapshot})
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].Provider == candidates[j].Provider {
-			return candidates[i].AuthID < candidates[j].AuthID
-		}
-		return candidates[i].Provider < candidates[j].Provider
-	})
+	sortWatchdogQuotaScanProbeCandidates(candidates, quotaStates)
 	return rotateWatchdogDiscoveryCandidates(candidates, scanRun.CursorAuthID)
 }
 
-func watchdogQuotaScanProbeEligible(_ SidecarWatchdogPolicy, scanRun SidecarQuotaScanRun, snapshot SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, quotaStates map[string]SidecarAuthQuotaState) bool {
+func sortWatchdogQuotaScanProbeCandidates(candidates []watchdogProbeCandidate, quotaStates map[string]SidecarAuthQuotaState) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		iPriority := watchdogProbeCandidatePriority(candidates[i])
+		jPriority := watchdogProbeCandidatePriority(candidates[j])
+		if iPriority != jPriority {
+			return iPriority > jPriority
+		}
+		iLastProbedAt := watchdogQuotaScanCandidateLastProbedAt(candidates[i], quotaStates)
+		jLastProbedAt := watchdogQuotaScanCandidateLastProbedAt(candidates[j], quotaStates)
+		if (iLastProbedAt == nil) != (jLastProbedAt == nil) {
+			return iLastProbedAt == nil
+		}
+		if iLastProbedAt != nil && !iLastProbedAt.Equal(*jLastProbedAt) {
+			return iLastProbedAt.Before(*jLastProbedAt)
+		}
+		return candidates[i].AuthID < candidates[j].AuthID
+	})
+}
+
+func watchdogProbeCandidatePriority(candidate watchdogProbeCandidate) int {
+	if candidate.Snapshot != nil {
+		return watchdogAuthPriority(*candidate.Snapshot)
+	}
+	if candidate.Hold != nil && candidate.Hold.PreviousPriority != nil {
+		return *candidate.Hold.PreviousPriority
+	}
+	return 0
+}
+
+func watchdogQuotaScanCandidateLastProbedAt(candidate watchdogProbeCandidate, quotaStates map[string]SidecarAuthQuotaState) *time.Time {
+	state, ok := quotaStates[candidate.AuthID]
+	if !ok {
+		return nil
+	}
+	return state.LastProbedAt
+}
+
+func watchdogQuotaScanProbeEligible(policy SidecarWatchdogPolicy, scanRun SidecarQuotaScanRun, snapshot SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, quotaStates map[string]SidecarAuthQuotaState) bool {
 	if _, held := activeHoldAuths[snapshot.AuthID]; held {
 		return false
 	}
@@ -2236,8 +2429,10 @@ func watchdogQuotaScanProbeEligible(_ SidecarWatchdogPolicy, scanRun SidecarQuot
 		return false
 	}
 	if scanRun.ScanType == quotaScanTypeInitial {
-		state, ok := quotaStates[snapshot.AuthID]
-		return ok && strings.TrimSpace(state.QuotaBand) == quotaBandError
+		if _, ok := quotaStates[snapshot.AuthID]; !ok {
+			return true
+		}
+		return derivePriorityState(policy, snapshot.Priority) == watchdogPriorityStateInitial
 	}
 	return true
 }
@@ -2264,17 +2459,14 @@ func watchdogRollingRefreshProbeCandidates(policy SidecarWatchdogPolicy, snapsho
 		provider := normalizedSidecarWatchdogProbeProviderKey(stringValue(snapshot.Provider))
 		items = append(items, rollingRefreshCandidate{candidate: watchdogProbeCandidate{AuthID: strings.TrimSpace(snapshot.AuthID), AuthIndex: strings.TrimSpace(stringValue(snapshot.AuthIndex)), Provider: provider, Snapshot: &snapshot}, priority: watchdogAuthPriority(snapshot), lastProbedAt: cloneTimePtr(state.LastProbedAt)})
 	}
-	targetPriority := normalizedPrioritizedPriority(policy)
 	sort.SliceStable(items, func(i, j int) bool {
-		iPrioritized := items[i].priority >= targetPriority
-		jPrioritized := items[j].priority >= targetPriority
-		if iPrioritized != jPrioritized {
-			return iPrioritized
+		if items[i].priority != items[j].priority {
+			return items[i].priority > items[j].priority
 		}
-		if items[i].lastProbedAt == nil || items[j].lastProbedAt == nil {
-			return items[i].lastProbedAt == nil && items[j].lastProbedAt != nil
+		if (items[i].lastProbedAt == nil) != (items[j].lastProbedAt == nil) {
+			return items[i].lastProbedAt == nil
 		}
-		if !items[i].lastProbedAt.Equal(*items[j].lastProbedAt) {
+		if items[i].lastProbedAt != nil && !items[i].lastProbedAt.Equal(*items[j].lastProbedAt) {
 			return items[i].lastProbedAt.Before(*items[j].lastProbedAt)
 		}
 		return items[i].candidate.AuthID < items[j].candidate.AuthID
@@ -2305,10 +2497,19 @@ func watchdogDiscoveryProbeBaseEligible(policy SidecarWatchdogPolicy, snapshot S
 	if _, held := activeHoldAuths[snapshot.AuthID]; held {
 		return false
 	}
-	if !watchdogAuthEnabled(snapshot) || watchdogAuthPriority(snapshot) < normalizedPrioritizedPriority(policy) {
+	if !watchdogAuthEnabled(snapshot) || !watchdogRollingRefreshPriorityEligible(policy, snapshot) {
 		return false
 	}
 	return strings.TrimSpace(stringValue(snapshot.AuthIndex)) != ""
+}
+
+func watchdogRollingRefreshPriorityEligible(policy SidecarWatchdogPolicy, snapshot SidecarAuthSnapshot) bool {
+	switch derivePriorityState(policy, snapshot.Priority) {
+	case watchdogPriorityStateWorking, watchdogPriorityStateEmptyQuota:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) recordUnsupportedDiscoveryWatchdogProbeSkips(ctx context.Context, sidecarID int, policy SidecarWatchdogPolicy, snapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, now time.Time) (int, int, error) {
@@ -2435,25 +2636,6 @@ func validateWatchdogProbeRuntimePolicy(policy SidecarWatchdogPolicy) error {
 	return nil
 }
 
-func watchdogEffectiveProbeTimeout(policy SidecarWatchdogPolicy, startedAt time.Time, now time.Time) (time.Duration, bool) {
-	if startedAt.IsZero() {
-		startedAt = now
-	}
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	budgetDeadline := startedAt.Add(sidecarWatchdogWorkerTimeout - sidecarWatchdogWorkerSafetyMargin())
-	remaining := budgetDeadline.Sub(now)
-	if remaining <= 0 {
-		return 0, false
-	}
-	policyTimeout := time.Duration(normalizedProbeTimeoutSeconds(policy)) * time.Second
-	if remaining < policyTimeout {
-		return remaining, true
-	}
-	return policyTimeout, true
-}
-
 func watchdogProbeRequestTimeoutSeconds(timeout time.Duration) int {
 	if timeout <= 0 {
 		return 1
@@ -2531,17 +2713,7 @@ func sidecarWatchdogWorkerSafetyMargin() time.Duration {
 }
 
 func normalizedWatchdogTargetPriority(policy SidecarWatchdogPolicy) int {
-	if policy.QuotaExceededPriority < 0 {
-		return DefaultQuotaExceededPriority
-	}
-	return policy.QuotaExceededPriority
-}
-
-func normalizedPrioritizedPriority(policy SidecarWatchdogPolicy) int {
-	if policy.UsingPriority <= 0 {
-		return DefaultUsingPriority
-	}
-	return policy.UsingPriority
+	return watchdogPriorityThresholdsForPolicy(policy).EmptyQuota
 }
 
 func normalizedProbeConcurrency(policy SidecarWatchdogPolicy) int {
@@ -2767,5 +2939,931 @@ func cloneWatchdogHold(hold SidecarWatchdogHold) SidecarWatchdogHold {
 	copy.ManualPauseUntil = cloneTimePtr(hold.ManualPauseUntil)
 	copy.LastActionID = cloneIntPtr(hold.LastActionID)
 	copy.ReleasedAt = cloneTimePtr(hold.ReleasedAt)
+	return copy
+}
+
+const (
+	watchdogSweepSourceDueHoldProbe          = "due_hold_probe"
+	watchdogSweepSourceManualScanProbe       = "manual_scan_probe"
+	watchdogSweepSourceInitialInventoryProbe = "initial_inventory_probe"
+	watchdogSweepSourceRollingRefreshProbe   = "rolling_refresh_probe"
+	watchdogSweepPauseReasonBatchBudget      = "batch_budget_exhausted"
+	watchdogSweepPauseReasonBatchCooldown    = "batch_cooldown"
+)
+
+type watchdogSweepSnapshotItem struct {
+	Source    string               `json:"source"`
+	AuthID    string               `json:"auth_id"`
+	AuthIndex string               `json:"auth_index"`
+	Provider  string               `json:"provider"`
+	HoldID    *int                 `json:"hold_id,omitempty"`
+	ScanRunID *int                 `json:"scan_run_id,omitempty"`
+	Snapshot  *SidecarAuthSnapshot `json:"snapshot,omitempty"`
+}
+
+type watchdogSweepLifecyclePersistence interface {
+	GetActiveWatchdogSweep(context.Context, int) (SidecarWatchdogSweep, bool, error)
+	GetLatestCompletedWatchdogSweep(context.Context, int) (SidecarWatchdogSweep, bool, error)
+	RecoverStaleWatchdogSweeps(context.Context, int, time.Time) (int, error)
+	UpsertWatchdogSweep(context.Context, SidecarWatchdogSweepInput) (SidecarWatchdogSweep, error)
+	ResumeWatchdogSweep(context.Context, SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error)
+	PauseWatchdogSweep(context.Context, SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error)
+	CompleteWatchdogSweep(context.Context, SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error)
+	FailWatchdogSweep(context.Context, SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error)
+	HeartbeatWatchdogSweep(context.Context, SidecarWatchdogSweepHeartbeatInput) (SidecarWatchdogSweepMutationResult, error)
+}
+
+type watchdogPolicyRevisionLifecyclePersistence interface {
+	GetWatchdogPolicyRevision(context.Context, int64) (SidecarWatchdogPolicyRevision, bool, error)
+	EnsureActiveWatchdogPolicyRevision(context.Context, SidecarWatchdogPolicy) (SidecarWatchdogPolicyRevision, error)
+}
+
+func (s *Service) reconcileWatchdogProbeSweep(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, dueHolds []SidecarWatchdogHold, snapshotByAuth map[string]SidecarAuthSnapshot, freshSnapshots []SidecarAuthSnapshot, activeHolds []SidecarWatchdogHold, activeHoldAuths map[string]struct{}, syncPaused bool, staleSnapshots bool, now time.Time) (watchdogProbeBatchOutcome, error) {
+	outcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	if syncPaused {
+		return outcome, nil
+	}
+	lifecycle, ok := s.store.(watchdogSweepLifecyclePersistence)
+	if !ok {
+		return s.reconcileLegacyWatchdogProbeWork(ctx, instance, policy, dueHolds, snapshotByAuth, freshSnapshots, activeHoldAuths, staleSnapshots, now)
+	}
+	revision, sweepPolicy, err := s.activeWatchdogPolicyRevision(ctx, policy)
+	if err != nil {
+		return outcome, err
+	}
+	if _, err := lifecycle.RecoverStaleWatchdogSweeps(ctx, instance.ID, now); err != nil {
+		return outcome, err
+	}
+	if sweep, found, err := lifecycle.GetActiveWatchdogSweep(ctx, instance.ID); err != nil {
+		return outcome, err
+	} else if found {
+		if sweep.Status == string(SidecarWatchdogSweepStatusRunning) && sweep.LeaseExpiresAt != nil && now.Before(sweep.LeaseExpiresAt.UTC()) {
+			outcome.Reconciled = false
+			return outcome, nil
+		}
+		pinnedPolicy := sweepPolicy
+		if revisions, ok := s.store.(watchdogPolicyRevisionLifecyclePersistence); ok {
+			sweepRevision, revisionFound, revisionErr := revisions.GetWatchdogPolicyRevision(ctx, sweep.PolicyRevisionID)
+			if revisionErr != nil {
+				return outcome, revisionErr
+			}
+			if revisionFound {
+				pinnedPolicy = watchdogPolicyFromRevision(policy, sweepRevision)
+			}
+		}
+		return s.runWatchdogSweepBatch(ctx, lifecycle, instance, pinnedPolicy, sweep, snapshotByAuth, activeHolds, now)
+	}
+	if latest, found, err := lifecycle.GetLatestCompletedWatchdogSweep(ctx, instance.ID); err != nil {
+		return outcome, err
+	} else if found && latest.CompletedAt != nil {
+		readyAt := latest.CompletedAt.UTC().Add(time.Duration(normalizedWatchdogSweepIntervalSeconds(revision, policy)) * time.Second)
+		if now.Before(readyAt) {
+			return outcome, nil
+		}
+	}
+	items, snapshotOutcome, err := s.buildWatchdogSweepSnapshot(ctx, instance, sweepPolicy, dueHolds, freshSnapshots, activeHoldAuths, staleSnapshots, now)
+	if err != nil {
+		return outcome, err
+	}
+	outcome.mergeProbeOutcome(snapshotOutcome)
+	return s.startWatchdogSweep(ctx, lifecycle, instance, sweepPolicy, revision, items, outcome, snapshotByAuth, activeHolds, now)
+}
+func (s *Service) reconcileLegacyWatchdogProbeWork(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, dueHolds []SidecarWatchdogHold, snapshotByAuth map[string]SidecarAuthSnapshot, freshSnapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, staleSnapshots bool, now time.Time) (watchdogProbeBatchOutcome, error) {
+	outcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	probeRun := newWatchdogProbeRun(policy, time.Now().UTC())
+	probeBatchAllowed := watchdogProbeBatchCooldownElapsed(policy, now)
+	if probeBatchAllowed || staleSnapshots {
+		dueOutcome, dueErr := s.reconcileDueWatchdogProbeBatch(ctx, instance, policy, dueHolds, snapshotByAuth, &probeRun, now)
+		if dueErr != nil {
+			return outcome, dueErr
+		}
+		outcome.mergeProbeOutcome(dueOutcome)
+	}
+	if !probeBatchAllowed || staleSnapshots {
+		return outcome, nil
+	}
+	quotaStates, err := s.listQuotaStatesByAuth(ctx, instance.ID)
+	if err != nil {
+		return outcome, err
+	}
+	scanRun, hasScanRun, err := s.ensureActiveQuotaScanRun(ctx, instance.ID, policy, freshSnapshots, activeHoldAuths, quotaStates)
+	if err != nil {
+		return outcome, err
+	}
+	if hasScanRun {
+		scanOutcome, scanErr := s.reconcileQuotaScanRunBatch(ctx, instance, policy, freshSnapshots, activeHoldAuths, quotaStates, scanRun, &probeRun, now)
+		if scanErr != nil {
+			return outcome, scanErr
+		}
+		outcome.mergeProbeOutcome(scanOutcome)
+	}
+	discoveryOutcome, discoveryErr := s.reconcileDiscoveryWatchdogProbeBatch(ctx, instance, policy, freshSnapshots, activeHoldAuths, quotaStates, &probeRun, now)
+	if discoveryErr != nil {
+		return outcome, discoveryErr
+	}
+	outcome.mergeProbeOutcome(discoveryOutcome)
+	return outcome, nil
+}
+
+func (outcome *watchdogProbeBatchOutcome) mergeProbeOutcome(other watchdogProbeBatchOutcome) {
+	if other.Reconciled {
+		outcome.Reconciled = true
+	}
+	outcome.Attempted += other.Attempted
+	outcome.ActionCount += other.ActionCount
+	outcome.QuotaHeld += other.QuotaHeld
+	outcome.Restored += other.Restored
+	outcome.ProbeFailed += other.ProbeFailed
+	outcome.UnsupportedSkipped += other.UnsupportedSkipped
+	if outcome.ProcessedHoldIDs == nil {
+		outcome.ProcessedHoldIDs = map[int]struct{}{}
+	}
+	for id := range other.ProcessedHoldIDs {
+		outcome.ProcessedHoldIDs[id] = struct{}{}
+	}
+	if outcome.ProcessedAuthIDs == nil {
+		outcome.ProcessedAuthIDs = map[string]struct{}{}
+	}
+	for authID := range other.ProcessedAuthIDs {
+		outcome.ProcessedAuthIDs[authID] = struct{}{}
+	}
+}
+
+func (s *Service) activeWatchdogPolicyRevision(ctx context.Context, policy SidecarWatchdogPolicy) (SidecarWatchdogPolicyRevision, SidecarWatchdogPolicy, error) {
+	if revisions, ok := s.store.(watchdogPolicyRevisionLifecyclePersistence); ok {
+		revision, err := revisions.EnsureActiveWatchdogPolicyRevision(ctx, policy)
+		if err != nil {
+			return SidecarWatchdogPolicyRevision{}, SidecarWatchdogPolicy{}, err
+		}
+		return revision, watchdogPolicyFromRevision(policy, revision), nil
+	}
+	revisionID := int64(policy.ID)
+	if policy.ActiveRevisionID != nil {
+		revisionID = *policy.ActiveRevisionID
+	}
+	revision := SidecarWatchdogPolicyRevision{ID: revisionID, PolicyID: policy.ID, SidecarID: policy.SidecarID, Enabled: policy.Enabled, WatchdogSweepIntervalSeconds: normalizedLegacyWatchdogSweepIntervalSeconds(policy), ProbeConcurrency: policy.ProbeConcurrency, ProbeTimeoutSeconds: policy.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: policy.ProbeBatchCooldownSeconds, ProbeJitterMinMS: policy.ProbeJitterMinMS, ProbeJitterMaxMS: policy.ProbeJitterMaxMS, CooldownJitterPercent: policy.CooldownJitterPercent, UsingPriority: policy.UsingPriority, QuotaExceededPriority: policy.QuotaExceededPriority, WorkingPriority: policy.WorkingPriority, EmptyQuotaPriority: policy.EmptyQuotaPriority, InitialPriority: policy.InitialPriority, ErrorPriority: policy.ErrorPriority, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, QuotaInventoryEnabled: policy.QuotaInventoryEnabled, InitialScanEnabled: policy.InitialScanEnabled, RollingRefreshEnabled: policy.RollingRefreshEnabled, RollingRefreshAfterSeconds: policy.RollingRefreshAfterSeconds}
+	return revision, policy, nil
+}
+
+func watchdogPolicyFromRevision(policy SidecarWatchdogPolicy, revision SidecarWatchdogPolicyRevision) SidecarWatchdogPolicy {
+	policy.Enabled = revision.Enabled
+	policy.FailureThreshold = revision.FailureThreshold
+	policy.FailureWindowSeconds = revision.FailureWindowSeconds
+	policy.FallbackCooldownSeconds = revision.FallbackCooldownSeconds
+	policy.QuotaExceededPriority = revision.QuotaExceededPriority
+	policy.UsingPriority = revision.UsingPriority
+	policy.WorkingPriority = revision.WorkingPriority
+	policy.EmptyQuotaPriority = revision.EmptyQuotaPriority
+	policy.InitialPriority = revision.InitialPriority
+	policy.ErrorPriority = revision.ErrorPriority
+	policy.ManualOverridePauseSeconds = revision.ManualOverridePauseSeconds
+	policy.ProbeConcurrency = revision.ProbeConcurrency
+	policy.ProbeTimeoutSeconds = revision.ProbeTimeoutSeconds
+	policy.ProbeBatchCooldownSeconds = revision.ProbeBatchCooldownSeconds
+	policy.ProbeJitterMinMS = revision.ProbeJitterMinMS
+	policy.ProbeJitterMaxMS = revision.ProbeJitterMaxMS
+	policy.CooldownJitterPercent = revision.CooldownJitterPercent
+	policy.QuotaInventoryEnabled = revision.QuotaInventoryEnabled
+	policy.InitialScanEnabled = revision.InitialScanEnabled
+	policy.RollingRefreshEnabled = revision.RollingRefreshEnabled
+	policy.RollingRefreshAfterSeconds = revision.RollingRefreshAfterSeconds
+	return policy
+}
+
+func watchdogPolicyRevisionInputFromPolicy(policy SidecarWatchdogPolicy) SidecarWatchdogPolicyRevisionInput {
+	return SidecarWatchdogPolicyRevisionInput{SidecarID: policy.SidecarID, Enabled: policy.Enabled, WatchdogSweepIntervalSeconds: normalizedLegacyWatchdogSweepIntervalSeconds(policy), ProbeConcurrency: policy.ProbeConcurrency, ProbeTimeoutSeconds: policy.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: policy.ProbeBatchCooldownSeconds, ProbeJitterMinMS: policy.ProbeJitterMinMS, ProbeJitterMaxMS: policy.ProbeJitterMaxMS, CooldownJitterPercent: policy.CooldownJitterPercent, UsingPriority: policy.UsingPriority, QuotaExceededPriority: policy.QuotaExceededPriority, WorkingPriority: policy.WorkingPriority, EmptyQuotaPriority: policy.EmptyQuotaPriority, InitialPriority: policy.InitialPriority, ErrorPriority: policy.ErrorPriority, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, QuotaInventoryEnabled: policy.QuotaInventoryEnabled, InitialScanEnabled: policy.InitialScanEnabled, RollingRefreshEnabled: policy.RollingRefreshEnabled, RollingRefreshAfterSeconds: policy.RollingRefreshAfterSeconds}
+}
+func normalizedLegacyWatchdogSweepIntervalSeconds(policy SidecarWatchdogPolicy) int {
+	if policy.RollingRefreshAfterSeconds > 0 {
+		return policy.RollingRefreshAfterSeconds
+	}
+	return DefaultWatchdogSweepIntervalSeconds
+}
+
+func normalizedWatchdogSweepIntervalSeconds(revision SidecarWatchdogPolicyRevision, policy SidecarWatchdogPolicy) int {
+	if revision.WatchdogSweepIntervalSeconds > 0 {
+		return revision.WatchdogSweepIntervalSeconds
+	}
+	return normalizedLegacyWatchdogSweepIntervalSeconds(policy)
+}
+
+func (s *Service) buildWatchdogSweepSnapshot(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, dueHolds []SidecarWatchdogHold, freshSnapshots []SidecarAuthSnapshot, activeHoldAuths map[string]struct{}, staleSnapshots bool, now time.Time) ([]watchdogSweepSnapshotItem, watchdogProbeBatchOutcome, error) {
+	outcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	items := make([]watchdogSweepSnapshotItem, 0)
+	claimedAuths := map[string]struct{}{}
+	dueHoldCandidates := make([]watchdogProbeCandidate, 0, len(dueHolds))
+	for _, hold := range dueHolds {
+		candidate, ok := watchdogDueHoldProbeCandidate(hold, now)
+		if !ok {
+			continue
+		}
+		dueHoldCandidates = append(dueHoldCandidates, candidate)
+	}
+	sortWatchdogDueHoldProbeCandidates(dueHoldCandidates)
+	for _, candidate := range dueHoldCandidates {
+		holdID := candidate.Hold.ID
+		items = append(items, watchdogSweepSnapshotItem{Source: watchdogSweepSourceDueHoldProbe, AuthID: candidate.AuthID, AuthIndex: candidate.AuthIndex, Provider: candidate.Provider, HoldID: &holdID})
+		claimedAuths[candidate.AuthID] = struct{}{}
+	}
+	if staleSnapshots {
+		return items, outcome, nil
+	}
+	quotaStates, err := s.listQuotaStatesByAuth(ctx, instance.ID)
+	if err != nil {
+		return nil, outcome, err
+	}
+	scanRun, hasScanRun, err := s.ensureActiveQuotaScanRun(ctx, instance.ID, policy, freshSnapshots, activeHoldAuths, quotaStates)
+	if err != nil {
+		return nil, outcome, err
+	}
+	if hasScanRun {
+		if scanRun.Status == quotaScanStatusQueued {
+			startedAt := now
+			updated := scanRun
+			updated.Status = quotaScanStatusRunning
+			updated.StartedAt = &startedAt
+			scanRun, err = s.store.UpdateQuotaScanRun(ctx, scanRun.ID, quotaScanRunToInput(updated))
+			if err != nil {
+				return nil, outcome, err
+			}
+		}
+		scanRunID := scanRun.ID
+		source := watchdogSweepSourceInitialInventoryProbe
+		if scanRun.ScanType == quotaScanTypeManual {
+			source = watchdogSweepSourceManualScanProbe
+		}
+		for _, candidate := range watchdogQuotaScanProbeCandidates(policy, scanRun, freshSnapshots, activeHoldAuths, quotaStates) {
+			if _, claimed := claimedAuths[candidate.AuthID]; claimed {
+				continue
+			}
+			items = append(items, watchdogSweepItemFromCandidate(source, candidate, nil, &scanRunID))
+			claimedAuths[candidate.AuthID] = struct{}{}
+		}
+	}
+	unsupportedSkipped, unsupportedActions, err := s.recordUnsupportedDiscoveryWatchdogProbeSkips(ctx, instance.ID, policy, freshSnapshots, activeHoldAuths, now)
+	if err != nil {
+		return nil, outcome, err
+	}
+	outcome.UnsupportedSkipped += unsupportedSkipped
+	outcome.ActionCount += unsupportedActions
+	for _, candidate := range watchdogRollingRefreshProbeCandidates(policy, freshSnapshots, activeHoldAuths, quotaStates, now) {
+		if _, claimed := claimedAuths[candidate.AuthID]; claimed {
+			continue
+		}
+		items = append(items, watchdogSweepItemFromCandidate(watchdogSweepSourceRollingRefreshProbe, candidate, nil, nil))
+		claimedAuths[candidate.AuthID] = struct{}{}
+	}
+	return items, outcome, nil
+}
+
+func watchdogSweepItemFromCandidate(source string, candidate watchdogProbeCandidate, holdID *int, scanRunID *int) watchdogSweepSnapshotItem {
+	return watchdogSweepSnapshotItem{Source: source, AuthID: candidate.AuthID, AuthIndex: candidate.AuthIndex, Provider: candidate.Provider, HoldID: cloneIntPtr(holdID), ScanRunID: cloneIntPtr(scanRunID), Snapshot: cloneAuthSnapshotPtr(candidate.Snapshot)}
+}
+
+func cloneAuthSnapshotPtr(snapshot *SidecarAuthSnapshot) *SidecarAuthSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	copy := cloneAuthSnapshot(*snapshot)
+	return &copy
+}
+func (s *Service) startWatchdogSweep(ctx context.Context, lifecycle watchdogSweepLifecyclePersistence, instance SidecarInstance, policy SidecarWatchdogPolicy, revision SidecarWatchdogPolicyRevision, items []watchdogSweepSnapshotItem, seed watchdogProbeBatchOutcome, snapshotByAuth map[string]SidecarAuthSnapshot, activeHolds []SidecarWatchdogHold, now time.Time) (watchdogProbeBatchOutcome, error) {
+	seed.ProcessedHoldIDs = ensureIntSet(seed.ProcessedHoldIDs)
+	seed.ProcessedAuthIDs = ensureStringSet(seed.ProcessedAuthIDs)
+	snapshotJSON, err := json.Marshal(items)
+	if err != nil {
+		return seed, err
+	}
+	leaseExpiresAt := watchdogSweepLeaseExpiresAt(now)
+	sweep, err := lifecycle.UpsertWatchdogSweep(ctx, SidecarWatchdogSweepInput{SweepID: newWatchdogSweepID(instance.ID, revision.ID, now), SidecarID: instance.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: snapshotJSON, LastHeartbeatAt: &now, LeaseExpiresAt: &leaseExpiresAt, StartedAt: now})
+	if err != nil {
+		if IsStoreError(err, StoreErrorInvalidInput) {
+			return seed, nil
+		}
+		return seed, err
+	}
+	batchOutcome, err := s.runWatchdogSweepBatch(ctx, lifecycle, instance, policy, sweep, snapshotByAuth, activeHolds, now)
+	seed.mergeProbeOutcome(batchOutcome)
+	return seed, err
+}
+
+func ensureIntSet(values map[int]struct{}) map[int]struct{} {
+	if values != nil {
+		return values
+	}
+	return map[int]struct{}{}
+}
+
+func ensureStringSet(values map[string]struct{}) map[string]struct{} {
+	if values != nil {
+		return values
+	}
+	return map[string]struct{}{}
+}
+
+func newWatchdogSweepID(sidecarID int, revisionID int64, now time.Time) string {
+	return fmt.Sprintf("sidecar-%d-revision-%d-sweep-%d", sidecarID, revisionID, now.UTC().UnixNano())
+}
+
+func watchdogSweepLeaseExpiresAt(now time.Time) time.Time {
+	return now.UTC().Add(sidecarWatchdogWorkerTimeout)
+}
+
+func (s *Service) runWatchdogSweepBatch(ctx context.Context, lifecycle watchdogSweepLifecyclePersistence, instance SidecarInstance, policy SidecarWatchdogPolicy, sweep SidecarWatchdogSweep, snapshotByAuth map[string]SidecarAuthSnapshot, activeHolds []SidecarWatchdogHold, now time.Time) (watchdogProbeBatchOutcome, error) {
+	outcome := watchdogProbeBatchOutcome{ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{}}
+	items, err := decodeWatchdogSweepSnapshot(sweep.SnapshotJSON)
+	if err != nil {
+		return outcome, err
+	}
+	if sweep.NextItemIndex >= len(items) {
+		_, err := lifecycle.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: sweep.NextItemIndex, BatchIndex: sweep.BatchIndex, CompletedAt: &now})
+		return outcome, err
+	}
+	if !watchdogSweepBatchCooldownReady(sweep, now) {
+		return outcome, nil
+	}
+	leaseExpiresAt := watchdogSweepLeaseExpiresAt(now)
+	checkpoint := SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: sweep.NextItemIndex, BatchIndex: sweep.BatchIndex, LastHeartbeatAt: &now, LeaseExpiresAt: &leaseExpiresAt}
+	if sweep.Status == string(SidecarWatchdogSweepStatusPaused) {
+		result, err := lifecycle.ResumeWatchdogSweep(ctx, checkpoint)
+		if err != nil || result.Outcome == SidecarWatchdogSweepMutationOutcomeNotFound {
+			return outcome, err
+		}
+	} else if _, err := lifecycle.HeartbeatWatchdogSweep(ctx, SidecarWatchdogSweepHeartbeatInput{SweepID: sweep.SweepID, HeartbeatAt: now, LeaseExpiresAt: &leaseExpiresAt}); err != nil {
+		return outcome, err
+	}
+	holdByID := watchdogHoldByID(activeHolds)
+	batchItems, candidates, candidateIndexes, nextIndex := watchdogSweepBatchCandidates(items, sweep.NextItemIndex, normalizedProbeConcurrency(policy), holdByID, now)
+	if len(candidates) == 0 {
+		return s.finishWatchdogSweepBatch(ctx, lifecycle, sweep, policy, outcome, nextIndex, sweep.BatchIndex, len(items), now)
+	}
+	run := newWatchdogProbeRun(policy, time.Now().UTC())
+	results, err := s.executeWatchdogProbeWave(ctx, instance, policy, candidates, &run, now)
+	if err != nil {
+		failureReason := watchdogErrorMessage(err)
+		_, _ = lifecycle.FailWatchdogSweep(context.Background(), SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: sweep.NextItemIndex, BatchIndex: sweep.BatchIndex, FailureReason: &failureReason, CompletedAt: &now})
+		return outcome, err
+	}
+	for index, result := range results {
+		item := batchItems[index]
+		itemOutcome, processErr := s.persistWatchdogSweepProbeResult(ctx, instance, policy, item, result, holdByID, snapshotByAuth, now)
+		if processErr != nil {
+			failureReason := watchdogErrorMessage(processErr)
+			_, _ = lifecycle.FailWatchdogSweep(context.Background(), SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: candidateIndexes[index], BatchIndex: sweep.BatchIndex, FailureReason: &failureReason, CompletedAt: &now})
+			return outcome, processErr
+		}
+		outcome.mergeProbeOutcome(itemOutcome)
+	}
+	if run.budgetExhausted && len(results) < len(candidates) {
+		checkpointIndex := watchdogSweepPartialCheckpointIndex(sweep.NextItemIndex, candidateIndexes, len(results))
+		return s.pauseWatchdogSweepForBudget(ctx, lifecycle, sweep, outcome, checkpointIndex, sweep.BatchIndex, now)
+	}
+	return s.finishWatchdogSweepBatch(ctx, lifecycle, sweep, policy, outcome, nextIndex, sweep.BatchIndex+1, len(items), now)
+}
+
+func watchdogSweepBatchCooldownReady(sweep SidecarWatchdogSweep, now time.Time) bool {
+	if sweep.NextBatchAfter == nil || sweep.NextBatchAfter.IsZero() {
+		return true
+	}
+	return !now.UTC().Before(sweep.NextBatchAfter.UTC())
+}
+func decodeWatchdogSweepSnapshot(raw json.RawMessage) ([]watchdogSweepSnapshotItem, error) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil, nil
+	}
+	var items []watchdogSweepSnapshotItem
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func watchdogHoldByID(holds []SidecarWatchdogHold) map[int]SidecarWatchdogHold {
+	byID := make(map[int]SidecarWatchdogHold, len(holds))
+	for _, hold := range holds {
+		byID[hold.ID] = hold
+	}
+	return byID
+}
+
+func watchdogSweepBatchCandidates(items []watchdogSweepSnapshotItem, start int, limit int, holdByID map[int]SidecarWatchdogHold, now time.Time) ([]watchdogSweepSnapshotItem, []watchdogProbeCandidate, []int, int) {
+	if limit <= 0 {
+		limit = DefaultProbeConcurrency
+	}
+	batchItems := make([]watchdogSweepSnapshotItem, 0, limit)
+	candidates := make([]watchdogProbeCandidate, 0, limit)
+	candidateIndexes := make([]int, 0, limit)
+	cursor := start
+	for cursor < len(items) && len(candidates) < limit {
+		itemIndex := cursor
+		item := items[itemIndex]
+		cursor++
+		candidate, ok := watchdogSweepItemCandidate(item, holdByID, now)
+		if !ok {
+			continue
+		}
+		batchItems = append(batchItems, item)
+		candidates = append(candidates, candidate)
+		candidateIndexes = append(candidateIndexes, itemIndex)
+	}
+	return batchItems, candidates, candidateIndexes, cursor
+}
+
+func watchdogSweepItemCandidate(item watchdogSweepSnapshotItem, holdByID map[int]SidecarWatchdogHold, now time.Time) (watchdogProbeCandidate, bool) {
+	if item.Source == watchdogSweepSourceDueHoldProbe && item.HoldID != nil {
+		hold, ok := holdByID[*item.HoldID]
+		if !ok || !watchdogDueHoldProbeCandidateEligible(hold, now) {
+			return watchdogProbeCandidate{}, false
+		}
+		candidate, ok := watchdogDueHoldProbeCandidate(hold, now)
+		return candidate, ok
+	}
+	if strings.TrimSpace(item.AuthID) == "" || strings.TrimSpace(item.AuthIndex) == "" {
+		return watchdogProbeCandidate{}, false
+	}
+	provider := normalizedSidecarWatchdogProbeProviderKey(item.Provider)
+	if !sidecarWatchdogProbeProviderSupported(provider) {
+		return watchdogProbeCandidate{}, false
+	}
+	snapshot := cloneAuthSnapshotPtr(item.Snapshot)
+	return watchdogProbeCandidate{AuthID: strings.TrimSpace(item.AuthID), AuthIndex: strings.TrimSpace(item.AuthIndex), Provider: provider, Snapshot: snapshot}, true
+}
+
+func (s *Service) finishWatchdogSweepBatch(ctx context.Context, lifecycle watchdogSweepLifecyclePersistence, sweep SidecarWatchdogSweep, policy SidecarWatchdogPolicy, outcome watchdogProbeBatchOutcome, nextIndex int, batchIndex int, totalItems int, now time.Time) (watchdogProbeBatchOutcome, error) {
+	if nextIndex >= totalItems {
+		_, err := lifecycle.CompleteWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: nextIndex, BatchIndex: batchIndex, CompletedAt: &now})
+		return outcome, err
+	}
+	pauseReason := watchdogSweepPauseReasonBatchCooldown
+	nextBatchAfter := now.UTC().Add(time.Duration(normalizedProbeBatchCooldownSeconds(policy)) * time.Second)
+	_, err := lifecycle.PauseWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: nextIndex, BatchIndex: batchIndex, NextBatchAfter: &nextBatchAfter, PauseReason: &pauseReason, LastHeartbeatAt: &now})
+	return outcome, err
+}
+
+func (s *Service) pauseWatchdogSweepForBudget(ctx context.Context, lifecycle watchdogSweepLifecyclePersistence, sweep SidecarWatchdogSweep, outcome watchdogProbeBatchOutcome, nextIndex int, batchIndex int, now time.Time) (watchdogProbeBatchOutcome, error) {
+	pauseReason := watchdogSweepPauseReasonBatchBudget
+	_, err := lifecycle.PauseWatchdogSweep(ctx, SidecarWatchdogSweepCheckpointInput{SweepID: sweep.SweepID, NextItemIndex: nextIndex, BatchIndex: batchIndex, PauseReason: &pauseReason, LastHeartbeatAt: &now})
+	return outcome, err
+}
+
+func watchdogSweepPartialCheckpointIndex(start int, candidateIndexes []int, launched int) int {
+	if len(candidateIndexes) == 0 {
+		return start
+	}
+	if launched <= 0 {
+		return candidateIndexes[0]
+	}
+	if launched > len(candidateIndexes) {
+		launched = len(candidateIndexes)
+	}
+	return candidateIndexes[launched-1] + 1
+}
+
+func (s *Service) persistWatchdogSweepProbeResult(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, item watchdogSweepSnapshotItem, result watchdogProbeWaveResult, holdByID map[int]SidecarWatchdogHold, snapshotByAuth map[string]SidecarAuthSnapshot, now time.Time) (watchdogProbeBatchOutcome, error) {
+	outcome := watchdogProbeBatchOutcome{Attempted: 1, ProcessedHoldIDs: map[int]struct{}{}, ProcessedAuthIDs: map[string]struct{}{result.Candidate.AuthID: {}}}
+	classification := result.Classification
+	if watchdogProbeClassificationFailed(classification) {
+		outcome.ProbeFailed++
+	}
+	if classification.Status == watchdogProbeStatusSkippedUnsupportedProvider {
+		outcome.UnsupportedSkipped++
+	}
+	if item.Source == watchdogSweepSourceDueHoldProbe {
+		return s.persistDueHoldSweepProbeResult(ctx, instance, policy, item, result, holdByID, snapshotByAuth, outcome, now)
+	}
+	return s.persistDiscoverySweepProbeResult(ctx, instance, policy, item, result, outcome, now)
+}
+func (s *Service) persistDueHoldSweepProbeResult(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, item watchdogSweepSnapshotItem, result watchdogProbeWaveResult, holdByID map[int]SidecarWatchdogHold, snapshotByAuth map[string]SidecarAuthSnapshot, outcome watchdogProbeBatchOutcome, now time.Time) (watchdogProbeBatchOutcome, error) {
+	if item.HoldID == nil {
+		return outcome, nil
+	}
+	hold, ok := holdByID[*item.HoldID]
+	if !ok {
+		return outcome, nil
+	}
+	outcome.ProcessedHoldIDs[hold.ID] = struct{}{}
+	decision := SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{result.Observation}}
+	if update := watchdogHoldUpdateForProbeResult(hold, policy, result.Classification, now); update != nil {
+		decision.UpdateHold = &SidecarWatchdogProbeHoldUpdate{ID: hold.ID, Input: *update}
+	}
+	decisionResult, err := s.store.PersistWatchdogProbeDecision(ctx, decision)
+	if err != nil {
+		return outcome, err
+	}
+	actionHold := hold
+	if decisionResult.UpdatedHold != nil {
+		actionHold = *decisionResult.UpdatedHold
+	}
+	snapshot := snapshotByAuth[hold.AuthID]
+	if item.Snapshot != nil {
+		snapshot = *item.Snapshot
+	}
+	actionOutcome, err := s.applyDueWatchdogProbeResult(ctx, instance, policy, actionHold, snapshot, result.Classification, now)
+	if err != nil {
+		return outcome, err
+	}
+	outcome.applyHoldOutcome(actionOutcome)
+	return outcome, nil
+}
+
+func (s *Service) persistDiscoverySweepProbeResult(ctx context.Context, instance SidecarInstance, policy SidecarWatchdogPolicy, item watchdogSweepSnapshotItem, result watchdogProbeWaveResult, outcome watchdogProbeBatchOutcome, now time.Time) (watchdogProbeBatchOutcome, error) {
+	cursorAuthID := result.Candidate.AuthID
+	decision := SidecarWatchdogProbeDecision{SidecarID: instance.ID, Observations: []SidecarWatchdogProbeObservationInput{result.Observation}, AdvanceCursor: true, CursorAuthID: &cursorAuthID, ScanRunID: cloneIntPtr(item.ScanRunID)}
+	decisionResult, err := s.store.PersistWatchdogProbeDecision(ctx, decision)
+	if err != nil {
+		return outcome, err
+	}
+	if decisionResult.ScanRun != nil && decisionResult.ScanRun.PlannedCount > 0 && decisionResult.ScanRun.AttemptedCount >= decisionResult.ScanRun.PlannedCount {
+		if _, err := completeQuotaScanRun(ctx, s.store, *decisionResult.ScanRun, now); err != nil {
+			return outcome, err
+		}
+	}
+	actionOutcome, err := s.applyDiscoveryWatchdogProbeResult(ctx, instance, policy, result.Candidate, result.Classification, now)
+	if err != nil {
+		return outcome, err
+	}
+	outcome.applyHoldOutcome(actionOutcome)
+	return outcome, nil
+}
+
+func (s *memorySidecarStore) EnsureActiveWatchdogPolicyRevision(_ context.Context, policy SidecarWatchdogPolicy) (SidecarWatchdogPolicyRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if policy.SidecarID <= 0 {
+		return SidecarWatchdogPolicyRevision{}, invalidInputError("sidecar_id is required")
+	}
+	locked, ok := s.policies[policy.SidecarID]
+	if !ok {
+		var err error
+		locked, err = s.getOrCreateWatchdogPolicyLocked(policy.SidecarID)
+		if err != nil {
+			return SidecarWatchdogPolicyRevision{}, err
+		}
+	}
+	if locked.ActiveRevisionID != nil {
+		if revision, ok := s.policyRevisions[*locked.ActiveRevisionID]; ok {
+			return revision, nil
+		}
+	}
+	revision := memoryWatchdogPolicyRevisionFromPolicy(locked, s.nextPolicyRevisionID)
+	s.nextPolicyRevisionID++
+	locked.ActiveRevisionID = &revision.ID
+	locked.UpdatedAt = s.now().UTC()
+	s.policies[locked.SidecarID] = locked
+	s.policyRevisions[revision.ID] = revision
+	return revision, nil
+}
+
+func (s *memorySidecarStore) GetWatchdogPolicyRevision(_ context.Context, id int64) (SidecarWatchdogPolicyRevision, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	revision, ok := s.policyRevisions[id]
+	return revision, ok, nil
+}
+
+func (s *memorySidecarStore) GetWatchdogPolicyRevisionState(_ context.Context, sidecarID int) (SidecarWatchdogPolicyRevisionState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	policy, err := s.getOrCreateWatchdogPolicyLocked(sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	return s.watchdogPolicyRevisionStateLocked(policy), nil
+}
+
+func (s *memorySidecarStore) CreatePendingWatchdogPolicyRevision(ctx context.Context, input SidecarWatchdogPolicyRevisionInput) (SidecarWatchdogPolicyRevisionState, error) {
+	return s.SavePendingWatchdogPolicyRevision(ctx, input, nil)
+}
+
+func (s *memorySidecarStore) SavePendingWatchdogPolicyRevision(_ context.Context, input SidecarWatchdogPolicyRevisionInput, expectedRevisionID *int64) (SidecarWatchdogPolicyRevisionState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	policy, err := s.getOrCreateWatchdogPolicyLocked(input.SidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	if expectedRevisionID != nil && !watchdogPolicyExpectedRevisionMatches(policy, *expectedRevisionID) {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("stale watchdog policy revision")
+	}
+	now := s.now().UTC()
+	revision := memoryWatchdogPolicyRevisionFromInput(policy.ID, s.nextPolicyRevisionID, input, now)
+	s.nextPolicyRevisionID++
+	s.policyRevisions[revision.ID] = revision
+	policy.PendingRevisionID = &revision.ID
+	policy.UpdatedAt = now
+	s.policies[policy.SidecarID] = policy
+	return s.watchdogPolicyRevisionStateLocked(policy), nil
+}
+
+func (s *memorySidecarStore) ApplyWatchdogPolicyRevision(_ context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64) (SidecarWatchdogPolicyRevisionState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sidecarID <= 0 || targetRevisionID <= 0 || expectedRevisionID <= 0 {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("sidecar_id, target_revision_id, and expected_revision_id are required")
+	}
+	policy, err := s.getOrCreateWatchdogPolicyLocked(sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	if policy.ActiveRevisionID == nil || *policy.ActiveRevisionID != expectedRevisionID {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("stale watchdog policy revision")
+	}
+	revision, ok := s.policyRevisions[targetRevisionID]
+	if !ok || revision.SidecarID != sidecarID || revision.PolicyID != policy.ID {
+		return SidecarWatchdogPolicyRevisionState{}, conflictError("target watchdog policy revision not found")
+	}
+	now := s.now().UTC()
+	policy.ActiveRevisionID = &revision.ID
+	policy.PendingRevisionID = nil
+	policy.UpdatedAt = now
+	s.policies[sidecarID] = policy
+	return s.watchdogPolicyRevisionStateLocked(policy), nil
+}
+
+func (s *memorySidecarStore) ApplyPendingWatchdogPolicyRevision(ctx context.Context, sidecarID int) (SidecarWatchdogPolicyRevisionState, error) {
+	policy, err := s.GetOrCreateWatchdogPolicy(ctx, sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	if policy.PendingRevisionID == nil {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("pending watchdog policy revision not found")
+	}
+	if policy.ActiveRevisionID != nil {
+		return s.ApplyWatchdogPolicyRevision(ctx, sidecarID, *policy.PendingRevisionID, *policy.ActiveRevisionID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	locked, err := s.getOrCreateWatchdogPolicyLocked(sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	if locked.PendingRevisionID == nil {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("pending watchdog policy revision not found")
+	}
+	now := s.now().UTC()
+	locked.ActiveRevisionID = cloneInt64Ptr(locked.PendingRevisionID)
+	locked.PendingRevisionID = nil
+	locked.UpdatedAt = now
+	s.policies[sidecarID] = locked
+	return s.watchdogPolicyRevisionStateLocked(locked), nil
+}
+
+func (s *memorySidecarStore) watchdogPolicyRevisionStateLocked(policy SidecarWatchdogPolicy) SidecarWatchdogPolicyRevisionState {
+	state := SidecarWatchdogPolicyRevisionState{Policy: cloneWatchdogPolicy(policy), HasPendingChanges: policy.PendingRevisionID != nil}
+	if policy.ActiveRevisionID != nil {
+		if revision, ok := s.policyRevisions[*policy.ActiveRevisionID]; ok {
+			copy := revision
+			state.ActiveRevision = &copy
+		}
+	}
+	if policy.PendingRevisionID != nil {
+		if revision, ok := s.policyRevisions[*policy.PendingRevisionID]; ok {
+			copy := revision
+			state.PendingRevision = &copy
+		}
+	}
+	for _, sweep := range s.sweeps[policy.SidecarID] {
+		if sweep.Status == string(SidecarWatchdogSweepStatusRunning) || sweep.Status == string(SidecarWatchdogSweepStatusPaused) {
+			copy := cloneWatchdogSweep(sweep)
+			state.ActiveSweep = &copy
+			break
+		}
+	}
+	return state
+}
+
+func memoryWatchdogPolicyRevisionFromPolicy(policy SidecarWatchdogPolicy, id int64) SidecarWatchdogPolicyRevision {
+	return SidecarWatchdogPolicyRevision{ID: id, PolicyID: policy.ID, SidecarID: policy.SidecarID, Enabled: policy.Enabled, WatchdogSweepIntervalSeconds: normalizedLegacyWatchdogSweepIntervalSeconds(policy), ProbeConcurrency: policy.ProbeConcurrency, ProbeTimeoutSeconds: policy.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: policy.ProbeBatchCooldownSeconds, ProbeJitterMinMS: policy.ProbeJitterMinMS, ProbeJitterMaxMS: policy.ProbeJitterMaxMS, CooldownJitterPercent: policy.CooldownJitterPercent, UsingPriority: policy.UsingPriority, QuotaExceededPriority: policy.QuotaExceededPriority, WorkingPriority: policy.WorkingPriority, EmptyQuotaPriority: policy.EmptyQuotaPriority, InitialPriority: policy.InitialPriority, ErrorPriority: policy.ErrorPriority, FailureThreshold: policy.FailureThreshold, FailureWindowSeconds: policy.FailureWindowSeconds, FallbackCooldownSeconds: policy.FallbackCooldownSeconds, ManualOverridePauseSeconds: policy.ManualOverridePauseSeconds, QuotaInventoryEnabled: policy.QuotaInventoryEnabled, InitialScanEnabled: policy.InitialScanEnabled, RollingRefreshEnabled: policy.RollingRefreshEnabled, RollingRefreshAfterSeconds: policy.RollingRefreshAfterSeconds, CreatedAt: policy.CreatedAt}
+}
+
+func memoryWatchdogPolicyRevisionFromInput(policyID int, id int64, input SidecarWatchdogPolicyRevisionInput, createdAt time.Time) SidecarWatchdogPolicyRevision {
+	normalized := normalizeWatchdogPolicyRevisionInput(input)
+	return SidecarWatchdogPolicyRevision{ID: id, PolicyID: policyID, SidecarID: normalized.SidecarID, Enabled: normalized.Enabled, WatchdogSweepIntervalSeconds: normalized.WatchdogSweepIntervalSeconds, ProbeConcurrency: normalized.ProbeConcurrency, ProbeTimeoutSeconds: normalized.ProbeTimeoutSeconds, ProbeBatchCooldownSeconds: normalized.ProbeBatchCooldownSeconds, ProbeJitterMinMS: normalized.ProbeJitterMinMS, ProbeJitterMaxMS: normalized.ProbeJitterMaxMS, CooldownJitterPercent: normalized.CooldownJitterPercent, UsingPriority: normalized.UsingPriority, QuotaExceededPriority: normalized.QuotaExceededPriority, WorkingPriority: normalized.WorkingPriority, EmptyQuotaPriority: normalized.EmptyQuotaPriority, InitialPriority: normalized.InitialPriority, ErrorPriority: normalized.ErrorPriority, FailureThreshold: normalized.FailureThreshold, FailureWindowSeconds: normalized.FailureWindowSeconds, FallbackCooldownSeconds: normalized.FallbackCooldownSeconds, ManualOverridePauseSeconds: normalized.ManualOverridePauseSeconds, QuotaInventoryEnabled: normalized.QuotaInventoryEnabled, InitialScanEnabled: normalized.InitialScanEnabled, RollingRefreshEnabled: normalized.RollingRefreshEnabled, RollingRefreshAfterSeconds: normalized.RollingRefreshAfterSeconds, CreatedAt: createdAt}
+}
+
+func (s *memorySidecarStore) UpsertWatchdogSweep(_ context.Context, input SidecarWatchdogSweepInput) (SidecarWatchdogSweep, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, err := normalizeWatchdogSweepInput(input, s.now().UTC())
+	if err != nil {
+		return SidecarWatchdogSweep{}, err
+	}
+	for _, existing := range s.sweeps[n.SidecarID] {
+		if existing.SweepID != n.SweepID && (existing.Status == string(SidecarWatchdogSweepStatusRunning) || existing.Status == string(SidecarWatchdogSweepStatusPaused)) && (n.Status == string(SidecarWatchdogSweepStatusRunning) || n.Status == string(SidecarWatchdogSweepStatusPaused)) {
+			return SidecarWatchdogSweep{}, invalidInputError("active watchdog sweep already exists for sidecar")
+		}
+	}
+	now := s.now().UTC()
+	record := SidecarWatchdogSweep{SweepID: n.SweepID, SidecarID: n.SidecarID, PolicyRevisionID: n.PolicyRevisionID, Status: n.Status, SnapshotJSON: cloneJSON(n.SnapshotJSON), NextItemIndex: n.NextItemIndex, BatchIndex: n.BatchIndex, NextBatchAfter: cloneTimePtr(n.NextBatchAfter), LastHeartbeatAt: cloneTimePtr(n.LastHeartbeatAt), LeaseExpiresAt: cloneTimePtr(n.LeaseExpiresAt), PauseReason: cloneStringPtr(n.PauseReason), FailureReason: cloneStringPtr(n.FailureReason), StartedAt: n.StartedAt, CompletedAt: cloneTimePtr(n.CompletedAt), CreatedAt: now, UpdatedAt: now}
+	for index, existing := range s.sweeps[n.SidecarID] {
+		if existing.SweepID == n.SweepID {
+			record.CreatedAt = existing.CreatedAt
+			s.sweeps[n.SidecarID][index] = record
+			if sidecarWatchdogSweepStatusIsTerminal(record.Status) {
+				s.pruneOlderTerminalWatchdogSweepsLocked(n.SidecarID)
+			}
+			return cloneWatchdogSweep(record), nil
+		}
+	}
+	s.sweeps[n.SidecarID] = append(s.sweeps[n.SidecarID], record)
+	if sidecarWatchdogSweepStatusIsTerminal(record.Status) {
+		s.pruneOlderTerminalWatchdogSweepsLocked(n.SidecarID)
+	}
+	return cloneWatchdogSweep(record), nil
+}
+func (s *memorySidecarStore) GetActiveWatchdogSweep(_ context.Context, sidecarID int) (SidecarWatchdogSweep, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sweep := range s.sweeps[sidecarID] {
+		if sweep.Status == string(SidecarWatchdogSweepStatusRunning) || sweep.Status == string(SidecarWatchdogSweepStatusPaused) {
+			return cloneWatchdogSweep(sweep), true, nil
+		}
+	}
+	return SidecarWatchdogSweep{}, false, nil
+}
+
+func (s *memorySidecarStore) GetLatestCompletedWatchdogSweep(_ context.Context, sidecarID int) (SidecarWatchdogSweep, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var latest SidecarWatchdogSweep
+	found := false
+	for _, sweep := range s.sweeps[sidecarID] {
+		if sweep.Status != string(SidecarWatchdogSweepStatusCompleted) || sweep.CompletedAt == nil {
+			continue
+		}
+		if !found || sweep.CompletedAt.After(*latest.CompletedAt) {
+			latest = sweep
+			found = true
+		}
+	}
+	if !found {
+		return SidecarWatchdogSweep{}, false, nil
+	}
+	return cloneWatchdogSweep(latest), true, nil
+}
+
+func (s *memorySidecarStore) RecoverStaleWatchdogSweeps(_ context.Context, sidecarID int, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if now.IsZero() {
+		now = s.now().UTC()
+	}
+	updated := 0
+	for index, sweep := range s.sweeps[sidecarID] {
+		if sweep.Status != string(SidecarWatchdogSweepStatusRunning) {
+			continue
+		}
+		if sweep.LeaseExpiresAt != nil && now.Before(sweep.LeaseExpiresAt.UTC()) {
+			continue
+		}
+		reason := "stale_heartbeat"
+		sweep.Status = string(SidecarWatchdogSweepStatusPaused)
+		sweep.LeaseExpiresAt = nil
+		if sweep.PauseReason == nil {
+			sweep.PauseReason = &reason
+		}
+		sweep.UpdatedAt = now.UTC()
+		s.sweeps[sidecarID][index] = sweep
+		updated++
+	}
+	return updated, nil
+}
+
+func (s *memorySidecarStore) ResumeWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateMemoryWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusPaused, SidecarWatchdogSweepStatusRunning)
+}
+func (s *memorySidecarStore) PauseWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateMemoryWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusPaused)
+}
+
+func (s *memorySidecarStore) CompleteWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateMemoryWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusCompleted)
+}
+
+func (s *memorySidecarStore) FailWatchdogSweep(ctx context.Context, input SidecarWatchdogSweepCheckpointInput) (SidecarWatchdogSweepMutationResult, error) {
+	return s.updateMemoryWatchdogSweepStatus(ctx, input, SidecarWatchdogSweepStatusRunning, SidecarWatchdogSweepStatusFailed)
+}
+
+func (s *memorySidecarStore) HeartbeatWatchdogSweep(_ context.Context, input SidecarWatchdogSweepHeartbeatInput) (SidecarWatchdogSweepMutationResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, err := normalizeWatchdogSweepHeartbeatInput(input, s.now().UTC())
+	if err != nil {
+		return SidecarWatchdogSweepMutationResult{}, err
+	}
+	for sidecarID, sweeps := range s.sweeps {
+		for index, sweep := range sweeps {
+			if sweep.SweepID != n.SweepID || (sweep.Status != string(SidecarWatchdogSweepStatusRunning) && sweep.Status != string(SidecarWatchdogSweepStatusPaused)) {
+				continue
+			}
+			sweep.LastHeartbeatAt = &n.HeartbeatAt
+			sweep.LeaseExpiresAt = cloneTimePtr(n.LeaseExpiresAt)
+			sweep.UpdatedAt = s.now().UTC()
+			s.sweeps[sidecarID][index] = sweep
+			return SidecarWatchdogSweepMutationResult{Outcome: SidecarWatchdogSweepMutationOutcomeUpdated, Sweep: cloneWatchdogSweep(sweep)}, nil
+		}
+	}
+	return SidecarWatchdogSweepMutationResult{Outcome: SidecarWatchdogSweepMutationOutcomeNotFound}, nil
+}
+
+func (s *memorySidecarStore) updateMemoryWatchdogSweepStatus(_ context.Context, input SidecarWatchdogSweepCheckpointInput, from SidecarWatchdogSweepStatus, to SidecarWatchdogSweepStatus) (SidecarWatchdogSweepMutationResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, err := normalizeWatchdogSweepCheckpointInput(input, s.now().UTC())
+	if err != nil {
+		return SidecarWatchdogSweepMutationResult{}, err
+	}
+	for sidecarID, sweeps := range s.sweeps {
+		for index, sweep := range sweeps {
+			if sweep.SweepID != n.SweepID || sweep.Status != string(from) {
+				continue
+			}
+			sweep.Status = string(to)
+			sweep.NextItemIndex = n.NextItemIndex
+			sweep.BatchIndex = n.BatchIndex
+			sweep.NextBatchAfter = cloneTimePtr(n.NextBatchAfter)
+			sweep.LastHeartbeatAt = cloneTimePtr(n.LastHeartbeatAt)
+			sweep.LeaseExpiresAt = cloneTimePtr(n.LeaseExpiresAt)
+			sweep.PauseReason = cloneStringPtr(n.PauseReason)
+			sweep.FailureReason = cloneStringPtr(n.FailureReason)
+			if to == SidecarWatchdogSweepStatusPaused || to == SidecarWatchdogSweepStatusCompleted || to == SidecarWatchdogSweepStatusFailed || to == SidecarWatchdogSweepStatusCancelled {
+				sweep.LeaseExpiresAt = nil
+			}
+			if (to == SidecarWatchdogSweepStatusCompleted || to == SidecarWatchdogSweepStatusFailed) && n.CompletedAt == nil {
+				completedAt := s.now().UTC()
+				sweep.CompletedAt = &completedAt
+			} else {
+				sweep.CompletedAt = cloneTimePtr(n.CompletedAt)
+			}
+			sweep.UpdatedAt = s.now().UTC()
+			s.sweeps[sidecarID][index] = sweep
+			if sidecarWatchdogSweepStatusIsTerminal(sweep.Status) {
+				s.pruneOlderTerminalWatchdogSweepsLocked(sidecarID)
+			}
+			return SidecarWatchdogSweepMutationResult{Outcome: SidecarWatchdogSweepMutationOutcomeUpdated, Sweep: cloneWatchdogSweep(sweep)}, nil
+		}
+	}
+	return SidecarWatchdogSweepMutationResult{Outcome: SidecarWatchdogSweepMutationOutcomeNotFound}, nil
+}
+
+func (s *memorySidecarStore) pruneOlderTerminalWatchdogSweepsLocked(sidecarID int) {
+	sweeps := s.sweeps[sidecarID]
+	latestIndex := -1
+	for index, sweep := range sweeps {
+		if !sidecarWatchdogSweepStatusIsTerminal(sweep.Status) {
+			continue
+		}
+		if latestIndex == -1 || watchdogSweepNewerThan(sweep, sweeps[latestIndex]) {
+			latestIndex = index
+		}
+	}
+	if latestIndex == -1 {
+		return
+	}
+	latestSweepID := sweeps[latestIndex].SweepID
+	retained := sweeps[:0]
+	for _, sweep := range sweeps {
+		if !sidecarWatchdogSweepStatusIsTerminal(sweep.Status) || sweep.SweepID == latestSweepID {
+			retained = append(retained, sweep)
+		}
+	}
+	s.sweeps[sidecarID] = retained
+}
+
+func watchdogSweepNewerThan(candidate SidecarWatchdogSweep, existing SidecarWatchdogSweep) bool {
+	candidateCompletedAt := terminalSweepCompletedAt(candidate)
+	existingCompletedAt := terminalSweepCompletedAt(existing)
+	if (candidateCompletedAt == nil) != (existingCompletedAt == nil) {
+		return candidateCompletedAt != nil
+	}
+	if candidateCompletedAt != nil && !candidateCompletedAt.Equal(*existingCompletedAt) {
+		return candidateCompletedAt.After(*existingCompletedAt)
+	}
+	if !candidate.UpdatedAt.Equal(existing.UpdatedAt) {
+		return candidate.UpdatedAt.After(existing.UpdatedAt)
+	}
+	if !candidate.CreatedAt.Equal(existing.CreatedAt) {
+		return candidate.CreatedAt.After(existing.CreatedAt)
+	}
+	return candidate.SweepID > existing.SweepID
+}
+
+func terminalSweepCompletedAt(sweep SidecarWatchdogSweep) *time.Time {
+	if sweep.CompletedAt == nil {
+		return nil
+	}
+	completedAt := sweep.CompletedAt.UTC()
+	return &completedAt
+}
+
+func cloneWatchdogSweep(sweep SidecarWatchdogSweep) SidecarWatchdogSweep {
+	copy := sweep
+	copy.SnapshotJSON = cloneJSON(sweep.SnapshotJSON)
+	copy.NextBatchAfter = cloneTimePtr(sweep.NextBatchAfter)
+	copy.LastHeartbeatAt = cloneTimePtr(sweep.LastHeartbeatAt)
+	copy.LeaseExpiresAt = cloneTimePtr(sweep.LeaseExpiresAt)
+	copy.PauseReason = cloneStringPtr(sweep.PauseReason)
+	copy.FailureReason = cloneStringPtr(sweep.FailureReason)
+	copy.CompletedAt = cloneTimePtr(sweep.CompletedAt)
 	return copy
 }
