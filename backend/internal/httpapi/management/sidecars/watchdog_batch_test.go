@@ -67,7 +67,7 @@ func (u *watchdogProbeTestUpstream) setAPICallHook(hook func(string)) {
 func (u *watchdogProbeTestUpstream) setAuthFile(authID string, authIndex string, provider string, priority int) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	u.authFiles[authID] = watchdogProbeAuthPayload(authID, authIndex, provider, priority)
+	u.authFiles[authID] = watchdogProbeAuthPayload(authID, authIndex, provider, watchdogTestCanonicalPriority(priority))
 }
 
 func (u *watchdogProbeTestUpstream) setAuthFileRaw(authID string, file map[string]any) {
@@ -219,14 +219,14 @@ func TestWatchdogProbeObservationDeprioritizesExhaustedQuota(t *testing.T) {
 	if !result.Reconciled {
 		t.Fatalf("expected exhausted probe to reconcile, got %+v", result)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{0}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultQuotaExceededPriority}) {
 		t.Fatalf("expected one deprioritize patch, got %v", got)
 	}
 	holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID)
 	if err != nil || len(holds) != 1 {
 		t.Fatalf("expected active quota hold, holds=%+v err=%v", holds, err)
 	}
-	if holds[0].PreviousPriority == nil || *holds[0].PreviousPriority != 10 || holds[0].HoldUntil == nil || !holds[0].HoldUntil.Equal(resetAt) {
+	if holds[0].PreviousPriority == nil || *holds[0].PreviousPriority != DefaultWorkingPriority || holds[0].HoldUntil == nil || !holds[0].HoldUntil.Equal(resetAt) {
 		t.Fatalf("hold did not preserve previous priority/reset time: %+v", holds[0])
 	}
 	observations, err := service.store.ListWatchdogProbeObservations(t.Context(), sidecar.ID, 10)
@@ -258,7 +258,7 @@ func TestWatchdogDeprioritizePersistsPendingDecisionBeforePriorityPatch(t *testi
 		t.Fatalf("expected exhausted probe to reconcile, got %+v", result)
 	}
 	assertPendingPatchActionObserved(t, pendingCheck)
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{0}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultQuotaExceededPriority}) {
 		t.Fatalf("expected one deprioritize patch, got %v", got)
 	}
 	assertWatchdogAction(t, listWatchdogActions(t, service, sidecar.ID), watchdogActionDeprioritize, watchdogActionStatusSucceeded)
@@ -268,13 +268,13 @@ func TestWatchdogRestorePersistsPendingDecisionBeforePriorityPatch(t *testing.T)
 	now := time.Date(2026, time.May, 11, 11, 20, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
 	defer upstream.Close()
-	upstream.setAuthFile("auth-pending-restore", "idx-pending-restore", "codex", 0)
+	upstream.setAuthFile("auth-pending-restore", "idx-pending-restore", "codex", DefaultQuotaExceededPriority)
 	upstream.setProbeResponse("idx-pending-restore", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 82)
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 	createWatchdogProbeHold(t, service, sidecar.ID, "auth-pending-restore", "idx-pending-restore", now.Add(-time.Minute))
-	pendingCheck := expectPendingPatchActionBeforeFieldPatch(upstream, service, sidecar.ID, watchdogActionRestore, 10)
+	pendingCheck := expectPendingPatchActionBeforeFieldPatch(upstream, service, sidecar.ID, watchdogActionRestore, DefaultWorkingPriority)
 
 	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 	if err != nil {
@@ -284,7 +284,7 @@ func TestWatchdogRestorePersistsPendingDecisionBeforePriorityPatch(t *testing.T)
 		t.Fatalf("expected healthy probe to restore, got %+v", result)
 	}
 	assertPendingPatchActionObserved(t, pendingCheck)
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultWorkingPriority}) {
 		t.Fatalf("expected one restore patch, got %v", got)
 	}
 	if holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID); err != nil || len(holds) != 0 {
@@ -300,8 +300,8 @@ func TestWatchdogRepairsPendingDeprioritizeAction(t *testing.T) {
 		livePriority int
 		wantPatches  []int
 	}{
-		{name: "replays unapplied pending patch", livePriority: 10, wantPatches: []int{0}},
-		{name: "finalizes already applied pending patch", livePriority: 0, wantPatches: nil},
+		{name: "replays unapplied pending patch", livePriority: 10, wantPatches: []int{DefaultQuotaExceededPriority}},
+		{name: "finalizes already applied pending patch", livePriority: DefaultQuotaExceededPriority, wantPatches: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestWatchdogRepairsPendingDeprioritizeAction(t *testing.T) {
 			sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 83)
 			enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 			reason := watchdogReasonQuotaExceeded
-			previousPriority := 10
+			previousPriority := DefaultWorkingPriority
 			targetPriority := DefaultQuotaExceededPriority
 			authName := "auth-repair-deprioritize.json"
 			pending, err := service.store.CreateWatchdogAction(t.Context(), SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-repair-deprioritize"), AuthName: &authName, AuthIndex: stringPtrFromNonEmpty("idx-repair-deprioritize"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Reason: &reason, PreviousPriority: &previousPriority, TargetPriority: &targetPriority, HoldUntil: &resetAt, Status: watchdogActionStatusPending})
@@ -358,7 +358,7 @@ func TestWatchdogRepairPendingDeprioritizeConfirmsAuthName(t *testing.T) {
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 86)
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 	reason := watchdogReasonQuotaExceeded
-	previousPriority := 10
+	previousPriority := DefaultWorkingPriority
 	targetPriority := DefaultQuotaExceededPriority
 	selectedName := "auth-repair-name.json"
 	pending, err := service.store.CreateWatchdogAction(t.Context(), SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-repair-name"), AuthName: &selectedName, AuthIndex: stringPtrFromNonEmpty("idx-repair-name"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Reason: &reason, PreviousPriority: &previousPriority, TargetPriority: &targetPriority, HoldUntil: &resetAt, Status: watchdogActionStatusPending})
@@ -393,8 +393,8 @@ func TestWatchdogRepairsPendingRestoreAction(t *testing.T) {
 		livePriority int
 		wantPatches  []int
 	}{
-		{name: "replays unapplied pending patch", livePriority: 0, wantPatches: []int{10}},
-		{name: "finalizes already applied pending patch", livePriority: 10, wantPatches: nil},
+		{name: "replays unapplied pending patch", livePriority: DefaultQuotaExceededPriority, wantPatches: []int{DefaultWorkingPriority}},
+		{name: "finalizes already applied pending patch", livePriority: DefaultWorkingPriority, wantPatches: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -405,7 +405,7 @@ func TestWatchdogRepairsPendingRestoreAction(t *testing.T) {
 			sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 84)
 			enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 			hold := createWatchdogProbeHold(t, service, sidecar.ID, "auth-repair-restore", "idx-repair-restore", now.Add(-time.Minute))
-			restorePriority := 10
+			restorePriority := DefaultWorkingPriority
 			selectedName := "auth-repair-restore.json"
 			pending, err := service.store.CreateWatchdogAction(t.Context(), SidecarWatchdogActionInput{SidecarID: sidecar.ID, HoldID: &hold.ID, AuthID: stringPtrFromNonEmpty("auth-repair-restore"), AuthName: &selectedName, AuthIndex: stringPtrFromNonEmpty("idx-repair-restore"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionRestore, Reason: &hold.Reason, PreviousPriority: &restorePriority, TargetPriority: &restorePriority, HoldUntil: hold.HoldUntil, Status: watchdogActionStatusPending})
 			if err != nil {
@@ -548,7 +548,7 @@ func TestRepairDeprioritizeWatchdogAvoidsDuplicatePatch(t *testing.T) {
 	if !errors.Is(err, errInjectedProbeDecisionFailure) {
 		t.Fatalf("expected injected final hold write failure, got %v", err)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{0}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultQuotaExceededPriority}) {
 		t.Fatalf("first run should patch once before final DB failure, got %v", got)
 	}
 	if holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID); err != nil || len(holds) != 0 {
@@ -559,7 +559,7 @@ func TestRepairDeprioritizeWatchdogAvoidsDuplicatePatch(t *testing.T) {
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
 		t.Fatalf("repair reconcile: %v", err)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{0}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultQuotaExceededPriority}) {
 		t.Fatalf("repair must not issue a duplicate patch, got %v", got)
 	}
 	if holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID); err != nil || len(holds) != 1 {
@@ -571,7 +571,7 @@ func TestRepairRestoreWatchdogAvoidsDuplicatePatch(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 12, 30, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
 	defer upstream.Close()
-	upstream.setAuthFile("auth-restore-repair", "idx-restore-repair", "codex", 0)
+	upstream.setAuthFile("auth-restore-repair", "idx-restore-repair", "codex", DefaultQuotaExceededPriority)
 	upstream.setProbeResponse("idx-restore-repair", watchdogProbeTestResponse{StatusCode: http.StatusOK, Body: watchdogHealthyUsageBody()})
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 86)
@@ -583,7 +583,7 @@ func TestRepairRestoreWatchdogAvoidsDuplicatePatch(t *testing.T) {
 	if !errors.Is(err, errInjectedProbeDecisionFailure) {
 		t.Fatalf("expected injected final restore write failure, got %v", err)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultWorkingPriority}) {
 		t.Fatalf("first restore should patch once before final DB failure, got %v", got)
 	}
 	if holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID); err != nil || len(holds) != 1 {
@@ -594,7 +594,7 @@ func TestRepairRestoreWatchdogAvoidsDuplicatePatch(t *testing.T) {
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
 		t.Fatalf("restore repair reconcile: %v", err)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultWorkingPriority}) {
 		t.Fatalf("restore repair must not issue a duplicate patch, got %v", got)
 	}
 	if holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID); err != nil || len(holds) != 0 {
@@ -623,7 +623,7 @@ func TestWatchdogPatchRepairDoesNotLeaveActiveHoldWhenDeprioritizePatchFails(t *
 	if err == nil {
 		t.Fatalf("expected patch failure")
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{0}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultQuotaExceededPriority}) {
 		t.Fatalf("expected exactly one attempted patch, got %v", got)
 	}
 	if holds, err := service.store.ListActiveWatchdogHolds(t.Context(), sidecar.ID); err != nil || len(holds) != 0 {
@@ -669,15 +669,15 @@ func TestPrivacyRawProbeWatchdogDoesNotPersistBodiesHeadersTokens(t *testing.T) 
 
 func TestLeakUnsupportedProviderWatchdogSkipDoesNotFloodActionHistory(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 13, 30, 0, 0, time.UTC)
-	upstream := newWatchdogUpstream(t, watchdogUpstreamAuth{Priority: 0, Provider: "gemini"})
+	upstream := newWatchdogUpstream(t, watchdogUpstreamAuth{Priority: DefaultQuotaExceededPriority, Provider: "gemini"})
 	defer upstream.Close()
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 88)
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
 	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
-	previousPriority := 10
+	previousPriority := DefaultWorkingPriority
 	holdUntil := now.Add(-time.Minute)
-	_, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecar.ID, AuthID: watchdogAuthID, AuthIndex: stringPtr(watchdogAuthIndex), Provider: stringPtr("gemini"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-unsupported-flood", PreviousPriority: &previousPriority, TargetPriority: 0, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive})
+	_, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecar.ID, AuthID: watchdogAuthID, AuthIndex: stringPtr(watchdogAuthIndex), Provider: stringPtr("gemini"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-unsupported-flood", PreviousPriority: &previousPriority, TargetPriority: DefaultQuotaExceededPriority, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive})
 	if err != nil {
 		t.Fatalf("create unsupported provider hold: %v", err)
 	}
@@ -705,6 +705,7 @@ func TestWatchdogDiscoveryUnsupportedProviderSkipsRecordActionHistoryOnce(t *tes
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 89)
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
+	setWatchdogSweepInterval(t, service, sidecar.ID, 1)
 	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
 	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-unsupported-a", "idx-unsupported-a", "gemini", 10)
 	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-unsupported-b", "idx-unsupported-b", "gemini", 10)
@@ -714,9 +715,10 @@ func TestWatchdogDiscoveryUnsupportedProviderSkipsRecordActionHistoryOnce(t *tes
 	if err != nil || first.UnsupportedSkipped != 3 || first.ActionCount != 2 || first.Reconciled {
 		t.Fatalf("expected provider-grouped unsupported discovery skips, result=%+v err=%v", first, err)
 	}
+	now = now.Add(time.Second)
 	second, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 	if err != nil || second.UnsupportedSkipped != 3 || second.ActionCount != 0 || second.Reconciled {
-		t.Fatalf("expected repeated discovery skips to dedupe action history, result=%+v err=%v", second, err)
+		t.Fatalf("expected next sweep unsupported skips to dedupe action history, result=%+v err=%v", second, err)
 	}
 	actions := listWatchdogActions(t, service, sidecar.ID)
 	if got := countWatchdogActions(actions, watchdogProbeStatusSkippedUnsupportedProvider); got != 2 {
@@ -872,7 +874,7 @@ func TestWatchdogDueHoldWaveFlushesInHoldOrder(t *testing.T) {
 	if reconcile.result.Probed != 2 || reconcile.result.Restored != 2 || reconcile.result.ActionCount != 2 || !reconcile.result.Reconciled {
 		t.Fatalf("expected two due holds restored from one wave, got %+v", reconcile.result)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10, 10}) {
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultWorkingPriority, DefaultWorkingPriority}) {
 		t.Fatalf("expected two sequential restore patches, got %v", got)
 	}
 	observations, err := service.store.ListWatchdogProbeObservations(t.Context(), sidecar.ID, 10)
@@ -901,22 +903,125 @@ func TestWatchdogDueHoldWaveFlushesInHoldOrder(t *testing.T) {
 	}
 }
 
+func TestBuildWatchdogSweepSnapshotOrdering(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 14, 0, 0, 0, time.UTC)
+	policy := SidecarWatchdogPolicy{Enabled: true, QuotaInventoryEnabled: true, InitialScanEnabled: true, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600, WorkingPriority: DefaultWorkingPriority, EmptyQuotaPriority: DefaultEmptyQuotaPriority, InitialPriority: DefaultInitialPriority, ErrorPriority: DefaultErrorPriority}
+
+	t.Run("initial inventory and rolling refresh", func(t *testing.T) {
+		service := newWatchdogTestService(t, func() time.Time { return now })
+		sidecar := createSyncTestSidecar(t, service, "http://127.0.0.1:18080", true, 60)
+		policy.SidecarID = sidecar.ID
+		lastProbedOld := now.Add(-3 * time.Hour)
+		lastProbedNewer := now.Add(-2 * time.Hour)
+		stateStore := service.store.(authQuotaStateStore)
+		for _, state := range []SidecarAuthQuotaStateInput{
+			{SidecarID: sidecar.ID, AuthID: "auth-roll-working-old", AuthIndex: stringPtr("idx-roll-working-old"), AuthName: stringPtr("auth-roll-working-old.json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, QuotaBand: quotaBandUsing, LastProbedAt: &lastProbedOld},
+			{SidecarID: sidecar.ID, AuthID: "auth-roll-working-newer", AuthIndex: stringPtr("idx-roll-working-newer"), AuthName: stringPtr("auth-roll-working-newer.json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, QuotaBand: quotaBandUsing, LastProbedAt: &lastProbedNewer},
+			{SidecarID: sidecar.ID, AuthID: "auth-roll-empty", AuthIndex: stringPtr("idx-roll-empty"), AuthName: stringPtr("auth-roll-empty.json"), Provider: stringPtr("chatgpt"), SnapshotObservedAt: &now, QuotaBand: quotaBandQuotaExceeded, LastProbedAt: &lastProbedOld},
+		} {
+			if _, err := stateStore.UpsertAuthQuotaState(t.Context(), state); err != nil {
+				t.Fatalf("seed quota state %s: %v", state.AuthID, err)
+			}
+		}
+		dueAt := now.Add(-time.Hour)
+		dueOlder := now.Add(-2 * time.Hour)
+		dueHolds := []SidecarWatchdogHold{
+			{ID: 1, SidecarID: sidecar.ID, AuthID: "auth-due-working-newer", AuthIndex: stringPtr("idx-due-working-newer"), Provider: stringPtr("codex"), Reason: watchdogReasonQuotaExceeded, PreviousPriority: intPtr(DefaultWorkingPriority), TargetPriority: DefaultEmptyQuotaPriority, HoldUntil: &dueAt, Status: WatchdogHoldStatusActive},
+			{ID: 2, SidecarID: sidecar.ID, AuthID: "auth-due-empty-b", AuthIndex: stringPtr("idx-due-empty-b"), Provider: stringPtr("chatgpt"), Reason: watchdogReasonQuotaExceeded, PreviousPriority: intPtr(DefaultEmptyQuotaPriority), TargetPriority: DefaultErrorPriority, HoldUntil: &dueOlder, Status: WatchdogHoldStatusActive},
+			{ID: 3, SidecarID: sidecar.ID, AuthID: "auth-due-empty-a", AuthIndex: stringPtr("idx-due-empty-a"), Provider: stringPtr("codex"), Reason: watchdogReasonQuotaExceeded, PreviousPriority: intPtr(DefaultEmptyQuotaPriority), TargetPriority: DefaultErrorPriority, HoldUntil: &dueOlder, Status: WatchdogHoldStatusActive},
+		}
+		freshSnapshots := []SidecarAuthSnapshot{
+			{SidecarID: sidecar.ID, AuthID: "auth-initial-low-chatgpt", AuthIndex: stringPtr("idx-initial-low-chatgpt"), Provider: stringPtr("chatgpt"), Priority: intPtr(DefaultInitialPriority), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-roll-empty", AuthIndex: stringPtr("idx-roll-empty"), Provider: stringPtr("chatgpt"), Priority: intPtr(DefaultEmptyQuotaPriority), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-initial-tie-b", AuthIndex: stringPtr("idx-initial-tie-b"), Provider: stringPtr("codex"), Priority: intPtr(DefaultInitialPriority + 10), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-roll-working-newer", AuthIndex: stringPtr("idx-roll-working-newer"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-initial-high-codex", AuthIndex: stringPtr("idx-initial-high-codex"), Provider: stringPtr("codex"), Priority: intPtr(DefaultInitialPriority + 20), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-roll-working-old", AuthIndex: stringPtr("idx-roll-working-old"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-initial-tie-a", AuthIndex: stringPtr("idx-initial-tie-a"), Provider: stringPtr("chatgpt"), Priority: intPtr(DefaultInitialPriority + 10), ObservedAt: now},
+		}
+
+		items, outcome, err := service.buildWatchdogSweepSnapshot(t.Context(), sidecar, policy, dueHolds, freshSnapshots, map[string]struct{}{"auth-due-working-newer": {}, "auth-due-empty-b": {}, "auth-due-empty-a": {}}, false, now)
+		if err != nil {
+			t.Fatalf("build sweep snapshot: %v", err)
+		}
+		if outcome.ActionCount != 0 || outcome.UnsupportedSkipped != 0 {
+			t.Fatalf("unexpected snapshot side effects: %+v", outcome)
+		}
+		got := watchdogSweepSourceAuthIDs(items)
+		want := []string{
+			watchdogSweepSourceDueHoldProbe + ":auth-due-working-newer",
+			watchdogSweepSourceDueHoldProbe + ":auth-due-empty-a",
+			watchdogSweepSourceDueHoldProbe + ":auth-due-empty-b",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-initial-high-codex",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-initial-tie-a",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-initial-tie-b",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-initial-low-chatgpt",
+			watchdogSweepSourceRollingRefreshProbe + ":auth-roll-working-old",
+			watchdogSweepSourceRollingRefreshProbe + ":auth-roll-working-newer",
+			watchdogSweepSourceRollingRefreshProbe + ":auth-roll-empty",
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("sweep snapshot ordering = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("manual scan source", func(t *testing.T) {
+		service := newWatchdogTestService(t, func() time.Time { return now })
+		sidecar := createSyncTestSidecar(t, service, "http://127.0.0.1:18080", true, 60)
+		policy.SidecarID = sidecar.ID
+		startedAt := now.Add(-time.Minute)
+		if _, err := service.store.(quotaScanRunPersistence).CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 3, StartedAt: &startedAt}); err != nil {
+			t.Fatalf("seed manual scan run: %v", err)
+		}
+		dueAt := now.Add(-time.Hour)
+		dueHold := SidecarWatchdogHold{ID: 2, SidecarID: sidecar.ID, AuthID: "auth-manual-due", AuthIndex: stringPtr("idx-manual-due"), Provider: stringPtr("codex"), Reason: watchdogReasonQuotaExceeded, PreviousPriority: intPtr(DefaultWorkingPriority), TargetPriority: DefaultEmptyQuotaPriority, HoldUntil: &dueAt, Status: WatchdogHoldStatusActive}
+		freshSnapshots := []SidecarAuthSnapshot{
+			{SidecarID: sidecar.ID, AuthID: "auth-manual-empty", AuthIndex: stringPtr("idx-manual-empty"), Provider: stringPtr("chatgpt"), Priority: intPtr(DefaultEmptyQuotaPriority), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-manual-b", AuthIndex: stringPtr("idx-manual-b"), Provider: stringPtr("chatgpt"), Priority: intPtr(DefaultWorkingPriority), ObservedAt: now},
+			{SidecarID: sidecar.ID, AuthID: "auth-manual-a", AuthIndex: stringPtr("idx-manual-a"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority), ObservedAt: now},
+		}
+
+		items, _, err := service.buildWatchdogSweepSnapshot(t.Context(), sidecar, policy, []SidecarWatchdogHold{dueHold}, freshSnapshots, map[string]struct{}{"auth-manual-due": {}}, false, now)
+		if err != nil {
+			t.Fatalf("build manual sweep snapshot: %v", err)
+		}
+		got := watchdogSweepSourceAuthIDs(items)
+		want := []string{
+			watchdogSweepSourceDueHoldProbe + ":auth-manual-due",
+			watchdogSweepSourceManualScanProbe + ":auth-manual-a",
+			watchdogSweepSourceManualScanProbe + ":auth-manual-b",
+			watchdogSweepSourceManualScanProbe + ":auth-manual-empty",
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("manual sweep snapshot ordering = %v, want %v", got, want)
+		}
+	})
+}
+
+func watchdogSweepSourceAuthIDs(items []watchdogSweepSnapshotItem) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.Source+":"+item.AuthID)
+	}
+	return ids
+}
+
 func TestWatchdogRollingRefreshOrderingPrefersOldestEligibleAuth(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 13, 45, 0, 0, time.UTC)
 	oldest := now.Add(-3 * time.Hour)
 	older := now.Add(-2 * time.Hour)
 	tie := now.Add(-90 * time.Minute)
 	fresh := now.Add(-10 * time.Minute)
-	policy := SidecarWatchdogPolicy{UsingPriority: 5, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600}
+	policy := SidecarWatchdogPolicy{WorkingPriority: DefaultWorkingPriority, EmptyQuotaPriority: DefaultEmptyQuotaPriority, InitialPriority: DefaultInitialPriority, ErrorPriority: DefaultErrorPriority, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600}
 	snapshots := []SidecarAuthSnapshot{
-		{AuthID: "auth-tie-b", AuthIndex: stringPtr("idx-tie-b"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-tie-b", AuthIndex: stringPtr("idx-tie-b"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
 		{AuthID: "auth-low", AuthIndex: stringPtr("idx-low"), Provider: stringPtr("codex"), Priority: intPtr(1)},
-		{AuthID: "auth-fresh", AuthIndex: stringPtr("idx-fresh"), Provider: stringPtr("codex"), Priority: intPtr(10)},
-		{AuthID: "auth-never", AuthIndex: stringPtr("idx-never"), Provider: stringPtr("codex"), Priority: intPtr(10)},
-		{AuthID: "auth-held", AuthIndex: stringPtr("idx-held"), Provider: stringPtr("codex"), Priority: intPtr(10)},
-		{AuthID: "auth-oldest", AuthIndex: stringPtr("idx-oldest"), Provider: stringPtr("codex"), Priority: intPtr(10)},
-		{AuthID: "auth-tie-a", AuthIndex: stringPtr("idx-tie-a"), Provider: stringPtr("codex"), Priority: intPtr(10)},
-		{AuthID: "auth-older", AuthIndex: stringPtr("idx-older"), Provider: stringPtr("codex"), Priority: intPtr(10)},
+		{AuthID: "auth-fresh", AuthIndex: stringPtr("idx-fresh"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+		{AuthID: "auth-never", AuthIndex: stringPtr("idx-never"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+		{AuthID: "auth-held", AuthIndex: stringPtr("idx-held"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+		{AuthID: "auth-oldest", AuthIndex: stringPtr("idx-oldest"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+		{AuthID: "auth-tie-a", AuthIndex: stringPtr("idx-tie-a"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+		{AuthID: "auth-older", AuthIndex: stringPtr("idx-older"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
 	}
 	quotaStates := map[string]SidecarAuthQuotaState{
 		"auth-fresh":  {AuthID: "auth-fresh", LastProbedAt: &fresh},
@@ -932,6 +1037,73 @@ func TestWatchdogRollingRefreshOrderingPrefersOldestEligibleAuth(t *testing.T) {
 		got = append(got, candidate.AuthID)
 	}
 	want := []string{"auth-never", "auth-oldest", "auth-older", "auth-tie-a", "auth-tie-b"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("rolling refresh candidates = %v, want %v", got, want)
+	}
+}
+
+func TestWatchdogInitialInventoryIncludesMissingQuotaState(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 13, 0, 0, 0, time.UTC)
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, "http://127.0.0.1:18080", true, 60)
+	policy := SidecarWatchdogPolicy{SidecarID: sidecar.ID, QuotaInventoryEnabled: true, InitialScanEnabled: true, WorkingPriority: DefaultWorkingPriority, EmptyQuotaPriority: DefaultEmptyQuotaPriority, InitialPriority: DefaultInitialPriority, ErrorPriority: DefaultErrorPriority}
+	snapshots := []SidecarAuthSnapshot{{SidecarID: sidecar.ID, AuthID: "auth-missing-quota-state", AuthIndex: stringPtr("idx-missing-quota-state"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority), ObservedAt: now}}
+	quotaStates := map[string]SidecarAuthQuotaState{}
+
+	scanRun, active, err := service.ensureActiveQuotaScanRun(t.Context(), sidecar.ID, policy, snapshots, map[string]struct{}{}, quotaStates)
+	if err != nil {
+		t.Fatalf("ensure initial quota scan run: %v", err)
+	}
+	if !active || scanRun.ScanType != quotaScanTypeInitial || scanRun.PlannedCount != 1 {
+		t.Fatalf("missing quota state should create one initial inventory probe, active=%v run=%+v", active, scanRun)
+	}
+	candidates := watchdogQuotaScanProbeCandidates(policy, scanRun, snapshots, map[string]struct{}{}, quotaStates)
+	if len(candidates) != 1 || candidates[0].AuthID != "auth-missing-quota-state" {
+		t.Fatalf("missing quota state initial candidates = %+v", candidates)
+	}
+}
+
+func TestWatchdogInitialInventoryIncludesInitialPriorityState(t *testing.T) {
+	policy := SidecarWatchdogPolicy{QuotaInventoryEnabled: true, InitialScanEnabled: true, WorkingPriority: DefaultWorkingPriority, EmptyQuotaPriority: DefaultEmptyQuotaPriority, InitialPriority: DefaultInitialPriority, ErrorPriority: DefaultErrorPriority}
+	scanRun := SidecarQuotaScanRun{ScanType: quotaScanTypeInitial}
+	snapshots := []SidecarAuthSnapshot{
+		{AuthID: "auth-initial", AuthIndex: stringPtr("idx-initial"), Provider: stringPtr("codex"), Priority: intPtr(DefaultInitialPriority)},
+		{AuthID: "auth-working", AuthIndex: stringPtr("idx-working"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+	}
+	quotaStates := map[string]SidecarAuthQuotaState{
+		"auth-initial": {AuthID: "auth-initial", QuotaBand: quotaBandUsing},
+		"auth-working": {AuthID: "auth-working", QuotaBand: quotaBandUsing},
+	}
+
+	candidates := watchdogQuotaScanProbeCandidates(policy, scanRun, snapshots, map[string]struct{}{}, quotaStates)
+	if len(candidates) != 1 || candidates[0].AuthID != "auth-initial" {
+		t.Fatalf("initial priority-state candidates = %+v", candidates)
+	}
+}
+
+func TestWatchdogRollingRefreshIncludesEmptyQuota(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 13, 15, 0, 0, time.UTC)
+	lastProbedAt := now.Add(-2 * time.Hour)
+	policy := SidecarWatchdogPolicy{WorkingPriority: DefaultWorkingPriority, EmptyQuotaPriority: DefaultEmptyQuotaPriority, InitialPriority: DefaultInitialPriority, ErrorPriority: DefaultErrorPriority, RollingRefreshEnabled: true, RollingRefreshAfterSeconds: 3600}
+	snapshots := []SidecarAuthSnapshot{
+		{AuthID: "auth-working", AuthIndex: stringPtr("idx-working"), Provider: stringPtr("codex"), Priority: intPtr(DefaultWorkingPriority)},
+		{AuthID: "auth-empty-quota", AuthIndex: stringPtr("idx-empty-quota"), Provider: stringPtr("codex"), Priority: intPtr(DefaultEmptyQuotaPriority)},
+		{AuthID: "auth-initial", AuthIndex: stringPtr("idx-initial"), Provider: stringPtr("codex"), Priority: intPtr(DefaultInitialPriority)},
+		{AuthID: "auth-error", AuthIndex: stringPtr("idx-error"), Provider: stringPtr("codex"), Priority: intPtr(DefaultErrorPriority)},
+	}
+	quotaStates := map[string]SidecarAuthQuotaState{
+		"auth-working":     {AuthID: "auth-working", LastProbedAt: &lastProbedAt},
+		"auth-empty-quota": {AuthID: "auth-empty-quota", LastProbedAt: &lastProbedAt},
+		"auth-initial":     {AuthID: "auth-initial", LastProbedAt: &lastProbedAt},
+		"auth-error":       {AuthID: "auth-error", LastProbedAt: &lastProbedAt},
+	}
+
+	candidates := watchdogRollingRefreshProbeCandidates(policy, snapshots, map[string]struct{}{}, quotaStates, now)
+	got := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		got = append(got, candidate.AuthID)
+	}
+	want := []string{"auth-working", "auth-empty-quota"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rolling refresh candidates = %v, want %v", got, want)
 	}
@@ -972,13 +1144,14 @@ func TestWatchdogBatchCompletionAdvancesOnlyAfterPersistedProbeAttempt(t *testin
 	}
 }
 
-func TestWatchdogProbeBatchCooldownGatesQuotaProbesOnly(t *testing.T) {
+func TestWatchdogSweepIntervalGatesNewQuotaProbeWork(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 14, 30, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
 	defer upstream.Close()
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 75)
 	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
+	setWatchdogSweepInterval(t, service, sidecar.ID, 60)
 	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
 	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-first", "idx-first", "codex", 10)
 
@@ -1025,15 +1198,95 @@ func TestWatchdogProbeBatchCooldownGatesQuotaProbesOnly(t *testing.T) {
 	}
 
 	now = now.Add(25 * time.Second)
-	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
-		t.Fatalf("reconcile after cooldown: %v", err)
+		t.Fatalf("reconcile after cooldown but before sweep interval: %v", err)
+	}
+	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-first"}) {
+		t.Fatalf("new quota probe work must wait for the next sweep interval, got %v", calls)
+	}
+
+	now = now.Add(25 * time.Second)
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("reconcile after sweep interval: %v", err)
 	}
 	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-first", "idx-due"}) {
-		t.Fatalf("due hold should probe first after cooldown reopens, got %v", calls)
+		t.Fatalf("due hold should probe when the next sweep opens, got %v", calls)
 	}
-	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{10}) {
-		t.Fatalf("due hold restore should resume after cooldown reopens, got %v", got)
+	if got := upstream.fieldPatchPriorities(); !slices.Equal(got, []int{DefaultWorkingPriority}) {
+		t.Fatalf("due hold restore should resume when the next sweep opens, got %v", got)
+	}
+}
+
+func TestWatchdogBatchCooldownBetweenSweepBatches(t *testing.T) {
+	now := time.Date(2026, time.May, 12, 13, 0, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 80)
+	cooldownSeconds := 10
+	zeroJitter := 0
+	rollingRefresh := true
+	quotaInventory := true
+	initialScan := true
+	rollingAfter := 60
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: 2, ProbeTimeoutSeconds: 5, ProbeBatchCooldownSeconds: &cooldownSeconds, ProbeJitterMinMS: &zeroJitter, ProbeJitterMaxMS: &zeroJitter, QuotaInventoryEnabled: &quotaInventory, InitialScanEnabled: &initialScan, RollingRefreshEnabled: &rollingRefresh, RollingRefreshAfterSeconds: &rollingAfter})
+	if err != nil {
+		t.Fatalf("enable cooldown sweep policy: %v", err)
+	}
+	policy, err := service.store.GetOrCreateWatchdogPolicy(t.Context(), sidecar.ID)
+	if err != nil {
+		t.Fatalf("load cooldown sweep policy: %v", err)
+	}
+	revision, err := service.store.(watchdogPolicyRevisionLifecyclePersistence).EnsureActiveWatchdogPolicyRevision(t.Context(), policy)
+	if err != nil {
+		t.Fatalf("ensure cooldown sweep revision: %v", err)
+	}
+	items := []watchdogSweepSnapshotItem{
+		{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-cool-a", AuthIndex: "idx-cool-a", Provider: "codex"},
+		{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-cool-b", AuthIndex: "idx-cool-b", Provider: "codex"},
+		{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-cool-c", AuthIndex: "idx-cool-c", Provider: "codex"},
+	}
+	lifecycle := service.store.(watchdogSweepLifecyclePersistence)
+	_, err = lifecycle.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "sweep-cooldown", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: marshalWatchdogSweepItems(t, items), StartedAt: now.Add(-time.Second)})
+	if err != nil {
+		t.Fatalf("seed cooldown sweep: %v", err)
+	}
+
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("first cooldown batch reconcile: %v", err)
+	}
+	calls := upstream.apiCallAuthIndexes()
+	if len(calls) != 2 || !slices.Contains(calls, "idx-cool-a") || !slices.Contains(calls, "idx-cool-b") || slices.Contains(calls, "idx-cool-c") {
+		t.Fatalf("first sweep batch should launch only first cooldown window, calls=%v", calls)
+	}
+	active, found, err := lifecycle.GetActiveWatchdogSweep(t.Context(), sidecar.ID)
+	if err != nil || !found || active.Status != string(SidecarWatchdogSweepStatusPaused) || active.NextItemIndex != 2 || active.BatchIndex != 1 {
+		t.Fatalf("first batch should pause sweep at next batch checkpoint: active=%+v found=%v err=%v", active, found, err)
+	}
+	expectedNextBatchAfter := now.Add(time.Duration(cooldownSeconds) * time.Second)
+	if active.NextBatchAfter == nil || !active.NextBatchAfter.Equal(expectedNextBatchAfter) || stringValue(active.PauseReason) != watchdogSweepPauseReasonBatchCooldown {
+		t.Fatalf("first batch did not persist cooldown checkpoint: active=%+v want next=%v", active, expectedNextBatchAfter)
+	}
+
+	now = now.Add(time.Duration(cooldownSeconds-1) * time.Second)
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("cooldown-held sweep reconcile: %v", err)
+	}
+	if calls := upstream.apiCallAuthIndexes(); len(calls) != 2 {
+		t.Fatalf("batch cooldown should prevent the next sweep batch, calls=%v", calls)
+	}
+
+	now = now.Add(time.Second)
+	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
+		t.Fatalf("cooldown-open sweep reconcile: %v", err)
+	}
+	calls = upstream.apiCallAuthIndexes()
+	if len(calls) != 3 || !slices.Contains(calls, "idx-cool-c") {
+		t.Fatalf("next sweep batch should launch after cooldown, calls=%v", calls)
+	}
+	active, found, err = lifecycle.GetActiveWatchdogSweep(t.Context(), sidecar.ID)
+	if err != nil || found {
+		t.Fatalf("final cooldown batch should complete the sweep: active=%+v found=%v err=%v", active, found, err)
 	}
 }
 
@@ -1089,16 +1342,17 @@ func TestWatchdogFailureThresholdStillRunsWhenSnapshotsAreStaleOrPaused(t *testi
 func TestWatchdogTimeoutUsesWorkerBudgetSafetyMargin(t *testing.T) {
 	startedAt := time.Date(2026, time.May, 11, 15, 0, 0, 0, time.UTC)
 	policy := SidecarWatchdogPolicy{ProbeConcurrency: 1, ProbeTimeoutSeconds: 20}
-	timeout, ok := watchdogEffectiveProbeTimeout(policy, startedAt, startedAt)
+	run := newWatchdogProbeRun(policy, startedAt)
+	timeout, ok := run.nextLaunchTimeout(startedAt)
 	if !ok || timeout != 20*time.Second {
-		t.Fatalf("initial effective timeout = %v ok=%v, want 20s true", timeout, ok)
+		t.Fatalf("initial launch timeout = %v ok=%v, want 20s true", timeout, ok)
 	}
-	timeout, ok = watchdogEffectiveProbeTimeout(policy, startedAt, startedAt.Add(10*time.Second))
-	if !ok || timeout != 15*time.Second {
-		t.Fatalf("remaining-budget effective timeout = %v ok=%v, want 15s true", timeout, ok)
+	timeout, ok = run.nextLaunchTimeout(startedAt.Add(5 * time.Second))
+	if !ok || timeout != 20*time.Second {
+		t.Fatalf("last safe launch timeout = %v ok=%v, want 20s true", timeout, ok)
 	}
-	if timeout, ok = watchdogEffectiveProbeTimeout(policy, startedAt, startedAt.Add(26*time.Second)); ok || timeout != 0 {
-		t.Fatalf("expired worker budget timeout = %v ok=%v, want 0 false", timeout, ok)
+	if timeout, ok = run.nextLaunchTimeout(startedAt.Add(6 * time.Second)); ok || timeout != 0 {
+		t.Fatalf("unsafe launch budget timeout = %v ok=%v, want 0 false", timeout, ok)
 	}
 	maxBudgetSeconds := watchdogProbeConcurrencyBudgetMaxSeconds()
 	if err := validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: MaxProbeConcurrency, ProbeTimeoutSeconds: maxBudgetSeconds}); err != nil {
@@ -1146,7 +1400,7 @@ func TestWatchdogProbeConcurrencyContractValidation(t *testing.T) {
 	}
 }
 
-func TestWatchdogConcurrentWaveOverlapsSlowProbes(t *testing.T) {
+func TestWatchdogConcurrentBatchOverlap(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 15, 30, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
 	defer upstream.Close()
@@ -1210,6 +1464,74 @@ func TestWatchdogConcurrentWaveOverlapsSlowProbes(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for concurrent wave to finish")
+	}
+}
+
+func TestWatchdogBatchJitterDoesNotSerialize(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 15, 32, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	startTimes := make(chan time.Time, 2)
+	release := make(chan struct{})
+	upstream.setAPICallHook(func(authIndex string) {
+		startTimes <- time.Now()
+		<-release
+	})
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 79)
+	jitterMS := 80
+	policy := SidecarWatchdogPolicy{ProbeConcurrency: 2, ProbeTimeoutSeconds: 2, ProbeJitterMinMS: jitterMS, ProbeJitterMaxMS: jitterMS, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds}
+	run := newWatchdogProbeRun(policy, time.Now().UTC())
+	candidates := []watchdogProbeCandidate{
+		{AuthID: "auth-jitter-a", AuthIndex: "idx-jitter-a", Provider: "codex"},
+		{AuthID: "auth-jitter-b", AuthIndex: "idx-jitter-b", Provider: "codex"},
+	}
+	type waveResult struct {
+		results []watchdogProbeWaveResult
+		err     error
+	}
+	done := make(chan waveResult, 1)
+	go func() {
+		results, err := service.executeWatchdogProbeWave(t.Context(), sidecar, policy, candidates, &run, now)
+		done <- waveResult{results: results, err: err}
+	}()
+
+	var firstStarted time.Time
+	select {
+	case firstStarted = <-startTimes:
+	case <-time.After(500 * time.Millisecond):
+		close(release)
+		t.Fatal("jittered batch did not launch the first probe")
+	}
+	var secondStarted time.Time
+	select {
+	case secondStarted = <-startTimes:
+	case <-time.After(500 * time.Millisecond):
+		close(release)
+		t.Fatal("jittered batch did not launch the second probe while the first was still running")
+	}
+	if secondStarted.Sub(firstStarted) < 40*time.Millisecond {
+		close(release)
+		t.Fatalf("expected jitter to stagger launches, delta=%v", secondStarted.Sub(firstStarted))
+	}
+	select {
+	case wave := <-done:
+		close(release)
+		t.Fatalf("jittered batch completed before blocked probes were released: %+v", wave)
+	default:
+	}
+	close(release)
+
+	select {
+	case wave := <-done:
+		if wave.err != nil {
+			t.Fatalf("execute jittered batch: %v", wave.err)
+		}
+		if len(wave.results) != len(candidates) {
+			t.Fatalf("jittered results = %d, want %d", len(wave.results), len(candidates))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for jittered batch to finish")
 	}
 }
 
@@ -1387,9 +1709,9 @@ func TestWatchdogQuotaScanUsesOrderedConcurrentWaveAndCompletes(t *testing.T) {
 		t.Fatalf("create quota scan run: %v", err)
 	}
 	snapshots := []SidecarAuthSnapshot{
-		{SidecarID: sidecar.ID, AuthID: "auth-a", AuthIndex: stringPtr("idx-a"), Name: "auth-a.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(10)},
-		{SidecarID: sidecar.ID, AuthID: "auth-b", AuthIndex: stringPtr("idx-b"), Name: "auth-b.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(10)},
-		{SidecarID: sidecar.ID, AuthID: "auth-c", AuthIndex: stringPtr("idx-c"), Name: "auth-c.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(10)},
+		{SidecarID: sidecar.ID, AuthID: "auth-a", AuthIndex: stringPtr("idx-a"), Name: "auth-a.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(DefaultWorkingPriority)},
+		{SidecarID: sidecar.ID, AuthID: "auth-b", AuthIndex: stringPtr("idx-b"), Name: "auth-b.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(DefaultWorkingPriority)},
+		{SidecarID: sidecar.ID, AuthID: "auth-c", AuthIndex: stringPtr("idx-c"), Name: "auth-c.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(DefaultWorkingPriority)},
 	}
 	run := newWatchdogProbeRun(policy, time.Now().UTC())
 	resultCh := make(chan struct {
@@ -1505,7 +1827,8 @@ func pendingPatchActionVisible(service *Service, sidecarID int, actionType strin
 
 func enableWatchdogProbePolicy(t *testing.T, service *Service, sidecarID int, probeConcurrency int, timeoutSeconds int) {
 	t.Helper()
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: probeConcurrency, ProbeTimeoutSeconds: timeoutSeconds})
+	zeroJitter := 0
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecarID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: probeConcurrency, ProbeTimeoutSeconds: timeoutSeconds, ProbeJitterMinMS: &zeroJitter, ProbeJitterMaxMS: &zeroJitter})
 	if err != nil {
 		t.Fatalf("enable probe watchdog policy: %v", err)
 	}
@@ -1513,6 +1836,7 @@ func enableWatchdogProbePolicy(t *testing.T, service *Service, sidecarID int, pr
 
 func seedWatchdogProbeSnapshot(t *testing.T, service *Service, sidecarID int, observedAt time.Time, authID string, authIndex string, provider string, priority int) {
 	t.Helper()
+	priority = watchdogTestCanonicalPriority(priority)
 	snapshotJSON, err := json.Marshal(watchdogProbeAuthPayload(authID, authIndex, provider, priority))
 	if err != nil {
 		t.Fatalf("marshal probe snapshot: %v", err)
@@ -1527,6 +1851,7 @@ func seedWatchdogProbeSnapshot(t *testing.T, service *Service, sidecarID int, ob
 
 func seedWatchdogFailureThresholdSnapshot(t *testing.T, service *Service, sidecarID int, observedAt time.Time, authID string, authIndex string, provider string, priority int, failureCount int) {
 	t.Helper()
+	priority = watchdogTestCanonicalPriority(priority)
 	recentRequests, err := json.Marshal([]map[string]any{{"window_start": observedAt.Add(-time.Minute).Format(time.RFC3339), "window_end": observedAt.Format(time.RFC3339), "failure_count": failureCount}})
 	if err != nil {
 		t.Fatalf("marshal failure threshold requests: %v", err)
@@ -1545,7 +1870,7 @@ func seedWatchdogFailureThresholdSnapshot(t *testing.T, service *Service, sideca
 
 func createWatchdogProbeHold(t *testing.T, service *Service, sidecarID int, authID string, authIndex string, holdUntil time.Time) SidecarWatchdogHold {
 	t.Helper()
-	previousPriority := 10
+	previousPriority := DefaultWorkingPriority
 	hold, err := service.store.CreateWatchdogHold(t.Context(), SidecarWatchdogHoldInput{SidecarID: sidecarID, AuthID: authID, AuthIndex: stringPtrFromNonEmpty(authIndex), Provider: stringPtrFromNonEmpty("codex"), Reason: watchdogReasonQuotaExceeded, ConditionHash: "hash-" + authID, PreviousPriority: &previousPriority, TargetPriority: DefaultQuotaExceededPriority, HoldUntil: &holdUntil, Status: WatchdogHoldStatusActive})
 	if err != nil {
 		t.Fatalf("create probe hold: %v", err)
@@ -1663,7 +1988,7 @@ func TestWatchdogDiscoveryProbeBatchUsesConcurrentWaveAndFlushesSequentially(t *
 	skipCheck := make(chan error, 1)
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 90)
-	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: 5, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: 2, ProbeTimeoutSeconds: 2, RollingRefreshEnabled: boolPtr(true), RollingRefreshAfterSeconds: intPtr(3600)})
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: DefaultQuotaExceededPriority, UsingPriority: DefaultUsingPriority, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: 2, ProbeTimeoutSeconds: 2, RollingRefreshEnabled: boolPtr(true), RollingRefreshAfterSeconds: intPtr(3600)})
 	if err != nil {
 		t.Fatalf("enable discovery watchdog policy: %v", err)
 	}
