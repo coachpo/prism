@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -40,6 +41,7 @@ var expectedPrismMigrationVersions = []string{
 	"000019_sidecar_watchdog_probe_concurrency",
 	"000020_sidecar_watchdog_policy_revisions_and_sweeps",
 	"000021_sidecar_watchdog_four_band_priorities",
+	"000022_sidecar_watchdog_sweep_items",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -333,6 +335,72 @@ RETURNING id`, policyID, sidecarID).Scan(&revisionID); err != nil {
 	completedAt := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
 	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at, completed_at) VALUES ('sweep-completed', $1, $2, 'completed', '[]'::jsonb, $3, $3)`, sidecarID, revisionID, completedAt); err != nil {
 		t.Fatalf("terminal sweep history should remain insertable after active uniqueness check: %v", err)
+	}
+}
+
+func TestSidecarWatchdogRuntimeMigrationDisposesLegacyActiveState(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "sidecar_watchdog_runtime_migration")
+	defer func() { _ = conn.Close(testContext) }()
+
+	applyMigrationsThrough(t, testContext, conn, "000021_sidecar_watchdog_four_band_priorities")
+	var sidecarID int
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
+VALUES ($1, $2, $3, $4)
+RETURNING id`, "runtime-migration-sidecar", "https://runtime-migration.example.test", "https://runtime-migration.example.test", "enc:runtime-migration").Scan(&sidecarID); err != nil {
+		t.Fatalf("seed sidecar before runtime migration: %v", err)
+	}
+	var policyID int
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled) VALUES ($1, true) RETURNING id`, sidecarID).Scan(&policyID); err != nil {
+		t.Fatalf("seed watchdog policy before runtime migration: %v", err)
+	}
+	var revisionID int64
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, enabled) VALUES ($1, $2, true) RETURNING id`, policyID, sidecarID).Scan(&revisionID); err != nil {
+		t.Fatalf("seed watchdog revision before runtime migration: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `UPDATE sidecar_watchdog_policies SET active_revision_id=$1 WHERE id=$2`, revisionID, policyID); err != nil {
+		t.Fatalf("link active revision before runtime migration: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, lease_expires_at) VALUES ('legacy-active-sweep', $1, $2, 'running', '[{"auth_id":"legacy"}]'::jsonb, now() + interval '5 minutes')`, sidecarID, revisionID); err != nil {
+		t.Fatalf("seed legacy active sweep before runtime migration: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status, planned_count) VALUES ($1, 'manual', 'queued', 3)`, sidecarID); err != nil {
+		t.Fatalf("seed legacy active scan before runtime migration: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run watchdog runtime migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected watchdog runtime migration to apply, got %q", result.Outcome)
+	}
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, "000022_sidecar_watchdog_sweep_items"))
+	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
+	assertSidecarSchemaContract(t, testContext, conn)
+
+	var sweepStatus string
+	var sweepCompletedAt, sweepCancelRequestedAt sql.NullTime
+	var sweepLeaseExpiresAt sql.NullTime
+	var sweepCancelReason string
+	if err := conn.QueryRow(testContext, `SELECT status, completed_at, cancel_requested_at, lease_expires_at, cancel_reason FROM sidecar_watchdog_sweeps WHERE sweep_id='legacy-active-sweep'`).Scan(&sweepStatus, &sweepCompletedAt, &sweepCancelRequestedAt, &sweepLeaseExpiresAt, &sweepCancelReason); err != nil {
+		t.Fatalf("load migrated legacy sweep: %v", err)
+	}
+	if sweepStatus != "cancelled" || !sweepCompletedAt.Valid || !sweepCancelRequestedAt.Valid || sweepLeaseExpiresAt.Valid || sweepCancelReason != "legacy_runtime_discarded" {
+		t.Fatalf("legacy active sweep was not deterministically cancelled: status=%s completed=%v cancel=%v lease=%v reason=%q", sweepStatus, sweepCompletedAt.Valid, sweepCancelRequestedAt.Valid, sweepLeaseExpiresAt.Valid, sweepCancelReason)
+	}
+	var scanStatus string
+	var scanCompletedAt, scanCancelRequestedAt sql.NullTime
+	var scanErrorCode string
+	if err := conn.QueryRow(testContext, `SELECT status, completed_at, cancel_requested_at, last_error_code FROM sidecar_quota_scan_runs WHERE sidecar_id=$1`, sidecarID).Scan(&scanStatus, &scanCompletedAt, &scanCancelRequestedAt, &scanErrorCode); err != nil {
+		t.Fatalf("load migrated legacy scan run: %v", err)
+	}
+	if scanStatus != "cancelled" || !scanCompletedAt.Valid || !scanCancelRequestedAt.Valid || scanErrorCode != "legacy_runtime_discarded" {
+		t.Fatalf("legacy active scan run was not deterministically cancelled: status=%s completed=%v cancel=%v error=%q", scanStatus, scanCompletedAt.Valid, scanCancelRequestedAt.Valid, scanErrorCode)
 	}
 }
 
@@ -781,7 +849,7 @@ func assertCleanBreakLogRows(t *testing.T, ctx context.Context, conn *pgx.Conn, 
 
 func assertSidecarSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	tables := []string{"sidecar_instances", "sidecar_auth_snapshots", "sidecar_provider_snapshots", "sidecar_watchdog_policies", "sidecar_watchdog_holds", "sidecar_watchdog_actions", "sidecar_watchdog_pending_actions", "sidecar_quota_scan_runs"}
+	tables := []string{"sidecar_instances", "sidecar_auth_snapshots", "sidecar_provider_snapshots", "sidecar_watchdog_policies", "sidecar_watchdog_holds", "sidecar_watchdog_actions", "sidecar_watchdog_pending_actions", "sidecar_quota_scan_runs", "sidecar_watchdog_sweep_items"}
 	for _, tableName := range tables {
 		var idDefault string
 		var createdType string
@@ -917,6 +985,11 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		{"sidecar_watchdog_sweeps", "lease_expires_at", "timestamp with time zone"},
 		{"sidecar_watchdog_sweeps", "pause_reason", "text"},
 		{"sidecar_watchdog_sweeps", "failure_reason", "text"},
+		{"sidecar_watchdog_sweeps", "restart_requested_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "restart_target_policy_revision_id", "bigint"},
+		{"sidecar_watchdog_sweeps", "restart_reason", "text"},
+		{"sidecar_watchdog_sweeps", "cancel_requested_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "cancel_reason", "text"},
 		{"sidecar_watchdog_sweeps", "started_at", "timestamp with time zone"},
 		{"sidecar_watchdog_sweeps", "completed_at", "timestamp with time zone"},
 		{"sidecar_watchdog_sweeps", "created_at", "timestamp with time zone"},
@@ -938,6 +1011,29 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		{"sidecar_quota_scan_runs", "last_error_code", "text"},
 		{"sidecar_quota_scan_runs", "created_at", "timestamp with time zone"},
 		{"sidecar_quota_scan_runs", "updated_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweep_items", "id", "bigint"},
+		{"sidecar_watchdog_sweep_items", "sweep_id", "text"},
+		{"sidecar_watchdog_sweep_items", "sidecar_id", "integer"},
+		{"sidecar_watchdog_sweep_items", "policy_revision_id", "bigint"},
+		{"sidecar_watchdog_sweep_items", "item_index", "integer"},
+		{"sidecar_watchdog_sweep_items", "source", "text"},
+		{"sidecar_watchdog_sweep_items", "source_rank", "integer"},
+		{"sidecar_watchdog_sweep_items", "priority", "integer"},
+		{"sidecar_watchdog_sweep_items", "due_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweep_items", "auth_id", "text"},
+		{"sidecar_watchdog_sweep_items", "auth_index", "text"},
+		{"sidecar_watchdog_sweep_items", "provider", "text"},
+		{"sidecar_watchdog_sweep_items", "hold_id", "integer"},
+		{"sidecar_watchdog_sweep_items", "auth_snapshot_id", "integer"},
+		{"sidecar_watchdog_sweep_items", "selection_json", "jsonb"},
+		{"sidecar_watchdog_sweep_items", "status", "text"},
+		{"sidecar_watchdog_sweep_items", "lease_owner", "text"},
+		{"sidecar_watchdog_sweep_items", "lease_expires_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweep_items", "attempt_token", "integer"},
+		{"sidecar_watchdog_sweep_items", "started_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweep_items", "completed_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweep_items", "result_observation_id", "integer"},
+		{"sidecar_watchdog_sweep_items", "last_error_code", "text"},
 		{"sidecar_auth_quota_states", "sidecar_id", "integer"},
 		{"sidecar_auth_quota_states", "auth_id", "text"},
 		{"sidecar_auth_quota_states", "auth_index", "text"},
@@ -967,15 +1063,29 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_pkey", "PRIMARY KEY (sweep_id)")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_sidecar_id_fkey", "ON DELETE CASCADE")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_policy_revision_id_fkey", "ON DELETE RESTRICT")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_restart_target_revision_fkey", "ON DELETE RESTRICT")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_status", "running", "paused", "completed", "failed", "cancelled")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_checkpoint", "next_item_index >= 0", "batch_index >= 0", "jsonb_typeof")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_restart_intent", "restart_requested_at IS NULL", "restart_target_policy_revision_id IS NOT NULL")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_cancel_intent", "cancel_reason IS NULL", "cancel_requested_at IS NOT NULL")
 	assertIndexUniqueness(t, ctx, conn, "sidecar_watchdog_sweeps", "uq_sidecar_watchdog_sweeps_active_sidecar", true)
 	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_sweeps_active_sidecar", "sidecar_id", "running", "paused")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_scan_type", "initial", "manual", "scheduled")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "queued", "running", "completed", "cancelled", "failed")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "completed", "cancelled", "failed")
+	assertConstraintDefinitionExcludes(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "queued", "running")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_quota_scan_runs_pkey", "PRIMARY KEY (id)")
-	assertIndexUniqueness(t, ctx, conn, "sidecar_quota_scan_runs", "uq_sidecar_quota_scan_runs_active_sidecar", true)
-	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_quota_scan_runs_active_sidecar", "sidecar_id", "queued", "running")
+	assertIndexMissing(t, ctx, conn, "sidecar_quota_scan_runs", "uq_sidecar_quota_scan_runs_active_sidecar")
+	assertIndexExists(t, ctx, conn, "sidecar_quota_scan_runs", "idx_sidecar_quota_scan_runs_sidecar_history")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweep_items_pkey", "PRIMARY KEY (id)")
+	assertConstraintDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_sweep_items_sweep_index", "UNIQUE (sweep_id, item_index)")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweep_items_sweep_id_fkey", "ON DELETE CASCADE")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweep_items_policy_revision_id_fkey", "ON DELETE RESTRICT")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_status", "queued", "leased", "succeeded", "failed", "cancelled", "superseded")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_shape", "item_index >= 0", "source_rank >= 0", "attempt_token >= 0", "jsonb_typeof")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_lease", "lease_owner IS NOT NULL", "lease_expires_at IS NOT NULL", "attempt_token > 0")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_completion", "completed_at IS NULL", "completed_at IS NOT NULL")
+	assertIndexExists(t, ctx, conn, "sidecar_watchdog_sweep_items", "idx_sidecar_watchdog_sweep_items_claimable")
+	assertIndexExists(t, ctx, conn, "sidecar_watchdog_sweep_items", "idx_sidecar_watchdog_sweep_items_leased")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_auth_quota_states_band", "using", "quota_exceeded", "error")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_auth_quota_states_pkey", "PRIMARY KEY (sidecar_id, auth_id)")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_auth_quota_states_last_observation_id_fkey", "ON DELETE SET NULL")
@@ -1480,6 +1590,16 @@ func assertReloptionsContain(t *testing.T, relationName string, reloptions strin
 
 func assertIndexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string) {
 	t.Helper()
+	assertIndexPresence(t, ctx, conn, tableName, indexName, true)
+}
+
+func assertIndexMissing(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string) {
+	t.Helper()
+	assertIndexPresence(t, ctx, conn, tableName, indexName, false)
+}
+
+func assertIndexPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string, wantExists bool) {
+	t.Helper()
 	var exists bool
 	if err := conn.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -1492,8 +1612,8 @@ func assertIndexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, tableN
 		)`, tableName, indexName).Scan(&exists); err != nil {
 		t.Fatalf("check index %s on %s: %v", indexName, tableName, err)
 	}
-	if !exists {
-		t.Fatalf("expected index %s on %s", indexName, tableName)
+	if exists != wantExists {
+		t.Fatalf("expected index %s on %s exists=%v, got %v", indexName, tableName, wantExists, exists)
 	}
 }
 
@@ -1852,10 +1972,10 @@ RETURNING id`, "quota inventory constraints", "https://quota.example.test", "htt
 		t.Fatalf("expected concurrent probe policy to allow max concurrency with max timeout: %v", err)
 	}
 
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'queued')`, sidecarID); err != nil {
-		t.Fatalf("seed first active quota scan run: %v", err)
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'queued')`, sidecarID); err == nil {
+		t.Fatalf("expected queued quota scan run to be rejected after projection-only demotion")
 	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'running')`, sidecarID); err == nil {
-		t.Fatalf("expected second active quota scan run to violate the one-active-scan constraint")
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'completed'), ($1, 'scheduled', 'failed')`, sidecarID); err != nil {
+		t.Fatalf("expected projection-only quota scan history rows to insert without active uniqueness: %v", err)
 	}
 }
