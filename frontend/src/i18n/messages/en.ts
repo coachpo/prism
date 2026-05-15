@@ -354,10 +354,15 @@ export interface Messages {
     viewDetails: string;
     watchdogActiveRevisionIdLabel: string;
     watchdogActiveRevisionLabel: string;
-    watchdogActiveSweepDescription: (status: string, revision: string, next: string, total: string, nextBatchAfter: string) => string;
+    watchdogActiveSweepDescription: (status: string, revision: string, active: string, pending: string, terminal: string, total: string, startedAt: string) => string;
     watchdogActiveSweepTitle: string;
+    watchdogApplyAndRestart: string;
     watchdogApplyFailed: string;
     watchdogApplyPending: string;
+    watchdogApplyRestartFailed: string;
+    watchdogApplyRestartHint: string;
+    watchdogApplyRestartSucceeded: string;
+    watchdogApplyRestartUnavailable: string;
     watchdogApplySucceeded: string;
     watchdogAutomationSectionDescription: string;
     watchdogAutomationSectionTitle: string;
@@ -2578,13 +2583,18 @@ export const enMessages: Messages = {
     viewDetails: "View details",
     watchdogActiveRevisionIdLabel: "Active revision",
     watchdogActiveRevisionLabel: "Active revision",
-    watchdogActiveSweepDescription: (status, revision, next, total, nextBatchAfter) => `Sweep ${status} on revision #${revision}; cursor ${next}/${total}; next batch ${nextBatchAfter}.`,
-    watchdogActiveSweepTitle: "Active sweep pinned to a revision",
+    watchdogActiveSweepDescription: (status, revision, active, pending, terminal, total, startedAt) => `Sweep ${status} on revision #${revision}; ${active} active, ${pending} pending, ${terminal} terminal of ${total} child items; started ${startedAt}.`,
+    watchdogActiveSweepTitle: "Authoritative active sweep",
+    watchdogApplyAndRestart: "Apply and restart watchdog",
     watchdogApplyFailed: "Failed to apply pending watchdog policy.",
-    watchdogApplyPending: "Apply pending policy",
-    watchdogApplySucceeded: "Pending watchdog policy applied.",
-    watchdogAutomationSectionDescription: "Automatic initial inventory and rolling refresh remain visible, independent from manual quota scans.",
-    watchdogAutomationSectionTitle: "Automatic scan coverage",
+    watchdogApplyPending: "Apply to future sweeps",
+    watchdogApplyRestartFailed: "Failed to apply and restart watchdog policy.",
+    watchdogApplyRestartHint: "Apply-and-restart supersedes the current active sweep and starts replacement child work on the new revision.",
+    watchdogApplyRestartSucceeded: "Pending watchdog policy applied and active sweep restart requested.",
+    watchdogApplyRestartUnavailable: "No active sweep is running; use apply to make the revision authoritative for future work.",
+    watchdogApplySucceeded: "Pending watchdog policy applied for future sweeps.",
+    watchdogAutomationSectionDescription: "Choose which child work sources the watchdog may materialize; these are not separate scan runtimes.",
+    watchdogAutomationSectionTitle: "Child work sources",
     watchdogBatchSizeValidationError: "Probe batch size must be between 1 and 8.",
     watchdogCooldownJitterDescription: "Adds bounded randomness to cooldown scheduling so paused sweep work does not resume in one burst.",
     watchdogCooldownJitterLabel: "Cooldown jitter (percent)",
@@ -2602,10 +2612,10 @@ export const enMessages: Messages = {
     watchdogFallbackCooldownLabel: "Fallback cooldown (seconds)",
     watchdogInitialPriorityDescription: "Missing or zero stored priority resolves to initial; new writes must use positive values.",
     watchdogInitialPriorityLabel: "Initial priority",
-    watchdogInitialScanEnabledDescription: "Create a first quota inventory scan when newly synced auth files have no observed quota state.",
-    watchdogInitialScanEnabledLabel: "Initial inventory scan",
+    watchdogInitialScanEnabledDescription: "Materialize initial child work for newly synced auth files that have no observed quota state.",
+    watchdogInitialScanEnabledLabel: "Initial inventory items",
     watchdogManualPauseLabel: "Manual override pause (seconds)",
-    watchdogPendingApplyDescription: "Save created a pending revision. Active sweeps keep their pinned revision; click apply to activate the pending revision for the next watchdog run or restart boundary.",
+    watchdogPendingApplyDescription: "Save created a pending revision. Apply makes it authoritative for future sweeps; apply-and-restart also supersedes the current active sweep.",
     watchdogPendingApplyTitle: "Pending changes require apply",
     watchdogPendingRevisionIdLabel: "Pending revision",
     watchdogPendingRevisionLabel: "Pending revision staged",
@@ -2626,10 +2636,10 @@ export const enMessages: Messages = {
     watchdogQuotaInventoryEnabledDescription: "Maintain latest observed quota state for auth files without treating it as live provider truth.",
     watchdogQuotaInventoryEnabledLabel: "Quota inventory",
     watchdogRevisionModeLabel: "Editing mode",
-    watchdogRollingRefreshAfterDescription: "Refresh observed quota state after this age when rolling refresh is enabled.",
-    watchdogRollingRefreshAfterSecondsLabel: "Rolling refresh after (seconds)",
-    watchdogRollingRefreshEnabledDescription: "Schedule low-priority refresh probes for stale observed quota state in working and empty-quota bands.",
-    watchdogRollingRefreshEnabledLabel: "Rolling refresh",
+    watchdogRollingRefreshAfterDescription: "Mark observed quota state eligible for refresh child work after this age.",
+    watchdogRollingRefreshAfterSecondsLabel: "Refresh eligibility age (seconds)",
+    watchdogRollingRefreshEnabledDescription: "Materialize low-priority refresh child work for stale observed quota state in working and empty-quota bands.",
+    watchdogRollingRefreshEnabledLabel: "Rolling refresh items",
     watchdogSave: "Save as pending policy",
     watchdogSaveCreatesPending: "Save stages a pending revision; it does not activate the running watchdog policy.",
     watchdogSaveSucceeded: "Watchdog policy saved as pending changes.",
