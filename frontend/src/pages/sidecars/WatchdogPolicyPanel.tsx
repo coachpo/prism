@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
-import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from "react";
+import { AlertTriangle, CheckCircle2, Clock, Loader2, RotateCw, ShieldCheck } from "lucide-react";
+import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,22 +8,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarWatchdogPolicy, SidecarWatchdogPolicyUpdate } from "@/lib/types";
+import type { SidecarWatchdogPolicy, SidecarWatchdogPolicyRevision, SidecarWatchdogPolicyUpdate } from "@/lib/types";
+
+type WatchdogPolicyFormSource = Omit<SidecarWatchdogPolicyRevision, "id" | "policy_id" | "created_at">;
+type WatchdogPolicyFormUpdate = Omit<SidecarWatchdogPolicyUpdate, "expected_revision_id">;
 
 interface WatchdogPolicyPanelProps {
+  applying: boolean;
   loading: boolean;
-  onSave: (payload: SidecarWatchdogPolicyUpdate) => Promise<void>;
+  onApply: () => Promise<void>;
+  onSave: (payload: WatchdogPolicyFormUpdate) => Promise<void>;
   policy: SidecarWatchdogPolicy | null;
   saving: boolean;
 }
 
 type WatchdogPolicyForm = {
   enabled: boolean;
+  watchdog_sweep_interval_seconds: string;
   failure_threshold: string;
   failure_window_seconds: string;
   fallback_cooldown_seconds: string;
-  using_priority: string;
-  quota_exceeded_priority: string;
+  working_priority: string;
+  empty_quota_priority: string;
+  initial_priority: string;
   error_priority: string;
   manual_override_pause_seconds: string;
   probe_concurrency: string;
@@ -39,12 +47,14 @@ type WatchdogPolicyForm = {
 
 const DEFAULT_FORM: WatchdogPolicyForm = {
   enabled: true,
+  watchdog_sweep_interval_seconds: "3600",
   failure_threshold: "3",
   failure_window_seconds: "3600",
   fallback_cooldown_seconds: "86400",
-  using_priority: "1",
-  quota_exceeded_priority: "0",
-  error_priority: "0",
+  working_priority: "99",
+  empty_quota_priority: "90",
+  initial_priority: "50",
+  error_priority: "10",
   manual_override_pause_seconds: "1800",
   probe_concurrency: "3",
   probe_timeout_seconds: "8",
@@ -58,29 +68,36 @@ const DEFAULT_FORM: WatchdogPolicyForm = {
   rolling_refresh_after_seconds: "3600",
 };
 
+function formSourceFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyFormSource | null {
+  return policy?.pending_revision ?? policy?.active_revision ?? policy;
+}
+
 function formFromPolicy(policy: SidecarWatchdogPolicy | null): WatchdogPolicyForm {
-  if (!policy) {
+  const source = formSourceFromPolicy(policy);
+  if (!source) {
     return DEFAULT_FORM;
   }
   return {
-    enabled: policy.enabled,
-    failure_threshold: String(policy.failure_threshold),
-    failure_window_seconds: String(policy.failure_window_seconds),
-    fallback_cooldown_seconds: String(policy.fallback_cooldown_seconds),
-    using_priority: String(policy.using_priority),
-    quota_exceeded_priority: String(policy.quota_exceeded_priority),
-    error_priority: String(policy.error_priority),
-    manual_override_pause_seconds: String(policy.manual_override_pause_seconds),
-    probe_concurrency: String(policy.probe_concurrency),
-    probe_timeout_seconds: String(policy.probe_timeout_seconds),
-    probe_batch_cooldown_seconds: String(policy.probe_batch_cooldown_seconds),
-    probe_jitter_min_ms: String(policy.probe_jitter_min_ms),
-    probe_jitter_max_ms: String(policy.probe_jitter_max_ms),
-    cooldown_jitter_percent: String(policy.cooldown_jitter_percent),
-    quota_inventory_enabled: policy.quota_inventory_enabled,
-    initial_scan_enabled: policy.initial_scan_enabled,
-    rolling_refresh_enabled: policy.rolling_refresh_enabled,
-    rolling_refresh_after_seconds: String(policy.rolling_refresh_after_seconds),
+    enabled: source.enabled,
+    watchdog_sweep_interval_seconds: String(source.watchdog_sweep_interval_seconds),
+    failure_threshold: String(source.failure_threshold),
+    failure_window_seconds: String(source.failure_window_seconds),
+    fallback_cooldown_seconds: String(source.fallback_cooldown_seconds),
+    working_priority: String(source.working_priority),
+    empty_quota_priority: String(source.empty_quota_priority),
+    initial_priority: String(source.initial_priority),
+    error_priority: String(source.error_priority),
+    manual_override_pause_seconds: String(source.manual_override_pause_seconds),
+    probe_concurrency: String(source.probe_concurrency),
+    probe_timeout_seconds: String(source.probe_timeout_seconds),
+    probe_batch_cooldown_seconds: String(source.probe_batch_cooldown_seconds),
+    probe_jitter_min_ms: String(source.probe_jitter_min_ms),
+    probe_jitter_max_ms: String(source.probe_jitter_max_ms),
+    cooldown_jitter_percent: String(source.cooldown_jitter_percent),
+    quota_inventory_enabled: source.quota_inventory_enabled,
+    initial_scan_enabled: source.initial_scan_enabled,
+    rolling_refresh_enabled: source.rolling_refresh_enabled,
+    rolling_refresh_after_seconds: String(source.rolling_refresh_after_seconds),
   };
 }
 
@@ -151,8 +168,37 @@ function ToggleRow({
   );
 }
 
-export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: WatchdogPolicyPanelProps) {
-  const { messages } = useLocale();
+function SectionHeader({ description, title }: { description: string; title: string }) {
+  return (
+    <div className="space-y-1">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function RevisionStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-2 text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
+  if (!value) {
+    return fallback;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return fallback;
+  }
+  return date.toLocaleString(locale);
+}
+
+export function WatchdogPolicyPanel({ applying, loading, onApply, onSave, policy, saving }: WatchdogPolicyPanelProps) {
+  const { locale, messages } = useLocale();
   const copy = messages.sidecarsPage;
   const [form, setForm] = useState<WatchdogPolicyForm>(() => formFromPolicy(policy));
 
@@ -161,12 +207,14 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
   }, [policy]);
 
   const parsed = useMemo(() => ({
+    watchdog_sweep_interval_seconds: parseWholeNumber(form.watchdog_sweep_interval_seconds, 1),
     failure_threshold: parseWholeNumber(form.failure_threshold, 1),
     failure_window_seconds: parseWholeNumber(form.failure_window_seconds, 1),
     fallback_cooldown_seconds: parseWholeNumber(form.fallback_cooldown_seconds, 1),
-    using_priority: parseWholeNumber(form.using_priority, 0),
-    quota_exceeded_priority: parseWholeNumber(form.quota_exceeded_priority, 0),
-    error_priority: parseWholeNumber(form.error_priority, 0),
+    working_priority: parseWholeNumber(form.working_priority, 1),
+    empty_quota_priority: parseWholeNumber(form.empty_quota_priority, 1),
+    initial_priority: parseWholeNumber(form.initial_priority, 1),
+    error_priority: parseWholeNumber(form.error_priority, 1),
     manual_override_pause_seconds: parseWholeNumber(form.manual_override_pause_seconds, 1),
     probe_concurrency: parseWholeNumber(form.probe_concurrency, 1),
     probe_timeout_seconds: parseWholeNumber(form.probe_timeout_seconds, 1),
@@ -177,15 +225,19 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
     rolling_refresh_after_seconds: parseWholeNumber(form.rolling_refresh_after_seconds, 1),
   }), [form]);
 
-  const priorityOrderError = parsed.quota_exceeded_priority !== null
-    && parsed.using_priority !== null
+  const priorityOrderError = parsed.working_priority !== null
+    && parsed.empty_quota_priority !== null
+    && parsed.initial_priority !== null
     && parsed.error_priority !== null
-    && (parsed.quota_exceeded_priority > parsed.using_priority || parsed.error_priority > parsed.using_priority);
+    && (parsed.working_priority < parsed.empty_quota_priority
+      || parsed.empty_quota_priority < parsed.initial_priority
+      || parsed.initial_priority < parsed.error_priority);
+  const batchSizeRangeError = parsed.probe_concurrency !== null && parsed.probe_concurrency > 8;
   const jitterOrderError = parsed.probe_jitter_min_ms !== null
     && parsed.probe_jitter_max_ms !== null
     && parsed.probe_jitter_min_ms > parsed.probe_jitter_max_ms;
   const cooldownJitterRangeError = parsed.cooldown_jitter_percent !== null && parsed.cooldown_jitter_percent > 100;
-  const validationError = Object.values(parsed).some((value) => value === null) || priorityOrderError || jitterOrderError || cooldownJitterRangeError;
+  const validationError = Object.values(parsed).some((value) => value === null) || priorityOrderError || batchSizeRangeError || jitterOrderError || cooldownJitterRangeError;
 
   const updateField = (field: keyof WatchdogPolicyForm, value: string | boolean) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -198,11 +250,13 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
     }
     await onSave({
       enabled: form.enabled,
+      watchdog_sweep_interval_seconds: parsed.watchdog_sweep_interval_seconds ?? undefined,
       failure_threshold: parsed.failure_threshold ?? undefined,
       failure_window_seconds: parsed.failure_window_seconds ?? undefined,
       fallback_cooldown_seconds: parsed.fallback_cooldown_seconds ?? undefined,
-      using_priority: parsed.using_priority ?? undefined,
-      quota_exceeded_priority: parsed.quota_exceeded_priority ?? undefined,
+      working_priority: parsed.working_priority ?? undefined,
+      empty_quota_priority: parsed.empty_quota_priority ?? undefined,
+      initial_priority: parsed.initial_priority ?? undefined,
       error_priority: parsed.error_priority ?? undefined,
       manual_override_pause_seconds: parsed.manual_override_pause_seconds ?? undefined,
       probe_concurrency: parsed.probe_concurrency ?? undefined,
@@ -217,6 +271,12 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
       rolling_refresh_after_seconds: parsed.rolling_refresh_after_seconds ?? undefined,
     });
   };
+
+  const activeRevision = policy?.active_revision;
+  const pendingRevision = policy?.pending_revision;
+  const activeSweep = policy?.active_sweep;
+  const canApply = Boolean(policy?.has_pending_changes && activeRevision && pendingRevision);
+  const revisionModeLabel = policy?.has_pending_changes ? copy.watchdogPendingRevisionLabel : copy.watchdogActiveRevisionLabel;
 
   return (
     <Card data-testid="sidecar-watchdog-policy">
@@ -234,7 +294,43 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
             <div className="h-28 animate-pulse rounded-md bg-muted/50" />
           </div>
         ) : (
-          <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+          <form className="space-y-5" onSubmit={(event) => void handleSubmit(event)}>
+            <div className="grid gap-3 md:grid-cols-3">
+              <RevisionStat label={copy.watchdogRevisionModeLabel} value={<TypeBadge label={revisionModeLabel} intent={policy?.has_pending_changes ? "warning" : "success"} preserveLabel />} />
+              <RevisionStat label={copy.watchdogActiveRevisionIdLabel} value={<ValueBadge label={activeRevision ? `#${activeRevision.id}` : "—"} intent="info" />} />
+              <RevisionStat label={copy.watchdogPendingRevisionIdLabel} value={<ValueBadge label={pendingRevision ? `#${pendingRevision.id}` : "—"} intent={pendingRevision ? "warning" : "muted"} />} />
+            </div>
+
+            {policy?.has_pending_changes ? (
+              <Alert className="border-warning/30 bg-warning/10" data-testid="watchdog-pending-apply">
+                <RotateCw className="h-4 w-4" />
+                <AlertTitle>{copy.watchdogPendingApplyTitle}</AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>{copy.watchdogPendingApplyDescription}</p>
+                  <Button type="button" size="sm" onClick={() => void onApply()} disabled={!canApply || applying || saving} data-testid="watchdog-apply-policy">
+                    {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    {copy.watchdogApplyPending}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            {activeSweep ? (
+              <Alert className="border-info/30 bg-info/10">
+                <Clock className="h-4 w-4" />
+                <AlertTitle>{copy.watchdogActiveSweepTitle}</AlertTitle>
+                <AlertDescription>
+                  {copy.watchdogActiveSweepDescription(
+                    activeSweep.status,
+                    String(activeSweep.policy_revision_id),
+                    String(activeSweep.next_item_index),
+                    String(activeSweep.total_items),
+                    formatTimestamp(activeSweep.next_batch_after, locale, messages.common.unavailable),
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             <ToggleRow
               id="watchdog-enabled"
               checked={form.enabled}
@@ -243,15 +339,10 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
               onChange={(checked) => updateField("enabled", checked)}
             />
 
+            <SectionHeader title={copy.watchdogSweepSectionTitle} description={copy.watchdogSweepSectionDescription} />
             <div className="grid gap-3 md:grid-cols-2">
-              <Field id="watchdog-failure-threshold" label={copy.watchdogFailureThresholdLabel} min={1} value={form.failure_threshold} error={parsed.failure_threshold === null} onChange={(value) => updateField("failure_threshold", value)} />
-              <Field id="watchdog-failure-window" label={copy.watchdogFailureWindowLabel} min={1} value={form.failure_window_seconds} error={parsed.failure_window_seconds === null} onChange={(value) => updateField("failure_window_seconds", value)} />
-              <Field id="watchdog-fallback-cooldown" label={copy.watchdogFallbackCooldownLabel} min={1} value={form.fallback_cooldown_seconds} error={parsed.fallback_cooldown_seconds === null} onChange={(value) => updateField("fallback_cooldown_seconds", value)} />
-              <Field id="watchdog-manual-pause" label={copy.watchdogManualPauseLabel} min={1} value={form.manual_override_pause_seconds} error={parsed.manual_override_pause_seconds === null} onChange={(value) => updateField("manual_override_pause_seconds", value)} />
-              <Field id="watchdog-using-priority" label={copy.watchdogUsingPriorityLabel} min={0} value={form.using_priority} error={parsed.using_priority === null || priorityOrderError} description={copy.watchdogUsingPriorityDescription} onChange={(value) => updateField("using_priority", value)} />
-              <Field id="watchdog-quota-exceeded-priority" label={copy.watchdogQuotaExceededPriorityLabel} min={0} value={form.quota_exceeded_priority} error={parsed.quota_exceeded_priority === null || priorityOrderError} onChange={(value) => updateField("quota_exceeded_priority", value)} />
-              <Field id="watchdog-error-priority" label={copy.watchdogErrorPriorityLabel} min={0} value={form.error_priority} error={parsed.error_priority === null || priorityOrderError} onChange={(value) => updateField("error_priority", value)} />
-              <Field id="watchdog-probe-concurrency" label={copy.watchdogProbeConcurrencyLabel} min={1} value={form.probe_concurrency} error={parsed.probe_concurrency === null} onChange={(value) => updateField("probe_concurrency", value)} />
+              <Field id="watchdog-sweep-interval" label={copy.watchdogSweepIntervalSecondsLabel} min={1} value={form.watchdog_sweep_interval_seconds} error={parsed.watchdog_sweep_interval_seconds === null} description={copy.watchdogSweepIntervalDescription} onChange={(value) => updateField("watchdog_sweep_interval_seconds", value)} />
+              <Field id="watchdog-probe-concurrency" label={copy.watchdogProbeConcurrencyLabel} min={1} value={form.probe_concurrency} error={parsed.probe_concurrency === null || batchSizeRangeError} description={copy.watchdogProbeConcurrencyDescription} onChange={(value) => updateField("probe_concurrency", value)} />
               <Field id="watchdog-probe-timeout" label={copy.watchdogProbeTimeoutSecondsLabel} min={1} value={form.probe_timeout_seconds} error={parsed.probe_timeout_seconds === null} onChange={(value) => updateField("probe_timeout_seconds", value)} />
               <Field id="watchdog-probe-batch-cooldown" label={copy.watchdogProbeBatchCooldownSecondsLabel} min={1} value={form.probe_batch_cooldown_seconds} error={parsed.probe_batch_cooldown_seconds === null} description={copy.watchdogProbeBatchCooldownDescription} onChange={(value) => updateField("probe_batch_cooldown_seconds", value)} />
               <Field id="watchdog-probe-jitter-min" label={copy.watchdogProbeJitterMinLabel} min={0} value={form.probe_jitter_min_ms} error={parsed.probe_jitter_min_ms === null || jitterOrderError} onChange={(value) => updateField("probe_jitter_min_ms", value)} />
@@ -260,28 +351,19 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
               <Field id="watchdog-rolling-refresh-after" label={copy.watchdogRollingRefreshAfterSecondsLabel} min={1} value={form.rolling_refresh_after_seconds} error={parsed.rolling_refresh_after_seconds === null} description={copy.watchdogRollingRefreshAfterDescription} onChange={(value) => updateField("rolling_refresh_after_seconds", value)} />
             </div>
 
+            <SectionHeader title={copy.watchdogPriorityBandsSectionTitle} description={copy.watchdogPriorityBandsSectionDescription} />
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field id="watchdog-working-priority" label={copy.watchdogWorkingPriorityLabel} min={1} value={form.working_priority} error={parsed.working_priority === null || priorityOrderError} description={copy.watchdogWorkingPriorityDescription} onChange={(value) => updateField("working_priority", value)} />
+              <Field id="watchdog-empty-quota-priority" label={copy.watchdogEmptyQuotaPriorityLabel} min={1} value={form.empty_quota_priority} error={parsed.empty_quota_priority === null || priorityOrderError} description={copy.watchdogEmptyQuotaPriorityDescription} onChange={(value) => updateField("empty_quota_priority", value)} />
+              <Field id="watchdog-initial-priority" label={copy.watchdogInitialPriorityLabel} min={1} value={form.initial_priority} error={parsed.initial_priority === null || priorityOrderError} description={copy.watchdogInitialPriorityDescription} onChange={(value) => updateField("initial_priority", value)} />
+              <Field id="watchdog-error-priority" label={copy.watchdogErrorPriorityLabel} min={1} value={form.error_priority} error={parsed.error_priority === null || priorityOrderError} description={copy.watchdogErrorPriorityDescription} onChange={(value) => updateField("error_priority", value)} />
+            </div>
+
+            <SectionHeader title={copy.watchdogAutomationSectionTitle} description={copy.watchdogAutomationSectionDescription} />
             <div className="grid gap-3">
-              <ToggleRow
-                id="watchdog-quota-inventory-enabled"
-                checked={form.quota_inventory_enabled}
-                label={copy.watchdogQuotaInventoryEnabledLabel}
-                description={copy.watchdogQuotaInventoryEnabledDescription}
-                onChange={(checked) => updateField("quota_inventory_enabled", checked)}
-              />
-              <ToggleRow
-                id="watchdog-initial-scan-enabled"
-                checked={form.initial_scan_enabled}
-                label={copy.watchdogInitialScanEnabledLabel}
-                description={copy.watchdogInitialScanEnabledDescription}
-                onChange={(checked) => updateField("initial_scan_enabled", checked)}
-              />
-              <ToggleRow
-                id="watchdog-rolling-refresh-enabled"
-                checked={form.rolling_refresh_enabled}
-                label={copy.watchdogRollingRefreshEnabledLabel}
-                description={copy.watchdogRollingRefreshEnabledDescription}
-                onChange={(checked) => updateField("rolling_refresh_enabled", checked)}
-              />
+              <ToggleRow id="watchdog-quota-inventory-enabled" checked={form.quota_inventory_enabled} label={copy.watchdogQuotaInventoryEnabledLabel} description={copy.watchdogQuotaInventoryEnabledDescription} onChange={(checked) => updateField("quota_inventory_enabled", checked)} />
+              <ToggleRow id="watchdog-initial-scan-enabled" checked={form.initial_scan_enabled} label={copy.watchdogInitialScanEnabledLabel} description={copy.watchdogInitialScanEnabledDescription} onChange={(checked) => updateField("initial_scan_enabled", checked)} />
+              <ToggleRow id="watchdog-rolling-refresh-enabled" checked={form.rolling_refresh_enabled} label={copy.watchdogRollingRefreshEnabledLabel} description={copy.watchdogRollingRefreshEnabledDescription} onChange={(checked) => updateField("rolling_refresh_enabled", checked)} />
             </div>
 
             <Alert className="border-warning/30 bg-warning/10">
@@ -292,14 +374,17 @@ export function WatchdogPolicyPanel({ loading, onSave, policy, saving }: Watchdo
 
             {validationError ? (
               <p className="text-sm text-destructive">
-                {jitterOrderError ? copy.watchdogJitterOrderValidationError : cooldownJitterRangeError ? copy.watchdogCooldownJitterValidationError : priorityOrderError ? copy.watchdogPriorityOrderValidationError : copy.watchdogValidationError}
+                {jitterOrderError ? copy.watchdogJitterOrderValidationError : cooldownJitterRangeError ? copy.watchdogCooldownJitterValidationError : batchSizeRangeError ? copy.watchdogBatchSizeValidationError : priorityOrderError ? copy.watchdogPriorityOrderValidationError : copy.watchdogValidationError}
               </p>
             ) : null}
 
-            <Button type="submit" disabled={saving || validationError}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {copy.watchdogSave}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" disabled={saving || applying || validationError}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {copy.watchdogSave}
+              </Button>
+              <p className="text-xs text-muted-foreground">{copy.watchdogSaveCreatesPending}</p>
+            </div>
           </form>
         )}
       </CardContent>

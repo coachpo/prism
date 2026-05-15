@@ -68,7 +68,9 @@ export function SidecarsScaffold() {
               scans={pageData.quotaScans}
             />
             <WatchdogPolicyPanel
+              applying={pageData.watchdogPolicyApplying}
               loading={pageData.sidecarDetailLoading}
+              onApply={pageData.handleApplyWatchdogPolicy}
               onSave={pageData.handleSaveWatchdogPolicy}
               policy={pageData.watchdogPolicy}
               saving={pageData.watchdogPolicySaving}

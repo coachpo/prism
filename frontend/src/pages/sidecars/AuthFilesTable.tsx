@@ -36,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarActionHistoryItem, SidecarAuthQuotaState, SidecarAuthSnapshot, SidecarQuotaBand } from "@/lib/types";
+import type { SidecarActionHistoryItem, SidecarAuthQuotaState, SidecarAuthSnapshot, SidecarPriorityState, SidecarQuotaBand } from "@/lib/types";
 import {
   formatActionStatus,
   formatActionType,
@@ -182,6 +182,26 @@ function quotaBandIntent(quotaBand: SidecarQuotaBand | undefined): BadgeIntent {
   return "muted";
 }
 
+function priorityStateIntent(priorityState: SidecarPriorityState | undefined): BadgeIntent {
+  if (priorityState === "working") {
+    return "success";
+  }
+  if (priorityState === "empty-quota") {
+    return "warning";
+  }
+  if (priorityState === "initial") {
+    return "info";
+  }
+  if (priorityState === "error") {
+    return "danger";
+  }
+  return "muted";
+}
+
+function labelFor(labels: Record<string, string>, value: string | undefined) {
+  return value ? labels[value] ?? value : "—";
+}
+
 function summarizeJson(
   value: unknown,
   bucketSummary: (count: number) => string,
@@ -218,7 +238,7 @@ function getPriorityInputValue(
   drafts: Record<string, string>,
   snapshot: SidecarAuthSnapshot,
 ) {
-  return drafts[snapshot.auth_id] ?? String(snapshot.priority ?? 0);
+  return drafts[snapshot.auth_id] ?? (snapshot.priority === undefined ? "" : String(snapshot.priority));
 }
 
 function parsePriority(value: string) {
@@ -227,7 +247,7 @@ function parsePriority(value: string) {
     return null;
   }
   const parsed = Number(trimmed);
-  return Number.isSafeInteger(parsed) ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
 function normalizeAuthSearch(value: string) {
@@ -578,12 +598,14 @@ export function AuthFilesTable({
                                 label={quotaState ? copy.quotaStateLabels[quotaState.quota_band] : copy.quotaStateMissing}
                                 intent={quotaBandIntent(quotaState?.quota_band)}
                               />
-                              {quotaState?.current_priority !== undefined ? (
-                                <ValueBadge
-                                  label={copy.authPriorityLabel(quotaState.current_priority)}
-                                  intent={quotaState.current_priority === 0 ? "warning" : "info"}
+                              {quotaState?.priority_state ? (
+                                <TypeBadge
+                                  label={labelFor(copy.priorityStateLabels, quotaState.priority_state)}
+                                  intent={priorityStateIntent(quotaState.priority_state)}
+                                  preserveLabel
                                 />
                               ) : null}
+                              {quotaState?.current_priority !== undefined ? <ValueBadge label={copy.authPriorityLabel(quotaState.current_priority)} intent="info" /> : null}
                               {quotaState?.active_hold ? <TypeBadge label={copy.quotaStateWatchdogHold} intent="warning" preserveLabel /> : null}
                             </div>
                             <span>{copy.quotaStateLatestObserved}</span>
@@ -595,14 +617,14 @@ export function AuthFilesTable({
                         <TableCell>
                           <div className="flex min-w-44 flex-col gap-2">
                             <div className="flex flex-wrap items-center gap-1">
-                              <ValueBadge label={copy.authPriorityLabel(snapshot.priority ?? 0)} intent={snapshot.priority === 0 || snapshot.priority === undefined ? "warning" : "info"} />
-                              {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="warning" preserveLabel /> : null}
+                              {snapshot.priority !== undefined ? <ValueBadge label={copy.authPriorityLabel(snapshot.priority)} intent="info" /> : null}
+                              {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="info" preserveLabel /> : null}
                             </div>
                             <div className="flex items-center gap-2">
                               <Input
                                 aria-label={copy.authPriorityInputLabel(snapshot.name)}
                                 className="h-8 w-24"
-                                min={0}
+                                min={1}
                                 step={1}
                                 type="number"
                                 value={priorityValue}
@@ -620,7 +642,7 @@ export function AuthFilesTable({
                                 {copy.authSavePriority}
                               </Button>
                             </div>
-                            {priorityValue === "0" ? <span className="text-xs text-warning">{copy.authPriority0LastResort}</span> : null}
+                            {parsedPriority === null ? <span className="text-xs text-warning">{copy.authPriorityPositiveRequired}</span> : null}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -733,8 +755,8 @@ export function AuthFilesTable({
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-left">
                 <p>{copy.authActionConfirmDescription}</p>
-                {pendingMutation?.kind === "priority" && pendingMutation.priority === 0 ? (
-                  <p className="font-medium text-warning">{copy.authPriority0MutationWarning}</p>
+                {pendingMutation?.kind === "priority" ? (
+                  <p className="font-medium text-warning">{copy.authPriorityMutationWarning}</p>
                 ) : null}
                 <div className="flex items-start gap-2 rounded-lg border bg-muted/20 p-3">
                   <Checkbox

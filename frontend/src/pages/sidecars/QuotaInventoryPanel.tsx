@@ -74,6 +74,7 @@ export function QuotaInventoryPanel({ loading, mutating, onCancelScan, onStartSc
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">{copy.quotaScanWatchdogNote}</p>
         {loading ? (
           <div className="space-y-2">
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />

@@ -1,6 +1,6 @@
 import { History } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
-import { TypeBadge, ValueBadge } from "@/components/StatusBadge";
+import { TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -50,6 +50,39 @@ function redactSensitiveText(value: string | undefined, redactedLabel: string) {
 function knownActionFallback(actionType: string, actionLabels: ActionTypeLabels) {
   const formatted = formatActionType(actionType, actionLabels);
   return formatted === actionType ? "—" : formatted;
+}
+
+function labelFor(labels: Record<string, string>, value: string | undefined) {
+  return value ? labels[value] ?? value : "—";
+}
+
+function priorityStateIntent(value: string | undefined): BadgeIntent {
+  if (value === "working") {
+    return "success";
+  }
+  if (value === "empty-quota") {
+    return "warning";
+  }
+  if (value === "initial") {
+    return "info";
+  }
+  if (value === "error") {
+    return "danger";
+  }
+  return "muted";
+}
+
+function mutationOutcomeIntent(value: string | undefined): BadgeIntent {
+  if (value === "patched") {
+    return "success";
+  }
+  if (value === "already_at_target" || value === "skipped") {
+    return "warning";
+  }
+  if (value === "failed") {
+    return "danger";
+  }
+  return "muted";
 }
 
 function formatReason(action: SidecarActionHistoryItem, actionLabels: ActionTypeLabels, redactedLabel: string) {
@@ -141,10 +174,16 @@ export function SidecarActionHistory({ actions, loading }: SidecarActionHistoryP
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
+                          <div className="flex min-w-52 flex-col gap-1 text-xs text-muted-foreground">
                             <div className="flex flex-wrap gap-1">
                               {action.previous_priority !== undefined ? <ValueBadge label={copy.actionHistoryFromPriority(action.previous_priority)} intent="muted" /> : null}
+                              {action.previous_priority_state ? <TypeBadge label={copy.actionHistoryFromPriorityState(labelFor(copy.priorityStateLabels, action.previous_priority_state))} intent={priorityStateIntent(action.previous_priority_state)} preserveLabel /> : null}
                               {action.target_priority !== undefined ? <ValueBadge label={copy.actionHistoryToPriority(action.target_priority)} intent="warning" /> : null}
+                              {action.target_priority_state ? <TypeBadge label={copy.actionHistoryToPriorityState(labelFor(copy.priorityStateLabels, action.target_priority_state))} intent={priorityStateIntent(action.target_priority_state)} preserveLabel /> : null}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {action.priority_state ? <TypeBadge label={copy.actionHistoryPriorityState(labelFor(copy.priorityStateLabels, action.priority_state))} intent={priorityStateIntent(action.priority_state)} preserveLabel /> : null}
+                              {action.mutation_outcome ? <TypeBadge label={labelFor(copy.mutationOutcomeLabels, action.mutation_outcome)} intent={mutationOutcomeIntent(action.mutation_outcome)} preserveLabel /> : null}
                             </div>
                             {action.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(action.hold_until, locale, messages.common.unavailable))}</span> : null}
                           </div>
