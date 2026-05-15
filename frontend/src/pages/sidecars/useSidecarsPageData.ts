@@ -8,7 +8,6 @@ import type {
   SidecarAuthSnapshot,
   SidecarInstance,
   SidecarProviderSnapshot,
-  SidecarQuotaScanRun,
   SidecarWatchdogPolicy,
   SidecarWatchdogPolicyUpdate,
 } from "@/lib/types";
@@ -52,11 +51,9 @@ export function useSidecarsPageData() {
   const [watchdogPolicy, setWatchdogPolicy] = useState<SidecarWatchdogPolicy | null>(null);
   const [actionHistory, setActionHistory] = useState<SidecarActionHistoryItem[]>([]);
   const [quotaStates, setQuotaStates] = useState<SidecarAuthQuotaState[]>([]);
-  const [quotaScans, setQuotaScans] = useState<SidecarQuotaScanRun[]>([]);
   const [sidecarDetailLoading, setSidecarDetailLoading] = useState(false);
   const [watchdogPolicySaving, setWatchdogPolicySaving] = useState(false);
-  const [watchdogPolicyApplying, setWatchdogPolicyApplying] = useState(false);
-  const [quotaScanMutating, setQuotaScanMutating] = useState<"start" | "cancel" | null>(null);
+  const [watchdogPolicyApplyMode, setWatchdogPolicyApplyMode] = useState<"apply" | "restart" | null>(null);
   const [mutatingAuthKey, setMutatingAuthKey] = useState<string | null>(null);
   const detailRequestIdRef = useRef(0);
   const detailInFlightRef = useRef<Promise<void> | null>(null);
@@ -76,7 +73,6 @@ export function useSidecarsPageData() {
     setWatchdogPolicy(null);
     setActionHistory([]);
     setQuotaStates([]);
-    setQuotaScans([]);
   }, []);
 
   const fetchSidecarDetail = useCallback(async (sidecarId: number, options: FetchOptions = {}) => {
@@ -111,14 +107,11 @@ export function useSidecarsPageData() {
         if (!isCurrentRequest()) return;
         const quotaStateResponse = await api.sidecars.quotaStates(sidecarId);
         if (!isCurrentRequest()) return;
-        const quotaScanResponse = await api.sidecars.quotaScans(sidecarId);
-        if (!isCurrentRequest()) return;
         setAuthSnapshots(authResponse.items);
         setProviderSnapshots(providerResponse.items);
         setWatchdogPolicy(policyResponse);
         setActionHistory(actionsResponse.items);
         setQuotaStates(quotaStateResponse.items);
-        setQuotaScans(quotaScanResponse.items);
       } catch (error) {
         if (!isCurrentRequest()) {
           return;
@@ -350,62 +343,33 @@ export function useSidecarsPageData() {
     }
   };
 
-  const handleApplyWatchdogPolicy = async () => {
+  const applyWatchdogPolicy = async (mode: "apply" | "restart") => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null || !watchdogPolicy?.pending_revision || !watchdogPolicy.active_revision) {
       return;
     }
-    setWatchdogPolicyApplying(true);
+    setWatchdogPolicyApplyMode(mode);
     try {
-      const updated = await api.sidecars.applyWatchdogPolicy(selectedSidecarId, {
+      const payload = {
         target_revision_id: watchdogPolicy.pending_revision.id,
         expected_revision_id: watchdogPolicy.active_revision.id,
-      });
+      };
+      const updated = mode === "restart"
+        ? await api.sidecars.applyAndRestartWatchdogPolicy(selectedSidecarId, payload)
+        : await api.sidecars.applyWatchdogPolicy(selectedSidecarId, payload);
       setWatchdogPolicy(updated);
-      toast.success(messages.sidecarsPage.watchdogApplySucceeded);
+      toast.success(mode === "restart" ? messages.sidecarsPage.watchdogApplyRestartSucceeded : messages.sidecarsPage.watchdogApplySucceeded);
       await fetchSidecarDetail(selectedSidecarId);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.watchdogApplyFailed);
+      toast.error(error instanceof Error ? error.message : mode === "restart" ? messages.sidecarsPage.watchdogApplyRestartFailed : messages.sidecarsPage.watchdogApplyFailed);
     } finally {
-      setWatchdogPolicyApplying(false);
+      setWatchdogPolicyApplyMode(null);
     }
   };
 
-  const handleStartQuotaScan = async () => {
-    const messages = getStaticMessages();
-    if (selectedSidecarId === null) {
-      return;
-    }
-    setQuotaScanMutating("start");
-    try {
-      const scan = await api.sidecars.startQuotaScan(selectedSidecarId, { replace_active: false });
-      setQuotaScans((current) => [scan, ...current.filter((item) => item.id !== scan.id)]);
-      toast.success(messages.sidecarsPage.quotaScanStartSucceeded(selectedSidecar?.name ?? String(selectedSidecarId)));
-      await fetchSidecarDetail(selectedSidecarId, { silent: true });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.quotaScanStartFailed);
-    } finally {
-      setQuotaScanMutating(null);
-    }
-  };
+  const handleApplyWatchdogPolicy = async () => applyWatchdogPolicy("apply");
 
-  const handleCancelQuotaScan = async (scan: SidecarQuotaScanRun) => {
-    const messages = getStaticMessages();
-    if (selectedSidecarId === null) {
-      return;
-    }
-    setQuotaScanMutating("cancel");
-    try {
-      const cancelled = await api.sidecars.cancelQuotaScan(selectedSidecarId, scan.id);
-      setQuotaScans((current) => current.map((item) => (item.id === cancelled.id ? cancelled : item)));
-      toast.success(messages.sidecarsPage.quotaScanCancelSucceeded);
-      await fetchSidecarDetail(selectedSidecarId, { silent: true });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.quotaScanCancelFailed);
-    } finally {
-      setQuotaScanMutating(null);
-    }
-  };
+  const handleApplyAndRestartWatchdogPolicy = async () => applyWatchdogPolicy("restart");
 
   const handlePatchAuthStatus = async (snapshot: SidecarAuthSnapshot, disabled: boolean, allowWatchdog: boolean) => {
     const messages = getStaticMessages();
@@ -463,11 +427,10 @@ export function useSidecarsPageData() {
     watchdogPolicy,
     actionHistory,
     quotaStates,
-    quotaScans,
     sidecarDetailLoading,
     watchdogPolicySaving,
-    watchdogPolicyApplying,
-    quotaScanMutating,
+    watchdogPolicyApplying: watchdogPolicyApplyMode === "apply",
+    watchdogPolicyRestarting: watchdogPolicyApplyMode === "restart",
     mutatingAuthKey,
     setSelectedSidecarId: handleSelectSidecar,
     openCreateSidecarDialog,
@@ -481,8 +444,7 @@ export function useSidecarsPageData() {
     handleManualSync,
     handleSaveWatchdogPolicy,
     handleApplyWatchdogPolicy,
-    handleStartQuotaScan,
-    handleCancelQuotaScan,
+    handleApplyAndRestartWatchdogPolicy,
     handlePatchAuthStatus,
     handlePatchAuthPriority,
     refreshSidecars: fetchSidecars,
