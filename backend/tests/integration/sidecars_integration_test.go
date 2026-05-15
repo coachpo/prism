@@ -110,7 +110,7 @@ func TestSidecarIntegrationProbeLifecycleDeprioritizesRestoresAndExtendsHold(t *
 	conn, service, router := newSidecarIntegrationServiceRouterWithNow(t, ctx, func() time.Time { return now })
 	upstream := newSidecarIntegrationUpstream(t)
 	defer upstream.Close()
-	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-codex-lifecycle", "idx-codex-lifecycle", 10))
+	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-codex-lifecycle", "idx-codex-lifecycle", 99))
 	sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "probe-lifecycle")
 	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 2, 2)
 
@@ -120,10 +120,10 @@ func TestSidecarIntegrationProbeLifecycleDeprioritizesRestoresAndExtendsHold(t *
 	if err != nil || !result.Reconciled {
 		t.Fatalf("expected exhausted probe to deprioritize, result=%+v err=%v", result, err)
 	}
-	upstream.assertFieldPatchPriorities(t, []int{0})
+	upstream.assertFieldPatchPriorities(t, []int{90})
 	upstream.assertAPICalls(t, []string{"idx-codex-lifecycle"})
 	sidecarIntegrationSetProbeBatchCompletedAt(t, conn, sidecarID, now)
-	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-lifecycle", 10, 0, resetAt)
+	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-lifecycle", 99, 90, resetAt)
 	sidecarIntegrationAssertProbeObservation(t, conn, sidecarID, "auth-codex-lifecycle", "probe_succeeded", true, 0)
 	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 1)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
@@ -144,9 +144,9 @@ func TestSidecarIntegrationProbeLifecycleDeprioritizesRestoresAndExtendsHold(t *
 	if err != nil || result.Reconciled {
 		t.Fatalf("expected still-exhausted due hold to extend without priority patch, result=%+v err=%v", result, err)
 	}
-	upstream.assertFieldPatchPriorities(t, []int{0})
+	upstream.assertFieldPatchPriorities(t, []int{90})
 	upstream.assertAPICalls(t, []string{"idx-codex-lifecycle", "idx-codex-lifecycle"})
-	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-lifecycle", 10, 0, extendedResetAt)
+	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-lifecycle", 99, 90, extendedResetAt)
 	sidecarIntegrationAssertAction(t, conn, sidecarID, "restore_skipped_unhealthy", "skipped")
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 
@@ -156,7 +156,7 @@ func TestSidecarIntegrationProbeLifecycleDeprioritizesRestoresAndExtendsHold(t *
 	if err != nil || !result.Reconciled {
 		t.Fatalf("expected healthy due hold to restore priority, result=%+v err=%v", result, err)
 	}
-	upstream.assertFieldPatchPriorities(t, []int{0, 10})
+	upstream.assertFieldPatchPriorities(t, []int{90, 99})
 	upstream.assertAPICalls(t, []string{"idx-codex-lifecycle", "idx-codex-lifecycle", "idx-codex-lifecycle"})
 	sidecarIntegrationAssertReleasedHold(t, conn, sidecarID, "auth-codex-lifecycle")
 	sidecarIntegrationAssertAction(t, conn, sidecarID, "restore", "succeeded")
@@ -236,7 +236,7 @@ func TestSidecarIntegrationProbeFailuresDoNotPatchPriority(t *testing.T) {
 			conn, service, router := newSidecarIntegrationServiceRouterWithNow(t, ctx, func() time.Time { return now })
 			upstream := newSidecarIntegrationUpstream(t)
 			defer upstream.Close()
-			upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-codex-failure", "idx-codex-failure", 10))
+			upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-codex-failure", "idx-codex-failure", 99))
 			upstream.setAPICallResponse("idx-codex-failure", tt.response)
 			sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "probe-failure-"+tt.name)
 			sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, tt.timeoutSeconds)
@@ -313,8 +313,8 @@ func TestSidecarIntegrationProbeCursorRotation(t *testing.T) {
 	upstream := newSidecarIntegrationUpstream(t)
 	defer upstream.Close()
 	upstream.setAuthFiles(
-		sidecarIntegrationCodexAuthFixture("auth-codex-a", "idx-codex-a", 10),
-		sidecarIntegrationCodexAuthFixture("auth-codex-b", "idx-codex-b", 10),
+		sidecarIntegrationCodexAuthFixture("auth-codex-a", "idx-codex-a", 99),
+		sidecarIntegrationCodexAuthFixture("auth-codex-b", "idx-codex-b", 99),
 	)
 	sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "probe-cursor")
 	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, 2)
@@ -403,8 +403,8 @@ func TestSidecarIntegrationManualQuotaScanLifecycleAndPrivacy(t *testing.T) {
 	startBody, scan := sidecarIntegrationRequestJSON(t, router, http.MethodPost, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans", map[string]any{"requested_by": "integration-operator"}, http.StatusAccepted)
 	sidecarIntegrationAssertNoLeaks(t, startBody)
 	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, startBody, "idx-low", "idx-high")
-	if scan["status"] != "queued" || sidecarIntegrationInt(t, scan["planned_count"], "planned_count") != 2 {
-		t.Fatalf("expected queued manual quota scan with two planned auths, got %+v", scan)
+	if scan["status"] != "completed" || sidecarIntegrationInt(t, scan["planned_count"], "planned_count") != 2 || scan["completed_at"] == nil {
+		t.Fatalf("expected completed manual quota projection with two planned auths, got %+v", scan)
 	}
 	scanID := sidecarIntegrationInt(t, scan["id"], "id")
 	upstream.assertAPICalls(t, nil)
@@ -415,12 +415,8 @@ func TestSidecarIntegrationManualQuotaScanLifecycleAndPrivacy(t *testing.T) {
 	}
 	upstream.assertAPICalls(t, []string{"idx-low"})
 
-	currentBody, current := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, http.StatusOK)
+	currentBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, http.StatusNoContent)
 	sidecarIntegrationAssertNoLeaks(t, currentBody)
-	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, currentBody, "idx-low", "idx-high")
-	if current["status"] != "running" || sidecarIntegrationInt(t, current["attempted_count"], "attempted_count") != 1 {
-		t.Fatalf("expected running scan after first probe, got %+v", current)
-	}
 
 	statesBody, states := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-states", nil, http.StatusOK)
 	sidecarIntegrationAssertNoLeaks(t, statesBody)
@@ -430,16 +426,16 @@ func TestSidecarIntegrationManualQuotaScanLifecycleAndPrivacy(t *testing.T) {
 	cancelBody, cancelled := sidecarIntegrationRequestJSON(t, router, http.MethodPost, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/"+strconv.Itoa(scanID)+"/cancel", nil, http.StatusAccepted)
 	sidecarIntegrationAssertNoLeaks(t, cancelBody)
 	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, cancelBody, "idx-low", "idx-high")
-	if cancelled["status"] != "cancelled" || cancelled["cancel_requested_at"] == nil || cancelled["completed_at"] == nil {
-		t.Fatalf("expected cancelled quota scan lifecycle fields, got %+v", cancelled)
+	if cancelled["status"] != "completed" || cancelled["completed_at"] == nil {
+		t.Fatalf("expected terminal quota projection to remain completed after idempotent cancel, got %+v", cancelled)
 	}
 	missingBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, http.StatusNoContent)
 	sidecarIntegrationAssertNoLeaks(t, missingBody)
 	listBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans", nil, http.StatusOK)
 	sidecarIntegrationAssertNoLeaks(t, listBody)
 	sidecarIntegrationAssertQuotaRouteNoInternalLeak(t, listBody, "idx-low", "idx-high")
-	if !strings.Contains(listBody, "cancelled") {
-		t.Fatalf("expected cancelled scan in scan history, got %s", listBody)
+	if !strings.Contains(listBody, "completed") {
+		t.Fatalf("expected completed scan projection in scan history, got %s", listBody)
 	}
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }

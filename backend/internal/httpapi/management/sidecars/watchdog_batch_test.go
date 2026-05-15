@@ -963,16 +963,31 @@ func TestBuildWatchdogSweepSnapshotOrdering(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("sweep snapshot ordering = %v, want %v", got, want)
 		}
+		revision, err := service.store.(watchdogPolicyRevisionLifecyclePersistence).EnsureActiveWatchdogPolicyRevision(t.Context(), policy)
+		if err != nil {
+			t.Fatalf("ensure ordering revision: %v", err)
+		}
+		sweep, err := service.store.(watchdogSweepLifecyclePersistence).UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "sweep-ordering-facts", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: marshalWatchdogSweepItems(t, items), StartedAt: now})
+		if err != nil {
+			t.Fatalf("seed ordering sweep: %v", err)
+		}
+		materializeWatchdogSweepTestItems(t, service, sweep, items)
+		childItems, err := service.store.(watchdogSweepItemPersistence).ListWatchdogSweepItems(t.Context(), sweep.SweepID)
+		if err != nil {
+			t.Fatalf("list materialized ordering items: %v", err)
+		}
+		if len(childItems) != len(items) || childItems[0].SourceRank != watchdogSweepSourceRank(watchdogSweepSourceDueHoldProbe) || childItems[0].Priority != DefaultWorkingPriority || childItems[0].DueAt == nil || !childItems[0].DueAt.Equal(dueAt) {
+			t.Fatalf("due-hold materialized facts were not frozen: %+v", childItems)
+		}
+		if childItems[3].SourceRank != watchdogSweepSourceRank(watchdogSweepSourceInitialInventoryProbe) || childItems[3].Priority != DefaultInitialPriority+20 || childItems[7].SourceRank != watchdogSweepSourceRank(watchdogSweepSourceRollingRefreshProbe) || childItems[7].DueAt == nil || !childItems[7].DueAt.Equal(lastProbedOld) {
+			t.Fatalf("inventory/rolling materialized facts were not frozen: %+v", childItems)
+		}
 	})
 
-	t.Run("manual scan source", func(t *testing.T) {
+	t.Run("initial inventory source", func(t *testing.T) {
 		service := newWatchdogTestService(t, func() time.Time { return now })
 		sidecar := createSyncTestSidecar(t, service, "http://127.0.0.1:18080", true, 60)
 		policy.SidecarID = sidecar.ID
-		startedAt := now.Add(-time.Minute)
-		if _, err := service.store.(quotaScanRunPersistence).CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 3, StartedAt: &startedAt}); err != nil {
-			t.Fatalf("seed manual scan run: %v", err)
-		}
 		dueAt := now.Add(-time.Hour)
 		dueHold := SidecarWatchdogHold{ID: 2, SidecarID: sidecar.ID, AuthID: "auth-manual-due", AuthIndex: stringPtr("idx-manual-due"), Provider: stringPtr("codex"), Reason: watchdogReasonQuotaExceeded, PreviousPriority: intPtr(DefaultWorkingPriority), TargetPriority: DefaultEmptyQuotaPriority, HoldUntil: &dueAt, Status: WatchdogHoldStatusActive}
 		freshSnapshots := []SidecarAuthSnapshot{
@@ -988,12 +1003,12 @@ func TestBuildWatchdogSweepSnapshotOrdering(t *testing.T) {
 		got := watchdogSweepSourceAuthIDs(items)
 		want := []string{
 			watchdogSweepSourceDueHoldProbe + ":auth-manual-due",
-			watchdogSweepSourceManualScanProbe + ":auth-manual-a",
-			watchdogSweepSourceManualScanProbe + ":auth-manual-b",
-			watchdogSweepSourceManualScanProbe + ":auth-manual-empty",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-manual-a",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-manual-b",
+			watchdogSweepSourceInitialInventoryProbe + ":auth-manual-empty",
 		}
 		if !slices.Equal(got, want) {
-			t.Fatalf("manual sweep snapshot ordering = %v, want %v", got, want)
+			t.Fatalf("inventory sweep snapshot ordering = %v, want %v", got, want)
 		}
 	})
 }
@@ -1247,9 +1262,12 @@ func TestWatchdogBatchCooldownBetweenSweepBatches(t *testing.T) {
 		{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-cool-c", AuthIndex: "idx-cool-c", Provider: "codex"},
 	}
 	lifecycle := service.store.(watchdogSweepLifecyclePersistence)
-	_, err = lifecycle.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "sweep-cooldown", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: marshalWatchdogSweepItems(t, items), StartedAt: now.Add(-time.Second)})
+	sweep, err := lifecycle.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "sweep-cooldown", SidecarID: sidecar.ID, PolicyRevisionID: revision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: marshalWatchdogSweepItems(t, items), StartedAt: now.Add(-time.Second)})
 	if err != nil {
 		t.Fatalf("seed cooldown sweep: %v", err)
+	}
+	if err := service.materializeWatchdogSweepItems(t.Context(), sweep, items); err != nil {
+		t.Fatalf("materialize cooldown sweep items: %v", err)
 	}
 
 	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
@@ -1600,6 +1618,36 @@ func TestWatchdogDueHoldFailureCooldownPreventsStarvation(t *testing.T) {
 	}
 }
 
+func TestManualQuotaScanActiveSweepFailureDoesNotCreateProjection(t *testing.T) {
+	now := time.Date(2026, time.May, 11, 16, 45, 0, 0, time.UTC)
+	upstream := newWatchdogProbeTestUpstream(t)
+	defer upstream.Close()
+	service := newWatchdogTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 76)
+	enableWatchdogProbePolicy(t, service, sidecar.ID, 1, 5)
+	markWatchdogSnapshotsFresh(t, service, sidecar.ID, now)
+	seedWatchdogProbeSnapshot(t, service, sidecar.ID, now, "auth-manual-conflict", "idx-manual-conflict", "codex", 0)
+	policyState, err := service.getWatchdogPolicyRevisionState(t.Context(), sidecar.ID)
+	if err != nil || policyState.ActiveRevision == nil {
+		t.Fatalf("load active watchdog revision: state=%+v err=%v", policyState, err)
+	}
+	if _, err := service.store.(watchdogSweepLifecyclePersistence).UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "sweep-manual-conflict", SidecarID: sidecar.ID, PolicyRevisionID: policyState.ActiveRevision.ID, Status: string(SidecarWatchdogSweepStatusPaused), SnapshotJSON: json.RawMessage(`[]`), StartedAt: now}); err != nil {
+		t.Fatalf("seed active sweep: %v", err)
+	}
+
+	_, err = service.StartManualQuotaScan(t.Context(), sidecar.ID, nil, false)
+	if err == nil || !strings.Contains(err.Error(), "active watchdog sweep already exists") {
+		t.Fatalf("expected active sweep conflict, got %v", err)
+	}
+	runs, err := service.store.ListQuotaScanRuns(t.Context(), sidecar.ID)
+	if err != nil {
+		t.Fatalf("list quota scan projections: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("failed manual scan queued misleading projection history: %+v", runs)
+	}
+}
+
 func TestManualQuotaScanIsAsyncResumableAndCancellable(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 17, 0, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
@@ -1635,11 +1683,19 @@ func TestManualQuotaScanIsAsyncResumableAndCancellable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start manual quota scan: %v", err)
 	}
-	if scanRun.Status != quotaScanStatusQueued || scanRun.PlannedCount != 2 {
-		t.Fatalf("manual quota scan not queued with planned inventory: %+v", scanRun)
+	if scanRun.Status != quotaScanStatusCompleted || scanRun.PlannedCount != 2 {
+		t.Fatalf("manual quota scan projection not recorded with planned inventory: %+v", scanRun)
 	}
 	if calls := upstream.apiCallAuthIndexes(); len(calls) != 0 {
 		t.Fatalf("manual quota scan must not probe before reconcile, got %v", calls)
+	}
+	activeSweep, found, err := service.store.(watchdogSweepLifecyclePersistence).GetActiveWatchdogSweep(t.Context(), sidecar.ID)
+	if err != nil || !found || activeSweep.Status != string(SidecarWatchdogSweepStatusPaused) {
+		t.Fatalf("manual quota scan did not queue a paused parent sweep: sweep=%+v found=%v err=%v", activeSweep, found, err)
+	}
+	items, err := service.store.(watchdogSweepItemPersistence).ListWatchdogSweepItems(t.Context(), activeSweep.SweepID)
+	if err != nil || len(items) != 2 || items[0].Source != watchdogSweepSourceManualScanProbe {
+		t.Fatalf("manual quota scan did not materialize child items: items=%+v err=%v", items, err)
 	}
 	result, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID)
 	if err != nil {
@@ -1654,29 +1710,9 @@ func TestManualQuotaScanIsAsyncResumableAndCancellable(t *testing.T) {
 	if result.Probed != 1 {
 		t.Fatalf("expected one manual probe on first reconcile, got %+v", result)
 	}
-	reloadedRun, ok, err := service.store.(quotaScanRunPersistence).GetQuotaScanRun(t.Context(), sidecar.ID, scanRun.ID)
-	if err != nil || !ok || reloadedRun.AttemptedCount != 1 || reloadedRun.Status != quotaScanStatusRunning {
-		t.Fatalf("manual scan should stay resumable after one tick: run=%+v ok=%v err=%v", reloadedRun, ok, err)
-	}
-	cancelled, err := service.CancelQuotaScanRun(t.Context(), sidecar.ID, scanRun.ID)
-	if err != nil {
-		t.Fatalf("cancel manual quota scan: %v", err)
-	}
-	if cancelled.Status != quotaScanStatusCancelled || cancelled.CompletedAt == nil || cancelled.CancelRequestedAt == nil {
-		t.Fatalf("manual quota scan cancellation not persisted: %+v", cancelled)
-	}
-	if _, err := service.ReconcileSidecarWatchdog(t.Context(), sidecar.ID); err != nil {
-		t.Fatalf("post-cancel manual quota reconcile: %v", err)
-	}
-	if calls := upstream.apiCallAuthIndexes(); !slices.Equal(calls, []string{"idx-low"}) {
-		t.Fatalf("cancelled manual scan must stop future probe selection, got %v", calls)
-	}
-	if got := upstream.fieldPatchPriorities(); len(got) != 0 {
-		t.Fatalf("cancelled manual scan must not reprioritize authfiles, got %v", got)
-	}
 }
 
-func TestWatchdogQuotaScanUsesOrderedConcurrentWaveAndCompletes(t *testing.T) {
+func TestWatchdogSweepUsesOrderedConcurrentWaveAndMaterializedItems(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 17, 15, 0, 0, time.UTC)
 	upstream := newWatchdogProbeTestUpstream(t)
 	defer upstream.Close()
@@ -1703,23 +1739,27 @@ func TestWatchdogQuotaScanUsesOrderedConcurrentWaveAndCompletes(t *testing.T) {
 	})
 	service := newWatchdogTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 77)
-	policy := SidecarWatchdogPolicy{ProbeConcurrency: 3, ProbeTimeoutSeconds: 5, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds}
-	scanRun, err := service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusQueued, PlannedCount: 2})
+	policy := SidecarWatchdogPolicy{SidecarID: sidecar.ID, Enabled: true, ProbeConcurrency: 3, ProbeTimeoutSeconds: 5, ProbeBatchCooldownSeconds: 5, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaInventoryEnabled: true, InitialScanEnabled: true, WorkingPriority: DefaultWorkingPriority, EmptyQuotaPriority: DefaultEmptyQuotaPriority, InitialPriority: DefaultInitialPriority, ErrorPriority: DefaultErrorPriority}
+	revision, err := service.store.(watchdogPolicyRevisionLifecyclePersistence).EnsureActiveWatchdogPolicyRevision(t.Context(), policy)
 	if err != nil {
-		t.Fatalf("create quota scan run: %v", err)
+		t.Fatalf("ensure active revision: %v", err)
 	}
 	snapshots := []SidecarAuthSnapshot{
 		{SidecarID: sidecar.ID, AuthID: "auth-a", AuthIndex: stringPtr("idx-a"), Name: "auth-a.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(DefaultWorkingPriority)},
 		{SidecarID: sidecar.ID, AuthID: "auth-b", AuthIndex: stringPtr("idx-b"), Name: "auth-b.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(DefaultWorkingPriority)},
 		{SidecarID: sidecar.ID, AuthID: "auth-c", AuthIndex: stringPtr("idx-c"), Name: "auth-c.json", Provider: stringPtr("codex"), Disabled: boolPtr(false), Priority: intPtr(DefaultWorkingPriority)},
 	}
-	run := newWatchdogProbeRun(policy, time.Now().UTC())
+	items := make([]watchdogSweepSnapshotItem, 0, 2)
+	quotaStates := map[string]SidecarAuthQuotaState{}
+	for _, candidate := range watchdogQuotaScanProbeCandidates(policy, SidecarQuotaScanRun{ScanType: quotaScanTypeInitial, PlannedCount: 2}, snapshots[:2], map[string]struct{}{}, quotaStates) {
+		items = append(items, watchdogSweepItemFromCandidate(watchdogSweepSourceInitialInventoryProbe, candidate, nil, nil, watchdogQuotaScanCandidateLastProbedAt(candidate, quotaStates)))
+	}
 	resultCh := make(chan struct {
 		outcome watchdogProbeBatchOutcome
 		err     error
 	}, 1)
 	go func() {
-		outcome, err := service.reconcileQuotaScanRunBatch(t.Context(), sidecar, policy, snapshots, map[string]struct{}{}, map[string]SidecarAuthQuotaState{}, scanRun, &run, now)
+		outcome, err := service.startWatchdogSweep(t.Context(), service.store.(watchdogSweepLifecyclePersistence), sidecar, policy, revision, items, watchdogProbeBatchOutcome{}, map[string]SidecarAuthSnapshot{}, nil, now)
 		resultCh <- struct {
 			outcome watchdogProbeBatchOutcome
 			err     error
@@ -1728,42 +1768,28 @@ func TestWatchdogQuotaScanUsesOrderedConcurrentWaveAndCompletes(t *testing.T) {
 	select {
 	case <-firstStarted:
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for first quota probe to start")
+		t.Fatal("timed out waiting for first sweep probe to start")
 	}
 	select {
 	case <-secondStarted:
 		close(releaseFirst)
 	case <-time.After(time.Second):
 		close(releaseFirst)
-		t.Fatal("quota scan did not launch the second probe concurrently")
+		t.Fatal("sweep did not launch the second probe concurrently")
 	}
-	var result struct {
-		outcome watchdogProbeBatchOutcome
-		err     error
-	}
-	select {
-	case result = <-resultCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for ordered quota scan reconcile")
-	}
+	result := <-resultCh
 	if result.err != nil {
-		t.Fatalf("reconcile quota scan batch: %v", result.err)
+		t.Fatalf("run sweep batch: %v", result.err)
 	}
 	if calls := upstream.apiCallAuthIndexes(); len(calls) != 2 || !slices.Contains(calls, "idx-a") || !slices.Contains(calls, "idx-b") || slices.Contains(calls, "idx-c") {
-		t.Fatalf("quota scan should launch only the planned auths, got %v", calls)
+		t.Fatalf("sweep should launch only materialized auths, got %v", calls)
 	}
 	if result.outcome.Attempted != 2 || result.outcome.ProbeFailed != 0 {
-		t.Fatalf("unexpected quota scan outcome: %+v", result.outcome)
+		t.Fatalf("unexpected sweep outcome: %+v", result.outcome)
 	}
-	reloadedRun, ok, err := service.store.(quotaScanRunPersistence).GetQuotaScanRun(t.Context(), sidecar.ID, scanRun.ID)
-	if err != nil || !ok {
-		t.Fatalf("reload completed quota scan run: ok=%v err=%v", ok, err)
-	}
-	if reloadedRun.Status != quotaScanStatusCompleted || reloadedRun.AttemptedCount != 2 || reloadedRun.PlannedCount != 2 || reloadedRun.CompletedAt == nil {
-		t.Fatalf("quota scan did not complete with preserved counts: %+v", reloadedRun)
-	}
-	if stringValue(reloadedRun.CursorAuthID) != "auth-b" {
-		t.Fatalf("quota scan cursor advanced out of order: %+v", reloadedRun)
+	active, found, err := service.store.(watchdogSweepLifecyclePersistence).GetActiveWatchdogSweep(t.Context(), sidecar.ID)
+	if err != nil || found || active.SweepID != "" {
+		t.Fatalf("sweep should complete after materialized items: sweep=%+v found=%v err=%v", active, found, err)
 	}
 }
 
