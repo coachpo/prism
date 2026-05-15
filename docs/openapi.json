@@ -17421,7 +17421,7 @@
           },
           "probe_timeout_seconds": {
             "type": "integer",
-            "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes."
+            "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes. Accepted range is 1 through 120 seconds."
           },
           "probe_batch_cooldown_seconds": {
             "type": "integer",
@@ -17609,7 +17609,7 @@
           },
           "probe_timeout_seconds": {
             "type": "integer",
-            "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes."
+            "description": "Per-probe timeout in seconds for CLIProxyAPI /api-call quota probes. Accepted range is 1 through 120 seconds."
           },
           "probe_batch_cooldown_seconds": {
             "type": "integer",
