@@ -57,15 +57,20 @@ type ProviderSnapshot = {
   snapshot?: unknown;
 };
 
-type WatchdogPolicy = {
+type WatchdogPolicyRevision = {
   id: number;
+  policy_id: number;
   sidecar_id: number;
   enabled: boolean;
+  watchdog_sweep_interval_seconds: number;
   failure_threshold: number;
   failure_window_seconds: number;
   fallback_cooldown_seconds: number;
   using_priority: number;
   quota_exceeded_priority: number;
+  working_priority: number;
+  empty_quota_priority: number;
+  initial_priority: number;
   error_priority: number;
   manual_override_pause_seconds: number;
   probe_concurrency: number;
@@ -79,6 +84,25 @@ type WatchdogPolicy = {
   rolling_refresh_enabled: boolean;
   rolling_refresh_after_seconds: number;
   created_at: string;
+};
+
+type WatchdogPolicy = Omit<WatchdogPolicyRevision, "policy_id" | "created_at"> & {
+  active_revision_id?: number;
+  pending_revision_id?: number;
+  has_pending_changes: boolean;
+  active_revision?: WatchdogPolicyRevision;
+  pending_revision?: WatchdogPolicyRevision;
+  active_sweep?: {
+    sweep_id: string;
+    status: string;
+    policy_revision_id: number;
+    started_at: string;
+    next_batch_after?: string;
+    restart_requested_at?: string;
+    next_item_index: number;
+    total_items: number;
+  };
+  created_at: string;
   updated_at: string;
 };
 
@@ -91,7 +115,11 @@ type ActionItem = {
   status: string;
   reason?: string;
   previous_priority?: number;
+  previous_priority_state?: string;
   target_priority?: number;
+  target_priority_state?: string;
+  priority_state?: string;
+  mutation_outcome?: string;
   hold_until?: string;
   error_message?: string;
   created_at: string;
@@ -186,17 +214,22 @@ function defaultProviderSnapshots(): ProviderSnapshot[] {
   ];
 }
 
-function defaultWatchdogPolicy(): WatchdogPolicy {
+function watchdogRevision(overrides: Partial<WatchdogPolicyRevision> = {}): WatchdogPolicyRevision {
   return {
-    id: 31,
+    id: 101,
+    policy_id: 31,
     sidecar_id: 1,
     enabled: true,
+    watchdog_sweep_interval_seconds: 3600,
     failure_threshold: 3,
     failure_window_seconds: 3600,
     fallback_cooldown_seconds: 86400,
-    using_priority: 1,
-    quota_exceeded_priority: 0,
-    error_priority: 0,
+    using_priority: 99,
+    quota_exceeded_priority: 90,
+    working_priority: 99,
+    empty_quota_priority: 90,
+    initial_priority: 50,
+    error_priority: 10,
     manual_override_pause_seconds: 1800,
     probe_concurrency: 3,
     probe_timeout_seconds: 8,
@@ -209,8 +242,27 @@ function defaultWatchdogPolicy(): WatchdogPolicy {
     rolling_refresh_enabled: true,
     rolling_refresh_after_seconds: 3600,
     created_at: now,
+    ...overrides,
+  };
+}
+
+function watchdogPolicyFromRevisions(activeRevision: WatchdogPolicyRevision, pendingRevision?: WatchdogPolicyRevision): WatchdogPolicy {
+  return {
+    ...activeRevision,
+    id: activeRevision.policy_id,
+    active_revision_id: activeRevision.id,
+    pending_revision_id: pendingRevision?.id,
+    has_pending_changes: Boolean(pendingRevision),
+    active_revision: activeRevision,
+    pending_revision: pendingRevision,
+    active_sweep: undefined,
+    created_at: now,
     updated_at: now,
   };
+}
+
+function defaultWatchdogPolicy(): WatchdogPolicy {
+  return watchdogPolicyFromRevisions(watchdogRevision());
 }
 
 function syncStatus(target: Sidecar) {
@@ -231,17 +283,18 @@ function syncStatus(target: Sidecar) {
 
 function defaultActions(): ActionItem[] {
   return [
-    { id: 41, sidecar_id: 1, auth_id: "auth-primary", provider: "gemini", action_type: "watchdog.deprioritize", status: "succeeded", reason: "quota_exceeded", previous_priority: 20, target_priority: 0, hold_until: future, created_at: now, updated_at: now, completed_at: now },
-    { id: 42, sidecar_id: 1, auth_id: "auth-disabled", provider: "claude", action_type: "watchdog.restore", status: "skipped", reason: "manual_pause", previous_priority: 0, target_priority: 10, created_at: now, updated_at: now },
-    { id: 43, sidecar_id: 1, auth_id: "auth-quota", provider: "gemini", action_type: "operator_patch", status: "failed", reason: "status", error_message: "upstream rejected", created_at: now, updated_at: now },
+    { id: 41, sidecar_id: 1, auth_id: "auth-primary", provider: "gemini", action_type: "watchdog.deprioritize", status: "succeeded", reason: "quota_exceeded", previous_priority: 99, previous_priority_state: "working", target_priority: 90, target_priority_state: "empty-quota", priority_state: "empty-quota", mutation_outcome: "patched", hold_until: future, created_at: now, updated_at: now, completed_at: now },
+    { id: 42, sidecar_id: 1, auth_id: "auth-disabled", provider: "claude", action_type: "watchdog.restore", status: "skipped", reason: "manual_pause", previous_priority: 90, previous_priority_state: "empty-quota", target_priority: 99, target_priority_state: "working", priority_state: "working", mutation_outcome: "skipped", created_at: now, updated_at: now },
+    { id: 43, sidecar_id: 1, auth_id: "auth-quota", provider: "gemini", action_type: "operator_patch", status: "failed", reason: "status", priority_state: "error", mutation_outcome: "failed", error_message: "upstream rejected", created_at: now, updated_at: now },
+    { id: 44, sidecar_id: 1, auth_id: "auth-quota-zero", provider: "gemini", action_type: "watchdog.deprioritize", status: "succeeded", reason: "already_at_target", previous_priority: 90, previous_priority_state: "empty-quota", target_priority: 90, target_priority_state: "empty-quota", priority_state: "empty-quota", mutation_outcome: "already_at_target", created_at: now, updated_at: now, completed_at: now },
   ];
 }
 
 function defaultQuotaStates(): QuotaState[] {
   return [
-    { sidecar_id: 1, auth_id: "auth-primary", auth_name: "primary-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 20, quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false },
-    { sidecar_id: 1, auth_id: "auth-quota", auth_name: "quota-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 0, quota_band: "quota_exceeded", probe_status: "blocked", reason_code: "daily_limit", quota_reset_at: future, last_snapshot_at: now, last_probed_at: now, active_hold: true },
-    { sidecar_id: 1, auth_id: "auth-quota-zero", auth_name: "quota-zero.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 0, quota_band: "quota_exceeded", reason_code: "daily_limit", last_snapshot_at: now, last_probed_at: now, active_hold: true },
+    { sidecar_id: 1, auth_id: "auth-primary", auth_name: "primary-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 99, priority_state: "working", quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false },
+    { sidecar_id: 1, auth_id: "auth-quota", auth_name: "quota-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 90, priority_state: "empty-quota", quota_band: "quota_exceeded", probe_status: "blocked", reason_code: "daily_limit", quota_reset_at: future, last_snapshot_at: now, last_probed_at: now, active_hold: true },
+    { sidecar_id: 1, auth_id: "auth-quota-zero", auth_name: "quota-zero.json", provider: "gemini", auth_index_present: true, disabled: false, priority_state: "initial", quota_band: "quota_exceeded", reason_code: "daily_limit", last_snapshot_at: now, last_probed_at: now, active_hold: true },
   ];
 }
 
@@ -368,7 +421,7 @@ async function mockSidecarsApi(
   };
 
   const quotaStatesFor = (sidecarId: number) => sidecarId === 2
-    ? [{ sidecar_id: 2, auth_id: "auth-edge", auth_name: "edge-oauth.json", provider: "codex", auth_index_present: true, disabled: false, current_priority: 5, quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false }]
+    ? [{ sidecar_id: 2, auth_id: "auth-edge", auth_name: "edge-oauth.json", provider: "codex", auth_index_present: true, disabled: false, current_priority: 5, priority_state: "error", quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false }]
     : quotaStates;
 
   await page.route("**/*", async (route) => {
@@ -423,7 +476,17 @@ async function mockSidecarsApi(
       return json(route, watchdogPolicy);
     }
     if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy$/) && request.method() === "PUT") {
-      watchdogPolicy = { ...watchdogPolicy, ...JSON.parse(request.postData() ?? "{}"), updated_at: now };
+      const payload = JSON.parse(request.postData() ?? "{}");
+      const baseRevision = watchdogPolicy.pending_revision ?? watchdogPolicy.active_revision ?? watchdogRevision();
+      const pendingRevision = watchdogRevision({ ...baseRevision, ...payload, id: 202, created_at: now });
+      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.active_revision ?? baseRevision, pendingRevision);
+      return json(route, watchdogPolicy);
+    }
+    if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy\/apply$/) && request.method() === "POST") {
+      if (!watchdogPolicy.pending_revision) {
+        return json(route, { error: "missing pending revision" }, 409);
+      }
+      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.pending_revision);
       return json(route, watchdogPolicy);
     }
     const actionsMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/actions$/);
@@ -511,13 +574,16 @@ test.describe("sidecars management", () => {
 
     await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("quota-oauth.json");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Priority 0 remains a last-resort option.");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter a positive priority.");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("missing resolves to initial");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("Latest observed quota");
+    await expect(page.getByTestId("quota-state-auth-primary")).toContainText("Working");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Quota Exceeded");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Empty-quota");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Latest observed state, not real-time provider truth.");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Reason code: daily_limit");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Watchdog hold");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("priority 0");
+    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("priority 90");
     await expect(page.getByTestId("quota-state-auth-quota")).toContainText(await page.evaluate(() => new Date("2026-05-10T12:00:00.000Z").toLocaleString()));
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Quota scan progress");
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Manual");
@@ -529,17 +595,26 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("quota-scan-progress")).toContainText("Skipped 1");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Using priority");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Quota exceeded priority");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Error priority");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe concurrency");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Editing mode");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Active revision");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Pending revision");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Sweep interval (seconds)");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Rest period after a sweep completes");
+    await expect(page.locator("#watchdog-sweep-interval")).toHaveValue("3600");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe batch size");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("Probe concurrency");
     await expect(page.locator("#watchdog-probe-concurrency")).toBeVisible();
     await expect(page.locator("#watchdog-probe-concurrency")).toHaveValue("3");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe batch cooldown (seconds)");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Pause between batches inside one active sweep");
+    await expect(page.locator("#watchdog-probe-batch-cooldown")).toHaveValue("30");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe jitter min (ms)");
     await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Cooldown jitter (percent)");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe priority safety note");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("due holds may still probe lower-priority auth");
+    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Priority-state safety note");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.restore");
+    await expect(page.getByTestId("sidecar-action-history")).toContainText("from Empty-quota");
+    await expect(page.getByTestId("sidecar-action-history")).toContainText("to Working");
+    await expect(page.getByTestId("sidecar-action-history")).toContainText("Already at target");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("Failed");
     await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-states");
     await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-scans");
@@ -548,19 +623,16 @@ test.describe("sidecars management", () => {
 
     const quotaAuthRow = page.getByRole("row").filter({ hasText: "quota-oauth.json" });
     await page.getByLabel("Priority for quota-oauth.json").fill("0");
-    await quotaAuthRow.getByRole("button", { name: "Save" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("Priority 0 is lowest/last resort, not guaranteed exclusion");
+    await expect(quotaAuthRow.getByRole("button", { name: "Save" })).toBeDisabled();
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter a positive priority.");
     await expectNoRawSecrets(page);
     await page.screenshot({ path: evidencePaths.priorityWarning, fullPage: true });
-    await page.getByLabel("Allow watchdog immediately").check();
-    await page.getByRole("button", { name: "Apply change" }).click();
-    await expect.poll(() => api.calls).toContain("PATCH /api/sidecars/1/auth-files/auth-quota/fields");
-
-    await page.getByLabel("Failure threshold").fill("5");
-    await page.getByLabel("Fallback cooldown (seconds)").fill("86400");
-    await page.getByRole("button", { name: "Save watchdog policy" }).click();
+    await page.getByLabel("Sweep interval (seconds)").fill("7200");
+    await page.getByRole("button", { name: "Save as pending policy" }).click();
     await expect.poll(() => api.calls).toContain("PUT /api/sidecars/1/watchdog-policy");
-    await expect(page.getByLabel("Failure threshold")).toHaveValue("5");
+    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Pending changes require apply");
+    await page.getByTestId("watchdog-apply-policy").click();
+    await expect.poll(() => api.calls).toContain("POST /api/sidecars/1/watchdog-policy/apply");
     await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.deprioritize");
     await expectNoRawSecrets(page);
     await page.screenshot({ path: evidencePaths.watchdogActions, fullPage: true });

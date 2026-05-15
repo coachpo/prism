@@ -1,6 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://127.0.0.1:4173";
+const e2eHost = "127.0.0.1";
+const e2ePort = 15174;
+const defaultBaseURL = `http://${e2eHost}:${e2ePort}`;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || defaultBaseURL;
 const disableWebServer =
   process.env.PLAYWRIGHT_DISABLE_WEBSERVER === "1" ||
   process.env.PLAYWRIGHT_DISABLE_WEBSERVER?.toLowerCase() === "true";
@@ -15,8 +18,8 @@ export default defineConfig({
   webServer: disableWebServer
     ? undefined
     : {
-        command: "pnpm exec vite --host 127.0.0.1 --port 4173 --strictPort",
-        url: "http://127.0.0.1:4173",
-        reuseExistingServer: !process.env.CI,
+        command: `pnpm exec vite --host ${e2eHost} --port ${e2ePort} --strictPort`,
+        url: defaultBaseURL,
+        reuseExistingServer: false,
       },
 });
