@@ -115,15 +115,23 @@ export interface SidecarWatchdogPolicyRevision {
   created_at: string;
 }
 
+export interface SidecarWatchdogActiveSweepProgress {
+  total_items: number;
+  pending_items: number;
+  active_items: number;
+  succeeded_items: number;
+  failed_items: number;
+  cancelled_items: number;
+  superseded_items: number;
+  terminal_items: number;
+}
+
 export interface SidecarWatchdogActiveSweep {
   sweep_id: string;
   status: string;
   policy_revision_id: number;
   started_at: string;
-  next_batch_after?: string;
-  restart_requested_at?: string;
-  next_item_index: number;
-  total_items: number;
+  progress: SidecarWatchdogActiveSweepProgress;
 }
 
 export interface SidecarWatchdogPolicy extends Omit<SidecarWatchdogPolicyRevision, "id" | "policy_id" | "created_at"> {

@@ -96,6 +96,11 @@ export const sidecars = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  applyAndRestartWatchdogPolicy: (sidecarId: number, data: SidecarWatchdogPolicyApplyInput) =>
+    request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy/apply-and-restart`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   actionHistory: (sidecarId: number) =>
     request<SidecarActionHistoryListResponse>(`/api/sidecars/${sidecarId}/actions`),
   quotaStates: (sidecarId: number) =>
