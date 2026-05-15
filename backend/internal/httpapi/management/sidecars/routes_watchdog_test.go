@@ -107,23 +107,134 @@ func TestWatchdogPolicyApplyActivatesPendingRevision(t *testing.T) {
 	}
 }
 
-func TestActiveSweepKeepsStartingRevision(t *testing.T) {
+func TestWatchdogPolicyApplyDoesNotRestartActiveSweep(t *testing.T) {
 	now := time.Date(2026, time.May, 15, 10, 30, 0, 0, time.UTC)
 	service, router, sidecar := newWatchdogRouteTest(t, now)
 	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
 	activeID := initial.ActiveRevision.ID
 	sweepStore := service.store.(watchdogSweepLifecyclePersistence)
-	_, err := sweepStore.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "route-sweep-pinned", SidecarID: sidecar.ID, PolicyRevisionID: activeID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: marshalWatchdogSweepItems(t, []watchdogSweepSnapshotItem{{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-pinned", AuthIndex: "idx-pinned", Provider: "codex"}}), NextItemIndex: 1, StartedAt: now})
+	items := []watchdogSweepSnapshotItem{{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-pinned", AuthIndex: "idx-pinned", Provider: "codex"}}
+	sweep, err := sweepStore.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "route-sweep-pinned", SidecarID: sidecar.ID, PolicyRevisionID: activeID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: marshalWatchdogSweepItems(t, items), NextItemIndex: 1, StartedAt: now})
 	if err != nil {
 		t.Fatalf("seed active sweep: %v", err)
 	}
+	materializeWatchdogSweepTestItems(t, service, sweep, items)
 	pending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":7}`, http.StatusOK)
 	applied := applyWatchdogPolicyRoute(t, router, sidecar.ID, pending.PendingRevision.ID, activeID, http.StatusOK)
-	if applied.ActiveSweep == nil || applied.ActiveSweep.PolicyRevisionID != activeID || applied.ActiveSweep.TotalItems != 1 || applied.ActiveSweep.RestartRequestedAt == nil {
-		t.Fatalf("active sweep should stay pinned with restart intent: %+v", applied.ActiveSweep)
+	if applied.ActiveSweep == nil || applied.ActiveSweep.PolicyRevisionID != activeID || applied.ActiveSweep.Progress.TotalItems != 1 || applied.ActiveSweep.Progress.PendingItems != 1 {
+		t.Fatalf("apply should leave active sweep pinned with child progress: %+v", applied.ActiveSweep)
 	}
 	if applied.ActiveRevision.ID != pending.PendingRevision.ID || applied.ActiveRevision.ProbeConcurrency != 7 {
 		t.Fatalf("active policy should move to pending revision for future sweeps: %+v", applied.ActiveRevision)
+	}
+	activeSweep, found, err := sweepStore.GetActiveWatchdogSweep(t.Context(), sidecar.ID)
+	if err != nil || !found || activeSweep.SweepID != "route-sweep-pinned" || activeSweep.Status != string(SidecarWatchdogSweepStatusRunning) {
+		t.Fatalf("apply should not cancel active sweep: active=%+v found=%v err=%v", activeSweep, found, err)
+	}
+}
+
+func TestWatchdogPolicyApplyAndRestartSupersedesActiveSweepAndChildItems(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 40, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	activeID := initial.ActiveRevision.ID
+	sweepStore := service.store.(watchdogSweepLifecyclePersistence)
+	items := []watchdogSweepSnapshotItem{
+		{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-restart-a", AuthIndex: "idx-restart-a", Provider: "codex"},
+		{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-restart-b", AuthIndex: "idx-restart-b", Provider: "codex"},
+	}
+	sweep, err := sweepStore.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "route-sweep-restart", SidecarID: sidecar.ID, PolicyRevisionID: activeID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: marshalWatchdogSweepItems(t, items), StartedAt: now})
+	if err != nil {
+		t.Fatalf("seed active sweep: %v", err)
+	}
+	materializeWatchdogSweepTestItems(t, service, sweep, items)
+	itemStore := service.store.(watchdogSweepItemPersistence)
+	leaseOwner := "route-restart-worker"
+	leaseExpiresAt := now.Add(time.Minute)
+	claimed, err := itemStore.ClaimWatchdogSweepItems(t.Context(), SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sidecar.ID, Limit: 1, LeaseOwner: leaseOwner, LeaseExpiresAt: leaseExpiresAt, ClaimedAt: now})
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim one child before restart: claimed=%+v err=%v", claimed, err)
+	}
+	pending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":8}`, http.StatusOK)
+	applied := applyAndRestartWatchdogPolicyRoute(t, router, sidecar.ID, pending.PendingRevision.ID, activeID, http.StatusOK)
+	if applied.ActiveSweep != nil || applied.HasPendingChanges || applied.PendingRevision != nil {
+		t.Fatalf("apply-and-restart should clear pending state and supersede active sweep: %+v", applied)
+	}
+	if applied.ActiveRevision == nil || applied.ActiveRevision.ID != pending.PendingRevision.ID || applied.ActiveRevision.ProbeConcurrency != 8 {
+		t.Fatalf("apply-and-restart did not activate pending revision: %+v", applied.ActiveRevision)
+	}
+	activeSweep, found, err := sweepStore.GetActiveWatchdogSweep(t.Context(), sidecar.ID)
+	if err != nil || found {
+		t.Fatalf("apply-and-restart should cancel active sweep: active=%+v found=%v err=%v", activeSweep, found, err)
+	}
+	afterRestartClaim, err := itemStore.ClaimWatchdogSweepItems(t.Context(), SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sidecar.ID, Limit: 2, LeaseOwner: "post-restart-worker", LeaseExpiresAt: leaseExpiresAt, ClaimedAt: now})
+	if err != nil || len(afterRestartClaim) != 0 {
+		t.Fatalf("superseded sweep should not lease children: claimed=%+v err=%v", afterRestartClaim, err)
+	}
+	childItems, err := itemStore.ListWatchdogSweepItems(t.Context(), sweep.SweepID)
+	if err != nil || len(childItems) != len(items) {
+		t.Fatalf("list superseded child items: items=%+v err=%v", childItems, err)
+	}
+	for _, item := range childItems {
+		if item.Status != string(SidecarWatchdogSweepItemStatusSuperseded) || item.LeaseOwner != nil || item.LeaseExpiresAt != nil || item.CompletedAt == nil || stringValue(item.LastErrorCode) != watchdogPolicyRestartSupersedeReason {
+			t.Fatalf("child item was not durably superseded: %+v", item)
+		}
+	}
+	store := service.store.(*memorySidecarStore)
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	if len(store.sweeps[sidecar.ID]) != 1 {
+		t.Fatalf("expected retained cancelled sweep, got %+v", store.sweeps[sidecar.ID])
+	}
+	cancelled := store.sweeps[sidecar.ID][0]
+	if cancelled.Status != string(SidecarWatchdogSweepStatusCancelled) || cancelled.FailureReason == nil || *cancelled.FailureReason != watchdogPolicyRestartSupersedeReason || cancelled.CompletedAt == nil || cancelled.LeaseExpiresAt != nil {
+		t.Fatalf("active sweep was not durably superseded: %+v", cancelled)
+	}
+	if cancelled.RestartRequestedAt == nil || !cancelled.RestartRequestedAt.Equal(now) || cancelled.RestartTargetPolicyRevisionID == nil || *cancelled.RestartTargetPolicyRevisionID != pending.PendingRevision.ID || stringValue(cancelled.RestartReason) != watchdogPolicyRestartSupersedeReason {
+		t.Fatalf("restart intent was not durable on cancelled sweep: %+v", cancelled)
+	}
+	if cancelled.CancelRequestedAt == nil || !cancelled.CancelRequestedAt.Equal(now) || stringValue(cancelled.CancelReason) != watchdogPolicyRestartSupersedeReason {
+		t.Fatalf("cancel intent was not durable on cancelled sweep: %+v", cancelled)
+	}
+}
+
+func TestWatchdogLateSweepItemCommitAfterSupersedeIsFenced(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 42, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	activeID := initial.ActiveRevision.ID
+	items := []watchdogSweepSnapshotItem{{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-late", AuthIndex: "idx-late", Provider: "codex"}}
+	sweep, err := service.store.(watchdogSweepLifecyclePersistence).UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "route-sweep-late", SidecarID: sidecar.ID, PolicyRevisionID: activeID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: marshalWatchdogSweepItems(t, items), StartedAt: now})
+	if err != nil {
+		t.Fatalf("seed active sweep: %v", err)
+	}
+	materializeWatchdogSweepTestItems(t, service, sweep, items)
+	itemStore := service.store.(watchdogSweepItemPersistence)
+	leaseOwner := "late-worker"
+	leaseExpiresAt := now.Add(time.Minute)
+	claimed, err := itemStore.ClaimWatchdogSweepItems(t.Context(), SidecarWatchdogSweepItemClaimInput{SweepID: sweep.SweepID, SidecarID: sidecar.ID, Limit: 1, LeaseOwner: leaseOwner, LeaseExpiresAt: leaseExpiresAt, ClaimedAt: now})
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim child before supersede: claimed=%+v err=%v", claimed, err)
+	}
+	pending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_timeout_seconds":12}`, http.StatusOK)
+	applyAndRestartWatchdogPolicyRoute(t, router, sidecar.ID, pending.PendingRevision.ID, activeID, http.StatusOK)
+	commit := SidecarWatchdogSweepItemCommitInput{SweepID: sweep.SweepID, SidecarID: sidecar.ID, ItemID: claimed[0].ID, ItemIndex: claimed[0].ItemIndex, AttemptToken: claimed[0].AttemptToken, LeaseOwner: leaseOwner, Status: string(SidecarWatchdogSweepItemStatusSucceeded), CompletedAt: now.Add(time.Second)}
+	decision, err := service.store.PersistWatchdogProbeDecision(t.Context(), SidecarWatchdogProbeDecision{SidecarID: sidecar.ID, Observations: []SidecarWatchdogProbeObservationInput{testProbeObservationInput(sidecar.ID, "auth-late", now.Add(time.Second))}, SweepItemCommit: &commit})
+	if err != nil {
+		t.Fatalf("persist late commit: %v", err)
+	}
+	if decision.SweepItemCommit == nil || decision.SweepItemCommit.Outcome != SidecarWatchdogSweepItemCommitOutcomeStale {
+		t.Fatalf("late commit should be fenced as stale: %+v", decision.SweepItemCommit)
+	}
+	if len(decision.Observations) != 0 || len(decision.QuotaStates) != 0 || decision.Policy != nil {
+		t.Fatalf("fenced late commit must not mutate runtime state: %+v", decision)
+	}
+	childItems, err := itemStore.ListWatchdogSweepItems(t.Context(), sweep.SweepID)
+	if err != nil || len(childItems) != 1 {
+		t.Fatalf("list late child item: items=%+v err=%v", childItems, err)
+	}
+	if childItems[0].Status != string(SidecarWatchdogSweepItemStatusSuperseded) || childItems[0].ResultObservationID != nil {
+		t.Fatalf("late commit mutated superseded child item: %+v", childItems[0])
 	}
 }
 
@@ -137,6 +248,8 @@ func TestWatchdogPolicyRejectsStaleExpectedRevision(t *testing.T) {
 	patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":5}`, http.StatusConflict)
 	applied := applyWatchdogPolicyRoute(t, router, sidecar.ID, pending.PendingRevision.ID, activeID, http.StatusOK)
 	applyWatchdogPolicyRoute(t, router, sidecar.ID, activeID, activeID, http.StatusConflict)
+	nextPending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(applied.ActiveRevision.ID, 10)+`,"probe_concurrency":5}`, http.StatusOK)
+	applyAndRestartWatchdogPolicyRoute(t, router, sidecar.ID, nextPending.PendingRevision.ID, activeID, http.StatusConflict)
 	if applied.ActiveRevision.ID != pending.PendingRevision.ID {
 		t.Fatalf("expected first apply to activate pending revision: %+v", applied)
 	}
@@ -176,9 +289,10 @@ func TestQuotaRouteResponsesHideInternalFields(t *testing.T) {
 		t.Fatalf("seed quota state: %v", err)
 	}
 	privateScanCursor := "private-scan-cursor"
-	_, err = service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, CursorAuthID: &privateScanCursor, PlannedCount: 2, AttemptedCount: 1, StartedAt: &now})
+	completedAt := now
+	_, err = service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusCompleted, CursorAuthID: &privateScanCursor, PlannedCount: 2, AttemptedCount: 1, CompletedAt: &completedAt})
 	if err != nil {
-		t.Fatalf("seed quota scan: %v", err)
+		t.Fatalf("seed quota scan projection: %v", err)
 	}
 
 	stateRecorder := httptest.NewRecorder()
@@ -190,15 +304,18 @@ func TestQuotaRouteResponsesHideInternalFields(t *testing.T) {
 		t.Fatalf("quota state response leaked internal auth index or missed presence flag: %s", body)
 	}
 
-	for _, path := range []string{"/sidecars/" + strconv.Itoa(sidecar.ID) + "/quota-scans/current", "/sidecars/" + strconv.Itoa(sidecar.ID) + "/quota-scans"} {
-		recorder := httptest.NewRecorder()
-		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("quota scan route %s status = %d body=%s", path, recorder.Code, recorder.Body.String())
-		}
-		if body := recorder.Body.String(); strings.Contains(body, "cursor_auth_id") || strings.Contains(body, privateScanCursor) {
-			t.Fatalf("quota scan response leaked private cursor: %s", body)
-		}
+	currentRecorder := httptest.NewRecorder()
+	router.ServeHTTP(currentRecorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-scans/current", nil))
+	if currentRecorder.Code != http.StatusNoContent {
+		t.Fatalf("current quota scan status = %d body=%s", currentRecorder.Code, currentRecorder.Body.String())
+	}
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-scans", nil))
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("quota scan list status = %d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+	if body := listRecorder.Body.String(); strings.Contains(body, "cursor_auth_id") || strings.Contains(body, privateScanCursor) {
+		t.Fatalf("quota scan response leaked private cursor: %s", body)
 	}
 }
 
@@ -457,14 +574,15 @@ func TestQuotaScanRoutesReturnExpectedStatusCodes(t *testing.T) {
 		t.Fatalf("expected inactive current scan response body to be empty, got %q", body)
 	}
 
-	run, err := service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusRunning, PlannedCount: 1, AttemptedCount: 1, StartedAt: &now})
+	completedAt := now
+	run, err := service.store.CreateQuotaScanRun(t.Context(), SidecarQuotaScanRunInput{SidecarID: sidecar.ID, ScanType: quotaScanTypeManual, Status: quotaScanStatusCompleted, PlannedCount: 1, AttemptedCount: 1, CompletedAt: &completedAt})
 	if err != nil {
-		t.Fatalf("seed active quota scan: %v", err)
+		t.Fatalf("seed quota scan projection: %v", err)
 	}
 	cancel := httptest.NewRecorder()
 	router.ServeHTTP(cancel, httptest.NewRequest(http.MethodPost, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-scans/"+strconv.Itoa(run.ID)+"/cancel", nil))
 	if cancel.Code != http.StatusAccepted {
-		t.Fatalf("expected cancel to return %d, got %d body=%s", http.StatusAccepted, cancel.Code, cancel.Body.String())
+		t.Fatalf("expected cancel projection to return %d, got %d body=%s", http.StatusAccepted, cancel.Code, cancel.Body.String())
 	}
 }
 
@@ -524,11 +642,21 @@ func watchdogPolicyPatchWithExpectedRevision(expectedRevisionID int64, body stri
 
 func applyWatchdogPolicyRoute(t *testing.T, router http.Handler, sidecarID int, targetRevisionID int64, expectedRevisionID int64, wantStatus int) watchdogPolicyResponse {
 	t.Helper()
+	return applyWatchdogPolicyRouteAt(t, router, sidecarID, "/apply", targetRevisionID, expectedRevisionID, wantStatus)
+}
+
+func applyAndRestartWatchdogPolicyRoute(t *testing.T, router http.Handler, sidecarID int, targetRevisionID int64, expectedRevisionID int64, wantStatus int) watchdogPolicyResponse {
+	t.Helper()
+	return applyWatchdogPolicyRouteAt(t, router, sidecarID, "/apply-and-restart", targetRevisionID, expectedRevisionID, wantStatus)
+}
+
+func applyWatchdogPolicyRouteAt(t *testing.T, router http.Handler, sidecarID int, suffix string, targetRevisionID int64, expectedRevisionID int64, wantStatus int) watchdogPolicyResponse {
+	t.Helper()
 	body := `{"target_revision_id":` + strconv.FormatInt(targetRevisionID, 10) + `,"expected_revision_id":` + strconv.FormatInt(expectedRevisionID, 10) + `}`
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, watchdogPolicyRoutePath(sidecarID)+"/apply", strings.NewReader(body)))
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, watchdogPolicyRoutePath(sidecarID)+suffix, strings.NewReader(body)))
 	if recorder.Code != wantStatus {
-		t.Fatalf("apply watchdog policy status = %d want=%d body=%s", recorder.Code, wantStatus, recorder.Body.String())
+		t.Fatalf("apply watchdog policy%s status = %d want=%d body=%s", suffix, recorder.Code, wantStatus, recorder.Body.String())
 	}
 	var response watchdogPolicyResponse
 	if wantStatus == http.StatusOK {

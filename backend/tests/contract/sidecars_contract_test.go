@@ -249,8 +249,8 @@ VALUES ($1, 'contract-auth', $2, 'contract-auth.json', 'codex', $3, 'using', 'pr
 	}
 	var scanID int
 	if err := authHarness.conn.QueryRow(context.Background(), `INSERT INTO sidecar_quota_scan_runs (
-sidecar_id, scan_type, status, requested_by, cursor_auth_id, planned_count, attempted_count, started_at)
-VALUES ($1, 'manual', 'running', 'contract-operator', $2, 2, 1, $3)
+sidecar_id, scan_type, status, requested_by, cursor_auth_id, planned_count, attempted_count, completed_at)
+VALUES ($1, 'manual', 'completed', 'contract-operator', $2, 2, 1, $3)
 RETURNING id`, sidecarID, hiddenCursor, now).Scan(&scanID); err != nil {
 		t.Fatalf("seed quota scan run: %v", err)
 	}
@@ -265,12 +265,9 @@ RETURNING id`, sidecarID, hiddenCursor, now).Scan(&scanID); err != nil {
 	}
 
 	current := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodGet, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, nil)
-	assertStatus(t, current, http.StatusOK)
-	currentBody := readResponseBody(t, current)
-	assertSidecarContractNoSecretLeak(t, currentBody, hiddenCursor, hiddenAuthIndex, hiddenSnapshotSecret)
-	assertSidecarContractNoInternalQuotaLeak(t, currentBody)
-	if !strings.Contains(currentBody, `"status":"running"`) || !strings.Contains(currentBody, `"attempted_count":1`) {
-		t.Fatalf("quota-scan current response did not expose safe scan state: %s", currentBody)
+	assertStatus(t, current, http.StatusNoContent)
+	if currentBody := readResponseBody(t, current); currentBody != "" {
+		t.Fatalf("quota-scan current response should be empty for projection-only runs, got %q", currentBody)
 	}
 
 	cancel := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/"+strconv.Itoa(scanID)+"/cancel", nil, nil)
@@ -278,8 +275,8 @@ RETURNING id`, sidecarID, hiddenCursor, now).Scan(&scanID); err != nil {
 	cancelBody := readResponseBody(t, cancel)
 	assertSidecarContractNoSecretLeak(t, cancelBody, hiddenCursor, hiddenAuthIndex, hiddenSnapshotSecret)
 	assertSidecarContractNoInternalQuotaLeak(t, cancelBody)
-	if !strings.Contains(cancelBody, `"status":"cancelled"`) {
-		t.Fatalf("quota-scan cancel response did not expose cancelled status: %s", cancelBody)
+	if !strings.Contains(cancelBody, `"status":"completed"`) || !strings.Contains(cancelBody, `"attempted_count":1`) {
+		t.Fatalf("quota-scan cancel response did not preserve terminal projection state: %s", cancelBody)
 	}
 
 	currentAfterCancel := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodGet, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/quota-scans/current", nil, nil)

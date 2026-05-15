@@ -66,6 +66,7 @@ type watchdogPolicyActivationPersistence interface {
 	GetWatchdogPolicyRevisionState(context.Context, int) (SidecarWatchdogPolicyRevisionState, error)
 	SavePendingWatchdogPolicyRevision(context.Context, SidecarWatchdogPolicyRevisionInput, *int64) (SidecarWatchdogPolicyRevisionState, error)
 	ApplyWatchdogPolicyRevision(context.Context, int, int64, int64) (SidecarWatchdogPolicyRevisionState, error)
+	ApplyAndRestartWatchdogPolicyRevision(context.Context, int, int64, int64, time.Time) (SidecarWatchdogPolicyRevisionState, error)
 }
 
 type Options struct {
@@ -160,20 +161,197 @@ func effectiveWatchdogPolicyRevisionState(state SidecarWatchdogPolicyRevisionSta
 	return state
 }
 
+func (s *Service) saveWatchdogPolicyRevisionUpdate(ctx context.Context, sidecarID int, requestBody watchdogPolicyUpdateRequest) (SidecarWatchdogPolicyRevisionState, error) {
+	if requestBody.ExpectedRevisionID == nil || *requestBody.ExpectedRevisionID <= 0 {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("expected_revision_id is required")
+	}
+	state, err := s.getWatchdogPolicyRevisionState(ctx, sidecarID)
+	if err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	base := state.ActiveRevision
+	if state.PendingRevision != nil {
+		base = state.PendingRevision
+	}
+	if base == nil {
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("active watchdog policy revision not found")
+	}
+	input := watchdogPolicyRevisionInputFromRevision(*base)
+	applyWatchdogPolicyUpdateRequest(&input, requestBody)
+	if err := validateWatchdogPolicyRevisionInput(input); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
+	return s.savePendingWatchdogPolicyRevision(ctx, input, requestBody.ExpectedRevisionID)
+}
+
 func (s *Service) savePendingWatchdogPolicyRevision(ctx context.Context, input SidecarWatchdogPolicyRevisionInput, expectedRevisionID *int64) (SidecarWatchdogPolicyRevisionState, error) {
 	revisions, ok := s.store.(watchdogPolicyActivationPersistence)
 	if !ok {
 		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("watchdog policy revisions are unavailable")
 	}
+	if err := validateWatchdogPolicyRevisionInput(input); err != nil {
+		return SidecarWatchdogPolicyRevisionState{}, err
+	}
 	return revisions.SavePendingWatchdogPolicyRevision(ctx, input, expectedRevisionID)
 }
 
 func (s *Service) applyWatchdogPolicyRevision(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64) (SidecarWatchdogPolicyRevisionState, error) {
+	return s.applyWatchdogPolicyRevisionWithMode(ctx, sidecarID, targetRevisionID, expectedRevisionID, SidecarWatchdogPolicyApplyFuture)
+}
+
+func (s *Service) applyAndRestartWatchdogPolicyRevision(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64) (SidecarWatchdogPolicyRevisionState, error) {
+	return s.applyWatchdogPolicyRevisionWithMode(ctx, sidecarID, targetRevisionID, expectedRevisionID, SidecarWatchdogPolicyApplyAndRestart)
+}
+
+func (s *Service) applyWatchdogPolicyRevisionWithMode(ctx context.Context, sidecarID int, targetRevisionID int64, expectedRevisionID int64, mode SidecarWatchdogPolicyApplyMode) (SidecarWatchdogPolicyRevisionState, error) {
 	revisions, ok := s.store.(watchdogPolicyActivationPersistence)
 	if !ok {
 		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("watchdog policy revisions are unavailable")
 	}
-	return revisions.ApplyWatchdogPolicyRevision(ctx, sidecarID, targetRevisionID, expectedRevisionID)
+	switch mode {
+	case SidecarWatchdogPolicyApplyFuture:
+		return revisions.ApplyWatchdogPolicyRevision(ctx, sidecarID, targetRevisionID, expectedRevisionID)
+	case SidecarWatchdogPolicyApplyAndRestart:
+		return revisions.ApplyAndRestartWatchdogPolicyRevision(ctx, sidecarID, targetRevisionID, expectedRevisionID, s.nowUTC())
+	default:
+		return SidecarWatchdogPolicyRevisionState{}, invalidInputError("unsupported watchdog policy apply mode")
+	}
+}
+
+func applyWatchdogPolicyUpdateRequest(input *SidecarWatchdogPolicyRevisionInput, requestBody watchdogPolicyUpdateRequest) {
+	if requestBody.Enabled != nil {
+		input.Enabled = *requestBody.Enabled
+	}
+	if requestBody.WatchdogSweepIntervalSeconds != nil {
+		input.WatchdogSweepIntervalSeconds = *requestBody.WatchdogSweepIntervalSeconds
+	}
+	if requestBody.FailureThreshold != nil {
+		input.FailureThreshold = *requestBody.FailureThreshold
+	}
+	if requestBody.FailureWindowSeconds != nil {
+		input.FailureWindowSeconds = *requestBody.FailureWindowSeconds
+	}
+	if requestBody.FallbackCooldownSeconds != nil {
+		input.FallbackCooldownSeconds = *requestBody.FallbackCooldownSeconds
+	}
+	if requestBody.UsingPriority != nil {
+		input.UsingPriority = *requestBody.UsingPriority
+	}
+	if requestBody.QuotaExceededPriority != nil {
+		input.QuotaExceededPriority = *requestBody.QuotaExceededPriority
+	}
+	if requestBody.WorkingPriority != nil {
+		input.WorkingPriority = *requestBody.WorkingPriority
+	}
+	if requestBody.EmptyQuotaPriority != nil {
+		input.EmptyQuotaPriority = *requestBody.EmptyQuotaPriority
+	}
+	if requestBody.InitialPriority != nil {
+		input.InitialPriority = *requestBody.InitialPriority
+	}
+	if requestBody.ErrorPriority != nil {
+		input.ErrorPriority = *requestBody.ErrorPriority
+	}
+	if requestBody.ManualOverridePauseSeconds != nil {
+		input.ManualOverridePauseSeconds = *requestBody.ManualOverridePauseSeconds
+	}
+	if requestBody.ProbeConcurrency != nil {
+		input.ProbeConcurrency = *requestBody.ProbeConcurrency
+	}
+	if requestBody.ProbeTimeoutSeconds != nil {
+		input.ProbeTimeoutSeconds = *requestBody.ProbeTimeoutSeconds
+	}
+	if requestBody.ProbeBatchCooldownSeconds != nil {
+		input.ProbeBatchCooldownSeconds = *requestBody.ProbeBatchCooldownSeconds
+	}
+	if requestBody.ProbeJitterMinMS != nil {
+		input.ProbeJitterMinMS = *requestBody.ProbeJitterMinMS
+	}
+	if requestBody.ProbeJitterMaxMS != nil {
+		input.ProbeJitterMaxMS = *requestBody.ProbeJitterMaxMS
+	}
+	if requestBody.CooldownJitterPercent != nil {
+		input.CooldownJitterPercent = *requestBody.CooldownJitterPercent
+	}
+	if requestBody.QuotaInventoryEnabled != nil {
+		input.QuotaInventoryEnabled = *requestBody.QuotaInventoryEnabled
+	}
+	if requestBody.InitialScanEnabled != nil {
+		input.InitialScanEnabled = *requestBody.InitialScanEnabled
+	}
+	if requestBody.RollingRefreshEnabled != nil {
+		input.RollingRefreshEnabled = *requestBody.RollingRefreshEnabled
+	}
+	if requestBody.RollingRefreshAfterSeconds != nil {
+		input.RollingRefreshAfterSeconds = *requestBody.RollingRefreshAfterSeconds
+	}
+}
+
+func validateWatchdogPolicyRevisionInput(input SidecarWatchdogPolicyRevisionInput) error {
+	if input.WatchdogSweepIntervalSeconds < 1 {
+		return invalidInputError("watchdog_sweep_interval_seconds must be >= 1")
+	}
+	if input.FailureThreshold < 1 {
+		return invalidInputError("failure_threshold must be >= 1")
+	}
+	if input.FailureWindowSeconds < 1 {
+		return invalidInputError("failure_window_seconds must be >= 1")
+	}
+	if input.FallbackCooldownSeconds < 1 {
+		return invalidInputError("fallback_cooldown_seconds must be >= 1")
+	}
+	if input.QuotaExceededPriority < 0 {
+		return invalidInputError("quota_exceeded_priority must be >= 0")
+	}
+	if input.UsingPriority < 0 {
+		return invalidInputError("using_priority must be >= 0")
+	}
+	if input.QuotaExceededPriority > input.UsingPriority {
+		return invalidInputError("quota_exceeded_priority must be <= using_priority")
+	}
+	if input.WorkingPriority < 1 {
+		return invalidInputError("working_priority must be >= 1")
+	}
+	if input.EmptyQuotaPriority < 1 {
+		return invalidInputError("empty_quota_priority must be >= 1")
+	}
+	if input.InitialPriority < 1 {
+		return invalidInputError("initial_priority must be >= 1")
+	}
+	if input.ErrorPriority < 1 {
+		return invalidInputError("error_priority must be >= 1")
+	}
+	if input.WorkingPriority < input.EmptyQuotaPriority || input.EmptyQuotaPriority < input.InitialPriority || input.InitialPriority < input.ErrorPriority {
+		return invalidInputError("watchdog priority bands must satisfy working_priority >= empty_quota_priority >= initial_priority >= error_priority")
+	}
+	if input.ManualOverridePauseSeconds < 1 {
+		return invalidInputError("manual_override_pause_seconds must be >= 1")
+	}
+	if input.ProbeConcurrency < 1 {
+		return invalidInputError("probe_concurrency must be >= 1")
+	}
+	if input.ProbeTimeoutSeconds < 1 {
+		return invalidInputError("probe_timeout_seconds must be >= 1")
+	}
+	if input.ProbeBatchCooldownSeconds < 1 {
+		return invalidInputError("probe_batch_cooldown_seconds must be >= 1")
+	}
+	if input.ProbeJitterMinMS < 0 {
+		return invalidInputError("probe_jitter_min_ms must be >= 0")
+	}
+	if input.ProbeJitterMaxMS < 0 {
+		return invalidInputError("probe_jitter_max_ms must be >= 0")
+	}
+	if input.ProbeJitterMaxMS < input.ProbeJitterMinMS {
+		return invalidInputError("probe_jitter_max_ms must be >= probe_jitter_min_ms")
+	}
+	if input.CooldownJitterPercent < 0 || input.CooldownJitterPercent > 100 {
+		return invalidInputError("cooldown_jitter_percent must be between 0 and 100")
+	}
+	if input.RollingRefreshAfterSeconds < 1 {
+		return invalidInputError("rolling_refresh_after_seconds must be >= 1")
+	}
+	return validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeJitterMinMS: input.ProbeJitterMinMS, ProbeJitterMaxMS: input.ProbeJitterMaxMS})
 }
 
 func (s *Service) MountManagementRoutes(api chi.Router) {
@@ -201,6 +379,7 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Put("/sidecars/{sidecar_id}/watchdog-policy", s.handleUpdateWatchdogPolicy)
 	api.Patch("/sidecars/{sidecar_id}/watchdog-policy", s.handleUpdateWatchdogPolicy)
 	api.Post("/sidecars/{sidecar_id}/watchdog-policy/apply", s.handleApplyWatchdogPolicy)
+	api.Post("/sidecars/{sidecar_id}/watchdog-policy/apply-and-restart", s.handleApplyAndRestartWatchdogPolicy)
 	api.Get("/sidecars/{sidecar_id}/actions", s.handleListActionHistory)
 }
 
@@ -221,6 +400,7 @@ type memorySidecarStore struct {
 	nextPendingActionID  int
 	nextObservationID    int
 	nextScanRunID        int
+	nextSweepItemID      int64
 	instances            map[int]SidecarInstance
 	authSnapshots        map[int]map[string]SidecarAuthSnapshot
 	providerSnapshots    map[int]map[string]SidecarProviderSnapshot
@@ -233,6 +413,7 @@ type memorySidecarStore struct {
 	probeObservations    map[int][]SidecarWatchdogProbeObservation
 	quotaScanRuns        map[int][]SidecarQuotaScanRun
 	quotaStates          map[int]map[string]SidecarAuthQuotaState
+	sweepItems           map[string][]SidecarWatchdogSweepItem
 }
 
 func newMemorySidecarStore(now func() time.Time, secretEncryptionKey string) *memorySidecarStore {
@@ -251,6 +432,7 @@ func newMemorySidecarStore(now func() time.Time, secretEncryptionKey string) *me
 		nextPendingActionID:  1,
 		nextObservationID:    1,
 		nextScanRunID:        1,
+		nextSweepItemID:      1,
 		instances:            map[int]SidecarInstance{},
 		authSnapshots:        map[int]map[string]SidecarAuthSnapshot{},
 		providerSnapshots:    map[int]map[string]SidecarProviderSnapshot{},
@@ -263,6 +445,7 @@ func newMemorySidecarStore(now func() time.Time, secretEncryptionKey string) *me
 		probeObservations:    map[int][]SidecarWatchdogProbeObservation{},
 		quotaScanRuns:        map[int][]SidecarQuotaScanRun{},
 		quotaStates:          map[int]map[string]SidecarAuthQuotaState{},
+		sweepItems:           map[string][]SidecarWatchdogSweepItem{},
 	}
 }
 
@@ -683,6 +866,23 @@ func cloneQuotaScanRun(scanRun SidecarQuotaScanRun) SidecarQuotaScanRun {
 	copy.StartedAt = cloneTimePtr(scanRun.StartedAt)
 	copy.CompletedAt = cloneTimePtr(scanRun.CompletedAt)
 	copy.LastErrorCode = cloneStringPtr(scanRun.LastErrorCode)
+	return copy
+}
+
+func cloneWatchdogSweepItem(item SidecarWatchdogSweepItem) SidecarWatchdogSweepItem {
+	copy := item
+	copy.DueAt = cloneTimePtr(item.DueAt)
+	copy.AuthIndex = cloneStringPtr(item.AuthIndex)
+	copy.Provider = cloneStringPtr(item.Provider)
+	copy.HoldID = cloneIntPtr(item.HoldID)
+	copy.AuthSnapshotID = cloneIntPtr(item.AuthSnapshotID)
+	copy.SelectionJSON = cloneJSON(item.SelectionJSON)
+	copy.LeaseOwner = cloneStringPtr(item.LeaseOwner)
+	copy.LeaseExpiresAt = cloneTimePtr(item.LeaseExpiresAt)
+	copy.StartedAt = cloneTimePtr(item.StartedAt)
+	copy.CompletedAt = cloneTimePtr(item.CompletedAt)
+	copy.ResultObservationID = cloneIntPtr(item.ResultObservationID)
+	copy.LastErrorCode = cloneStringPtr(item.LastErrorCode)
 	return copy
 }
 

@@ -79,7 +79,7 @@ func TestSidecarActionHistoryIsOnlyRetainedSidecarWorkerTable(t *testing.T) {
 	if !managed["sidecar_watchdog_actions"] {
 		t.Fatalf("sidecar action history is missing from managed retention tables: %v", logretention.ManagedTables())
 	}
-	for _, table := range []string{"sidecar_watchdog_pending_actions", "sidecar_quota_probe_observations", "sidecar_auth_quota_states", "sidecar_quota_scan_runs"} {
+	for _, table := range []string{"sidecar_watchdog_pending_actions", "sidecar_watchdog_sweep_items", "sidecar_quota_probe_observations", "sidecar_auth_quota_states", "sidecar_quota_scan_runs"} {
 		if managed[table] {
 			t.Fatalf("live sidecar table %s must not be retention-managed: %v", table, logretention.ManagedTables())
 		}

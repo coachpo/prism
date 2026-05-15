@@ -1,6 +1,7 @@
 package sidecars
 
 import (
+	"context"
 	"net/http"
 	"time"
 )
@@ -101,14 +102,22 @@ type watchdogPolicyRevisionResponse struct {
 }
 
 type watchdogActiveSweepResponse struct {
-	SweepID            string     `json:"sweep_id"`
-	Status             string     `json:"status"`
-	PolicyRevisionID   int64      `json:"policy_revision_id"`
-	StartedAt          time.Time  `json:"started_at"`
-	NextBatchAfter     *time.Time `json:"next_batch_after"`
-	RestartRequestedAt *time.Time `json:"restart_requested_at"`
-	NextItemIndex      int        `json:"next_item_index"`
-	TotalItems         int        `json:"total_items"`
+	SweepID          string                              `json:"sweep_id"`
+	Status           string                              `json:"status"`
+	PolicyRevisionID int64                               `json:"policy_revision_id"`
+	StartedAt        time.Time                           `json:"started_at"`
+	Progress         watchdogActiveSweepProgressResponse `json:"progress"`
+}
+
+type watchdogActiveSweepProgressResponse struct {
+	TotalItems      int `json:"total_items"`
+	PendingItems    int `json:"pending_items"`
+	ActiveItems     int `json:"active_items"`
+	SucceededItems  int `json:"succeeded_items"`
+	FailedItems     int `json:"failed_items"`
+	CancelledItems  int `json:"cancelled_items"`
+	SupersededItems int `json:"superseded_items"`
+	TerminalItems   int `json:"terminal_items"`
 }
 
 type actionHistoryListResponse struct {
@@ -149,7 +158,12 @@ func (s *Service) handleGetWatchdogPolicy(w http.ResponseWriter, r *http.Request
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, buildWatchdogPolicyResponse(state))
+	response, err := s.buildWatchdogPolicyResponse(r.Context(), state)
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Request) {
@@ -162,38 +176,29 @@ func (s *Service) handleUpdateWatchdogPolicy(w http.ResponseWriter, r *http.Requ
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if requestBody.ExpectedRevisionID == nil || *requestBody.ExpectedRevisionID <= 0 {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "expected_revision_id is required")
-		return
-	}
-	state, err := s.getWatchdogPolicyRevisionState(r.Context(), id)
+	updated, err := s.saveWatchdogPolicyRevisionUpdate(r.Context(), id, requestBody)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	base := state.ActiveRevision
-	if state.PendingRevision != nil {
-		base = state.PendingRevision
-	}
-	if base == nil {
-		writeDomainError(w, r, s.corsSnapshot(), invalidInputError("active watchdog policy revision not found"))
-		return
-	}
-	input := watchdogPolicyRevisionInputFromRevision(*base)
-	if err := applyWatchdogPolicyUpdateRequest(&input, requestBody); err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	updated, err := s.savePendingWatchdogPolicyRevision(r.Context(), input, requestBody.ExpectedRevisionID)
+	response, err := s.buildWatchdogPolicyResponse(r.Context(), updated)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
 	s.recordAction(r.Context(), id, "watchdog-policy.save", "succeeded", nil)
-	writeJSON(w, http.StatusOK, buildWatchdogPolicyResponse(updated))
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleApplyWatchdogPolicy(w http.ResponseWriter, r *http.Request) {
+	s.handleApplyWatchdogPolicyWithMode(w, r, SidecarWatchdogPolicyApplyFuture, "watchdog-policy.apply")
+}
+
+func (s *Service) handleApplyAndRestartWatchdogPolicy(w http.ResponseWriter, r *http.Request) {
+	s.handleApplyWatchdogPolicyWithMode(w, r, SidecarWatchdogPolicyApplyAndRestart, "watchdog-policy.apply-restart")
+}
+
+func (s *Service) handleApplyWatchdogPolicyWithMode(w http.ResponseWriter, r *http.Request, mode SidecarWatchdogPolicyApplyMode, actionType string) {
 	id, ok := s.parseSidecarID(w, r)
 	if !ok || !s.ensureSidecarExists(w, r, id) {
 		return
@@ -211,180 +216,27 @@ func (s *Service) handleApplyWatchdogPolicy(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "expected_revision_id is required")
 		return
 	}
-	state, err := s.applyWatchdogPolicyRevision(r.Context(), id, *requestBody.TargetRevisionID, *requestBody.ExpectedRevisionID)
+	var state SidecarWatchdogPolicyRevisionState
+	var err error
+	switch mode {
+	case SidecarWatchdogPolicyApplyFuture:
+		state, err = s.applyWatchdogPolicyRevision(r.Context(), id, *requestBody.TargetRevisionID, *requestBody.ExpectedRevisionID)
+	case SidecarWatchdogPolicyApplyAndRestart:
+		state, err = s.applyAndRestartWatchdogPolicyRevision(r.Context(), id, *requestBody.TargetRevisionID, *requestBody.ExpectedRevisionID)
+	default:
+		err = invalidInputError("unsupported watchdog policy apply mode")
+	}
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	s.recordAction(r.Context(), id, "watchdog-policy.apply", "succeeded", nil)
-	writeJSON(w, http.StatusOK, buildWatchdogPolicyResponse(state))
-}
-
-func applyWatchdogPolicyUpdateRequest(input *SidecarWatchdogPolicyRevisionInput, requestBody watchdogPolicyUpdateRequest) error {
-	if requestBody.Enabled != nil {
-		input.Enabled = *requestBody.Enabled
+	response, err := s.buildWatchdogPolicyResponse(r.Context(), state)
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
 	}
-	if requestBody.WatchdogSweepIntervalSeconds != nil {
-		if *requestBody.WatchdogSweepIntervalSeconds < 1 {
-			return invalidInputError("watchdog_sweep_interval_seconds must be >= 1")
-		}
-		input.WatchdogSweepIntervalSeconds = *requestBody.WatchdogSweepIntervalSeconds
-	}
-	if requestBody.FailureThreshold != nil {
-		if *requestBody.FailureThreshold < 1 {
-			return invalidInputError("failure_threshold must be >= 1")
-		}
-		input.FailureThreshold = *requestBody.FailureThreshold
-	}
-	if requestBody.FailureWindowSeconds != nil {
-		if *requestBody.FailureWindowSeconds < 1 {
-			return invalidInputError("failure_window_seconds must be >= 1")
-		}
-		input.FailureWindowSeconds = *requestBody.FailureWindowSeconds
-	}
-	if requestBody.FallbackCooldownSeconds != nil {
-		if *requestBody.FallbackCooldownSeconds < 1 {
-			return invalidInputError("fallback_cooldown_seconds must be >= 1")
-		}
-		input.FallbackCooldownSeconds = *requestBody.FallbackCooldownSeconds
-	}
-	if requestBody.UsingPriority != nil {
-		if *requestBody.UsingPriority < 0 {
-			return invalidInputError("using_priority must be >= 0")
-		}
-		input.UsingPriority = *requestBody.UsingPriority
-	}
-	if requestBody.WorkingPriority != nil {
-		if *requestBody.WorkingPriority < 1 {
-			return invalidInputError("working_priority must be >= 1")
-		}
-		input.WorkingPriority = *requestBody.WorkingPriority
-	}
-	if requestBody.QuotaExceededPriority != nil {
-		if *requestBody.QuotaExceededPriority < 0 {
-			return invalidInputError("quota_exceeded_priority must be >= 0")
-		}
-		input.QuotaExceededPriority = *requestBody.QuotaExceededPriority
-	}
-	if requestBody.EmptyQuotaPriority != nil {
-		if *requestBody.EmptyQuotaPriority < 1 {
-			return invalidInputError("empty_quota_priority must be >= 1")
-		}
-		input.EmptyQuotaPriority = *requestBody.EmptyQuotaPriority
-	}
-	if requestBody.InitialPriority != nil {
-		if *requestBody.InitialPriority < 1 {
-			return invalidInputError("initial_priority must be >= 1")
-		}
-		input.InitialPriority = *requestBody.InitialPriority
-	}
-	if requestBody.ErrorPriority != nil {
-		if *requestBody.ErrorPriority < 1 {
-			return invalidInputError("error_priority must be >= 1")
-		}
-		input.ErrorPriority = *requestBody.ErrorPriority
-	}
-	if requestBody.ManualOverridePauseSeconds != nil {
-		if *requestBody.ManualOverridePauseSeconds < 1 {
-			return invalidInputError("manual_override_pause_seconds must be >= 1")
-		}
-		input.ManualOverridePauseSeconds = *requestBody.ManualOverridePauseSeconds
-	}
-	if requestBody.ProbeConcurrency != nil {
-		if *requestBody.ProbeConcurrency < 1 {
-			return invalidInputError("probe_concurrency must be >= 1")
-		}
-		input.ProbeConcurrency = *requestBody.ProbeConcurrency
-	}
-	if requestBody.ProbeTimeoutSeconds != nil {
-		if *requestBody.ProbeTimeoutSeconds < 1 {
-			return invalidInputError("probe_timeout_seconds must be >= 1")
-		}
-		input.ProbeTimeoutSeconds = *requestBody.ProbeTimeoutSeconds
-	}
-	if requestBody.ProbeBatchCooldownSeconds != nil {
-		if *requestBody.ProbeBatchCooldownSeconds < 1 {
-			return invalidInputError("probe_batch_cooldown_seconds must be >= 1")
-		}
-		input.ProbeBatchCooldownSeconds = *requestBody.ProbeBatchCooldownSeconds
-	}
-	if requestBody.ProbeJitterMinMS != nil {
-		if *requestBody.ProbeJitterMinMS < 0 {
-			return invalidInputError("probe_jitter_min_ms must be >= 0")
-		}
-		input.ProbeJitterMinMS = *requestBody.ProbeJitterMinMS
-	}
-	if requestBody.ProbeJitterMaxMS != nil {
-		if *requestBody.ProbeJitterMaxMS < 0 {
-			return invalidInputError("probe_jitter_max_ms must be >= 0")
-		}
-		input.ProbeJitterMaxMS = *requestBody.ProbeJitterMaxMS
-	}
-	if requestBody.CooldownJitterPercent != nil {
-		if *requestBody.CooldownJitterPercent < 0 || *requestBody.CooldownJitterPercent > 100 {
-			return invalidInputError("cooldown_jitter_percent must be between 0 and 100")
-		}
-		input.CooldownJitterPercent = *requestBody.CooldownJitterPercent
-	}
-	if requestBody.QuotaInventoryEnabled != nil {
-		input.QuotaInventoryEnabled = *requestBody.QuotaInventoryEnabled
-	}
-	if requestBody.InitialScanEnabled != nil {
-		input.InitialScanEnabled = *requestBody.InitialScanEnabled
-	}
-	if requestBody.RollingRefreshEnabled != nil {
-		input.RollingRefreshEnabled = *requestBody.RollingRefreshEnabled
-	}
-	if requestBody.RollingRefreshAfterSeconds != nil {
-		if *requestBody.RollingRefreshAfterSeconds < 1 {
-			return invalidInputError("rolling_refresh_after_seconds must be >= 1")
-		}
-		input.RollingRefreshAfterSeconds = *requestBody.RollingRefreshAfterSeconds
-	}
-	return validateWatchdogPolicyRevisionInput(*input)
-}
-
-func validateWatchdogPolicyRevisionInput(input SidecarWatchdogPolicyRevisionInput) error {
-	if input.WatchdogSweepIntervalSeconds < 1 {
-		return invalidInputError("watchdog_sweep_interval_seconds must be >= 1")
-	}
-	if input.QuotaExceededPriority < 0 || input.UsingPriority < 0 {
-		return invalidInputError("legacy watchdog priorities must be non-negative")
-	}
-	if input.QuotaExceededPriority > input.UsingPriority {
-		return invalidInputError("quota_exceeded_priority must be <= using_priority")
-	}
-	if input.WorkingPriority < 1 || input.EmptyQuotaPriority < 1 || input.InitialPriority < 1 || input.ErrorPriority < 1 {
-		return invalidInputError("watchdog priority bands must be >= 1")
-	}
-	if input.WorkingPriority < input.EmptyQuotaPriority || input.EmptyQuotaPriority < input.InitialPriority || input.InitialPriority < input.ErrorPriority {
-		return invalidInputError("watchdog priority bands must satisfy working_priority >= empty_quota_priority >= initial_priority >= error_priority")
-	}
-	if input.ProbeConcurrency < 1 {
-		return invalidInputError("probe_concurrency must be >= 1")
-	}
-	if input.ProbeTimeoutSeconds < 1 {
-		return invalidInputError("probe_timeout_seconds must be >= 1")
-	}
-	if input.ProbeBatchCooldownSeconds < 1 {
-		return invalidInputError("probe_batch_cooldown_seconds must be >= 1")
-	}
-	if input.ProbeJitterMinMS < 0 {
-		return invalidInputError("probe_jitter_min_ms must be >= 0")
-	}
-	if input.ProbeJitterMaxMS < 0 {
-		return invalidInputError("probe_jitter_max_ms must be >= 0")
-	}
-	if input.ProbeJitterMaxMS < input.ProbeJitterMinMS {
-		return invalidInputError("probe_jitter_max_ms must be >= probe_jitter_min_ms")
-	}
-	if input.CooldownJitterPercent < 0 || input.CooldownJitterPercent > 100 {
-		return invalidInputError("cooldown_jitter_percent must be between 0 and 100")
-	}
-	if input.RollingRefreshAfterSeconds < 1 {
-		return invalidInputError("rolling_refresh_after_seconds must be >= 1")
-	}
-	return validateWatchdogProbeRuntimePolicy(SidecarWatchdogPolicy{ProbeConcurrency: input.ProbeConcurrency, ProbeTimeoutSeconds: input.ProbeTimeoutSeconds, ProbeJitterMinMS: input.ProbeJitterMinMS, ProbeJitterMaxMS: input.ProbeJitterMaxMS})
+	s.recordAction(r.Context(), id, actionType, "succeeded", nil)
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListActionHistory(w http.ResponseWriter, r *http.Request) {
@@ -413,11 +265,15 @@ func (s *Service) handleListActionHistory(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, actionHistoryListResponse{Items: items})
 }
 
-func buildWatchdogPolicyResponse(state SidecarWatchdogPolicyRevisionState) watchdogPolicyResponse {
+func (s *Service) buildWatchdogPolicyResponse(ctx context.Context, state SidecarWatchdogPolicyRevisionState) (watchdogPolicyResponse, error) {
 	policy := state.Policy
 	active := buildWatchdogPolicyRevisionResponse(state.ActiveRevision)
 	pending := buildWatchdogPolicyRevisionResponse(state.PendingRevision)
-	response := watchdogPolicyResponse{ID: policy.ID, SidecarID: policy.SidecarID, ActiveRevisionID: cloneInt64Ptr(policy.ActiveRevisionID), PendingRevisionID: cloneInt64Ptr(policy.PendingRevisionID), HasPendingChanges: state.HasPendingChanges, ActiveRevision: active, PendingRevision: pending, ActiveSweep: buildWatchdogActiveSweepResponse(state.ActiveSweep, policy), CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt}
+	activeSweep, err := s.buildWatchdogActiveSweepResponse(ctx, state.ActiveSweep)
+	if err != nil {
+		return watchdogPolicyResponse{}, err
+	}
+	response := watchdogPolicyResponse{ID: policy.ID, SidecarID: policy.SidecarID, ActiveRevisionID: cloneInt64Ptr(policy.ActiveRevisionID), PendingRevisionID: cloneInt64Ptr(policy.PendingRevisionID), HasPendingChanges: state.HasPendingChanges, ActiveRevision: active, PendingRevision: pending, ActiveSweep: activeSweep, CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt}
 	if active != nil {
 		copyWatchdogPolicyRevisionFieldsToResponse(&response, *active)
 	} else {
@@ -444,7 +300,7 @@ func buildWatchdogPolicyResponse(state SidecarWatchdogPolicyRevisionState) watch
 		response.RollingRefreshAfterSeconds = policy.RollingRefreshAfterSeconds
 		response.WatchdogSweepIntervalSeconds = normalizedLegacyWatchdogSweepIntervalSeconds(policy)
 	}
-	return response
+	return response, nil
 }
 
 func buildWatchdogPolicyRevisionResponse(revision *SidecarWatchdogPolicyRevision) *watchdogPolicyRevisionResponse {
@@ -479,20 +335,48 @@ func copyWatchdogPolicyRevisionFieldsToResponse(response *watchdogPolicyResponse
 	response.RollingRefreshAfterSeconds = revision.RollingRefreshAfterSeconds
 }
 
-func buildWatchdogActiveSweepResponse(sweep *SidecarWatchdogSweep, policy SidecarWatchdogPolicy) *watchdogActiveSweepResponse {
+func (s *Service) buildWatchdogActiveSweepResponse(ctx context.Context, sweep *SidecarWatchdogSweep) (*watchdogActiveSweepResponse, error) {
 	if sweep == nil {
-		return nil
+		return nil, nil
 	}
-	totalItems := 0
-	if items, err := decodeWatchdogSweepSnapshot(sweep.SnapshotJSON); err == nil {
-		totalItems = len(items)
+	progress, err := s.buildWatchdogActiveSweepProgress(ctx, sweep.SweepID)
+	if err != nil {
+		return nil, err
 	}
-	var restartRequestedAt *time.Time
-	if policy.ActiveRevisionID != nil && *policy.ActiveRevisionID != sweep.PolicyRevisionID {
-		restartedAt := policy.UpdatedAt
-		restartRequestedAt = &restartedAt
+	return &watchdogActiveSweepResponse{SweepID: sweep.SweepID, Status: sweep.Status, PolicyRevisionID: sweep.PolicyRevisionID, StartedAt: sweep.StartedAt, Progress: progress}, nil
+}
+
+func (s *Service) buildWatchdogActiveSweepProgress(ctx context.Context, sweepID string) (watchdogActiveSweepProgressResponse, error) {
+	itemStore, ok := s.store.(watchdogSweepItemPersistence)
+	if !ok {
+		return watchdogActiveSweepProgressResponse{}, nil
 	}
-	return &watchdogActiveSweepResponse{SweepID: sweep.SweepID, Status: sweep.Status, PolicyRevisionID: sweep.PolicyRevisionID, StartedAt: sweep.StartedAt, NextBatchAfter: cloneTimePtr(sweep.NextBatchAfter), RestartRequestedAt: restartRequestedAt, NextItemIndex: sweep.NextItemIndex, TotalItems: totalItems}
+	items, err := itemStore.ListWatchdogSweepItems(ctx, sweepID)
+	if err != nil {
+		return watchdogActiveSweepProgressResponse{}, err
+	}
+	progress := watchdogActiveSweepProgressResponse{TotalItems: len(items)}
+	for _, item := range items {
+		switch SidecarWatchdogSweepItemStatus(item.Status) {
+		case SidecarWatchdogSweepItemStatusQueued:
+			progress.PendingItems++
+		case SidecarWatchdogSweepItemStatusLeased:
+			progress.ActiveItems++
+		case SidecarWatchdogSweepItemStatusSucceeded:
+			progress.SucceededItems++
+			progress.TerminalItems++
+		case SidecarWatchdogSweepItemStatusFailed:
+			progress.FailedItems++
+			progress.TerminalItems++
+		case SidecarWatchdogSweepItemStatusCancelled:
+			progress.CancelledItems++
+			progress.TerminalItems++
+		case SidecarWatchdogSweepItemStatusSuperseded:
+			progress.SupersededItems++
+			progress.TerminalItems++
+		}
+	}
+	return progress, nil
 }
 
 func watchdogPolicyRevisionInputFromRevision(revision SidecarWatchdogPolicyRevision) SidecarWatchdogPolicyRevisionInput {
