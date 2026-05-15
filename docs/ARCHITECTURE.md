@@ -571,7 +571,7 @@ Quota inventory is split by purpose. `sidecar_auth_quota_states` is the public l
 
 Probe observations are append-only, operator-safe records with normalized status, upstream status code, quota result, reset time, blocking window, safe window summaries, and safe error code. They intentionally exclude raw probe payloads, raw provider responses, tokens, and provider identity payloads. The watchdog worker keeps a 15-day retention window for these observations. Pending repair state lives in `sidecar_watchdog_pending_actions` until workers claim and finish it. Retained history lives in partitioned `sidecar_watchdog_actions` and exposes probe outcomes, including `probe_succeeded`, `probe_failed_*`, `probe_skipped_unsupported_provider`, and public `quota_hold_extended` records when quota remains blocking. Action history also exposes `mutation_outcome` plus derived previous and target priority states separately from raw priority numbers.
 
-The scheduler registers two bounded low-priority workers: `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile`. Both use queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity.
+The scheduler registers two bounded low-priority workers: `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile`. Both use queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity. The watchdog worker has a 125-second job timeout, so `probe_timeout_seconds` is accepted from 1 through 120 seconds after preserving the fixed 5-second safety margin.
 
 ## 9. Global Log Retention
 
