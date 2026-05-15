@@ -42,6 +42,7 @@ var expectedPrismMigrationVersions = []string{
 	"000020_sidecar_watchdog_policy_revisions_and_sweeps",
 	"000021_sidecar_watchdog_four_band_priorities",
 	"000022_sidecar_watchdog_sweep_items",
+	"000023_sidecar_watchdog_probe_timeout_120",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -265,7 +266,7 @@ RETURNING id`, "probe-concurrency-migration-sidecar", "https://probe-concurrency
 	}
 	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "probe_concurrency", "integer")
 	assertColumnMissing(t, testContext, conn, "sidecar_watchdog_policies", "probe_batch_size")
-	assertConstraintDefinitionContains(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25")
+	assertConstraintDefinitionContains(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 120")
 	assertConstraintDefinitionExcludes(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
 	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "active_revision_id", "bigint")
 	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "pending_revision_id", "bigint")
@@ -1054,12 +1055,12 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	} {
 		assertColumnDataType(t, ctx, conn, column.tableName, column.columnName, column.dataType)
 	}
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25", "probe_batch_cooldown_seconds > 0", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 120", "probe_batch_cooldown_seconds > 0", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
 	assertConstraintDefinitionExcludes(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_pkey", "PRIMARY KEY (id)")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_policy_id_fkey", "ON DELETE CASCADE")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_sidecar_id_fkey", "ON DELETE CASCADE")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policy_revisions_values", "watchdog_sweep_interval_seconds > 0", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policy_revisions_values", "watchdog_sweep_interval_seconds > 0", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 120", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_pkey", "PRIMARY KEY (sweep_id)")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_sidecar_id_fkey", "ON DELETE CASCADE")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_policy_revision_id_fkey", "ON DELETE RESTRICT")
@@ -1954,7 +1955,7 @@ RETURNING id`, "quota inventory constraints", "https://quota.example.test", "htt
 	}{
 		{name: "probe concurrency positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency) VALUES ($1, 0)`},
 		{name: "probe concurrency max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency) VALUES ($1, 9)`},
-		{name: "probe timeout max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_timeout_seconds) VALUES ($1, 26)`},
+		{name: "probe timeout max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_timeout_seconds) VALUES ($1, 121)`},
 		{name: "cooldown positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_batch_cooldown_seconds) VALUES ($1, 0)`},
 		{name: "refresh positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, rolling_refresh_after_seconds) VALUES ($1, 0)`},
 		{name: "scan type enum", sql: `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'bogus', 'queued')`},
@@ -1968,8 +1969,15 @@ RETURNING id`, "quota inventory constraints", "https://quota.example.test", "htt
 		})
 	}
 
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency, probe_timeout_seconds) VALUES ($1, 8, 25)`, sidecarID); err != nil {
-		t.Fatalf("expected concurrent probe policy to allow max concurrency with max timeout: %v", err)
+	var policyID int
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency, probe_timeout_seconds) VALUES ($1, 8, 120) RETURNING id`, sidecarID).Scan(&policyID); err != nil {
+		t.Fatalf("expected concurrent probe policy to allow max concurrency with 120s timeout: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, probe_concurrency, probe_timeout_seconds) VALUES ($1, $2, 8, 120)`, policyID, sidecarID); err != nil {
+		t.Fatalf("expected policy revision to allow max concurrency with 120s timeout: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, probe_timeout_seconds) VALUES ($1, $2, 121)`, policyID, sidecarID); err == nil {
+		t.Fatalf("expected policy revision probe_timeout_seconds=121 to fail schema validation")
 	}
 
 	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'queued')`, sidecarID); err == nil {
