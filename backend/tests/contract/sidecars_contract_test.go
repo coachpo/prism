@@ -144,17 +144,23 @@ func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
 	var payload map[string]any
 	decodeJSONResponse(t, policy, &payload)
 	sidecarContractRequirePublicPolicyFields(t, payload)
+	activeRevision := sidecarContractObject(t, payload, "active_revision")
+	activeRevisionID := sidecarContractNumber(t, activeRevision, "id")
 
 	updated := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPut, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/watchdog-policy", map[string]any{
+		"expected_revision_id":          activeRevisionID,
 		"enabled":                       true,
 		"failure_threshold":             4,
 		"failure_window_seconds":        120,
 		"fallback_cooldown_seconds":     600,
-		"quota_exceeded_priority":       0,
-		"using_priority":                2,
-		"error_priority":                0,
+		"quota_exceeded_priority":       90,
+		"using_priority":                99,
+		"working_priority":              99,
+		"empty_quota_priority":          90,
+		"initial_priority":              50,
+		"error_priority":                10,
 		"manual_override_pause_seconds": 900,
-		"probe_concurrency":              2,
+		"probe_concurrency":             2,
 		"probe_timeout_seconds":         10,
 		"probe_jitter_min_ms":           100,
 		"probe_jitter_max_ms":           1000,
@@ -171,8 +177,24 @@ func TestSidecarAPIAllowlistAndWatchdogPolicyContract(t *testing.T) {
 	var updatedPayload map[string]any
 	decodeJSONResponse(t, updated, &updatedPayload)
 	sidecarContractRequirePublicPolicyFields(t, updatedPayload)
-	if sidecarContractNumber(t, updatedPayload, "failure_threshold") != 4 || sidecarContractNumber(t, updatedPayload, "failure_window_seconds") != 120 || sidecarContractNumber(t, updatedPayload, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, updatedPayload, "quota_exceeded_priority") != 0 || sidecarContractNumber(t, updatedPayload, "using_priority") != 2 || sidecarContractNumber(t, updatedPayload, "error_priority") != 0 || sidecarContractNumber(t, updatedPayload, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, updatedPayload, "probe_concurrency") != 2 || sidecarContractNumber(t, updatedPayload, "probe_timeout_seconds") != 10 || sidecarContractNumber(t, updatedPayload, "probe_jitter_min_ms") != 100 || sidecarContractNumber(t, updatedPayload, "probe_jitter_max_ms") != 1000 || sidecarContractNumber(t, updatedPayload, "cooldown_jitter_percent") != 20 || sidecarContractNumber(t, updatedPayload, "probe_batch_cooldown_seconds") != 45 || sidecarContractNumber(t, updatedPayload, "rolling_refresh_after_seconds") != 7200 || updatedPayload["quota_inventory_enabled"] != true || updatedPayload["initial_scan_enabled"] != true || updatedPayload["rolling_refresh_enabled"] != false {
-		t.Fatalf("watchdog policy update did not round-trip public fields: %+v", updatedPayload)
+	if updatedPayload["has_pending_changes"] != true {
+		t.Fatalf("watchdog policy save should create pending changes: %+v", updatedPayload)
+	}
+	pendingRevision := sidecarContractObject(t, updatedPayload, "pending_revision")
+	if sidecarContractNumber(t, pendingRevision, "failure_threshold") != 4 || sidecarContractNumber(t, pendingRevision, "failure_window_seconds") != 120 || sidecarContractNumber(t, pendingRevision, "fallback_cooldown_seconds") != 600 || sidecarContractNumber(t, pendingRevision, "quota_exceeded_priority") != 90 || sidecarContractNumber(t, pendingRevision, "using_priority") != 99 || sidecarContractNumber(t, pendingRevision, "working_priority") != 99 || sidecarContractNumber(t, pendingRevision, "empty_quota_priority") != 90 || sidecarContractNumber(t, pendingRevision, "initial_priority") != 50 || sidecarContractNumber(t, pendingRevision, "error_priority") != 10 || sidecarContractNumber(t, pendingRevision, "manual_override_pause_seconds") != 900 || sidecarContractNumber(t, pendingRevision, "probe_concurrency") != 2 || sidecarContractNumber(t, pendingRevision, "probe_timeout_seconds") != 10 || sidecarContractNumber(t, pendingRevision, "probe_jitter_min_ms") != 100 || sidecarContractNumber(t, pendingRevision, "probe_jitter_max_ms") != 1000 || sidecarContractNumber(t, pendingRevision, "cooldown_jitter_percent") != 20 || sidecarContractNumber(t, pendingRevision, "probe_batch_cooldown_seconds") != 45 || sidecarContractNumber(t, pendingRevision, "rolling_refresh_after_seconds") != 7200 || pendingRevision["quota_inventory_enabled"] != true || pendingRevision["initial_scan_enabled"] != true || pendingRevision["rolling_refresh_enabled"] != false {
+		t.Fatalf("watchdog policy update did not round-trip pending fields: %+v", updatedPayload)
+	}
+	pendingRevisionID := sidecarContractNumber(t, pendingRevision, "id")
+	applied := sidecarHarness.requestJSON(t, sidecarHarness.client, http.MethodPost, "/api/sidecars/"+strconv.Itoa(sidecarID)+"/watchdog-policy/apply", map[string]any{
+		"target_revision_id":   pendingRevisionID,
+		"expected_revision_id": activeRevisionID,
+	}, nil)
+	assertStatus(t, applied, http.StatusOK)
+	var appliedPayload map[string]any
+	decodeJSONResponse(t, applied, &appliedPayload)
+	sidecarContractRequirePublicPolicyFields(t, appliedPayload)
+	if appliedPayload["has_pending_changes"] != false || appliedPayload["pending_revision"] != nil || sidecarContractNumber(t, appliedPayload, "probe_concurrency") != 2 || sidecarContractNumber(t, sidecarContractObject(t, appliedPayload, "active_revision"), "id") != pendingRevisionID {
+		t.Fatalf("watchdog policy apply did not activate pending revision: %+v", appliedPayload)
 	}
 }
 
@@ -364,13 +386,14 @@ func expectedSidecarRouteSurface() map[string][]string {
 		"/api/sidecars/{sidecar_id}/provider-snapshots":           {http.MethodGet},
 		"/api/sidecars/{sidecar_id}/sync-status":                  {http.MethodGet},
 		"/api/sidecars/{sidecar_id}/watchdog-policy":              {http.MethodGet, http.MethodPut, http.MethodPatch},
+		"/api/sidecars/{sidecar_id}/watchdog-policy/apply":        {http.MethodPost},
 		"/api/sidecars/{sidecar_id}/actions":                      {http.MethodGet},
 	}
 }
 
 func sidecarContractRequirePublicPolicyFields(t *testing.T, payload map[string]any) {
 	t.Helper()
-	for _, field := range []string{"id", "sidecar_id", "enabled", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "quota_exceeded_priority", "using_priority", "error_priority", "manual_override_pause_seconds", "probe_concurrency", "probe_timeout_seconds", "probe_jitter_min_ms", "probe_jitter_max_ms", "cooldown_jitter_percent", "probe_batch_cooldown_seconds", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled", "rolling_refresh_after_seconds", "created_at", "updated_at"} {
+	for _, field := range []string{"id", "sidecar_id", "active_revision_id", "pending_revision_id", "has_pending_changes", "active_revision", "pending_revision", "active_sweep", "enabled", "watchdog_sweep_interval_seconds", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "quota_exceeded_priority", "using_priority", "working_priority", "empty_quota_priority", "initial_priority", "error_priority", "manual_override_pause_seconds", "probe_concurrency", "probe_timeout_seconds", "probe_jitter_min_ms", "probe_jitter_max_ms", "cooldown_jitter_percent", "probe_batch_cooldown_seconds", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled", "rolling_refresh_after_seconds", "created_at", "updated_at"} {
 		if _, ok := payload[field]; !ok {
 			t.Fatalf("watchdog policy payload missing public field %q: %+v", field, payload)
 		}
@@ -380,14 +403,18 @@ func sidecarContractRequirePublicPolicyFields(t *testing.T, payload map[string]a
 			t.Fatalf("watchdog policy payload exposed internal field %q: %+v", internal, payload)
 		}
 	}
+	if _, ok := payload["has_pending_changes"].(bool); !ok {
+		t.Fatalf("watchdog policy has_pending_changes field must be boolean: %+v", payload)
+	}
 	for _, field := range []string{"enabled", "quota_inventory_enabled", "initial_scan_enabled", "rolling_refresh_enabled"} {
 		if _, ok := payload[field].(bool); !ok {
 			t.Fatalf("watchdog policy %s field must be boolean: %+v", field, payload)
 		}
 	}
-	for _, field := range []string{"id", "sidecar_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "quota_exceeded_priority", "using_priority", "error_priority", "manual_override_pause_seconds", "probe_concurrency", "probe_timeout_seconds", "probe_jitter_min_ms", "probe_jitter_max_ms", "cooldown_jitter_percent", "probe_batch_cooldown_seconds", "rolling_refresh_after_seconds"} {
+	for _, field := range []string{"id", "sidecar_id", "active_revision_id", "failure_threshold", "failure_window_seconds", "fallback_cooldown_seconds", "quota_exceeded_priority", "using_priority", "working_priority", "empty_quota_priority", "initial_priority", "error_priority", "manual_override_pause_seconds", "probe_concurrency", "probe_timeout_seconds", "probe_jitter_min_ms", "probe_jitter_max_ms", "cooldown_jitter_percent", "probe_batch_cooldown_seconds", "rolling_refresh_after_seconds", "watchdog_sweep_interval_seconds"} {
 		sidecarContractNumber(t, payload, field)
 	}
+	sidecarContractObject(t, payload, "active_revision")
 }
 
 func sidecarContractNumber(t *testing.T, payload map[string]any, field string) int {
@@ -397,6 +424,15 @@ func sidecarContractNumber(t *testing.T, payload map[string]any, field string) i
 		t.Fatalf("expected numeric field %q in %+v", field, payload)
 	}
 	return int(number)
+}
+
+func sidecarContractObject(t *testing.T, payload map[string]any, field string) map[string]any {
+	t.Helper()
+	object, ok := payload[field].(map[string]any)
+	if !ok {
+		t.Fatalf("expected object field %q in %+v", field, payload)
+	}
+	return object
 }
 
 func sidecarContractStringIn(values []string, want string) bool {

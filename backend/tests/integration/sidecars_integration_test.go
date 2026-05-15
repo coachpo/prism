@@ -175,7 +175,7 @@ func TestConcurrentLeaseWatchdogIntegrationReconcileSkipsOverlap(t *testing.T) {
 	t.Cleanup(secondService.Close)
 	upstream := newSidecarIntegrationUpstream(t)
 	defer upstream.Close()
-	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-codex-concurrent", "idx-codex-concurrent", 10))
+	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-codex-concurrent", "idx-codex-concurrent", 99))
 	resetAt := now.Add(time.Hour)
 	upstream.setAPICallResponse("idx-codex-concurrent", sidecarIntegrationAPICallResponse{StatusCode: http.StatusOK, Body: sidecarIntegrationExhaustedUsageBody(t, resetAt), Delay: 500 * time.Millisecond})
 	sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "probe-concurrent")
@@ -210,8 +210,8 @@ func TestConcurrentLeaseWatchdogIntegrationReconcileSkipsOverlap(t *testing.T) {
 		t.Fatal("timed out waiting for first concurrent reconcile")
 	}
 	upstream.assertAPICalls(t, []string{"idx-codex-concurrent"})
-	upstream.assertFieldPatchPriorities(t, []int{0})
-	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-concurrent", 10, 0, resetAt)
+	upstream.assertFieldPatchPriorities(t, []int{90})
+	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-codex-concurrent", 99, 90, resetAt)
 	sidecarIntegrationAssertPolicyCursorRemoved(t, conn)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
@@ -455,14 +455,14 @@ func TestSidecarIntegrationWatchdogWorkerCooldownSkipsFailedHoldAcrossTicks(t *t
 	upstream.setAPICallResponse("idx-cooldown-2", sidecarIntegrationAPICallResponse{StatusCode: http.StatusInternalServerError, Body: `{"error":"upstream"}`})
 	sidecarID := sidecarIntegrationCreateOnlySidecar(t, conn, router, upstream, "cooldown-worker")
 	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, 2)
-	sidecarIntegrationInsertWatchdogHold(t, conn, sidecarID, "auth-cooldown-1", "idx-cooldown-1", "codex", 10, 0, now.Add(-2*time.Hour))
-	sidecarIntegrationInsertWatchdogHold(t, conn, sidecarID, "auth-cooldown-2", "idx-cooldown-2", "codex", 10, 0, now.Add(-time.Hour))
+	sidecarIntegrationInsertWatchdogHold(t, conn, sidecarID, "auth-cooldown-1", "idx-cooldown-1", "codex", 99, 90, now.Add(-2*time.Hour))
+	sidecarIntegrationInsertWatchdogHold(t, conn, sidecarID, "auth-cooldown-2", "idx-cooldown-2", "codex", 99, 90, now.Add(-time.Hour))
 
 	sidecarIntegrationRunWatchdogWorker(t, ctx, service, "first failed hold")
 	upstream.assertAPICalls(t, []string{"idx-cooldown-1"})
 	now = now.Add(time.Second)
 	sidecarIntegrationRunWatchdogWorker(t, ctx, service, "second failed hold")
-	upstream.assertAPICalls(t, []string{"idx-cooldown-1", "idx-cooldown-2"})
+	upstream.assertAPICalls(t, []string{"idx-cooldown-1"})
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
 
@@ -473,11 +473,11 @@ func TestSidecarIntegrationQueueBackedRepairPatchesAndClearsPendingAction(t *tes
 	conn, service, router := newSidecarIntegrationServiceRouterWithNow(t, ctx, func() time.Time { return now })
 	upstream := newSidecarIntegrationUpstream(t)
 	defer upstream.Close()
-	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-queue-repair", "idx-queue-repair", 10))
+	upstream.setAuthFiles(sidecarIntegrationCodexAuthFixture("auth-queue-repair", "idx-queue-repair", 99))
 	sidecarID := sidecarIntegrationCreateOnlySidecar(t, conn, router, upstream, "queue-repair")
 	sidecarIntegrationEnableProbePolicy(t, conn, sidecarID, 1, 2)
 	holdUntil := now.Add(2 * time.Hour)
-	sidecarIntegrationInsertPendingRepairAction(t, conn, sidecarID, now, "auth-queue-repair", "auth-queue-repair.json", "idx-queue-repair", 10, 0, holdUntil)
+	sidecarIntegrationInsertPendingRepairAction(t, conn, sidecarID, now, "auth-queue-repair", "auth-queue-repair.json", "idx-queue-repair", 99, 90, holdUntil)
 	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 1)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 
@@ -485,9 +485,9 @@ func TestSidecarIntegrationQueueBackedRepairPatchesAndClearsPendingAction(t *tes
 	if err != nil || !result.Reconciled || result.QuotaHeld != 1 {
 		t.Fatalf("expected pending queue repair to patch and create hold, result=%+v err=%v", result, err)
 	}
-	upstream.assertFieldPatchPriorities(t, []int{0})
+	upstream.assertFieldPatchPriorities(t, []int{90})
 	sidecarIntegrationAssertPendingActionCount(t, conn, sidecarID, 0)
-	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-queue-repair", 10, 0, holdUntil)
+	sidecarIntegrationAssertActiveHold(t, conn, sidecarID, "auth-queue-repair", 99, 90, holdUntil)
 	sidecarIntegrationAssertAction(t, conn, sidecarID, "deprioritize", "succeeded")
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
@@ -704,12 +704,13 @@ func sidecarIntegrationEnableProbePolicy(t *testing.T, conn *pgx.Conn, sidecarID
 	t.Helper()
 	_, err := conn.Exec(context.Background(), `INSERT INTO sidecar_watchdog_policies (
 sidecar_id, enabled, failure_threshold, failure_window_seconds, fallback_cooldown_seconds,
-quota_exceeded_priority, using_priority, error_priority, manual_override_pause_seconds, probe_concurrency, probe_timeout_seconds,
+quota_exceeded_priority, using_priority, working_priority, empty_quota_priority, initial_priority, error_priority,
+manual_override_pause_seconds, probe_concurrency, probe_timeout_seconds,
 quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled)
-VALUES ($1, true, 3, 3600, 86400, 0, 1, 0, 1800, $2, $3, false, false, true)
+VALUES ($1, true, 3, 3600, 86400, 90, 99, 99, 90, 50, 10, 1800, $2, $3, false, false, true)
 ON CONFLICT (sidecar_id) DO UPDATE SET enabled = true, failure_threshold = 3,
 failure_window_seconds = 3600, fallback_cooldown_seconds = 86400,
-quota_exceeded_priority = 0, using_priority = 1, error_priority = 0, manual_override_pause_seconds = 1800,
+quota_exceeded_priority = 90, using_priority = 99, working_priority = 99, empty_quota_priority = 90, initial_priority = 50, error_priority = 10, manual_override_pause_seconds = 1800,
 probe_concurrency = $2, probe_timeout_seconds = $3,
 quota_inventory_enabled = false, initial_scan_enabled = false, rolling_refresh_enabled = true,
 updated_at = now()`, sidecarID, probeConcurrency, timeoutSeconds)

@@ -38,6 +38,8 @@ var expectedPrismMigrationVersions = []string{
 	"000017_sidecar_watchdog_action_history_retention_split",
 	"000018_sidecar_quota_inventory_and_cooldown",
 	"000019_sidecar_watchdog_probe_concurrency",
+	"000020_sidecar_watchdog_policy_revisions_and_sweeps",
+	"000021_sidecar_watchdog_four_band_priorities",
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -263,6 +265,75 @@ RETURNING id`, "probe-concurrency-migration-sidecar", "https://probe-concurrency
 	assertColumnMissing(t, testContext, conn, "sidecar_watchdog_policies", "probe_batch_size")
 	assertConstraintDefinitionContains(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25")
 	assertConstraintDefinitionExcludes(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
+	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "active_revision_id", "bigint")
+	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "pending_revision_id", "bigint")
+	var activeRevisionID int64
+	if err := conn.QueryRow(testContext, `SELECT active_revision_id FROM sidecar_watchdog_policies WHERE sidecar_id = $1`, sidecarID).Scan(&activeRevisionID); err != nil {
+		t.Fatalf("load active watchdog policy revision after migration: %v", err)
+	}
+	var revisionConcurrency int
+	if err := conn.QueryRow(testContext, `SELECT probe_concurrency FROM sidecar_watchdog_policy_revisions WHERE id = $1`, activeRevisionID).Scan(&revisionConcurrency); err != nil {
+		t.Fatalf("load backfilled watchdog policy revision after migration: %v", err)
+	}
+	if revisionConcurrency != 7 {
+		t.Fatalf("expected backfilled revision probe_concurrency 7, got %d", revisionConcurrency)
+	}
+}
+
+func TestSidecarWatchdogFourBandPriorityMigrationBackfillsLegacyZeroes(t *testing.T) {
+	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	conn := harness.openDatabase(t, testContext, "sidecar_four_band_priority_migration")
+	defer func() { _ = conn.Close(testContext) }()
+
+	applyMigrationsThrough(t, testContext, conn, "000020_sidecar_watchdog_policy_revisions_and_sweeps")
+	var sidecarID int
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
+VALUES ($1, $2, $3, $4)
+RETURNING id`, "four-band-migration-sidecar", "https://four-band-migration.example.test", "https://four-band-migration.example.test", "enc:four-band").Scan(&sidecarID); err != nil {
+		t.Fatalf("seed sidecar before four-band migration: %v", err)
+	}
+	var policyID int
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled, using_priority, quota_exceeded_priority, error_priority, probe_concurrency, probe_timeout_seconds)
+VALUES ($1, true, 1, 0, 0, 3, 8)
+RETURNING id`, sidecarID).Scan(&policyID); err != nil {
+		t.Fatalf("seed legacy watchdog policy before four-band migration: %v", err)
+	}
+	var revisionID int64
+	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, enabled, using_priority, quota_exceeded_priority, error_priority, probe_concurrency, probe_timeout_seconds)
+VALUES ($1, $2, true, 1, 0, 0, 3, 8)
+RETURNING id`, policyID, sidecarID).Scan(&revisionID); err != nil {
+		t.Fatalf("seed legacy watchdog revision before four-band migration: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `UPDATE sidecar_watchdog_policies SET active_revision_id=$1 WHERE id=$2`, revisionID, policyID); err != nil {
+		t.Fatalf("point policy at legacy revision before four-band migration: %v", err)
+	}
+
+	result, err := runner.Run(testContext, conn)
+	if err != nil {
+		t.Fatalf("run four-band priority migration: %v", err)
+	}
+	if result.Outcome != migrate.OutcomeApply {
+		t.Fatalf("expected four-band priority migration to apply, got %q", result.Outcome)
+	}
+	assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, "000021_sidecar_watchdog_four_band_priorities"))
+	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
+
+	assertFourBandPriorityRow(t, testContext, conn, "sidecar_watchdog_policies", "id", policyID)
+	assertFourBandPriorityRow(t, testContext, conn, "sidecar_watchdog_policy_revisions", "id", revisionID)
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at) VALUES ('sweep-active-a', $1, $2, 'running', '[]'::jsonb, now())`, sidecarID, revisionID); err != nil {
+		t.Fatalf("seed active watchdog sweep after migration: %v", err)
+	}
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at) VALUES ('sweep-active-b', $1, $2, 'paused', '[]'::jsonb, now())`, sidecarID, revisionID); err == nil {
+		t.Fatalf("expected active sweep uniqueness to reject overlapping running/paused sweeps")
+	}
+	completedAt := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
+	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at, completed_at) VALUES ('sweep-completed', $1, $2, 'completed', '[]'::jsonb, $3, $3)`, sidecarID, revisionID, completedAt); err != nil {
+		t.Fatalf("terminal sweep history should remain insertable after active uniqueness check: %v", err)
+	}
 }
 
 func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
@@ -796,6 +867,8 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		columnName string
 		dataType   string
 	}{
+		{"sidecar_watchdog_policies", "active_revision_id", "bigint"},
+		{"sidecar_watchdog_policies", "pending_revision_id", "bigint"},
 		{"sidecar_watchdog_policies", "probe_concurrency", "integer"},
 		{"sidecar_watchdog_policies", "probe_batch_cooldown_seconds", "integer"},
 		{"sidecar_watchdog_policies", "probe_last_batch_completed_at", "timestamp with time zone"},
@@ -803,6 +876,51 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		{"sidecar_watchdog_policies", "initial_scan_enabled", "boolean"},
 		{"sidecar_watchdog_policies", "rolling_refresh_enabled", "boolean"},
 		{"sidecar_watchdog_policies", "rolling_refresh_after_seconds", "integer"},
+		{"sidecar_watchdog_policies", "working_priority", "integer"},
+		{"sidecar_watchdog_policies", "empty_quota_priority", "integer"},
+		{"sidecar_watchdog_policies", "initial_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "id", "bigint"},
+		{"sidecar_watchdog_policy_revisions", "policy_id", "integer"},
+		{"sidecar_watchdog_policy_revisions", "sidecar_id", "integer"},
+		{"sidecar_watchdog_policy_revisions", "enabled", "boolean"},
+		{"sidecar_watchdog_policy_revisions", "watchdog_sweep_interval_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "failure_threshold", "integer"},
+		{"sidecar_watchdog_policy_revisions", "failure_window_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "fallback_cooldown_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "quota_exceeded_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "using_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "working_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "empty_quota_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "initial_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "error_priority", "integer"},
+		{"sidecar_watchdog_policy_revisions", "manual_override_pause_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "probe_concurrency", "integer"},
+		{"sidecar_watchdog_policy_revisions", "probe_timeout_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "probe_batch_cooldown_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "probe_jitter_min_ms", "integer"},
+		{"sidecar_watchdog_policy_revisions", "probe_jitter_max_ms", "integer"},
+		{"sidecar_watchdog_policy_revisions", "cooldown_jitter_percent", "integer"},
+		{"sidecar_watchdog_policy_revisions", "quota_inventory_enabled", "boolean"},
+		{"sidecar_watchdog_policy_revisions", "initial_scan_enabled", "boolean"},
+		{"sidecar_watchdog_policy_revisions", "rolling_refresh_enabled", "boolean"},
+		{"sidecar_watchdog_policy_revisions", "rolling_refresh_after_seconds", "integer"},
+		{"sidecar_watchdog_policy_revisions", "created_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "sweep_id", "text"},
+		{"sidecar_watchdog_sweeps", "sidecar_id", "integer"},
+		{"sidecar_watchdog_sweeps", "policy_revision_id", "bigint"},
+		{"sidecar_watchdog_sweeps", "status", "text"},
+		{"sidecar_watchdog_sweeps", "snapshot_json", "jsonb"},
+		{"sidecar_watchdog_sweeps", "next_item_index", "integer"},
+		{"sidecar_watchdog_sweeps", "batch_index", "integer"},
+		{"sidecar_watchdog_sweeps", "next_batch_after", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "last_heartbeat_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "lease_expires_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "pause_reason", "text"},
+		{"sidecar_watchdog_sweeps", "failure_reason", "text"},
+		{"sidecar_watchdog_sweeps", "started_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "completed_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "created_at", "timestamp with time zone"},
+		{"sidecar_watchdog_sweeps", "updated_at", "timestamp with time zone"},
 		{"sidecar_quota_scan_runs", "id", "bigint"},
 		{"sidecar_quota_scan_runs", "scan_type", "text"},
 		{"sidecar_quota_scan_runs", "status", "text"},
@@ -840,8 +958,19 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	} {
 		assertColumnDataType(t, ctx, conn, column.tableName, column.columnName, column.dataType)
 	}
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25", "probe_batch_cooldown_seconds > 0", "rolling_refresh_after_seconds > 0")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25", "probe_batch_cooldown_seconds > 0", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
 	assertConstraintDefinitionExcludes(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_pkey", "PRIMARY KEY (id)")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_policy_id_fkey", "ON DELETE CASCADE")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_sidecar_id_fkey", "ON DELETE CASCADE")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policy_revisions_values", "watchdog_sweep_interval_seconds > 0", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 25", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_pkey", "PRIMARY KEY (sweep_id)")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_sidecar_id_fkey", "ON DELETE CASCADE")
+	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_policy_revision_id_fkey", "ON DELETE RESTRICT")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_status", "running", "paused", "completed", "failed", "cancelled")
+	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_checkpoint", "next_item_index >= 0", "batch_index >= 0", "jsonb_typeof")
+	assertIndexUniqueness(t, ctx, conn, "sidecar_watchdog_sweeps", "uq_sidecar_watchdog_sweeps_active_sidecar", true)
+	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_sweeps_active_sidecar", "sidecar_id", "running", "paused")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_scan_type", "initial", "manual", "scheduled")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "queued", "running", "completed", "cancelled", "failed")
 	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_quota_scan_runs_pkey", "PRIMARY KEY (id)")
@@ -926,6 +1055,18 @@ func assertColumnMissing(t *testing.T, ctx context.Context, conn *pgx.Conn, tabl
 	}
 	if exists {
 		t.Fatalf("expected %s.%s column to be absent", tableName, columnName)
+	}
+}
+
+func assertFourBandPriorityRow(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, idColumn string, id any) {
+	t.Helper()
+	var usingPriority, quotaPriority, workingPriority, emptyQuotaPriority, initialPriority, errorPriority int
+	query := fmt.Sprintf(`SELECT using_priority, quota_exceeded_priority, working_priority, empty_quota_priority, initial_priority, error_priority FROM %s WHERE %s = $1`, tableName, idColumn)
+	if err := conn.QueryRow(ctx, query, id).Scan(&usingPriority, &quotaPriority, &workingPriority, &emptyQuotaPriority, &initialPriority, &errorPriority); err != nil {
+		t.Fatalf("load four-band priorities from %s: %v", tableName, err)
+	}
+	if usingPriority != 99 || quotaPriority != 90 || workingPriority != 99 || emptyQuotaPriority != 90 || initialPriority != 50 || errorPriority != 10 {
+		t.Fatalf("unexpected four-band priorities in %s: using=%d quota=%d working=%d empty=%d initial=%d error=%d", tableName, usingPriority, quotaPriority, workingPriority, emptyQuotaPriority, initialPriority, errorPriority)
 	}
 }
 

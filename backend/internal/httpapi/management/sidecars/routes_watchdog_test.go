@@ -38,11 +38,11 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	}
 	var response watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, recorder, &response)
-	if !response.Enabled || response.QuotaExceededPriority != 2 || response.UsingPriority != 9 || response.ErrorPriority != DefaultErrorPriority || response.ProbeConcurrency != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 {
+	if response.ActiveRevision == nil || !response.Enabled || response.QuotaExceededPriority != 2 || response.UsingPriority != 9 || response.ErrorPriority != DefaultErrorPriority || response.ProbeConcurrency != 2 || response.ProbeTimeoutSeconds != 10 || response.ProbeBatchCooldownSeconds != 45 || response.QuotaInventoryEnabled || response.InitialScanEnabled || response.RollingRefreshEnabled || response.RollingRefreshAfterSeconds != 7200 || response.HasPendingChanges {
 		t.Fatalf("unexpected policy response: %+v", response)
 	}
 
-	patch := `{"quota_exceeded_priority":3,"using_priority":8,"error_priority":3,"probe_concurrency":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"probe_jitter_min_ms":25,"probe_jitter_max_ms":50,"cooldown_jitter_percent":10,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`
+	patch := watchdogPolicyPatchWithExpectedRevision(response.ActiveRevision.ID, `{"quota_exceeded_priority":3,"using_priority":8,"error_priority":3,"probe_concurrency":4,"probe_timeout_seconds":6,"probe_batch_cooldown_seconds":60,"probe_jitter_min_ms":25,"probe_jitter_max_ms":50,"cooldown_jitter_percent":10,"quota_inventory_enabled":true,"initial_scan_enabled":true,"rolling_refresh_enabled":true,"rolling_refresh_after_seconds":5400}`)
 	patchRecorder := httptest.NewRecorder()
 	router.ServeHTTP(patchRecorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(patch)))
 	if patchRecorder.Code != http.StatusOK {
@@ -53,8 +53,109 @@ func TestWatchdogPolicyProbeResponse(t *testing.T) {
 	}
 	var updated watchdogPolicyResponse
 	decodeWatchdogRouteResponse(t, patchRecorder, &updated)
-	if updated.QuotaExceededPriority != 3 || updated.UsingPriority != 8 || updated.ErrorPriority != 3 || updated.ProbeConcurrency != 4 || updated.ProbeTimeoutSeconds != 6 || updated.ProbeBatchCooldownSeconds != 60 || updated.ProbeJitterMinMS != 25 || updated.ProbeJitterMaxMS != 50 || updated.CooldownJitterPercent != 10 || !updated.QuotaInventoryEnabled || !updated.InitialScanEnabled || !updated.RollingRefreshEnabled || updated.RollingRefreshAfterSeconds != 5400 {
+	if updated.PendingRevision == nil || !updated.HasPendingChanges || updated.QuotaExceededPriority != 2 || updated.PendingRevision.QuotaExceededPriority != 3 || updated.PendingRevision.UsingPriority != 8 || updated.PendingRevision.ErrorPriority != 3 || updated.PendingRevision.ProbeConcurrency != 4 || updated.PendingRevision.ProbeTimeoutSeconds != 6 || updated.PendingRevision.ProbeBatchCooldownSeconds != 60 || updated.PendingRevision.ProbeJitterMinMS != 25 || updated.PendingRevision.ProbeJitterMaxMS != 50 || updated.PendingRevision.CooldownJitterPercent != 10 || !updated.PendingRevision.QuotaInventoryEnabled || !updated.PendingRevision.InitialScanEnabled || !updated.PendingRevision.RollingRefreshEnabled || updated.PendingRevision.RollingRefreshAfterSeconds != 5400 {
 		t.Fatalf("unexpected patched policy: %+v", updated)
+	}
+}
+
+func TestWatchdogPolicyDefaultsExposeCanonicalFourBandThresholds(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
+	_, router, sidecar := newWatchdogRouteTest(t, now)
+
+	response := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	if response.WorkingPriority != DefaultWorkingPriority || response.EmptyQuotaPriority != DefaultEmptyQuotaPriority || response.InitialPriority != DefaultInitialPriority || response.ErrorPriority != DefaultErrorPriority {
+		t.Fatalf("policy response did not expose canonical four-band defaults: %+v", response)
+	}
+	if response.ActiveRevision == nil || response.ActiveRevision.WorkingPriority != DefaultWorkingPriority || response.ActiveRevision.EmptyQuotaPriority != DefaultEmptyQuotaPriority || response.ActiveRevision.InitialPriority != DefaultInitialPriority || response.ActiveRevision.ErrorPriority != DefaultErrorPriority {
+		t.Fatalf("active revision did not expose canonical four-band defaults: %+v", response.ActiveRevision)
+	}
+}
+
+func TestWatchdogPolicySaveCreatesPendingRevision(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 0, 0, 0, time.UTC)
+	_, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	activeID := initial.ActiveRevision.ID
+
+	body := `{"expected_revision_id":` + strconv.FormatInt(activeID, 10) + `,"enabled":true,"probe_concurrency":5,"probe_timeout_seconds":9,"watchdog_sweep_interval_seconds":120}`
+	response := patchWatchdogPolicyRoute(t, router, sidecar.ID, body, http.StatusOK)
+	if !response.HasPendingChanges || response.ActiveRevision == nil || response.PendingRevision == nil {
+		t.Fatalf("expected active and pending revisions: %+v", response)
+	}
+	if response.ActiveRevision.ID != activeID || response.ActiveRevision.ProbeConcurrency != initial.ActiveRevision.ProbeConcurrency || response.ProbeConcurrency != initial.ActiveRevision.ProbeConcurrency {
+		t.Fatalf("save must not mutate active revision: before=%+v after=%+v", initial, response)
+	}
+	if response.PendingRevision.ID == activeID || response.PendingRevision.ProbeConcurrency != 5 || response.PendingRevision.ProbeTimeoutSeconds != 9 || response.PendingRevision.WatchdogSweepIntervalSeconds != 120 || !response.PendingRevision.Enabled {
+		t.Fatalf("pending revision did not capture saved policy: %+v", response.PendingRevision)
+	}
+}
+
+func TestWatchdogPolicyApplyActivatesPendingRevision(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 15, 0, 0, time.UTC)
+	_, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	activeID := initial.ActiveRevision.ID
+	pending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":6,"probe_timeout_seconds":11}`, http.StatusOK)
+	pendingID := pending.PendingRevision.ID
+
+	applied := applyWatchdogPolicyRoute(t, router, sidecar.ID, pendingID, activeID, http.StatusOK)
+	if applied.HasPendingChanges || applied.PendingRevision != nil || applied.ActiveRevision == nil {
+		t.Fatalf("expected pending revision to be cleared after apply: %+v", applied)
+	}
+	if applied.ActiveRevision.ID != pendingID || applied.ActiveRevision.ProbeConcurrency != 6 || applied.ActiveRevision.ProbeTimeoutSeconds != 11 || applied.ActiveRevisionID == nil || *applied.ActiveRevisionID != pendingID {
+		t.Fatalf("pending revision was not activated: %+v", applied)
+	}
+}
+
+func TestActiveSweepKeepsStartingRevision(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 30, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	activeID := initial.ActiveRevision.ID
+	sweepStore := service.store.(watchdogSweepLifecyclePersistence)
+	_, err := sweepStore.UpsertWatchdogSweep(t.Context(), SidecarWatchdogSweepInput{SweepID: "route-sweep-pinned", SidecarID: sidecar.ID, PolicyRevisionID: activeID, Status: string(SidecarWatchdogSweepStatusRunning), SnapshotJSON: marshalWatchdogSweepItems(t, []watchdogSweepSnapshotItem{{Source: watchdogSweepSourceRollingRefreshProbe, AuthID: "auth-pinned", AuthIndex: "idx-pinned", Provider: "codex"}}), NextItemIndex: 1, StartedAt: now})
+	if err != nil {
+		t.Fatalf("seed active sweep: %v", err)
+	}
+	pending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":7}`, http.StatusOK)
+	applied := applyWatchdogPolicyRoute(t, router, sidecar.ID, pending.PendingRevision.ID, activeID, http.StatusOK)
+	if applied.ActiveSweep == nil || applied.ActiveSweep.PolicyRevisionID != activeID || applied.ActiveSweep.TotalItems != 1 || applied.ActiveSweep.RestartRequestedAt == nil {
+		t.Fatalf("active sweep should stay pinned with restart intent: %+v", applied.ActiveSweep)
+	}
+	if applied.ActiveRevision.ID != pending.PendingRevision.ID || applied.ActiveRevision.ProbeConcurrency != 7 {
+		t.Fatalf("active policy should move to pending revision for future sweeps: %+v", applied.ActiveRevision)
+	}
+}
+
+func TestWatchdogPolicyRejectsStaleExpectedRevision(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 45, 0, 0, time.UTC)
+	_, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
+	activeID := initial.ActiveRevision.ID
+	pending := patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":4}`, http.StatusOK)
+
+	patchWatchdogPolicyRoute(t, router, sidecar.ID, `{"expected_revision_id":`+strconv.FormatInt(activeID, 10)+`,"probe_concurrency":5}`, http.StatusConflict)
+	applied := applyWatchdogPolicyRoute(t, router, sidecar.ID, pending.PendingRevision.ID, activeID, http.StatusOK)
+	applyWatchdogPolicyRoute(t, router, sidecar.ID, activeID, activeID, http.StatusConflict)
+	if applied.ActiveRevision.ID != pending.PendingRevision.ID {
+		t.Fatalf("expected first apply to activate pending revision: %+v", applied)
+	}
+}
+
+func TestWatchdogPolicyValidationRejectsMissingExpectedRevisionID(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 10, 50, 0, 0, time.UTC)
+	_, router, sidecar := newWatchdogRouteTest(t, now)
+	for _, method := range []string{http.MethodPut, http.MethodPatch} {
+		t.Run(method, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(method, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(`{"probe_concurrency":4}`)))
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("policy save without expected revision status = %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "expected_revision_id is required") {
+				t.Fatalf("missing expected_revision_id response = %s", recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -101,6 +202,118 @@ func TestQuotaRouteResponsesHideInternalFields(t *testing.T) {
 	}
 }
 
+func TestPriorityStateDerivedForQuotaStateResponses(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 11, 0, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: 90, UsingPriority: 99, ErrorPriority: 10, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: DefaultProbeConcurrency, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds), QuotaInventoryEnabled: boolPtr(true), InitialScanEnabled: boolPtr(true), RollingRefreshEnabled: boolPtr(true), RollingRefreshAfterSeconds: intPtr(DefaultRollingRefreshAfterSeconds)})
+	if err != nil {
+		t.Fatalf("seed watchdog policy: %v", err)
+	}
+	stateStore := service.store.(authQuotaStateStore)
+	cases := []struct {
+		authID        string
+		priority      int
+		quotaBand     string
+		priorityState string
+	}{
+		{authID: "auth-working", priority: 100, quotaBand: quotaBandUsing, priorityState: watchdogPriorityStateWorking},
+		{authID: "auth-empty", priority: 90, quotaBand: quotaBandQuotaExceeded, priorityState: watchdogPriorityStateEmptyQuota},
+		{authID: "auth-initial", priority: 50, quotaBand: quotaBandUsing, priorityState: watchdogPriorityStateInitial},
+		{authID: "auth-error", priority: 9, quotaBand: quotaBandError, priorityState: watchdogPriorityStateError},
+	}
+	for _, tc := range cases {
+		authIndex := "idx-" + tc.authID
+		if _, err := service.store.SaveAuthSnapshot(t.Context(), SidecarAuthSnapshotInput{SidecarID: sidecar.ID, AuthID: tc.authID, AuthIndex: &authIndex, Name: tc.authID + ".json", Provider: stringPtr("codex"), Priority: intPtr(tc.priority), SnapshotJSON: json.RawMessage(`{}`), ObservedAt: now}); err != nil {
+			t.Fatalf("seed auth snapshot %s: %v", tc.authID, err)
+		}
+		if _, err := stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: tc.authID, AuthIndex: &authIndex, AuthName: stringPtr(tc.authID + ".json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, QuotaBand: tc.quotaBand, ProbeStatus: stringPtr(watchdogProbeStatusSucceeded), LastProbedAt: &now}); err != nil {
+			t.Fatalf("seed quota state %s: %v", tc.authID, err)
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-states", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("quota states status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response quotaStateListResponse
+	decodeWatchdogRouteResponse(t, recorder, &response)
+	items := map[string]quotaStateResponse{}
+	for _, item := range response.Items {
+		items[item.AuthID] = item
+	}
+	for _, tc := range cases {
+		item := items[tc.authID]
+		if item.QuotaBand != tc.quotaBand || item.PriorityState != tc.priorityState || item.CurrentPriority == nil || *item.CurrentPriority != tc.priority {
+			t.Fatalf("quota response for %s kept quota_band/current_priority or derived wrong priority_state: %+v", tc.authID, item)
+		}
+	}
+}
+
+func TestActionHistoryDistinguishesPatchedVsAlreadyAtTarget(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 11, 15, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	_, err := service.store.UpsertWatchdogPolicy(t.Context(), SidecarWatchdogPolicyInput{SidecarID: sidecar.ID, Enabled: true, FailureThreshold: DefaultFailureThreshold, FailureWindowSeconds: DefaultFailureWindowSeconds, FallbackCooldownSeconds: DefaultFallbackCooldownSeconds, QuotaExceededPriority: 90, UsingPriority: 99, ErrorPriority: 10, ManualOverridePauseSeconds: DefaultManualOverridePauseSeconds, ProbeConcurrency: DefaultProbeConcurrency, ProbeTimeoutSeconds: DefaultProbeTimeoutSeconds, ProbeBatchCooldownSeconds: intPtr(DefaultProbeBatchCooldownSeconds)})
+	if err != nil {
+		t.Fatalf("seed watchdog policy: %v", err)
+	}
+	previousPriority := 99
+	targetPriority := 90
+	createWatchdogRouteAction(t, service, SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-patched"), AuthIndex: stringPtrFromNonEmpty("idx-patched"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Status: watchdogActionStatusSucceeded, Reason: stringPtrFromNonEmpty(watchdogReasonQuotaExceeded), PreviousPriority: &previousPriority, TargetPriority: &targetPriority})
+	createWatchdogRouteAction(t, service, SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-already"), AuthIndex: stringPtrFromNonEmpty("idx-already"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Status: watchdogActionStatusSucceeded, Reason: stringPtrFromNonEmpty(watchdogActionMutationOutcomeAlreadyAtTarget), PreviousPriority: &previousPriority, TargetPriority: &targetPriority})
+	createWatchdogRouteAction(t, service, SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-skipped"), AuthIndex: stringPtrFromNonEmpty("idx-skipped"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Status: watchdogActionStatusSkipped, Reason: stringPtrFromNonEmpty("current priority no longer matches selected priority"), PreviousPriority: &previousPriority, TargetPriority: &targetPriority})
+	createWatchdogRouteAction(t, service, SidecarWatchdogActionInput{SidecarID: sidecar.ID, AuthID: stringPtrFromNonEmpty("auth-failed"), AuthIndex: stringPtrFromNonEmpty("idx-failed"), Provider: stringPtrFromNonEmpty("codex"), ActionType: watchdogActionDeprioritize, Status: watchdogActionStatusFailed, Reason: stringPtrFromNonEmpty(watchdogReasonQuotaExceeded), PreviousPriority: &previousPriority, TargetPriority: &targetPriority, ErrorMessage: stringPtrFromNonEmpty("patch failed")})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/actions", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("actions status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response actionHistoryListResponse
+	decodeWatchdogRouteResponse(t, recorder, &response)
+	items := map[string]actionRecordResponse{}
+	for _, item := range response.Items {
+		items[stringValue(item.AuthID)] = item
+	}
+	wants := map[string]string{"auth-patched": watchdogActionMutationOutcomePatched, "auth-already": watchdogActionMutationOutcomeAlreadyAtTarget, "auth-skipped": watchdogActionMutationOutcomeSkipped, "auth-failed": watchdogActionMutationOutcomeFailed}
+	for authID, wantOutcome := range wants {
+		item := items[authID]
+		if item.MutationOutcome != wantOutcome || item.PreviousPriorityState != watchdogPriorityStateWorking || item.TargetPriorityState != watchdogPriorityStateEmptyQuota || item.PriorityState != watchdogPriorityStateEmptyQuota {
+			t.Fatalf("action %s outcome/priority states mismatch: %+v", authID, item)
+		}
+		if item.PreviousPriority == nil || *item.PreviousPriority != previousPriority || item.TargetPriority == nil || *item.TargetPriority != targetPriority {
+			t.Fatalf("action %s did not preserve raw priorities: %+v", authID, item)
+		}
+	}
+}
+
+func TestMissingPriorityMapsToInitial(t *testing.T) {
+	now := time.Date(2026, time.May, 15, 11, 30, 0, 0, time.UTC)
+	service, router, sidecar := newWatchdogRouteTest(t, now)
+	stateStore := service.store.(authQuotaStateStore)
+	authIndex := "idx-missing-priority"
+	if _, err := service.store.SaveAuthSnapshot(t.Context(), SidecarAuthSnapshotInput{SidecarID: sidecar.ID, AuthID: "auth-missing-priority", AuthIndex: &authIndex, Name: "missing-priority.json", Provider: stringPtr("codex"), SnapshotJSON: json.RawMessage(`{}`), ObservedAt: now}); err != nil {
+		t.Fatalf("seed auth snapshot: %v", err)
+	}
+	if _, err := stateStore.UpsertAuthQuotaState(t.Context(), SidecarAuthQuotaStateInput{SidecarID: sidecar.ID, AuthID: "auth-missing-priority", AuthIndex: &authIndex, AuthName: stringPtr("missing-priority.json"), Provider: stringPtr("codex"), SnapshotObservedAt: &now, QuotaBand: quotaBandError, ProbeStatus: stringPtr(watchdogProbeStatusSucceeded), LastProbedAt: &now}); err != nil {
+		t.Fatalf("seed quota state: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/quota-states", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("quota states status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if body := recorder.Body.String(); strings.Contains(body, `"current_priority":0`) || strings.Contains(body, "priority 0") {
+		t.Fatalf("missing priority response must not render a priority-0 fallback: %s", body)
+	}
+	var response quotaStateListResponse
+	decodeWatchdogRouteResponse(t, recorder, &response)
+	if len(response.Items) != 1 || response.Items[0].CurrentPriority != nil || response.Items[0].PriorityState != watchdogPriorityStateInitial {
+		t.Fatalf("missing priority should preserve nil current_priority and derive initial state: %+v", response.Items)
+	}
+}
+
 func TestWatchdogPolicyValidationRejectsProbeTimeoutBudgetAndPriorities(t *testing.T) {
 	maxBudget := watchdogProbeConcurrencyBudgetMaxSeconds()
 	oversizedTimeout := strconv.Itoa(maxBudget + 1)
@@ -112,6 +325,10 @@ func TestWatchdogPolicyValidationRejectsProbeTimeoutBudgetAndPriorities(t *testi
 		{name: "negative quota exceeded priority", body: `{"quota_exceeded_priority":-1}`, wantDetail: "quota_exceeded_priority"},
 		{name: "negative using priority", body: `{"using_priority":-1}`, wantDetail: "using_priority"},
 		{name: "quota exceeded is above using", body: `{"quota_exceeded_priority":4,"using_priority":3}`, wantDetail: "quota_exceeded_priority must be \\u003c= using_priority"},
+		{name: "zero working priority band", body: `{"working_priority":0}`, wantDetail: "working_priority"},
+		{name: "zero empty quota priority band", body: `{"empty_quota_priority":0}`, wantDetail: "empty_quota_priority"},
+		{name: "zero initial priority band", body: `{"initial_priority":0}`, wantDetail: "initial_priority"},
+		{name: "zero error priority band", body: `{"error_priority":0}`, wantDetail: "error_priority"},
 		{name: "zero probe concurrency", body: `{"probe_concurrency":0}`, wantDetail: "probe_concurrency"},
 		{name: "zero probe timeout", body: `{"probe_timeout_seconds":0}`, wantDetail: "probe_timeout_seconds"},
 		{name: "timeout exceeds worker budget", body: `{"probe_timeout_seconds":` + oversizedTimeout + `}`, wantDetail: "worker budget"},
@@ -120,8 +337,10 @@ func TestWatchdogPolicyValidationRejectsProbeTimeoutBudgetAndPriorities(t *testi
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2026, time.May, 11, 18, 15, 0, 0, time.UTC)
 			_, router, sidecar := newWatchdogRouteTest(t, now)
+			initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(tt.body)))
+			body := watchdogPolicyPatchWithExpectedRevision(initial.ActiveRevision.ID, tt.body)
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(body)))
 			if recorder.Code != http.StatusBadRequest {
 				t.Fatalf("patch policy status = %d body=%s", recorder.Code, recorder.Body.String())
 			}
@@ -135,8 +354,9 @@ func TestWatchdogPolicyValidationRejectsProbeTimeoutBudgetAndPriorities(t *testi
 func TestWatchdogPolicyValidationAcceptsConcurrentTimeoutWithinPerProbeBudget(t *testing.T) {
 	now := time.Date(2026, time.May, 11, 18, 30, 0, 0, time.UTC)
 	_, router, sidecar := newWatchdogRouteTest(t, now)
+	initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
 	maxBudget := watchdogProbeConcurrencyBudgetMaxSeconds()
-	body := `{"probe_concurrency":` + strconv.Itoa(MaxProbeConcurrency) + `,"probe_timeout_seconds":` + strconv.Itoa(maxBudget) + `}`
+	body := watchdogPolicyPatchWithExpectedRevision(initial.ActiveRevision.ID, `{"probe_concurrency":`+strconv.Itoa(MaxProbeConcurrency)+`,"probe_timeout_seconds":`+strconv.Itoa(maxBudget)+`}`)
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(body)))
 	if recorder.Code != http.StatusOK {
@@ -161,8 +381,10 @@ func TestWatchdogPolicyRejectsInvalidCooldown(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			now := time.Date(2026, time.May, 11, 18, 45, 0, 0, time.UTC)
 			_, router, sidecar := newWatchdogRouteTest(t, now)
+			initial := getWatchdogPolicyRoute(t, router, sidecar.ID)
 			recorder := httptest.NewRecorder()
-			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(tt.body)))
+			body := watchdogPolicyPatchWithExpectedRevision(initial.ActiveRevision.ID, tt.body)
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecar.ID), strings.NewReader(body)))
 			if recorder.Code != http.StatusBadRequest {
 				t.Fatalf("patch policy status = %d body=%s", recorder.Code, recorder.Body.String())
 			}
@@ -257,6 +479,62 @@ func newWatchdogRouteTest(t *testing.T, now time.Time) (*Service, http.Handler, 
 
 func watchdogPolicyRoutePath(sidecarID int) string {
 	return "/sidecars/" + strconv.Itoa(sidecarID) + "/watchdog-policy"
+}
+
+func getWatchdogPolicyRoute(t *testing.T, router http.Handler, sidecarID int) watchdogPolicyResponse {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, watchdogPolicyRoutePath(sidecarID), nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get watchdog policy status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response watchdogPolicyResponse
+	decodeWatchdogRouteResponse(t, recorder, &response)
+	if response.ActiveRevision == nil {
+		t.Fatalf("watchdog policy response missing active revision: %+v", response)
+	}
+	return response
+}
+
+func patchWatchdogPolicyRoute(t *testing.T, router http.Handler, sidecarID int, body string, wantStatus int) watchdogPolicyResponse {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPatch, watchdogPolicyRoutePath(sidecarID), strings.NewReader(body)))
+	if recorder.Code != wantStatus {
+		t.Fatalf("patch watchdog policy status = %d want=%d body=%s", recorder.Code, wantStatus, recorder.Body.String())
+	}
+	var response watchdogPolicyResponse
+	if wantStatus == http.StatusOK {
+		decodeWatchdogRouteResponse(t, recorder, &response)
+	}
+	return response
+}
+
+func watchdogPolicyPatchWithExpectedRevision(expectedRevisionID int64, body string) string {
+	trimmed := strings.TrimSpace(body)
+	trimmed = strings.TrimPrefix(trimmed, "{")
+	trimmed = strings.TrimSuffix(trimmed, "}")
+	trimmed = strings.TrimSpace(trimmed)
+	prefix := `{"expected_revision_id":` + strconv.FormatInt(expectedRevisionID, 10)
+	if trimmed == "" {
+		return prefix + `}`
+	}
+	return prefix + `,` + trimmed + `}`
+}
+
+func applyWatchdogPolicyRoute(t *testing.T, router http.Handler, sidecarID int, targetRevisionID int64, expectedRevisionID int64, wantStatus int) watchdogPolicyResponse {
+	t.Helper()
+	body := `{"target_revision_id":` + strconv.FormatInt(targetRevisionID, 10) + `,"expected_revision_id":` + strconv.FormatInt(expectedRevisionID, 10) + `}`
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, watchdogPolicyRoutePath(sidecarID)+"/apply", strings.NewReader(body)))
+	if recorder.Code != wantStatus {
+		t.Fatalf("apply watchdog policy status = %d want=%d body=%s", recorder.Code, wantStatus, recorder.Body.String())
+	}
+	var response watchdogPolicyResponse
+	if wantStatus == http.StatusOK {
+		decodeWatchdogRouteResponse(t, recorder, &response)
+	}
+	return response
 }
 
 func decodeWatchdogRouteResponse(t *testing.T, recorder *httptest.ResponseRecorder, target any) {
