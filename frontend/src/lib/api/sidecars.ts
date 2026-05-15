@@ -13,6 +13,7 @@ import type {
   SidecarSyncResponse,
   SidecarTestConnectionResponse,
   SidecarWatchdogPolicy,
+  SidecarWatchdogPolicyApplyInput,
   SidecarWatchdogPolicyUpdate,
 } from "../types";
 import { request } from "./core";
@@ -88,6 +89,11 @@ export const sidecars = {
   updateWatchdogPolicy: (sidecarId: number, data: SidecarWatchdogPolicyUpdate) =>
     request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy`, {
       method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  applyWatchdogPolicy: (sidecarId: number, data: SidecarWatchdogPolicyApplyInput) =>
+    request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy/apply`, {
+      method: "POST",
       body: JSON.stringify(data),
     }),
   actionHistory: (sidecarId: number) =>

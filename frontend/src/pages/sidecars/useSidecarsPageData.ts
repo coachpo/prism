@@ -26,6 +26,12 @@ type FetchOptions = {
   silent?: boolean;
 };
 
+type SidecarWatchdogPolicyFormUpdate = Omit<SidecarWatchdogPolicyUpdate, "expected_revision_id">;
+
+function getWatchdogExpectedRevisionId(policy: SidecarWatchdogPolicy | null) {
+  return policy?.pending_revision?.id ?? policy?.active_revision?.id ?? policy?.active_revision_id;
+}
+
 export function useSidecarsPageData() {
   const [sidecars, setSidecars] = useState<SidecarInstance[]>([]);
   const [sidecarsLoading, setSidecarsLoading] = useState(true);
@@ -49,6 +55,7 @@ export function useSidecarsPageData() {
   const [quotaScans, setQuotaScans] = useState<SidecarQuotaScanRun[]>([]);
   const [sidecarDetailLoading, setSidecarDetailLoading] = useState(false);
   const [watchdogPolicySaving, setWatchdogPolicySaving] = useState(false);
+  const [watchdogPolicyApplying, setWatchdogPolicyApplying] = useState(false);
   const [quotaScanMutating, setQuotaScanMutating] = useState<"start" | "cancel" | null>(null);
   const [mutatingAuthKey, setMutatingAuthKey] = useState<string | null>(null);
   const detailRequestIdRef = useRef(0);
@@ -317,14 +324,22 @@ export function useSidecarsPageData() {
     setSelectedSidecarId(sidecarId);
   };
 
-  const handleSaveWatchdogPolicy = async (payload: SidecarWatchdogPolicyUpdate) => {
+  const handleSaveWatchdogPolicy = async (payload: SidecarWatchdogPolicyFormUpdate) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
       return;
     }
+    const expectedRevisionId = getWatchdogExpectedRevisionId(watchdogPolicy);
+    if (!expectedRevisionId) {
+      toast.error(messages.sidecarsPage.saveFailed);
+      return;
+    }
     setWatchdogPolicySaving(true);
     try {
-      const updated = await api.sidecars.updateWatchdogPolicy(selectedSidecarId, payload);
+      const updated = await api.sidecars.updateWatchdogPolicy(selectedSidecarId, {
+        ...payload,
+        expected_revision_id: expectedRevisionId,
+      });
       setWatchdogPolicy(updated);
       toast.success(messages.sidecarsPage.watchdogSaveSucceeded);
       await fetchSidecarDetail(selectedSidecarId);
@@ -332,6 +347,27 @@ export function useSidecarsPageData() {
       toast.error(error instanceof Error ? error.message : messages.sidecarsPage.saveFailed);
     } finally {
       setWatchdogPolicySaving(false);
+    }
+  };
+
+  const handleApplyWatchdogPolicy = async () => {
+    const messages = getStaticMessages();
+    if (selectedSidecarId === null || !watchdogPolicy?.pending_revision || !watchdogPolicy.active_revision) {
+      return;
+    }
+    setWatchdogPolicyApplying(true);
+    try {
+      const updated = await api.sidecars.applyWatchdogPolicy(selectedSidecarId, {
+        target_revision_id: watchdogPolicy.pending_revision.id,
+        expected_revision_id: watchdogPolicy.active_revision.id,
+      });
+      setWatchdogPolicy(updated);
+      toast.success(messages.sidecarsPage.watchdogApplySucceeded);
+      await fetchSidecarDetail(selectedSidecarId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.watchdogApplyFailed);
+    } finally {
+      setWatchdogPolicyApplying(false);
     }
   };
 
@@ -430,6 +466,7 @@ export function useSidecarsPageData() {
     quotaScans,
     sidecarDetailLoading,
     watchdogPolicySaving,
+    watchdogPolicyApplying,
     quotaScanMutating,
     mutatingAuthKey,
     setSelectedSidecarId: handleSelectSidecar,
@@ -443,6 +480,7 @@ export function useSidecarsPageData() {
     handleTestConnection,
     handleManualSync,
     handleSaveWatchdogPolicy,
+    handleApplyWatchdogPolicy,
     handleStartQuotaScan,
     handleCancelQuotaScan,
     handlePatchAuthStatus,
