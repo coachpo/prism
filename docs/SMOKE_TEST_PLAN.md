@@ -213,6 +213,8 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel` | O18 |
 | `GET /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
 | `PUT /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
+| `PATCH /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
+| `POST /api/sidecars/{sidecar_id}/watchdog-policy/apply` | O10 |
 | `GET /api/sidecars/{sidecar_id}/actions` | O12 |
 | `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status` | O13 |
 | `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields` | O14 |
@@ -625,14 +627,14 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | O07 | P0 | Manual sync | Success updates auth/provider snapshots and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
 | O08 | P0 | Auth inventory read | `auth-files` and `auth-snapshots` return normalized, redacted auth observations |
 | O09 | P0 | Provider inventory read | Provider snapshots are normalized for supported provider keys and do not expose raw secrets |
-| O10 | P0 | Watchdog policy read/update | Policy defaults load, including `probe_batch_cooldown_seconds` and quota inventory flags; valid updates persist and invalid non-positive values are rejected |
+| O10 | P0 | Watchdog policy save/apply and sweep timing | Policy defaults load with `watchdog_sweep_interval_seconds`, `Probe batch size`, `probe_batch_cooldown_seconds`, four priority bands, quota inventory flags, initial auto scan, and rolling refresh settings; valid saves create pending revisions, apply activates them, invalid non-positive values are rejected, and batch cooldown is distinct from sweep interval |
 | O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, and can select a detail row |
-| O12 | P0 | Action history redaction and retention | Action rows redact authorization, token, secret, key, and password-like text; `sidecar_action_history_retention_days` is visible in log-retention settings |
+| O12 | P0 | Action history redaction and retention | Action rows redact authorization, token, secret, key, and password-like text while exposing `mutation_outcome` and derived priority-state fields; `sidecar_action_history_retention_days` is visible in log-retention settings |
 | O13 | P1 | Auth status mutation with watchdog confirmation | Status patch succeeds only through Prism backend and records an operator action |
 | O14 | P1 | Auth priority/field mutation | Field patch accepts allowed fields/header names and rejects unsupported fields |
 | O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile` reject elevated priority overrides |
 | O16 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
-| O17 | P0 | Quota state inventory read | `quota-states` returns latest observed state, probe status, reset/blocking data, auth index presence, and active-hold flag without cooldown timestamps or scan position |
+| O17 | P0 | Quota state inventory read | `quota-states` returns latest observed `quota_band` values limited to `using`, `quota_exceeded`, and `error`, plus separate `priority_state`, probe status, reset/blocking data, auth index presence, and active-hold flag without cooldown timestamps or scan position |
 | O18 | P0 | Manual quota scan lifecycle | Starting a scan returns queued/running progress counters; current and list routes show progress; cancel marks the run without exposing internal scan position |
 
 ---
