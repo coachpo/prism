@@ -2,12 +2,12 @@ package settings
 
 import "testing"
 
-func TestRetentionDaysForTableSidecarWatchdogActions(t *testing.T) {
+func TestRetentionDaysForTableLoadbalanceEvents(t *testing.T) {
 	value := 8
-	settingsRow := logRetentionSettingsRow{SidecarActionHistoryRetentionDays: &value}
+	settingsRow := logRetentionSettingsRow{LoadbalanceEventsRetentionDays: &value}
 
-	got := retentionDaysForTable(settingsRow, "sidecar_watchdog_actions")
+	got := retentionDaysForTable(settingsRow, "loadbalance_events")
 	if got == nil || *got != 8 {
-		t.Fatalf("expected sidecar watchdog actions retention days to resolve to 8, got %+v", got)
+		t.Fatalf("expected loadbalance events retention days to resolve to 8, got %+v", got)
 	}
 }

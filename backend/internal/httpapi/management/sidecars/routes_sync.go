@@ -41,13 +41,9 @@ func (s *Service) handleTriggerSidecarSync(w http.ResponseWriter, r *http.Reques
 			writeDomainError(w, r, s.corsSnapshot(), err)
 			return
 		}
-		reason := "manual sync failed"
-		s.recordAction(r.Context(), id, "sync.manual", "failed", &reason)
 		writeJSON(w, sidecarSyncHTTPStatus(result), buildSidecarSyncResponse(s, result))
 		return
 	}
-	reason := "manual sync completed"
-	s.recordAction(r.Context(), id, "sync.manual", "succeeded", &reason)
 	writeJSON(w, http.StatusOK, buildSidecarSyncResponse(s, result))
 }
 

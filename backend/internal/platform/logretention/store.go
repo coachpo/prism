@@ -54,15 +54,13 @@ var managedTableOrder = []string{
 	"audit_logs",
 	"usage_request_events",
 	"loadbalance_events",
-	"sidecar_watchdog_actions",
 }
 
 var managedTables = map[string]managedTable{
-	"request_logs":             {name: "request_logs"},
-	"audit_logs":               {name: "audit_logs"},
-	"usage_request_events":     {name: "usage_request_events"},
-	"loadbalance_events":       {name: "loadbalance_events"},
-	"sidecar_watchdog_actions": {name: "sidecar_watchdog_actions"},
+	"request_logs":         {name: "request_logs"},
+	"audit_logs":           {name: "audit_logs"},
+	"usage_request_events": {name: "usage_request_events"},
+	"loadbalance_events":   {name: "loadbalance_events"},
 }
 
 func NewStore(options Options) *Store {

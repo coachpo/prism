@@ -106,7 +106,7 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 		t.Fatalf("create settings service: %v", err)
 	}
 	router := chiRouterForSettings(service)
-	put := httptest.NewRequest(http.MethodPut, "/settings/log-retention", bytes.NewBufferString(`{"request_logs_retention_days":3,"audit_logs_retention_days":4,"statistics_retention_days":5,"loadbalance_events_retention_days":6,"sidecar_action_history_retention_days":8}`))
+	put := httptest.NewRequest(http.MethodPut, "/settings/log-retention", bytes.NewBufferString(`{"request_logs_retention_days":3,"audit_logs_retention_days":4,"statistics_retention_days":5,"loadbalance_events_retention_days":6}`))
 	put.Header.Set("X-Profile-Id", "999999")
 	put.Header.Set("Content-Type", "application/json")
 	putRecorder := httptest.NewRecorder()
@@ -117,10 +117,10 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 	get := httptest.NewRequest(http.MethodGet, "/settings/log-retention", nil)
 	getRecorder := httptest.NewRecorder()
 	router.ServeHTTP(getRecorder, get)
-	if getRecorder.Code != http.StatusOK || !strings.Contains(getRecorder.Body.String(), `"loadbalance_events_retention_days":6`) || !strings.Contains(getRecorder.Body.String(), `"sidecar_action_history_retention_days":8`) {
+	if getRecorder.Code != http.StatusOK || !strings.Contains(getRecorder.Body.String(), `"loadbalance_events_retention_days":6`) {
 		t.Fatalf("GET /settings/log-retention status=%d body=%s", getRecorder.Code, getRecorder.Body.String())
 	}
-	post := httptest.NewRequest(http.MethodPost, "/maintenance/log-retention/jobs", bytes.NewBufferString(`{"table":"sidecar_watchdog_actions","reason":"global sidecar retention"}`))
+	post := httptest.NewRequest(http.MethodPost, "/maintenance/log-retention/jobs", bytes.NewBufferString(`{"table":"loadbalance_events","reason":"global loadbalance retention"}`))
 	post.Header.Set("Content-Type", "application/json")
 	postRecorder := httptest.NewRecorder()
 	router.ServeHTTP(postRecorder, post)
@@ -132,8 +132,8 @@ func TestLogRetentionSettingsAndJobRoutesAreGlobal(t *testing.T) {
 		t.Fatalf("decode log retention job response: %v", err)
 	}
 	scope, ok := jobPayload["scope"].(map[string]any)
-	if !ok || scope["table"] != "sidecar_watchdog_actions" || scope["cutoff"] == nil {
-		t.Fatalf("expected sidecar watchdog action retention job cutoff fallback, got %+v", jobPayload)
+	if !ok || scope["table"] != "loadbalance_events" || scope["cutoff"] == nil {
+		t.Fatalf("expected loadbalance retention job cutoff fallback, got %+v", jobPayload)
 	}
 }
 

@@ -386,8 +386,7 @@ export type LogRetentionTable =
   | "request_logs"
   | "audit_logs"
   | "usage_request_events"
-  | "loadbalance_events"
-  | "sidecar_watchdog_actions";
+  | "loadbalance_events";
 
 export interface LogRetentionJobScope {
   before?: string | null;
@@ -443,7 +442,6 @@ export interface RetentionSettingsResponse {
   statistics_retention_days: number | null;
   audit_logs_retention_days: number | null;
   loadbalance_events_retention_days: number | null;
-  sidecar_action_history_retention_days: number | null;
 }
 
 export interface RetentionSettingsUpdate {
@@ -451,7 +449,6 @@ export interface RetentionSettingsUpdate {
   statistics_retention_days?: number | null;
   audit_logs_retention_days?: number | null;
   loadbalance_events_retention_days?: number | null;
-  sidecar_action_history_retention_days?: number | null;
 }
 
 export interface HeaderBlocklistRule {

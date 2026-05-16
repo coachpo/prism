@@ -26,7 +26,7 @@ export const SETTINGS_SECTIONS = [
 
 export const SETTINGS_SECTION_IDS = new Set<string>(SETTINGS_SECTIONS.map((section) => section.id));
 
-export type CleanupType = "" | "requests" | "audits" | "loadbalance_events" | "statistics" | "sidecar_action_history";
+export type CleanupType = "" | "requests" | "audits" | "loadbalance_events" | "statistics";
 export type DeleteCleanupType = Exclude<CleanupType, "">;
 export type RetentionPreset = "" | "1" | "7" | "30" | "90" | "all";
 
@@ -52,8 +52,6 @@ export function getCleanupTypeLabel(type: DeleteCleanupType): string {
       return messages.settingsDialogs.cleanupTypeLoadbalanceEvents;
     case "statistics":
       return messages.settingsDialogs.cleanupTypeStatistics;
-    case "sidecar_action_history":
-      return messages.settingsDialogs.cleanupTypeSidecarActionHistory;
   }
 }
 

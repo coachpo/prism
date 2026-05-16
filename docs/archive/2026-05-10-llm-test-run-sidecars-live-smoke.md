@@ -10,12 +10,12 @@
 - Prism sidecars page loads and shows the registered sidecar.
 - Connection test succeeds through Prism backend APIs.
 - Manual sync succeeds through Prism backend APIs.
-- Auth inventory, provider inventory, watchdog policy, and action history can be read.
+- Auth inventory, provider inventory, retired policy panel, and retired activity panel could be read during this historical run.
 - Priority mutation is attempted only if auth inventory exposes a safe auth target.
 - Implemented sidecar regression/function tests pass.
 
 ## Live Smoke Results
-- Page load: passed. Chrome DevTools snapshot showed the Sidecars route, one healthy sidecar, and detail panels for auth files, provider inventory, watchdog policy, and action history.
+- Page load: passed. Chrome DevTools snapshot showed the Sidecars route, one healthy sidecar, and detail panels for auth files, provider inventory, retired policy, and retired activity.
 - Sidecar list API: passed. `GET /api/sidecars` returned one enabled sidecar with `management_auth_state: "valid"`, masked credential state, and private-network/HTTP flags visible.
 - Connection test: passed. `POST /api/sidecars/1/test-connection` returned `state: "succeeded"`, `management_auth_state: "valid"`, `status_code: 200`.
 - Manual sync: passed with partial inventory. `POST /api/sidecars/1/sync` returned `state: "succeeded"`, `auth_snapshot_count: 0`, `provider_snapshot_count: 4`.
@@ -41,7 +41,7 @@
 - `cd frontend && pnpm run test:e2e -- --grep sidecars`: passed, 4 tests.
 
 ## Not Exercised Live
-- Create, edit, delete, enable/disable, watchdog-policy save, and auth disable/enable were not executed against the live sidecar because they exceed the read/priority-only testing constraint.
+- Create, edit, delete, enable/disable, retired policy save, and auth disable/enable were not executed against the live sidecar because they exceed the read/priority-only testing constraint.
 - Auth priority mutation was not executed because the live sync produced zero auth snapshots, so Prism exposed no auth row to mutate.
 - These paths remain covered by the automated sidecar tests listed above.
 

@@ -3,7 +3,6 @@ package integration_test
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -19,30 +18,33 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
-var expectedPrismMigrationVersions = []string{
-	migrate.DefaultBaselineVersion,
-	"000002_request_logs_audit_enabled_at_request_not_null",
-	"000003_runtime_telemetry_outbox",
-	"000004_user_settings_retention_policy",
-	"000005_audit_log_request_time_provenance",
-	"000006_request_generation_params_telemetry",
-	"000007_management_outbox",
-	"000008_email_outbox",
-	"000009_management_audit_stats_phase7",
-	"000010_runtime_cache_generations",
-	"000011_stream_outcome_telemetry",
-	"000012_proxy_target_selection_strategies",
-	"000013_partitioned_log_retention",
-	"000014_cli_proxy_sidecars",
-	"000015_sidecar_watchdog_probe_first_quota",
-	"000016_sidecar_watchdog_action_auth_name",
-	"000017_sidecar_watchdog_action_history_retention_split",
-	"000018_sidecar_quota_inventory_and_cooldown",
-	"000019_sidecar_watchdog_probe_concurrency",
-	"000020_sidecar_watchdog_policy_revisions_and_sweeps",
-	"000021_sidecar_watchdog_four_band_priorities",
-	"000022_sidecar_watchdog_sweep_items",
-	"000023_sidecar_watchdog_probe_timeout_120",
+var expectedPrismMigrationVersions = loadExpectedPrismMigrationVersions()
+
+func loadExpectedPrismMigrationVersions() []string {
+	entries, err := os.ReadDir(migrate.DefaultMigrationsDir())
+	if err != nil {
+		panic(fmt.Sprintf("read migrations directory: %v", err))
+	}
+	versions := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		versions = append(versions, strings.TrimSuffix(entry.Name(), ".sql"))
+	}
+	return versions
+}
+
+func migrationVersionByOrdinal(t *testing.T, ordinal int) string {
+	t.Helper()
+	prefix := fmt.Sprintf("%06d_", ordinal)
+	for _, version := range expectedPrismMigrationVersions {
+		if strings.HasPrefix(version, prefix) {
+			return version
+		}
+	}
+	t.Fatalf("unknown migration ordinal %d", ordinal)
+	return ""
 }
 
 func TestBaselineFreshApply(t *testing.T) {
@@ -116,292 +118,32 @@ func TestSidecarSchemaContract(t *testing.T) {
 	assertLogRetentionSettingsContract(t, testContext, conn)
 }
 
-func TestSidecarActionHistoryMigrationDiscardsLegacyRowsAndEnforcesContracts(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+func TestSidecarHistoricalMigrationOrdinalsReachCurrentSchema(t *testing.T) {
+	for _, ordinal := range []int{17, 18, 19, 20, 21, 22, 23} {
+		t.Run(fmt.Sprintf("ordinal_%02d", ordinal), func(t *testing.T) {
+			testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
 
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_action_history_migration")
-	defer func() { _ = conn.Close(testContext) }()
+			harness := newPostgresHarness(t)
+			runner := newRunner(t)
+			conn := harness.openDatabase(t, testContext, fmt.Sprintf("sidecar_ordinal_%02d", ordinal))
+			defer func() { _ = conn.Close(testContext) }()
 
-	seedLegacySidecarActionHistoryMigrationFixture(t, testContext, conn)
+			throughVersion := migrationVersionByOrdinal(t, ordinal)
+			applyMigrationsThrough(t, testContext, conn, throughVersion)
 
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run sidecar action history migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected sidecar action history migration to apply, got %q", result.Outcome)
-	}
-
-	expectedVersions := expectedMigrationVersionsFrom(t, "000017_sidecar_watchdog_action_history_retention_split")
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
-	assertSidecarSchemaContract(t, testContext, conn)
-	assertLogRetentionSettingsContract(t, testContext, conn)
-	assertCleanBreakTableRows(t, testContext, conn, "sidecar_watchdog_actions")
-	assertCleanBreakTableRows(t, testContext, conn, "sidecar_watchdog_pending_actions")
-
-	var holdCount int
-	if err := conn.QueryRow(testContext, `SELECT count(*) FROM sidecar_watchdog_holds`).Scan(&holdCount); err != nil {
-		t.Fatalf("count surviving sidecar hold rows: %v", err)
-	}
-	if holdCount != 1 {
-		t.Fatalf("expected legacy hold rows to survive the split, got %d", holdCount)
-	}
-}
-
-func TestSidecarQuotaInventoryMigrationRenamesProbeEvidenceAndDropsInternalCursor(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_quota_inventory_migration")
-	defer func() { _ = conn.Close(testContext) }()
-
-	applyMigrationsThrough(t, testContext, conn, "000017_sidecar_watchdog_action_history_retention_split")
-	var sidecarID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
-VALUES ($1, $2, $3, $4)
-RETURNING id`, "quota-migration-sidecar", "https://quota-migration.example.test", "https://quota-migration.example.test", "enc:quota-migration").Scan(&sidecarID); err != nil {
-		t.Fatalf("seed sidecar before quota inventory migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled, probe_cursor_auth_id) VALUES ($1, true, 'hidden-pre-000018-cursor')`, sidecarID); err != nil {
-		t.Fatalf("seed policy cursor before quota inventory migration: %v", err)
-	}
-	var legacyObservationID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_probe_observations (
-sidecar_id, auth_id, auth_index, provider, probed_at, probe_status, upstream_status_code,
-quota_exceeded, quota_reason, windows_json, error_code)
-VALUES ($1, 'auth-legacy-quota', 'idx-legacy-quota', 'codex', NOW(), 'probe_succeeded', 200,
-false, 'healthy', '[]'::jsonb, NULL)
-RETURNING id`, sidecarID).Scan(&legacyObservationID); err != nil {
-		t.Fatalf("seed legacy probe observation before quota inventory migration: %v", err)
-	}
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run quota inventory migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected quota inventory migration to apply, got %q", result.Outcome)
-	}
-	expectedVersions := expectedMigrationVersionsFrom(t, "000018_sidecar_quota_inventory_and_cooldown")
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
-	assertSidecarSchemaContract(t, testContext, conn)
-
-	var authID string
-	var authIndex string
-	if err := conn.QueryRow(testContext, `SELECT auth_id, auth_index FROM sidecar_quota_probe_observations WHERE id = $1`, legacyObservationID).Scan(&authID, &authIndex); err != nil {
-		t.Fatalf("load renamed probe observation: %v", err)
-	}
-	if authID != "auth-legacy-quota" || authIndex != "idx-legacy-quota" {
-		t.Fatalf("renamed probe observation did not preserve sanitized evidence: auth=%q index=%q", authID, authIndex)
-	}
-	var cooldownSeconds int
-	var quotaInventoryEnabled bool
-	var initialScanEnabled bool
-	var rollingRefreshEnabled bool
-	if err := conn.QueryRow(testContext, `SELECT probe_batch_cooldown_seconds, quota_inventory_enabled, initial_scan_enabled, rolling_refresh_enabled FROM sidecar_watchdog_policies WHERE sidecar_id = $1`, sidecarID).Scan(&cooldownSeconds, &quotaInventoryEnabled, &initialScanEnabled, &rollingRefreshEnabled); err != nil {
-		t.Fatalf("load migrated quota policy fields: %v", err)
-	}
-	if cooldownSeconds != 30 || !quotaInventoryEnabled || !initialScanEnabled || !rollingRefreshEnabled {
-		t.Fatalf("unexpected migrated quota policy defaults: cooldown=%d inventory=%v initial=%v rolling=%v", cooldownSeconds, quotaInventoryEnabled, initialScanEnabled, rollingRefreshEnabled)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_auth_quota_states (sidecar_id, auth_id, auth_index, auth_name, provider, quota_band, reason_code, last_observation_id)
-VALUES ($1, 'auth-legacy-quota', 'idx-legacy-quota', 'legacy-quota.json', 'codex', 'error', 'healthy', $2)`, sidecarID, legacyObservationID); err != nil {
-		t.Fatalf("insert quota state referencing renamed observation: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `DELETE FROM sidecar_quota_probe_observations WHERE id = $1`, legacyObservationID); err != nil {
-		t.Fatalf("delete renamed observation to exercise quota-state privacy FK: %v", err)
-	}
-	var observationCleared bool
-	if err := conn.QueryRow(testContext, `SELECT last_observation_id IS NULL FROM sidecar_auth_quota_states WHERE sidecar_id = $1 AND auth_id = 'auth-legacy-quota'`, sidecarID).Scan(&observationCleared); err != nil {
-		t.Fatalf("load quota-state observation nullability after delete: %v", err)
-	}
-	if !observationCleared {
-		t.Fatalf("expected quota state observation reference to clear on renamed observation delete")
-	}
-}
-
-func TestSidecarWatchdogProbeConcurrencyMigrationBackfillsBatchSizeAndDropsOldColumn(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_probe_concurrency_migration")
-	defer func() { _ = conn.Close(testContext) }()
-
-	applyMigrationsThrough(t, testContext, conn, "000018_sidecar_quota_inventory_and_cooldown")
-	var sidecarID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
-VALUES ($1, $2, $3, $4)
-RETURNING id`, "probe-concurrency-migration-sidecar", "https://probe-concurrency-migration.example.test", "https://probe-concurrency-migration.example.test", "enc:probe-concurrency").Scan(&sidecarID); err != nil {
-		t.Fatalf("seed sidecar before probe concurrency migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled, probe_batch_size, probe_timeout_seconds) VALUES ($1, true, 7, 1)`, sidecarID); err != nil {
-		t.Fatalf("seed policy batch size before probe concurrency migration: %v", err)
-	}
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run probe concurrency migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected probe concurrency migration to apply, got %q", result.Outcome)
-	}
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, "000019_sidecar_watchdog_probe_concurrency"))
-	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
-
-	var probeConcurrency int
-	if err := conn.QueryRow(testContext, `SELECT probe_concurrency FROM sidecar_watchdog_policies WHERE sidecar_id = $1`, sidecarID).Scan(&probeConcurrency); err != nil {
-		t.Fatalf("load migrated probe concurrency: %v", err)
-	}
-	if probeConcurrency != 7 {
-		t.Fatalf("expected probe_concurrency to preserve legacy probe_batch_size 7, got %d", probeConcurrency)
-	}
-	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "probe_concurrency", "integer")
-	assertColumnMissing(t, testContext, conn, "sidecar_watchdog_policies", "probe_batch_size")
-	assertConstraintDefinitionContains(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 120")
-	assertConstraintDefinitionExcludes(t, testContext, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
-	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "active_revision_id", "bigint")
-	assertColumnDataType(t, testContext, conn, "sidecar_watchdog_policies", "pending_revision_id", "bigint")
-	var activeRevisionID int64
-	if err := conn.QueryRow(testContext, `SELECT active_revision_id FROM sidecar_watchdog_policies WHERE sidecar_id = $1`, sidecarID).Scan(&activeRevisionID); err != nil {
-		t.Fatalf("load active watchdog policy revision after migration: %v", err)
-	}
-	var revisionConcurrency int
-	if err := conn.QueryRow(testContext, `SELECT probe_concurrency FROM sidecar_watchdog_policy_revisions WHERE id = $1`, activeRevisionID).Scan(&revisionConcurrency); err != nil {
-		t.Fatalf("load backfilled watchdog policy revision after migration: %v", err)
-	}
-	if revisionConcurrency != 7 {
-		t.Fatalf("expected backfilled revision probe_concurrency 7, got %d", revisionConcurrency)
-	}
-}
-
-func TestSidecarWatchdogFourBandPriorityMigrationBackfillsLegacyZeroes(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_four_band_priority_migration")
-	defer func() { _ = conn.Close(testContext) }()
-
-	applyMigrationsThrough(t, testContext, conn, "000020_sidecar_watchdog_policy_revisions_and_sweeps")
-	var sidecarID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
-VALUES ($1, $2, $3, $4)
-RETURNING id`, "four-band-migration-sidecar", "https://four-band-migration.example.test", "https://four-band-migration.example.test", "enc:four-band").Scan(&sidecarID); err != nil {
-		t.Fatalf("seed sidecar before four-band migration: %v", err)
-	}
-	var policyID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled, using_priority, quota_exceeded_priority, error_priority, probe_concurrency, probe_timeout_seconds)
-VALUES ($1, true, 1, 0, 0, 3, 8)
-RETURNING id`, sidecarID).Scan(&policyID); err != nil {
-		t.Fatalf("seed legacy watchdog policy before four-band migration: %v", err)
-	}
-	var revisionID int64
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, enabled, using_priority, quota_exceeded_priority, error_priority, probe_concurrency, probe_timeout_seconds)
-VALUES ($1, $2, true, 1, 0, 0, 3, 8)
-RETURNING id`, policyID, sidecarID).Scan(&revisionID); err != nil {
-		t.Fatalf("seed legacy watchdog revision before four-band migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `UPDATE sidecar_watchdog_policies SET active_revision_id=$1 WHERE id=$2`, revisionID, policyID); err != nil {
-		t.Fatalf("point policy at legacy revision before four-band migration: %v", err)
-	}
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run four-band priority migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected four-band priority migration to apply, got %q", result.Outcome)
-	}
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, "000021_sidecar_watchdog_four_band_priorities"))
-	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
-
-	assertFourBandPriorityRow(t, testContext, conn, "sidecar_watchdog_policies", "id", policyID)
-	assertFourBandPriorityRow(t, testContext, conn, "sidecar_watchdog_policy_revisions", "id", revisionID)
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at) VALUES ('sweep-active-a', $1, $2, 'running', '[]'::jsonb, now())`, sidecarID, revisionID); err != nil {
-		t.Fatalf("seed active watchdog sweep after migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at) VALUES ('sweep-active-b', $1, $2, 'paused', '[]'::jsonb, now())`, sidecarID, revisionID); err == nil {
-		t.Fatalf("expected active sweep uniqueness to reject overlapping running/paused sweeps")
-	}
-	completedAt := time.Date(2026, time.May, 15, 12, 0, 0, 0, time.UTC)
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, started_at, completed_at) VALUES ('sweep-completed', $1, $2, 'completed', '[]'::jsonb, $3, $3)`, sidecarID, revisionID, completedAt); err != nil {
-		t.Fatalf("terminal sweep history should remain insertable after active uniqueness check: %v", err)
-	}
-}
-
-func TestSidecarWatchdogRuntimeMigrationDisposesLegacyActiveState(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "sidecar_watchdog_runtime_migration")
-	defer func() { _ = conn.Close(testContext) }()
-
-	applyMigrationsThrough(t, testContext, conn, "000021_sidecar_watchdog_four_band_priorities")
-	var sidecarID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
-VALUES ($1, $2, $3, $4)
-RETURNING id`, "runtime-migration-sidecar", "https://runtime-migration.example.test", "https://runtime-migration.example.test", "enc:runtime-migration").Scan(&sidecarID); err != nil {
-		t.Fatalf("seed sidecar before runtime migration: %v", err)
-	}
-	var policyID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, enabled) VALUES ($1, true) RETURNING id`, sidecarID).Scan(&policyID); err != nil {
-		t.Fatalf("seed watchdog policy before runtime migration: %v", err)
-	}
-	var revisionID int64
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, enabled) VALUES ($1, $2, true) RETURNING id`, policyID, sidecarID).Scan(&revisionID); err != nil {
-		t.Fatalf("seed watchdog revision before runtime migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `UPDATE sidecar_watchdog_policies SET active_revision_id=$1 WHERE id=$2`, revisionID, policyID); err != nil {
-		t.Fatalf("link active revision before runtime migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_sweeps (sweep_id, sidecar_id, policy_revision_id, status, snapshot_json, lease_expires_at) VALUES ('legacy-active-sweep', $1, $2, 'running', '[{"auth_id":"legacy"}]'::jsonb, now() + interval '5 minutes')`, sidecarID, revisionID); err != nil {
-		t.Fatalf("seed legacy active sweep before runtime migration: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status, planned_count) VALUES ($1, 'manual', 'queued', 3)`, sidecarID); err != nil {
-		t.Fatalf("seed legacy active scan before runtime migration: %v", err)
-	}
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run watchdog runtime migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected watchdog runtime migration to apply, got %q", result.Outcome)
-	}
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, "000022_sidecar_watchdog_sweep_items"))
-	assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
-	assertSidecarSchemaContract(t, testContext, conn)
-
-	var sweepStatus string
-	var sweepCompletedAt, sweepCancelRequestedAt sql.NullTime
-	var sweepLeaseExpiresAt sql.NullTime
-	var sweepCancelReason string
-	if err := conn.QueryRow(testContext, `SELECT status, completed_at, cancel_requested_at, lease_expires_at, cancel_reason FROM sidecar_watchdog_sweeps WHERE sweep_id='legacy-active-sweep'`).Scan(&sweepStatus, &sweepCompletedAt, &sweepCancelRequestedAt, &sweepLeaseExpiresAt, &sweepCancelReason); err != nil {
-		t.Fatalf("load migrated legacy sweep: %v", err)
-	}
-	if sweepStatus != "cancelled" || !sweepCompletedAt.Valid || !sweepCancelRequestedAt.Valid || sweepLeaseExpiresAt.Valid || sweepCancelReason != "legacy_runtime_discarded" {
-		t.Fatalf("legacy active sweep was not deterministically cancelled: status=%s completed=%v cancel=%v lease=%v reason=%q", sweepStatus, sweepCompletedAt.Valid, sweepCancelRequestedAt.Valid, sweepLeaseExpiresAt.Valid, sweepCancelReason)
-	}
-	var scanStatus string
-	var scanCompletedAt, scanCancelRequestedAt sql.NullTime
-	var scanErrorCode string
-	if err := conn.QueryRow(testContext, `SELECT status, completed_at, cancel_requested_at, last_error_code FROM sidecar_quota_scan_runs WHERE sidecar_id=$1`, sidecarID).Scan(&scanStatus, &scanCompletedAt, &scanCancelRequestedAt, &scanErrorCode); err != nil {
-		t.Fatalf("load migrated legacy scan run: %v", err)
-	}
-	if scanStatus != "cancelled" || !scanCompletedAt.Valid || !scanCancelRequestedAt.Valid || scanErrorCode != "legacy_runtime_discarded" {
-		t.Fatalf("legacy active scan run was not deterministically cancelled: status=%s completed=%v cancel=%v error=%q", scanStatus, scanCompletedAt.Valid, scanCancelRequestedAt.Valid, scanErrorCode)
+			result, err := runner.Run(testContext, conn)
+			if err != nil {
+				t.Fatalf("run sidecar migrations after ordinal %02d: %v", ordinal, err)
+			}
+			if result.Outcome != migrate.OutcomeApply {
+				t.Fatalf("expected sidecar migrations after ordinal %02d to apply, got %q", ordinal, result.Outcome)
+			}
+			assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, migrationVersionByOrdinal(t, ordinal+1)))
+			assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
+			assertSidecarSchemaContract(t, testContext, conn)
+			assertLogRetentionSettingsContract(t, testContext, conn)
+		})
 	}
 }
 
@@ -850,7 +592,7 @@ func assertCleanBreakLogRows(t *testing.T, ctx context.Context, conn *pgx.Conn, 
 
 func assertSidecarSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	tables := []string{"sidecar_instances", "sidecar_auth_snapshots", "sidecar_provider_snapshots", "sidecar_watchdog_policies", "sidecar_watchdog_holds", "sidecar_watchdog_actions", "sidecar_watchdog_pending_actions", "sidecar_quota_scan_runs", "sidecar_watchdog_sweep_items"}
+	tables := []string{"sidecar_instances", "sidecar_auth_snapshots", "sidecar_provider_snapshots"}
 	for _, tableName := range tables {
 		var idDefault string
 		var createdType string
@@ -868,271 +610,6 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 		}
 	}
 	assertColumnDataType(t, ctx, conn, "sidecar_instances", "deleted_at", "timestamp with time zone")
-	for _, column := range []struct {
-		tableName  string
-		columnName string
-		dataType   string
-	}{
-		{"sidecar_watchdog_actions", "auth_snapshot_id", "integer"},
-		{"sidecar_watchdog_actions", "hold_id", "integer"},
-		{"sidecar_watchdog_actions", "auth_id", "text"},
-		{"sidecar_watchdog_actions", "auth_name", "text"},
-		{"sidecar_watchdog_actions", "auth_index", "text"},
-		{"sidecar_watchdog_actions", "provider", "text"},
-		{"sidecar_watchdog_actions", "action_type", "text"},
-		{"sidecar_watchdog_actions", "reason", "text"},
-		{"sidecar_watchdog_actions", "previous_priority", "integer"},
-		{"sidecar_watchdog_actions", "target_priority", "integer"},
-		{"sidecar_watchdog_actions", "hold_until", "timestamp with time zone"},
-		{"sidecar_watchdog_actions", "status", "text"},
-		{"sidecar_watchdog_actions", "error_message", "text"},
-		{"sidecar_watchdog_actions", "completed_at", "timestamp with time zone"},
-		{"sidecar_quota_probe_observations", "id", "integer"},
-		{"sidecar_quota_probe_observations", "sidecar_id", "integer"},
-		{"sidecar_quota_probe_observations", "auth_id", "text"},
-		{"sidecar_quota_probe_observations", "auth_index", "text"},
-		{"sidecar_quota_probe_observations", "provider", "text"},
-		{"sidecar_quota_probe_observations", "probed_at", "timestamp with time zone"},
-		{"sidecar_quota_probe_observations", "probe_status", "text"},
-		{"sidecar_quota_probe_observations", "upstream_status_code", "integer"},
-		{"sidecar_quota_probe_observations", "quota_exceeded", "boolean"},
-		{"sidecar_quota_probe_observations", "reason_code", "text"},
-		{"sidecar_quota_probe_observations", "quota_reset_at", "timestamp with time zone"},
-		{"sidecar_quota_probe_observations", "blocking_window", "text"},
-		{"sidecar_quota_probe_observations", "windows_json", "jsonb"},
-		{"sidecar_quota_probe_observations", "error_code", "text"},
-		{"sidecar_quota_probe_observations", "created_at", "timestamp with time zone"},
-		{"sidecar_watchdog_pending_actions", "id", "integer"},
-		{"sidecar_watchdog_pending_actions", "sidecar_id", "integer"},
-		{"sidecar_watchdog_pending_actions", "hold_id", "integer"},
-		{"sidecar_watchdog_pending_actions", "action_history_created_at", "timestamp with time zone"},
-		{"sidecar_watchdog_pending_actions", "action_history_id", "integer"},
-		{"sidecar_watchdog_pending_actions", "auth_id", "text"},
-		{"sidecar_watchdog_pending_actions", "auth_name", "text"},
-		{"sidecar_watchdog_pending_actions", "auth_index", "text"},
-		{"sidecar_watchdog_pending_actions", "provider", "text"},
-		{"sidecar_watchdog_pending_actions", "action_type", "text"},
-		{"sidecar_watchdog_pending_actions", "reason", "text"},
-		{"sidecar_watchdog_pending_actions", "previous_priority", "integer"},
-		{"sidecar_watchdog_pending_actions", "target_priority", "integer"},
-		{"sidecar_watchdog_pending_actions", "hold_until", "timestamp with time zone"},
-		{"sidecar_watchdog_pending_actions", "attempt_count", "integer"},
-		{"sidecar_watchdog_pending_actions", "last_attempt_at", "timestamp with time zone"},
-		{"sidecar_watchdog_pending_actions", "last_error_message", "text"},
-		{"sidecar_watchdog_pending_actions", "created_at", "timestamp with time zone"},
-		{"sidecar_watchdog_pending_actions", "updated_at", "timestamp with time zone"},
-	} {
-		assertColumnDataType(t, ctx, conn, column.tableName, column.columnName, column.dataType)
-	}
-	for _, columnName := range []string{"auth_snapshot_id", "status", "error_message", "completed_at"} {
-		assertColumnMissing(t, ctx, conn, "sidecar_watchdog_pending_actions", columnName)
-	}
-	assertColumnMissing(t, ctx, conn, "sidecar_quota_probe_observations", "updated_at")
-	assertColumnMissing(t, ctx, conn, "sidecar_watchdog_holds", "last_action_id")
-	assertColumnMissing(t, ctx, conn, "sidecar_watchdog_policies", "probe_cursor_auth_id")
-	assertColumnMissing(t, ctx, conn, "sidecar_watchdog_policies", "probe_batch_size")
-	for _, column := range []struct {
-		tableName  string
-		columnName string
-		dataType   string
-	}{
-		{"sidecar_watchdog_policies", "active_revision_id", "bigint"},
-		{"sidecar_watchdog_policies", "pending_revision_id", "bigint"},
-		{"sidecar_watchdog_policies", "probe_concurrency", "integer"},
-		{"sidecar_watchdog_policies", "probe_batch_cooldown_seconds", "integer"},
-		{"sidecar_watchdog_policies", "probe_last_batch_completed_at", "timestamp with time zone"},
-		{"sidecar_watchdog_policies", "quota_inventory_enabled", "boolean"},
-		{"sidecar_watchdog_policies", "initial_scan_enabled", "boolean"},
-		{"sidecar_watchdog_policies", "rolling_refresh_enabled", "boolean"},
-		{"sidecar_watchdog_policies", "rolling_refresh_after_seconds", "integer"},
-		{"sidecar_watchdog_policies", "working_priority", "integer"},
-		{"sidecar_watchdog_policies", "empty_quota_priority", "integer"},
-		{"sidecar_watchdog_policies", "initial_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "id", "bigint"},
-		{"sidecar_watchdog_policy_revisions", "policy_id", "integer"},
-		{"sidecar_watchdog_policy_revisions", "sidecar_id", "integer"},
-		{"sidecar_watchdog_policy_revisions", "enabled", "boolean"},
-		{"sidecar_watchdog_policy_revisions", "watchdog_sweep_interval_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "failure_threshold", "integer"},
-		{"sidecar_watchdog_policy_revisions", "failure_window_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "fallback_cooldown_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "quota_exceeded_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "using_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "working_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "empty_quota_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "initial_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "error_priority", "integer"},
-		{"sidecar_watchdog_policy_revisions", "manual_override_pause_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "probe_concurrency", "integer"},
-		{"sidecar_watchdog_policy_revisions", "probe_timeout_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "probe_batch_cooldown_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "probe_jitter_min_ms", "integer"},
-		{"sidecar_watchdog_policy_revisions", "probe_jitter_max_ms", "integer"},
-		{"sidecar_watchdog_policy_revisions", "cooldown_jitter_percent", "integer"},
-		{"sidecar_watchdog_policy_revisions", "quota_inventory_enabled", "boolean"},
-		{"sidecar_watchdog_policy_revisions", "initial_scan_enabled", "boolean"},
-		{"sidecar_watchdog_policy_revisions", "rolling_refresh_enabled", "boolean"},
-		{"sidecar_watchdog_policy_revisions", "rolling_refresh_after_seconds", "integer"},
-		{"sidecar_watchdog_policy_revisions", "created_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "sweep_id", "text"},
-		{"sidecar_watchdog_sweeps", "sidecar_id", "integer"},
-		{"sidecar_watchdog_sweeps", "policy_revision_id", "bigint"},
-		{"sidecar_watchdog_sweeps", "status", "text"},
-		{"sidecar_watchdog_sweeps", "snapshot_json", "jsonb"},
-		{"sidecar_watchdog_sweeps", "next_item_index", "integer"},
-		{"sidecar_watchdog_sweeps", "batch_index", "integer"},
-		{"sidecar_watchdog_sweeps", "next_batch_after", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "last_heartbeat_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "lease_expires_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "pause_reason", "text"},
-		{"sidecar_watchdog_sweeps", "failure_reason", "text"},
-		{"sidecar_watchdog_sweeps", "restart_requested_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "restart_target_policy_revision_id", "bigint"},
-		{"sidecar_watchdog_sweeps", "restart_reason", "text"},
-		{"sidecar_watchdog_sweeps", "cancel_requested_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "cancel_reason", "text"},
-		{"sidecar_watchdog_sweeps", "started_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "completed_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "created_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweeps", "updated_at", "timestamp with time zone"},
-		{"sidecar_quota_scan_runs", "id", "bigint"},
-		{"sidecar_quota_scan_runs", "scan_type", "text"},
-		{"sidecar_quota_scan_runs", "status", "text"},
-		{"sidecar_quota_scan_runs", "requested_by", "text"},
-		{"sidecar_quota_scan_runs", "cursor_auth_id", "text"},
-		{"sidecar_quota_scan_runs", "planned_count", "integer"},
-		{"sidecar_quota_scan_runs", "attempted_count", "integer"},
-		{"sidecar_quota_scan_runs", "using_count", "integer"},
-		{"sidecar_quota_scan_runs", "quota_exceeded_count", "integer"},
-		{"sidecar_quota_scan_runs", "error_count", "integer"},
-		{"sidecar_quota_scan_runs", "skipped_count", "integer"},
-		{"sidecar_quota_scan_runs", "cancel_requested_at", "timestamp with time zone"},
-		{"sidecar_quota_scan_runs", "started_at", "timestamp with time zone"},
-		{"sidecar_quota_scan_runs", "completed_at", "timestamp with time zone"},
-		{"sidecar_quota_scan_runs", "last_error_code", "text"},
-		{"sidecar_quota_scan_runs", "created_at", "timestamp with time zone"},
-		{"sidecar_quota_scan_runs", "updated_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweep_items", "id", "bigint"},
-		{"sidecar_watchdog_sweep_items", "sweep_id", "text"},
-		{"sidecar_watchdog_sweep_items", "sidecar_id", "integer"},
-		{"sidecar_watchdog_sweep_items", "policy_revision_id", "bigint"},
-		{"sidecar_watchdog_sweep_items", "item_index", "integer"},
-		{"sidecar_watchdog_sweep_items", "source", "text"},
-		{"sidecar_watchdog_sweep_items", "source_rank", "integer"},
-		{"sidecar_watchdog_sweep_items", "priority", "integer"},
-		{"sidecar_watchdog_sweep_items", "due_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweep_items", "auth_id", "text"},
-		{"sidecar_watchdog_sweep_items", "auth_index", "text"},
-		{"sidecar_watchdog_sweep_items", "provider", "text"},
-		{"sidecar_watchdog_sweep_items", "hold_id", "integer"},
-		{"sidecar_watchdog_sweep_items", "auth_snapshot_id", "integer"},
-		{"sidecar_watchdog_sweep_items", "selection_json", "jsonb"},
-		{"sidecar_watchdog_sweep_items", "status", "text"},
-		{"sidecar_watchdog_sweep_items", "lease_owner", "text"},
-		{"sidecar_watchdog_sweep_items", "lease_expires_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweep_items", "attempt_token", "integer"},
-		{"sidecar_watchdog_sweep_items", "started_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweep_items", "completed_at", "timestamp with time zone"},
-		{"sidecar_watchdog_sweep_items", "result_observation_id", "integer"},
-		{"sidecar_watchdog_sweep_items", "last_error_code", "text"},
-		{"sidecar_auth_quota_states", "sidecar_id", "integer"},
-		{"sidecar_auth_quota_states", "auth_id", "text"},
-		{"sidecar_auth_quota_states", "auth_index", "text"},
-		{"sidecar_auth_quota_states", "auth_name", "text"},
-		{"sidecar_auth_quota_states", "provider", "text"},
-		{"sidecar_auth_quota_states", "snapshot_observed_at", "timestamp with time zone"},
-		{"sidecar_auth_quota_states", "quota_band", "text"},
-		{"sidecar_auth_quota_states", "probe_status", "text"},
-		{"sidecar_auth_quota_states", "quota_exceeded", "boolean"},
-		{"sidecar_auth_quota_states", "reason_code", "text"},
-		{"sidecar_auth_quota_states", "quota_reset_at", "timestamp with time zone"},
-		{"sidecar_auth_quota_states", "blocking_window", "text"},
-		{"sidecar_auth_quota_states", "last_observation_id", "integer"},
-		{"sidecar_auth_quota_states", "last_probed_at", "timestamp with time zone"},
-		{"sidecar_auth_quota_states", "last_error_code", "text"},
-		{"sidecar_auth_quota_states", "created_at", "timestamp with time zone"},
-		{"sidecar_auth_quota_states", "updated_at", "timestamp with time zone"},
-	} {
-		assertColumnDataType(t, ctx, conn, column.tableName, column.columnName, column.dataType)
-	}
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 120", "probe_batch_cooldown_seconds > 0", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
-	assertConstraintDefinitionExcludes(t, ctx, conn, "ck_sidecar_watchdog_policies_thresholds", "probe_batch_size", "*")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_pkey", "PRIMARY KEY (id)")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_policy_id_fkey", "ON DELETE CASCADE")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_policy_revisions_sidecar_id_fkey", "ON DELETE CASCADE")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_policy_revisions_values", "watchdog_sweep_interval_seconds > 0", "probe_concurrency >= 1", "probe_concurrency <= 8", "probe_timeout_seconds <= 120", "working_priority >= empty_quota_priority", "empty_quota_priority >= initial_priority", "initial_priority >= error_priority", "rolling_refresh_after_seconds > 0")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_pkey", "PRIMARY KEY (sweep_id)")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_sidecar_id_fkey", "ON DELETE CASCADE")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_policy_revision_id_fkey", "ON DELETE RESTRICT")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweeps_restart_target_revision_fkey", "ON DELETE RESTRICT")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_status", "running", "paused", "completed", "failed", "cancelled")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_checkpoint", "next_item_index >= 0", "batch_index >= 0", "jsonb_typeof")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_restart_intent", "restart_requested_at IS NULL", "restart_target_policy_revision_id IS NOT NULL")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweeps_cancel_intent", "cancel_reason IS NULL", "cancel_requested_at IS NOT NULL")
-	assertIndexUniqueness(t, ctx, conn, "sidecar_watchdog_sweeps", "uq_sidecar_watchdog_sweeps_active_sidecar", true)
-	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_sweeps_active_sidecar", "sidecar_id", "running", "paused")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_scan_type", "initial", "manual", "scheduled")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "completed", "cancelled", "failed")
-	assertConstraintDefinitionExcludes(t, ctx, conn, "ck_sidecar_quota_scan_runs_status", "queued", "running")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_quota_scan_runs_pkey", "PRIMARY KEY (id)")
-	assertIndexMissing(t, ctx, conn, "sidecar_quota_scan_runs", "uq_sidecar_quota_scan_runs_active_sidecar")
-	assertIndexExists(t, ctx, conn, "sidecar_quota_scan_runs", "idx_sidecar_quota_scan_runs_sidecar_history")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweep_items_pkey", "PRIMARY KEY (id)")
-	assertConstraintDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_sweep_items_sweep_index", "UNIQUE (sweep_id, item_index)")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweep_items_sweep_id_fkey", "ON DELETE CASCADE")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_watchdog_sweep_items_policy_revision_id_fkey", "ON DELETE RESTRICT")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_status", "queued", "leased", "succeeded", "failed", "cancelled", "superseded")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_shape", "item_index >= 0", "source_rank >= 0", "attempt_token >= 0", "jsonb_typeof")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_lease", "lease_owner IS NOT NULL", "lease_expires_at IS NOT NULL", "attempt_token > 0")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_watchdog_sweep_items_completion", "completed_at IS NULL", "completed_at IS NOT NULL")
-	assertIndexExists(t, ctx, conn, "sidecar_watchdog_sweep_items", "idx_sidecar_watchdog_sweep_items_claimable")
-	assertIndexExists(t, ctx, conn, "sidecar_watchdog_sweep_items", "idx_sidecar_watchdog_sweep_items_leased")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_auth_quota_states_band", "using", "quota_exceeded", "error")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_auth_quota_states_pkey", "PRIMARY KEY (sidecar_id, auth_id)")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_auth_quota_states_last_observation_id_fkey", "ON DELETE SET NULL")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_probe_observations_required_text", "btrim(auth_id)", "btrim(probe_status)")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_probe_observations_upstream_status", "upstream_status_code", "599")
-	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_quota_probe_observations_windows_array", "jsonb_typeof", "array")
-	assertConstraintDefinitionContains(t, ctx, conn, "sidecar_quota_probe_observations_sidecar_id_fkey", "ON DELETE CASCADE")
-	var tableExists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'sidecar_watchdog_probe_observations')`).Scan(&tableExists); err != nil {
-		t.Fatalf("check old probe observation table absence: %v", err)
-	}
-	if tableExists {
-		t.Fatalf("expected sidecar_watchdog_probe_observations table to be renamed away")
-	}
-	assertIndexExists(t, ctx, conn, "sidecar_quota_probe_observations", "idx_sidecar_quota_probe_observations_sidecar_probed")
-	assertIndexExists(t, ctx, conn, "sidecar_quota_probe_observations", "idx_sidecar_quota_probe_observations_auth_probed")
-	assertIndexExists(t, ctx, conn, "sidecar_quota_probe_observations", "idx_sidecar_quota_probe_observations_probed_at")
-
-	var relkind string
-	if err := conn.QueryRow(ctx, `
-		SELECT c.relkind::text
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public' AND c.relname = 'sidecar_watchdog_actions'`).Scan(&relkind); err != nil {
-		t.Fatalf("load sidecar_watchdog_actions relkind: %v", err)
-	}
-	if relkind != "p" {
-		t.Fatalf("expected sidecar_watchdog_actions to be partitioned, got relkind=%q", relkind)
-	}
-	var pkColumns string
-	if err := conn.QueryRow(ctx, `
-		SELECT string_agg(att.attname, ',' ORDER BY keys.key_order)
-		FROM pg_constraint con
-		JOIN unnest(con.conkey) WITH ORDINALITY AS keys(attnum, key_order) ON true
-		JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = keys.attnum
-		WHERE con.conrelid = 'public.sidecar_watchdog_actions'::regclass AND con.contype = 'p'`).Scan(&pkColumns); err != nil {
-		t.Fatalf("load sidecar_watchdog_actions primary key columns: %v", err)
-	}
-	if pkColumns != "created_at,id" {
-		t.Fatalf("expected sidecar_watchdog_actions primary key on created_at,id, got %q", pkColumns)
-	}
-	assertIndexExists(t, ctx, conn, "sidecar_watchdog_actions", "ix_sidecar_watchdog_actions_id")
-	assertIndexExists(t, ctx, conn, "sidecar_watchdog_actions", "idx_sidecar_watchdog_actions_sidecar_created")
-	assertIndexExists(t, ctx, conn, "sidecar_watchdog_pending_actions", "idx_sidecar_watchdog_pending_actions_sidecar_created")
-	assertIndexUniqueness(t, ctx, conn, "sidecar_watchdog_pending_actions", "uq_sidecar_watchdog_pending_actions_action_history_key", true)
-	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_pending_actions_action_history_key", "action_history_created_at", "action_history_id")
 	for tableName, columnNames := range map[string][]string{
 		"sidecar_auth_snapshots":     {"recent_requests_json", "model_states_json", "snapshot_json"},
 		"sidecar_provider_snapshots": {"snapshot_json"},
@@ -1143,8 +620,8 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	}
 	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_name", "lower(name)", "deleted_at IS NULL")
 	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_base_url_canonical", "base_url_canonical", "deleted_at IS NULL")
-	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_watchdog_holds_active_auth", "status = ANY", "active", "paused")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_instances_management_auth_state", "invalid_management_auth")
+	assertCurrentSidecarTables(t, ctx, conn)
 }
 
 func assertColumnDataType(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string) {
@@ -1158,26 +635,48 @@ func assertColumnDataType(t *testing.T, ctx context.Context, conn *pgx.Conn, tab
 	}
 }
 
-func assertColumnMissing(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string) {
+func assertCurrentSidecarTables(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	var exists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`, tableName, columnName).Scan(&exists); err != nil {
-		t.Fatalf("check %s.%s column absence: %v", tableName, columnName, err)
+	rows, err := conn.Query(ctx, `
+		SELECT c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public'
+		  AND c.relkind IN ('r', 'p')
+		  AND left(c.relname, length('sidecar_')) = 'sidecar_'
+		ORDER BY c.relname ASC`)
+	if err != nil {
+		t.Fatalf("load current sidecar tables: %v", err)
 	}
-	if exists {
-		t.Fatalf("expected %s.%s column to be absent", tableName, columnName)
+	defer rows.Close()
+	got := map[string]bool{}
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			t.Fatalf("scan current sidecar table: %v", err)
+		}
+		got[tableName] = true
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate current sidecar tables: %v", err)
+	}
+	assertStringSet(t, "sidecar tables", got, map[string]bool{"sidecar_auth_snapshots": true, "sidecar_instances": true, "sidecar_provider_snapshots": true})
 }
 
-func assertFourBandPriorityRow(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, idColumn string, id any) {
+func assertStringSet(t *testing.T, label string, got map[string]bool, expected map[string]bool) {
 	t.Helper()
-	var usingPriority, quotaPriority, workingPriority, emptyQuotaPriority, initialPriority, errorPriority int
-	query := fmt.Sprintf(`SELECT using_priority, quota_exceeded_priority, working_priority, empty_quota_priority, initial_priority, error_priority FROM %s WHERE %s = $1`, tableName, idColumn)
-	if err := conn.QueryRow(ctx, query, id).Scan(&usingPriority, &quotaPriority, &workingPriority, &emptyQuotaPriority, &initialPriority, &errorPriority); err != nil {
-		t.Fatalf("load four-band priorities from %s: %v", tableName, err)
+	if len(got) != len(expected) {
+		t.Fatalf("%s = %v want %v", label, got, expected)
 	}
-	if usingPriority != 99 || quotaPriority != 90 || workingPriority != 99 || emptyQuotaPriority != 90 || initialPriority != 50 || errorPriority != 10 {
-		t.Fatalf("unexpected four-band priorities in %s: using=%d quota=%d working=%d empty=%d initial=%d error=%d", tableName, usingPriority, quotaPriority, workingPriority, emptyQuotaPriority, initialPriority, errorPriority)
+	for value := range expected {
+		if !got[value] {
+			t.Fatalf("%s missing %s: got %v want %v", label, value, got, expected)
+		}
+	}
+	for value := range got {
+		if !expected[value] {
+			t.Fatalf("%s has unexpected %s: got %v want %v", label, value, got, expected)
+		}
 	}
 }
 
@@ -1203,19 +702,6 @@ func assertConstraintDefinitionContains(t *testing.T, ctx context.Context, conn 
 	for _, fragment := range fragments {
 		if !strings.Contains(definition, fragment) {
 			t.Fatalf("expected constraint %s definition %q to contain %q", constraintName, definition, fragment)
-		}
-	}
-}
-
-func assertConstraintDefinitionExcludes(t *testing.T, ctx context.Context, conn *pgx.Conn, constraintName string, fragments ...string) {
-	t.Helper()
-	var definition string
-	if err := conn.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`, constraintName).Scan(&definition); err != nil {
-		t.Fatalf("load constraint definition %s: %v", constraintName, err)
-	}
-	for _, fragment := range fragments {
-		if strings.Contains(definition, fragment) {
-			t.Fatalf("expected constraint %s definition %q not to contain %q", constraintName, definition, fragment)
 		}
 	}
 }
@@ -1594,11 +1080,6 @@ func assertIndexExists(t *testing.T, ctx context.Context, conn *pgx.Conn, tableN
 	assertIndexPresence(t, ctx, conn, tableName, indexName, true)
 }
 
-func assertIndexMissing(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string) {
-	t.Helper()
-	assertIndexPresence(t, ctx, conn, tableName, indexName, false)
-}
-
 func assertIndexPresence(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, indexName string, wantExists bool) {
 	t.Helper()
 	var exists bool
@@ -1698,13 +1179,13 @@ func assertColumnContract(t *testing.T, columns map[string]partitionedLogColumnC
 
 func assertLogRetentionSettingsContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	dayColumns := []string{"request_logs_retention_days", "audit_logs_retention_days", "statistics_retention_days", "loadbalance_events_retention_days", "sidecar_action_history_retention_days"}
+	dayColumns := []string{"request_logs_retention_days", "audit_logs_retention_days", "statistics_retention_days", "loadbalance_events_retention_days"}
 	rows, err := conn.Query(ctx, `
 		SELECT column_name, data_type, COALESCE(character_maximum_length, 0), is_nullable
 		FROM information_schema.columns
 		WHERE table_schema = 'public'
 		  AND table_name = 'log_retention_settings'
-		  AND column_name = ANY($1::text[])`, dayColumns)
+		  AND right(column_name, length('_retention_days')) = '_retention_days'`)
 	if err != nil {
 		t.Fatalf("load log_retention_settings day columns: %v", err)
 	}
@@ -1721,6 +1202,9 @@ func assertLogRetentionSettingsContract(t *testing.T, ctx context.Context, conn 
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate log_retention_settings day columns: %v", err)
+	}
+	if len(columns) != len(dayColumns) {
+		t.Fatalf("log_retention_settings day columns = %v want %v", columns, dayColumns)
 	}
 	for _, columnName := range dayColumns {
 		assertColumnContract(t, columns, columnName, "integer", 0, "YES")
@@ -1742,40 +1226,10 @@ func assertLogRetentionSettingsContract(t *testing.T, ctx context.Context, conn 
 		  AND contype = 'c'`).Scan(&constraintCount); err != nil {
 		t.Fatalf("count log_retention_settings check constraints: %v", err)
 	}
-	if constraintCount != 6 {
-		t.Fatalf("expected six log_retention_settings check constraints, got %d", constraintCount)
+	if constraintCount != 5 {
+		t.Fatalf("expected five log_retention_settings check constraints, got %d", constraintCount)
 	}
 	assertConstraintDefinitionContains(t, ctx, conn, "log_retention_settings_singleton_key_check", "'global'")
-	assertConstraintDefinitionContains(t, ctx, conn, "log_retention_settings_sidecar_action_history_retention_days_check", "sidecar_action_history_retention_days", ">= 1")
-}
-
-func seedLegacySidecarActionHistoryMigrationFixture(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	applyMigrationsThrough(t, ctx, conn, "000016_sidecar_watchdog_action_auth_name")
-
-	var sidecarID int
-	if err := conn.QueryRow(ctx, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
-VALUES ($1, $2, $3, $4)
-RETURNING id`, "legacy-sidecar", "https://legacy-sidecar.example.test", "https://legacy-sidecar.example.test", "enc:legacy").Scan(&sidecarID); err != nil {
-		t.Fatalf("seed pre-split sidecar instance: %v", err)
-	}
-
-	var actionID int
-	if err := conn.QueryRow(ctx, `INSERT INTO sidecar_watchdog_actions (
-sidecar_id, auth_id, auth_name, auth_index, provider, action_type, reason,
-previous_priority, target_priority, hold_until, status, created_at, updated_at)
-VALUES ($1, 'auth-legacy', 'legacy-auth.json', 'idx-legacy', 'codex', 'deprioritize',
-'quota_exceeded', 10, 0, NOW(), 'pending', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day')
-RETURNING id`, sidecarID).Scan(&actionID); err != nil {
-		t.Fatalf("seed legacy sidecar_watchdog_actions row: %v", err)
-	}
-	if _, err := conn.Exec(ctx, `INSERT INTO sidecar_watchdog_holds (
-sidecar_id, auth_id, auth_index, provider, reason, condition_hash, previous_priority,
-target_priority, hold_until, status, last_action_id)
-VALUES ($1, 'auth-legacy', 'idx-legacy', 'codex', 'quota_exceeded', 'legacy-hash', 10,
-0, NOW(), 'active', $2)`, sidecarID, actionID); err != nil {
-		t.Fatalf("seed legacy sidecar_watchdog_holds row: %v", err)
-	}
 }
 
 func applyMigrationsThrough(t *testing.T, ctx context.Context, conn *pgx.Conn, throughVersion string) {
@@ -1925,65 +1379,22 @@ func randomSuffix(t *testing.T) string {
 	return hex.EncodeToString(buffer)
 }
 
-func TestSidecarQuotaInventoryMigrationConstraints(t *testing.T) {
+func TestSidecarCurrentSchemaConstraints(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "quota_inventory_constraints")
+	conn := harness.openDatabase(t, testContext, "sidecar_current_constraints")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run quota inventory migration: %v", err)
+		t.Fatalf("run sidecar current schema migrations: %v", err)
 	}
 	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected quota inventory migration to apply, got %q", result.Outcome)
+		t.Fatalf("expected sidecar current schema migrations to apply, got %q", result.Outcome)
 	}
 
-	var sidecarID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password)
-VALUES ($1, $2, $3, $4)
-RETURNING id`, "quota inventory constraints", "https://quota.example.test", "https://quota.example.test", "enc:fixture").Scan(&sidecarID); err != nil {
-		t.Fatalf("seed sidecar for quota inventory migration constraints: %v", err)
-	}
-
-	for _, query := range []struct {
-		name string
-		sql  string
-	}{
-		{name: "probe concurrency positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency) VALUES ($1, 0)`},
-		{name: "probe concurrency max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency) VALUES ($1, 9)`},
-		{name: "probe timeout max", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_timeout_seconds) VALUES ($1, 121)`},
-		{name: "cooldown positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_batch_cooldown_seconds) VALUES ($1, 0)`},
-		{name: "refresh positive", sql: `INSERT INTO sidecar_watchdog_policies (sidecar_id, rolling_refresh_after_seconds) VALUES ($1, 0)`},
-		{name: "scan type enum", sql: `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'bogus', 'queued')`},
-		{name: "scan status enum", sql: `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'bogus')`},
-		{name: "quota band enum", sql: `INSERT INTO sidecar_auth_quota_states (sidecar_id, auth_id, quota_band) VALUES ($1, 'auth-bad', 'bogus')`},
-	} {
-		t.Run(query.name, func(t *testing.T) {
-			if _, err := conn.Exec(testContext, query.sql, sidecarID); err == nil {
-				t.Fatalf("expected %s to fail schema validation", query.name)
-			}
-		})
-	}
-
-	var policyID int
-	if err := conn.QueryRow(testContext, `INSERT INTO sidecar_watchdog_policies (sidecar_id, probe_concurrency, probe_timeout_seconds) VALUES ($1, 8, 120) RETURNING id`, sidecarID).Scan(&policyID); err != nil {
-		t.Fatalf("expected concurrent probe policy to allow max concurrency with 120s timeout: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, probe_concurrency, probe_timeout_seconds) VALUES ($1, $2, 8, 120)`, policyID, sidecarID); err != nil {
-		t.Fatalf("expected policy revision to allow max concurrency with 120s timeout: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_watchdog_policy_revisions (policy_id, sidecar_id, probe_timeout_seconds) VALUES ($1, $2, 121)`, policyID, sidecarID); err == nil {
-		t.Fatalf("expected policy revision probe_timeout_seconds=121 to fail schema validation")
-	}
-
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'queued')`, sidecarID); err == nil {
-		t.Fatalf("expected queued quota scan run to be rejected after projection-only demotion")
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO sidecar_quota_scan_runs (sidecar_id, scan_type, status) VALUES ($1, 'manual', 'completed'), ($1, 'scheduled', 'failed')`, sidecarID); err != nil {
-		t.Fatalf("expected projection-only quota scan history rows to insert without active uniqueness: %v", err)
-	}
+	assertSidecarSchemaContract(t, testContext, conn)
 }

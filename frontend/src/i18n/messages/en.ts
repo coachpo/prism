@@ -1,13 +1,3 @@
-import type { SidecarQuotaBand } from "@/lib/types";
-
-export type SidecarActionStatusLabel = "succeeded" | "success" | "skipped" | "failed" | "error";
-
-export type SidecarActionTypeLabel =
-  | "probe_succeeded"
-  | "probe_error"
-  | "probe_skipped"
-  | "quota_hold_extended";
-
 export interface Messages {
   auth: {
     accountResetCodeSent: string;
@@ -158,33 +148,12 @@ export interface Messages {
   };
   sidecarsPage: {
     actionApplyChange: string;
-    actionHistoryActionColumn: string;
-    actionHistoryAuthColumn: string;
-    actionHistoryCompletedAt: (time: string) => string;
-    actionHistoryDescription: string;
-    actionHistoryEmptyDescription: string;
-    actionHistoryEmptyTitle: string;
-    actionHistoryFromPriority: (priority: number) => string;
-    actionHistoryFromPriorityState: (state: string) => string;
-    actionHistoryHoldUntil: (time: string) => string;
-    actionHistoryPriorityColumn: string;
-    actionHistoryPriorityState: (state: string) => string;
-    actionHistoryReasonColumn: string;
-    actionHistoryStatusColumn: string;
-    actionStatusLabels: Record<SidecarActionStatusLabel, string>;
-    actionTypeLabels: Record<SidecarActionTypeLabel, string>;
-    actionHistoryTimeColumn: string;
-    actionHistoryTitle: string;
-    actionHistoryToPriority: (priority: number) => string;
-    actionHistoryToPriorityState: (state: string) => string;
     actionsColumn: string;
     addSidecar: string;
     allowInsecureHttpDescription: string;
     allowInsecureHttpLabel: string;
     allowPrivateNetworkDescription: string;
     allowPrivateNetworkLabel: string;
-    authActionAllowWatchdogDescription: string;
-    authActionAllowWatchdogLabel: string;
     authActionConfirmDescription: string;
     authActionConfirmTitle: string;
     authAuthFileColumn: string;
@@ -196,7 +165,6 @@ export interface Messages {
     authEnableAuth: (name: string) => string;
     authEnabledLabel: string;
     authMissingPriorityResolves: string;
-    authNoWatchdogAction: string;
     authPriorityMutationWarning: string;
     authPriorityPositiveRequired: string;
     authPriorityColumn: string;
@@ -231,7 +199,6 @@ export interface Messages {
     authUsageLimitTitle: string;
     authUsageLimitTypeLabel: string;
     authUnobservedLabel: string;
-    authWatchdogColumn: string;
     baseUrlDescription: string;
     baseUrlLabel: string;
     baseUrlPlaceholder: string;
@@ -250,7 +217,6 @@ export interface Messages {
     deleteWarningTitle: string;
     deleting: string;
     description: string;
-    detailDescription: string;
     detailTitle: (name: string) => string;
     dialogDescription: string;
     editSidecar: string;
@@ -277,13 +243,11 @@ export interface Messages {
     maskedFields: (fields: string) => string;
     nameLabel: string;
     namePlaceholder: string;
-    mutationOutcomeLabels: Record<string, string>;
     noExtraSnapshotFields: string;
     nameRequired: string;
     passwordConfigured: string;
     passwordMissing: string;
     pollingDescription: string;
-    priorityStateLabels: Record<string, string>;
     privateNetwork: string;
     providerDescription: string;
     providerEmptyDescription: string;
@@ -293,34 +257,6 @@ export interface Messages {
     providerObservedColumn: string;
     providerSnapshotColumn: string;
     providerTitle: string;
-    quotaScanAutomaticActive: string;
-    quotaScanCancel: string;
-    quotaScanCancelFailed: string;
-    quotaScanCancelSucceeded: string;
-    quotaScanDescription: string;
-    quotaScanEmpty: string;
-    quotaScanError: (count: string) => string;
-    quotaScanLastError: (code: string) => string;
-    quotaScanProgressLabel: string;
-    quotaScanProgressValue: (attempted: string, planned: string) => string;
-    quotaScanQuotaExceeded: (count: string) => string;
-    quotaScanSkipped: (count: string) => string;
-    quotaScanStart: string;
-    quotaScanStartFailed: string;
-    quotaScanStartSucceeded: (name: string) => string;
-    quotaScanStatusLabels: Record<string, string>;
-    quotaScanTitle: string;
-    quotaScanTypeLabels: Record<string, string>;
-    quotaScanUsing: (count: string) => string;
-    quotaScanWatchdogNote: string;
-    quotaStateColumn: string;
-    quotaStateLabels: Record<SidecarQuotaBand, string>;
-    quotaStateLastProbed: (time: string) => string;
-    quotaStateLatestObserved: string;
-    quotaStateMissing: string;
-    quotaStateReasonCode: (reasonCode: string) => string;
-    quotaStateReset: (time: string) => string;
-    quotaStateWatchdogHold: string;
     redactedLabel: string;
     requestTimeoutLabel: string;
     runtimeSectionTitle: string;
@@ -352,76 +288,6 @@ export interface Messages {
     updateSucceeded: (name: string) => string;
     validationPositiveWholeNumber: (fieldLabel: string) => string;
     viewDetails: string;
-    watchdogActiveRevisionIdLabel: string;
-    watchdogActiveRevisionLabel: string;
-    watchdogActiveSweepDescription: (status: string, revision: string, active: string, pending: string, terminal: string, total: string, startedAt: string) => string;
-    watchdogActiveSweepTitle: string;
-    watchdogApplyAndRestart: string;
-    watchdogApplyFailed: string;
-    watchdogApplyPending: string;
-    watchdogApplyRestartFailed: string;
-    watchdogApplyRestartHint: string;
-    watchdogApplyRestartSucceeded: string;
-    watchdogApplyRestartUnavailable: string;
-    watchdogApplySucceeded: string;
-    watchdogAutomationSectionDescription: string;
-    watchdogAutomationSectionTitle: string;
-    watchdogBatchSizeValidationError: string;
-    watchdogCooldownJitterDescription: string;
-    watchdogCooldownJitterLabel: string;
-    watchdogCooldownJitterValidationError: string;
-    watchdogDeferred: string;
-    watchdogDescription: string;
-    watchdogEnabledDescription: string;
-    watchdogEnabledLabel: string;
-    watchdogEmptyQuotaPriorityDescription: string;
-    watchdogEmptyQuotaPriorityLabel: string;
-    watchdogErrorPriorityDescription: string;
-    watchdogErrorPriorityLabel: string;
-    watchdogFailureThresholdLabel: string;
-    watchdogFailureWindowLabel: string;
-    watchdogFallbackCooldownLabel: string;
-    watchdogInitialPriorityDescription: string;
-    watchdogInitialPriorityLabel: string;
-    watchdogManualPauseLabel: string;
-    watchdogPendingApplyDescription: string;
-    watchdogPendingApplyTitle: string;
-    watchdogPendingRevisionIdLabel: string;
-    watchdogPendingRevisionLabel: string;
-    watchdogPriorityBandsSectionDescription: string;
-    watchdogPriorityBandsSectionTitle: string;
-    watchdogPriorityOrderValidationError: string;
-    watchdogPrioritySafetyDescription: string;
-    watchdogPrioritySafetyTitle: string;
-    watchdogInitialScanEnabledDescription: string;
-    watchdogInitialScanEnabledLabel: string;
-    watchdogProbeBatchCooldownDescription: string;
-    watchdogProbeBatchCooldownSecondsLabel: string;
-    watchdogProbeConcurrencyDescription: string;
-    watchdogProbeConcurrencyLabel: string;
-    watchdogProbeJitterDescription: string;
-    watchdogProbeJitterMaxLabel: string;
-    watchdogProbeJitterMinLabel: string;
-    watchdogJitterOrderValidationError: string;
-    watchdogProbeTimeoutSecondsLabel: string;
-    watchdogQuotaInventoryEnabledDescription: string;
-    watchdogQuotaInventoryEnabledLabel: string;
-    watchdogRevisionModeLabel: string;
-    watchdogRollingRefreshAfterDescription: string;
-    watchdogRollingRefreshAfterSecondsLabel: string;
-    watchdogRollingRefreshEnabledDescription: string;
-    watchdogRollingRefreshEnabledLabel: string;
-    watchdogSave: string;
-    watchdogSaveCreatesPending: string;
-    watchdogSaveSucceeded: string;
-    watchdogSweepIntervalDescription: string;
-    watchdogSweepIntervalSecondsLabel: string;
-    watchdogSweepSectionDescription: string;
-    watchdogSweepSectionTitle: string;
-    watchdogTitle: string;
-    watchdogValidationError: string;
-    watchdogWorkingPriorityDescription: string;
-    watchdogWorkingPriorityLabel: string;
   };
   loadbalanceStrategyDialog: {
     addTitle: string;
@@ -982,7 +848,6 @@ export interface Messages {
     cleanupTypeAudits: string;
     cleanupTypeLoadbalanceEvents: string;
     cleanupTypeRequests: string;
-    cleanupTypeSidecarActionHistory: string;
     cleanupTypeStatistics: string;
     dataType: string;
     delete: string;
@@ -1070,7 +935,6 @@ export interface Messages {
     savingRetention: string;
     selectDataType: string;
     selectRetention: string;
-    sidecarActionHistoryPolicy: string;
     statisticsPolicy: string;
     title: string;
   };
@@ -2382,42 +2246,16 @@ export const enMessages: Messages = {
   },
   sidecarsPage: {
     actionApplyChange: "Apply change",
-    actionHistoryActionColumn: "Action",
-    actionHistoryAuthColumn: "Target auth",
-    actionHistoryCompletedAt: (time) => `Completed ${time}`,
-    actionHistoryDescription: "Backend-recorded manual mutations and watchdog probe outcomes, including derived priority states and mutation outcomes.",
-    actionHistoryEmptyDescription: "Manual changes and watchdog decisions will appear here.",
-    actionHistoryEmptyTitle: "No actions recorded",
-    actionHistoryFromPriority: (priority) => `from ${priority}`,
-    actionHistoryFromPriorityState: (state) => `from ${state}`,
-    actionHistoryHoldUntil: (time) => `Hold until ${time}`,
-    actionHistoryPriorityColumn: "Priority state / outcome",
-    actionHistoryPriorityState: (state) => `state ${state}`,
-    actionHistoryReasonColumn: "Reason",
-    actionHistoryStatusColumn: "Status",
-    actionStatusLabels: { succeeded: "Succeeded", success: "Success", skipped: "Skipped", failed: "Failed", error: "Error" },
-    actionTypeLabels: {
-      probe_succeeded: "Probe succeeded",
-      probe_error: "Probe error",
-      probe_skipped: "Probe skipped",
-      quota_hold_extended: "Quota hold extended",
-    },
-    actionHistoryTimeColumn: "Time",
-    actionHistoryTitle: "Action history",
-    actionHistoryToPriority: (priority) => `to ${priority}`,
-    actionHistoryToPriorityState: (state) => `to ${state}`,
     actionsColumn: "Actions",
     addSidecar: "Add sidecar",
     allowInsecureHttpDescription: "Permit plain HTTP management endpoints when the sidecar is not using TLS.",
     allowInsecureHttpLabel: "Allow insecure HTTP",
     allowPrivateNetworkDescription: "Allow this control-plane entry to target private network addresses.",
     allowPrivateNetworkLabel: "Allow private network",
-    authActionAllowWatchdogDescription: "Sends allow_watchdog=true with this backend mutation instead of applying the normal manual pause.",
-    authActionAllowWatchdogLabel: "Allow watchdog immediately",
-    authActionConfirmDescription: "Manual changes normally pause watchdog reconciliation for this auth file so the watchdog does not immediately undo operator intent.",
+    authActionConfirmDescription: "Manual changes are sent directly to the sidecar auth file, then Prism refreshes the local snapshot.",
     authActionConfirmTitle: "Confirm manual auth mutation",
     authAuthFileColumn: "Auth file",
-    authDescription: "Synced OAuth/auth inventory with routing priority, retry timing, and watchdog state. Snapshot quota hints are not watchdog authority, and secrets or raw tokens are never shown.",
+    authDescription: "Synced OAuth/auth inventory with routing priority and retry timing. Secrets and raw tokens are never shown.",
     authDisableAuth: (name) => `Disable auth ${name}`,
     authDisabledLabel: "Disabled",
     authEmptyDescription: "Run a sidecar sync to populate auth inventory.",
@@ -2425,8 +2263,7 @@ export const enMessages: Messages = {
     authEnableAuth: (name) => `Enable auth ${name}`,
     authEnabledLabel: "Enabled",
     authMissingPriorityResolves: "missing resolves to initial",
-    authNoWatchdogAction: "No watchdog action",
-    authPriorityMutationWarning: "Manual priority writes must be positive; missing or stored zero priority is interpreted as the initial priority state by watchdog responses.",
+    authPriorityMutationWarning: "Manual priority writes must be positive. Missing priority continues to resolve to the sidecar default routing order.",
     authPriorityPositiveRequired: "Enter a positive priority.",
     authPriorityColumn: "Priority",
     authPriorityInputLabel: (name) => `Priority for ${name}`,
@@ -2460,7 +2297,6 @@ export const enMessages: Messages = {
     authUsageLimitTitle: "Usage limit",
     authUsageLimitTypeLabel: "Type",
     authUnobservedLabel: "Not observed",
-    authWatchdogColumn: "Watchdog",
     baseUrlDescription: "Use the backend sidecar API endpoint; Prism never contacts CLIProxyAPI directly from the browser.",
     baseUrlLabel: "Base URL",
     baseUrlPlaceholder: "https://cliproxyapi.internal:8443",
@@ -2479,7 +2315,6 @@ export const enMessages: Messages = {
     deleteWarningTitle: "This cannot be undone",
     deleting: "Deleting...",
     description: "Manage CLIProxyAPI sidecar instances from Prism's global control plane.",
-    detailDescription: "Auth inventory, provider inventory, watchdog policy, and action history for the selected sidecar.",
     detailTitle: (name) => `${name} detail`,
     dialogDescription: "Configure the registered CLIProxyAPI management endpoint and polling behavior.",
     editSidecar: "Edit sidecar",
@@ -2506,13 +2341,11 @@ export const enMessages: Messages = {
     maskedFields: (fields) => `Masked fields: ${fields}`,
     nameLabel: "Name",
     namePlaceholder: "CLIProxyAPI production",
-    mutationOutcomeLabels: { patched: "Patched", already_at_target: "Already at target", skipped: "Skipped", failed: "Failed" },
     noExtraSnapshotFields: "No extra snapshot fields",
     nameRequired: "Sidecar name is required.",
     passwordConfigured: "Password configured",
     passwordMissing: "Password missing",
     pollingDescription: "The list refreshes every 30 seconds while this page is visible and stops on unmount.",
-    priorityStateLabels: { working: "Working", "empty-quota": "Empty-quota", initial: "Initial", error: "Error" },
     privateNetwork: "Private network",
     providerDescription: "Read-only provider metadata synced through Prism backend APIs. API keys and provider secrets are masked and never requested.",
     providerEmptyDescription: "Run a sidecar sync to populate provider inventory.",
@@ -2522,34 +2355,6 @@ export const enMessages: Messages = {
     providerObservedColumn: "Observed",
     providerSnapshotColumn: "Masked snapshot",
     providerTitle: "Provider inventory",
-    quotaScanAutomaticActive: "Automatic scan in progress; manual cancellation is available only for manual scans.",
-    quotaScanCancel: "Cancel scan",
-    quotaScanCancelFailed: "Failed to cancel quota scan.",
-    quotaScanCancelSucceeded: "Quota scan cancellation requested.",
-    quotaScanDescription: "Manual scans enqueue quota checks for the latest observed inventory. Results are not real-time provider truth.",
-    quotaScanEmpty: "No quota scan has been recorded for this sidecar yet.",
-    quotaScanError: (count) => `Error ${count}`,
-    quotaScanLastError: (code) => `Last error: ${code}`,
-    quotaScanProgressLabel: "Scan progress",
-    quotaScanProgressValue: (attempted, planned) => `${attempted} of ${planned} attempted`,
-    quotaScanQuotaExceeded: (count) => `Quota exceeded ${count}`,
-    quotaScanSkipped: (count) => `Skipped ${count}`,
-    quotaScanStart: "Scan quota now",
-    quotaScanStartFailed: "Failed to start quota scan.",
-    quotaScanStartSucceeded: (name) => `Quota scan started for ${name}.`,
-    quotaScanStatusLabels: { queued: "Queued", running: "Running", completed: "Completed", cancelled: "Cancelled", failed: "Failed" },
-    quotaScanTitle: "Quota scan progress",
-    quotaScanTypeLabels: { initial: "Initial", manual: "Manual", scheduled: "Rolling refresh" },
-    quotaScanUsing: (count) => `Using ${count}`,
-    quotaScanWatchdogNote: "Manual quota scans are separate from the watchdog sweep interval and do not change batch cooldown pacing.",
-    quotaStateColumn: "Latest observed quota",
-    quotaStateLabels: { using: "Using", quota_exceeded: "Quota exceeded", error: "Error" },
-    quotaStateLastProbed: (time) => `Last probe ${time}`,
-    quotaStateLatestObserved: "Latest observed state, not real-time provider truth.",
-    quotaStateMissing: "Not observed",
-    quotaStateReasonCode: (reasonCode) => `Reason code: ${reasonCode}`,
-    quotaStateReset: (time) => `Reset ${time}`,
-    quotaStateWatchdogHold: "Watchdog hold",
     redactedLabel: "redacted",
     requestTimeoutLabel: "Request timeout (seconds)",
     runtimeSectionTitle: "Runtime behavior",
@@ -2581,76 +2386,6 @@ export const enMessages: Messages = {
     updateSucceeded: (name) => `Updated sidecar ${name}.`,
     validationPositiveWholeNumber: (fieldLabel) => `${fieldLabel} must be a positive whole number.`,
     viewDetails: "View details",
-    watchdogActiveRevisionIdLabel: "Active revision",
-    watchdogActiveRevisionLabel: "Active revision",
-    watchdogActiveSweepDescription: (status, revision, active, pending, terminal, total, startedAt) => `Sweep ${status} on revision #${revision}; ${active} active, ${pending} pending, ${terminal} terminal of ${total} child items; started ${startedAt}.`,
-    watchdogActiveSweepTitle: "Authoritative active sweep",
-    watchdogApplyAndRestart: "Apply and restart watchdog",
-    watchdogApplyFailed: "Failed to apply pending watchdog policy.",
-    watchdogApplyPending: "Apply to future sweeps",
-    watchdogApplyRestartFailed: "Failed to apply and restart watchdog policy.",
-    watchdogApplyRestartHint: "Apply-and-restart supersedes the current active sweep and starts replacement child work on the new revision.",
-    watchdogApplyRestartSucceeded: "Pending watchdog policy applied and active sweep restart requested.",
-    watchdogApplyRestartUnavailable: "No active sweep is running; use apply to make the revision authoritative for future work.",
-    watchdogApplySucceeded: "Pending watchdog policy applied for future sweeps.",
-    watchdogAutomationSectionDescription: "Choose which child work sources the watchdog may materialize; these are not separate scan runtimes.",
-    watchdogAutomationSectionTitle: "Child work sources",
-    watchdogBatchSizeValidationError: "Probe batch size must be between 1 and 8.",
-    watchdogCooldownJitterDescription: "Adds bounded randomness to cooldown scheduling so paused sweep work does not resume in one burst.",
-    watchdogCooldownJitterLabel: "Cooldown jitter (percent)",
-    watchdogCooldownJitterValidationError: "Cooldown jitter must be between 0 and 100 percent.",
-    watchdogDeferred: "Watchdog policy details include sweep interval, batch pacing, pending apply, and priority bands.",
-    watchdogDescription: "Controls the sweep engine that probes auth quota state in concurrent batches. Saved policy changes become pending until explicitly applied.",
-    watchdogEnabledDescription: "When enabled, Prism can run quota probe sweeps, maintain inventory, and adjust routing priority without disabling refresh.",
-    watchdogEnabledLabel: "Enable watchdog",
-    watchdogEmptyQuotaPriorityDescription: "Auth that has exhausted quota maps to empty-quota and stays below working auth.",
-    watchdogEmptyQuotaPriorityLabel: "Empty-quota priority",
-    watchdogErrorPriorityDescription: "Auth with probe or provider errors maps to the lowest editable error band.",
-    watchdogErrorPriorityLabel: "Error priority",
-    watchdogFailureThresholdLabel: "Failure threshold",
-    watchdogFailureWindowLabel: "Failure window (seconds)",
-    watchdogFallbackCooldownLabel: "Fallback cooldown (seconds)",
-    watchdogInitialPriorityDescription: "Missing or zero stored priority resolves to initial; new writes must use positive values.",
-    watchdogInitialPriorityLabel: "Initial priority",
-    watchdogInitialScanEnabledDescription: "Materialize initial child work for newly synced auth files that have no observed quota state.",
-    watchdogInitialScanEnabledLabel: "Initial inventory items",
-    watchdogManualPauseLabel: "Manual override pause (seconds)",
-    watchdogPendingApplyDescription: "Save created a pending revision. Apply makes it authoritative for future sweeps; apply-and-restart also supersedes the current active sweep.",
-    watchdogPendingApplyTitle: "Pending changes require apply",
-    watchdogPendingRevisionIdLabel: "Pending revision",
-    watchdogPendingRevisionLabel: "Pending revision staged",
-    watchdogPriorityBandsSectionDescription: "Priority bands must satisfy working ≥ empty-quota ≥ initial ≥ error, all at least 1.",
-    watchdogPriorityBandsSectionTitle: "Priority bands",
-    watchdogPriorityOrderValidationError: "Priority bands must satisfy working ≥ empty-quota ≥ initial ≥ error.",
-    watchdogPrioritySafetyDescription: "The four named bands drive priority_state. quota_band remains the separate quota signal, and missing priority renders as initial.",
-    watchdogPrioritySafetyTitle: "Priority-state safety note",
-    watchdogProbeBatchCooldownDescription: "Pause between batches inside one active sweep; it is not the interval before the next completed sweep starts.",
-    watchdogProbeBatchCooldownSecondsLabel: "Probe batch cooldown (seconds)",
-    watchdogProbeConcurrencyDescription: "Concurrent probes launched in each batch. Backend wire field remains probe_concurrency; max 8.",
-    watchdogProbeConcurrencyLabel: "Probe batch size",
-    watchdogProbeJitterDescription: "Launch pacing range applied before each probe starts inside a batch; it staggers starts but does not serialize the batch.",
-    watchdogProbeJitterMaxLabel: "Probe jitter max (ms)",
-    watchdogProbeJitterMinLabel: "Probe jitter min (ms)",
-    watchdogJitterOrderValidationError: "Probe jitter max must be greater than or equal to probe jitter min.",
-    watchdogProbeTimeoutSecondsLabel: "Probe timeout (seconds)",
-    watchdogQuotaInventoryEnabledDescription: "Maintain latest observed quota state for auth files without treating it as live provider truth.",
-    watchdogQuotaInventoryEnabledLabel: "Quota inventory",
-    watchdogRevisionModeLabel: "Editing mode",
-    watchdogRollingRefreshAfterDescription: "Mark observed quota state eligible for refresh child work after this age.",
-    watchdogRollingRefreshAfterSecondsLabel: "Refresh eligibility age (seconds)",
-    watchdogRollingRefreshEnabledDescription: "Materialize low-priority refresh child work for stale observed quota state in working and empty-quota bands.",
-    watchdogRollingRefreshEnabledLabel: "Rolling refresh items",
-    watchdogSave: "Save as pending policy",
-    watchdogSaveCreatesPending: "Save stages a pending revision; it does not activate the running watchdog policy.",
-    watchdogSaveSucceeded: "Watchdog policy saved as pending changes.",
-    watchdogSweepIntervalDescription: "Rest period after a sweep completes before Prism starts a new sweep.",
-    watchdogSweepIntervalSecondsLabel: "Sweep interval (seconds)",
-    watchdogSweepSectionDescription: "Sweep interval starts a new completed cycle; batch cooldown paces remaining work inside an active sweep.",
-    watchdogSweepSectionTitle: "Sweep timing and launch pacing",
-    watchdogTitle: "Watchdog policy",
-    watchdogValidationError: "Thresholds, windows, sweep interval, batch cooldown, probe timeout, and rolling refresh age must be positive whole numbers; priority bands must be positive.",
-    watchdogWorkingPriorityDescription: "Healthy working auth maps to the highest priority band.",
-    watchdogWorkingPriorityLabel: "Working priority",
   },
   loadbalanceStrategyDialog: {
     addTitle: "Add Loadbalance Strategy",
@@ -3236,7 +2971,6 @@ export const enMessages: Messages = {
     cleanupTypeAudits: "Audit Logs",
     cleanupTypeLoadbalanceEvents: "Loadbalance Events",
     cleanupTypeRequests: "Request Logs",
-    cleanupTypeSidecarActionHistory: "Sidecar Action History",
     cleanupTypeStatistics: "Statistics Data",
     dataType: "Data type",
     delete: "Delete",
@@ -3323,7 +3057,7 @@ export const enMessages: Messages = {
     requestLogsPolicy: "Request log retention",
     retentionDays: (days) => `${days} days`,
     retentionLoadedFailed: "Failed to load retention settings",
-    retentionPolicyDescription: "Choose how long request logs, audit logs, statistics, load-balance events, and sidecar action history are retained before cleanup jobs apply.",
+    retentionPolicyDescription: "Choose how long request logs, audit logs, statistics, and load-balance events are retained before cleanup jobs apply.",
     retentionPolicyTitle: "Retention policy",
     retentionUpdateFailed: "Failed to update retention settings",
     retentionUpdated: "Retention settings updated",
@@ -3331,7 +3065,6 @@ export const enMessages: Messages = {
     savingRetention: "Saving...",
     selectDataType: "Select data type",
     selectRetention: "Select retention",
-    sidecarActionHistoryPolicy: "Sidecar action history retention",
     statisticsPolicy: "Statistics retention",
     title: "Retention & Deletion",
   },

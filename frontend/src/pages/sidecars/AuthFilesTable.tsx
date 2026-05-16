@@ -15,9 +15,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -36,12 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarActionHistoryItem, SidecarAuthQuotaState, SidecarAuthSnapshot, SidecarPriorityState, SidecarQuotaBand } from "@/lib/types";
-import {
-  formatActionStatus,
-  formatActionType,
-  sidecarActionIntent,
-} from "./sidecarActionPresentation";
+import type { SidecarAuthSnapshot } from "@/lib/types";
 
 type PendingMutation =
   | { kind: "priority"; snapshot: SidecarAuthSnapshot; priority: number }
@@ -54,7 +47,6 @@ interface AuthSearchLabels {
   disabledLabel: string;
   missingPriorityLabel: string;
   priorityLabel: (priority: number) => string;
-  quotaStateLabels: Record<SidecarQuotaBand, string>;
   unavailableLabel: string;
   unobservedStatus: string;
 }
@@ -79,13 +71,11 @@ interface UsageLimitErrorDetail {
 }
 
 interface AuthFilesTableProps {
-  actionHistory: SidecarActionHistoryItem[];
   authSnapshots: SidecarAuthSnapshot[];
   loading: boolean;
   mutatingAuthKey: string | null;
-  onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number, allowWatchdog: boolean) => Promise<void>;
-  onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean, allowWatchdog: boolean) => Promise<void>;
-  quotaStates: SidecarAuthQuotaState[];
+  onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number) => Promise<void>;
+  onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean) => Promise<void>;
 }
 
 const AUTH_PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
@@ -169,39 +159,6 @@ function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
   return snapshot.status ? "info" : "muted";
 }
 
-function quotaBandIntent(quotaBand: SidecarQuotaBand | undefined): BadgeIntent {
-  if (quotaBand === "using") {
-    return "success";
-  }
-  if (quotaBand === "quota_exceeded") {
-    return "warning";
-  }
-  if (quotaBand === "error") {
-    return "danger";
-  }
-  return "muted";
-}
-
-function priorityStateIntent(priorityState: SidecarPriorityState | undefined): BadgeIntent {
-  if (priorityState === "working") {
-    return "success";
-  }
-  if (priorityState === "empty-quota") {
-    return "warning";
-  }
-  if (priorityState === "initial") {
-    return "info";
-  }
-  if (priorityState === "error") {
-    return "danger";
-  }
-  return "muted";
-}
-
-function labelFor(labels: Record<string, string>, value: string | undefined) {
-  return value ? labels[value] ?? value : "—";
-}
-
 function summarizeJson(
   value: unknown,
   bucketSummary: (count: number) => string,
@@ -218,20 +175,6 @@ function summarizeJson(
     return keys.length > 0 ? keys.slice(0, 3).join(", ") : redactedLabel;
   }
   return redactedLabel;
-}
-
-function latestActionByAuthId(actions: SidecarActionHistoryItem[]) {
-  const byAuthId = new Map<string, SidecarActionHistoryItem>();
-  actions.forEach((action) => {
-    if (!action.auth_id) {
-      return;
-    }
-    const current = byAuthId.get(action.auth_id);
-    if (!current || Date.parse(action.created_at) > Date.parse(current.created_at)) {
-      byAuthId.set(action.auth_id, action);
-    }
-  });
-  return byAuthId;
 }
 
 function getPriorityInputValue(
@@ -272,7 +215,7 @@ function compareAuthByPriorityAsc(left: SidecarAuthSnapshot, right: SidecarAuthS
   return (left.priority ?? 0) - (right.priority ?? 0) || compareAuthByName(left, right);
 }
 
-function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, quotaState: SidecarAuthQuotaState | undefined, labels: AuthSearchLabels) {
+function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearchLabels) {
   const fields = [
     snapshot.name,
     snapshot.auth_id,
@@ -285,9 +228,6 @@ function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, quotaState: Sideca
     boolState(snapshot.disabled, labels.enabledLabel, labels.disabledLabel, labels.unobservedStatus),
   ];
 
-  if (quotaState) {
-    fields.push(quotaState.quota_band, labels.quotaStateLabels[quotaState.quota_band], quotaState.reason_code, quotaState.probe_status);
-  }
   if (snapshot.unavailable) {
     fields.push(labels.unavailableLabel);
   }
@@ -298,12 +238,12 @@ function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, quotaState: Sideca
   return fields.filter((field): field is string => Boolean(field));
 }
 
-function authMatchesSearch(snapshot: SidecarAuthSnapshot, quotaState: SidecarAuthQuotaState | undefined, normalizedSearch: string, labels: AuthSearchLabels) {
+function authMatchesSearch(snapshot: SidecarAuthSnapshot, normalizedSearch: string, labels: AuthSearchLabels) {
   if (!normalizedSearch) {
     return true;
   }
 
-  return buildAuthSearchFields(snapshot, quotaState, labels).some((field) => normalizeAuthSearch(field).includes(normalizedSearch));
+  return buildAuthSearchFields(snapshot, labels).some((field) => normalizeAuthSearch(field).includes(normalizedSearch));
 }
 
 function compareAuthSnapshots(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot, sortMode: AuthSortMode) {
@@ -376,36 +316,27 @@ function UsageLimitStatusTooltip({
 }
 
 export function AuthFilesTable({
-  actionHistory,
   authSnapshots,
   loading,
   mutatingAuthKey,
   onPatchPriority,
   onPatchStatus,
-  quotaStates,
 }: AuthFilesTableProps) {
   const { formatNumber, locale, messages } = useLocale();
   const copy = messages.sidecarsPage;
   const paginationCopy = messages.requestLogs;
   const [draftPriorities, setDraftPriorities] = useState<Record<string, string>>({});
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
-  const [allowWatchdog, setAllowWatchdog] = useState(false);
   const [authSearch, setAuthSearch] = useState("");
   const [authSortMode, setAuthSortMode] = useState<AuthSortMode>("name");
   const [pageSize, setPageSize] = useState<number>(DEFAULT_AUTH_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
-  const latestAction = useMemo(() => latestActionByAuthId(actionHistory), [actionHistory]);
-  const quotaStatesByAuthId = useMemo(
-    () => new Map(quotaStates.map((state) => [state.auth_id, state])),
-    [quotaStates],
-  );
   const normalizedAuthSearch = normalizeAuthSearch(authSearch);
   const authSearchLabels = useMemo<AuthSearchLabels>(() => ({
     disabledLabel: copy.authDisabledLabel,
     enabledLabel: copy.authEnabledLabel,
     missingPriorityLabel: copy.authMissingPriorityResolves,
     priorityLabel: copy.authPriorityLabel,
-    quotaStateLabels: copy.quotaStateLabels,
     unavailableLabel: copy.authUnavailableLabel,
     unobservedStatus: copy.authUnobservedLabel,
   }), [
@@ -413,15 +344,14 @@ export function AuthFilesTable({
     copy.authEnabledLabel,
     copy.authMissingPriorityResolves,
     copy.authPriorityLabel,
-    copy.quotaStateLabels,
     copy.authUnavailableLabel,
     copy.authUnobservedLabel,
   ]);
   const derivedAuthSnapshots = useMemo(() => {
     return authSnapshots
-      .filter((snapshot) => authMatchesSearch(snapshot, quotaStatesByAuthId.get(snapshot.auth_id), normalizedAuthSearch, authSearchLabels))
+      .filter((snapshot) => authMatchesSearch(snapshot, normalizedAuthSearch, authSearchLabels))
       .sort((left, right) => compareAuthSnapshots(left, right, authSortMode));
-  }, [authSearchLabels, authSnapshots, authSortMode, normalizedAuthSearch, quotaStatesByAuthId]);
+  }, [authSearchLabels, authSnapshots, authSortMode, normalizedAuthSearch]);
   const totalAuthRows = derivedAuthSnapshots.length;
   const totalPages = Math.max(1, Math.ceil(totalAuthRows / pageSize));
   const currentPageIndex = Math.min(pageIndex, totalPages - 1);
@@ -442,7 +372,6 @@ export function AuthFilesTable({
 
   const openMutation = (mutation: PendingMutation) => {
     setPendingMutation(mutation);
-    setAllowWatchdog(false);
   };
 
   const confirmMutation = async () => {
@@ -450,10 +379,10 @@ export function AuthFilesTable({
       return;
     }
     if (pendingMutation.kind === "priority") {
-      await onPatchPriority(pendingMutation.snapshot, pendingMutation.priority, allowWatchdog);
+      await onPatchPriority(pendingMutation.snapshot, pendingMutation.priority);
       clearDraftPriority(pendingMutation.snapshot.auth_id);
     } else {
-      await onPatchStatus(pendingMutation.snapshot, pendingMutation.disabled, allowWatchdog);
+      await onPatchStatus(pendingMutation.snapshot, pendingMutation.disabled);
     }
     setPendingMutation(null);
   };
@@ -527,25 +456,20 @@ export function AuthFilesTable({
                   <TableRow>
                     <TableHead>{copy.authAuthFileColumn}</TableHead>
                     <TableHead>{copy.authStateColumn}</TableHead>
-                    <TableHead>{copy.quotaStateColumn}</TableHead>
                     <TableHead>{copy.authPriorityColumn}</TableHead>
                     <TableHead>{copy.authRetryColumn}</TableHead>
                     <TableHead>{copy.authRequestsColumn}</TableHead>
-                    <TableHead>{copy.authWatchdogColumn}</TableHead>
                     <TableHead className="text-right">{copy.actionsColumn}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visibleAuthSnapshots.map((snapshot) => {
-                    const latest = latestAction.get(snapshot.auth_id);
                     const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
                     const parsedPriority = parsePriority(priorityValue);
                     const mutating = mutatingAuthKey === snapshot.auth_id;
                     const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
                     const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
                     const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.authUnobservedLabel);
-                    const quotaState = quotaStatesByAuthId.get(snapshot.auth_id);
-                    const latestObservedAt = quotaState?.last_snapshot_at ?? quotaState?.last_probed_at;
 
                     return (
                       <TableRow key={snapshot.auth_id}>
@@ -591,29 +515,6 @@ export function AuthFilesTable({
                             ) : null}
                           </div>
                         </TableCell>
-                        <TableCell data-testid={`quota-state-${snapshot.auth_id}`}>
-                          <div className="flex min-w-48 flex-col gap-1 text-xs text-muted-foreground">
-                            <div className="flex flex-wrap items-center gap-1">
-                              <StatusBadge
-                                label={quotaState ? copy.quotaStateLabels[quotaState.quota_band] : copy.quotaStateMissing}
-                                intent={quotaBandIntent(quotaState?.quota_band)}
-                              />
-                              {quotaState?.priority_state ? (
-                                <TypeBadge
-                                  label={labelFor(copy.priorityStateLabels, quotaState.priority_state)}
-                                  intent={priorityStateIntent(quotaState.priority_state)}
-                                  preserveLabel
-                                />
-                              ) : null}
-                              {quotaState?.current_priority !== undefined ? <ValueBadge label={copy.authPriorityLabel(quotaState.current_priority)} intent="info" /> : null}
-                              {quotaState?.active_hold ? <TypeBadge label={copy.quotaStateWatchdogHold} intent="warning" preserveLabel /> : null}
-                            </div>
-                            <span>{copy.quotaStateLatestObserved}</span>
-                            {latestObservedAt ? <span>{formatTimestamp(latestObservedAt, locale, messages.common.unavailable)}</span> : null}
-                            {quotaState?.reason_code ? <span>{copy.quotaStateReasonCode(quotaState.reason_code)}</span> : null}
-                            {quotaState?.quota_reset_at ? <span>{copy.quotaStateReset(formatTimestamp(quotaState.quota_reset_at, locale, messages.common.unavailable))}</span> : null}
-                          </div>
-                        </TableCell>
                         <TableCell>
                           <div className="flex min-w-44 flex-col gap-2">
                             <div className="flex flex-wrap items-center gap-1">
@@ -656,19 +557,6 @@ export function AuthFilesTable({
                             <span>{copy.authSuccessRequestsLabel}: {formatNumber(snapshot.success_count ?? 0)}</span>
                             <span>{copy.authFailedRequestsLabel}: {formatNumber(snapshot.failed_count ?? 0)}</span>
                             <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex min-w-44 flex-col gap-1 text-xs text-muted-foreground">
-                            {latest ? (
-                              <>
-                                <TypeBadge label={formatActionType(latest.action_type, copy.actionTypeLabels)} intent={sidecarActionIntent(latest.action_type)} preserveLabel />
-                                <span>{formatActionStatus(latest.status, copy.actionStatusLabels)}</span>
-                                {latest.hold_until ? <span>{copy.actionHistoryHoldUntil(formatTimestamp(latest.hold_until, locale, messages.common.unavailable))}</span> : null}
-                              </>
-                            ) : (
-                              <span>{copy.authNoWatchdogAction}</span>
-                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
@@ -758,17 +646,6 @@ export function AuthFilesTable({
                 {pendingMutation?.kind === "priority" ? (
                   <p className="font-medium text-warning">{copy.authPriorityMutationWarning}</p>
                 ) : null}
-                <div className="flex items-start gap-2 rounded-lg border bg-muted/20 p-3">
-                  <Checkbox
-                    id="allow-watchdog-immediately"
-                    checked={allowWatchdog}
-                    onCheckedChange={(checked) => setAllowWatchdog(checked === true)}
-                  />
-                  <div className="grid gap-1 leading-none">
-                    <Label htmlFor="allow-watchdog-immediately">{copy.authActionAllowWatchdogLabel}</Label>
-                    <p className="text-xs text-muted-foreground">{copy.authActionAllowWatchdogDescription}</p>
-                  </div>
-                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

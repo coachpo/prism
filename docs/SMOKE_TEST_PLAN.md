@@ -14,7 +14,7 @@ This smoke test plan validates all documented workflows and core function paths 
 - Batch data deletion semantics
 - Frontend management flows
 - Token costing and spending reports
-- CLIProxyAPI sidecar registration, inventory sync, watchdog policy, and action-history redaction
+- CLIProxyAPI sidecar registration, inventory sync, and direct auth-file mutation
 
 The objective is a fast but thorough confidence pass that catches regressions before release.
 
@@ -205,17 +205,7 @@ Prepare seed state through API (not manual DB edits):
 | `GET /api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}` | O08 |
 | `GET /api/sidecars/{sidecar_id}/providers` | O09 |
 | `GET /api/sidecars/{sidecar_id}/provider-snapshots` | O09 |
-| `GET /api/sidecars/{sidecar_id}/sync-status` | O16 |
-| `GET /api/sidecars/{sidecar_id}/quota-states` | O17 |
-| `GET /api/sidecars/{sidecar_id}/quota-scans` | O18 |
-| `GET /api/sidecars/{sidecar_id}/quota-scans/current` | O18 |
-| `POST /api/sidecars/{sidecar_id}/quota-scans` | O18 |
-| `POST /api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel` | O18 |
-| `GET /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
-| `PUT /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
-| `PATCH /api/sidecars/{sidecar_id}/watchdog-policy` | O10 |
-| `POST /api/sidecars/{sidecar_id}/watchdog-policy/apply` | O10 |
-| `GET /api/sidecars/{sidecar_id}/actions` | O12 |
+| `GET /api/sidecars/{sidecar_id}/sync-status` | O10 |
 | `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status` | O13 |
 | `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields` | O14 |
 | `WS /api/realtime/ws` | I26, I30, I31, I37 |
@@ -627,15 +617,11 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | O07 | P0 | Manual sync | Success updates auth/provider snapshots and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
 | O08 | P0 | Auth inventory read | `auth-files` and `auth-snapshots` return normalized, redacted auth observations |
 | O09 | P0 | Provider inventory read | Provider snapshots are normalized for supported provider keys and do not expose raw secrets |
-| O10 | P0 | Watchdog policy save/apply and sweep timing | Policy defaults load with `watchdog_sweep_interval_seconds`, `Probe batch size`, `probe_batch_cooldown_seconds`, four priority bands, quota inventory flags, initial auto scan, and rolling refresh settings; valid saves create pending revisions, apply activates them, invalid non-positive values are rejected, and batch cooldown is distinct from sweep interval |
-| O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, and can select a detail row |
-| O12 | P0 | Action history redaction and retention | Action rows redact authorization, token, secret, key, and password-like text while exposing `mutation_outcome` and derived priority-state fields; `sidecar_action_history_retention_days` is visible in log-retention settings |
-| O13 | P1 | Auth status mutation with watchdog confirmation | Status patch succeeds only through Prism backend and records an operator action |
+| O10 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
+| O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, can select a detail row, and renders auth/provider inventory |
+| O13 | P1 | Auth status mutation | Status patch succeeds only through Prism backend |
 | O14 | P1 | Auth priority/field mutation | Field patch accepts allowed fields/header names and rejects unsupported fields |
-| O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile` reject elevated priority overrides |
-| O16 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
-| O17 | P0 | Quota state inventory read | `quota-states` returns latest observed `quota_band` values limited to `using`, `quota_exceeded`, and `error`, plus separate `priority_state`, probe status, reset/blocking data, auth index presence, and active-hold flag without cooldown timestamps or scan position |
-| O18 | P0 | Manual quota scan lifecycle | Starting a scan returns queued/running progress counters; current and list routes show progress; cancel marks the run without exposing internal scan position |
+| O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` rejects elevated priority overrides |
 
 ---
 
@@ -660,7 +646,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 
 - All `P0` tests pass.
 - No proxy contract regressions in routing/failover/logging/audit.
-- No sidecar secret leakage in sidecar responses, snapshots, quota state, scan progress, action history, run notes, or screenshots.
+- No sidecar secret leakage in sidecar responses, snapshots, run notes, or screenshots.
 - Any `P1` failure is triaged with reproducible payloads and logs.
 
 ---

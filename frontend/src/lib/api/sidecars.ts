@@ -1,20 +1,12 @@
 import type {
-  SidecarActionHistoryListResponse,
   SidecarAuthMutationResponse,
-  SidecarAuthQuotaStateListResponse,
   SidecarAuthSnapshot,
   SidecarAuthSnapshotListResponse,
   SidecarInstance,
   SidecarListResponse,
   SidecarProviderSnapshotListResponse,
-  SidecarQuotaScanCreateInput,
-  SidecarQuotaScanRun,
-  SidecarQuotaScanRunListResponse,
   SidecarSyncResponse,
   SidecarTestConnectionResponse,
-  SidecarWatchdogPolicy,
-  SidecarWatchdogPolicyApplyInput,
-  SidecarWatchdogPolicyUpdate,
 } from "../types";
 import { request } from "./core";
 
@@ -68,7 +60,7 @@ export const sidecars = {
     ),
   providerSnapshots: (sidecarId: number) =>
     request<SidecarProviderSnapshotListResponse>(`/api/sidecars/${sidecarId}/provider-snapshots`),
-  updateAuthFileStatus: (sidecarId: number, authId: string, data: { disabled: boolean; allow_watchdog?: boolean }) =>
+  updateAuthFileStatus: (sidecarId: number, authId: string, data: { disabled: boolean }) =>
     request<SidecarAuthMutationResponse>(
       `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/status`,
       {
@@ -76,7 +68,7 @@ export const sidecars = {
         body: JSON.stringify(data),
       }
     ),
-  updateAuthFileFields: (sidecarId: number, authId: string, data: { priority: number; allow_watchdog?: boolean }) =>
+  updateAuthFileFields: (sidecarId: number, authId: string, data: { priority: number }) =>
     request<SidecarAuthMutationResponse>(
       `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/fields`,
       {
@@ -84,36 +76,4 @@ export const sidecars = {
         body: JSON.stringify(data),
       }
     ),
-  watchdogPolicy: (sidecarId: number) =>
-    request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy`),
-  updateWatchdogPolicy: (sidecarId: number, data: SidecarWatchdogPolicyUpdate) =>
-    request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    }),
-  applyWatchdogPolicy: (sidecarId: number, data: SidecarWatchdogPolicyApplyInput) =>
-    request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy/apply`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  applyAndRestartWatchdogPolicy: (sidecarId: number, data: SidecarWatchdogPolicyApplyInput) =>
-    request<SidecarWatchdogPolicy>(`/api/sidecars/${sidecarId}/watchdog-policy/apply-and-restart`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  actionHistory: (sidecarId: number) =>
-    request<SidecarActionHistoryListResponse>(`/api/sidecars/${sidecarId}/actions`),
-  quotaStates: (sidecarId: number) =>
-    request<SidecarAuthQuotaStateListResponse>(`/api/sidecars/${sidecarId}/quota-states`),
-  quotaScans: (sidecarId: number) =>
-    request<SidecarQuotaScanRunListResponse>(`/api/sidecars/${sidecarId}/quota-scans`),
-  startQuotaScan: (sidecarId: number, data: SidecarQuotaScanCreateInput = {}) =>
-    request<SidecarQuotaScanRun>(`/api/sidecars/${sidecarId}/quota-scans`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  cancelQuotaScan: (sidecarId: number, scanId: number) =>
-    request<SidecarQuotaScanRun>(`/api/sidecars/${sidecarId}/quota-scans/${scanId}/cancel`, {
-      method: "POST",
-    }),
 };

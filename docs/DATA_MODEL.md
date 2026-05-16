@@ -256,11 +256,11 @@ sidecar_instances (global)
   encrypted management_password
   enabled, sync_interval_seconds, request_timeout_seconds
   network policy flags, management_auth_state, sync metadata
-      | 1:N observations/actions, 1:1 watchdog policy
+      | 1:N observations
       v
-  sidecar_auth_snapshots / sidecar_provider_snapshots / sidecar_watchdog_policies / sidecar_watchdog_sweeps / sidecar_watchdog_sweep_items / sidecar_watchdog_holds / sidecar_watchdog_pending_actions / sidecar_watchdog_actions
+  sidecar_auth_snapshots / sidecar_provider_snapshots
   sidecar_id FK -> sidecar_instances.id
-  normalized auth/provider observations plus watchdog policy, parent sweeps, mandatory child sweep items, holds, pending repair queue, retained history, quota states, and projection-only scan history
+  normalized auth/provider observations
 ```
 
 ## 2. Table Definitions
@@ -702,39 +702,20 @@ VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 
 ### 2.14A `sidecar_*` tables (global CLIProxyAPI control plane)
 
-Sidecar tables are global instance state. They are not profile-scoped and do not participate in profile bundle import/export. Migration `000014_cli_proxy_sidecars.sql` creates the sidecar domain; later migrations add quota inventory, immutable watchdog policy revisions, and persisted sweep state.
+Sidecar tables are global instance state. They are not profile-scoped and do not participate in profile bundle import/export. Migration `000014_cli_proxy_sidecars.sql` creates the retained sidecar domain.
 
 | Table | Purpose |
 |---|---|
 | `sidecar_instances` | Sidecar registration, canonical base URL, encrypted management password, enabled flag, sync interval, request timeout, network policy flags, management-auth state, pause metadata, and sync timestamps. |
-| `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, quota/retry metadata, recent requests, model states, redacted snapshot JSON, and observation time. Snapshot quota fields are retained as observed inventory metadata, not watchdog quota authority. |
+| `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, retry metadata, recent requests, model states, redacted snapshot JSON, and observation time. |
 | `sidecar_provider_snapshots` | Normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
-| `sidecar_watchdog_policies` | One per-sidecar watchdog controller row with active and pending revision pointers plus controller timestamps. Policy saves update the pending pointer; plain apply promotes the pending revision for future sweeps; apply-and-restart also supersedes the current active parent and child work. |
-| `sidecar_watchdog_policy_revisions` | Immutable watchdog policy settings: enabled, failure threshold/window, fallback cooldown, `watchdog_sweep_interval_seconds`, four priority bands (`working_priority`, `empty_quota_priority`, `initial_priority`, `error_priority`), legacy alias fields (`using_priority`, `quota_exceeded_priority`), manual-override pause duration, probe batch size, probe timeout seconds, `probe_batch_cooldown_seconds`, jitter fields, quota inventory switches, initial scan switch, rolling refresh switch, and rolling refresh age. |
-| `sidecar_watchdog_sweeps` | Persisted authoritative parent sweep lifecycle. Each running or paused sweep pins one policy revision, stores frozen snapshot metadata, records batch cooldown with `next_batch_after`, carries explicit restart/cancel intent fields, and derives operator progress from child sweep items. |
-| `sidecar_watchdog_sweep_items` | Mandatory executable child work for a parent sweep. Rows carry stable `item_index`, source, source rank, frozen priority, due/probe time, auth identity, optional hold and snapshot links, selection JSON, status, lease owner, lease expiry, attempt token, result observation, and safe error code. Claim order is source rank, priority descending, due time ascending, auth id ascending, then item index. |
-| `sidecar_watchdog_holds` | Active, paused, or released holds created by watchdog reconciliation or operator mutations. |
-| `sidecar_watchdog_pending_actions` | Live repair queue for watchdog deprioritize, restore, skip, probe, and quota-hold follow-up work. Rows carry the actionable payload, retry state, claim state, and a soft link to retained action history when one exists. |
-| `sidecar_watchdog_actions` | Partitioned retained audit trail for instance CRUD, connection tests, manual sync, operator patches, watchdog deprioritize/restore/skips, probe outcomes, quota hold extensions, and policy updates. Public action rows include `mutation_outcome` and derived previous/target priority states separately from raw priority values. |
-| `sidecar_watchdog_probe_observations` | Sanitized append-only probe observations from watchdog quota checks, including sidecar, auth id/index, provider key, probe timestamp, probe status, upstream status code, normalized quota result, quota reset, blocking window, safe window summaries, and safe error code. Raw probe requests, raw responses, token material, and provider identity payloads are never stored here. |
-| `sidecar_auth_quota_states` | Latest observed quota inventory per sidecar auth id, including optional auth name, provider, snapshot observation time, `quota_band`, `probe_status`, `reason_code`, `quota_reset_at`, `blocking_window`, last observation link, `last_probed_at`, and safe `last_error_code`. Public responses also derive auth index presence, disabled state, raw priority, separate `priority_state`, and active-hold state. Public quota bands are limited to `using`, `quota_exceeded`, and `error`; `priority_state` carries the four-band watchdog priority meaning separately. |
-| `sidecar_quota_scan_runs` | Projection/history-only scan rows for initial, manual, and scheduled scan sources, including terminal status, requester, private historical scan position when present, planned count, `using_count`, `quota_exceeded_count`, `error_count`, `skipped_count`, cancellation marker, completion timestamp, and safe last error code. Executable scan work lives in `sidecar_watchdog_sweep_items`. |
 
 Ownership notes:
 - Active `sidecar_instances` rows are unique on `lower(name)` and `base_url_canonical` among non-deleted registrations.
 - Stored management passwords use the backend secret-encryption key and are write-only at the API boundary.
-- Snapshot, action, and probe-observation JSON must not persist raw token, secret, password, API-key, authorization, raw provider response, or raw provider identity values.
-- The sidecar watchdog treats active `/api-call` probe observations as quota authority. Snapshot `quota_*` fields remain inventory observations only, while `sidecar_auth_quota_states` is the public latest observed quota view.
-- Public quota-state responses preserve the `quota_band` values `using`, `quota_exceeded`, and `error`; derived `priority_state` is documented and stored separately from quota meaning.
-- There is at most one non-terminal parent sweep per sidecar. Parent sweep statuses are `running`, `paused`, `completed`, `failed`, and `cancelled`; child sweep item statuses are `queued`, `leased`, `succeeded`, `failed`, `cancelled`, and `superseded`.
-- Parent `next_item_index` and batch cooldown fields are runtime bookkeeping. The operator contract exposes aggregate child status counts through `active_sweep.progress` rather than executable cursor internals.
-- Policy saves create immutable pending revisions. Plain apply promotes a pending revision to active for future sweeps without mutating an active parent or its child rows. Apply-and-restart promotes the revision and stores supersession intent that cancels the active parent and terminalizes non-terminal child rows as `superseded`.
-- `probe_batch_cooldown_seconds` records the wait before the next batch inside an active sweep. `watchdog_sweep_interval_seconds` gates only the next sweep after a previous sweep completes.
-- Final policy and policy-revision constraints accept `probe_timeout_seconds` from 1 through 120 seconds. The watchdog worker runs with a 125-second timeout so the runtime keeps its fixed 5-second safety margin.
-- Probe observations are retained for 15 days; the watchdog worker removes older rows after reconcile work.
-- `sidecar_watchdog_pending_actions` owns live repair state and is not operator history. `sidecar_watchdog_actions` owns retained action history and is managed by global retention through `sidecar_action_history_retention_days`.
-- `sidecar_quota_scan_runs` is projection/history only. It cannot contain queued or running executable rows after the clean-break migration; initial auto inventory, manual scan, rolling refresh, and due-hold probe sources execute as child sweep items under `sidecar_watchdog_sweeps`.
-- Sync and watchdog work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
+- Snapshot JSON must not persist raw token, secret, password, API-key, authorization, raw provider response, or raw provider identity values.
+- Auth/provider inventory is sourced from CLIProxyAPI and persisted as normalized snapshots for operator display.
+- Sync work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
 
 ### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)
 
@@ -942,7 +923,7 @@ CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_
 CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
 ```
 
-Sidecar uniqueness and indexes are defined in `000014_cli_proxy_sidecars.sql`; they cover active sidecar names and canonical URLs, per-sidecar snapshot lookups, active watchdog holds, and action-history ordering.
+Sidecar uniqueness and indexes are defined in `000014_cli_proxy_sidecars.sql`; they cover active sidecar names and canonical URLs plus per-sidecar snapshot lookups.
 
 ## 4. Relationship and Ownership Rules
 
@@ -950,7 +931,7 @@ Sidecar uniqueness and indexes are defined in `000014_cli_proxy_sidecars.sql`; t
 - `model_configs` reference shared vendor rows without vendor-owned delete cascade semantics; deleting a vendor must not delete profile-scoped model rows.
 - `profiles` own all scoped entities: `model_configs`, `endpoints`, `connections`, `user_settings`, `endpoint_fx_rate_settings`, user `header_blocklist_rules`.
 - `app_auth_settings` is the singleton auth root for `refresh_tokens`, `proxy_api_keys`, and `password_reset_challenges`; retained `webauthn_credentials` rows remain schema-level historical state rather than an active supported workflow surface.
-- `sidecar_instances` is a global control-plane root for sidecar snapshots, watchdog policies, holds, and actions; it is not owned by a profile.
+- `sidecar_instances` is a global control-plane root for sidecar snapshots; it is not owned by a profile.
 - `request_logs`, `audit_logs`, and `loadbalance_events` keep immutable `profile_id` attribution and are not rewritten when active profile changes.
 - `request_logs.ingress_request_id` is the canonical operator drill-in key for grouped request investigation.
 - `connection_limiter_state` and `connection_limiter_leases` are profile-scoped runtime state and intentionally `UNLOGGED`; operators accept reset-on-crash semantics.

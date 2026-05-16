@@ -14,7 +14,7 @@ lib/
 │   ├── authSettings.ts           # Auth bootstrap, proxy keys, WebAuthn methods
 │   ├── management.ts             # Profiles, vendors, models, endpoints, connections, pricing templates
 │   ├── observability.ts          # Usage snapshot, stats, bootstrap config, config import/export, audit, loadbalance, settings costing/timezone
-│   └── sidecars.ts               # Global sidecar registration, sync, watchdog, inventory, actions
+│   └── sidecars.ts               # Global sidecar registration, sync, inventory, mutations
 ├── websocket.ts                  # Singleton WebSocket client with channel ref-counts and reconnects
 ├── websocket/AGENTS.md           # Helper split beneath the singleton client
 ├── websocket/                    # Protocol, subscription, transport/reconnect helpers

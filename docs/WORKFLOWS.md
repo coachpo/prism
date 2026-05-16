@@ -185,14 +185,9 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 
 1. The sidecars page is global instance control-plane UI, not selected-profile configuration.
 2. Operators register CLIProxyAPI sidecar base URLs, management passwords, sync intervals, request timeout, and network policy flags.
-3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, review latest observed quota state, request manual quota-scan projection work, tune watchdog policy, apply pending watchdog revisions, apply-and-restart active watchdog work, and review redacted action history.
+3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, and patch auth-file status or operational fields through Prism's backend.
 4. Auth-file status and field mutations flow through Prism backend routes; the browser never calls CLIProxyAPI directly.
-5. Sidecar sync and watchdog background work run as low-priority bounded scheduler jobs.
-6. Watchdog saves create pending immutable revisions. Plain apply activates a pending revision for future sweeps only; active sweeps keep the policy revision they started with. Apply-and-restart supersedes current parent and child work.
-7. The watchdog runs as one authoritative parent sweep per sidecar with mandatory child sweep items. `Probe batch size` limits one child-item batch, batch cooldown paces later batches inside that active sweep, and sweep interval delays only the next sweep after completion.
-8. Quota inventory reads use latest observed state plus projection/history scan rows. Public `quota_band` remains `using`, `quota_exceeded`, or `error`; `priority_state` is shown separately for watchdog priority meaning. Internal cooldown timestamps and scan position stay backend-only.
-9. Initial auto inventory, manual scan, rolling refresh, and due-hold probe sources execute as child sweep items under the parent sweep; quota scan rows are not executable owners.
-10. Operator history comes from retained `sidecar_watchdog_actions`; live repairs are queued separately in `sidecar_watchdog_pending_actions`.
+5. Sidecar snapshot sync runs as a low-priority bounded scheduler job.
 
 **Backend touchpoints**
 
@@ -210,17 +205,6 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `GET /api/sidecars/{sidecar_id}/provider-snapshots`
 - `GET /api/sidecars/{sidecar_id}/providers`
 - `GET /api/sidecars/{sidecar_id}/sync-status`
-- `GET /api/sidecars/{sidecar_id}/quota-states`
-- `GET /api/sidecars/{sidecar_id}/quota-scans`
-- `GET /api/sidecars/{sidecar_id}/quota-scans/current`
-- `POST /api/sidecars/{sidecar_id}/quota-scans`
-- `POST /api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel`
-- `GET /api/sidecars/{sidecar_id}/watchdog-policy`
-- `PUT /api/sidecars/{sidecar_id}/watchdog-policy`
-- `PATCH /api/sidecars/{sidecar_id}/watchdog-policy`
-- `POST /api/sidecars/{sidecar_id}/watchdog-policy/apply`
-- `POST /api/sidecars/{sidecar_id}/watchdog-policy/apply-and-restart`
-- `GET /api/sidecars/{sidecar_id}/actions`
 
 ## 6. Request Investigation
 
@@ -313,7 +297,7 @@ The configuration-operations flow is explicit in both lanes:
 - `PUT /api/settings/log-retention`
 - `POST /api/maintenance/log-retention/jobs`
 
-Global log retention covers `request_logs`, `audit_logs`, `usage_request_events`, `loadbalance_events`, and retained sidecar action history through `sidecar_action_history_retention_days`. It does not manage the live `sidecar_watchdog_pending_actions` repair queue.
+Global log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 
 Profile export and import stay selected-profile scoped. `POST /api/config/profile/import/preview` is a profile-scoped config readiness route and requires `X-Profile-Id`.
 

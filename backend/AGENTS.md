@@ -30,7 +30,7 @@ backend/
 - `internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, partitioned log retention, and side-effect ownership.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context seams.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
-- `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, watchdog, action history, and worker seams.
+- `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
 - `tests/AGENTS.md`: backend Go regression boundary, including partitioned logs, Dockerfile, sidecars, and priority/lane isolation tests.
 
 ## RUNTIME FACTS
@@ -42,7 +42,7 @@ backend/
 - `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile/settings seeds, and endpoint-secret normalization.
 - `internal/platform/logretention/` owns daily partitions, 15-day horizon creation, retention deletes, and low-priority partition maintenance for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, sidecars, stats, vendors, and audit.
-- `internal/httpapi/management/sidecars/` owns global CLIProxyAPI sidecar control-plane routes, sidecar snapshots, watchdog policy/action state, and low-priority sync/watchdog workers.
+- `internal/httpapi/management/sidecars/` owns global CLIProxyAPI sidecar control-plane routes, sidecar snapshots, direct auth-file mutations, and the low-priority sync worker.
 - `internal/httpapi/management/settings/` owns global log-retention settings and management-job creation in addition to profile-scoped costing and timezone settings.
 - `internal/httpapi/runtime/` owns OpenAI, Anthropic, and Gemini-compatible proxy routes plus runtime cache, request logging, telemetry outbox, streaming, load-balance helpers, and runtime partition ensuring.
 - `../docs/openapi.json` is the checked-in management/health contract served by the Go backend at `/openapi.json`; runtime proxy routes are documented narratively instead.
@@ -56,7 +56,7 @@ backend/
 - Platform lifecycle, server assembly, hot bootstrap runtime, DB lanes, startup, migrations, scheduler, log retention, and side effects: `internal/platform/AGENTS.md`
 - Mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context seams: `internal/httpapi/AGENTS.md`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
-- Global sidecar registration, CLIProxyAPI sync, watchdog, and action history: `internal/httpapi/management/sidecars/AGENTS.md`
+- Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, and direct auth-file mutation: `internal/httpapi/management/sidecars/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
 - SQL migrations, partitioned log schema, and startup sequencing: `migrations/`, `internal/platform/migrate/`, `internal/platform/logretention/`
 - Runtime stats, request-log shaping, runtime partition ensuring, and loadbalance business logic: `internal/domain/stats/`, `internal/domain/loadbalance/`, `internal/domain/audit/`, `internal/httpapi/runtime/log_partitions.go`
@@ -85,3 +85,4 @@ backend/
 - Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
 - Do not move container bootstrap defaults back to app-local paths or root-owned writable state without updating Dockerfile tests and docs.
 - Do not treat enabled-but-invalid SMTP as recoverable no-op delivery.
+TP as recoverable no-op delivery.

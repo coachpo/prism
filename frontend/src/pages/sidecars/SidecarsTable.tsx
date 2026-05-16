@@ -143,10 +143,6 @@ export function SidecarsTable({
             formatNumber(healthCounts.degraded),
           )}
         </div>
-        <div className="sr-only" data-testid="sidecars-watchdog">
-          {copy.watchdogDeferred}
-        </div>
-
         {sidecarsLoading ? (
           <div className="space-y-2">
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />

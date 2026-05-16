@@ -118,7 +118,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Dedicated model-detail routes (`/models/:id` and `/models/:id/proxy`) with manual health checks, connection KPIs, current loadbalance state, and loadbalance event history
 - Dedicated request-log browsing and investigation at `/request-logs`, separate from dashboard analytics
 - Dedicated routes for pricing templates and proxy API key lifecycle management
-- Dedicated `/sidecars` route for global CLIProxyAPI sidecar registration, sync, inventory, watchdog policy, and action history
+- Dedicated `/sidecars` route for global CLIProxyAPI sidecar registration, sync, auth/provider inventory, and direct auth-file mutation
 - Dashboard analytics lives under `/dashboard?tab=analytics` and replaces the old standalone statistics route
 - Global profile selector in the app shell controls the selected profile (management scope).
 - Active profile indicator is shown globally; runtime activation is an explicit action.

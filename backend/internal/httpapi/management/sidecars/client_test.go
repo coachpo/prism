@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	urlpkg "net/url"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -121,110 +120,10 @@ func TestCLIProxyClientRetryNoRedirectAndAllowlist(t *testing.T) {
 
 func TestCLIProxyManagementPathUnsupportedPathsStillFail(t *testing.T) {
 	t.Parallel()
-	for _, path := range []string{"/usage-queue", "/api-call?url=https://example.com"} {
+	for _, path := range []string{"/usage-queue", "/auth-files?url=https://example.com"} {
 		t.Run(path, func(t *testing.T) {
 			_, err := normalizeCLIProxyManagementPath(path)
 			assertCLIProxyErrorCode(t, err, CLIProxyErrorUnsupportedPath)
-		})
-	}
-}
-
-func TestCLIProxyAPICallWrappedRequestAuthIndexAliases(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{name: "snake", raw: `{"auth_index":"auth-snake","method":"GET","url":"https://upstream.example"}`, want: "auth-snake"},
-		{name: "camel", raw: `{"authIndex":"auth-camel","method":"GET","url":"https://upstream.example"}`, want: "auth-camel"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var request CLIProxyAPICallRequest
-			if err := json.Unmarshal([]byte(tt.raw), &request); err != nil {
-				t.Fatalf("decode api-call request alias: %v", err)
-			}
-			if request.AuthIndex != tt.want {
-				t.Fatalf("expected AuthIndex %q, got %q", tt.want, request.AuthIndex)
-			}
-		})
-	}
-}
-
-func TestCLIProxyAPICallWrappedRequestMarshalsAuthIndexCamelCase(t *testing.T) {
-	t.Parallel()
-	request := CLIProxyAPICallRequest{AuthIndex: "auth-1", Method: http.MethodGet, URL: "https://upstream.example/usage"}
-	payload, err := json.Marshal(request)
-	if err != nil {
-		t.Fatalf("marshal api-call request: %v", err)
-	}
-	if !strings.Contains(string(payload), `"authIndex":"auth-1"`) {
-		t.Fatalf("expected camelCase authIndex in marshaled payload, got %s", payload)
-	}
-	if strings.Contains(string(payload), `"auth_index"`) {
-		t.Fatalf("did not expect snake_case auth_index in marshaled payload, got %s", payload)
-	}
-}
-
-func TestCLIProxyAPICallWrappedStatusesRemainPayload(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/api-call" {
-			t.Fatalf("unexpected management path %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST /api-call, got %s", r.Method)
-		}
-		if got := r.Header.Get("X-Management-Key"); got != "secret-key" {
-			t.Fatalf("expected X-Management-Key header, got %q", got)
-		}
-		var request CLIProxyAPICallRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatalf("decode wrapped request: %v", err)
-		}
-		if request.AuthIndex != "auth-1" || request.Method != http.MethodGet || request.URL != "https://upstream.example/usage" || request.Data != `{"probe":true}` {
-			t.Fatalf("unexpected wrapped request: %+v", request)
-		}
-		status, err := strconv.Atoi(request.Header["X-Wrapped-Status"])
-		if err != nil {
-			t.Fatalf("decode requested wrapped status: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status_code": status,
-			"header":      map[string]string{"Retry-After": "60"},
-			"body":        `{"wrapped":true}`,
-		})
-	}))
-	defer server.Close()
-
-	client := NewCLIProxyClient(server.Client())
-	target := CLIProxyTarget{BaseURL: server.URL, ManagementPassword: "secret-key", AllowPrivateNetwork: true, AllowInsecureHTTP: true}
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, http.StatusInternalServerError} {
-		t.Run(strconv.Itoa(status), func(t *testing.T) {
-			response, err := client.CallSidecarAPI(context.Background(), target, CLIProxyAPICallRequest{
-				AuthIndex: "auth-1",
-				Method:    http.MethodGet,
-				URL:       "https://upstream.example/usage",
-				Header:    map[string]string{"X-Wrapped-Status": strconv.Itoa(status)},
-				Data:      `{"probe":true}`,
-			})
-			if err != nil {
-				t.Fatalf("wrapped status %d should not be a transport error: %v", status, err)
-			}
-			if response.StatusCode != status {
-				t.Fatalf("expected wrapped status %d, got %d", status, response.StatusCode)
-			}
-			if got := response.Header["Retry-After"]; len(got) != 1 || got[0] != "60" {
-				t.Fatalf("expected wrapped Retry-After header, got %+v", response.Header)
-			}
-			if string(response.Body) != `"{\"wrapped\":true}"` {
-				t.Fatalf("unexpected wrapped body: %s", response.Body)
-			}
-			var wrappedBody string
-			if err := json.Unmarshal(response.Body, &wrappedBody); err != nil || wrappedBody != `{"wrapped":true}` {
-				t.Fatalf("expected raw body to decode as wrapped string, body=%s err=%v", response.Body, err)
-			}
 		})
 	}
 }

@@ -10,23 +10,18 @@ import (
 )
 
 const (
-	SidecarSyncWorkerName     = background.WorkerName("sidecar_snapshot_sync")
-	SidecarWatchdogWorkerName = background.WorkerName("sidecar_watchdog_reconcile")
+	SidecarSyncWorkerName = background.WorkerName("sidecar_snapshot_sync")
 
 	sidecarSyncWorkerInterval     = 30 * time.Second
 	sidecarSyncWorkerInitialDelay = 15 * time.Second
 	sidecarSyncWorkerTimeout      = 30 * time.Second
-
-	sidecarWatchdogWorkerInterval     = 30 * time.Second
-	sidecarWatchdogWorkerInitialDelay = 20 * time.Second
-	sidecarWatchdogWorkerTimeout      = 125 * time.Second
 )
 
 func (s *Service) RegisterBackgroundWorker(scheduler *background.Scheduler) error {
 	if s == nil || scheduler == nil {
 		return nil
 	}
-	if err := scheduler.Register(background.WorkerSpec{
+	return scheduler.Register(background.WorkerSpec{
 		Name:             SidecarSyncWorkerName,
 		Priority:         background.PriorityLowBackground,
 		MaxPriority:      background.PriorityLowBackground,
@@ -36,20 +31,7 @@ func (s *Service) RegisterBackgroundWorker(scheduler *background.Scheduler) erro
 		CoalescePolicy:   background.CoalesceDropNew,
 		PeriodicTrigger:  &background.PeriodicTrigger{Interval: sidecarSyncWorkerInterval, InitialDelay: sidecarSyncWorkerInitialDelay},
 		Timeout:          sidecarSyncWorkerTimeout,
-	}, s.handleScheduledSidecarSync); err != nil {
-		return err
-	}
-	return scheduler.Register(background.WorkerSpec{
-		Name:             SidecarWatchdogWorkerName,
-		Priority:         background.PriorityLowBackground,
-		MaxPriority:      background.PriorityLowBackground,
-		QueueLimit:       1,
-		ConcurrencyLimit: 1,
-		DrainPolicy:      background.DrainBestEffort,
-		CoalescePolicy:   background.CoalesceDropNew,
-		PeriodicTrigger:  &background.PeriodicTrigger{Interval: sidecarWatchdogWorkerInterval, InitialDelay: sidecarWatchdogWorkerInitialDelay},
-		Timeout:          sidecarWatchdogWorkerTimeout,
-	}, s.handleScheduledSidecarWatchdog)
+	}, s.handleScheduledSidecarSync)
 }
 
 func (s *Service) handleScheduledSidecarSync(ctx context.Context, _ background.Job) background.JobResult {
@@ -63,27 +45,6 @@ func (s *Service) handleScheduledSidecarSync(ctx context.Context, _ background.J
 		slog.Warn("sidecar sync worker completed with sidecar failures", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped, "failed", summary.Failed)
 	} else {
 		slog.Debug("sidecar sync worker completed", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped)
-	}
-	return background.JobResult{Status: background.JobSucceeded}
-}
-
-func (s *Service) handleScheduledSidecarWatchdog(ctx context.Context, _ background.Job) background.JobResult {
-	summary, err := s.ReconcileWatchdogDueSidecars(ctx)
-	if err != nil {
-		err = fmt.Errorf("reconcile sidecar watchdog: %w", err)
-		slog.Error("sidecar watchdog worker failed", "error", err)
-		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
-	}
-	cleaned, cleanupErr := s.store.CleanupWatchdogProbeObservations(ctx)
-	if cleanupErr != nil {
-		err = fmt.Errorf("cleanup sidecar watchdog probe observations: %w", cleanupErr)
-		slog.Error("sidecar watchdog probe cleanup failed", "error", err)
-		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
-	}
-	if summary.Failed > 0 {
-		slog.Warn("sidecar watchdog worker completed with sidecar failures", "checked", summary.Checked, "reconciled", summary.Reconciled, "skipped", summary.Skipped, "failed", summary.Failed, "probed", summary.Probed, "quota_held", summary.QuotaHeld, "restored", summary.Restored, "probe_failed", summary.ProbeFailed, "unsupported_skipped", summary.UnsupportedSkipped, "probe_observations_cleaned", cleaned)
-	} else {
-		slog.Debug("sidecar watchdog worker completed", "checked", summary.Checked, "reconciled", summary.Reconciled, "skipped", summary.Skipped, "probed", summary.Probed, "quota_held", summary.QuotaHeld, "restored", summary.Restored, "probe_failed", summary.ProbeFailed, "unsupported_skipped", summary.UnsupportedSkipped, "probe_observations_cleaned", cleaned)
 	}
 	return background.JobResult{Status: background.JobSucceeded}
 }

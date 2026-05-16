@@ -11,7 +11,7 @@ api/
 ├── authSettings.ts   # Auth bootstrap/session/login/logout, settings.auth, proxy keys, WebAuthn
 ├── management.ts     # Profiles, vendors, models, loadbalance strategies, endpoints, connections, pricing templates
 ├── observability.ts  # Stats, usage snapshot, bootstrap config, config import/export, audit, loadbalance events/current-state, settings costing/timezone/retention
-└── sidecars.ts       # Global sidecar registration, sync, inventory, watchdog, action history
+└── sidecars.ts       # Global sidecar registration, sync, inventory, mutations
 ```
 
 ## WHERE TO LOOK
@@ -22,7 +22,7 @@ api/
 - Cookie-auth bootstrap/session flows, settings auth endpoints, proxy-key endpoints, and browser WebAuthn endpoints: `authSettings.ts`
 - Global profile/vendor management plus profile-scoped model, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
-- Global sidecar CRUD, test-connection, sync, auth/provider inventory, watchdog policy, and actions: `sidecars.ts`
+- Global sidecar CRUD, test-connection, sync, auth/provider inventory, and direct auth-file mutations: `sidecars.ts`
 
 ## CONVENTIONS
 

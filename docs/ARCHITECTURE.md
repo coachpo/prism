@@ -546,7 +546,7 @@ The audit detail view is a right-side sheet with tabs for:
 
 ## 8A. CLIProxyAPI Sidecars
 
-Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata, normalized auth/provider snapshots, watchdog policies, one authoritative parent sweep per sidecar, mandatory child sweep items, live holds, pending repair actions, cooldown-aware quota state, sanitized probe observations, projection-only quota scan history, and redacted action history. CLIProxyAPI remains the live authority for auth files and provider inventories.
+Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata plus normalized auth/provider snapshots for operator display. CLIProxyAPI remains the live authority for auth files and provider inventories.
 
 ```text
 Frontend /sidecars
@@ -554,30 +554,21 @@ Frontend /sidecars
   -> Backend /api/sidecars/* global management routes
   -> Sidecar service validates network policy and management auth
   -> CLIProxyAPI /v0/management/{auth-files,provider endpoints}
-  -> Watchdog quota probes use allowlisted CLIProxyAPI /api-call wrappers
-  -> Prism persists snapshots, latest observed quota state, parent sweeps, child sweep items, pending repairs, projection/history scan rows, and retained action history in sidecar_* tables
-  -> Low-priority scheduler runs periodic sync and watchdog reconciliation
+  -> Prism persists sidecar registrations and normalized snapshots in sidecar_* tables
+  -> Low-priority scheduler runs periodic snapshot sync
 ```
 
-Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, and snapshot redaction happen inside `backend/internal/httpapi/management/sidecars/`.
+Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, direct auth-file mutations, and snapshot redaction happen inside `backend/internal/httpapi/management/sidecars/`.
 
-The sidecar watchdog is a parent-sweep engine with probe-first quota authority. It does not use snapshot `quota_*` fields as the source of truth for recovery or quota holds. At most one running or paused parent sweep exists per sidecar. That parent pins one immutable policy revision, freezes the eligible auth-file snapshot as metadata, and materializes every executable unit into mandatory `sidecar_watchdog_sweep_items` child rows. Workers claim queued child rows, lease them with fencing tokens, send bounded CLIProxyAPI `/api-call` quota probes, record sanitized observations, update latest observed quota state, and then restore, deprioritize, or extend holds from those probe outcomes. Parent progress is a projection from child statuses and is exposed through `active_sweep.progress`, not through cursor, batch, or restart internals.
+The retained sidecar surface covers instance CRUD, connection testing, manual sync, sync-status reads, latest auth-file snapshots, provider inventory snapshots, and direct auth-file status or field mutations. Provider inventory stays a read-only supplement and never substitutes for an auth snapshot contract violation.
 
-Public policy fields include `watchdog_sweep_interval_seconds`, `using_priority`, `quota_exceeded_priority`, `working_priority`, `empty_quota_priority`, `initial_priority`, `error_priority`, `probe_concurrency`, `probe_timeout_seconds`, `probe_batch_cooldown_seconds`, `probe_jitter_min_ms`, `probe_jitter_max_ms`, `cooldown_jitter_percent`, `quota_inventory_enabled`, `initial_scan_enabled`, `rolling_refresh_enabled`, and `rolling_refresh_after_seconds`. The backend normalizes priority meaning around the four bands `working_priority`, `empty_quota_priority`, `initial_priority`, and `error_priority`; `using_priority` and `quota_exceeded_priority` are legacy aliases for the working and empty-quota bands. The frontend labels `probe_concurrency` as `Probe batch size`; it limits how many child items are claimed in one sweep batch. `probe_batch_cooldown_seconds` paces later batches inside the same active sweep, while `watchdog_sweep_interval_seconds` delays only the next sweep after the current sweep completes. In v1, provider-specific quota probes are supported only for `codex` and `chatgpt` and use the ChatGPT usage endpoint through the sidecar wrapper.
-
-Policy save, apply, and restart are explicit. `PUT` and `PATCH` save pending immutable revisions only. `POST /api/sidecars/{sidecar_id}/watchdog-policy/apply` promotes the pending revision for future sweeps and never mutates an already-running parent or child items. `POST /api/sidecars/{sidecar_id}/watchdog-policy/apply-and-restart` promotes the pending revision and supersedes current parent and child work so replacement work is materialized under a new parent pinned to the new revision.
-
-Quota inventory is split by purpose. `sidecar_auth_quota_states` is the public latest observed quota view for each auth file, including `quota_band`, `priority_state`, `probe_status`, `reason_code`, `quota_reset_at`, `blocking_window`, `last_probed_at`, safe `last_error_code`, whether the auth index is present, and whether a watchdog hold is active. The only public quota bands are `using`, `quota_exceeded`, and `error`; `priority_state` is separate watchdog priority meaning with four values: `working`, `empty-quota`, `initial`, and `error`. `sidecar_quota_scan_runs` is projection/history only. Initial inventory, manual scan, rolling refresh, and due-hold probe work execute as child items under the authoritative parent sweep; scan routes expose retained projection rows through `/api/sidecars/{sidecar_id}/quota-scans`, `/api/sidecars/{sidecar_id}/quota-scans/current`, `/api/sidecars/{sidecar_id}/quota-scans/{scan_id}/cancel`, and `/api/sidecars/{sidecar_id}/quota-states` without owning executable runtime state.
-
-Probe observations are append-only, operator-safe records with normalized status, upstream status code, quota result, reset time, blocking window, safe window summaries, and safe error code. They intentionally exclude raw probe payloads, raw provider responses, tokens, and provider identity payloads. The watchdog worker keeps a 15-day retention window for these observations. Pending repair state lives in `sidecar_watchdog_pending_actions` until workers claim and finish it. Retained history lives in partitioned `sidecar_watchdog_actions` and exposes probe outcomes, including `probe_succeeded`, `probe_failed_*`, `probe_skipped_unsupported_provider`, and public `quota_hold_extended` records when quota remains blocking. Action history also exposes `mutation_outcome` plus derived previous and target priority states separately from raw priority numbers.
-
-The scheduler registers two bounded low-priority workers: `sidecar_snapshot_sync` and `sidecar_watchdog_reconcile`. Both use queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity. The watchdog worker has a 125-second job timeout, so `probe_timeout_seconds` is accepted from 1 through 120 seconds after preserving the fixed 5-second safety margin.
+The scheduler registers the bounded low-priority `sidecar_snapshot_sync` worker with queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity.
 
 ## 9. Global Log Retention
 
 ### 9.1 Concept
 
-Historical `request_logs`, `audit_logs`, `usage_request_events`, `loadbalance_events`, and `sidecar_watchdog_actions` are partitioned by UTC day and managed by global log-retention jobs. Normal retention is instance-wide across all profiles. Selected-profile filtering still applies to profile-owned list and detail APIs, but `X-Profile-Id` does not scope retention settings or retention jobs. Sidecar action history is global and uses `sidecar_action_history_retention_days`.
+Historical `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events` are partitioned by UTC day and managed by global log-retention jobs. Normal retention is instance-wide across all profiles. Selected-profile filtering still applies to profile-owned list and detail APIs, but `X-Profile-Id` does not scope retention settings or retention jobs.
 
 The Settings Global tab owns `/api/settings/log-retention` and can store a day count per retained dataset. Operators can also create an immediate retention job through `POST /api/maintenance/log-retention/jobs` with a table name plus either an explicit cutoff or `delete_all=true`.
 
@@ -609,8 +600,7 @@ WITH managed_roots(root_name) AS (
     ('request_logs'),
     ('audit_logs'),
     ('usage_request_events'),
-    ('loadbalance_events'),
-    ('sidecar_watchdog_actions')
+    ('loadbalance_events')
 )
 SELECT
   parent.relname AS root_relation,

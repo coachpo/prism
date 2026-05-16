@@ -31,7 +31,7 @@ The agent should always inventory Prism as these surfaces:
 - The selected-profile versus active-profile split
 - Dense frontend management surfaces with forms, tables, dialogs, drawers, charts, and toasts
 
-High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, sidecars, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, sidecar sync/watchdog, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
+High-value frontend surfaces include the dashboard analytics tab, models list, model detail, endpoints, loadbalance strategies, settings, proxy API keys, sidecars, pricing templates, and request-log investigation flow. High-value backend surfaces include auth, profile lifecycle, config import or export, sidecar sync, runtime proxy routing, failover, realtime dashboard updates, costing, audit logging, and observability queries.
 
 ## 4. Coverage Classes
 
@@ -59,7 +59,7 @@ Functional cases should exercise detailed contracts and boundary conditions, inc
 - proxy/native model invariants
 - loadbalance, failover, and health-check behavior
 - request-log, audit, costing, and statistics contracts
-- sidecar credential masking, CLIProxyAPI management-path allowlist, sync/watchdog behavior, and action-history redaction
+- sidecar credential masking, CLIProxyAPI management-path allowlist, sync behavior, auth/provider inventory, and direct auth-file mutation
 - config import validation and dependency checks
 
 ### 4.3 UI or UX coverage

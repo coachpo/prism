@@ -128,7 +128,7 @@ func TestScheduledGlobalLogRetentionProcessesStoredSettings(t *testing.T) {
 	for _, tableName := range logretention.ManagedTables() {
 		task9SeedManagedTableRows(t, testContext, pool, retentionStore, tableName, profileID, baseDay)
 	}
-	_, err = pool.Exec(testContext, `UPDATE log_retention_settings SET request_logs_retention_days = 2, audit_logs_retention_days = 2, statistics_retention_days = 2, loadbalance_events_retention_days = 2, sidecar_action_history_retention_days = 2, updated_at = $1 WHERE singleton_key = 'global'`, retentionNow)
+	_, err = pool.Exec(testContext, `UPDATE log_retention_settings SET request_logs_retention_days = 2, audit_logs_retention_days = 2, statistics_retention_days = 2, loadbalance_events_retention_days = 2, updated_at = $1 WHERE singleton_key = 'global'`, retentionNow)
 	if err != nil {
 		t.Fatalf("update global retention settings: %v", err)
 	}
@@ -272,15 +272,6 @@ func task9InsertManagedLogRow(t *testing.T, ctx context.Context, exec task9Exec,
 		_, err := exec.Exec(ctx, `INSERT INTO loadbalance_events (profile_id, connection_id, event_type, consecutive_failures, cooldown_seconds, created_at) VALUES ($1, $2, 'opened', $3, 1.50, $4)`, profileID, 9000+rowIndex, rowIndex+1, createdAt.UTC())
 		if err != nil {
 			t.Fatalf("insert loadbalance_events row %s: %v", marker, err)
-		}
-	case "sidecar_watchdog_actions":
-		var sidecarID int
-		if err := exec.QueryRow(ctx, `INSERT INTO sidecar_instances (name, base_url, base_url_canonical, management_password) VALUES ($1, $2, $3, $4) RETURNING id`, "task9-sidecar-"+marker, "https://task9-sidecar.example.test/"+marker, "https://task9-sidecar.example.test/"+marker, "enc:"+marker).Scan(&sidecarID); err != nil {
-			t.Fatalf("insert sidecar instance for %s: %v", marker, err)
-		}
-		_, err := exec.Exec(ctx, `INSERT INTO sidecar_watchdog_actions (sidecar_id, action_type, reason, status, created_at, updated_at) VALUES ($1, 'deprioritize', $2, 'pending', $3, $3)`, sidecarID, "quota_exceeded "+marker, createdAt.UTC())
-		if err != nil {
-			t.Fatalf("insert sidecar_watchdog_actions row %s: %v", marker, err)
 		}
 	default:
 		t.Fatalf("unknown managed table %s", tableName)
@@ -670,8 +661,6 @@ func task9TableMarkerPrefix(tableName string) string {
 		return "use"
 	case "loadbalance_events":
 		return "lb"
-	case "sidecar_watchdog_actions":
-		return "act"
 	default:
 		return "unknown"
 	}

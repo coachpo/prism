@@ -39,7 +39,6 @@ var cliProxySupportedManagementPaths = []string{
 	"/codex-api-key",
 	"/vertex-api-key",
 	"/openai-compatibility",
-	"/api-call",
 }
 
 var cliProxyProviderInventoryPaths = []string{
@@ -68,7 +67,6 @@ func TestCLIProxyManagementContractAllowlist(t *testing.T) {
 		"/codex-api-key",
 		"/vertex-api-key",
 		"/openai-compatibility",
-		"/api-call",
 	}
 	if !slices.Equal(cliProxySupportedManagementPaths, expected) {
 		t.Fatalf("supported CLIProxyAPI management paths changed: got %v want %v", cliProxySupportedManagementPaths, expected)
@@ -83,31 +81,6 @@ func TestCLIProxyManagementContractAllowlist(t *testing.T) {
 	}
 	if slices.Contains(cliProxySupportedManagementPaths, "/usage-queue") {
 		t.Fatalf("destructive /usage-queue management behavior must not be modeled as supported")
-	}
-}
-
-func TestCLIProxyManagementContractAPICallWrappedPayload(t *testing.T) {
-	harness := newCLIProxyContractHarness(t, map[string]cliProxyRoute{
-		"/api-call": cliProxyAPICallRoute(t),
-	})
-	body := strings.NewReader(`{"authIndex":"auth-camel","method":"GET","url":"https://upstream.example/backend-api/wham/usage","header":{"Accept":"application/json"},"data":"{}"}`)
-	var payload CLIProxyAPICallResponse
-	contractErr := fetchCLIProxyJSON(context.Background(), harness.client, http.MethodPost, harness.url("/api-call"), body, cliProxyManagementHeaders(cliProxyManagementKey, ""), &payload)
-	if contractErr != nil {
-		t.Fatalf("POST /api-call contract request failed: %v", contractErr)
-	}
-	if payload.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("expected wrapped upstream status 429 to remain payload data, got %d", payload.StatusCode)
-	}
-	if got := payload.Header["Retry-After"]; len(got) != 1 || got[0] != "60" {
-		t.Fatalf("expected wrapped Retry-After header, got %+v", payload.Header)
-	}
-	if string(payload.Body) != `"{\"plan_type\":\"plus\"}"` {
-		t.Fatalf("unexpected wrapped body: %s", payload.Body)
-	}
-	var wrappedBody string
-	if err := json.Unmarshal(payload.Body, &wrappedBody); err != nil || wrappedBody != `{"plan_type":"plus"}` {
-		t.Fatalf("expected raw body to decode as wrapped string, body=%s err=%v", payload.Body, err)
 	}
 }
 
@@ -410,25 +383,6 @@ func cliProxyFixtureRoute(t *testing.T, status int, fixture string) cliProxyRout
 	t.Helper()
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeCLIProxyFixtureJSON(w, status, fixture)
-	}
-}
-
-func cliProxyAPICallRoute(t *testing.T) cliProxyRoute {
-	t.Helper()
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeCLIProxyFixtureJSON(w, http.StatusMethodNotAllowed, `{"error":"POST required"}`)
-			return
-		}
-		var request CLIProxyAPICallRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			writeCLIProxyFixtureJSON(w, http.StatusBadRequest, `{"error":"invalid request body"}`)
-			return
-		}
-		if request.AuthIndex != "auth-camel" || request.Method != http.MethodGet || request.URL != "https://upstream.example/backend-api/wham/usage" || request.Header["Accept"] != "application/json" || request.Data != "{}" {
-			t.Fatalf("unexpected wrapped api-call request: %+v", request)
-		}
-		writeCLIProxyFixtureJSON(w, http.StatusOK, `{"status_code":429,"header":{"Retry-After":["60"],"Content-Type":["application/json"]},"body":"{\"plan_type\":\"plus\"}"}`)
 	}
 }
 

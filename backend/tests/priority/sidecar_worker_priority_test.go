@@ -18,7 +18,7 @@ import (
 	platformpriority "github.com/coachpo/prism/backend/internal/platform/priority"
 )
 
-func TestSidecarWorkerPriorityRunsAsBoundedLowBackgroundJobs(t *testing.T) {
+func TestSidecarWorkerPriorityRunsAsBoundedLowBackgroundJob(t *testing.T) {
 	store := &sidecarObservingStore{}
 	service, err := managementsidecars.NewService(config.Settings{SecretEncryptionKey: "sidecar-priority-secret"}, managementsidecars.Options{Store: store})
 	if err != nil {
@@ -36,52 +36,46 @@ func TestSidecarWorkerPriorityRunsAsBoundedLowBackgroundJobs(t *testing.T) {
 	if got := guardScheduler.Submit(context.Background(), background.JobRequest{Worker: managementsidecars.SidecarSyncWorkerName, PriorityOverride: background.PriorityNormalBackground}); got.Status != background.SubmitRejectedInvalidPriority {
 		t.Fatalf("sidecar sync worker accepted elevated priority: %+v", got)
 	}
-	if got := guardScheduler.Submit(context.Background(), background.JobRequest{Worker: managementsidecars.SidecarWatchdogWorkerName, PriorityOverride: background.PriorityNormalBackground}); got.Status != background.SubmitRejectedInvalidPriority {
-		t.Fatalf("sidecar watchdog worker accepted elevated priority: %+v", got)
+	workers := guardScheduler.RegisteredWorkers()
+	if len(workers) != 1 || workers[0] != managementsidecars.SidecarSyncWorkerName {
+		t.Fatalf("sidecar worker registry = %v want only %s", workers, managementsidecars.SidecarSyncWorkerName)
 	}
 
 	if err := scheduler.Start(t.Context()); err != nil {
 		t.Fatalf("start sidecar worker scheduler: %v", err)
 	}
-	for _, worker := range []background.WorkerName{managementsidecars.SidecarSyncWorkerName, managementsidecars.SidecarWatchdogWorkerName} {
-		result := scheduler.Submit(context.Background(), background.JobRequest{Worker: worker})
-		if result.Status != background.SubmitAccepted {
-			t.Fatalf("submit %s status = %s reason=%s", worker, result.Status, result.Reason)
-		}
+	result := scheduler.Submit(context.Background(), background.JobRequest{Worker: managementsidecars.SidecarSyncWorkerName})
+	if result.Status != background.SubmitAccepted {
+		t.Fatalf("submit %s status = %s reason=%s", managementsidecars.SidecarSyncWorkerName, result.Status, result.Reason)
 	}
 	drain := scheduler.Drain(context.Background(), time.Now().Add(2*time.Second))
-	if drain.TimedOut || drain.Failed != 0 || drain.Completed != 2 {
+	if drain.TimedOut || drain.Failed != 0 || drain.Completed != 1 {
 		t.Fatalf("sidecar worker drain result = %+v", drain)
 	}
 
 	calls := store.callsSnapshot()
-	if len(calls) != 3 {
-		t.Fatalf("expected sync list, watchdog list, and watchdog probe cleanup calls, got %+v", calls)
-	}
-	if !sidecarPriorityCallsInclude(calls, "cleanup_probe_observations") {
-		t.Fatalf("sidecar watchdog worker did not clean probe observations under scheduler context: %+v", calls)
+	if len(calls) != 1 || calls[0].operation != "list_sidecars" {
+		t.Fatalf("expected only the sync list call, got %+v", calls)
 	}
 	for _, call := range calls {
 		if !call.hasMetadata || call.metadata.Priority != platformpriority.PriorityBackground || call.metadata.BackgroundSubclass != platformpriority.BackgroundSubclassLow {
 			t.Fatalf("sidecar worker used wrong priority metadata: %+v", call)
 		}
-		if !call.hasDeadline || call.timeout <= 0 || call.timeout > 126*time.Second {
+		if !call.hasDeadline || call.timeout <= 0 || call.timeout > 31*time.Second {
 			t.Fatalf("sidecar worker did not receive bounded timeout context: %+v", call)
 		}
 	}
 }
 
-func TestSidecarActionHistoryIsOnlyRetainedSidecarWorkerTable(t *testing.T) {
-	managed := map[string]bool{}
-	for _, table := range logretention.ManagedTables() {
-		managed[table] = true
+func TestSidecarRetentionManagedTablesMatchCurrentLogSet(t *testing.T) {
+	expected := []string{"request_logs", "audit_logs", "usage_request_events", "loadbalance_events"}
+	managed := logretention.ManagedTables()
+	if len(managed) != len(expected) {
+		t.Fatalf("managed retention tables = %v want %v", managed, expected)
 	}
-	if !managed["sidecar_watchdog_actions"] {
-		t.Fatalf("sidecar action history is missing from managed retention tables: %v", logretention.ManagedTables())
-	}
-	for _, table := range []string{"sidecar_watchdog_pending_actions", "sidecar_watchdog_sweep_items", "sidecar_quota_probe_observations", "sidecar_auth_quota_states", "sidecar_quota_scan_runs"} {
-		if managed[table] {
-			t.Fatalf("live sidecar table %s must not be retention-managed: %v", table, logretention.ManagedTables())
+	for index := range expected {
+		if managed[index] != expected[index] {
+			t.Fatalf("managed retention tables = %v want %v", managed, expected)
 		}
 	}
 }
@@ -110,18 +104,13 @@ func TestSidecarWorkerPriorityLifecycleAvoidsRuntimeLanes(t *testing.T) {
 	workerSource := readSidecarPriorityBackendFile(t, "internal/httpapi/management/sidecars/worker.go")
 	for _, marker := range []string{
 		"sidecarSyncWorkerTimeout      = 30 * time.Second",
-		"sidecarWatchdogWorkerTimeout      = 125 * time.Second",
 		"Priority:         background.PriorityLowBackground",
 		"MaxPriority:      background.PriorityLowBackground",
 		"Timeout:          sidecarSyncWorkerTimeout",
-		"Timeout:          sidecarWatchdogWorkerTimeout",
 	} {
 		if !strings.Contains(workerSource, marker) {
 			t.Fatalf("sidecar worker source missing priority/timeout marker %q", marker)
 		}
-	}
-	if strings.Contains(workerSource, "PriorityNormalBackground") || strings.Contains(workerSource, "PriorityHighBackground") {
-		t.Fatalf("sidecar worker source must not register normal/high background priority")
 	}
 }
 
@@ -193,9 +182,6 @@ func (*sidecarObservingStore) GetAuthSnapshot(context.Context, int, string) (man
 func (*sidecarObservingStore) ListAuthSnapshots(context.Context, int) ([]managementsidecars.SidecarAuthSnapshot, error) {
 	return nil, errSidecarPriorityUnexpectedStoreCall
 }
-func (*sidecarObservingStore) ListAuthQuotaStates(context.Context, int) ([]managementsidecars.SidecarAuthQuotaState, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
 func (*sidecarObservingStore) SaveProviderSnapshot(context.Context, managementsidecars.SidecarProviderSnapshotInput) (managementsidecars.SidecarProviderSnapshot, error) {
 	return managementsidecars.SidecarProviderSnapshot{}, errSidecarPriorityUnexpectedStoreCall
 }
@@ -205,92 +191,6 @@ func (*sidecarObservingStore) ReplaceProviderSnapshots(context.Context, int, str
 func (*sidecarObservingStore) ListProviderSnapshots(context.Context, int) ([]managementsidecars.SidecarProviderSnapshot, error) {
 	return nil, errSidecarPriorityUnexpectedStoreCall
 }
-func (*sidecarObservingStore) GetOrCreateWatchdogPolicy(context.Context, int) (managementsidecars.SidecarWatchdogPolicy, error) {
-	return managementsidecars.SidecarWatchdogPolicy{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) UpsertWatchdogPolicy(context.Context, managementsidecars.SidecarWatchdogPolicyInput) (managementsidecars.SidecarWatchdogPolicy, error) {
-	return managementsidecars.SidecarWatchdogPolicy{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) CreateQuotaScanRun(context.Context, managementsidecars.SidecarQuotaScanRunInput) (managementsidecars.SidecarQuotaScanRun, error) {
-	return managementsidecars.SidecarQuotaScanRun{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) UpdateQuotaScanRun(context.Context, int, managementsidecars.SidecarQuotaScanRunInput) (managementsidecars.SidecarQuotaScanRun, error) {
-	return managementsidecars.SidecarQuotaScanRun{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) GetQuotaScanRun(context.Context, int, int) (managementsidecars.SidecarQuotaScanRun, bool, error) {
-	return managementsidecars.SidecarQuotaScanRun{}, false, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) ListQuotaScanRuns(context.Context, int) ([]managementsidecars.SidecarQuotaScanRun, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) CreateWatchdogProbeObservation(context.Context, managementsidecars.SidecarWatchdogProbeObservationInput) (managementsidecars.SidecarWatchdogProbeObservation, error) {
-	return managementsidecars.SidecarWatchdogProbeObservation{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) ListWatchdogProbeObservations(context.Context, int, int) ([]managementsidecars.SidecarWatchdogProbeObservation, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
-func (s *sidecarObservingStore) CleanupWatchdogProbeObservations(ctx context.Context) (int64, error) {
-	s.recordCall(ctx, "cleanup_probe_observations")
-	return 0, nil
-}
-func (*sidecarObservingStore) PersistWatchdogProbeDecision(context.Context, managementsidecars.SidecarWatchdogProbeDecision) (managementsidecars.SidecarWatchdogProbeDecisionResult, error) {
-	return managementsidecars.SidecarWatchdogProbeDecisionResult{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) PersistQuotaProbeDecision(context.Context, managementsidecars.SidecarQuotaPersistDecision) (managementsidecars.SidecarQuotaPersistResult, error) {
-	return managementsidecars.SidecarQuotaPersistResult{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) CreateWatchdogHold(context.Context, managementsidecars.SidecarWatchdogHoldInput) (managementsidecars.SidecarWatchdogHold, error) {
-	return managementsidecars.SidecarWatchdogHold{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) GetActiveWatchdogHold(context.Context, int, string) (managementsidecars.SidecarWatchdogHold, bool, error) {
-	return managementsidecars.SidecarWatchdogHold{}, false, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) ListActiveWatchdogHolds(context.Context, int) ([]managementsidecars.SidecarWatchdogHold, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) ListDueWatchdogHolds(context.Context, int, time.Time) ([]managementsidecars.SidecarWatchdogHold, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) UpdateWatchdogHold(context.Context, int, managementsidecars.SidecarWatchdogHoldInput) (managementsidecars.SidecarWatchdogHold, error) {
-	return managementsidecars.SidecarWatchdogHold{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) CreateWatchdogAction(context.Context, managementsidecars.SidecarWatchdogActionInput) (managementsidecars.SidecarWatchdogAction, error) {
-	return managementsidecars.SidecarWatchdogAction{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) UpdateWatchdogAction(context.Context, int, managementsidecars.SidecarWatchdogActionInput) (managementsidecars.SidecarWatchdogAction, error) {
-	return managementsidecars.SidecarWatchdogAction{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) GetWatchdogActionByHistoryKey(context.Context, int, time.Time, int) (managementsidecars.SidecarWatchdogAction, bool, error) {
-	return managementsidecars.SidecarWatchdogAction{}, false, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) CreateWatchdogPendingAction(context.Context, managementsidecars.SidecarWatchdogPendingActionInput) (managementsidecars.SidecarWatchdogPendingAction, error) {
-	return managementsidecars.SidecarWatchdogPendingAction{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) UpdateWatchdogPendingAction(context.Context, int, managementsidecars.SidecarWatchdogPendingActionInput) (managementsidecars.SidecarWatchdogPendingAction, error) {
-	return managementsidecars.SidecarWatchdogPendingAction{}, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) ListWatchdogPendingActions(context.Context, int) ([]managementsidecars.SidecarWatchdogPendingAction, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) ClaimWatchdogPendingActions(context.Context, int, int) ([]managementsidecars.SidecarWatchdogPendingAction, error) {
-	return nil, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) DeleteWatchdogPendingAction(context.Context, int, int) (bool, error) {
-	return false, errSidecarPriorityUnexpectedStoreCall
-}
-func (*sidecarObservingStore) DeleteWatchdogPendingActionByHistoryKey(context.Context, int, time.Time, int) (bool, error) {
-	return false, errSidecarPriorityUnexpectedStoreCall
-}
-
-func sidecarPriorityCallsInclude(calls []sidecarWorkerCall, operation string) bool {
-	for _, call := range calls {
-		if call.operation == operation {
-			return true
-		}
-	}
-	return false
-}
-
 func readSidecarPriorityBackendFile(t *testing.T, relative string) string {
 	t.Helper()
 	_, current, _, ok := runtime.Caller(0)

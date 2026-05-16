@@ -52,7 +52,7 @@ docs/
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/etc/prism` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
-- Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, migration `000014_cli_proxy_sidecars.sql`, low-priority sidecar workers, and the rule that CLIProxyAPI owns live auth/provider state.
+- Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, migration `000014_cli_proxy_sidecars.sql`, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
 - Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; archive run notes are evidence only.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.

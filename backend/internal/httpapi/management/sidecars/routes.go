@@ -222,7 +222,6 @@ func (s *Service) handleCreateSidecar(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	s.recordAction(r.Context(), created.ID, "instance.create", "succeeded", nil)
 	writeJSON(w, http.StatusCreated, buildSidecarInstanceResponse(created))
 }
 
@@ -262,7 +261,7 @@ func (s *Service) handleUpdateSidecar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "sidecar not found")
 		return
 	}
-	input, credentialUpdated, err := buildUpdateInput(existing, requestBody)
+	input, _, err := buildUpdateInput(existing, requestBody)
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
@@ -271,11 +270,6 @@ func (s *Service) handleUpdateSidecar(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
-	}
-	if credentialUpdated {
-		s.recordAction(r.Context(), updated.ID, "credential.update", "succeeded", nil)
-	} else {
-		s.recordAction(r.Context(), updated.ID, "instance.update", "succeeded", nil)
 	}
 	writeJSON(w, http.StatusOK, buildSidecarInstanceResponse(updated))
 }
@@ -328,7 +322,6 @@ func (s *Service) handleTestSidecarConnection(w http.ResponseWriter, r *http.Req
 		return
 	}
 	updated := s.markConnectionSuccess(r.Context(), instance)
-	s.recordAction(r.Context(), instance.ID, "connection.test", "succeeded", nil)
 	writeJSON(w, http.StatusOK, sidecarTestConnectionResponse{State: "succeeded", ManagementAuthState: updated.ManagementAuthState, StatusCode: result.StatusCode})
 }
 
@@ -336,13 +329,9 @@ func (s *Service) handleConnectionTestFailure(w http.ResponseWriter, r *http.Req
 	var clientErr *CLIProxyClientError
 	if errors.As(err, &clientErr) && clientErr.Code == CLIProxyErrorInvalidManagementAuth {
 		s.markInvalidManagementAuth(r.Context(), instance)
-		reason := "management authentication failed"
-		s.recordAction(r.Context(), instance.ID, "connection.test", "failed", &reason)
 		writeError(w, r, s.corsSnapshot(), http.StatusFailedDependency, "sidecar management authentication failed; update credentials or run a manual test before automated retries")
 		return
 	}
-	reason := "connection test failed"
-	s.recordAction(r.Context(), instance.ID, "connection.test", "failed", &reason)
 	writeError(w, r, s.corsSnapshot(), http.StatusBadGateway, "sidecar connection test failed")
 }
 
@@ -497,14 +486,6 @@ func (s *Service) markConnectionSuccess(ctx context.Context, instance SidecarIns
 	return updated
 }
 
-func (s *Service) recordAction(ctx context.Context, sidecarID int, actionType string, status string, reason *string) {
-	if s == nil || s.store == nil {
-		return
-	}
-	completedAt := s.nowUTC()
-	_, _ = s.store.CreateWatchdogAction(ctx, SidecarWatchdogActionInput{SidecarID: sidecarID, ActionType: actionType, Status: status, Reason: reason, CompletedAt: &completedAt})
-}
-
 func (s *Service) ensureSidecarExists(w http.ResponseWriter, r *http.Request, id int) bool {
 	_, found, err := s.store.GetSidecarInstance(r.Context(), id)
 	if err != nil {
@@ -633,7 +614,7 @@ func writeDomainError(w http.ResponseWriter, r *http.Request, corsSnapshot platf
 			statusCode = http.StatusBadRequest
 		case StoreErrorNotFound:
 			statusCode = http.StatusNotFound
-		case StoreErrorDuplicateSidecarName, StoreErrorDuplicateSidecarCanonicalURL, StoreErrorDuplicateActiveHold, StoreErrorConflict:
+		case StoreErrorDuplicateSidecarName, StoreErrorDuplicateSidecarCanonicalURL, StoreErrorConflict:
 			statusCode = http.StatusConflict
 		}
 		writeError(w, r, corsSnapshot, statusCode, storeErr.Error())

@@ -1,7 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
-import type { SidecarAuthQuotaState } from "../../src/lib/types";
 
 type Sidecar = {
   id: number;
@@ -57,104 +54,6 @@ type ProviderSnapshot = {
   snapshot?: unknown;
 };
 
-type WatchdogPolicyRevision = {
-  id: number;
-  policy_id: number;
-  sidecar_id: number;
-  enabled: boolean;
-  watchdog_sweep_interval_seconds: number;
-  failure_threshold: number;
-  failure_window_seconds: number;
-  fallback_cooldown_seconds: number;
-  using_priority: number;
-  quota_exceeded_priority: number;
-  working_priority: number;
-  empty_quota_priority: number;
-  initial_priority: number;
-  error_priority: number;
-  manual_override_pause_seconds: number;
-  probe_concurrency: number;
-  probe_timeout_seconds: number;
-  probe_batch_cooldown_seconds: number;
-  probe_jitter_min_ms: number;
-  probe_jitter_max_ms: number;
-  cooldown_jitter_percent: number;
-  quota_inventory_enabled: boolean;
-  initial_scan_enabled: boolean;
-  rolling_refresh_enabled: boolean;
-  rolling_refresh_after_seconds: number;
-  created_at: string;
-};
-
-type WatchdogPolicy = Omit<WatchdogPolicyRevision, "policy_id" | "created_at"> & {
-  active_revision_id?: number;
-  pending_revision_id?: number;
-  has_pending_changes: boolean;
-  active_revision?: WatchdogPolicyRevision;
-  pending_revision?: WatchdogPolicyRevision;
-  active_sweep?: {
-    sweep_id: string;
-    status: string;
-    policy_revision_id: number;
-    started_at: string;
-    progress: {
-      total_items: number;
-      pending_items: number;
-      active_items: number;
-      succeeded_items: number;
-      failed_items: number;
-      cancelled_items: number;
-      superseded_items: number;
-      terminal_items: number;
-    };
-  };
-  created_at: string;
-  updated_at: string;
-};
-
-type ActionItem = {
-  id: number;
-  sidecar_id: number;
-  auth_id?: string;
-  provider?: string;
-  action_type: string;
-  status: string;
-  reason?: string;
-  previous_priority?: number;
-  previous_priority_state?: string;
-  target_priority?: number;
-  target_priority_state?: string;
-  priority_state?: string;
-  mutation_outcome?: string;
-  hold_until?: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-  completed_at?: string;
-};
-
-type QuotaState = SidecarAuthQuotaState;
-
-type QuotaScan = {
-  id: number;
-  sidecar_id: number;
-  scan_type: string;
-  status: string;
-  requested_by?: string;
-  planned_count: number;
-  attempted_count: number;
-  using_count: number;
-  quota_exceeded_count: number;
-  error_count: number;
-  skipped_count: number;
-  cancel_requested_at?: string;
-  started_at?: string;
-  completed_at?: string;
-  last_error_code?: string;
-  created_at: string;
-  updated_at: string;
-};
-
 const now = "2026-05-10T12:00:00.000Z";
 const future = "2099-05-10T12:00:00.000Z";
 const past = "2025-05-10T12:00:00.000Z";
@@ -162,14 +61,6 @@ const existingManagementPassword = "existing-management-secret";
 const replacementManagementPassword = "replacement-secret";
 const rotatedManagementPassword = "rotated-super-secret";
 const rawSecretValues = [existingManagementPassword, replacementManagementPassword, rotatedManagementPassword];
-const evidencePaths = {
-  list: "../.sisyphus/evidence/task-13-sidecars-list-stale-degraded.png",
-  detail: "../.sisyphus/evidence/task-13-sidecars-detail-inventory.png",
-  priorityWarning: "../.sisyphus/evidence/task-13-sidecars-priority-warning.png",
-  watchdogActions: "../.sisyphus/evidence/task-13-sidecars-watchdog-action-history.png",
-  secretProof: "../.sisyphus/evidence/task-13-sidecars-secret-proof.txt",
-};
-
 function sidecar(overrides: Partial<Sidecar>): Sidecar {
   return {
     id: 1,
@@ -214,167 +105,10 @@ function authSnapshot(overrides: Partial<AuthSnapshot>): AuthSnapshot {
   };
 }
 
-function defaultProviderSnapshots(): ProviderSnapshot[] {
-  return [
-    { id: 21, sidecar_id: 1, provider_key: "gemini", provider_item_key: "gemini", name: "Gemini", status: "available", disabled: false, observed_at: now, snapshot: { models: 4, api_key: "masked" } },
-  ];
-}
-
-function watchdogRevision(overrides: Partial<WatchdogPolicyRevision> = {}): WatchdogPolicyRevision {
-  return {
-    id: 101,
-    policy_id: 31,
-    sidecar_id: 1,
-    enabled: true,
-    watchdog_sweep_interval_seconds: 3600,
-    failure_threshold: 3,
-    failure_window_seconds: 3600,
-    fallback_cooldown_seconds: 86400,
-    using_priority: 99,
-    quota_exceeded_priority: 90,
-    working_priority: 99,
-    empty_quota_priority: 90,
-    initial_priority: 50,
-    error_priority: 10,
-    manual_override_pause_seconds: 1800,
-    probe_concurrency: 3,
-    probe_timeout_seconds: 8,
-    probe_batch_cooldown_seconds: 30,
-    probe_jitter_min_ms: 100,
-    probe_jitter_max_ms: 1000,
-    cooldown_jitter_percent: 20,
-    quota_inventory_enabled: true,
-    initial_scan_enabled: true,
-    rolling_refresh_enabled: true,
-    rolling_refresh_after_seconds: 3600,
-    created_at: now,
-    ...overrides,
-  };
-}
-
-function activeSweepForRevision(revisionId: number): WatchdogPolicy["active_sweep"] {
-  return {
-    sweep_id: `sweep-${revisionId}`,
-    status: "running",
-    policy_revision_id: revisionId,
-    started_at: now,
-    progress: {
-      total_items: 4,
-      pending_items: 2,
-      active_items: 1,
-      succeeded_items: 1,
-      failed_items: 0,
-      cancelled_items: 0,
-      superseded_items: 0,
-      terminal_items: 1,
-    },
-  };
-}
-
-function watchdogPolicyFromRevisions(activeRevision: WatchdogPolicyRevision, pendingRevision?: WatchdogPolicyRevision, activeSweep: WatchdogPolicy["active_sweep"] = activeSweepForRevision(activeRevision.id)): WatchdogPolicy {
-  return {
-    ...activeRevision,
-    id: activeRevision.policy_id,
-    active_revision_id: activeRevision.id,
-    pending_revision_id: pendingRevision?.id,
-    has_pending_changes: Boolean(pendingRevision),
-    active_revision: activeRevision,
-    pending_revision: pendingRevision,
-    active_sweep: activeSweep,
-    created_at: now,
-    updated_at: now,
-  };
-}
-
-function defaultWatchdogPolicy(): WatchdogPolicy {
-  return watchdogPolicyFromRevisions(watchdogRevision());
-}
-
-function syncStatus(target: Sidecar) {
-  return {
-    sidecar_id: target.id,
-    enabled: target.enabled,
-    sync_interval_seconds: target.sync_interval_seconds,
-    management_auth_state: target.management_auth_state,
-    last_sync_at: target.last_sync_at,
-    last_successful_sync_at: target.last_successful_sync_at,
-    snapshot_stale_after: target.snapshot_stale_after,
-    last_sync_error: target.last_sync_error,
-    stale: false,
-    due: false,
-    paused: false,
-  };
-}
-
-function defaultActions(): ActionItem[] {
-  return [
-    { id: 41, sidecar_id: 1, auth_id: "auth-primary", provider: "gemini", action_type: "watchdog.deprioritize", status: "succeeded", reason: "quota_exceeded", previous_priority: 99, previous_priority_state: "working", target_priority: 90, target_priority_state: "empty-quota", priority_state: "empty-quota", mutation_outcome: "patched", hold_until: future, created_at: now, updated_at: now, completed_at: now },
-    { id: 42, sidecar_id: 1, auth_id: "auth-disabled", provider: "claude", action_type: "watchdog.restore", status: "skipped", reason: "manual_pause", previous_priority: 90, previous_priority_state: "empty-quota", target_priority: 99, target_priority_state: "working", priority_state: "working", mutation_outcome: "skipped", created_at: now, updated_at: now },
-    { id: 43, sidecar_id: 1, auth_id: "auth-quota", provider: "gemini", action_type: "operator_patch", status: "failed", reason: "status", priority_state: "error", mutation_outcome: "failed", error_message: "upstream rejected", created_at: now, updated_at: now },
-    { id: 44, sidecar_id: 1, auth_id: "auth-quota-zero", provider: "gemini", action_type: "watchdog.deprioritize", status: "succeeded", reason: "already_at_target", previous_priority: 90, previous_priority_state: "empty-quota", target_priority: 90, target_priority_state: "empty-quota", priority_state: "empty-quota", mutation_outcome: "already_at_target", created_at: now, updated_at: now, completed_at: now },
-  ];
-}
-
-function defaultQuotaStates(): QuotaState[] {
-  return [
-    { sidecar_id: 1, auth_id: "auth-primary", auth_name: "primary-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 99, priority_state: "working", quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false },
-    { sidecar_id: 1, auth_id: "auth-quota", auth_name: "quota-oauth.json", provider: "gemini", auth_index_present: true, disabled: false, current_priority: 90, priority_state: "empty-quota", quota_band: "quota_exceeded", probe_status: "blocked", reason_code: "daily_limit", quota_reset_at: future, last_snapshot_at: now, last_probed_at: now, active_hold: true },
-    { sidecar_id: 1, auth_id: "auth-quota-zero", auth_name: "quota-zero.json", provider: "gemini", auth_index_present: true, disabled: false, priority_state: "initial", quota_band: "quota_exceeded", reason_code: "daily_limit", last_snapshot_at: now, last_probed_at: now, active_hold: true },
-  ];
-}
-
-function defaultQuotaScans(): QuotaScan[] {
-  return [
-    { id: 51, sidecar_id: 1, scan_type: "manual", status: "completed", requested_by: "operator", planned_count: 4, attempted_count: 3, using_count: 1, quota_exceeded_count: 1, error_count: 1, skipped_count: 1, started_at: now, completed_at: now, created_at: now, updated_at: now },
-  ];
-}
-
-function json(route: Route, body: unknown, status = 200) {
-  return route.fulfill({
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  });
-}
-
-async function expectNoRawSecrets(page: Page) {
-  const bodyText = await page.locator("body").innerText();
-  const pageMarkup = await page.content();
-  rawSecretValues.forEach((secret) => {
-    expect(bodyText).not.toContain(secret);
-    expect(pageMarkup).not.toContain(secret);
-  });
-  return bodyText;
-}
-
-function writeSecretProofEvidence(bodyText: string, calls: string[]) {
-  const proof = [
-    "Sidecar browser QA secret proof",
-    "Visible body text and page markup were checked against raw management secret fixtures.",
-    `Raw secret fixtures checked: ${rawSecretValues.length}`,
-    "Rendered UI proof text:",
-    bodyText,
-    "Mocked backend calls exercised:",
-    ...calls,
-  ].join("\n");
-
-  rawSecretValues.forEach((secret) => {
-    expect(proof).not.toContain(secret);
-  });
-  mkdirSync(dirname(evidencePaths.secretProof), { recursive: true });
-  writeFileSync(evidencePaths.secretProof, proof);
-}
-
-type MockSidecarsApiOptions = {
-  authSnapshots?: AuthSnapshot[];
-  authSnapshotsBySidecarId?: Record<number, AuthSnapshot[]>;
-  detailDelayBySidecarId?: Record<number, number>;
-};
-
 function defaultAuthSnapshots(): AuthSnapshot[] {
   return [
     authSnapshot({}),
-    authSnapshot({ id: 12, auth_id: "auth-quota", name: "quota-oauth.json", status: "active", priority: 0, next_retry_after: future }),
+    authSnapshot({ id: 12, auth_id: "auth-zero-priority", name: "zero-priority.json", status: "active", priority: 0, next_retry_after: future }),
     authSnapshot({ id: 13, auth_id: "auth-disabled", name: "disabled-oauth.json", provider: "claude", disabled: true, unavailable: true, priority: undefined }),
   ];
 }
@@ -399,10 +133,55 @@ function authFilterSortSnapshots(): AuthSnapshot[] {
     authSnapshot({ id: 105, auth_id: "auth-omega-low", name: "omega-low.json", label: "sort-fixture", priority: 1 }),
     authSnapshot({ id: 106, auth_id: "auth-alpha-missing-a", name: "alpha-missing.json", provider: "claude", label: "provider-fixture", priority: undefined }),
     authSnapshot({ id: 107, auth_id: "auth-alpha-missing-b", name: "alpha-missing.json", provider: "openai", label: "missing-priority-fixture", priority: undefined }),
-    authSnapshot({ id: 108, auth_id: "auth-quota-zero", name: "quota-zero.json", provider: "gemini", label: "quota-fixture", status: "active", priority: 0 }),
+    authSnapshot({ id: 108, auth_id: "auth-priority-floor", name: "priority-floor.json", provider: "gemini", label: "floor-fixture", status: "active", priority: 0 }),
     ...paginatedMatches,
   ];
 }
+
+function defaultProviderSnapshots(): ProviderSnapshot[] {
+  return [
+    { id: 21, sidecar_id: 1, provider_key: "gemini", provider_item_key: "gemini", name: "Gemini", status: "available", disabled: false, observed_at: now, snapshot: { models: 4, api_key: "masked" } },
+  ];
+}
+
+function syncStatus(target: Sidecar) {
+  return {
+    sidecar_id: target.id,
+    enabled: target.enabled,
+    sync_interval_seconds: target.sync_interval_seconds,
+    management_auth_state: target.management_auth_state,
+    last_sync_at: target.last_sync_at,
+    last_successful_sync_at: target.last_successful_sync_at,
+    snapshot_stale_after: target.snapshot_stale_after,
+    last_sync_error: target.last_sync_error,
+    stale: false,
+    due: false,
+    paused: false,
+  };
+}
+
+function json(route: Route, body: unknown, status = 200) {
+  return route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+}
+
+async function expectNoRawSecrets(page: Page) {
+  const bodyText = await page.locator("body").innerText();
+  const pageMarkup = await page.content();
+  rawSecretValues.forEach((secret) => {
+    expect(bodyText).not.toContain(secret);
+    expect(pageMarkup).not.toContain(secret);
+  });
+}
+
+type MockSidecarsApiOptions = {
+  authSnapshots?: AuthSnapshot[];
+  authSnapshotsBySidecarId?: Record<number, AuthSnapshot[]>;
+  detailDelayBySidecarId?: Record<number, number>;
+};
 
 async function expectAuthOrder(page: Page, orderedText: string[]) {
   const tableText = await page.getByTestId("sidecar-auth-files").innerText();
@@ -422,11 +201,6 @@ async function mockSidecarsApi(
   let sidecars = [...initialSidecars];
   let authSnapshots = options.authSnapshots ? [...options.authSnapshots] : defaultAuthSnapshots();
   const providerSnapshots = defaultProviderSnapshots();
-  let watchdogPolicy = defaultWatchdogPolicy();
-  let nextWatchdogRevisionId = 202;
-  const actions = defaultActions();
-  const quotaStates = defaultQuotaStates();
-  const quotaScans = defaultQuotaScans();
   const calls: string[] = [];
 
   const delayDetail = async (sidecarId: number) => {
@@ -446,10 +220,6 @@ async function mockSidecarsApi(
       : authSnapshots;
   };
 
-  const quotaStatesFor = (sidecarId: number) => sidecarId === 2
-    ? [{ sidecar_id: 2, auth_id: "auth-edge", auth_name: "edge-oauth.json", provider: "codex", auth_index_present: true, disabled: false, current_priority: 5, priority_state: "error", quota_band: "using", reason_code: "using", last_snapshot_at: now, last_probed_at: now, active_hold: false }]
-    : quotaStates;
-
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -460,8 +230,9 @@ async function mockSidecarsApi(
     }
 
     calls.push(`${request.method()} ${pathname}`);
+
     if (pathname === "/api/usage-queue") {
-      throw new Error("sidecars page must not call /api/usage-queue");
+      throw new Error(`sidecars page must not call removed route: ${pathname}`);
     }
     if (pathname === "/api/auth/status" && request.method() === "GET") {
       return json(route, { auth_enabled: false });
@@ -495,52 +266,6 @@ async function mockSidecarsApi(
       await delayDetail(sidecarId);
       return json(route, { items: providerSnapshots });
     }
-    const watchdogPolicyMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/watchdog-policy$/);
-    if (watchdogPolicyMatch && request.method() === "GET") {
-      const sidecarId = Number(watchdogPolicyMatch[1]);
-      await delayDetail(sidecarId);
-      return json(route, watchdogPolicy);
-    }
-    if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy$/) && request.method() === "PUT") {
-      const payload = JSON.parse(request.postData() ?? "{}");
-      const baseRevision = watchdogPolicy.pending_revision ?? watchdogPolicy.active_revision ?? watchdogRevision();
-      const pendingRevision = watchdogRevision({ ...baseRevision, ...payload, id: nextWatchdogRevisionId++, created_at: now });
-      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.active_revision ?? baseRevision, pendingRevision, watchdogPolicy.active_sweep);
-      return json(route, watchdogPolicy);
-    }
-    if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy\/apply$/) && request.method() === "POST") {
-      if (!watchdogPolicy.pending_revision) {
-        return json(route, { error: "missing pending revision" }, 409);
-      }
-      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.pending_revision, undefined, watchdogPolicy.active_sweep);
-      return json(route, watchdogPolicy);
-    }
-    if (pathname.match(/^\/api\/sidecars\/\d+\/watchdog-policy\/apply-and-restart$/) && request.method() === "POST") {
-      if (!watchdogPolicy.pending_revision) {
-        return json(route, { error: "missing pending revision" }, 409);
-      }
-      watchdogPolicy = watchdogPolicyFromRevisions(watchdogPolicy.pending_revision, undefined, undefined);
-      return json(route, watchdogPolicy);
-    }
-    const actionsMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/actions$/);
-    if (actionsMatch && request.method() === "GET") {
-      const sidecarId = Number(actionsMatch[1]);
-      await delayDetail(sidecarId);
-      return json(route, { items: sidecarId === 2 ? [] : actions });
-    }
-    const quotaStatesMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/quota-states$/);
-    if (quotaStatesMatch && request.method() === "GET") {
-      const sidecarId = Number(quotaStatesMatch[1]);
-      await delayDetail(sidecarId);
-      return json(route, { items: quotaStatesFor(sidecarId) });
-    }
-    const quotaScansMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/quota-scans$/);
-    if (quotaScansMatch && request.method() === "GET") {
-      const sidecarId = Number(quotaScansMatch[1]);
-      await delayDetail(sidecarId);
-      return json(route, { items: sidecarId === 2 ? [] : quotaScans });
-    }
-
     const mutationMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/auth-files\/([^/]+)\/(status|fields)$/);
     if (mutationMatch && request.method() === "PATCH") {
       const authId = decodeURIComponent(mutationMatch[2]);
@@ -597,10 +322,9 @@ test.describe("sidecars management", () => {
     await expect(page.getByTestId("sidecars-summary")).toContainText("Password configured");
     await expect(page.getByText("401")).toBeVisible();
     await expectNoRawSecrets(page);
-    await page.screenshot({ path: evidencePaths.list, fullPage: true });
   });
 
-  test("renders sidecar detail inventory, policy, actions, and priority warning", async ({ page }) => {
+  test("renders retained sidecar detail inventory and priority validation", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
@@ -613,79 +337,21 @@ test.describe("sidecars management", () => {
     await page.goto("/sidecars");
 
     await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("quota-oauth.json");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("zero-priority.json");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter a positive priority.");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("missing resolves to initial");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Latest observed quota");
-    await expect(page.getByTestId("quota-state-auth-primary")).toContainText("Working");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Quota Exceeded");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Empty-quota");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Latest observed state, not real-time provider truth.");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Reason code: daily_limit");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("Watchdog hold");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText("priority 90");
-    await expect(page.getByTestId("quota-state-auth-quota")).toContainText(await page.evaluate(() => new Date("2026-05-10T12:00:00.000Z").toLocaleString()));
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Editing mode");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Active revision");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Pending revision");
-    await expect(page.getByTestId("watchdog-active-sweep-summary")).toContainText("Authoritative active sweep");
-    await expect(page.getByTestId("watchdog-active-sweep-summary")).toContainText("1 active, 2 pending, 1 terminal of 4 child items");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("cursor");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("next batch");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Sweep interval (seconds)");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Rest period after a sweep completes");
-    await expect(page.locator("#watchdog-sweep-interval")).toHaveValue("3600");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe batch size");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("Probe concurrency");
-    await expect(page.locator("#watchdog-probe-concurrency")).toBeVisible();
-    await expect(page.locator("#watchdog-probe-concurrency")).toHaveValue("3");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe batch cooldown (seconds)");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Pause between batches inside one active sweep");
-    await expect(page.locator("#watchdog-probe-batch-cooldown")).toHaveValue("30");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Probe jitter min (ms)");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Cooldown jitter (percent)");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Child work sources");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Initial inventory items");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Rolling refresh items");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).not.toContainText("Automatic scan coverage");
-    await expect(page.getByTestId("sidecar-watchdog-policy")).toContainText("Priority-state safety note");
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.restore");
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("from Empty-quota");
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("to Working");
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("Already at target");
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("Failed");
-    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/quota-states");
-    expect(api.calls).not.toContain("GET /api/sidecars/1/quota-scans");
+    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/auth-snapshots");
+    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/provider-snapshots");
     await expectNoRawSecrets(page);
-    await page.screenshot({ path: evidencePaths.detail, fullPage: true });
 
-    const quotaAuthRow = page.getByRole("row").filter({ hasText: "quota-oauth.json" });
-    await page.getByLabel("Priority for quota-oauth.json").fill("0");
-    await expect(quotaAuthRow.getByRole("button", { name: "Save" })).toBeDisabled();
+    const zeroPriorityRow = page.getByRole("row").filter({ hasText: "zero-priority.json" });
+    await page.getByLabel("Priority for zero-priority.json").fill("0");
+    await expect(zeroPriorityRow.getByRole("button", { name: "Save" })).toBeDisabled();
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter a positive priority.");
     await expectNoRawSecrets(page);
-    await page.screenshot({ path: evidencePaths.priorityWarning, fullPage: true });
-    await page.getByLabel("Sweep interval (seconds)").fill("7200");
-    await page.getByRole("button", { name: "Save as pending policy" }).click();
-    await expect.poll(() => api.calls).toContain("PUT /api/sidecars/1/watchdog-policy");
-    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Pending changes require apply");
-    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Apply to future sweeps");
-    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Apply and restart watchdog");
-    await page.getByTestId("watchdog-apply-policy").click();
-    await expect.poll(() => api.calls).toContain("POST /api/sidecars/1/watchdog-policy/apply");
-    await expect(page.getByTestId("watchdog-active-sweep-summary")).toContainText("revision #101");
-    await page.getByLabel("Sweep interval (seconds)").fill("5400");
-    await page.getByRole("button", { name: "Save as pending policy" }).click();
-    await expect(page.getByTestId("watchdog-pending-apply")).toContainText("Apply and restart watchdog");
-    await page.getByTestId("watchdog-apply-restart-policy").click();
-    await expect.poll(() => api.calls).toContain("POST /api/sidecars/1/watchdog-policy/apply-and-restart");
-    await expect(page.getByTestId("watchdog-active-sweep-summary")).toBeHidden();
-    await expect(page.getByTestId("sidecar-action-history")).toContainText("watchdog.deprioritize");
-    await expectNoRawSecrets(page);
     expect(consoleErrors).toEqual([]);
-    await page.screenshot({ path: evidencePaths.watchdogActions, fullPage: true });
   });
 
   test("filters, sorts, tie-breaks, and paginates auth files", async ({ page }) => {
@@ -707,11 +373,8 @@ test.describe("sidecars management", () => {
     await expect(authFiles).toContainText("1-1 of 1");
     await expect(authFiles).not.toContainText("zeta-high.json");
 
-    await authSearch.fill("quota_exceeded");
-    await expect(authFiles).toContainText("quota-zero.json");
-    await expect(authFiles).toContainText("1-1 of 1");
-    await authSearch.fill("quota-fixture");
-    await expect(authFiles).toContainText("quota-zero.json");
+    await authSearch.fill("floor-fixture");
+    await expect(authFiles).toContainText("priority-floor.json");
     await expect(authFiles).toContainText("1-1 of 1");
 
     await authSearch.fill("priority 90");
@@ -735,7 +398,7 @@ test.describe("sidecars management", () => {
     await page.getByTestId("sidecar-auth-sort-select").click();
     await page.getByRole("option", { name: "Routing priority: low to high" }).click();
     await expect(authFiles).toContainText("alpha-missing.json");
-    await expectAuthOrder(page, ["auth-alpha-missing-a", "auth-alpha-missing-b", "auth-quota-zero", "auth-omega-low", "auth-gamma-001"]);
+    await expectAuthOrder(page, ["auth-alpha-missing-a", "auth-alpha-missing-b", "auth-priority-floor", "auth-omega-low", "auth-gamma-001"]);
 
     await expectNoRawSecrets(page);
   });
@@ -801,8 +464,7 @@ test.describe("sidecars management", () => {
     await page.getByRole("button", { name: "Save sidecar" }).click();
     await expect.poll(() => api.calls).toContain("PATCH /api/sidecars/99");
     await expect(page.getByTestId("sidecars-summary").getByText("staging")).toBeVisible();
-    const bodyText = await expectNoRawSecrets(page);
-    writeSecretProofEvidence(bodyText, api.calls);
+    await expectNoRawSecrets(page);
 
     const updatedSidecarRow = page.getByRole("row").filter({ hasText: "CLIProxyAPI edge" });
     await updatedSidecarRow.getByRole("button", { name: "Delete sidecar" }).click();

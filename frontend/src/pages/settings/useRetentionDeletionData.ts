@@ -22,7 +22,6 @@ type RetentionSettingKey = keyof Pick<
   | "statistics_retention_days"
   | "audit_logs_retention_days"
   | "loadbalance_events_retention_days"
-  | "sidecar_action_history_retention_days"
 >;
 
 const CLEANUP_TABLES: Record<DeleteCleanupType, LogRetentionTable> = {
@@ -30,7 +29,6 @@ const CLEANUP_TABLES: Record<DeleteCleanupType, LogRetentionTable> = {
   statistics: "usage_request_events",
   audits: "audit_logs",
   loadbalance_events: "loadbalance_events",
-  sidecar_action_history: "sidecar_watchdog_actions",
 };
 
 const DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000;
@@ -74,7 +72,6 @@ export function useRetentionDeletionData({
       || savedRetentionSettings.statistics_retention_days !== retentionSettings.statistics_retention_days
       || savedRetentionSettings.audit_logs_retention_days !== retentionSettings.audit_logs_retention_days
       || savedRetentionSettings.loadbalance_events_retention_days !== retentionSettings.loadbalance_events_retention_days
-      || savedRetentionSettings.sidecar_action_history_retention_days !== retentionSettings.sidecar_action_history_retention_days
     );
   }, [retentionSettings, savedRetentionSettings]);
 
@@ -191,7 +188,6 @@ export function useRetentionDeletionData({
         statistics_retention_days: retentionSettings.statistics_retention_days,
         audit_logs_retention_days: retentionSettings.audit_logs_retention_days,
         loadbalance_events_retention_days: retentionSettings.loadbalance_events_retention_days,
-        sidecar_action_history_retention_days: retentionSettings.sidecar_action_history_retention_days,
       });
       setSavedRetentionSettings(updated);
       setRetentionSettings(updated);

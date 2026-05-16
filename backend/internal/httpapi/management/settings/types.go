@@ -22,11 +22,10 @@ type timezonePreferenceResponse struct {
 }
 
 type retentionSettingsResponse struct {
-	RequestLogsRetentionDays          *int `json:"request_logs_retention_days"`
-	AuditLogsRetentionDays            *int `json:"audit_logs_retention_days"`
-	StatisticsRetentionDays           *int `json:"statistics_retention_days"`
-	LoadbalanceEventsRetentionDays    *int `json:"loadbalance_events_retention_days"`
-	SidecarActionHistoryRetentionDays *int `json:"sidecar_action_history_retention_days"`
+	RequestLogsRetentionDays       *int `json:"request_logs_retention_days"`
+	AuditLogsRetentionDays         *int `json:"audit_logs_retention_days"`
+	StatisticsRetentionDays        *int `json:"statistics_retention_days"`
+	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
 }
 
 type costingSettingsUpdateRequest struct {
@@ -42,11 +41,10 @@ type timezonePreferenceUpdateRequest struct {
 }
 
 type retentionSettingsUpdateRequest struct {
-	RequestLogsRetentionDays          *int `json:"request_logs_retention_days"`
-	AuditLogsRetentionDays            *int `json:"audit_logs_retention_days"`
-	StatisticsRetentionDays           *int `json:"statistics_retention_days"`
-	LoadbalanceEventsRetentionDays    *int `json:"loadbalance_events_retention_days"`
-	SidecarActionHistoryRetentionDays *int `json:"sidecar_action_history_retention_days"`
+	RequestLogsRetentionDays       *int `json:"request_logs_retention_days"`
+	AuditLogsRetentionDays         *int `json:"audit_logs_retention_days"`
+	StatisticsRetentionDays        *int `json:"statistics_retention_days"`
+	LoadbalanceEventsRetentionDays *int `json:"loadbalance_events_retention_days"`
 }
 
 type logRetentionJobRequest struct {
@@ -57,13 +55,12 @@ type logRetentionJobRequest struct {
 }
 
 type logRetentionSettingsRow struct {
-	RequestLogsRetentionDays          *int
-	AuditLogsRetentionDays            *int
-	StatisticsRetentionDays           *int
-	LoadbalanceEventsRetentionDays    *int
-	SidecarActionHistoryRetentionDays *int
-	CreatedAt                         time.Time
-	UpdatedAt                         time.Time
+	RequestLogsRetentionDays       *int
+	AuditLogsRetentionDays         *int
+	StatisticsRetentionDays        *int
+	LoadbalanceEventsRetentionDays *int
+	CreatedAt                      time.Time
+	UpdatedAt                      time.Time
 }
 
 type userSettingsRow struct {

@@ -3,10 +3,8 @@ import { useLocale } from "@/i18n/useLocale";
 import { AuthFilesTable } from "./AuthFilesTable";
 import { DeleteSidecarDialog } from "./DeleteSidecarDialog";
 import { ProviderInventoryTable } from "./ProviderInventoryTable";
-import { SidecarActionHistory } from "./SidecarActionHistory";
 import { SidecarDialog } from "./SidecarDialog";
 import { SidecarsTable } from "./SidecarsTable";
-import { WatchdogPolicyPanel } from "./WatchdogPolicyPanel";
 import { useSidecarsPageData } from "./useSidecarsPageData";
 
 export function SidecarsScaffold() {
@@ -42,35 +40,20 @@ export function SidecarsScaffold() {
         <div ref={sidecarDetailRef} className="space-y-6" data-testid="sidecar-detail">
           <div className="flex flex-col gap-1">
             <h2 className="text-base font-semibold">{copy.detailTitle(pageData.selectedSidecar.name)}</h2>
-            <p className="text-sm text-muted-foreground">{copy.detailDescription}</p>
+            <p className="text-sm text-muted-foreground">{copy.tableDescription}</p>
           </div>
           <AuthFilesTable
             key={pageData.selectedSidecar.id}
-            actionHistory={pageData.actionHistory}
             authSnapshots={pageData.authSnapshots}
             loading={pageData.sidecarDetailLoading}
             mutatingAuthKey={pageData.mutatingAuthKey}
             onPatchPriority={pageData.handlePatchAuthPriority}
             onPatchStatus={pageData.handlePatchAuthStatus}
-            quotaStates={pageData.quotaStates}
           />
           <ProviderInventoryTable
             loading={pageData.sidecarDetailLoading}
             providerSnapshots={pageData.providerSnapshots}
           />
-          <div className="space-y-6">
-            <WatchdogPolicyPanel
-              applying={pageData.watchdogPolicyApplying}
-              loading={pageData.sidecarDetailLoading}
-              onApply={pageData.handleApplyWatchdogPolicy}
-              onApplyAndRestart={pageData.handleApplyAndRestartWatchdogPolicy}
-              onSave={pageData.handleSaveWatchdogPolicy}
-              policy={pageData.watchdogPolicy}
-              restarting={pageData.watchdogPolicyRestarting}
-              saving={pageData.watchdogPolicySaving}
-            />
-          </div>
-          <SidecarActionHistory actions={pageData.actionHistory} loading={pageData.sidecarDetailLoading} />
         </div>
       ) : null}
       <SidecarDialog

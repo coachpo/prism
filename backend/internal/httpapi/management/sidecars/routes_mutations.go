@@ -18,13 +18,11 @@ import (
 var errOperatorMutationStaleSnapshot = errors.New("stale_snapshot")
 
 var statusMutationAllowedFields = map[string]struct{}{
-	"allow_watchdog": {},
-	"disabled":       {},
-	"force_live":     {},
+	"disabled":   {},
+	"force_live": {},
 }
 
 var fieldsMutationAllowedFields = map[string]struct{}{
-	"allow_watchdog": {},
 	"custom_headers": {},
 	"force_live":     {},
 	"headers":        {},
@@ -32,6 +30,10 @@ var fieldsMutationAllowedFields = map[string]struct{}{
 	"prefix":         {},
 	"priority":       {},
 	"proxy_url":      {},
+}
+
+var mutationAllowedQueryControls = map[string]struct{}{
+	"force_live": {},
 }
 
 var allowedMutationHeaderNames = map[string]struct{}{
@@ -63,46 +65,35 @@ func (s *Service) handlePatchAuthFileStatus(w http.ResponseWriter, r *http.Reque
 	}
 	raw, err := decodeMutationObject(r)
 	if err != nil {
-		s.recordOperatorMutationRequestFailure(r.Context(), sidecarID, authID, "status", nil, "Invalid request body")
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	forceLive, err := mutationControlBool(raw, r, "force_live")
 	if err != nil {
-		s.recordOperatorMutationRequestFailure(r.Context(), sidecarID, authID, "status", mutationFieldNames(raw), err.Error())
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	allowWatchdog, err := mutationControlBool(raw, r, "allow_watchdog")
-	if err != nil {
-		s.recordOperatorMutationRequestFailure(r.Context(), sidecarID, authID, "status", mutationFieldNames(raw), err.Error())
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+	if unknown := mutationUnknownQueryParameters(r, mutationAllowedQueryControls); len(unknown) > 0 {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, fmt.Sprintf("unsupported query parameters: %s", strings.Join(unknown, ", ")))
 		return
 	}
-	if !s.tryAcquireWatchdogRun(sidecarID) {
-		s.recordOperatorMutationLockFailure(r.Context(), sidecarID, authID, "status", mutationFieldNames(raw))
-		writeError(w, r, s.corsSnapshot(), http.StatusConflict, "sidecar mutation already running")
-		return
-	}
-	defer s.releaseWatchdogRun(sidecarID)
 	target, err := s.loadOperatorMutationTarget(r.Context(), sidecarID, authID, forceLive)
 	if err != nil {
-		s.handleOperatorMutationLoadError(w, r, sidecarID, authID, "status", mutationFieldNames(raw), err)
+		s.handleOperatorMutationLoadError(w, r, sidecarID, err)
 		return
 	}
 	if unknown := mutationUnknownFields(raw, statusMutationAllowedFields); len(unknown) > 0 {
-		s.rejectOperatorMutation(w, r, target, "status", unknown, fmt.Sprintf("unsupported fields: %s", strings.Join(unknown, ", ")))
+		s.rejectOperatorMutation(w, r, fmt.Sprintf("unsupported fields: %s", strings.Join(unknown, ", ")))
 		return
 	}
 	disabled, err := requiredMutationBool(raw, "disabled")
 	if err != nil {
-		s.rejectOperatorMutation(w, r, target, "status", []string{"disabled"}, err.Error())
+		s.rejectOperatorMutation(w, r, err.Error())
 		return
 	}
 	payload := map[string]any{"name": target.Snapshot.Name, "disabled": disabled}
-	fields := []string{"disabled"}
-	response, patchErr := s.patchOperatorAuthFile(r.Context(), target.Instance, "/auth-files/status", payload)
-	s.finishOperatorMutation(w, r, target, "status", fields, response, patchErr, allowWatchdog)
+	_, patchErr := s.patchOperatorAuthFile(r.Context(), target.Instance, "/auth-files/status", payload)
+	s.finishOperatorMutation(w, r, target, patchErr)
 }
 
 func (s *Service) handlePatchAuthFileFields(w http.ResponseWriter, r *http.Request) {
@@ -116,47 +107,34 @@ func (s *Service) handlePatchAuthFileFields(w http.ResponseWriter, r *http.Reque
 	}
 	raw, err := decodeMutationObject(r)
 	if err != nil {
-		s.recordOperatorMutationRequestFailure(r.Context(), sidecarID, authID, "fields", nil, "Invalid request body")
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	forceLive, err := mutationControlBool(raw, r, "force_live")
 	if err != nil {
-		s.recordOperatorMutationRequestFailure(r.Context(), sidecarID, authID, "fields", mutationFieldNames(raw), err.Error())
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
 		return
 	}
-	allowWatchdog, err := mutationControlBool(raw, r, "allow_watchdog")
-	if err != nil {
-		s.recordOperatorMutationRequestFailure(r.Context(), sidecarID, authID, "fields", mutationFieldNames(raw), err.Error())
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
+	if unknown := mutationUnknownQueryParameters(r, mutationAllowedQueryControls); len(unknown) > 0 {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, fmt.Sprintf("unsupported query parameters: %s", strings.Join(unknown, ", ")))
 		return
 	}
-	if !s.tryAcquireWatchdogRun(sidecarID) {
-		s.recordOperatorMutationLockFailure(r.Context(), sidecarID, authID, "fields", mutationFieldNames(raw))
-		writeError(w, r, s.corsSnapshot(), http.StatusConflict, "sidecar mutation already running")
-		return
-	}
-	defer s.releaseWatchdogRun(sidecarID)
 	target, err := s.loadOperatorMutationTarget(r.Context(), sidecarID, authID, forceLive)
 	if err != nil {
-		s.handleOperatorMutationLoadError(w, r, sidecarID, authID, "fields", mutationFieldNames(raw), err)
+		s.handleOperatorMutationLoadError(w, r, sidecarID, err)
 		return
 	}
 	if unknown := mutationUnknownFields(raw, fieldsMutationAllowedFields); len(unknown) > 0 {
-		s.rejectOperatorMutation(w, r, target, "fields", unknown, fmt.Sprintf("unsupported fields: %s", strings.Join(unknown, ", ")))
+		s.rejectOperatorMutation(w, r, fmt.Sprintf("unsupported fields: %s", strings.Join(unknown, ", ")))
 		return
 	}
-	payload, fields, err := buildOperatorFieldsPayload(raw, target.Snapshot.Name)
+	payload, _, err := buildOperatorFieldsPayload(raw, target.Snapshot.Name)
 	if err != nil {
-		if len(fields) == 0 {
-			fields = mutationFieldNames(raw)
-		}
-		s.rejectOperatorMutation(w, r, target, "fields", fields, err.Error())
+		s.rejectOperatorMutation(w, r, err.Error())
 		return
 	}
-	response, patchErr := s.patchOperatorAuthFile(r.Context(), target.Instance, "/auth-files/fields", payload)
-	s.finishOperatorMutation(w, r, target, "fields", fields, response, patchErr, allowWatchdog)
+	_, patchErr := s.patchOperatorAuthFile(r.Context(), target.Instance, "/auth-files/fields", payload)
+	s.finishOperatorMutation(w, r, target, patchErr)
 }
 
 func (s *Service) loadOperatorMutationTarget(ctx context.Context, sidecarID int, authID string, forceLive bool) (operatorMutationTarget, error) {
@@ -205,39 +183,19 @@ func (s *Service) loadLiveOperatorMutationTarget(ctx context.Context, instance S
 	return operatorMutationTarget{Instance: instance, Snapshot: live}, nil
 }
 
-func (s *Service) finishOperatorMutation(w http.ResponseWriter, r *http.Request, target operatorMutationTarget, route string, fields []string, upstreamResponse map[string]any, patchErr error, allowWatchdog bool) {
-	now := s.nowUTC()
-	actionCtx := operatorPatchContextFromSnapshot(target.Snapshot, route, fields)
-	actionCtx.Response = upstreamResponse
+func (s *Service) finishOperatorMutation(w http.ResponseWriter, r *http.Request, target operatorMutationTarget, patchErr error) {
 	if patchErr != nil {
-		_, _ = s.recordOperatorPatchAction(r.Context(), actionCtx, watchdogActionStatusFailed, patchErr, now)
 		s.writeOperatorMutationPatchError(w, r, target.Instance, patchErr)
 		return
 	}
-	hold, err := s.pauseWatchdogForOperatorPatch(r.Context(), target.Snapshot, allowWatchdog, now)
-	if err != nil {
-		_, _ = s.recordOperatorPatchAction(r.Context(), actionCtx, watchdogActionStatusFailed, err, now)
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	actionCtx = actionCtx.withHold(hold)
-	_, _ = s.recordOperatorPatchAction(r.Context(), actionCtx, watchdogActionStatusSucceeded, nil, now)
 	writeJSON(w, http.StatusOK, s.operatorMutationResponseAfterSync(r.Context(), target))
 }
 
-func (s *Service) rejectOperatorMutation(w http.ResponseWriter, r *http.Request, target operatorMutationTarget, route string, fields []string, detail string) {
-	err := &domainError{StatusCode: http.StatusBadRequest, Detail: detail}
-	actionCtx := operatorPatchContextFromSnapshot(target.Snapshot, route, fields)
-	_, _ = s.recordOperatorPatchAction(r.Context(), actionCtx, watchdogActionStatusFailed, err, s.nowUTC())
+func (s *Service) rejectOperatorMutation(w http.ResponseWriter, r *http.Request, detail string) {
 	writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, detail)
 }
 
-func (s *Service) handleOperatorMutationLoadError(w http.ResponseWriter, r *http.Request, sidecarID int, authID string, route string, fields []string, err error) {
-	actionCtx := operatorPatchActionContext{SidecarID: sidecarID, AuthID: authID, Route: route, Fields: fields}
-	if snapshot, found, loadErr := s.store.GetAuthSnapshot(r.Context(), sidecarID, authID); loadErr == nil && found {
-		actionCtx = operatorPatchContextFromSnapshot(snapshot, route, fields)
-	}
-	_, _ = s.recordOperatorPatchAction(r.Context(), actionCtx, watchdogActionStatusFailed, err, s.nowUTC())
+func (s *Service) handleOperatorMutationLoadError(w http.ResponseWriter, r *http.Request, sidecarID int, err error) {
 	if errors.Is(err, errOperatorMutationStaleSnapshot) {
 		writeError(w, r, s.corsSnapshot(), http.StatusConflict, "stale_snapshot")
 		return
@@ -247,16 +205,6 @@ func (s *Service) handleOperatorMutationLoadError(w http.ResponseWriter, r *http
 		return
 	}
 	writeDomainError(w, r, s.corsSnapshot(), err)
-}
-
-func (s *Service) recordOperatorMutationLockFailure(ctx context.Context, sidecarID int, authID string, route string, fields []string) {
-	s.recordOperatorMutationRequestFailure(ctx, sidecarID, authID, route, fields, "sidecar mutation already running")
-}
-
-func (s *Service) recordOperatorMutationRequestFailure(ctx context.Context, sidecarID int, authID string, route string, fields []string, detail string) {
-	err := &domainError{StatusCode: http.StatusBadRequest, Detail: detail}
-	actionCtx := operatorPatchActionContext{SidecarID: sidecarID, AuthID: authID, Route: route, Fields: fields}
-	_, _ = s.recordOperatorPatchAction(ctx, actionCtx, watchdogActionStatusFailed, err, s.nowUTC())
 }
 
 func (s *Service) patchOperatorAuthFile(ctx context.Context, instance SidecarInstance, path string, payload map[string]any) (map[string]any, error) {
@@ -269,30 +217,40 @@ func (s *Service) patchOperatorAuthFile(ctx context.Context, instance SidecarIns
 	return response, err
 }
 
-func (s *Service) pauseWatchdogForOperatorPatch(ctx context.Context, snapshot SidecarAuthSnapshot, allowWatchdog bool, now time.Time) (*SidecarWatchdogHold, error) {
-	if allowWatchdog {
-		return nil, nil
-	}
-	policy, err := s.store.GetOrCreateWatchdogPolicy(ctx, snapshot.SidecarID)
+func (s *Service) fetchLiveAuthSnapshot(ctx context.Context, instance SidecarInstance, authID string, observedAt time.Time) (SidecarAuthSnapshot, bool, error) {
+	target, err := s.cliProxyTarget(instance)
 	if err != nil {
-		return nil, err
+		return SidecarAuthSnapshot{}, false, err
 	}
-	manualPauseUntil := now.Add(time.Duration(normalizedManualPauseSeconds(policy)) * time.Second)
-	hold, found, err := s.store.GetActiveWatchdogHold(ctx, snapshot.SidecarID, snapshot.AuthID)
+	authFiles, err := s.fetchSidecarAuthFileRows(ctx, target)
 	if err != nil {
-		return nil, err
+		return SidecarAuthSnapshot{}, false, err
 	}
-	if found {
-		hold.ManualPauseUntil = &manualPauseUntil
-		hold.Status = WatchdogHoldStatusPaused
-		updated, err := s.store.UpdateWatchdogHold(ctx, hold.ID, watchdogHoldToInput(hold))
-		return &updated, err
+	for _, raw := range authFiles {
+		input, err := normalizeSidecarAuthSnapshot(instance.ID, observedAt, raw)
+		if err != nil {
+			return SidecarAuthSnapshot{}, false, err
+		}
+		if input.AuthID == authID {
+			return authSnapshotFromInput(input), true, nil
+		}
 	}
-	hold, err = s.store.CreateWatchdogHold(ctx, SidecarWatchdogHoldInput{SidecarID: snapshot.SidecarID, AuthID: snapshot.AuthID, AuthIndex: cloneStringPtr(snapshot.AuthIndex), Provider: cloneStringPtr(snapshot.Provider), Reason: watchdogReasonManualOperatorPatch, ConditionHash: manualOperatorPatchConditionHash(snapshot.AuthID), PreviousPriority: cloneIntPtr(snapshot.Priority), TargetPriority: normalizedWatchdogTargetPriority(policy), ManualPauseUntil: &manualPauseUntil, Status: WatchdogHoldStatusPaused})
+	return SidecarAuthSnapshot{}, false, nil
+}
+
+func (s *Service) cliProxyTarget(instance SidecarInstance) (CLIProxyTarget, error) {
+	password, err := s.decryptManagementPassword(instance.EncryptedManagementPassword)
 	if err != nil {
-		return nil, err
+		return CLIProxyTarget{}, err
 	}
-	return &hold, nil
+	if strings.TrimSpace(password) == "" {
+		return CLIProxyTarget{}, errSidecarManagementPasswordMissing
+	}
+	return CLIProxyTarget{BaseURL: instance.BaseURLCanonical, ManagementPassword: password, AllowPrivateNetwork: instance.AllowPrivateNetwork, AllowInsecureHTTP: instance.AllowInsecureHTTP, SkipTLSVerify: instance.SkipTLSVerify, RequestTimeoutSeconds: instance.RequestTimeoutSeconds}, nil
+}
+
+func authSnapshotFromInput(input SidecarAuthSnapshotInput) SidecarAuthSnapshot {
+	return SidecarAuthSnapshot{SidecarID: input.SidecarID, AuthID: input.AuthID, AuthIndex: cloneStringPtr(input.AuthIndex), Name: input.Name, Provider: cloneStringPtr(input.Provider), Label: cloneStringPtr(input.Label), Status: cloneStringPtr(input.Status), StatusMessage: cloneStringPtr(input.StatusMessage), Disabled: cloneBoolPtr(input.Disabled), Unavailable: cloneBoolPtr(input.Unavailable), Priority: cloneIntPtr(input.Priority), QuotaExceeded: cloneBoolPtr(input.QuotaExceeded), QuotaReason: cloneStringPtr(input.QuotaReason), QuotaNextRecoverAt: cloneTimePtr(input.QuotaNextRecoverAt), NextRetryAfter: cloneTimePtr(input.NextRetryAfter), SuccessCount: cloneIntPtr(input.SuccessCount), FailedCount: cloneIntPtr(input.FailedCount), RecentRequestsJSON: append([]byte(nil), input.RecentRequestsJSON...), ModelStatesJSON: append([]byte(nil), input.ModelStatesJSON...), SnapshotJSON: append([]byte(nil), input.SnapshotJSON...), ObservedAt: input.ObservedAt}
 }
 
 func (s *Service) operatorMutationResponseAfterSync(ctx context.Context, target operatorMutationTarget) authMutationResponse {
@@ -311,10 +269,27 @@ func (s *Service) operatorMutationResponseAfterSync(ctx context.Context, target 
 	}
 	if syncErr != nil {
 		response.State = "succeeded_sync_failed"
-		detail := watchdogErrorMessage(syncErr)
+		detail := sidecarErrorMessage(syncErr)
 		response.SyncError = &detail
 	}
 	return response
+}
+
+func sidecarErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	detail, code := redactedSidecarSyncError(err)
+	if detail == "" {
+		detail = code
+	}
+	if len(detail) > 500 {
+		detail = detail[:500]
+	}
+	if sidecarTextLooksSensitive(detail) {
+		return "redacted-by-prism"
+	}
+	return detail
 }
 
 func (s *Service) writeOperatorMutationPatchError(w http.ResponseWriter, r *http.Request, instance SidecarInstance, err error) {
@@ -546,13 +521,15 @@ func mutationUnknownFields(raw map[string]json.RawMessage, allowed map[string]st
 	return unknown
 }
 
-func mutationFieldNames(raw map[string]json.RawMessage) []string {
-	fields := make([]string, 0, len(raw))
-	for key := range raw {
-		fields = append(fields, key)
+func mutationUnknownQueryParameters(r *http.Request, allowed map[string]struct{}) []string {
+	unknown := make([]string, 0)
+	for key := range r.URL.Query() {
+		if _, ok := allowed[key]; !ok {
+			unknown = append(unknown, key)
+		}
 	}
-	sort.Strings(fields)
-	return fields
+	sort.Strings(unknown)
+	return unknown
 }
 
 func (s *Service) parseAuthMutationID(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -566,8 +543,4 @@ func (s *Service) parseAuthMutationID(w http.ResponseWriter, r *http.Request) (s
 
 func chiURLParam(r *http.Request, key string) string {
 	return strings.TrimSpace(chi.URLParam(r, key))
-}
-
-func manualOperatorPatchConditionHash(authID string) string {
-	return "manual_operator_patch:" + strings.TrimSpace(authID)
 }
