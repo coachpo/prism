@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Loader2, Search, Shield, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2, Search, SlidersHorizontal } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
-import { IconActionButton, IconActionGroup } from "@/components/IconActionGroup";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,8 +36,7 @@ import { useLocale } from "@/i18n/useLocale";
 import type { SidecarAuthSnapshot } from "@/lib/types";
 
 type PendingMutation =
-  | { kind: "priority"; snapshot: SidecarAuthSnapshot; priority: number }
-  | { kind: "status"; snapshot: SidecarAuthSnapshot; disabled: boolean };
+  { kind: "priority"; snapshot: SidecarAuthSnapshot; priority: number };
 
 type AuthSortMode = "name" | "routing-priority-desc" | "routing-priority-asc";
 
@@ -75,11 +73,9 @@ interface AuthFilesTableProps {
   loading: boolean;
   mutatingAuthKey: string | null;
   onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number) => Promise<void>;
-  onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean) => Promise<void>;
 }
 
-const AUTH_PAGE_SIZE_OPTIONS = [100, 300, 500] as const;
-const DEFAULT_AUTH_PAGE_SIZE = AUTH_PAGE_SIZE_OPTIONS[0];
+const DEFAULT_AUTH_PAGE_SIZE = 50;
 
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
   if (!value) {
@@ -320,7 +316,6 @@ export function AuthFilesTable({
   loading,
   mutatingAuthKey,
   onPatchPriority,
-  onPatchStatus,
 }: AuthFilesTableProps) {
   const { formatNumber, locale, messages } = useLocale();
   const copy = messages.sidecarsPage;
@@ -329,8 +324,8 @@ export function AuthFilesTable({
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
   const [authSearch, setAuthSearch] = useState("");
   const [authSortMode, setAuthSortMode] = useState<AuthSortMode>("name");
-  const [pageSize, setPageSize] = useState<number>(DEFAULT_AUTH_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
+  const pageSize = DEFAULT_AUTH_PAGE_SIZE;
   const normalizedAuthSearch = normalizeAuthSearch(authSearch);
   const authSearchLabels = useMemo<AuthSearchLabels>(() => ({
     disabledLabel: copy.authDisabledLabel,
@@ -378,12 +373,8 @@ export function AuthFilesTable({
     if (!pendingMutation) {
       return;
     }
-    if (pendingMutation.kind === "priority") {
-      await onPatchPriority(pendingMutation.snapshot, pendingMutation.priority);
-      clearDraftPriority(pendingMutation.snapshot.auth_id);
-    } else {
-      await onPatchStatus(pendingMutation.snapshot, pendingMutation.disabled);
-    }
+    await onPatchPriority(pendingMutation.snapshot, pendingMutation.priority);
+    clearDraftPriority(pendingMutation.snapshot.auth_id);
     setPendingMutation(null);
   };
 
@@ -459,7 +450,6 @@ export function AuthFilesTable({
                     <TableHead>{copy.authPriorityColumn}</TableHead>
                     <TableHead>{copy.authRetryColumn}</TableHead>
                     <TableHead>{copy.authRequestsColumn}</TableHead>
-                    <TableHead className="text-right">{copy.actionsColumn}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -559,17 +549,6 @@ export function AuthFilesTable({
                             <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <IconActionGroup className="justify-end">
-                            <IconActionButton
-                              disabled={mutating}
-                              onClick={() => openMutation({ kind: "status", snapshot, disabled: !snapshot.disabled })}
-                            >
-                              {mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
-                              <span className="sr-only">{snapshot.disabled ? copy.authEnableAuth(snapshot.name) : copy.authDisableAuth(snapshot.name)}</span>
-                            </IconActionButton>
-                          </IconActionGroup>
-                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -585,28 +564,6 @@ export function AuthFilesTable({
                     formatNumber(totalAuthRows),
                   )}
                 </span>
-                <Select
-                  value={String(pageSize)}
-                  onValueChange={(value) => {
-                    setPageSize(Number(value));
-                    setPageIndex(0);
-                  }}
-                >
-                  <SelectTrigger
-                    className="h-8 w-[92px] rounded-full border-border/70 bg-background text-xs"
-                    data-testid="sidecar-auth-page-size-select"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {AUTH_PAGE_SIZE_OPTIONS.map((size) => (
-                      <SelectItem key={size} value={String(size)}>
-                        {size}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span>{paginationCopy.rowsPerPage}</span>
               </div>
 
               <div className="flex items-center gap-1">
