@@ -60,14 +60,6 @@ export const sidecars = {
     ),
   providerSnapshots: (sidecarId: number) =>
     request<SidecarProviderSnapshotListResponse>(`/api/sidecars/${sidecarId}/provider-snapshots`),
-  updateAuthFileStatus: (sidecarId: number, authId: string, data: { disabled: boolean }) =>
-    request<SidecarAuthMutationResponse>(
-      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/status`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }
-    ),
   updateAuthFileFields: (sidecarId: number, authId: string, data: { priority: number }) =>
     request<SidecarAuthMutationResponse>(
       `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/fields`,
