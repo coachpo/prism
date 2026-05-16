@@ -290,23 +290,6 @@ export function useSidecarsPageData() {
     setSelectedSidecarId(sidecarId);
   };
 
-  const handlePatchAuthStatus = async (snapshot: SidecarAuthSnapshot, disabled: boolean) => {
-    const messages = getStaticMessages();
-    if (selectedSidecarId === null) {
-      return;
-    }
-    setMutatingAuthKey(snapshot.auth_id);
-    try {
-      await api.sidecars.updateAuthFileStatus(selectedSidecarId, snapshot.auth_id, { disabled });
-      toast.success(messages.sidecarsPage.authStatusUpdated(snapshot.name, disabled));
-      await fetchSidecarDetail(selectedSidecarId);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.saveFailed);
-    } finally {
-      setMutatingAuthKey(null);
-    }
-  };
-
   const handlePatchAuthPriority = async (snapshot: SidecarAuthSnapshot, priority: number) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
@@ -355,7 +338,6 @@ export function useSidecarsPageData() {
     handleDeleteSidecar,
     handleTestConnection,
     handleManualSync,
-    handlePatchAuthStatus,
     handlePatchAuthPriority,
     refreshSidecars: fetchSidecars,
     refreshSidecarDetail: fetchSidecarDetail,

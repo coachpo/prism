@@ -48,7 +48,6 @@ export function SidecarsScaffold() {
             loading={pageData.sidecarDetailLoading}
             mutatingAuthKey={pageData.mutatingAuthKey}
             onPatchPriority={pageData.handlePatchAuthPriority}
-            onPatchStatus={pageData.handlePatchAuthStatus}
           />
           <ProviderInventoryTable
             loading={pageData.sidecarDetailLoading}
