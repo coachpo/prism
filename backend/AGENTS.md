@@ -46,7 +46,7 @@ backend/
 - `internal/httpapi/management/settings/` owns global log-retention settings and management-job creation in addition to profile-scoped costing and timezone settings.
 - `internal/httpapi/runtime/` owns OpenAI, Anthropic, and Gemini-compatible proxy routes plus runtime cache, request logging, telemetry outbox, streaming, load-balance helpers, and runtime partition ensuring.
 - `../docs/openapi.json` is the checked-in management/health contract served by the Go backend at `/openapi.json`; runtime proxy routes are documented narratively instead.
-- `Dockerfile` builds from the monorepo root, copies migrations and `docs/openapi.json`, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/etc/prism/config.json`.
+- `Dockerfile` builds from the monorepo root, copies migrations and `docs/openapi.json`, runs as `prism:prism` (`1000:1000`), and defaults `PRISM_CONFIG_PATH` to `/app/config/config.json`.
 - `tests/contract/`, `tests/integration/`, `tests/runtime/`, and `tests/priority/` are the checked-in Go regression packages.
 - Bootstrap config v1 is plaintext and file-backed. Existing files must carry `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, and legacy encrypted bootstrap fields are rejected.
 - Mail is controlled by bootstrap config. Missing or disabled mail means no-op delivery; enabled SMTP must validate at startup and must not silently fall back.
@@ -74,7 +74,7 @@ backend/
 - Keep request-path side effects on durable outboxes, scheduler-owned workers, or after-commit wakeups; do not put provider sends, cache invalidations, or dashboard materialization inline.
 - Keep database pool lane ownership explicit. Background, realtime, telemetry, feedback, management, cache refresh, and runtime execution lanes are separate capacity budgets.
 - Keep partitioned log tables under `internal/platform/logretention/` and runtime partition ensuring; managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
-- Keep backend container execution non-root with writable config ownership under `/etc/prism`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
+- Keep backend container execution non-root with writable config ownership under `/app/config`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
 - Keep implementation detail in the Go ownership tree instead of inventing alternate runtime surfaces.
 
 ## ANTI-PATTERNS
@@ -83,6 +83,6 @@ backend/
 - Do not invent unsupported providers, routes, or CI jobs.
 - Do not describe all bootstrap writes as restart-only. Distinguish hot-eligible fields from restart-required fields.
 - Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
-- Do not move container bootstrap defaults back to app-local paths or root-owned writable state without updating Dockerfile tests and docs.
+- Do not change container bootstrap defaults or writable ownership contracts without updating Dockerfile tests and docs.
 - Do not treat enabled-but-invalid SMTP as recoverable no-op delivery.
 TP as recoverable no-op delivery.
