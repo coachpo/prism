@@ -65,7 +65,7 @@ prism/
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - Partitioned log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; runtime writers ensure daily partitions, and the low-priority platform worker maintains a 15-day horizon.
 - The global sidecars control plane mounts `/api/sidecars/*` and `/sidecars`; Prism stores sidecar registrations and normalized auth/provider snapshots while CLIProxyAPI remains the live auth/provider source of truth.
-- `backend/Dockerfile` runs the backend as `prism:prism` (`1000:1000`), owns `/etc/prism`, and defaults the container bootstrap path to `/etc/prism/config.json`.
+- `backend/Dockerfile` runs the backend as `prism:prism` (`1000:1000`), owns `/app/config`, and defaults the container bootstrap path to `/app/config/config.json`.
 - `.github/workflows/docker-images.yml` checks out the monorepo, builds backend and frontend GHCR images for `linux/arm64`, runs on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and can build one service or both.
 - `release.sh` keeps `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` aligned, verifies backend version metadata plus the frontend build, then commits, tags, and pushes one root release.
 - `.github/workflows/cleanup.yml` handles cleanup only, retaining three workflow runs and pruning untagged backend/frontend container versions.
@@ -102,7 +102,7 @@ cd frontend && pnpm run test:e2e
 - Keep launcher docs aligned with `start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, same-origin proxying, `PRISM_VITE_PROXY_ENABLED`, `PRISM_VITE_PROXY_TARGET`, and local CORS wiring.
 - Keep bootstrap docs aligned with the file-backed v1 contract: `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` required, `runtime.secretEncryptionKey` preserve-only in v1, safe secret responses metadata-only, enabled SMTP fail-fast.
 - Keep repo-level version docs aligned with `release.sh` and the four version surfaces it updates.
-- Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/etc/prism/config.json` defaults.
+- Keep backend container docs aligned with `backend/Dockerfile`, especially non-root `prism:prism` ownership and `/app/config/config.json` defaults.
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
 - Keep active implementation plans out of `docs/`; store working plans under `.sisyphus/plans/`, and use `docs/archive/` only for finished notes or retained evidence.
@@ -115,5 +115,5 @@ cd frontend && pnpm run test:e2e
 - Do not treat vendor metadata as runtime compatibility. Runtime compatibility comes from model `api_family`; vendor rows and `icon_key` are presentation metadata.
 - Do not put request-path side effects back inline when durable outboxes, after-commit wakeups, and background workers own those flows.
 - Do not bypass partitioned log-retention ownership with direct cleanup or partition creation outside `backend/internal/platform/logretention/` and runtime partition ensuring.
-- Do not move the backend container back to root execution or a writable app-local default config path without updating Dockerfile contract tests and docs.
+- Do not change backend container execution or bootstrap-path ownership contracts without updating Dockerfile contract tests and docs.
 - Do not strand upgrade guidance in archive notes or compatibility layers when the live docs can state the target contract directly.
