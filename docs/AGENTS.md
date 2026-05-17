@@ -50,7 +50,7 @@ docs/
 - Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `5432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and the bootstrap-only startup contract.
 - Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, unsupported encrypted legacy files, and enabled SMTP fail-fast.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
-- Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/etc/prism` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
+- Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
 - Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, migration `000014_cli_proxy_sidecars.sql`, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
 - Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; archive run notes are evidence only.

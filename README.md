@@ -83,8 +83,8 @@ sudo chmod 0700 "$PRISM_CONFIG_DIR"
 docker run -d \
   --name prism-backend \
   -p 8000:8000 \
-  -v "$PRISM_CONFIG_DIR:/etc/prism:rw" \
-  -e PRISM_CONFIG_PATH="/etc/prism/config.json" \
+  -v "$PRISM_CONFIG_DIR:/app/config:rw" \
+  -e PRISM_CONFIG_PATH="/app/config/config.json" \
   ghcr.io/coachpo/prism-backend:latest
 
 docker run -d \
@@ -95,7 +95,7 @@ docker run -d \
 
 Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting. Existing bootstrap `config.json` files must include `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` before starting this upgraded backend. Set `runtime.transport.requestTimeout` to `"60s"` to preserve the prior whole-request upstream timeout behavior, and set `runtime.sideEffects.attemptTimeout` to the newly seeded default `"10s"` for each background side-effect enqueue attempt.
 
-The backend image runs as `prism:prism`, UID/GID `1000:1000`. The bind-mounted directory that contains `PRISM_CONFIG_PATH`, such as `/absolute/secure/path/prism-config` for `/etc/prism/config.json`, must be writable by UID/GID `1000:1000` so the Startup API can create and replace the bootstrap file. For an existing root-owned bind mount, remediate the host directory once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
+The backend image runs as `prism:prism`, UID/GID `1000:1000`. The bind-mounted directory that contains `PRISM_CONFIG_PATH`, such as `/absolute/secure/path/prism-config` for `/app/config/config.json`, must be writable by UID/GID `1000:1000` so the Startup API can create and replace the bootstrap file. For an existing root-owned bind mount, remediate the host directory once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 
 The frontend image defaults to same-origin API calls. In production, put frontend and backend behind a reverse proxy and route `/` to frontend, and `/api`, `/v1`, and `/v1beta` to backend.
 
