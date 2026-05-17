@@ -124,7 +124,7 @@ function createApplyCapabilities() {
 
 function createBootstrapResponse() {
   return {
-    config_path: "/etc/prism/config.json",
+    config_path: "/app/config/config.json",
     schema_version: 1,
     file_revision: 7,
     loaded_revision: 7,
