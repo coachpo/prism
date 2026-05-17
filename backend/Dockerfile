@@ -17,7 +17,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && groupadd --gid 1000 prism \
     && useradd --uid 1000 --gid 1000 --home-dir /app/backend --shell /bin/sh --no-create-home prism \
-    && mkdir -p /etc/prism \
+    && mkdir -p /app/config \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /out/prism-backend /usr/local/bin/prism-backend
@@ -25,9 +25,9 @@ COPY backend/VERSION ./VERSION
 COPY backend/migrations ./migrations
 COPY docs/openapi.json /app/docs/openapi.json
 
-RUN chown -R prism:prism /etc/prism /app/backend
+RUN chown -R prism:prism /app/config /app/backend
 
-ENV PRISM_CONFIG_PATH=/etc/prism/config.json
+ENV PRISM_CONFIG_PATH=/app/config/config.json
 
 EXPOSE 8000
 

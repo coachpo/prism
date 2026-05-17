@@ -20,9 +20,9 @@ func TestDockerfileNonRootContract(t *testing.T) {
 	for _, token := range []string{
 		"groupadd --gid 1000 prism",
 		"useradd --uid 1000 --gid 1000",
-		"mkdir -p /etc/prism",
-		"RUN chown -R prism:prism /etc/prism /app/backend",
-		"ENV PRISM_CONFIG_PATH=/etc/prism/config.json",
+		"mkdir -p /app/config",
+		"RUN chown -R prism:prism /app/config /app/backend",
+		"ENV PRISM_CONFIG_PATH=/app/config/config.json",
 		"USER prism:prism",
 		"CMD [\"prism-backend\"]",
 	} {
