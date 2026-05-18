@@ -23,6 +23,7 @@ profile/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep helper modules snapshot-based. `actions.ts` should refresh and re-apply the latest profile snapshot after mutations.
 - Keep selected-profile persistence limited to `persistence.ts` and the provider that calls it.
 - Preserve the fallback order in `selection.ts`: stored profile, then active profile, then default profile, then first available profile.

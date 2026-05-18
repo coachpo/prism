@@ -23,6 +23,7 @@ auth/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `bootstrap.ts` as the only place that decides between `publicBootstrap`, `status`, `session`, and `refresh` during auth initialization.
 - Keep `broadcast.ts` as the only auth cross-tab signaling layer.
 - Keep `mutations.ts` thin and callback-driven so `AuthContext.tsx` can own state updates while the helpers stay reusable.

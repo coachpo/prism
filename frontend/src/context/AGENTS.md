@@ -34,6 +34,7 @@ context/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Use `useAuth()`, `useProfileContext()`, and `useReportingCurrencyContext()` instead of consuming context objects directly.
 - Keep auth bootstrap async and reuse in-flight work instead of duplicating fetches.
 - Keep `selectedProfile` and `activeProfile` distinct in UI and docs. `selectedProfile` scopes management APIs; it does not switch proxy traffic.
