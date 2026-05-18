@@ -48,6 +48,7 @@ model-detail/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `ModelDetailPage.tsx` and `ProxyModelDetailPage.tsx` thin. `useModelDetailData.ts` owns bootstrap, dialog state, and the cross-hook composition layer.
 - Fetch model, endpoints, model list, and pricing templates in parallel during bootstrap.
 - Use `Promise.allSettled` for health-check batches so one failing connection does not collapse the page.

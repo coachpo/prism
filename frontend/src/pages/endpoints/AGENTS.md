@@ -26,6 +26,7 @@ endpoints/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Reuse the shared endpoint cache in `@/lib/referenceData` instead of layering another endpoint-specific cache.
 - Keep reorder state and DnD bookkeeping in `useEndpointReorder.ts`; cards stay presentational.
 - Patch local endpoint state through `commitEndpoints()` after create, update, duplicate, delete, and reorder flows.

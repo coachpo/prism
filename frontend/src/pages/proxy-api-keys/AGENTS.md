@@ -30,6 +30,7 @@ proxy-api-keys/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Treat proxy API key management as a global auth-settings workflow, not a selected-profile feature.
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()`.
 - Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.
