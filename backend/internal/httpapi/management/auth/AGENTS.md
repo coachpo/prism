@@ -15,6 +15,7 @@
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Keep auth selected-profile neutral unless a route explicitly manages proxy API keys or profile-scoped settings.
 - Keep raw secrets and tokens write-only; response payloads expose metadata or one-time generated values only.
 - Publish runtime-cache changes through the auth runtime-cache seam instead of making runtime handlers query management state.

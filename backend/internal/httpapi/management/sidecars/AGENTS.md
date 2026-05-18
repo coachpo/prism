@@ -27,11 +27,12 @@ sidecars/
 - CLIProxyAPI network/auth policy and supported management paths: `client.go`, `cliproxy_contract_test.go`.
 - Durable sidecar tables and uniqueness constraints: `../../../../migrations/000014_cli_proxy_sidecars.sql`.
 - Lifecycle wiring and worker priority: `../../../platform/lifecycle/production.go`, `worker.go`, `../../../../tests/priority/sidecar_worker_priority_test.go`.
-- Regression coverage: `routes*_test.go`, `sync_test.go`, `store_test.go`, `client_test.go`, `cliproxy_contract_test.go`, `../../../../tests/{contract,integration}/sidecars*_test.go`.
+- Regression coverage: `routes*_test.go`, `routes_removed_surfaces_test.go`, `sync_test.go`, `store_test.go`, `client_test.go`, `cliproxy_contract_test.go`, `../../../../tests/{contract,integration}/sidecars*_test.go`.
 
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Treat sidecar management as global instance control-plane state; it does not use selected-profile `X-Profile-Id` scope.
 - Keep management passwords write-only. Responses expose `credential_state` metadata and the mask string only.
 - Keep live auth/provider inventory owned by CLIProxyAPI; Prism persists normalized snapshots for operator display.
