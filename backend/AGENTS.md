@@ -55,6 +55,8 @@ backend/
 - Process entrypoint: `cmd/prism-backend/main.go`
 - Platform lifecycle, server assembly, hot bootstrap runtime, DB lanes, startup, migrations, scheduler, log retention, and side effects: `internal/platform/AGENTS.md`
 - Mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context seams: `internal/httpapi/AGENTS.md`
+- Runtime proxy entry, request planning, telemetry outbox, feedback pipeline, partition ensuring, and side-effect seams: `internal/httpapi/runtime/AGENTS.md`
+- Management settings costing, timezone, retention settings, and maintenance-job endpoints: `internal/httpapi/management/settings/AGENTS.md`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
 - Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, and direct auth-file mutation: `internal/httpapi/management/sidecars/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
@@ -66,6 +68,7 @@ backend/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep backend docs focused on the live Go runtime.
 - Keep SQL migrations under `migrations/` as the live schema source of truth for startup.
 - Keep management selected-profile behavior separate from runtime active-profile routing; sidecar management is global instance state and does not use selected-profile scope.
@@ -85,4 +88,3 @@ backend/
 - Do not bypass `internal/platform/logretention/` with ad hoc log cleanup, retention SQL, or partition creation outside runtime partition ensuring.
 - Do not change container bootstrap defaults or writable ownership contracts without updating Dockerfile tests and docs.
 - Do not treat enabled-but-invalid SMTP as recoverable no-op delivery.
-TP as recoverable no-op delivery.
