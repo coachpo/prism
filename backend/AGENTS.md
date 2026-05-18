@@ -29,6 +29,8 @@ backend/
 ## CHILD DOCS
 - `internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, partitioned log retention, and side-effect ownership.
 - `internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context seams.
+- `internal/httpapi/runtime/AGENTS.md`: runtime proxy handlers, request planning, telemetry outbox, feedback pipeline, partition ensuring, and side-effect seams.
+- `internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and retention-job endpoints.
 - `internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
 - `internal/httpapi/management/sidecars/AGENTS.md`: global CLIProxyAPI sidecar registrations, sync, auth/provider inventory, direct auth-file mutation, and worker seams.
 - `tests/AGENTS.md`: backend Go regression boundary, including partitioned logs, Dockerfile, sidecars, and priority/lane isolation tests.

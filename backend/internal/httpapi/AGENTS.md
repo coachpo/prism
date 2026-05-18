@@ -18,10 +18,8 @@ httpapi/
 - Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/sidecars/`, `management/stats/`, `management/vendors/`, `management/audit/`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `management/auth/AGENTS.md`
 - Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, direct auth-file mutation, and worker seams: `management/sidecars/AGENTS.md`
-- Runtime proxy leaf ownership: `runtime/AGENTS.md`
-- Runtime proxy entry, log partition cache, and helpers: `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/log_partitions.go`, `runtime/telemetry_outbox.go`
-- Management settings leaf ownership: `management/settings/AGENTS.md`
-- Management settings costing, timezone, retention settings, and retention-job endpoints: `management/settings/`
+- Runtime proxy leaf and package entry points: `runtime/AGENTS.md`, `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/log_partitions.go`, `runtime/telemetry_outbox.go`
+- Management settings leaf and package routes: `management/settings/AGENTS.md`, `management/settings/`
 - Realtime websocket service and dashboard publisher: `realtime/service.go`, `realtime/dashboard_publisher.go`
 - OpenAPI loading and docs handlers: `openapi/`
 - Proxy-key usage capture: `proxykeyusage/`
