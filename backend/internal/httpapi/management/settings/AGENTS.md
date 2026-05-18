@@ -30,5 +30,5 @@ settings/
 ## ANTI-PATTERNS
 - Do not treat global log-retention settings as selected-profile state.
 - Do not run partition cleanup or retention deletes inline in these handlers.
-- Do not duplicate settings validation or persistence rules in frontend code when this package already owns the backend contract.
+- Do not treat frontend-side settings validation as the source of truth when this package already owns the backend validation and persistence contract.
 - Do not mix startup bootstrap, auth-session, or sidecar control-plane behavior into this package.
