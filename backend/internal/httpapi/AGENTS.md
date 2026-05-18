@@ -18,7 +18,9 @@ httpapi/
 - Management subpackages: `management/auth/`, `management/bootstrapconfig/`, `management/configbundle/`, `management/configrules/`, `management/connections/`, `management/endpoints/`, `management/loadbalance/`, `management/models/`, `management/profiles/`, `management/settings/`, `management/sidecars/`, `management/stats/`, `management/vendors/`, `management/audit/`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `management/auth/AGENTS.md`
 - Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, direct auth-file mutation, and worker seams: `management/sidecars/AGENTS.md`
+- Runtime proxy leaf ownership: `runtime/AGENTS.md`
 - Runtime proxy entry, log partition cache, and helpers: `runtime/runtime.go`, `runtime/service.go`, `runtime/cache.go`, `runtime/log_partitions.go`, `runtime/telemetry_outbox.go`
+- Management settings leaf ownership: `management/settings/AGENTS.md`
 - Management settings costing, timezone, retention settings, and retention-job endpoints: `management/settings/`
 - Realtime websocket service and dashboard publisher: `realtime/service.go`, `realtime/dashboard_publisher.go`
 - OpenAPI loading and docs handlers: `openapi/`
@@ -29,6 +31,7 @@ httpapi/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep management selected-profile scope separate from runtime active-profile routing. `X-Profile-Id` affects profile-scoped `/api/*` management calls, not proxy traffic or global sidecar management.
 - Keep runtime proxy routes under `runtime/`; they are served from `/v1` and `/v1beta` and intentionally stay outside the management OpenAPI artifact.
 - Keep `api_family` as runtime compatibility truth. Vendor rows and `icon_key` are presentation metadata.

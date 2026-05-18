@@ -1,0 +1,34 @@
+# BACKEND MANAGEMENT SETTINGS KNOWLEDGE BASE
+
+## OVERVIEW
+`management/settings/` owns Prism's management settings routes for profile-scoped costing and timezone preferences, global log-retention settings, and creation of low-priority log-retention maintenance jobs.
+
+## STRUCTURE
+```text
+settings/
+├── routes.go       # `/api/settings/*` handlers and retention-job creation
+├── service.go      # Service wiring, CORS snapshot, jobs store, route mounting
+├── store.go        # Settings persistence for costing, timezone, and retention
+├── types.go        # Request/response payloads and validation helpers
+└── routes_test.go  # Route-level contract coverage
+```
+
+## WHERE TO LOOK
+- Mounted routes and ownership split: `service.go` (`MountManagementRoutes`), `routes.go`
+- Profile-scoped costing and timezone reads/writes: `routes.go`, `store.go`, `types.go`
+- Global log-retention reads/writes and maintenance-job creation: `routes.go`, `../../../platform/managementjobs/`
+- Selected-profile resolution and shared transaction helpers: `../../../profiledomain/`, `../../../pgxutil/tx.go`
+- Frontend settings consumers: `../../../../../frontend/src/pages/settings/`, `../../../../../frontend/src/pages/settings/costing/`
+
+## CONVENTIONS
+- When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
+- Keep costing and timezone settings profile-scoped through effective-profile resolution and `X-Profile-Id`.
+- Keep log-retention settings global and trigger cleanup through low-priority management jobs instead of request-path deletes.
+- Keep startup bootstrap config ownership separate; this package does not own `/api/config/bootstrap`.
+
+## ANTI-PATTERNS
+- Do not treat global log-retention settings as selected-profile state.
+- Do not run partition cleanup or retention deletes inline in these handlers.
+- Do not duplicate settings validation or persistence rules in frontend code when this package already owns the backend contract.
+- Do not mix startup bootstrap, auth-session, or sidecar control-plane behavior into this package.
