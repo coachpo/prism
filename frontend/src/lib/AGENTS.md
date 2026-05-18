@@ -55,6 +55,7 @@ lib/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Pages and hooks should import from `api.ts` or its exported `stats` helper, not call `fetch()` directly.
 - `setApiProfileId()` is fed by `ProfileContext`, and `api/core.ts` is the only place that injects `X-Profile-Id` into selected `/api/*` requests.
 - `api/profileScope.ts` owns the route matcher for management calls that should receive `X-Profile-Id`; global sidecar calls intentionally stay out of that allowlist.

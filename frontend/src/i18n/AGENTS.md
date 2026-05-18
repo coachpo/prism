@@ -26,6 +26,7 @@ i18n/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep locale selection frontend-only.
 - Keep `document.documentElement.lang` synchronized through `LocaleProvider.tsx`.
 - Add new user-facing strings to the catalogs when they belong to reusable shell or route surfaces, including shared dual-strategy family, objective wording, and the `sidecarsPage` control-plane copy.
