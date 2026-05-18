@@ -37,6 +37,7 @@ request-logs/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing request-log surface is itself a shipped contract or guardrail.
 - Treat URL as the source of truth for the retained browse filters to support deep-linking.
 - Keep audit payload fetching lazy and isolated from the main request-list fetch lifecycle. The detail hook should fetch audit data only when the sheet is open and the audit tab is active.
 - Use exact-request mode (`request_id`) to switch from paginated browsing to a single-request investigation workflow, and keep that mode local to the request-logs page.

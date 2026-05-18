@@ -30,6 +30,7 @@ sidecars/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing sidecar surface is itself a shipped control-plane contract or guardrail.
 - Keep the route global; selected profile state must not scope sidecar API calls.
 - Keep the browser on Prism's typed sidecar API client. It must not call CLIProxyAPI directly.
 - Keep visible detail panels limited to sidecar metadata, auth-file inventory, provider inventory, direct auth-file status or priority edits, test connection, and manual sync.
