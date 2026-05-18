@@ -22,6 +22,7 @@
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep this doc summary-level.
 - Keep browser flows in `e2e/` and seam contracts in the named sibling folders.
 - Keep shared test-only utilities in `helpers/` instead of scattering loader glue across suites.
