@@ -46,6 +46,7 @@ sections/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep these files focused on section rendering, local field composition, and section-specific copy.
 - Let `VendorManagementSection.tsx` and `VendorCatalogTransportCard.tsx` stay rendering-focused; bootstrap, catalog import/export parsing, preview state, cache patching, and delete-conflict logic belong to the parent settings hooks and dialogs.
 - Let vendor section UI show vendor icon metadata from the shared catalog, with fallback monogram or placeholder rendering handled by the shared icon component layer.

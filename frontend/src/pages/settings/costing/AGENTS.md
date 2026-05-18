@@ -32,6 +32,7 @@ costing/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep costing data normalized through `normalizeCostingForm()` before dirty checks or saves.
 - Preserve the split between billing saves and timezone saves. Timezone save depends on a valid saved billing state.
 - Load FX mapping endpoint choices from the selected model's connections inside the CRUD hook, not inside presentation components.

@@ -26,6 +26,7 @@ dialogs/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep dialog files focused on rendering, field composition, and confirm-copy framing.
 - Keep mutation state, delete keywords, and save orchestration in the parent settings hooks.
 - Keep audit-rule dialogs separate from vendor CRUD dialogs; they share the mount point but not the form contract.
