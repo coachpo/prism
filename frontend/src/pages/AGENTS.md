@@ -36,6 +36,7 @@
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep backend access on the shared frontend API boundary rather than inventing page-local fetch layers.
 - Keep global routes such as `/sidecars`, `/settings`, and `/proxy-api-keys` separate from selected-profile route state.
 - Let route files own bookmarkable query or hash state and the first handoff into local hooks.
