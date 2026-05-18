@@ -30,6 +30,7 @@ statistics/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Treat local persisted presentation state as the source of truth for dashboard analytics preferences that should survive reloads. The current shared statistics surface does not expose a dedicated route-level query-param contract.
 - Keep usage-snapshot orchestration in `useUsageStatisticsPageData.ts`, not in section or table components.
 - Treat backend snapshot currency as the source of truth for rendered statistics money. The frontend reporting-currency layer controls selected-profile readiness and trust, but statistics components should not refetch costing settings or recompute backend stats.

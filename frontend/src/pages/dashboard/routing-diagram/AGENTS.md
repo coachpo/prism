@@ -31,6 +31,7 @@ routing-diagram/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep parent consumers on the `../routingDiagram.ts` barrel instead of importing these files ad hoc.
 - Keep diagram-specific aggregation, realtime patching, and layout math local to this cluster.
 - Keep chart and shape components rendering-focused; data shaping belongs in the diagram helpers.
