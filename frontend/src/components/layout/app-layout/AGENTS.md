@@ -39,6 +39,7 @@ app-layout/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep `page.tsx` thin. State composition belongs in `useAppLayoutState.ts`.
 - Keep navigation, profile-scoped prefixes, route matching, and version-label formatting in `navigationProfileConfig.ts`.
 - Keep max-profile limit consumption and create-button gating in `useAppLayoutState.ts`, fed by `ProfileContext`.

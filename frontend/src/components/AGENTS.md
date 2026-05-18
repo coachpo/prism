@@ -46,6 +46,7 @@ components/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep shared components presentation-first.
 - Keep data fetching and route state out of this tree.
 - Keep shell-state ownership in `layout/app-layout/`; the direct components here should stay compositional or presentational.

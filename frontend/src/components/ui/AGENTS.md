@@ -27,6 +27,7 @@ ui/
 ## CONVENTIONS
 
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
+- For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep this folder focused on primitives and local wrappers only.
 - Keep shell composition, navigation, and route state out of these files.
 - Prefer adapting the local wrapper here before adding one-off styling in parent components.
