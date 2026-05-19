@@ -29,10 +29,7 @@ frontend/node_modules/
 *.swo
 .DS_Store
 
-# Sisyphus agent state
-.sisyphus/
-.sisyphus/*.md
-.sisyphus/plans/*
+.omo/
 
 # AI Agents
 .opencode/
