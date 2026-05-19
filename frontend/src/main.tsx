@@ -13,7 +13,7 @@ createRoot(document.getElementById("root")!).render(
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem={true}>
         <TooltipProvider>
           <App />
-          <Toaster />
+          <Toaster position="top-right" />
         </TooltipProvider>
       </ThemeProvider>
     </LocaleProvider>

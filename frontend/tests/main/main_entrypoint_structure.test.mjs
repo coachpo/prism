@@ -15,7 +15,7 @@ test("frontend main entrypoint keeps the reviewed provider bootstrap order", () 
   assert.match(source, /<ThemeProvider attribute="class" defaultTheme="system" enableSystem=\{true\}>/)
   assert.match(source, /<TooltipProvider>/)
   assert.match(source, /<App \/>/)
-  assert.match(source, /<Toaster \/>/)
+  assert.match(source, /<Toaster position="top-right" \/>/)
 
   const orderedSegments = [
     "<StrictMode>",
@@ -23,7 +23,7 @@ test("frontend main entrypoint keeps the reviewed provider bootstrap order", () 
     '<ThemeProvider attribute="class" defaultTheme="system" enableSystem={true}>',
     "<TooltipProvider>",
     "<App />",
-    "<Toaster />",
+    '<Toaster position="top-right" />',
     "</TooltipProvider>",
     "</ThemeProvider>",
     "</LocaleProvider>",
