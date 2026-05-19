@@ -100,6 +100,7 @@ Enabled SMTP bootstrap example:
 ## Database and docs artifacts
 - Schema migrations are Go-managed and applied from `migrations/` at startup.
 - Startup now fails fast when an existing database has application tables but no `prism_schema_migrations` history; reset incompatible local databases instead of relying on migration cutover bridges.
+- The sidecar auth snapshot contract changed cleanly; databases created before this contract must be reset or manually remediated so `sidecar_auth_snapshots` matches the current migration source before startup.
 - Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.

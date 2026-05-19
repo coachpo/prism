@@ -228,15 +228,15 @@ func (s *Store) SaveAuthSnapshot(ctx context.Context, input SidecarAuthSnapshotI
 	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_auth_snapshots (
 sidecar_id, auth_id, auth_index, name, provider, label, status, status_message,
 disabled, unavailable, priority, quota_exceeded, quota_reason, quota_next_recover_at,
-next_retry_after, success_count, failed_count, recent_requests_json, model_states_json,
+success_count, failed_count, recent_requests_json, model_states_json,
 snapshot_json, observed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20)
 ON CONFLICT (sidecar_id, auth_id) DO UPDATE SET
 auth_index = EXCLUDED.auth_index, name = EXCLUDED.name, provider = EXCLUDED.provider,
 label = EXCLUDED.label, status = EXCLUDED.status, status_message = EXCLUDED.status_message,
 disabled = EXCLUDED.disabled, unavailable = EXCLUDED.unavailable, priority = EXCLUDED.priority,
 quota_exceeded = EXCLUDED.quota_exceeded, quota_reason = EXCLUDED.quota_reason,
-quota_next_recover_at = EXCLUDED.quota_next_recover_at, next_retry_after = EXCLUDED.next_retry_after,
+quota_next_recover_at = EXCLUDED.quota_next_recover_at,
 success_count = EXCLUDED.success_count, failed_count = EXCLUDED.failed_count,
 recent_requests_json = EXCLUDED.recent_requests_json, model_states_json = EXCLUDED.model_states_json,
 snapshot_json = EXCLUDED.snapshot_json, observed_at = EXCLUDED.observed_at, updated_at = now()
@@ -244,7 +244,7 @@ RETURNING `+sidecarAuthSnapshotSelectColumns,
 		input.SidecarID, strings.TrimSpace(input.AuthID), nullStringArg(input.AuthIndex), strings.TrimSpace(input.Name),
 		nullStringArg(input.Provider), nullStringArg(input.Label), nullStringArg(input.Status), nullStringArg(input.StatusMessage),
 		nullBoolArg(input.Disabled), nullBoolArg(input.Unavailable), nullIntArg(input.Priority), nullBoolArg(input.QuotaExceeded),
-		nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt), nullTimeArg(input.NextRetryAfter),
+		nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt),
 		nullIntArg(input.SuccessCount), nullIntArg(input.FailedCount), jsonbString(input.RecentRequestsJSON, "[]"),
 		jsonbString(input.ModelStatesJSON, "{}"), jsonbString(input.SnapshotJSON, "{}"), observedAt,
 	)
@@ -294,9 +294,9 @@ func (s *Store) insertAuthSnapshotReplacementChunk(ctx context.Context, tx pgx.T
 	builder.WriteString(`INSERT INTO sidecar_auth_snapshots (
 sidecar_id, auth_id, auth_index, name, provider, label, status, status_message,
 disabled, unavailable, priority, quota_exceeded, quota_reason, quota_next_recover_at,
-next_retry_after, success_count, failed_count, recent_requests_json, model_states_json,
+success_count, failed_count, recent_requests_json, model_states_json,
 snapshot_json, observed_at) VALUES `)
-	args := make([]any, 0, len(inputs)*21)
+	args := make([]any, 0, len(inputs)*20)
 	for i, input := range inputs {
 		if i > 0 {
 			builder.WriteString(", ")
@@ -310,7 +310,7 @@ snapshot_json, observed_at) VALUES `)
 			input.SidecarID, input.AuthID, nullStringArg(input.AuthIndex), input.Name,
 			nullStringArg(input.Provider), nullStringArg(input.Label), nullStringArg(input.Status), nullStringArg(input.StatusMessage),
 			nullBoolArg(input.Disabled), nullBoolArg(input.Unavailable), nullIntArg(input.Priority), nullBoolArg(input.QuotaExceeded),
-			nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt), nullTimeArg(input.NextRetryAfter),
+			nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt),
 			nullIntArg(input.SuccessCount), nullIntArg(input.FailedCount), jsonbString(input.RecentRequestsJSON, "[]"),
 			jsonbString(input.ModelStatesJSON, "{}"), jsonbString(input.SnapshotJSON, "{}"), observedAt,
 		)
@@ -338,12 +338,12 @@ snapshot_json, observed_at) VALUES `)
 
 func appendAuthSnapshotInsertPlaceholders(builder *strings.Builder, first int) {
 	builder.WriteByte('(')
-	for index := range 21 {
+	for index := range 20 {
 		if index > 0 {
 			builder.WriteString(", ")
 		}
 		_, _ = fmt.Fprintf(builder, "$%d", first+index)
-		if index == 17 || index == 18 || index == 19 {
+		if index == 16 || index == 17 || index == 18 {
 			builder.WriteString("::jsonb")
 		}
 	}
@@ -516,7 +516,7 @@ last_sync_error, management_auth_state, auth_failure_pause_until, deleted_at, cr
 
 const sidecarAuthSnapshotSelectColumns = `id, sidecar_id, auth_id, auth_index, name, provider, label, status,
 status_message, disabled, unavailable, priority, quota_exceeded, quota_reason,
-quota_next_recover_at, next_retry_after, success_count, failed_count,
+quota_next_recover_at, success_count, failed_count,
 recent_requests_json, model_states_json, snapshot_json, observed_at, created_at, updated_at`
 
 const sidecarProviderSnapshotSelectColumns = `id, sidecar_id, provider_key, provider_item_key, name, label,
@@ -618,7 +618,7 @@ func scanSidecarAuthSnapshot(scanner interface{ Scan(...any) error }) (SidecarAu
 	var authIndex, provider, label, status, statusMessage, quotaReason sql.NullString
 	var disabled, unavailable, quotaExceeded sql.NullBool
 	var priority, successCount, failedCount sql.NullInt64
-	var quotaNextRecoverAt, nextRetryAfter sql.NullTime
+	var quotaNextRecoverAt sql.NullTime
 	var recentRequests, modelStates, snapshot []byte
 	err := scanner.Scan(
 		&record.ID,
@@ -636,7 +636,6 @@ func scanSidecarAuthSnapshot(scanner interface{ Scan(...any) error }) (SidecarAu
 		&quotaExceeded,
 		&quotaReason,
 		&quotaNextRecoverAt,
-		&nextRetryAfter,
 		&successCount,
 		&failedCount,
 		&recentRequests,
@@ -660,7 +659,6 @@ func scanSidecarAuthSnapshot(scanner interface{ Scan(...any) error }) (SidecarAu
 	record.QuotaExceeded = boolFromNull(quotaExceeded)
 	record.QuotaReason = stringFromNull(quotaReason)
 	record.QuotaNextRecoverAt = timeFromNull(quotaNextRecoverAt)
-	record.NextRetryAfter = timeFromNull(nextRetryAfter)
 	record.SuccessCount = intFromNull(successCount)
 	record.FailedCount = intFromNull(failedCount)
 	record.RecentRequestsJSON = cloneJSON(recentRequests)

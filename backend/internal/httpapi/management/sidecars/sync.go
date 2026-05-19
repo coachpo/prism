@@ -387,7 +387,6 @@ func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.
 		QuotaExceeded:      quotaExceeded,
 		QuotaReason:        quotaReason,
 		QuotaNextRecoverAt: quotaNextRecoverAt,
-		NextRetryAfter:     timePtrFromKey(fields, "next_retry_after"),
 		SuccessCount:       intPtrFromKey(fields, "success"),
 		FailedCount:        intPtrFromKey(fields, "failed"),
 		RecentRequestsJSON: recentRequests,
@@ -399,7 +398,7 @@ func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.
 
 func normalizedAuthSnapshotJSON(fields map[string]any) (json.RawMessage, error) {
 	snapshot := map[string]any{}
-	for _, key := range []string{"id", "auth_index", "name", "type", "provider", "label", "status", "status_message", "disabled", "unavailable", "priority", "success", "failed", "quota", "next_retry_after", "recent_requests", "model_states", "note"} {
+	for _, key := range []string{"id", "auth_index", "name", "type", "provider", "label", "status", "status_message", "disabled", "unavailable", "priority", "success", "failed", "quota", "recent_requests", "model_states", "note"} {
 		if value, ok := fields[key]; ok {
 			snapshot[key] = sanitizeSidecarSnapshotValue(key, value)
 		}

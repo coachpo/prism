@@ -26,7 +26,7 @@
 - `GET /api/sidecars/1/auth-files` and `GET /api/sidecars/1/auth-snapshots` both returned `{"items":[]}` after successful sync.
 - At the same time, `GET /api/sidecars/1/provider-snapshots` returned 4 masked `codex-api-key` provider entries with provider item keys and priority metadata.
 - The UI therefore shows `No auth snapshots` even though provider inventory displays configured sidecar auth/provider entries.
-- Evidence screenshot: `docs/archive/2026-05-10-sidecars-live-smoke.png`.
+- Evidence was retained in the archive run note only; the stale screenshot artifact was later deleted from the proof root.
 
 ## Root-Cause Evidence Collected
 - Historical finding: the sync code was reading `/auth-files` with a stale local envelope mapping, so it missed the live CLIProxyAPI top-level `files` array.

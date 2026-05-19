@@ -285,7 +285,6 @@ func cloneAuthSnapshot(snapshot SidecarAuthSnapshot) SidecarAuthSnapshot {
 	copy.QuotaExceeded = cloneBoolPtr(snapshot.QuotaExceeded)
 	copy.QuotaReason = cloneStringPtr(snapshot.QuotaReason)
 	copy.QuotaNextRecoverAt = cloneTimePtr(snapshot.QuotaNextRecoverAt)
-	copy.NextRetryAfter = cloneTimePtr(snapshot.NextRetryAfter)
 	copy.SuccessCount = cloneIntPtr(snapshot.SuccessCount)
 	copy.FailedCount = cloneIntPtr(snapshot.FailedCount)
 	copy.RecentRequestsJSON = append([]byte(nil), snapshot.RecentRequestsJSON...)

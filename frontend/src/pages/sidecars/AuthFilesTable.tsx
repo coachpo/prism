@@ -146,9 +146,6 @@ function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
   if (snapshot.disabled || snapshot.unavailable) {
     return "danger";
   }
-  if (snapshot.next_retry_after) {
-    return "warning";
-  }
   if (snapshot.status === "active" || snapshot.status === "available") {
     return "success";
   }
@@ -448,7 +445,7 @@ export function AuthFilesTable({
                     <TableHead>{copy.authAuthFileColumn}</TableHead>
                     <TableHead>{copy.authStateColumn}</TableHead>
                     <TableHead>{copy.authPriorityColumn}</TableHead>
-                    <TableHead>{copy.authRetryColumn}</TableHead>
+                    <TableHead>{copy.authObservedLabel}</TableHead>
                     <TableHead>{copy.authRequestsColumn}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -537,9 +534,8 @@ export function AuthFilesTable({
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                            <span>{copy.authRetryLabel}: {formatTimestamp(snapshot.next_retry_after, locale, messages.common.unavailable)}</span>
-                            <span>{copy.authObservedLabel}: {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}</span>
+                          <div className="text-xs text-muted-foreground">
+                            {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}
                           </div>
                         </TableCell>
                         <TableCell>

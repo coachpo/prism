@@ -167,7 +167,6 @@ type authSnapshotResponse struct {
 	QuotaExceeded      *bool           `json:"quota_exceeded,omitempty"`
 	QuotaReason        *string         `json:"quota_reason,omitempty"`
 	QuotaNextRecoverAt *time.Time      `json:"quota_next_recover_at,omitempty"`
-	NextRetryAfter     *time.Time      `json:"next_retry_after,omitempty"`
 	SuccessCount       *int            `json:"success_count,omitempty"`
 	FailedCount        *int            `json:"failed_count,omitempty"`
 	RecentRequests     json.RawMessage `json:"recent_requests,omitempty"`
@@ -581,7 +580,7 @@ func buildSidecarInstanceResponse(instance SidecarInstance) sidecarInstanceRespo
 }
 
 func buildAuthSnapshotResponse(snapshot SidecarAuthSnapshot) authSnapshotResponse {
-	return authSnapshotResponse{ID: snapshot.ID, SidecarID: snapshot.SidecarID, AuthID: snapshot.AuthID, AuthIndex: snapshot.AuthIndex, Name: snapshot.Name, Provider: snapshot.Provider, Label: snapshot.Label, Status: snapshot.Status, StatusMessage: snapshot.StatusMessage, Disabled: snapshot.Disabled, Unavailable: snapshot.Unavailable, Priority: snapshot.Priority, QuotaExceeded: snapshot.QuotaExceeded, QuotaReason: snapshot.QuotaReason, QuotaNextRecoverAt: snapshot.QuotaNextRecoverAt, NextRetryAfter: snapshot.NextRetryAfter, SuccessCount: snapshot.SuccessCount, FailedCount: snapshot.FailedCount, RecentRequests: snapshot.RecentRequestsJSON, ModelStates: snapshot.ModelStatesJSON, ObservedAt: snapshot.ObservedAt, Snapshot: snapshot.SnapshotJSON}
+	return authSnapshotResponse{ID: snapshot.ID, SidecarID: snapshot.SidecarID, AuthID: snapshot.AuthID, AuthIndex: snapshot.AuthIndex, Name: snapshot.Name, Provider: snapshot.Provider, Label: snapshot.Label, Status: snapshot.Status, StatusMessage: snapshot.StatusMessage, Disabled: snapshot.Disabled, Unavailable: snapshot.Unavailable, Priority: snapshot.Priority, QuotaExceeded: snapshot.QuotaExceeded, QuotaReason: snapshot.QuotaReason, QuotaNextRecoverAt: snapshot.QuotaNextRecoverAt, SuccessCount: snapshot.SuccessCount, FailedCount: snapshot.FailedCount, RecentRequests: snapshot.RecentRequestsJSON, ModelStates: snapshot.ModelStatesJSON, ObservedAt: snapshot.ObservedAt, Snapshot: snapshot.SnapshotJSON}
 }
 
 func buildProviderSnapshotResponse(snapshot SidecarProviderSnapshot) providerSnapshotResponse {

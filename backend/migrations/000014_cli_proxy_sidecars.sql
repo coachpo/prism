@@ -42,7 +42,6 @@ CREATE TABLE "public"."sidecar_auth_snapshots" (
     "quota_exceeded" boolean,
     "quota_reason" text,
     "quota_next_recover_at" timestamptz,
-    "next_retry_after" timestamptz,
     "success_count" integer,
     "failed_count" integer,
     "recent_requests_json" jsonb DEFAULT '[]'::jsonb NOT NULL,

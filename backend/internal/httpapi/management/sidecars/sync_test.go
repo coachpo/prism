@@ -543,7 +543,7 @@ func serveSyncFixturePath(t *testing.T, w http.ResponseWriter, r *http.Request) 
 }
 
 func syncAuthFixture() string {
-	return `{"files":[{"id":"auth-gemini-primary","auth_index":"auth_001","name":"gemini-primary.json","provider":"gemini","label":"Gemini primary","status":"active","status_message":"","disabled":false,"unavailable":false,"priority":0,"quota":{"exceeded":true,"reason":"rate_limit","next_recover_at":"2026-05-10T12:30:00Z"},"next_retry_after":"2026-05-10T12:05:00Z","success":4,"failed":1,"recent_requests":[{"time":"12:00-12:10","success":4,"failed":1}],"model_states":{"gemini-pro":{"status":"active"}},"path":"/tmp/should-not-be-stored","api_key":"redacted-auth-key"}]}`
+	return `{"files":[{"id":"auth-gemini-primary","auth_index":"auth_001","name":"gemini-primary.json","provider":"gemini","label":"Gemini primary","status":"active","status_message":"","disabled":false,"unavailable":false,"priority":0,"quota":{"exceeded":true,"reason":"rate_limit","next_recover_at":"2026-05-10T12:30:00Z"},"success":4,"failed":1,"recent_requests":[{"time":"12:00-12:10","success":4,"failed":1}],"model_states":{"gemini-pro":{"status":"active"}},"path":"/tmp/should-not-be-stored","api_key":"redacted-auth-key"}]}`
 }
 
 func largeSyncAuthFixture(t *testing.T, rowCount int) string {
@@ -554,20 +554,19 @@ func largeSyncAuthFixture(t *testing.T, rowCount int) string {
 		rowNumber := i + 1
 		provider := providers[i%len(providers)]
 		files = append(files, map[string]any{
-			"id":               "auth-large-" + strconv.Itoa(rowNumber),
-			"auth_index":       "auth_" + strconv.Itoa(rowNumber),
-			"name":             "large-auth-" + strconv.Itoa(rowNumber) + ".json",
-			"provider":         provider,
-			"label":            "Large inventory auth " + strconv.Itoa(rowNumber),
-			"status":           "active",
-			"status_message":   "ready",
-			"disabled":         false,
-			"unavailable":      false,
-			"priority":         rowNumber % 50,
-			"quota":            map[string]any{"exceeded": rowNumber%17 == 0, "reason": "healthy", "next_recover_at": "2026-05-10T12:30:00Z"},
-			"next_retry_after": "2026-05-10T12:05:00Z",
-			"success":          rowNumber % 100,
-			"failed":           rowNumber % 3,
+			"id":             "auth-large-" + strconv.Itoa(rowNumber),
+			"auth_index":     "auth_" + strconv.Itoa(rowNumber),
+			"name":           "large-auth-" + strconv.Itoa(rowNumber) + ".json",
+			"provider":       provider,
+			"label":          "Large inventory auth " + strconv.Itoa(rowNumber),
+			"status":         "active",
+			"status_message": "ready",
+			"disabled":       false,
+			"unavailable":    false,
+			"priority":       rowNumber % 50,
+			"quota":          map[string]any{"exceeded": rowNumber%17 == 0, "reason": "healthy", "next_recover_at": "2026-05-10T12:30:00Z"},
+			"success":        rowNumber % 100,
+			"failed":         rowNumber % 3,
 			"recent_requests": []map[string]any{
 				{"time": "12:00-12:10", "success": rowNumber % 7, "failed": rowNumber % 2},
 				{"time": "12:10-12:20", "success": rowNumber % 5, "failed": 0},
@@ -607,7 +606,7 @@ func syncAuthFixtureWithEnvelopeKey(t *testing.T, key string) string {
 }
 
 func sensitiveSyncAuthFixture() string {
-	return `{"files":[{"id":"auth-gemini-sensitive","auth_index":"auth_001","name":"gemini-sensitive.json","type":"gemini","provider":"gemini","label":"Sensitive Gemini","status":"active","status_message":"","disabled":false,"unavailable":false,"priority":20,"quota":{"exceeded":false,"reason":"healthy","management_key":"raw-quota-management-key"},"next_retry_after":"2026-05-10T12:05:00Z","success":9,"failed":0,"recent_requests":[{"time":"12:00-12:10","success":9,"failed":0,"headers":{"Authorization":"Bearer raw-authorization-token","X-API-Key":"raw-header-api-key","Cookie":"session=raw-cookie-secret"}}],"model_states":{"gemini-pro":{"status":"active","token":"raw-model-state-token"}},"path":"/etc/cliproxy/auth/gemini-sensitive.json","api_key":"raw-auth-api-key","management_password":"raw-management-password","headers":{"Authorization":"Bearer raw-top-level-auth-token"},"note":"safe operator metadata"},{"id":"auth-claude-sensitive","auth_index":"auth_002","name":"claude-sensitive.json","type":"claude","provider":"claude","label":"Sensitive Claude","status":"active","disabled":false,"unavailable":false,"priority":5,"quota":{"exceeded":true,"reason":"rate_limit","next_recover_at":"2026-05-10T13:00:00Z"},"success":1,"failed":2,"recent_requests":[{"time":"12:10-12:20","success":1,"failed":2}],"model_states":{"claude-sonnet":{"status":"limited"}},"api-key":"raw-kebab-api-key"}],"metadata":{"row_count":2,"generated_at":"2026-05-10T12:00:00Z"}}`
+	return `{"files":[{"id":"auth-gemini-sensitive","auth_index":"auth_001","name":"gemini-sensitive.json","type":"gemini","provider":"gemini","label":"Sensitive Gemini","status":"active","status_message":"","disabled":false,"unavailable":false,"priority":20,"quota":{"exceeded":false,"reason":"healthy","management_key":"raw-quota-management-key"},"success":9,"failed":0,"recent_requests":[{"time":"12:00-12:10","success":9,"failed":0,"headers":{"Authorization":"Bearer raw-authorization-token","X-API-Key":"raw-header-api-key","Cookie":"session=raw-cookie-secret"}}],"model_states":{"gemini-pro":{"status":"active","token":"raw-model-state-token"}},"path":"/etc/cliproxy/auth/gemini-sensitive.json","api_key":"raw-auth-api-key","management_password":"raw-management-password","headers":{"Authorization":"Bearer raw-top-level-auth-token"},"note":"safe operator metadata"},{"id":"auth-claude-sensitive","auth_index":"auth_002","name":"claude-sensitive.json","type":"claude","provider":"claude","label":"Sensitive Claude","status":"active","disabled":false,"unavailable":false,"priority":5,"quota":{"exceeded":true,"reason":"rate_limit","next_recover_at":"2026-05-10T13:00:00Z"},"success":1,"failed":2,"recent_requests":[{"time":"12:10-12:20","success":1,"failed":2}],"model_states":{"claude-sonnet":{"status":"limited"}},"api-key":"raw-kebab-api-key"}],"metadata":{"row_count":2,"generated_at":"2026-05-10T12:00:00Z"}}`
 }
 
 func assertAuthPayloadSecretFree(t *testing.T, value string) {

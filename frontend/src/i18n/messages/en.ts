@@ -172,7 +172,6 @@ export interface Messages {
     authPriorityLabel: (priority: number) => string;
     authPriorityUpdated: (name: string) => string;
     authRecentRequestsLabel: string;
-    authRetryLabel: string;
     authSavePriority: string;
     authStatusUpdated: (name: string, disabled: boolean) => string;
     authStateColumn: string;
@@ -180,7 +179,6 @@ export interface Messages {
     authFailedRequestsLabel: string;
     authObservedLabel: string;
     authRequestsColumn: string;
-    authRetryColumn: string;
     authTitle: string;
     authFilterLabel: string;
     authFilterPlaceholder: string;
@@ -2255,7 +2253,7 @@ export const enMessages: Messages = {
     authActionConfirmDescription: "Manual changes are sent directly to the sidecar auth file, then Prism refreshes the local snapshot.",
     authActionConfirmTitle: "Confirm manual auth mutation",
     authAuthFileColumn: "Auth file",
-    authDescription: "Synced OAuth/auth inventory with routing priority and retry timing. Secrets and raw tokens are never shown.",
+    authDescription: "Synced OAuth/auth inventory with routing priority. Secrets and raw tokens are never shown.",
     authDisableAuth: (name) => `Disable auth ${name}`,
     authDisabledLabel: "Disabled",
     authEmptyDescription: "Run a sidecar sync to populate auth inventory.",
@@ -2270,7 +2268,6 @@ export const enMessages: Messages = {
     authPriorityLabel: (priority) => `priority ${priority}`,
     authPriorityUpdated: (name) => `Updated priority for ${name}.`,
     authRecentRequestsLabel: "Recent",
-    authRetryLabel: "Retry",
     authSavePriority: "Save",
     authStatusUpdated: (name, disabled) => `${disabled ? "Disabled" : "Enabled"} ${name}.`,
     authStateColumn: "State",
@@ -2278,7 +2275,6 @@ export const enMessages: Messages = {
     authFailedRequestsLabel: "Failed",
     authObservedLabel: "Observed",
     authRequestsColumn: "Requests",
-    authRetryColumn: "Retry / observed",
     authTitle: "Auth files",
     authFilterLabel: "Filter auth files",
     authFilterPlaceholder: "Filter auth files...",

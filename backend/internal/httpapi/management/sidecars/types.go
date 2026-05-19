@@ -120,7 +120,6 @@ type SidecarAuthSnapshotInput struct {
 	QuotaExceeded      *bool
 	QuotaReason        *string
 	QuotaNextRecoverAt *time.Time
-	NextRetryAfter     *time.Time
 	SuccessCount       *int
 	FailedCount        *int
 	RecentRequestsJSON json.RawMessage
@@ -145,7 +144,6 @@ type SidecarAuthSnapshot struct {
 	QuotaExceeded      *bool
 	QuotaReason        *string
 	QuotaNextRecoverAt *time.Time
-	NextRetryAfter     *time.Time
 	SuccessCount       *int
 	FailedCount        *int
 	RecentRequestsJSON json.RawMessage

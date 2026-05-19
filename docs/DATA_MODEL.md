@@ -707,7 +707,7 @@ Sidecar tables are global instance state. They are not profile-scoped and do not
 | Table | Purpose |
 |---|---|
 | `sidecar_instances` | Sidecar registration, canonical base URL, encrypted management password, enabled flag, sync interval, request timeout, network policy flags, management-auth state, pause metadata, and sync timestamps. |
-| `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, retry metadata, recent requests, model states, redacted snapshot JSON, and observation time. |
+| `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, quota recovery, request counts, recent requests, model states, redacted snapshot JSON, and observation time. |
 | `sidecar_provider_snapshots` | Normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
 
 Ownership notes:

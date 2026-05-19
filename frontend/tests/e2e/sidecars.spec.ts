@@ -34,7 +34,6 @@ type AuthSnapshot = {
   disabled?: boolean;
   unavailable?: boolean;
   priority?: number;
-  next_retry_after?: string;
   success_count?: number;
   failed_count?: number;
   recent_requests?: unknown;
@@ -108,7 +107,7 @@ function authSnapshot(overrides: Partial<AuthSnapshot>): AuthSnapshot {
 function defaultAuthSnapshots(): AuthSnapshot[] {
   return [
     authSnapshot({}),
-    authSnapshot({ id: 12, auth_id: "auth-zero-priority", name: "zero-priority.json", status: "active", priority: 0, next_retry_after: future }),
+    authSnapshot({ id: 12, auth_id: "auth-zero-priority", name: "zero-priority.json", status: "active", priority: 0 }),
     authSnapshot({ id: 13, auth_id: "auth-disabled", name: "disabled-oauth.json", provider: "claude", disabled: true, unavailable: true, priority: undefined }),
   ];
 }

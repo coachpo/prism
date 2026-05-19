@@ -71,7 +71,6 @@ func (s *memorySidecarStore) SaveAuthSnapshot(_ context.Context, input SidecarAu
 	snapshot.QuotaExceeded = cloneBoolPtr(input.QuotaExceeded)
 	snapshot.QuotaReason = cloneStringPtr(input.QuotaReason)
 	snapshot.QuotaNextRecoverAt = cloneTimePtr(input.QuotaNextRecoverAt)
-	snapshot.NextRetryAfter = cloneTimePtr(input.NextRetryAfter)
 	snapshot.SuccessCount = cloneIntPtr(input.SuccessCount)
 	snapshot.FailedCount = cloneIntPtr(input.FailedCount)
 	snapshot.RecentRequestsJSON = memoryJSON(input.RecentRequestsJSON, "[]")
@@ -114,7 +113,6 @@ func (s *memorySidecarStore) ReplaceAuthSnapshots(_ context.Context, sidecarID i
 			QuotaExceeded:      cloneBoolPtr(input.QuotaExceeded),
 			QuotaReason:        cloneStringPtr(input.QuotaReason),
 			QuotaNextRecoverAt: cloneTimePtr(input.QuotaNextRecoverAt),
-			NextRetryAfter:     cloneTimePtr(input.NextRetryAfter),
 			SuccessCount:       cloneIntPtr(input.SuccessCount),
 			FailedCount:        cloneIntPtr(input.FailedCount),
 			RecentRequestsJSON: memoryJSON(input.RecentRequestsJSON, "[]"),

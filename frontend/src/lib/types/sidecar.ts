@@ -56,7 +56,6 @@ export interface SidecarAuthSnapshot {
   disabled?: boolean;
   unavailable?: boolean;
   priority?: number;
-  next_retry_after?: string;
   success_count?: number;
   failed_count?: number;
   recent_requests?: unknown;

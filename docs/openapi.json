@@ -16667,11 +16667,6 @@
             "format": "date-time",
             "nullable": true
           },
-          "next_retry_after": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
           "success_count": {
             "type": "integer",
             "nullable": true
