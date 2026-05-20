@@ -20,7 +20,7 @@ const (
 )
 
 func canonicalDefaultStrategySpecs() []canonicalDefaultStrategySpec {
-	legacyType := "round-robin"
+	legacyType := "fill-first"
 	legacy := buildDefaultAutoRecoveryDocument()
 	adaptive := buildDefaultRoutingPolicyDocument()
 	return []canonicalDefaultStrategySpec{

@@ -529,6 +529,19 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 		}
 		items := asSliceOfMaps(t, firstPayload["items"])
 		assertStrategyNames(t, items, []string{"Default adaptive routing", "Default legacy routing"})
+		legacyDefaultFound := false
+		for _, item := range items {
+			if item["name"] != "Default legacy routing" {
+				continue
+			}
+			legacyDefaultFound = true
+			if item["legacy_strategy_type"] != "fill-first" {
+				t.Fatalf("expected Default legacy routing to use fill-first, got %+v", item)
+			}
+		}
+		if !legacyDefaultFound {
+			t.Fatalf("expected Default legacy routing item in %+v", items)
+		}
 
 		second := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
 		assertStatus(t, second, http.StatusOK)
@@ -544,7 +557,7 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 	t.Run("creates only missing default", func(t *testing.T) {
 		harness := newS11ContractHarness(t)
 		defaultProfileID := modelLoadDefaultProfileID(t, harness)
-		s11InsertStrategy(t, harness, defaultProfileID, "Default legacy routing", "legacy", stringPtr("round-robin"), map[string]any{
+		s11InsertStrategy(t, harness, defaultProfileID, "Default legacy routing", "legacy", stringPtr("fill-first"), map[string]any{
 			"mode":         "enabled",
 			"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
 			"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
@@ -560,6 +573,27 @@ func TestLoadbalanceStrategyDefaults(t *testing.T) {
 		}
 		assertStringList(t, payload["created_names"], []string{"Default adaptive routing"})
 		assertStringList(t, payload["existing_names"], []string{"Default legacy routing"})
+	})
+
+	t.Run("rejects legacy round-robin row under canonical default name", func(t *testing.T) {
+		harness := newS11ContractHarness(t)
+		defaultProfileID := modelLoadDefaultProfileID(t, harness)
+		s11InsertStrategy(t, harness, defaultProfileID, "Default legacy routing", "legacy", stringPtr("round-robin"), map[string]any{
+			"mode":         "enabled",
+			"status_codes": []int{403, 422, 429, 500, 502, 503, 504, 529},
+			"cooldown":     map[string]any{"base_seconds": 60, "failure_threshold": 2, "backoff_multiplier": 2.0, "max_cooldown_seconds": 900},
+			"ban":          map[string]any{"mode": "off", "max_cooldown_strikes_before_ban": 0, "ban_duration_seconds": 0},
+		}, nil)
+
+		response := harness.requestJSON(t, harness.client, http.MethodPost, "/api/loadbalance/strategies/defaults", nil, modelHeader(defaultProfileID))
+		assertStatus(t, response, http.StatusConflict)
+		var payload map[string]any
+		decodeJSONResponse(t, response, &payload)
+		detail := asMap(t, payload["detail"])
+		if detail["message"] != "Canonical loadbalance strategy default name conflict" {
+			t.Fatalf("expected canonical conflict message, got %+v", payload)
+		}
+		assertStringList(t, detail["conflicting_names"], []string{"Default legacy routing"})
 	})
 
 	t.Run("rejects canonical name conflicts", func(t *testing.T) {
