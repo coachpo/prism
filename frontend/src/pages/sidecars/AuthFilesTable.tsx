@@ -75,7 +75,7 @@ interface AuthFilesTableProps {
   onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number) => Promise<void>;
 }
 
-const DEFAULT_AUTH_PAGE_SIZE = 50;
+const DEFAULT_AUTH_PAGE_SIZE = 30;
 
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
   if (!value) {
@@ -438,119 +438,123 @@ export function AuthFilesTable({
           <EmptyState title={copy.authFilteredEmptyTitle} description={copy.authFilteredEmptyDescription} />
         ) : (
           <div className="overflow-hidden rounded-md border">
-            <ScrollArea className="h-288">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{copy.authAuthFileColumn}</TableHead>
-                    <TableHead>{copy.authStateColumn}</TableHead>
-                    <TableHead>{copy.authPriorityColumn}</TableHead>
-                    <TableHead>{copy.authObservedLabel}</TableHead>
-                    <TableHead>{copy.authRequestsColumn}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleAuthSnapshots.map((snapshot) => {
-                    const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
-                    const parsedPriority = parsePriority(priorityValue);
-                    const mutating = mutatingAuthKey === snapshot.auth_id;
-                    const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
-                    const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
-                    const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.authUnobservedLabel);
-
-                    return (
-                      <TableRow key={snapshot.auth_id}>
-                        <TableCell>
-                          <div className="flex min-w-52 flex-col gap-1">
-                            <span className="font-medium">{snapshot.name}</span>
-                            <span className="font-mono text-xs text-muted-foreground">{snapshot.auth_id}</span>
-                            <div className="flex flex-wrap gap-1">
-                              {snapshot.provider ? <TypeBadge label={snapshot.provider} intent="info" preserveLabel /> : null}
-                              {snapshot.label ? <TypeBadge label={snapshot.label} intent="muted" preserveLabel /> : null}
-                              {snapshot.auth_index ? <ValueBadge label={`#${snapshot.auth_index}`} intent="muted" /> : null}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-2">
-                            {usageLimitError ? (
-                              <UsageLimitStatusTooltip
-                                badgeIntent={statusBadgeIntent}
-                                badgeLabel={statusBadgeLabel}
-                                error={usageLimitError}
-                                fallback={messages.common.unavailable}
-                                formatNumberValue={formatNumber}
-                                labels={{
-                                  eligiblePromoLabel: copy.authUsageLimitEligiblePromoLabel,
-                                  messageLabel: copy.authUsageLimitMessageLabel,
-                                  planTypeLabel: copy.authUsageLimitPlanTypeLabel,
-                                  resetsAtLabel: copy.authUsageLimitResetsAtLabel,
-                                  resetsInSecondsLabel: copy.authUsageLimitResetsInSecondsLabel,
-                                  title: copy.authUsageLimitTitle,
-                                  typeLabel: copy.authUsageLimitTypeLabel,
-                                }}
-                                locale={locale}
-                                notApplicableLabel={messages.common.notApplicable}
-                              />
-                            ) : (
-                              <StatusBadge label={statusBadgeLabel} intent={statusBadgeIntent} />
-                            )}
-                            <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.authUnobservedLabel)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
-                            {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
-                            {snapshot.status_message && !usageLimitError ? (
-                              <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex min-w-44 flex-col gap-2">
-                            <div className="flex flex-wrap items-center gap-1">
-                              {snapshot.priority !== undefined ? <ValueBadge label={copy.authPriorityLabel(snapshot.priority)} intent="info" /> : null}
-                              {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="info" preserveLabel /> : null}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                aria-label={copy.authPriorityInputLabel(snapshot.name)}
-                                className="h-8 w-24"
-                                min={1}
-                                step={1}
-                                type="number"
-                                value={priorityValue}
-                                aria-invalid={parsedPriority === null}
-                                onChange={(event) => setDraftPriorities((current) => ({ ...current, [snapshot.auth_id]: event.target.value }))}
-                              />
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="outline"
-                                disabled={parsedPriority === null || mutating}
-                                onClick={() => parsedPriority !== null && openMutation({ kind: "priority", snapshot, priority: parsedPriority })}
-                              >
-                                {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                                {copy.authSavePriority}
-                              </Button>
-                            </div>
-                            {parsedPriority === null ? <span className="text-xs text-warning">{copy.authPriorityPositiveRequired}</span> : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-xs text-muted-foreground">
-                            {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                            <span>{copy.authSuccessRequestsLabel}: {formatNumber(snapshot.success_count ?? 0)}</span>
-                            <span>{copy.authFailedRequestsLabel}: {formatNumber(snapshot.failed_count ?? 0)}</span>
-                            <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
-                          </div>
-                        </TableCell>
+            <div className="overflow-x-auto" data-testid="sidecar-auth-files-scroll">
+              <div className="min-w-[960px]">
+                <ScrollArea className="h-288">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{copy.authAuthFileColumn}</TableHead>
+                        <TableHead>{copy.authStateColumn}</TableHead>
+                        <TableHead>{copy.authPriorityColumn}</TableHead>
+                        <TableHead>{copy.authObservedLabel}</TableHead>
+                        <TableHead>{copy.authRequestsColumn}</TableHead>
                       </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+                    </TableHeader>
+                    <TableBody>
+                      {visibleAuthSnapshots.map((snapshot) => {
+                        const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
+                        const parsedPriority = parsePriority(priorityValue);
+                        const mutating = mutatingAuthKey === snapshot.auth_id;
+                        const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
+                        const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
+                        const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.authUnobservedLabel);
+
+                        return (
+                          <TableRow key={snapshot.auth_id}>
+                            <TableCell>
+                              <div className="flex min-w-52 flex-col gap-1">
+                                <span className="font-medium">{snapshot.name}</span>
+                                <span className="font-mono text-xs text-muted-foreground">{snapshot.auth_id}</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {snapshot.provider ? <TypeBadge label={snapshot.provider} intent="info" preserveLabel /> : null}
+                                  {snapshot.label ? <TypeBadge label={snapshot.label} intent="muted" preserveLabel /> : null}
+                                  {snapshot.auth_index ? <ValueBadge label={`#${snapshot.auth_index}`} intent="muted" /> : null}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-2">
+                                {usageLimitError ? (
+                                  <UsageLimitStatusTooltip
+                                    badgeIntent={statusBadgeIntent}
+                                    badgeLabel={statusBadgeLabel}
+                                    error={usageLimitError}
+                                    fallback={messages.common.unavailable}
+                                    formatNumberValue={formatNumber}
+                                    labels={{
+                                      eligiblePromoLabel: copy.authUsageLimitEligiblePromoLabel,
+                                      messageLabel: copy.authUsageLimitMessageLabel,
+                                      planTypeLabel: copy.authUsageLimitPlanTypeLabel,
+                                      resetsAtLabel: copy.authUsageLimitResetsAtLabel,
+                                      resetsInSecondsLabel: copy.authUsageLimitResetsInSecondsLabel,
+                                      title: copy.authUsageLimitTitle,
+                                      typeLabel: copy.authUsageLimitTypeLabel,
+                                    }}
+                                    locale={locale}
+                                    notApplicableLabel={messages.common.notApplicable}
+                                  />
+                                ) : (
+                                  <StatusBadge label={statusBadgeLabel} intent={statusBadgeIntent} />
+                                )}
+                                <TypeBadge label={boolState(snapshot.disabled, copy.authEnabledLabel, copy.authDisabledLabel, copy.authUnobservedLabel)} intent={snapshot.disabled ? "danger" : "success"} preserveLabel />
+                                {snapshot.unavailable ? <TypeBadge label={copy.authUnavailableLabel} intent="warning" preserveLabel /> : null}
+                                {snapshot.status_message && !usageLimitError ? (
+                                  <span className="max-w-52 text-xs text-muted-foreground">{snapshot.status_message}</span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex min-w-44 flex-col gap-2">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {snapshot.priority !== undefined ? <ValueBadge label={copy.authPriorityLabel(snapshot.priority)} intent="info" /> : null}
+                                  {snapshot.priority === undefined ? <TypeBadge label={copy.authMissingPriorityResolves} intent="info" preserveLabel /> : null}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    aria-label={copy.authPriorityInputLabel(snapshot.name)}
+                                    className="h-8 w-24"
+                                    min={1}
+                                    step={1}
+                                    type="number"
+                                    value={priorityValue}
+                                    aria-invalid={parsedPriority === null}
+                                    onChange={(event) => setDraftPriorities((current) => ({ ...current, [snapshot.auth_id]: event.target.value }))}
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="outline"
+                                    disabled={parsedPriority === null || mutating}
+                                    onClick={() => parsedPriority !== null && openMutation({ kind: "priority", snapshot, priority: parsedPriority })}
+                                  >
+                                    {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                    {copy.authSavePriority}
+                                  </Button>
+                                </div>
+                                {parsedPriority === null ? <span className="text-xs text-warning">{copy.authPriorityPositiveRequired}</span> : null}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-xs text-muted-foreground">
+                                {formatTimestamp(snapshot.observed_at, locale, messages.common.unavailable)}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                                <span>{copy.authSuccessRequestsLabel}: {formatNumber(snapshot.success_count ?? 0)}</span>
+                                <span>{copy.authFailedRequestsLabel}: {formatNumber(snapshot.failed_count ?? 0)}</span>
+                                <span>{copy.authRecentRequestsLabel}: {summarizeJson(snapshot.recent_requests, copy.bucketSummary, copy.redactedLabel)}</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
+            </div>
             <div className="flex flex-col gap-3 border-t border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span>

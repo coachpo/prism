@@ -355,6 +355,7 @@ test.describe("sidecars management", () => {
 
   test("filters, sorts, tie-breaks, and paginates auth files", async ({ page }) => {
     await mockSidecarsApi(page, [sidecar({ id: 1 })], { authSnapshots: authFilterSortSnapshots() });
+    await page.setViewportSize({ width: 700, height: 720 });
 
     await page.goto("/sidecars");
 
@@ -363,12 +364,16 @@ test.describe("sidecars management", () => {
 
     await expect(authFiles.getByTestId("sidecar-auth-page-size-select")).toHaveCount(0);
     await expect(authFiles.getByRole("columnheader", { name: "Actions" })).toHaveCount(0);
-    await expect(authFiles).toContainText("1-50 of 109");
+    await expect(authFiles).toContainText("1-30 of 109");
+    await expect.poll(async () => authFiles.getByTestId("sidecar-auth-files-scroll").evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+      return element.scrollWidth > element.clientWidth && element.scrollLeft > 0;
+    })).toBe(true);
     await authSearch.fill("gamma-page");
     await expect(authFiles).toContainText("gamma-page-001.json");
-    await expect(authFiles).toContainText("gamma-page-050.json");
-    await expect(authFiles).not.toContainText("gamma-page-051.json");
-    await expect(authFiles).toContainText("1-50 of 101");
+    await expect(authFiles).toContainText("gamma-page-030.json");
+    await expect(authFiles).not.toContainText("gamma-page-031.json");
+    await expect(authFiles).toContainText("1-30 of 101");
     await expect(authFiles).not.toContainText("zeta-high.json");
 
     await authSearch.fill("claude");
@@ -387,10 +392,10 @@ test.describe("sidecars management", () => {
 
     await authSearch.fill("missing-auth-file");
     await expect(authFiles).toContainText("No auth files match");
-    await expect(authFiles).not.toContainText("1-50 of 101");
+    await expect(authFiles).not.toContainText("1-30 of 101");
 
     await authSearch.fill("");
-    await expect(authFiles).toContainText("1-50 of 109");
+    await expect(authFiles).toContainText("1-30 of 109");
     await expect(authFiles).toContainText("alpha-shared.json");
 
     await page.getByTestId("sidecar-auth-sort-select").click();
