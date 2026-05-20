@@ -36,7 +36,7 @@ export function PricingTemplatesTable({
   const { messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
   const dialogCopy = messages.pricingTemplateDialog;
-  const missingValuePlaceholder = "—";
+  const formatOptionalPrice = (value: string | null) => value ?? copy.optionalPriceDefault;
 
   return (
     <Card>
@@ -108,10 +108,10 @@ export function PricingTemplatesTable({
                           <span className="font-medium tabular-nums">{template.input_price}</span>
                           <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                             <span>
-                              {dialogCopy.cachedInputPriceLabel}: {template.cached_input_price ?? missingValuePlaceholder}
+                              {dialogCopy.cachedInputPriceLabel}: {formatOptionalPrice(template.cached_input_price)}
                             </span>
                             <span>
-                              {dialogCopy.cacheCreationPriceLabel}: {template.cache_creation_price ?? missingValuePlaceholder}
+                              {dialogCopy.cacheCreationPriceLabel}: {formatOptionalPrice(template.cache_creation_price)}
                             </span>
                           </div>
                         </div>
@@ -121,7 +121,7 @@ export function PricingTemplatesTable({
                           <span className="font-medium tabular-nums">{template.output_price}</span>
                           <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                             <span>
-                              {dialogCopy.reasoningPriceLabel}: {template.reasoning_price ?? missingValuePlaceholder}
+                              {dialogCopy.reasoningPriceLabel}: {formatOptionalPrice(template.reasoning_price)}
                             </span>
                           </div>
                         </div>

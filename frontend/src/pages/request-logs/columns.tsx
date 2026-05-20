@@ -81,6 +81,14 @@ function getSingleClientDisplay(row: RequestLogListItem): string {
   return row.caller_client_display ?? row.upstream_client_display ?? "—";
 }
 
+function resolveRequestLogSpendTrust(row: RequestLogListItem) {
+  return resolveSpendTrustState({
+    costMicros: row.total_cost_user_currency_micros,
+    priced: row.priced_flag,
+    unpricedReason: row.unpriced_reason,
+  });
+}
+
 function renderClientCell(row: RequestLogListItem): React.ReactNode {
   if (!row.user_agent_overridden) {
     return <span className="block truncate text-xs font-medium">{getSingleClientDisplay(row)}</span>;
@@ -99,11 +107,7 @@ function renderClientCell(row: RequestLogListItem): React.ReactNode {
 }
 
 function renderSpendCell(row: RequestLogListItem): React.ReactNode {
-  const spendTrust = resolveSpendTrustState({
-    costMicros: row.total_cost_user_currency_micros,
-    priced: row.priced_flag,
-    unpricedReason: row.unpriced_reason,
-  });
+  const spendTrust = resolveRequestLogSpendTrust(row);
   const messages = getStaticMessages();
   const value = isStreamUsageUnavailableReason(row.unpriced_reason)
     ? messages.requestLogs.streamUsageUnavailable

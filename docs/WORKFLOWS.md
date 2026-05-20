@@ -149,9 +149,10 @@ Validated again against current repo surfaces on 2026-05-10:
 
 1. Endpoints define reusable upstream credentials and base URLs.
 2. Loadbalance strategies define reusable `legacy` or `adaptive` routing policies for native models.
-3. Pricing templates define reusable cost models attached to connections.
-4. These resources are profile-scoped and are usually managed before or alongside model-detail work.
-5. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
+3. Pricing templates define reusable cost models attached to connections. Required input and output prices must be explicit, while nullable optional cache-read, cache-creation, and reasoning prices mean default zero/effective zero in phase 1.
+4. Pricing-template management displays nullable optional prices as `0 (default)`. Request logs and cost math surfaces display the same effective value as plain `0`.
+5. These resources are profile-scoped and are usually managed before or alongside model-detail work.
+6. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
 
 **Backend touchpoints**
 
@@ -242,7 +243,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 **Frontend flow**
 
 1. Settings splits into Profile, Global, and Startup tabs.
-2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions.
+2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions. Rows with missing FX data remain pricing failures and are separate from optional pricing-template components that default to zero.
 3. Global settings cover operator authentication and shared vendor management.
 4. The Startup tab owns plaintext bootstrap config management under `/settings#startup`.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.

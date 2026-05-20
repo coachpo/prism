@@ -1,5 +1,11 @@
 export type NonEmptyArray<T> = [T, ...T[]];
 
+/**
+ * Optional pricing components stay nullable across management and config bundles.
+ * A null value means the runtime/display default of zero; explicit strings are stored decimal prices.
+ */
+export type OptionalPricingComponentPrice = string | null;
+
 export interface Endpoint {
   id: number;
   profile_id?: number;
@@ -44,9 +50,9 @@ export interface PricingTemplate {
   pricing_currency_code: string;
   input_price: string;
   output_price: string;
-  cached_input_price: string | null;
-  cache_creation_price: string | null;
-  reasoning_price: string | null;
+  cached_input_price: OptionalPricingComponentPrice;
+  cache_creation_price: OptionalPricingComponentPrice;
+  reasoning_price: OptionalPricingComponentPrice;
   version: number;
   created_at: string;
   updated_at: string;
@@ -59,9 +65,9 @@ export interface PricingTemplateCreate {
   pricing_currency_code: string;
   input_price: string;
   output_price: string;
-  cached_input_price?: string | null;
-  cache_creation_price?: string | null;
-  reasoning_price?: string | null;
+  cached_input_price?: OptionalPricingComponentPrice;
+  cache_creation_price?: OptionalPricingComponentPrice;
+  reasoning_price?: OptionalPricingComponentPrice;
 }
 
 export interface PricingTemplateUpdate {
@@ -72,9 +78,9 @@ export interface PricingTemplateUpdate {
   pricing_currency_code?: string;
   input_price?: string;
   output_price?: string;
-  cached_input_price?: string | null;
-  cache_creation_price?: string | null;
-  reasoning_price?: string | null;
+  cached_input_price?: OptionalPricingComponentPrice;
+  cache_creation_price?: OptionalPricingComponentPrice;
+  reasoning_price?: OptionalPricingComponentPrice;
 }
 
 export interface PricingTemplateConnectionUsageItem {

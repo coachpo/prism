@@ -121,9 +121,9 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 	result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingUnit)
 	result.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.InputPrice)
 	result.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.OutputPrice)
-	result.PricingSnapshotCacheReadInput = runtimeOptionalOptionalTrimmedString(pricingTemplateSnapshot.CachedInputPrice)
-	result.PricingSnapshotCacheCreationInput = runtimeOptionalOptionalTrimmedString(pricingTemplateSnapshot.CacheCreationPrice)
-	result.PricingSnapshotReasoning = runtimeOptionalOptionalTrimmedString(pricingTemplateSnapshot.ReasoningPrice)
+	result.PricingSnapshotCacheReadInput = runtimeOptionalComponentSnapshotString(pricingTemplateSnapshot.CachedInputPrice)
+	result.PricingSnapshotCacheCreationInput = runtimeOptionalComponentSnapshotString(pricingTemplateSnapshot.CacheCreationPrice)
+	result.PricingSnapshotReasoning = runtimeOptionalComponentSnapshotString(pricingTemplateSnapshot.ReasoningPrice)
 	result.PricingConfigVersionUsed = intPtr(pricingTemplateSnapshot.Version)
 	return result
 }
@@ -181,7 +181,7 @@ func runtimePriceOptionalComponentMicros(tokens *int, price *string) (int64, boo
 		return 0, true
 	}
 	if price == nil {
-		return 0, false
+		return 0, true
 	}
 	return runtimePriceComponentMicros(tokens, *price)
 }
@@ -245,6 +245,13 @@ func runtimeOptionalTrimmedString(value string) *string {
 		return nil
 	}
 	return stringPtr(trimmed)
+}
+
+func runtimeOptionalComponentSnapshotString(value *string) *string {
+	if value == nil {
+		return stringPtr("0")
+	}
+	return runtimeOptionalOptionalTrimmedString(value)
 }
 
 func runtimeOptionalOptionalTrimmedString(value *string) *string {

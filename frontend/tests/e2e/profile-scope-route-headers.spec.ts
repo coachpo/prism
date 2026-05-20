@@ -275,12 +275,15 @@ test("browser requests omit X-Profile-Id on global routes and include it on scop
 
   await page.goto("/settings");
 
-  await expect.poll(() => capturedHeaders.settingsAuth.length).toBeGreaterThan(0);
   await expect.poll(() => capturedHeaders.settingsCosting.length).toBeGreaterThan(0);
 
   expect(capturedHeaders.bootstrap.every((value) => value === null)).toBe(true);
-  expect(capturedHeaders.settingsAuth.every((value) => value === null)).toBe(true);
   expect(capturedHeaders.settingsCosting.every((value) => value === "2")).toBe(true);
+
+  await page.goto("/settings#authentication");
+
+  await expect.poll(() => capturedHeaders.settingsAuth.length).toBeGreaterThan(0);
+  expect(capturedHeaders.settingsAuth.every((value) => value === null)).toBe(true);
 
   await page.goto("/dashboard?tab=overview");
 

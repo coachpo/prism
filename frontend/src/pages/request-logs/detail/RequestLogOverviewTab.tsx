@@ -82,6 +82,10 @@ function renderClientDetailValue(display: string | null, rawUserAgent: string | 
   );
 }
 
+function formatPricingSnapshotValue(value: string | null): string {
+  return value ?? "—";
+}
+
 function renderAuditCaptureState(
   routing: RequestLogDetail["routing"],
   messages: ReturnType<typeof useLocale>["messages"],
@@ -511,19 +515,19 @@ export function RequestLogOverviewTab({
                 <span className="font-mono">{request.pricing.pricing_config_version_used ?? "—"}</span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotInput}>
-                <span className="font-mono">{request.pricing.pricing_snapshot_input ?? "—"}</span>
+                <span className="font-mono">{formatPricingSnapshotValue(request.pricing.pricing_snapshot_input)}</span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotOutput}>
-                <span className="font-mono">{request.pricing.pricing_snapshot_output ?? "—"}</span>
+                <span className="font-mono">{formatPricingSnapshotValue(request.pricing.pricing_snapshot_output)}</span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotCacheRead}>
-                <span className="font-mono">{request.pricing.pricing_snapshot_cache_read_input ?? "—"}</span>
+                <span className="font-mono">{formatPricingSnapshotValue(request.pricing.pricing_snapshot_cache_read_input)}</span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotCacheCreation}>
-                <span className="font-mono">{request.pricing.pricing_snapshot_cache_creation_input ?? "—"}</span>
+                <span className="font-mono">{formatPricingSnapshotValue(request.pricing.pricing_snapshot_cache_creation_input)}</span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.pricingSnapshotReasoning}>
-                <span className="font-mono">{request.pricing.pricing_snapshot_reasoning ?? "—"}</span>
+                <span className="font-mono">{formatPricingSnapshotValue(request.pricing.pricing_snapshot_reasoning)}</span>
               </DetailRow>
             </div>
           </div>

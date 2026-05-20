@@ -7819,7 +7819,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -7830,7 +7831,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -7841,7 +7843,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           },
           "version": {
             "type": "integer",
@@ -7902,7 +7905,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -7913,7 +7917,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -7924,7 +7929,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           },
           "version": {
             "type": "integer",
@@ -11783,7 +11789,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -11794,7 +11801,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -11805,7 +11813,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           }
         },
         "additionalProperties": false,
@@ -11869,7 +11878,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -11880,7 +11890,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -11891,7 +11902,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           },
           "version": {
             "type": "integer",
@@ -12010,7 +12022,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -12021,7 +12034,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -12032,7 +12046,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           }
         },
         "additionalProperties": false,

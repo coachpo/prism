@@ -77,6 +77,10 @@ export function hasUnpricedSpendContext(input: SpendTrustInput = {}): boolean {
     return true;
   }
 
+  if (input.priced === true) {
+    return false;
+  }
+
   if (hasOwnProperty(input, "pricedRequestCount") || hasOwnProperty(input, "unpricedRequestCount")) {
     const pricedRequestCount = normalizeOptionalCount(input.pricedRequestCount);
     const unpricedRequestCount = normalizeOptionalCount(input.unpricedRequestCount);

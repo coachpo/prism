@@ -1585,6 +1585,7 @@ export interface Messages {
     model: string;
     noTemplatesConfigured: string;
     output: string;
+    optionalPriceDefault: string;
     profileScopedSettings: string;
     scopeCallout: (profileLabel: string) => string;
     tableTitle: string;
@@ -2614,7 +2615,7 @@ export const enMessages: Messages = {
     nameLabel: "Name",
     namePlaceholder: "e.g., GPT-4o Standard",
     optionalRatesSectionDescription:
-      "Only add these prices when cached, cache-creation, or reasoning tokens should bill differently from the primary schedule.",
+      "Leave optional component prices blank to bill cached, cache-creation, or reasoning tokens at 0 per 1M tokens by default.",
     optionalRatesSectionTitle: "Optional rate overrides",
     outputPriceLabel: "Output Price (per 1M tokens)",
     pricePlaceholder: "0.00",
@@ -3760,6 +3761,7 @@ export const enMessages: Messages = {
     model: "Model",
     noTemplatesConfigured: "No pricing templates configured.",
     output: "Output",
+    optionalPriceDefault: "0 (default)",
     profileScopedSettings: "Profile-scoped settings",
     scopeCallout: (profileLabel) => `Changes here affect ${profileLabel} and its runtime traffic.`,
     tableTitle: "Pricing Templates",

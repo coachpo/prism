@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-13T00:00:00Z";
 
@@ -37,7 +37,7 @@ function createPricingTemplate(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function stubPricingTemplateRoutes(page: Parameters<typeof test>[0]["page"]) {
+async function stubPricingTemplateRoutes(page: Page) {
   const profile = createProfile();
   const createPayloads: unknown[] = [];
 
@@ -70,7 +70,11 @@ async function stubPricingTemplateRoutes(page: Parameters<typeof test>[0]["page"
     }
 
     if (pathname === "/api/pricing-templates" && method === "GET") {
-      return fulfillJson([createPricingTemplate()]);
+      return fulfillJson([createPricingTemplate({ cached_input_price: "0.05" })]);
+    }
+
+    if (pathname === "/api/pricing-templates/11" && method === "GET") {
+      return fulfillJson(createPricingTemplate({ cached_input_price: "0.05" }));
     }
 
     if (pathname === "/api/pricing-templates" && method === "POST") {
@@ -98,14 +102,32 @@ async function stubPricingTemplateRoutes(page: Parameters<typeof test>[0]["page"
   return { createPayloads };
 }
 
-test("pricing template dialog omits the removed fallback-policy control and save field", async ({ page }) => {
+test("pricing template dialog keeps blank optional prices nullable and shows default-zero table values", async ({ page }) => {
   const { createPayloads } = await stubPricingTemplateRoutes(page);
 
   await page.goto("/pricing-templates");
+  await expect(page.getByText("Cached Input Price (Optional): 0.05")).toBeVisible();
+  await expect(page.getByText("Cache Creation Price (Optional): 0 (default)")).toBeVisible();
+  await expect(page.getByText("Reasoning Price (Optional): 0 (default)")).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  let dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Edit Pricing Template" })).toBeVisible();
+  await expect(dialog.getByLabel("Cached Input Price (Optional)")).toHaveValue("0.05");
+  await expect(dialog.getByLabel("Cache Creation Price (Optional)")).toHaveValue("");
+  await expect(dialog.getByLabel("Reasoning Price (Optional)")).toHaveValue("");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+
   await page.getByRole("button", { name: "Add Template" }).click();
 
-  const dialog = page.getByRole("dialog");
+  dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Add Pricing Template" })).toBeVisible();
+  await expect(
+    dialog.getByText(
+      "Leave optional component prices blank to bill cached, cache-creation, or reasoning tokens at 0 per 1M tokens by default.",
+    ),
+  ).toBeVisible();
   await expect(dialog.getByLabel("Name")).toBeVisible();
   await expect(dialog.getByLabel("Currency Code")).toHaveValue("USD");
   await expect(dialog.getByLabel("Input Price (per 1M tokens)")).toBeVisible();

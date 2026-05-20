@@ -227,6 +227,56 @@ type usageEventInsert struct {
 	StreamErrorKind                   *string
 }
 
+func (requestLog *requestLogInsert) applyRuntimePricingResult(pricingResult runtimePricingResult) {
+	requestLog.BillableFlag = boolPtr(pricingResult.Billable)
+	requestLog.PricedFlag = boolPtr(pricingResult.Priced)
+	requestLog.UnpricedReason = pricingResult.UnpricedReason
+	requestLog.InputCostMicros = pricingResult.InputCostMicros
+	requestLog.OutputCostMicros = pricingResult.OutputCostMicros
+	requestLog.CacheReadInputCostMicros = pricingResult.CacheReadInputCostMicros
+	requestLog.CacheCreationInputCostMicros = pricingResult.CacheCreationInputCostMicros
+	requestLog.ReasoningCostMicros = pricingResult.ReasoningCostMicros
+	requestLog.TotalCostOriginalMicros = pricingResult.TotalCostOriginalMicros
+	requestLog.TotalCostUserCurrencyMicros = pricingResult.TotalCostUserCurrencyMicros
+	requestLog.CurrencyCodeOriginal = pricingResult.CurrencyCodeOriginal
+	requestLog.ReportCurrencyCode = pricingResult.ReportCurrencyCode
+	requestLog.ReportCurrencySymbol = pricingResult.ReportCurrencySymbol
+	requestLog.FXRateUsed = pricingResult.FXRateUsed
+	requestLog.FXRateSource = pricingResult.FXRateSource
+	requestLog.PricingSnapshotUnit = pricingResult.PricingSnapshotUnit
+	requestLog.PricingSnapshotInput = pricingResult.PricingSnapshotInput
+	requestLog.PricingSnapshotOutput = pricingResult.PricingSnapshotOutput
+	requestLog.PricingSnapshotCacheReadInput = pricingResult.PricingSnapshotCacheReadInput
+	requestLog.PricingSnapshotCacheCreationInput = pricingResult.PricingSnapshotCacheCreationInput
+	requestLog.PricingSnapshotReasoning = pricingResult.PricingSnapshotReasoning
+	requestLog.PricingConfigVersionUsed = pricingResult.PricingConfigVersionUsed
+}
+
+func (usageEvent *usageEventInsert) applyRuntimePricingResult(pricingResult runtimePricingResult) {
+	usageEvent.BillableFlag = boolPtr(pricingResult.Billable)
+	usageEvent.PricedFlag = boolPtr(pricingResult.Priced)
+	usageEvent.UnpricedReason = pricingResult.UnpricedReason
+	usageEvent.InputCostMicros = pricingResult.InputCostMicros
+	usageEvent.OutputCostMicros = pricingResult.OutputCostMicros
+	usageEvent.CacheReadInputCostMicros = pricingResult.CacheReadInputCostMicros
+	usageEvent.CacheCreationInputCostMicros = pricingResult.CacheCreationInputCostMicros
+	usageEvent.ReasoningCostMicros = pricingResult.ReasoningCostMicros
+	usageEvent.TotalCostOriginalMicros = pricingResult.TotalCostOriginalMicros
+	usageEvent.TotalCostUserCurrencyMicros = pricingResult.TotalCostUserCurrencyMicros
+	usageEvent.CurrencyCodeOriginal = pricingResult.CurrencyCodeOriginal
+	usageEvent.ReportCurrencyCode = pricingResult.ReportCurrencyCode
+	usageEvent.ReportCurrencySymbol = pricingResult.ReportCurrencySymbol
+	usageEvent.FXRateUsed = pricingResult.FXRateUsed
+	usageEvent.FXRateSource = pricingResult.FXRateSource
+	usageEvent.PricingSnapshotUnit = pricingResult.PricingSnapshotUnit
+	usageEvent.PricingSnapshotInput = pricingResult.PricingSnapshotInput
+	usageEvent.PricingSnapshotOutput = pricingResult.PricingSnapshotOutput
+	usageEvent.PricingSnapshotCacheReadInput = pricingResult.PricingSnapshotCacheReadInput
+	usageEvent.PricingSnapshotCacheCreationInput = pricingResult.PricingSnapshotCacheCreationInput
+	usageEvent.PricingSnapshotReasoning = pricingResult.PricingSnapshotReasoning
+	usageEvent.PricingConfigVersionUsed = pricingResult.PricingConfigVersionUsed
+}
+
 type auditLogInsert struct {
 	RequestLogAttemptNumber     int       `json:"request_log_attempt_number"`
 	ProfileID                   int       `json:"profile_id"`
@@ -292,14 +342,8 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 		ReportCurrencyCode:   reportCurrencyCode,
 		ReportCurrencySymbol: reportCurrencySymbol,
 	}
-	billableFlag := boolPtr(false)
-	pricedFlag := boolPtr(false)
-	var unpricedReason *string
 	if successFlag {
 		pricingResult = buildRuntimePricingResult(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome)
-		billableFlag = boolPtr(pricingResult.Billable)
-		pricedFlag = boolPtr(pricingResult.Priced)
-		unpricedReason = pricingResult.UnpricedReason
 	}
 	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
 	if ingressRequestID == "" {
@@ -391,28 +435,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 			requestLog.StreamErrorKind = responseCapture.StreamErrorKind
 			requestLog.StreamErrorDetail = responseCapture.StreamErrorDetail
 			if attemptSuccess {
-				requestLog.BillableFlag = boolPtr(pricingResult.Billable)
-				requestLog.PricedFlag = boolPtr(pricingResult.Priced)
-				requestLog.UnpricedReason = pricingResult.UnpricedReason
-				requestLog.InputCostMicros = pricingResult.InputCostMicros
-				requestLog.OutputCostMicros = pricingResult.OutputCostMicros
-				requestLog.CacheReadInputCostMicros = pricingResult.CacheReadInputCostMicros
-				requestLog.CacheCreationInputCostMicros = pricingResult.CacheCreationInputCostMicros
-				requestLog.ReasoningCostMicros = pricingResult.ReasoningCostMicros
-				requestLog.TotalCostOriginalMicros = pricingResult.TotalCostOriginalMicros
-				requestLog.TotalCostUserCurrencyMicros = pricingResult.TotalCostUserCurrencyMicros
-				requestLog.CurrencyCodeOriginal = pricingResult.CurrencyCodeOriginal
-				requestLog.ReportCurrencyCode = pricingResult.ReportCurrencyCode
-				requestLog.ReportCurrencySymbol = pricingResult.ReportCurrencySymbol
-				requestLog.FXRateUsed = pricingResult.FXRateUsed
-				requestLog.FXRateSource = pricingResult.FXRateSource
-				requestLog.PricingSnapshotUnit = pricingResult.PricingSnapshotUnit
-				requestLog.PricingSnapshotInput = pricingResult.PricingSnapshotInput
-				requestLog.PricingSnapshotOutput = pricingResult.PricingSnapshotOutput
-				requestLog.PricingSnapshotCacheReadInput = pricingResult.PricingSnapshotCacheReadInput
-				requestLog.PricingSnapshotCacheCreationInput = pricingResult.PricingSnapshotCacheCreationInput
-				requestLog.PricingSnapshotReasoning = pricingResult.PricingSnapshotReasoning
-				requestLog.PricingConfigVersionUsed = pricingResult.PricingConfigVersionUsed
+				requestLog.applyRuntimePricingResult(pricingResult)
 			}
 		}
 		requestLogs = append(requestLogs, requestLog)
@@ -455,54 +478,33 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 		attemptCount = 1
 	}
 	usageEvent := usageEventInsert{
-		ProfileID:                         plan.ProfileID,
-		IngressRequestID:                  ingressRequestID,
-		ModelID:                           plan.RequestedModelID,
-		ResolvedTargetModelID:             plan.ResolvedTargetModelID,
-		APIFamily:                         plan.APIFamily,
-		EndpointID:                        result.Connection.Endpoint.ID,
-		ConnectionID:                      result.Connection.ID,
-		ProxyAPIKeyID:                     proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:           proxyKeyNamePointer(proxyKey),
-		StatusCode:                        result.Response.StatusCode,
-		SuccessFlag:                       successFlag,
-		BillableFlag:                      billableFlag,
-		PricedFlag:                        pricedFlag,
-		UnpricedReason:                    unpricedReason,
-		InputTokens:                       usage.InputTokens,
-		OutputTokens:                      usage.OutputTokens,
-		TotalTokens:                       usage.TotalTokens,
-		CacheReadInputTokens:              usage.CacheReadInputTokens,
-		CacheCreationInputTokens:          usage.CacheCreationInputTokens,
-		ReasoningTokens:                   usage.ReasoningTokens,
-		InputCostMicros:                   pricingResult.InputCostMicros,
-		OutputCostMicros:                  pricingResult.OutputCostMicros,
-		CacheReadInputCostMicros:          pricingResult.CacheReadInputCostMicros,
-		CacheCreationInputCostMicros:      pricingResult.CacheCreationInputCostMicros,
-		ReasoningCostMicros:               pricingResult.ReasoningCostMicros,
-		TotalCostOriginalMicros:           pricingResult.TotalCostOriginalMicros,
-		TotalCostUserCurrencyMicros:       pricingResult.TotalCostUserCurrencyMicros,
-		CurrencyCodeOriginal:              pricingResult.CurrencyCodeOriginal,
-		ReportCurrencyCode:                pricingResult.ReportCurrencyCode,
-		ReportCurrencySymbol:              pricingResult.ReportCurrencySymbol,
-		FXRateUsed:                        pricingResult.FXRateUsed,
-		FXRateSource:                      pricingResult.FXRateSource,
-		PricingSnapshotUnit:               pricingResult.PricingSnapshotUnit,
-		PricingSnapshotInput:              pricingResult.PricingSnapshotInput,
-		PricingSnapshotOutput:             pricingResult.PricingSnapshotOutput,
-		PricingSnapshotCacheReadInput:     pricingResult.PricingSnapshotCacheReadInput,
-		PricingSnapshotCacheCreationInput: pricingResult.PricingSnapshotCacheCreationInput,
-		PricingSnapshotReasoning:          pricingResult.PricingSnapshotReasoning,
-		PricingConfigVersionUsed:          pricingResult.PricingConfigVersionUsed,
-		AttemptCount:                      attemptCount,
-		RequestPath:                       request.URL.Path,
-		CreatedAt:                         requestCompletedAt,
-		ResponseTimeMS:                    intPtr(responseTimeMS),
-		CompletionDurationMS:              completionDurationMS,
-		TTFTMS:                            ttftMS,
-		StreamOutcome:                     streamOutcome,
-		StreamErrorKind:                   responseCapture.StreamErrorKind,
+		ProfileID:                plan.ProfileID,
+		IngressRequestID:         ingressRequestID,
+		ModelID:                  plan.RequestedModelID,
+		ResolvedTargetModelID:    plan.ResolvedTargetModelID,
+		APIFamily:                plan.APIFamily,
+		EndpointID:               result.Connection.Endpoint.ID,
+		ConnectionID:             result.Connection.ID,
+		ProxyAPIKeyID:            proxyKeyIDPointer(proxyKey),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		StatusCode:               result.Response.StatusCode,
+		SuccessFlag:              successFlag,
+		InputTokens:              usage.InputTokens,
+		OutputTokens:             usage.OutputTokens,
+		TotalTokens:              usage.TotalTokens,
+		CacheReadInputTokens:     usage.CacheReadInputTokens,
+		CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		ReasoningTokens:          usage.ReasoningTokens,
+		AttemptCount:             attemptCount,
+		RequestPath:              request.URL.Path,
+		CreatedAt:                requestCompletedAt,
+		ResponseTimeMS:           intPtr(responseTimeMS),
+		CompletionDurationMS:     completionDurationMS,
+		TTFTMS:                   ttftMS,
+		StreamOutcome:            streamOutcome,
+		StreamErrorKind:          responseCapture.StreamErrorKind,
 	}
+	usageEvent.applyRuntimePricingResult(pricingResult)
 	return runtimeTelemetryEnvelope{
 		RequestLogs:   requestLogs,
 		AuditLogs:     auditLogs,

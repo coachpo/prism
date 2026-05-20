@@ -815,6 +815,8 @@ Request:
 ```
 Response `201`: Created pricing template object.
 
+`input_price` and `output_price` are required prices. `cached_input_price`, `cache_creation_price`, and `reasoning_price` are optional component prices. For phase 1, `null` or omitted optional component prices are compatibility values that price as effective/default zero at runtime and display as `0 (default)` in pricing-template management surfaces. New priced request rows persist optional component snapshots as plain `"0"` when the effective value came from this default. A missing or invalid required price can still make a row unpriced with `MISSING_PRICE_DATA`; missing FX configuration remains a separate pricing failure and is not covered by optional-component default-zero behavior.
+
 #### Update Pricing Template
 ```
 PUT /api/pricing-templates/{id}
@@ -1016,6 +1018,7 @@ Profile import semantics:
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references.
 - Exported/imported proxy models carry required `proxy_selection_strategy` plus `proxy_targets` entries with required `target_model_id`, `position`, `weight`, and `target_priority`; native models carry `proxy_selection_strategy: null` and no proxy targets.
 - Exported/imported connections include `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
+- Exported/imported pricing templates may carry `null` or omitted optional component prices for `cached_input_price`, `cache_creation_price`, and `reasoning_price`; those values mean effective/default zero at runtime and display time in phase 1. Required `input_price` and `output_price` must still be present and valid.
 - Exported/imported loadbalance strategies use a top-level `strategy_type` discriminator. Legacy strategies carry `legacy_strategy_type` plus `auto_recovery`; adaptive strategies carry `routing_policy`.
 - Other config version numbers are unsupported.
 
@@ -1765,13 +1768,15 @@ Response `200`:
     "pricing_snapshot_unit": "PER_1M",
     "pricing_snapshot_input": "33.333333",
     "pricing_snapshot_output": "17.857143",
-    "pricing_snapshot_cache_read_input": null,
-    "pricing_snapshot_cache_creation_input": null,
-    "pricing_snapshot_reasoning": null,
+    "pricing_snapshot_cache_read_input": "0",
+    "pricing_snapshot_cache_creation_input": "0",
+    "pricing_snapshot_reasoning": "0",
     "pricing_config_version_used": 1
   }
 }
 ```
+
+For new priced rows, optional component snapshots use plain `"0"` when the pricing template carried `null` for that component and the effective price defaulted to zero. Request-log cost and math surfaces render those values as ordinary zeroes, not the management label `0 (default)`.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
@@ -2024,7 +2029,7 @@ Response `200`:
 }
 ```
 
-Unpriced reasons distinguish pricing configuration gaps from observed usage gaps. `MISSING_TOKEN_USAGE` means a completed stream or non-stream response lacked required upstream token usage. `STREAM_USAGE_UNAVAILABLE` means a classified stream outcome made terminal usage unavailable and required tokens were absent. Prism doesn't estimate tokens or cost for either case.
+Unpriced reasons distinguish pricing configuration gaps from observed usage gaps. `MISSING_PRICE_DATA` means a required price, an explicit non-null optional price that was used, or required FX data was missing or invalid. `MISSING_TOKEN_USAGE` means a completed stream or non-stream response lacked required upstream token usage. `STREAM_USAGE_UNAVAILABLE` means a classified stream outcome made terminal usage unavailable and required tokens were absent. Prism doesn't estimate tokens or cost for usage gaps. Nullable optional component prices are not `MISSING_PRICE_DATA` by themselves in phase 1 because they use default zero/effective zero semantics.
 
 ---
 

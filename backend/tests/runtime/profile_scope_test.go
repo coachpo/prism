@@ -27,6 +27,7 @@ import (
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
 	managementconfigrules "github.com/coachpo/prism/backend/internal/httpapi/management/configrules"
+	managementconnections "github.com/coachpo/prism/backend/internal/httpapi/management/connections"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
@@ -2110,6 +2111,11 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		tb.Fatalf("build config rules service: %v", err)
 	}
 	tb.Cleanup(configRulesService.Close)
+	connectionsService, err := managementconnections.NewService(settings, managementconnections.Options{Pool: pool})
+	if err != nil {
+		tb.Fatalf("build connections service: %v", err)
+	}
+	tb.Cleanup(connectionsService.Close)
 	profilesService, err := managementprofiles.NewService(settings, managementprofiles.Options{Pool: pool})
 	if err != nil {
 		tb.Fatalf("build profiles service: %v", err)
@@ -2131,6 +2137,7 @@ func newRuntimeHarnessForDatabaseWithConfig(tb testing.TB, databaseName string, 
 		RuntimeAuthService: runtimeAuthService,
 		RuntimeCache:       runtimeCache,
 		ConfigRulesService: configRulesService,
+		ConnectionsService: connectionsService,
 		ProfilesService:    profilesService,
 		StatsService:       statsService,
 		RuntimeService:     runtimeService,

@@ -14,6 +14,25 @@ const OpenAIProbeEndpointVariantImportSchema = z.enum([
   "chat_completions_reasoning_none",
 ]);
 
+const optionalPricingComponentDecimalPattern = /^\d+(\.\d+)?$/;
+
+// Bundle v1 keeps optional component prices nullable for management compatibility.
+// null or omitted means the runtime/display default of zero; blank import strings normalize to null.
+const OptionalPricingComponentImportSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  },
+  z
+    .string()
+    .regex(optionalPricingComponentDecimalPattern, "must be a non-negative decimal string")
+    .nullable()
+    .optional(),
+);
+
 const PricingTemplateImportSchema = z.strictObject({
   name: z.string(),
   description: z.string().nullable().optional(),
@@ -21,9 +40,9 @@ const PricingTemplateImportSchema = z.strictObject({
   pricing_currency_code: z.string(),
   input_price: z.string(),
   output_price: z.string(),
-  cached_input_price: z.string().nullable().optional(),
-  cache_creation_price: z.string().nullable().optional(),
-  reasoning_price: z.string().nullable().optional(),
+  cached_input_price: OptionalPricingComponentImportSchema,
+  cache_creation_price: OptionalPricingComponentImportSchema,
+  reasoning_price: OptionalPricingComponentImportSchema,
   version: z.number().int().min(1).optional(),
 });
 

@@ -723,9 +723,14 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 		"id":     "chatcmpl-runtime-pricing-zero-cost-" + suffix,
 		"object": "chat.completion",
 		"usage": map[string]any{
-			"prompt_tokens":     10,
-			"completion_tokens": 6,
-			"total_tokens":      16,
+			"prompt_tokens":               10,
+			"completion_tokens":           6,
+			"total_tokens":                16,
+			"cache_read_input_tokens":     4,
+			"cache_creation_input_tokens": 5,
+			"completion_tokens_details": map[string]any{
+				"reasoning_tokens": 3,
+			},
 		},
 	})
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
@@ -756,28 +761,34 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 
 	want := runtimePersistedPricingRow{
-		AttemptMetric:                1,
-		BillableFlag:                 sql.NullBool{Bool: true, Valid: true},
-		PricedFlag:                   sql.NullBool{Bool: true, Valid: true},
-		InputTokens:                  sql.NullInt64{Int64: 10, Valid: true},
-		OutputTokens:                 sql.NullInt64{Int64: 6, Valid: true},
-		TotalTokens:                  sql.NullInt64{Int64: 16, Valid: true},
-		InputCostMicros:              sql.NullInt64{Int64: 0, Valid: true},
-		OutputCostMicros:             sql.NullInt64{Int64: 0, Valid: true},
-		CacheReadInputCostMicros:     sql.NullInt64{Int64: 0, Valid: true},
-		CacheCreationInputCostMicros: sql.NullInt64{Int64: 0, Valid: true},
-		ReasoningCostMicros:          sql.NullInt64{Int64: 0, Valid: true},
-		TotalCostOriginalMicros:      sql.NullInt64{Int64: 0, Valid: true},
-		TotalCostUserCurrencyMicros:  sql.NullInt64{Int64: 0, Valid: true},
-		CurrencyCodeOriginal:         sql.NullString{String: reportCurrencyCode, Valid: true},
-		ReportCurrencyCode:           sql.NullString{String: reportCurrencyCode, Valid: true},
-		ReportCurrencySymbol:         sql.NullString{String: reportCurrencySymbol, Valid: true},
-		FXRateUsed:                   sql.NullString{String: "1", Valid: true},
-		FXRateSource:                 sql.NullString{String: "DEFAULT_1_TO_1", Valid: true},
-		PricingSnapshotUnit:          sql.NullString{String: "PER_1M", Valid: true},
-		PricingSnapshotInput:         sql.NullString{String: "0", Valid: true},
-		PricingSnapshotOutput:        sql.NullString{String: "0", Valid: true},
-		PricingConfigVersionUsed:     sql.NullInt64{Int64: 1, Valid: true},
+		AttemptMetric:                     1,
+		BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+		PricedFlag:                        sql.NullBool{Bool: true, Valid: true},
+		InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
+		OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+		TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
+		CacheReadInputTokens:              sql.NullInt64{Int64: 4, Valid: true},
+		CacheCreationInputTokens:          sql.NullInt64{Int64: 5, Valid: true},
+		ReasoningTokens:                   sql.NullInt64{Int64: 3, Valid: true},
+		InputCostMicros:                   sql.NullInt64{Int64: 0, Valid: true},
+		OutputCostMicros:                  sql.NullInt64{Int64: 0, Valid: true},
+		CacheReadInputCostMicros:          sql.NullInt64{Int64: 0, Valid: true},
+		CacheCreationInputCostMicros:      sql.NullInt64{Int64: 0, Valid: true},
+		ReasoningCostMicros:               sql.NullInt64{Int64: 0, Valid: true},
+		TotalCostOriginalMicros:           sql.NullInt64{Int64: 0, Valid: true},
+		TotalCostUserCurrencyMicros:       sql.NullInt64{Int64: 0, Valid: true},
+		CurrencyCodeOriginal:              sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencyCode:                sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencySymbol:              sql.NullString{String: reportCurrencySymbol, Valid: true},
+		FXRateUsed:                        sql.NullString{String: "1", Valid: true},
+		FXRateSource:                      sql.NullString{String: "DEFAULT_1_TO_1", Valid: true},
+		PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+		PricingSnapshotInput:              sql.NullString{String: "0", Valid: true},
+		PricingSnapshotOutput:             sql.NullString{String: "0", Valid: true},
+		PricingSnapshotCacheReadInput:     sql.NullString{String: "0", Valid: true},
+		PricingSnapshotCacheCreationInput: sql.NullString{String: "0", Valid: true},
+		PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
+		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 	}
 	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
 	if requestLogRow != want {
@@ -841,7 +852,262 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 	}
 }
 
-func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsMissing(t *testing.T) {
+func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	var reportCurrencyCode string
+	var reportCurrencySymbol string
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT report_currency_code, report_currency_symbol FROM user_settings WHERE profile_id = $1 ORDER BY id ASC LIMIT 1`,
+		profileID,
+	).Scan(&reportCurrencyCode, &reportCurrencySymbol); err != nil {
+		t.Fatalf("load runtime report currency snapshot: %v", err)
+	}
+
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":     "chatcmpl-runtime-management-normalized-optionals-" + suffix,
+		"object": "chat.completion",
+		"usage": map[string]any{
+			"prompt_tokens":               10,
+			"completion_tokens":           6,
+			"total_tokens":                16,
+			"cache_read_input_tokens":     4,
+			"cache_creation_input_tokens": 5,
+			"completion_tokens_details": map[string]any{
+				"reasoning_tokens": 3,
+			},
+		},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{
+		ProfileID:       profileID,
+		APIFamily:       "openai",
+		PublicModelID:   "management-normalized-optionals-public-" + suffix,
+		TargetModelID:   "management-normalized-optionals-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/management-normalized-optionals"),
+		EndpointAPIKey:  "runtime-management-normalized-optionals-key",
+	})
+
+	createResponse := harness.requestJSON(t, http.MethodPost, "/api/pricing-templates", map[string]any{
+		"name":                  "Runtime Management Normalized Optionals " + suffix,
+		"pricing_currency_code": reportCurrencyCode,
+		"input_price":           "2",
+		"output_price":          "5",
+		"cached_input_price":    "   ",
+		"cache_creation_price":  nil,
+		"reasoning_price":       "   ",
+	}, runtimeModelHeader(profileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	var createdTemplate map[string]any
+	decodeJSONResponse(t, createResponse, &createdTemplate)
+	pricingTemplateID := jsonInt(t, createdTemplate["id"])
+	if createdTemplate["cached_input_price"] != nil || createdTemplate["cache_creation_price"] != nil || createdTemplate["reasoning_price"] != nil {
+		t.Fatalf("expected management-created blank/null optional prices to normalize to nulls, got %+v", createdTemplate)
+	}
+
+	generation := harness.runtimeCache.PublishedGeneration()
+	assignResponse := harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/connections/%d/pricing-template", route.ConnectionID), map[string]any{"pricing_template_id": pricingTemplateID}, runtimeModelHeader(profileID))
+	assertStatus(t, assignResponse, http.StatusOK)
+	harness.waitForRuntimeSnapshotGeneration(t, generation)
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": "price management-normalized optional defaults"}},
+			"model":    route.PublicModelID,
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	if got := len(upstream.requestsSnapshot()); got != 1 {
+		t.Fatalf("expected management-normalized optional pricing request to hit upstream exactly once, got %d", got)
+	}
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+
+	want := runtimePersistedPricingRow{
+		AttemptMetric:                     1,
+		BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+		PricedFlag:                        sql.NullBool{Bool: true, Valid: true},
+		InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
+		OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+		TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
+		CacheReadInputTokens:              sql.NullInt64{Int64: 4, Valid: true},
+		CacheCreationInputTokens:          sql.NullInt64{Int64: 5, Valid: true},
+		ReasoningTokens:                   sql.NullInt64{Int64: 3, Valid: true},
+		InputCostMicros:                   sql.NullInt64{Int64: 20, Valid: true},
+		OutputCostMicros:                  sql.NullInt64{Int64: 30, Valid: true},
+		CacheReadInputCostMicros:          sql.NullInt64{Int64: 0, Valid: true},
+		CacheCreationInputCostMicros:      sql.NullInt64{Int64: 0, Valid: true},
+		ReasoningCostMicros:               sql.NullInt64{Int64: 0, Valid: true},
+		TotalCostOriginalMicros:           sql.NullInt64{Int64: 50, Valid: true},
+		TotalCostUserCurrencyMicros:       sql.NullInt64{Int64: 50, Valid: true},
+		CurrencyCodeOriginal:              sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencyCode:                sql.NullString{String: reportCurrencyCode, Valid: true},
+		ReportCurrencySymbol:              sql.NullString{String: reportCurrencySymbol, Valid: true},
+		FXRateUsed:                        sql.NullString{String: "1", Valid: true},
+		FXRateSource:                      sql.NullString{String: "DEFAULT_1_TO_1", Valid: true},
+		PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+		PricingSnapshotInput:              sql.NullString{String: "2", Valid: true},
+		PricingSnapshotOutput:             sql.NullString{String: "5", Valid: true},
+		PricingSnapshotCacheReadInput:     sql.NullString{String: "0", Valid: true},
+		PricingSnapshotCacheCreationInput: sql.NullString{String: "0", Valid: true},
+		PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
+		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
+	}
+	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
+	if requestLogRow != want {
+		t.Fatalf("expected management-normalized optional prices to persist request_logs pricing row %+v, got %+v", want, requestLogRow)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
+	if usageEventRow != want {
+		t.Fatalf("expected management-normalized optional prices to persist usage_request_events pricing row %+v, got %+v", want, usageEventRow)
+	}
+}
+
+func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	reportCurrencyCode := loadRuntimeReportCurrencyCode(t, harness.conn, profileID)
+	missingFXCurrencyCode := "EUR"
+	if reportCurrencyCode == missingFXCurrencyCode {
+		missingFXCurrencyCode = "USD"
+	}
+	baseUsage := map[string]any{
+		"prompt_tokens":     10,
+		"completion_tokens": 6,
+		"total_tokens":      16,
+	}
+
+	tests := []struct {
+		name                string
+		usage               map[string]any
+		attachTemplate      bool
+		pricingCurrencyCode string
+		inputPrice          string
+		outputPrice         string
+		want                runtimePersistedPricingRow
+	}{
+		{
+			name:  "pricing disabled",
+			usage: baseUsage,
+			want: runtimePersistedPricingRow{
+				AttemptMetric:  1,
+				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason: sql.NullString{String: "PRICING_DISABLED", Valid: true},
+				InputTokens:    sql.NullInt64{Int64: 10, Valid: true},
+				OutputTokens:   sql.NullInt64{Int64: 6, Valid: true},
+				TotalTokens:    sql.NullInt64{Int64: 16, Valid: true},
+			},
+		},
+		{
+			name:                "invalid required price",
+			usage:               baseUsage,
+			attachTemplate:      true,
+			pricingCurrencyCode: reportCurrencyCode,
+			inputPrice:          "not-a-decimal",
+			outputPrice:         "5",
+			want: runtimePersistedPricingRow{
+				AttemptMetric:  1,
+				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason: sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
+				InputTokens:    sql.NullInt64{Int64: 10, Valid: true},
+				OutputTokens:   sql.NullInt64{Int64: 6, Valid: true},
+				TotalTokens:    sql.NullInt64{Int64: 16, Valid: true},
+			},
+		},
+		{
+			name:                "missing fx",
+			usage:               baseUsage,
+			attachTemplate:      true,
+			pricingCurrencyCode: missingFXCurrencyCode,
+			inputPrice:          "2",
+			outputPrice:         "5",
+			want: runtimePersistedPricingRow{
+				AttemptMetric:  1,
+				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason: sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
+				InputTokens:    sql.NullInt64{Int64: 10, Valid: true},
+				OutputTokens:   sql.NullInt64{Int64: 6, Valid: true},
+				TotalTokens:    sql.NullInt64{Int64: 16, Valid: true},
+			},
+		},
+		{
+			name:                "missing required usage",
+			attachTemplate:      true,
+			pricingCurrencyCode: reportCurrencyCode,
+			inputPrice:          "2",
+			outputPrice:         "5",
+			want: runtimePersistedPricingRow{
+				AttemptMetric:  1,
+				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason: sql.NullString{String: "MISSING_TOKEN_USAGE", Valid: true},
+			},
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			suffix := randomSuffix()
+			slug := strings.ReplaceAll(test.name, " ", "-")
+			responseBody := map[string]any{
+				"id":     "chatcmpl-runtime-unpriced-" + slug + "-" + suffix,
+				"object": "chat.completion",
+			}
+			if test.usage != nil {
+				responseBody["usage"] = test.usage
+			}
+			upstream := newScriptedUpstream(t, http.StatusOK, responseBody)
+			route := harness.seedProxyRoute(t, runtimeRouteSeed{
+				ProfileID:       profileID,
+				APIFamily:       "openai",
+				PublicModelID:   "unpriced-" + slug + "-public-" + suffix,
+				TargetModelID:   "unpriced-" + slug + "-target-" + suffix,
+				EndpointBaseURL: upstream.baseURL("/request-logs/pricing/unpriced/" + slug),
+				EndpointAPIKey:  "runtime-unpriced-" + slug + "-key",
+			})
+			if test.attachTemplate {
+				pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-unpriced-"+slug+"-pricing-"+suffix, test.pricingCurrencyCode, test.inputPrice, test.outputPrice, nil, nil, nil)
+				attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+			}
+
+			response := harness.requestJSON(
+				t,
+				http.MethodPost,
+				"/v1/chat/completions",
+				map[string]any{
+					"messages": []map[string]any{{"role": "user", "content": "preserve " + test.name}},
+					"model":    route.PublicModelID,
+				},
+				nil,
+			)
+			assertStatus(t, response, http.StatusOK)
+			if got := len(upstream.requestsSnapshot()); got != 1 {
+				t.Fatalf("expected %s request to hit upstream exactly once, got %d", test.name, got)
+			}
+			waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: index + 1, UsageEvents: index + 1, OutboxRows: 0}, 5*time.Second)
+			assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
+
+			requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
+			if requestLogRow != test.want {
+				t.Fatalf("expected %s request_logs pricing row %+v, got %+v", test.name, test.want, requestLogRow)
+			}
+			usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
+			if usageEventRow != test.want {
+				t.Fatalf("expected %s usage_request_events pricing row %+v, got %+v", test.name, test.want, usageEventRow)
+			}
+		})
+	}
+}
+
+func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsInvalid(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	var reportCurrencyCode string
@@ -855,7 +1121,7 @@ func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsMissing(t *testing.T)
 
 	suffix := randomSuffix()
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id":     "chatcmpl-runtime-pricing-missing-dimension-" + suffix,
+		"id":     "chatcmpl-runtime-pricing-invalid-dimension-" + suffix,
 		"object": "chat.completion",
 		"usage": map[string]any{
 			"prompt_tokens":     10,
@@ -869,14 +1135,15 @@ func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsMissing(t *testing.T)
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "openai",
-		PublicModelID:   "missing-dimension-pricing-public-" + suffix,
-		TargetModelID:   "missing-dimension-pricing-target-" + suffix,
-		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/missing-dimension"),
-		EndpointAPIKey:  "runtime-missing-dimension-pricing-key",
+		PublicModelID:   "invalid-dimension-pricing-public-" + suffix,
+		TargetModelID:   "invalid-dimension-pricing-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/invalid-dimension"),
+		EndpointAPIKey:  "runtime-invalid-dimension-pricing-key",
 	})
 	cachedInputPrice := "11"
 	cacheCreationPrice := "13"
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-missing-dimension-"+suffix, reportCurrencyCode, "2", "5", &cachedInputPrice, &cacheCreationPrice, nil)
+	invalidReasoningPrice := "not-a-decimal"
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-invalid-dimension-"+suffix, reportCurrencyCode, "2", "5", &cachedInputPrice, &cacheCreationPrice, &invalidReasoningPrice)
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
@@ -884,14 +1151,14 @@ func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsMissing(t *testing.T)
 		http.MethodPost,
 		"/v1/chat/completions",
 		map[string]any{
-			"messages": []map[string]any{{"role": "user", "content": "degrade missing reasoning pricing"}},
+			"messages": []map[string]any{{"role": "user", "content": "degrade invalid reasoning pricing"}},
 			"model":    route.PublicModelID,
 		},
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
 	if got := len(upstream.requestsSnapshot()); got != 1 {
-		t.Fatalf("expected missing-dimension runtime request to hit upstream exactly once, got %d", got)
+		t.Fatalf("expected invalid-dimension runtime request to hit upstream exactly once, got %d", got)
 	}
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)

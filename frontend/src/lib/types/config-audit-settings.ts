@@ -4,7 +4,10 @@ import type {
 } from "./model-stats";
 import type { LoadbalanceStrategyCreate } from "./loadbalance";
 import type { ApiFamily } from "./vendor";
-import type { OpenAIProbeEndpointVariant } from "./routing";
+import type {
+  OpenAIProbeEndpointVariant,
+  OptionalPricingComponentPrice,
+} from "./routing";
 
 export interface ConfigEndpointExport {
   name: string;
@@ -27,9 +30,9 @@ export interface ConfigPricingTemplateExport {
   pricing_currency_code: string;
   input_price: string;
   output_price: string;
-  cached_input_price: string | null;
-  cache_creation_price: string | null;
-  reasoning_price: string | null;
+  cached_input_price: OptionalPricingComponentPrice;
+  cache_creation_price: OptionalPricingComponentPrice;
+  reasoning_price: OptionalPricingComponentPrice;
   version: number;
 }
 
@@ -40,9 +43,9 @@ export interface ConfigPricingTemplateImport {
   pricing_currency_code: string;
   input_price: string;
   output_price: string;
-  cached_input_price?: string | null;
-  cache_creation_price?: string | null;
-  reasoning_price?: string | null;
+  cached_input_price?: OptionalPricingComponentPrice;
+  cache_creation_price?: OptionalPricingComponentPrice;
+  reasoning_price?: OptionalPricingComponentPrice;
   version?: number;
 }
 

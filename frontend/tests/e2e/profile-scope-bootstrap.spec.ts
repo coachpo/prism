@@ -181,18 +181,25 @@ async function mockProfileScopedSettingsRoutes(page: Page) {
 async function expectActiveProfileBootstrap(page: Page, capturedHeaders: HeaderCapture) {
   await expect.poll(() => capturedHeaders.costing.length).toBeGreaterThan(0);
   await expect.poll(() => capturedHeaders.models.length).toBeGreaterThan(0);
-  await expect.poll(() => capturedHeaders.retention.length).toBeGreaterThan(0);
 
   expect(capturedHeaders.bootstrap).toEqual([null]);
   expect(capturedHeaders.costing[0]).toBe("2");
   expect(capturedHeaders.models[0]).toBe("2");
-  expect(capturedHeaders.retention[0]).toBeNull();
 
   await expect(page.getByTestId("shell-profile-switcher")).toContainText("Blue Team");
   await expect(page.getByText(getProfileScopedDescription("Blue Team", 2))).toBeVisible();
   expect(
     await page.evaluate((profileStorageKey) => window.localStorage.getItem(profileStorageKey), PROFILE_STORAGE_KEY),
   ).toBe("2");
+}
+
+async function expectGlobalRetentionUnscoped(page: Page, capturedHeaders: HeaderCapture) {
+  const previousRetentionRequests = capturedHeaders.retention.length;
+
+  await page.goto("/settings#retention-deletion");
+
+  await expect.poll(() => capturedHeaders.retention.length).toBeGreaterThan(previousRetentionRequests);
+  expect(capturedHeaders.retention.every((value) => value === null)).toBe(true);
 }
 
 test.describe("profile scope bootstrap", () => {
@@ -217,6 +224,8 @@ test.describe("profile scope bootstrap", () => {
     expect(
       await page.evaluate((profileStorageKey) => window.localStorage.getItem(profileStorageKey), PROFILE_STORAGE_KEY),
     ).toBe("1");
+
+    await expectGlobalRetentionUnscoped(page, capturedHeaders);
   });
 
   test("cold start with stale stored selection falls back to the active profile before the default profile", async ({
@@ -230,6 +239,7 @@ test.describe("profile scope bootstrap", () => {
     await expectActiveProfileBootstrap(page, capturedHeaders);
     expect(capturedHeaders.costing).not.toContain("1");
     expect(capturedHeaders.models).not.toContain("1");
-    expect(capturedHeaders.retention.every((value) => value === null)).toBe(true);
+
+    await expectGlobalRetentionUnscoped(page, capturedHeaders);
   });
 });
