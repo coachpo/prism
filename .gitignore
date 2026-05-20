@@ -30,6 +30,7 @@ frontend/node_modules/
 .DS_Store
 
 .omo/
+.sisyphus/
 
 # AI Agents
 .opencode/
