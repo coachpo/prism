@@ -28,7 +28,7 @@ function canonicalLegacyRow() {
     attached_model_count: 0,
     created_at: timestamp,
     updated_at: timestamp,
-    legacy_strategy_type: "round-robin",
+    legacy_strategy_type: "fill-first",
     auto_recovery: {
       mode: "enabled",
       status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
@@ -87,7 +87,7 @@ function occupiedLegacyRow() {
     attached_model_count: 0,
     created_at: timestamp,
     updated_at: timestamp,
-    legacy_strategy_type: "round-robin",
+    legacy_strategy_type: "fill-first",
     auto_recovery: {
       mode: "enabled",
       status_codes: [403, 422, 429, 500, 502, 503, 504, 529],
