@@ -232,7 +232,7 @@ Prism uses PostgreSQL with Go-backend-managed migrations applied automatically o
 
 Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as:
 
-- `Default legacy routing`
+- `Default legacy routing` (`fill-first`)
 - `Default adaptive routing`
 
 ---

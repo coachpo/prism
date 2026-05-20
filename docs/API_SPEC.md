@@ -2208,13 +2208,19 @@ POST /api/loadbalance/strategies/defaults
 ```
 No request body.
 
-This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical defaults for that profile only. Those defaults are the canonical operator entrypoint for the adaptive routing contract.
+This endpoint is selected-profile scoped through `X-Profile-Id` and creates the canonical defaults for that profile only. `Default legacy routing` uses `legacy_strategy_type = "fill-first"`, while `Default adaptive routing` carries the canonical adaptive policy baseline.
 
 Response `200`:
 ```json
 {
   "items": [
-    { "id": 12, "profile_id": 3, "name": "Default legacy routing" }
+    {
+      "id": 12,
+      "profile_id": 3,
+      "name": "Default legacy routing",
+      "strategy_type": "legacy",
+      "legacy_strategy_type": "fill-first"
+    }
   ],
   "created_count": 1,
   "created_names": ["Default legacy routing"],

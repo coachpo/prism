@@ -381,7 +381,7 @@ Constraints and lifecycle rules:
 - Strategy rows are shape-checked: `legacy` rows require `legacy_strategy_type` and `auto_recovery` with no `routing_policy`, while `adaptive` rows require `routing_policy` with no legacy-only fields.
 - Effective runtime policy resolves once per request from the attached strategy row.
 - The adaptive `circuit_breaker` branch carries failure status codes, threshold/backoff/jitter tuning, and optional ban escalation.
-- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default legacy routing` and `Default adaptive routing` for that profile.
+- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default legacy routing` (`fill-first`) and `Default adaptive routing` for that profile.
 - Strategies cannot be deleted while attached to one or more native models.
 
 ### 2.5 `endpoints` (profile-scoped credentials)

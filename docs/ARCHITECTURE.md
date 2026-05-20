@@ -285,7 +285,7 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 
 - Native models still attach one profile-scoped loadbalance strategy, but strategy rows now use a top-level family discriminator: `strategy_type = legacy | adaptive`.
 - `legacy` strategies carry `legacy_strategy_type` (`single`, `fill-first`, or `round-robin`) plus `auto_recovery`. `adaptive` strategies carry `routing_policy` with `routing_objective`, `hedge`, `circuit_breaker`, and `admission` branches.
-- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default legacy routing` and `Default adaptive routing` for that profile.
+- The selected profile's loadbalance strategies page exposes a `Create Defaults` action that explicitly creates `Default legacy routing` (`fill-first`) and `Default adaptive routing` for that profile.
 - The adaptive strategy template's explicit circuit-breaker defaults come from the canonical backend load-balance policy code and the persisted strategy config, not from environment fallback knobs.
 - Upstream request timing is controlled by shared backend timeout settings, not by per-strategy timeout documents.
 
