@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
-DATABASE_PORT=5432
+DATABASE_PORT=15432
 BACKEND_PORT=18000
 FRONTEND_PORT=15173
 DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"

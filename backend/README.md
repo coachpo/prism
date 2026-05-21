@@ -36,7 +36,7 @@ If the selected bootstrap config keeps docs enabled, it also serves:
 - ReDoc: `http://localhost:18000/redoc`
 - OpenAPI JSON: `http://localhost:18000/openapi.json`
 
-Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`.
+Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
 
 ## Verification
 
@@ -53,7 +53,7 @@ go build ./cmd/prism-backend
 - When the bootstrap file already exists, Prism loads startup settings from it and the legacy app env surface is not the supported source of truth.
 - When the bootstrap file is missing, Prism seeds it from built-in defaults plus the optional `DATABASE_URL` input only.
 - The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
-- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000` and the local PostgreSQL DSN on host port `5432`.
+- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file when it is missing so local runs keep backend `18000` and the local PostgreSQL DSN on host port `15432`.
 - Before booting, `../start.sh` verifies that the selected bootstrap file still resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - The backend container image runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
