@@ -1,5 +1,5 @@
 services:
-  postgres:
+  prism-postgres:
     image: postgres:16-alpine
     container_name: prism-postgres
     restart: unless-stopped

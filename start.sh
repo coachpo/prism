@@ -224,7 +224,7 @@ wait_for_postgres() {
     local attempts=60
 
     while (( attempts > 0 )); do
-        if (cd "$BACKEND_DIR" && docker compose exec -T postgres pg_isready -U prism -d prism >/dev/null 2>&1); then
+        if (cd "$BACKEND_DIR" && docker compose exec -T prism-postgres pg_isready -U prism -d prism >/dev/null 2>&1); then
             return
         fi
 
@@ -323,7 +323,7 @@ reclaim_backend_port
 reclaim_frontend_port
 ensure_database_port_available
 
-(cd "$BACKEND_DIR" && docker compose up -d postgres)
+(cd "$BACKEND_DIR" && docker compose up -d prism-postgres)
 wait_for_postgres
 
 (cd "$BACKEND_DIR" && "$BACKEND_BINARY") &
