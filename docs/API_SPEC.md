@@ -88,7 +88,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
     "database.url": {
       "configured": true,
       "editable": true,
-      "masked": "postgres://prism:***@localhost:5432/prism?sslmode=disable"
+      "masked": "postgres://prism:***@localhost:15432/prism?sslmode=disable"
     },
     "runtime.secretEncryptionKey": {
       "configured": true,

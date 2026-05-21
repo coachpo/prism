@@ -48,7 +48,7 @@ docs/
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep docs Prism-specific.
 - Point to child AGENTS files instead of repeating leaf detail.
-- Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `5432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and the bootstrap-only startup contract.
+- Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `15432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and the bootstrap-only startup contract.
 - Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, unsupported encrypted legacy files, and enabled SMTP fail-fast.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.

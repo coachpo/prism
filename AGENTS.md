@@ -60,7 +60,7 @@ prism/
 - `docs/archive/AGENTS.md`: archive boundary for finished notes and retained evidence.
 
 ## SHARED FACTS
-- `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, and uses backend `18000`, frontend `15173`, and PostgreSQL `5432`.
+- `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, and uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
 - `start.sh` keeps a fixed local launcher contract by using plaintext bootstrap ownership, the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000`.
 - Plaintext bootstrap startup is file-backed. Existing bootstrap files must include `runtime.transport.requestTimeout`, usually `"60s"`, and `runtime.sideEffects.attemptTimeout`, usually `"10s"`; legacy encrypted bootstrap files are rejected instead of migrated in place.
 - Mail delivery is bootstrap-managed and disabled by default. Enabled SMTP validates at startup; invalid enabled mail config must fail rather than falling back to no-op delivery.
