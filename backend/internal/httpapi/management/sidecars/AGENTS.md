@@ -36,7 +36,7 @@ sidecars/
 - Treat sidecar management as global instance control-plane state; it does not use selected-profile `X-Profile-Id` scope.
 - Keep management passwords write-only. Responses expose `credential_state` metadata and the mask string only.
 - Keep live auth/provider inventory owned by CLIProxyAPI; Prism persists normalized snapshots for operator display.
-- Keep the CLIProxyAPI management path allowlist tight: `/auth-files`, `/auth-files/status`, `/auth-files/fields`, and the five provider inventory paths.
+- Keep the CLIProxyAPI management path allowlist tight: `/auth-files`, read-only `/auth-files/models`, `/auth-files/status`, `/auth-files/fields`, and the five provider inventory paths.
 - Treat `/auth-files` as a strict top-level `files` envelope; old `auth_files`, missing `files`, null `files`, or non-array `files` payloads fail closed.
 - Keep provider inventory as a separate read-only supplement, never as an auth-snapshot fallback.
 - Keep private-network, insecure-HTTP, TLS-skip, request-timeout, and management-auth pause behavior on the sidecar instance policy.
