@@ -546,7 +546,7 @@ The audit detail view is a right-side sheet with tabs for:
 
 ## 8A. CLIProxyAPI Sidecars
 
-Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata plus normalized auth/provider snapshots for operator display. CLIProxyAPI remains the live authority for auth files and provider inventories.
+Sidecars are global management resources for coordinating CLIProxyAPI instances. Prism stores registration metadata plus optional normalized provider inventory for operator display. CLIProxyAPI remains the live authority for auth files and provider inventories.
 
 ```text
 Frontend /sidecars
@@ -554,13 +554,13 @@ Frontend /sidecars
   -> Backend /api/sidecars/* global management routes
   -> Sidecar service validates network policy and management auth
   -> CLIProxyAPI /v0/management/{auth-files,provider endpoints}
-  -> Prism persists sidecar registrations and normalized snapshots in sidecar_* tables
-  -> Low-priority scheduler runs periodic snapshot sync
+  -> Prism persists sidecar registrations and optional provider observations in sidecar_* tables
+  -> Low-priority scheduler runs periodic provider sync
 ```
 
-Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, direct auth-file mutations, and snapshot redaction happen inside `backend/internal/httpapi/management/sidecars/`.
+Sidecar control-plane routes omit `X-Profile-Id`. The browser never calls CLIProxyAPI directly; all management-password use, network policy enforcement, live auth-file reads, direct auth-file mutations, and provider observation redaction happen inside `backend/internal/httpapi/management/sidecars/`.
 
-The retained sidecar surface covers instance CRUD, connection testing, manual sync, sync-status reads, latest auth-file snapshots, provider inventory snapshots, and direct auth-file status or field mutations. Provider inventory stays a read-only supplement and never substitutes for an auth snapshot contract violation.
+The retained sidecar surface covers instance CRUD, connection testing, manual provider sync, sync-status reads, live auth-files, optional provider inventory snapshots, read-only auth-file model discovery, and direct auth-file status or field mutations. Provider inventory stays a read-only supplement and never substitutes for live auth-file state.
 
 The scheduler registers the bounded low-priority `sidecar_snapshot_sync` worker with queue limit 1, single concurrency, best-effort drain, and drop-new coalescing so sidecar background work cannot borrow protected proxy capacity.
 

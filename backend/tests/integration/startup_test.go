@@ -647,7 +647,7 @@ type userSettingSnapshot struct {
 	UpdatedAt            string  `json:"updated_at"`
 }
 
-type appAuthSnapshot struct {
+type appAuthSettingsRecord struct {
 	SingletonKey                  string `json:"singleton_key"`
 	AuthEnabled                   bool   `json:"auth_enabled"`
 	EmailVerificationAttemptCount int    `json:"email_verification_attempt_count"`
@@ -709,7 +709,7 @@ type runtimeStateSnapshot struct {
 type startupStateSnapshot struct {
 	Profiles             []profileSnapshot             `json:"profiles"`
 	UserSettings         []userSettingSnapshot         `json:"user_settings"`
-	AppAuthSettings      []appAuthSnapshot             `json:"app_auth_settings"`
+	AppAuthSettings      []appAuthSettingsRecord       `json:"app_auth_settings"`
 	Vendors              []vendorSnapshot              `json:"vendors"`
 	HeaderBlocklistRules []systemHeaderRuleSnapshot    `json:"header_blocklist_rules"`
 	UserAgentClientRules []systemUserAgentRuleSnapshot `json:"user_agent_client_rules"`
@@ -1149,7 +1149,7 @@ func snapshotStartupState(t *testing.T, ctx context.Context, conn *pgx.Conn) str
 	snapshot := startupStateSnapshot{
 		Profiles:             loadProfileSnapshots(t, ctx, conn),
 		UserSettings:         loadUserSettingSnapshots(t, ctx, conn),
-		AppAuthSettings:      loadAppAuthSnapshots(t, ctx, conn),
+		AppAuthSettings:      loadAppAuthSettingsRecords(t, ctx, conn),
 		Vendors:              loadVendorSnapshots(t, ctx, conn),
 		HeaderBlocklistRules: loadHeaderBlocklistRuleSnapshots(t, ctx, conn),
 		UserAgentClientRules: loadUserAgentRuleSnapshots(t, ctx, conn),
@@ -1229,7 +1229,7 @@ func loadUserSettingSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	return items
 }
 
-func loadAppAuthSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []appAuthSnapshot {
+func loadAppAuthSettingsRecords(t *testing.T, ctx context.Context, conn *pgx.Conn) []appAuthSettingsRecord {
 	t.Helper()
 	rows, err := conn.Query(
 		ctx,
@@ -1240,9 +1240,9 @@ func loadAppAuthSnapshots(t *testing.T, ctx context.Context, conn *pgx.Conn) []a
 	}
 	defer rows.Close()
 
-	items := []appAuthSnapshot{}
+	items := []appAuthSettingsRecord{}
 	for rows.Next() {
-		var item appAuthSnapshot
+		var item appAuthSettingsRecord
 		var createdAt time.Time
 		var updatedAt time.Time
 		if err := rows.Scan(&item.SingletonKey, &item.AuthEnabled, &item.EmailVerificationAttemptCount, &item.MustChangePassword, &item.TokenVersion, &createdAt, &updatedAt); err != nil {

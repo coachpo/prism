@@ -18,7 +18,6 @@ var errSidecarManagementPasswordMissing = errors.New("management password is not
 type SidecarSyncResult struct {
 	Sidecar               SidecarInstance
 	SyncedAt              time.Time
-	AuthSnapshotCount     int
 	ProviderSnapshotCount int
 	Skipped               bool
 	SkipReason            string
@@ -113,11 +112,8 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 		SkipTLSVerify:         instance.SkipTLSVerify,
 		RequestTimeoutSeconds: instance.RequestTimeoutSeconds,
 	}
-	authInputs, providerBatches, err := s.collectSidecarSnapshots(ctx, instance.ID, syncedAt, target)
+	providerBatches, err := s.collectSidecarProviderSnapshots(ctx, instance.ID, syncedAt, target)
 	if err != nil {
-		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
-	}
-	if _, err := s.store.ReplaceAuthSnapshots(ctx, instance.ID, authInputs); err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
 	providerSnapshotCount := 0
@@ -141,29 +137,18 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 		return result, err
 	}
 	result.Sidecar = updated
-	result.AuthSnapshotCount = len(authInputs)
 	result.ProviderSnapshotCount = providerSnapshotCount
 	return result, nil
 }
 
-func (s *Service) collectSidecarSnapshots(ctx context.Context, sidecarID int, observedAt time.Time, target CLIProxyTarget) ([]SidecarAuthSnapshotInput, []SidecarProviderSnapshotBatch, error) {
-	authFiles, authFilesResponse, err := s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
-	if err != nil {
-		return nil, nil, err
-	}
-	deleteSupported := s.authDeleteCapabilityKnownSupported(ctx, target, authFilesResponse)
-	authInputs := make([]SidecarAuthSnapshotInput, 0, len(authFiles))
-	for _, raw := range authFiles {
-		input, err := normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID, observedAt, raw, deleteSupported)
-		if err != nil {
-			return nil, nil, err
-		}
-		authInputs = append(authInputs, input)
-	}
+func (s *Service) collectSidecarProviderSnapshots(ctx context.Context, sidecarID int, observedAt time.Time, target CLIProxyTarget) ([]SidecarProviderSnapshotBatch, error) {
 	providerBatches := make([]SidecarProviderSnapshotBatch, 0, len(sidecarProviderSyncEndpoints))
 	for _, endpoint := range sidecarProviderSyncEndpoints {
 		var payload map[string]json.RawMessage
 		if _, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, endpoint.Path, nil, &payload); err != nil {
+			if sidecarProviderSyncErrorBlocksHealth(err) {
+				return nil, err
+			}
 			providerBatches = append(providerBatches, SidecarProviderSnapshotBatch{ProviderKey: endpoint.ResponseKey, Inputs: []SidecarProviderSnapshotInput{providerInventoryFailureSnapshotInput(sidecarID, observedAt, endpoint.ResponseKey, endpoint.Path, err)}})
 			continue
 		}
@@ -174,7 +159,28 @@ func (s *Service) collectSidecarSnapshots(ctx context.Context, sidecarID int, ob
 		}
 		providerBatches = append(providerBatches, SidecarProviderSnapshotBatch{ProviderKey: endpoint.ResponseKey, Inputs: inputs, Replace: true})
 	}
-	return authInputs, providerBatches, nil
+	return providerBatches, nil
+}
+
+func sidecarProviderSyncErrorBlocksHealth(err error) bool {
+	var clientErr *CLIProxyClientError
+	if !errors.As(err, &clientErr) {
+		return false
+	}
+	switch clientErr.Code {
+	case CLIProxyErrorInvalidBaseURL,
+		CLIProxyErrorPrivateNetworkBlocked,
+		CLIProxyErrorInsecureHTTPBlocked,
+		CLIProxyErrorUnsupportedPath,
+		CLIProxyErrorRequestBuild,
+		CLIProxyErrorRequestFailed,
+		CLIProxyErrorTimeout,
+		CLIProxyErrorInvalidManagementAuth,
+		CLIProxyErrorManagementDisabled:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) finishSyncSuccess(ctx context.Context, instance SidecarInstance, syncedAt time.Time) (SidecarInstance, error) {
@@ -342,20 +348,10 @@ func (s *Service) fetchSidecarAuthFileRowsWithResponse(ctx context.Context, targ
 }
 
 func (s *Service) fetchSidecarAuthFileRowsWithResponseAllowEmpty(ctx context.Context, target CLIProxyTarget) ([]json.RawMessage, CLIProxyResponse, error) {
-	var envelope map[string]json.RawMessage
-	response, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &envelope)
-	if err != nil {
-		return nil, response, err
-	}
-	rows, err := decodeSidecarAuthFileRowsWithEmptyPolicy(envelope, true)
-	return rows, response, err
+	return s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
 }
 
 func decodeSidecarAuthFileRows(envelope map[string]json.RawMessage) ([]json.RawMessage, error) {
-	return decodeSidecarAuthFileRowsWithEmptyPolicy(envelope, false)
-}
-
-func decodeSidecarAuthFileRowsWithEmptyPolicy(envelope map[string]json.RawMessage, allowEmpty bool) ([]json.RawMessage, error) {
 	filesRaw, ok := envelope["files"]
 	if !ok {
 		return nil, newSidecarSyncContractError("/auth-files response files must be present")
@@ -368,40 +364,37 @@ func decodeSidecarAuthFileRowsWithEmptyPolicy(envelope map[string]json.RawMessag
 	if err := json.Unmarshal(trimmed, &files); err != nil || files == nil {
 		return nil, newSidecarSyncContractError("/auth-files response files must be an array")
 	}
-	if len(files) == 0 && !allowEmpty {
-		return nil, newSidecarSyncContractError("/auth-files response files must not be empty; empty-list deletion semantics are ambiguous")
-	}
 	return files, nil
 }
 
-func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.RawMessage) (SidecarAuthSnapshotInput, error) {
-	return normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID, observedAt, raw, false)
+func normalizeSidecarAuthFile(sidecarID int, observedAt time.Time, raw json.RawMessage) (SidecarAuthFileInput, error) {
+	return normalizeSidecarAuthFileWithDeleteSupport(sidecarID, observedAt, raw, false)
 }
 
-func normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID int, observedAt time.Time, raw json.RawMessage, deleteSupported bool) (SidecarAuthSnapshotInput, error) {
+func normalizeSidecarAuthFileWithDeleteSupport(sidecarID int, observedAt time.Time, raw json.RawMessage, deleteSupported bool) (SidecarAuthFileInput, error) {
 	fields, err := decodeSidecarSyncObject(raw)
 	if err != nil {
-		return SidecarAuthSnapshotInput{}, err
+		return SidecarAuthFileInput{}, err
 	}
-	authID := firstNonEmptyString(fields, "id", "auth_id", "auth_index", "name")
+	authID := firstNonEmptyString(fields, "id")
 	name := firstNonEmptyString(fields, "name", "id", "auth_index")
-	if authID == "" || name == "" {
-		return SidecarAuthSnapshotInput{}, invalidInputError("auth snapshot requires id or name")
+	if name == "" {
+		return SidecarAuthFileInput{}, invalidInputError("auth file row requires id or name")
 	}
-	snapshot, err := normalizedAuthSnapshotJSON(fields, deleteSupported)
+	snapshot, err := normalizedAuthFileJSON(fields, deleteSupported)
 	if err != nil {
-		return SidecarAuthSnapshotInput{}, err
+		return SidecarAuthFileInput{}, err
 	}
 	recentRequests, err := syncJSONFieldOrDefault(fields, "recent_requests", "[]")
 	if err != nil {
-		return SidecarAuthSnapshotInput{}, err
+		return SidecarAuthFileInput{}, err
 	}
 	modelStates, err := syncJSONFieldOrDefault(fields, "model_states", "{}")
 	if err != nil {
-		return SidecarAuthSnapshotInput{}, err
+		return SidecarAuthFileInput{}, err
 	}
 	quotaExceeded, quotaReason, quotaNextRecoverAt := quotaSnapshotFields(fields)
-	return SidecarAuthSnapshotInput{
+	return SidecarAuthFileInput{
 		SidecarID:          sidecarID,
 		AuthID:             authID,
 		AuthIndex:          stringPtrFromKeys(fields, "auth_index"),
@@ -425,7 +418,7 @@ func normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID int, observedAt tim
 	}, nil
 }
 
-func normalizedAuthSnapshotJSON(fields map[string]any, deleteSupported bool) (json.RawMessage, error) {
+func normalizedAuthFileJSON(fields map[string]any, deleteSupported bool) (json.RawMessage, error) {
 	snapshot := map[string]any{"delete_supported": deleteSupported}
 	for _, key := range []string{"id", "auth_index", "name", "type", "provider", "label", "status", "status_message", "disabled", "unavailable", "runtime_only", "source", "priority", "success", "failed", "quota", "recent_requests", "model_states", "note"} {
 		if value, ok := fields[key]; ok {

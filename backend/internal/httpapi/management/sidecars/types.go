@@ -105,8 +105,9 @@ type SidecarSyncMetadataInput struct {
 	AuthFailurePauseUntil *time.Time
 }
 
-type SidecarAuthSnapshotInput struct {
+type SidecarAuthFileInput struct {
 	SidecarID          int
+	StorageKey         string
 	AuthID             string
 	AuthIndex          *string
 	Name               string
@@ -128,9 +129,9 @@ type SidecarAuthSnapshotInput struct {
 	ObservedAt         time.Time
 }
 
-type SidecarAuthSnapshot struct {
-	ID                 int
+type SidecarAuthFile struct {
 	SidecarID          int
+	StorageKey         string
 	AuthID             string
 	AuthIndex          *string
 	Name               string
@@ -150,8 +151,7 @@ type SidecarAuthSnapshot struct {
 	ModelStatesJSON    json.RawMessage
 	SnapshotJSON       json.RawMessage
 	ObservedAt         time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	MutationSafe       bool
 }
 
 type SidecarProviderSnapshotInput struct {

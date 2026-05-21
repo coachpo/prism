@@ -13,7 +13,6 @@ type sidecarSyncResponse struct {
 	State                 string                    `json:"state"`
 	Sidecar               sidecarInstanceResponse   `json:"sidecar"`
 	SyncStatus            sidecarSyncStatusResponse `json:"sync_status"`
-	AuthSnapshotCount     int                       `json:"auth_snapshot_count"`
 	ProviderSnapshotCount int                       `json:"provider_snapshot_count"`
 	ErrorCode             string                    `json:"error_code,omitempty"`
 	ErrorDetail           string                    `json:"error_detail,omitempty"`
@@ -63,7 +62,29 @@ func (s *Service) handleTriggerSidecarSync(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleListSidecarAuthFiles(w http.ResponseWriter, r *http.Request) {
-	s.handleListAuthSnapshots(w, r)
+	id, ok := s.parseSidecarID(w, r)
+	if !ok {
+		return
+	}
+	instance, found, err := s.store.GetSidecarInstance(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if !found {
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "sidecar not found")
+		return
+	}
+	files, err := s.fetchLiveAuthFilesForDisplay(r.Context(), instance, s.nowUTC())
+	if err != nil {
+		s.writeAuthFilesError(w, r, instance, err)
+		return
+	}
+	items := make([]authFileResponse, 0, len(files))
+	for _, file := range files {
+		items = append(items, buildAuthFileResponse(file))
+	}
+	writeJSON(w, http.StatusOK, authFileListResponse{Items: items})
 }
 
 func (s *Service) handleListSidecarAuthFileModels(w http.ResponseWriter, r *http.Request) {
@@ -94,23 +115,6 @@ func (s *Service) handleListSidecarAuthFileModels(w http.ResponseWriter, r *http
 		models.Models = []authFileModelResponse{}
 	}
 	writeJSON(w, http.StatusOK, models)
-}
-
-func (s *Service) handleListAuthSnapshots(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.parseSidecarID(w, r)
-	if !ok || !s.ensureSidecarExists(w, r, id) {
-		return
-	}
-	snapshots, err := s.store.ListAuthSnapshots(r.Context(), id)
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	items := make([]authSnapshotResponse, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		items = append(items, buildAuthSnapshotResponse(snapshot))
-	}
-	writeJSON(w, http.StatusOK, authSnapshotListResponse{Items: items})
 }
 
 func (s *Service) handleListSidecarProviders(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +155,31 @@ func (s *Service) handleGetSidecarSyncStatus(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, buildSidecarSyncStatusResponse(s.sidecarSyncStatus(instance)))
 }
 
+func (s *Service) fetchLiveAuthFilesForDisplay(ctx context.Context, instance SidecarInstance, observedAt time.Time) ([]SidecarAuthFile, error) {
+	target, err := s.cliProxyTarget(instance)
+	if err != nil {
+		return nil, err
+	}
+	authRows, response, err := s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	deleteSupported := authDeleteCapabilitySupported(response)
+	files := make([]SidecarAuthFile, 0, len(authRows))
+	for _, raw := range authRows {
+		input, err := normalizeSidecarAuthFileWithDeleteSupport(instance.ID, observedAt, raw, deleteSupported)
+		if err != nil {
+			return nil, err
+		}
+		normalized, err := normalizeAuthFileStoreInput(input)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, authFileFromInput(normalized, observedAt))
+	}
+	return files, nil
+}
+
 func (s *Service) fetchSidecarAuthFileModels(ctx context.Context, instance SidecarInstance, name string) (authFileModelsResponse, error) {
 	target, err := s.cliProxyTarget(instance)
 	if err != nil {
@@ -159,6 +188,29 @@ func (s *Service) fetchSidecarAuthFileModels(ctx context.Context, instance Sidec
 	models := authFileModelsResponse{}
 	_, err = s.cliProxyClient.FetchJSONWithQuery(ctx, target, http.MethodGet, "/auth-files/models", neturl.Values{"name": []string{name}}, nil, &models)
 	return models, err
+}
+
+func (s *Service) writeAuthFilesError(w http.ResponseWriter, r *http.Request, instance SidecarInstance, err error) {
+	if errors.Is(err, errSidecarManagementPasswordMissing) {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "management password is not configured")
+		return
+	}
+	var clientErr *CLIProxyClientError
+	if errors.As(err, &clientErr) {
+		switch clientErr.Code {
+		case CLIProxyErrorInvalidManagementAuth:
+			s.markInvalidManagementAuth(r.Context(), instance)
+			writeError(w, r, s.corsSnapshot(), http.StatusFailedDependency, "sidecar management authentication failed")
+		case CLIProxyErrorManagementDisabled:
+			writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "auth-files inventory unavailable")
+		case CLIProxyErrorRequestBuild, CLIProxyErrorUnsupportedPath:
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "sidecar auth-files request could not be built")
+		default:
+			writeError(w, r, s.corsSnapshot(), http.StatusBadGateway, "sidecar auth-files inventory failed")
+		}
+		return
+	}
+	writeDomainError(w, r, s.corsSnapshot(), err)
 }
 
 func (s *Service) writeAuthFileModelsError(w http.ResponseWriter, r *http.Request, instance SidecarInstance, err error) {
@@ -196,7 +248,6 @@ func buildSidecarSyncResponse(s *Service, result SidecarSyncResult) sidecarSyncR
 		State:                 state,
 		Sidecar:               buildSidecarInstanceResponse(result.Sidecar),
 		SyncStatus:            buildSidecarSyncStatusResponse(s.sidecarSyncStatus(result.Sidecar)),
-		AuthSnapshotCount:     result.AuthSnapshotCount,
 		ProviderSnapshotCount: result.ProviderSnapshotCount,
 		ErrorCode:             result.ErrorCode,
 		ErrorDetail:           result.ErrorDetail,

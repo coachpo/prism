@@ -107,9 +107,20 @@ func TestSidecarWorkerPriorityLifecycleAvoidsRuntimeLanes(t *testing.T) {
 		"Priority:         background.PriorityLowBackground",
 		"MaxPriority:      background.PriorityLowBackground",
 		"Timeout:          sidecarSyncWorkerTimeout",
+		"sidecar provider sync worker completed",
 	} {
 		if !strings.Contains(workerSource, marker) {
-			t.Fatalf("sidecar worker source missing priority/timeout marker %q", marker)
+			t.Fatalf("sidecar worker source missing provider-sync priority/timeout marker %q", marker)
+		}
+	}
+
+	syncSource := readSidecarPriorityBackendFile(t, "internal/httpapi/management/sidecars/sync.go")
+	for _, forbidden := range []string{
+		"s.store.ReplaceAuthFiles(ctx, instance.ID",
+		"Auth" + "SnapshotCount",
+	} {
+		if strings.Contains(syncSource, forbidden) {
+			t.Fatalf("sidecar provider sync source retained auth inventory sync marker %q", forbidden)
 		}
 	}
 }
@@ -170,16 +181,16 @@ func (*sidecarObservingStore) SoftDeleteSidecarInstance(context.Context, int) (b
 func (*sidecarObservingStore) UpdateSidecarSyncMetadata(context.Context, managementsidecars.SidecarSyncMetadataInput) (managementsidecars.SidecarInstance, error) {
 	return managementsidecars.SidecarInstance{}, errSidecarPriorityUnexpectedStoreCall
 }
-func (*sidecarObservingStore) SaveAuthSnapshot(context.Context, managementsidecars.SidecarAuthSnapshotInput) (managementsidecars.SidecarAuthSnapshot, error) {
-	return managementsidecars.SidecarAuthSnapshot{}, errSidecarPriorityUnexpectedStoreCall
+func (*sidecarObservingStore) SaveAuthFile(context.Context, managementsidecars.SidecarAuthFileInput) (managementsidecars.SidecarAuthFile, error) {
+	return managementsidecars.SidecarAuthFile{}, errSidecarPriorityUnexpectedStoreCall
 }
-func (*sidecarObservingStore) ReplaceAuthSnapshots(context.Context, int, []managementsidecars.SidecarAuthSnapshotInput) ([]managementsidecars.SidecarAuthSnapshot, error) {
+func (*sidecarObservingStore) ReplaceAuthFiles(context.Context, int, []managementsidecars.SidecarAuthFileInput) ([]managementsidecars.SidecarAuthFile, error) {
 	return nil, errSidecarPriorityUnexpectedStoreCall
 }
-func (*sidecarObservingStore) GetAuthSnapshot(context.Context, int, string) (managementsidecars.SidecarAuthSnapshot, bool, error) {
-	return managementsidecars.SidecarAuthSnapshot{}, false, errSidecarPriorityUnexpectedStoreCall
+func (*sidecarObservingStore) GetAuthFile(context.Context, int, string) (managementsidecars.SidecarAuthFile, bool, error) {
+	return managementsidecars.SidecarAuthFile{}, false, errSidecarPriorityUnexpectedStoreCall
 }
-func (*sidecarObservingStore) ListAuthSnapshots(context.Context, int) ([]managementsidecars.SidecarAuthSnapshot, error) {
+func (*sidecarObservingStore) ListAuthFiles(context.Context, int) ([]managementsidecars.SidecarAuthFile, error) {
 	return nil, errSidecarPriorityUnexpectedStoreCall
 }
 func (*sidecarObservingStore) SaveProviderSnapshot(context.Context, managementsidecars.SidecarProviderSnapshotInput) (managementsidecars.SidecarProviderSnapshot, error) {

@@ -1362,7 +1362,7 @@ Note: Delete is only available for effective-profile user rules. Attempting to d
 
 ### 1.10 Sidecars (Global CLIProxyAPI Control Plane)
 
-Sidecar routes are global management routes. They omit `X-Profile-Id` and operate on instance-wide CLIProxyAPI registrations. Prism stores sidecar metadata plus normalized auth/provider inventory snapshots; CLIProxyAPI remains the source of truth for live auth/provider state.
+Sidecar routes are global management routes. They omit `X-Profile-Id` and operate on instance-wide CLIProxyAPI registrations. Prism stores sidecar metadata plus optional normalized provider inventory for display. Auth-files are live control-plane reads from CLIProxyAPI, and CLIProxyAPI remains the source of truth for live auth/provider state.
 
 #### List Sidecars
 ```
@@ -1392,25 +1392,23 @@ POST /api/sidecars/{sidecar_id}/test-connection
 POST /api/sidecars/{sidecar_id}/sync
 GET /api/sidecars/{sidecar_id}/sync-status
 ```
-Connection tests call CLIProxyAPI management auth through the backend and return `state`, `management_auth_state`, and `status_code`. Manual sync returns `state` (`succeeded`, `skipped`, or `failed`), the updated `sidecar`, `sync_status`, `auth_snapshot_count`, `provider_snapshot_count`, and optional `error_code`/`error_detail`. Manual sync on a disabled sidecar returns `409`; invalid management auth returns `424`; other upstream failures return `502`.
+Connection tests call CLIProxyAPI management auth through the backend and return `state`, `management_auth_state`, and `status_code`. Manual sync returns `state` (`succeeded`, `skipped`, or `failed`), the updated `sidecar`, `sync_status`, `provider_snapshot_count`, and optional `error_code`/`error_detail`. Manual sync on a disabled sidecar returns `409`; invalid management auth returns `424`; other upstream failures return `502`.
 
-Prism treats CLIProxyAPI `/auth-files` sync as a strict, non-empty top-level `files` envelope. Missing `files`, legacy `auth_files`, `files: null`, non-array `files`, and `files: []` are sync-contract failures. Empty-list deletion semantics are intentionally not authoritative: Prism preserves the last-known auth snapshots, marks sync failed/stale, surfaces `error_code: "sync_contract"`, and does not use provider inventory as an auth fallback.
+Prism reads CLIProxyAPI `/auth-files` live on demand as a strict top-level `files` envelope. Missing `files`, legacy `auth_files`, `files: null`, and non-array `files` are contract failures. An empty `files: []` response is valid live state and returns an empty Prism `items` list. Provider inventory is a separate display supplement and is never an auth-file fallback.
 
-#### Inventory Snapshots
+#### Live Auth-Files and Provider Inventory
 ```
 GET /api/sidecars/{sidecar_id}/auth-files
-GET /api/sidecars/{sidecar_id}/auth-snapshots
-GET /api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}
 GET /api/sidecars/{sidecar_id}/providers
 GET /api/sidecars/{sidecar_id}/provider-snapshots
 ```
-`auth-files` is the operator-facing alias for the latest auth snapshots. Provider snapshots are normalized from CLIProxyAPI provider inventory endpoints for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. Snapshot payloads are redacted before storage or display; auth snapshot metadata may include safe UI gating hints such as `path_present` and `delete_supported` without exposing file paths or secrets.
+`auth-files` returns live auth-file observations from CLIProxyAPI. Provider snapshots are optional normalized display inventory from CLIProxyAPI provider endpoints for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. Payloads are redacted before storage or display; auth-file metadata may include safe UI gating hints such as `path_present` and `delete_supported` without exposing file paths or secrets.
 
 #### Auth-File Models Discovery
 ```
 GET /api/sidecars/{sidecar_id}/auth-files/models?name={auth-file-name-or-id}
 ```
-This route is a read-only passthrough to CLIProxyAPI `GET /v0/management/auth-files/models?name=...`. Response `200` returns `{ "models": [...] }`; model items include `id` and may include `display_name`, `type`, and `owned_by`. A successful `{ "models": [] }` means discovery is supported but no models are currently available for that auth file. Upstream 404/not-found behavior is returned as Prism `404` with an explicit unsupported detail. Prism does not mutate auth state, does not persist model discoveries, and does not use auth snapshots or provider inventory as fallback model payloads.
+This route is a read-only passthrough to CLIProxyAPI `GET /v0/management/auth-files/models?name=...`. Response `200` returns `{ "models": [...] }`; model items include `id` and may include `display_name`, `type`, and `owned_by`. A successful `{ "models": [] }` means discovery is supported but no models are currently available for that auth file. Upstream 404/not-found behavior is returned as Prism `404` with an explicit unsupported detail. Prism does not mutate auth state, does not persist model discoveries, and does not use retained auth rows or provider inventory as fallback model payloads.
 
 #### Auth-File Mutations
 ```
@@ -1418,13 +1416,13 @@ DELETE /api/sidecars/{sidecar_id}/auth-files/{auth_id}
 PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status
 PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields
 ```
-Status mutations accept `disabled`. Field mutations are priority-only: the `/fields` request body requires `priority` and accepts optional `force_live`; no other auth-file fields are mutable through Prism. Single auth-file delete accepts `{ "confirm_name": "..." }` and no batch/delete-all/upload/download surface. Mutations flow through Prism's backend service so the browser never calls CLIProxyAPI directly.
+Status mutations accept `disabled`. Field mutations are priority-only: the `/fields` request body requires `priority`; no other auth-file fields are mutable through Prism. Single auth-file delete accepts `{ "confirm_name": "..." }` and no batch/delete-all/upload/download surface. Mutations flow through Prism's backend service so the browser never calls CLIProxyAPI directly.
 
-Before any upstream PATCH or DELETE, Prism fetches live `/auth-files` state and allows mutation only when exactly one live row matches `{auth_id}`, that row has stable non-name-derived identity, and its current `name` is unique in the live auth list. Prism refuses duplicate-name collisions, name-derived/degraded rows, ambiguous live matches, missing live rows, and stale cached rows without `force_live=true` on PATCH routes. `force_live=true` forces a live preflight for stale or missing cached PATCH rows; it is not a safety bypass. Successful PATCH responses return `state: "succeeded"` with a refreshed snapshot when the post-mutation sync succeeds, or `state: "succeeded_sync_failed"` plus `sync_error` when the upstream mutation succeeded but Prism could not refresh local truth.
+Before any upstream PATCH or DELETE, Prism fetches live `/auth-files` state and allows mutation only when exactly one live row matches `{auth_id}`, that row has stable non-name-derived identity, and its current `name` is unique in the live auth list. Prism refuses duplicate-name collisions, name-derived/degraded rows, ambiguous live matches, and missing live rows. Local retained observations never authorize mutation and there is no retry control for stale cached data. Successful PATCH responses return `state: "succeeded"` with the refreshed live auth-file row when the post-mutation refresh succeeds, or `state: "succeeded_sync_failed"` plus `sync_error` when the upstream mutation succeeded but Prism could not refresh local truth.
 
-Delete is stricter than PATCH: Prism requires the live row to be file-backed, non-runtime-only, non-path-like by name, confirmed by an exact `confirm_name` match against the current live auth name, and backed by known-supported CLIProxyAPI delete capability from normal `/auth-files` management response metadata or a bounded non-mutating empty `DELETE /v0/management/auth-files` probe for CPA builds with metadata before calling CLIProxyAPI `DELETE /v0/management/auth-files` with `{ "names": [name] }`. Missing or unknown capability refuses the delete without issuing a named upstream `DELETE`. Successful clean delete returns `state: "succeeded"` and omits `snapshot` when the row is absent after the delete-only refresh, including the final remaining auth file case. If the upstream delete succeeds but Prism cannot refresh local truth, the response returns `state: "succeeded_sync_failed"`, the pre-delete snapshot, and `sync_error`.
+Delete is stricter than PATCH: Prism requires the live row to be file-backed, non-runtime-only, non-path-like by name, confirmed by an exact `confirm_name` match against the current live auth name, and backed by known-supported CLIProxyAPI delete capability from normal `/auth-files` management response metadata or a bounded non-mutating empty `DELETE /v0/management/auth-files` probe for CPA builds with metadata before calling CLIProxyAPI `DELETE /v0/management/auth-files` with `{ "names": [name] }`. Missing or unknown capability refuses the delete without issuing a named upstream `DELETE`. Successful clean delete returns `state: "succeeded"` and omits the auth-file row when the row is absent after the delete-only refresh, including the final remaining auth file case. If the upstream delete succeeds but Prism cannot refresh local truth, the response returns `state: "succeeded_sync_failed"`, the pre-delete live auth-file row, and `sync_error`.
 
-Authfile priority has two context-specific zero semantics. In auth snapshot JSON and CLIProxyAPI runtime/listing behavior, `priority=0` is a valid explicit baseline/lowest numeric bucket; higher numeric values are preferred, and a snapshot `priority: 0` is not absent or removed. The upstream CLIProxyAPI `/auth-files/fields` PATCH surface is the exception: sending `priority: 0` is the API-specific clear/remove sentinel for stored priority metadata, so Prism forwards that literal field-update value and then refreshes snapshots from CLIProxyAPI state.
+Authfile priority has two context-specific zero semantics. In CLIProxyAPI live `/auth-files` listing behavior, `priority=0` is a valid explicit baseline/lowest numeric bucket; higher numeric values are preferred, and a returned `priority: 0` is not absent or removed. The upstream CLIProxyAPI `/auth-files/fields` PATCH surface is the exception: sending `priority: 0` is the API-specific clear/remove sentinel for stored priority metadata, so Prism forwards that literal field-update value and then refreshes live auth-files from CLIProxyAPI state.
 
 ---
 

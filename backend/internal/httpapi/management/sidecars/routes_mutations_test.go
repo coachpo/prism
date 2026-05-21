@@ -15,21 +15,21 @@ import (
 
 func TestOperatorPriorityPatchSyncedWithoutRemovedSurfaceSideEffects(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":42}`, http.StatusOK, &response)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":42}`, http.StatusOK, &response)
 	if response.Snapshot == nil || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 42 {
 		t.Fatalf("expected refreshed priority=42 snapshot, got %+v", response.Snapshot)
 	}
 	patches := upstream.fieldPatchPayloads()
-	if len(patches) != 1 || intFromAny(patches[0]["priority"]) != 42 || patches[0]["disabled"] != nil {
+	if len(patches) != 1 || patches[0]["name"] != liveAuthName || intFromAny(patches[0]["priority"]) != 42 || patches[0]["disabled"] != nil {
 		t.Fatalf("unexpected fields patch payloads: %+v", patches)
 	}
 	for _, removed := range []string{"prefix", "proxy_url", "note", "headers", "custom_headers"} {
@@ -42,17 +42,17 @@ func TestOperatorPriorityPatchSyncedWithoutRemovedSurfaceSideEffects(t *testing.
 
 func TestPatchAuthFilePriorityZeroMeaningFrozen(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.zeroPriorityPatchClears = true
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":0}`, http.StatusOK, &response)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":0}`, http.StatusOK, &response)
 	if response.Snapshot == nil {
 		t.Fatalf("expected refreshed snapshot after priority=0 patch")
 	}
@@ -64,8 +64,8 @@ func TestPatchAuthFilePriorityZeroMeaningFrozen(t *testing.T) {
 		t.Fatalf("expected one fields patch payload, got %+v", patches)
 	}
 	priority, prioritySent := patches[0]["priority"]
-	if !prioritySent || intFromAny(priority) != 0 {
-		t.Fatalf("expected Prism to forward the API-specific priority=0 sentinel, patches=%+v", patches)
+	if patches[0]["name"] != liveAuthName || !prioritySent || intFromAny(priority) != 0 {
+		t.Fatalf("expected Prism to forward the current name and API-specific priority=0 sentinel, patches=%+v", patches)
 	}
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields"})
 }
@@ -81,11 +81,11 @@ func TestAuthFieldsPayloadPriorityOnly(t *testing.T) {
 	}
 
 	t.Run("priority-only payload preserves omitted removed fields", func(t *testing.T) {
-		payload, fields, err := buildOperatorFieldsPayload(decode(t, `{"priority":7}`), retainedAuthName)
+		payload, fields, err := buildOperatorFieldsPayload(decode(t, `{"priority":7}`), liveAuthName)
 		if err != nil {
 			t.Fatalf("build priority-only payload: %v", err)
 		}
-		if len(fields) != 1 || fields[0] != "priority" || intFromAny(payload["priority"]) != 7 || payload["name"] != retainedAuthName {
+		if len(fields) != 1 || fields[0] != "priority" || intFromAny(payload["priority"]) != 7 || payload["name"] != liveAuthName {
 			t.Fatalf("unexpected priority-only payload fields=%v payload=%+v", fields, payload)
 		}
 		for _, removed := range []string{"prefix", "proxy_url", "note", "headers", "custom_headers"} {
@@ -96,7 +96,7 @@ func TestAuthFieldsPayloadPriorityOnly(t *testing.T) {
 	})
 
 	t.Run("priority zero remains explicit sentinel", func(t *testing.T) {
-		payload, fields, err := buildOperatorFieldsPayload(decode(t, `{"priority":0}`), retainedAuthName)
+		payload, fields, err := buildOperatorFieldsPayload(decode(t, `{"priority":0}`), liveAuthName)
 		if err != nil {
 			t.Fatalf("build priority=0 payload: %v", err)
 		}
@@ -118,7 +118,7 @@ func TestAuthFieldsPayloadPriorityOnly(t *testing.T) {
 	}
 	for _, tt := range rejections {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := buildOperatorFieldsPayload(decode(t, tt.body), retainedAuthName)
+			_, _, err := buildOperatorFieldsPayload(decode(t, tt.body), liveAuthName)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
 			}
@@ -128,72 +128,97 @@ func TestAuthFieldsPayloadPriorityOnly(t *testing.T) {
 
 func TestOperatorStatusPatchSyncedWithoutRemovedSurfaceSideEffects(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "status", `{"disabled":true}`, http.StatusOK, &response)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "status", `{"disabled":true}`, http.StatusOK, &response)
 	if response.Snapshot == nil || response.Snapshot.Disabled == nil || !*response.Snapshot.Disabled {
 		t.Fatalf("expected refreshed disabled snapshot, got %+v", response.Snapshot)
 	}
 	patches := upstream.statusPatchPayloads()
-	if len(patches) != 1 || patches[0]["disabled"] != true || patches[0]["priority"] != nil {
+	if len(patches) != 1 || patches[0]["name"] != liveAuthName || patches[0]["disabled"] != true || patches[0]["priority"] != nil {
 		t.Fatalf("unexpected status patch payloads: %+v", patches)
 	}
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/auth-files/status", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, []string{"/v0/management/auth-files", "/v0/management/auth-files/status"})
 }
 
-func TestOperatorMutationStaleSnapshotRequiresForceLive(t *testing.T) {
+func TestOperatorMutationUsesLiveAuthorityWithoutStoredRowGate(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	staleAt := now.Add(-3 * time.Hour)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	oldSyncAt := now.Add(-3 * time.Hour)
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 60)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, staleAt, retainedAuthFixture{Priority: 100})
-	staleAfter := staleAt.Add(time.Minute)
-	if _, err := service.store.UpdateSidecarSyncMetadata(t.Context(), SidecarSyncMetadataInput{SidecarID: sidecar.ID, LastSyncAt: staleAt, LastSuccessfulSyncAt: &staleAt, SnapshotStaleAfter: &staleAfter, ManagementAuthState: ManagementAuthStateValid}); err != nil {
-		t.Fatalf("mark snapshot stale: %v", err)
-	}
+	seedLiveAuthFile(t, service, sidecar.ID, oldSyncAt, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":50}`, http.StatusConflict, nil)
-	if len(upstream.fieldPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 0 {
-		t.Fatalf("stale mutation without force_live should not call upstream, patches=%v gets=%d", upstream.fieldPatchPayloads(), upstream.getAuthFilesCount())
-	}
-	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, nil)
-
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields?force_live=true", `{"priority":55}`, http.StatusOK, &response)
-	if response.Snapshot == nil || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 55 {
-		t.Fatalf("force_live mutation did not refresh snapshot: %+v", response.Snapshot)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":55}`, http.StatusOK, &response)
+	if response.Snapshot == nil || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 55 || !response.Snapshot.MutationSafe {
+		t.Fatalf("live mutation did not refresh mutable auth file: %+v", response.Snapshot)
 	}
-	if len(upstream.fieldPatchPayloads()) != 1 || upstream.getAuthFilesCount() < 2 {
-		t.Fatalf("force_live should preflight and sync, patches=%v gets=%d", upstream.fieldPatchPayloads(), upstream.getAuthFilesCount())
+	patches := upstream.fieldPatchPayloads()
+	if len(patches) != 1 || patches[0]["name"] != liveAuthName || upstream.getAuthFilesCount() < 2 {
+		t.Fatalf("live mutation should preflight, patch current name, and refresh; patches=%v gets=%d", patches, upstream.getAuthFilesCount())
 	}
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields?legacy_control=true", `{"priority":60}`, http.StatusBadRequest, nil)
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields"})
+}
+
+func TestAuthMutationMissingLiveAuthReturnsNotFound(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name  string
+		route string
+		body  string
+	}{
+		{name: "priority", route: "fields", body: `{"priority":50}`},
+		{name: "status", route: "status", body: `{"disabled":true}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
+			defer upstream.Close()
+			other := liveAuthPayload(liveAuthFixture{Priority: 100})
+			other["id"] = "auth-other-live"
+			other["auth_index"] = "auth_999"
+			other["name"] = "gemini-other.json"
+			upstream.setAuthFiles(other)
+			service := newSyncTestService(t, func() time.Time { return now })
+			sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
+			seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
+			router := chi.NewRouter()
+			service.MountManagementRoutes(router)
+
+			patchAuthMutation(t, router, sidecar.ID, liveAuthID, tt.route, tt.body, http.StatusNotFound, nil)
+			if len(upstream.fieldPatchPayloads()) != 0 || len(upstream.statusPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 1 {
+				t.Fatalf("missing live auth should preflight once and skip PATCH, fields=%v status=%v gets=%d", upstream.fieldPatchPayloads(), upstream.statusPatchPayloads(), upstream.getAuthFilesCount())
+			}
+		})
+	}
 }
 
 func TestOperatorMutationParseFailuresSkipRemovedSurfaceActions(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":50,"force_live":"yes"}`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "status?legacy_control=true", `{"disabled":false}`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "status", `{"disabled":false,"legacy_control":true}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":50,"legacy_control":"yes"}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "status?legacy_control=true", `{"disabled":false}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "status", `{"disabled":false,"legacy_control":true}`, http.StatusBadRequest, nil)
 	if len(upstream.fieldPatchPayloads()) != 0 || len(upstream.statusPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 0 {
 		t.Fatalf("parse failures should not call upstream, fields=%v status=%v gets=%d", upstream.fieldPatchPayloads(), upstream.statusPatchPayloads(), upstream.getAuthFilesCount())
 	}
@@ -202,11 +227,11 @@ func TestOperatorMutationParseFailuresSkipRemovedSurfaceActions(t *testing.T) {
 
 func TestOperatorMutationRejectsRemovedAuthFields(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
@@ -222,7 +247,7 @@ func TestOperatorMutationRejectsRemovedAuthFields(t *testing.T) {
 	}
 	for _, tt := range rejections {
 		t.Run(tt.name, func(t *testing.T) {
-			patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", tt.body, http.StatusBadRequest, nil)
+			patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", tt.body, http.StatusBadRequest, nil)
 		})
 	}
 	if len(upstream.fieldPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 0 {
@@ -231,27 +256,24 @@ func TestOperatorMutationRejectsRemovedAuthFields(t *testing.T) {
 	upstream.assertAllowedManagementPaths(t, nil, nil)
 }
 
-func TestOperatorMutationForceLivePreflightFailureSkipsRemovedSurfaceActions(t *testing.T) {
+func TestOperatorMutationLivePreflightFailureSkipsRemovedSurfaceActions(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v0/management/auth-files" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		t.Fatalf("force_live preflight failure should not continue to %s", r.URL.Path)
+		t.Fatalf("live preflight failure should not continue to %s", r.URL.Path)
 	}))
 	defer server.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
-	staleAt := now.Add(-3 * time.Hour)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, staleAt, retainedAuthFixture{Priority: 100})
-	if _, err := service.store.UpdateSidecarSyncMetadata(t.Context(), SidecarSyncMetadataInput{SidecarID: sidecar.ID, LastSyncAt: staleAt, LastSuccessfulSyncAt: &staleAt, SnapshotStaleAfter: &staleAt, ManagementAuthState: ManagementAuthStateValid}); err != nil {
-		t.Fatalf("mark stale snapshot: %v", err)
-	}
+	oldSyncAt := now.Add(-3 * time.Hour)
+	seedLiveAuthFile(t, service, sidecar.ID, oldSyncAt, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields?force_live=true", `{"priority":50}`, http.StatusFailedDependency, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":50}`, http.StatusFailedDependency, nil)
 	stored, _, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
 	if err != nil || stored.ManagementAuthState != ManagementAuthStateInvalid {
 		t.Fatalf("expected invalid management auth state after preflight failure, sidecar=%+v err=%v", stored, err)
@@ -260,19 +282,19 @@ func TestOperatorMutationForceLivePreflightFailureSkipsRemovedSurfaceActions(t *
 
 func TestOperatorMutationRejectsSecretFields(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"api_key":"raw-secret"}`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"headers":{"Authorization":"Bearer raw-secret"}}`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"headers":{"Set-Cookie":"session=raw-secret"}}`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"note":"bearer raw-secret"}`, http.StatusBadRequest, nil)
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"proxy_url":"https://user:raw-secret@example.com"}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"api_key":"raw-secret"}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"headers":{"Authorization":"Bearer raw-secret"}}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"headers":{"Set-Cookie":"session=raw-secret"}}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"note":"bearer raw-secret"}`, http.StatusBadRequest, nil)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"proxy_url":"https://user:raw-secret@example.com"}`, http.StatusBadRequest, nil)
 	if len(upstream.fieldPatchPayloads()) != 0 || len(upstream.statusPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 0 {
 		t.Fatalf("secret rejection should not call upstream, fields=%v status=%v gets=%d", upstream.fieldPatchPayloads(), upstream.statusPatchPayloads(), upstream.getAuthFilesCount())
 	}
@@ -282,36 +304,36 @@ func TestOperatorMutationRejectsSecretFields(t *testing.T) {
 func TestAuthMutationRejectsUnsafeIdentity(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 
-	t.Run("duplicate live names", func(t *testing.T) {
-		upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	t.Run("duplicate live ids", func(t *testing.T) {
+		upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 		defer upstream.Close()
-		duplicate := retainedAuthPayload(retainedAuthFixture{Priority: 90})
-		duplicate["id"] = "auth-gemini-shadow"
+		duplicate := liveAuthPayload(liveAuthFixture{Priority: 90})
+		duplicate["id"] = liveAuthID
 		duplicate["auth_index"] = "auth_999"
-		duplicate["name"] = retainedAuthName
-		upstream.setAuthFiles(retainedAuthPayload(retainedAuthFixture{Priority: 100}), duplicate)
+		duplicate["name"] = "gemini-shadow.json"
+		upstream.setAuthFiles(liveAuthPayload(liveAuthFixture{Priority: 100}), duplicate)
 		service := newSyncTestService(t, func() time.Time { return now })
 		sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-		seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+		seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 		router := chi.NewRouter()
 		service.MountManagementRoutes(router)
 
-		patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":41}`, http.StatusConflict, nil)
+		patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":41}`, http.StatusConflict, nil)
 		if len(upstream.fieldPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 1 {
-			t.Fatalf("duplicate-name target must preflight once and refuse before PATCH, patches=%v gets=%d", upstream.fieldPatchPayloads(), upstream.getAuthFilesCount())
+			t.Fatalf("duplicate-id target must preflight once and refuse before PATCH, patches=%v gets=%d", upstream.fieldPatchPayloads(), upstream.getAuthFilesCount())
 		}
 	})
 
 	t.Run("name derived degraded row", func(t *testing.T) {
-		upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+		upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 		defer upstream.Close()
 		degraded := map[string]any{"name": "gemini-disk-scan-only.json", "provider": "gemini", "priority": 5, "status": "active", "disabled": false}
 		upstream.expectedPatchName = "gemini-disk-scan-only.json"
 		upstream.setAuthFiles(degraded)
 		service := newSyncTestService(t, func() time.Time { return now })
 		sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-		markRetainedAuthSnapshotsFresh(t, service, sidecar.ID, now)
-		_, err := service.store.SaveAuthSnapshot(t.Context(), SidecarAuthSnapshotInput{SidecarID: sidecar.ID, AuthID: "gemini-disk-scan-only.json", Name: "gemini-disk-scan-only.json", Provider: stringPtr("gemini"), Priority: intPtr(5), SnapshotJSON: json.RawMessage(`{"condition":"condition_unobservable"}`), ObservedAt: now})
+		markLiveAuthFilesMetadataFresh(t, service, sidecar.ID, now)
+		_, err := service.store.SaveAuthFile(t.Context(), SidecarAuthFileInput{SidecarID: sidecar.ID, AuthID: "gemini-disk-scan-only.json", Name: "gemini-disk-scan-only.json", Provider: stringPtr("gemini"), Priority: intPtr(5), SnapshotJSON: json.RawMessage(`{"condition":"condition_unobservable"}`), ObservedAt: now})
 		if err != nil {
 			t.Fatalf("seed degraded snapshot: %v", err)
 		}
@@ -325,54 +347,52 @@ func TestAuthMutationRejectsUnsafeIdentity(t *testing.T) {
 	})
 }
 
-func TestAuthMutationAllowsForceLiveRetry(t *testing.T) {
+func TestAuthMutationUsesCurrentLiveIdentity(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	staleAt := now.Add(-3 * time.Hour)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	oldSyncAt := now.Add(-3 * time.Hour)
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
-	renamed := retainedAuthPayload(retainedAuthFixture{Priority: 100})
-	renamed["name"] = "gemini-renamed.json"
-	upstream.expectedPatchName = "gemini-renamed.json"
+	renamedName := "gemini-renamed.json"
+	renamed := liveAuthPayload(liveAuthFixture{Priority: 100})
+	renamed["name"] = renamedName
+	upstream.expectedPatchName = renamedName
 	upstream.setAuthFiles(renamed)
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 60)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, staleAt, retainedAuthFixture{Priority: 100})
-	if _, err := service.store.UpdateSidecarSyncMetadata(t.Context(), SidecarSyncMetadataInput{SidecarID: sidecar.ID, LastSyncAt: staleAt, LastSuccessfulSyncAt: &staleAt, SnapshotStaleAfter: &staleAt, ManagementAuthState: ManagementAuthStateValid}); err != nil {
-		t.Fatalf("mark stale snapshot: %v", err)
-	}
+	seedLiveAuthFile(t, service, sidecar.ID, oldSyncAt, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields?force_live=true", `{"priority":66}`, http.StatusOK, &response)
-	if response.State != "succeeded" || response.Snapshot == nil || response.Snapshot.Name != "gemini-renamed.json" || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 66 {
-		t.Fatalf("force-live retry did not use current live identity and refresh snapshot: %+v", response)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":66}`, http.StatusOK, &response)
+	if response.State != "succeeded" || response.Snapshot == nil || response.Snapshot.Name != renamedName || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 66 {
+		t.Fatalf("live mutation did not use current live identity and refresh auth file: %+v", response)
 	}
 	patches := upstream.fieldPatchPayloads()
-	if len(patches) != 1 || patches[0]["name"] != "gemini-renamed.json" || intFromAny(patches[0]["priority"]) != 66 || upstream.getAuthFilesCount() < 2 {
-		t.Fatalf("force-live retry should preflight, patch live name, and resync; patches=%v gets=%d", patches, upstream.getAuthFilesCount())
+	if len(patches) != 1 || patches[0]["name"] != renamedName || intFromAny(patches[0]["priority"]) != 66 || upstream.getAuthFilesCount() < 2 {
+		t.Fatalf("live mutation should preflight, patch current name, and refresh; patches=%v gets=%d", patches, upstream.getAuthFilesCount())
 	}
 }
 
 func TestAuthMutationResponseMarksSyncFailure(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.authFilesFailureAfterPatch = true
 	upstream.authFilesFailureStatus = http.StatusInternalServerError
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":44}`, http.StatusOK, &response)
+	patchAuthMutation(t, router, sidecar.ID, liveAuthID, "fields", `{"priority":44}`, http.StatusOK, &response)
 	if response.State != "succeeded_sync_failed" || response.SyncError == nil || strings.TrimSpace(*response.SyncError) == "" {
 		t.Fatalf("expected succeeded_sync_failed with sync_error, got %+v", response)
 	}
 	if response.Snapshot == nil || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 100 {
-		t.Fatalf("sync-failed response should not present stale mutation as refreshed truth: %+v", response.Snapshot)
+		t.Fatalf("sync-failed response should not present failed refresh as current truth: %+v", response.Snapshot)
 	}
 	if len(upstream.fieldPatchPayloads()) != 1 || upstream.getAuthFilesCount() < 2 {
 		t.Fatalf("expected one successful patch and failed resync, patches=%v gets=%d", upstream.fieldPatchPayloads(), upstream.getAuthFilesCount())
@@ -381,22 +401,31 @@ func TestAuthMutationResponseMarksSyncFailure(t *testing.T) {
 
 func TestOperatorDeleteAuthFileUsesLiveNameAndResyncs(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
-	survivor := retainedAuthPayload(retainedAuthFixture{Priority: 75, Provider: "claude"})
+	oldSyncAt := now.Add(-3 * time.Hour)
+	renamedName := "gemini-renamed-live.json"
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
+	renamed := liveAuthPayload(liveAuthFixture{Priority: 100})
+	renamed["name"] = renamedName
+	survivor := liveAuthPayload(liveAuthFixture{Priority: 75, Provider: "claude"})
 	survivor["id"] = "auth-claude-survivor"
 	survivor["auth_index"] = "auth_002"
 	survivor["name"] = "claude-survivor.json"
 	survivor["provider"] = "claude"
-	upstream.setAuthFiles(retainedAuthPayload(retainedAuthFixture{Priority: 100}), survivor)
+	upstream.setAuthFiles(renamed, survivor)
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, oldSyncAt, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusConflict, nil)
+	if len(upstream.deletePayloads()) != 0 || upstream.getAuthFilesCount() != 1 {
+		t.Fatalf("stale stored name confirmation should preflight once and not delete, deletes=%v gets=%d", upstream.deletePayloads(), upstream.getAuthFilesCount())
+	}
+
 	var response authMutationResponse
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusOK, &response)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+renamedName+`"}`, http.StatusOK, &response)
 	if response.State != "succeeded" {
 		t.Fatalf("expected succeeded delete response, got %+v", response)
 	}
@@ -404,43 +433,70 @@ func TestOperatorDeleteAuthFileUsesLiveNameAndResyncs(t *testing.T) {
 		t.Fatalf("deleted auth file should be absent after successful resync, got %+v", response.Snapshot)
 	}
 	deletes := upstream.deletePayloads()
-	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != retainedAuthName {
-		t.Fatalf("expected single upstream delete for live name, got %+v", deletes)
+	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != renamedName {
+		t.Fatalf("expected single upstream delete for current live name, got %+v", deletes)
 	}
-	if upstream.getAuthFilesCount() < 2 {
-		t.Fatalf("delete should preflight and resync auth files, gets=%d", upstream.getAuthFilesCount())
+	if upstream.getAuthFilesCount() < 3 {
+		t.Fatalf("delete should preflight stale confirmation, preflight success, and resync auth files, gets=%d", upstream.getAuthFilesCount())
 	}
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, []string{"/v0/management/auth-files"})
 }
 
-func TestOperatorDeleteAuthFileCanCleanlyDeleteLastAuthFile(t *testing.T) {
+func TestOperatorDeleteAuthFileUsesLiveAuthorityWithoutStoredRowGate(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusOK, &response)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusOK, &response)
+	if response.State != "succeeded" || response.Snapshot != nil {
+		t.Fatalf("expected live-only delete to succeed without stored auth row, got %+v", response)
+	}
+	deletes := upstream.deletePayloads()
+	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != liveAuthName {
+		t.Fatalf("expected single upstream delete for live name, got %+v", deletes)
+	}
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("live-only delete should leave no local auth rows, got %+v err=%v", auths, err)
+	}
+	if upstream.getAuthFilesCount() != 2 {
+		t.Fatalf("live-only delete should preflight and refresh auth files exactly once each, gets=%d", upstream.getAuthFilesCount())
+	}
+}
+
+func TestOperatorDeleteAuthFileCanCleanlyDeleteLastAuthFile(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
+	defer upstream.Close()
+	service := newSyncTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+
+	var response authMutationResponse
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusOK, &response)
 	if response.State != "succeeded" {
 		t.Fatalf("expected succeeded delete response for last auth file, got %+v", response)
 	}
 	if response.Snapshot != nil {
 		t.Fatalf("last deleted auth file should be absent after clean refresh, got %+v", response.Snapshot)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 0 {
-		t.Fatalf("last delete should clear local auth snapshots, got %+v err=%v", auths, err)
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 1 || auths[0].AuthID != liveAuthID {
+		t.Fatalf("last delete should not depend on local auth refresh persistence, got %+v err=%v", auths, err)
 	}
 	stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
 	if err != nil || !ok || stored.LastSyncError != nil {
 		t.Fatalf("last delete should finish with clean sync metadata, ok=%v stored=%+v err=%v", ok, stored, err)
 	}
 	deletes := upstream.deletePayloads()
-	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != retainedAuthName {
+	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != liveAuthName {
 		t.Fatalf("expected single upstream delete for live name, got %+v", deletes)
 	}
 	if upstream.getAuthFilesCount() != 2 {
@@ -450,16 +506,16 @@ func TestOperatorDeleteAuthFileCanCleanlyDeleteLastAuthFile(t *testing.T) {
 
 func TestOperatorDeleteAuthFileRejectsUnknownCapabilityBeforeDelete(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.deleteCapabilityHeaders = false
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusFailedDependency, nil)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusFailedDependency, nil)
 	if len(upstream.deletePayloads()) != 0 || upstream.getAuthFilesCount() != 1 {
 		t.Fatalf("unknown delete capability should preflight once and not delete, deletes=%v gets=%d", upstream.deletePayloads(), upstream.getAuthFilesCount())
 	}
@@ -467,65 +523,58 @@ func TestOperatorDeleteAuthFileRejectsUnknownCapabilityBeforeDelete(t *testing.T
 
 func TestOperatorDeleteAuthFileAllowsCompatibleBuildAfterNonMutatingProbe(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.deleteCapabilityCommit = "ffffffffffffffffffffffffffffffffffffffff"
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusOK, &response)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusOK, &response)
 	if response.State != "succeeded" {
 		t.Fatalf("expected compatible build delete to succeed after probe, got %+v", response)
 	}
 	deletes := upstream.deletePayloads()
-	if len(deletes) != 2 || len(deletes[0]) != 0 || len(deletes[1]) != 1 || deletes[1][0] != retainedAuthName {
+	if len(deletes) != 2 || len(deletes[0]) != 0 || len(deletes[1]) != 1 || deletes[1][0] != liveAuthName {
 		t.Fatalf("expected empty capability probe before single delete, got %+v", deletes)
 	}
 }
 
-func TestSyncMarksDeleteSupportedForCompatibleBuildAfterNonMutatingProbe(t *testing.T) {
+func TestSyncDoesNotProbeAuthDeleteCapability(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.deleteCapabilityCommit = "ffffffffffffffffffffffffffffffffffffffff"
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
 
-	if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
-		t.Fatalf("sync compatible delete capability: %v", err)
+	result, err := service.SyncSidecar(t.Context(), sidecar.ID)
+	if err != nil || result.ProviderSnapshotCount != 5 {
+		t.Fatalf("provider sync should not require auth delete capability probe: result=%+v err=%v", result, err)
 	}
-	deletes := upstream.deletePayloads()
-	if len(deletes) != 1 || len(deletes[0]) != 0 {
-		t.Fatalf("expected one empty capability probe during sync, got %+v", deletes)
+	if deletes := upstream.deletePayloads(); len(deletes) != 0 {
+		t.Fatalf("sync must not run auth delete capability probes, got %+v", deletes)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 {
-		t.Fatalf("load synced auth snapshots len=%d err=%v", len(auths), err)
-	}
-	var snapshot map[string]any
-	if err := json.Unmarshal(auths[0].SnapshotJSON, &snapshot); err != nil {
-		t.Fatalf("decode auth snapshot json: %v", err)
-	}
-	if snapshot["delete_supported"] != true {
-		t.Fatalf("compatible probed build should surface delete_supported=true, snapshot=%s", auths[0].SnapshotJSON)
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("sync must not persist auth delete capability metadata, got %+v err=%v", auths, err)
 	}
 }
 
 func TestOperatorDeleteAuthFileRejectsStaleConfirmation(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"wrong.json"}`, http.StatusConflict, nil)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"wrong.json"}`, http.StatusConflict, nil)
 	if len(upstream.deletePayloads()) != 0 || upstream.getAuthFilesCount() != 1 {
 		t.Fatalf("stale confirmation should preflight once and not delete, deletes=%v gets=%d", upstream.deletePayloads(), upstream.getAuthFilesCount())
 	}
@@ -540,22 +589,22 @@ func TestOperatorDeleteAuthFileRejectsUnsafeRows(t *testing.T) {
 		{name: "runtime only", mutate: func(row map[string]any) { row["runtime_only"] = true }},
 		{name: "memory source", mutate: func(row map[string]any) { row["source"] = "memory" }},
 		{name: "missing path", mutate: func(row map[string]any) { delete(row, "path") }},
-		{name: "path like name", mutate: func(row map[string]any) { row["name"] = "nested/" + retainedAuthName }},
+		{name: "path like name", mutate: func(row map[string]any) { row["name"] = "nested/" + liveAuthName }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+			upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 			defer upstream.Close()
-			row := retainedAuthPayload(retainedAuthFixture{Priority: 100})
+			row := liveAuthPayload(liveAuthFixture{Priority: 100})
 			tt.mutate(row)
 			upstream.setAuthFiles(row)
 			service := newSyncTestService(t, func() time.Time { return now })
 			sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-			seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+			seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 			router := chi.NewRouter()
 			service.MountManagementRoutes(router)
 
-			deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusConflict, nil)
+			deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusConflict, nil)
 			if len(upstream.deletePayloads()) != 0 || upstream.getAuthFilesCount() != 1 {
 				t.Fatalf("unsafe row should preflight once and not delete, deletes=%v gets=%d", upstream.deletePayloads(), upstream.getAuthFilesCount())
 			}
@@ -566,13 +615,13 @@ func TestOperatorDeleteAuthFileRejectsUnsafeRows(t *testing.T) {
 func TestOperatorDeleteAuthFileRejectsNameDerivedIdentity(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 	name := "gemini-disk-scan-only.json"
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.setAuthFiles(map[string]any{"name": name, "provider": "gemini", "status": "active", "disabled": false, "runtime_only": false, "source": "file", "path": "/mock/cliproxy/auth/" + name, "priority": 5})
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	markRetainedAuthSnapshotsFresh(t, service, sidecar.ID, now)
-	_, err := service.store.SaveAuthSnapshot(t.Context(), SidecarAuthSnapshotInput{SidecarID: sidecar.ID, AuthID: name, Name: name, Provider: stringPtr("gemini"), Priority: intPtr(5), SnapshotJSON: json.RawMessage(`{"condition":"condition_unobservable"}`), ObservedAt: now})
+	markLiveAuthFilesMetadataFresh(t, service, sidecar.ID, now)
+	_, err := service.store.SaveAuthFile(t.Context(), SidecarAuthFileInput{SidecarID: sidecar.ID, AuthID: name, Name: name, Provider: stringPtr("gemini"), Priority: intPtr(5), SnapshotJSON: json.RawMessage(`{"condition":"condition_unobservable"}`), ObservedAt: now})
 	if err != nil {
 		t.Fatalf("seed name-derived delete snapshot: %v", err)
 	}
@@ -587,22 +636,22 @@ func TestOperatorDeleteAuthFileRejectsNameDerivedIdentity(t *testing.T) {
 
 func TestOperatorDeleteAuthFileResponseMarksSyncFailure(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.authFilesFailureAfterDelete = true
 	upstream.authFilesFailureStatus = http.StatusInternalServerError
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusOK, &response)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusOK, &response)
 	if response.State != "succeeded_sync_failed" || response.SyncError == nil || strings.TrimSpace(*response.SyncError) == "" {
 		t.Fatalf("expected succeeded_sync_failed delete response, got %+v", response)
 	}
-	if response.Snapshot == nil || response.Snapshot.Name != retainedAuthName {
+	if response.Snapshot == nil || response.Snapshot.Name != liveAuthName {
 		t.Fatalf("sync-failed delete response should retain pre-delete snapshot, got %+v", response.Snapshot)
 	}
 	if len(upstream.deletePayloads()) != 1 || upstream.getAuthFilesCount() < 2 {
@@ -610,25 +659,54 @@ func TestOperatorDeleteAuthFileResponseMarksSyncFailure(t *testing.T) {
 	}
 }
 
+func TestOperatorDeleteAuthFileConflictWhenLiveFileStillPresentAfterRefresh(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
+	upstream.deleteLeavesFilesPresent = true
+	defer upstream.Close()
+	service := newSyncTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusConflict, nil)
+	deletes := upstream.deletePayloads()
+	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != liveAuthName {
+		t.Fatalf("expected one named upstream delete before verification conflict, got %+v", deletes)
+	}
+	if upstream.getAuthFilesCount() != 2 {
+		t.Fatalf("verification conflict should preflight and refresh exactly once each, gets=%d", upstream.getAuthFilesCount())
+	}
+	stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
+	if err != nil || !ok || stored.LastSyncError == nil || !strings.Contains(*stored.LastSyncError, deletedAuthFileStillPresentDetail) {
+		t.Fatalf("expected post-delete verification failure in sync metadata, ok=%v stored=%+v err=%v", ok, stored, err)
+	}
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 1 || auths[0].AuthID != liveAuthID {
+		t.Fatalf("verification conflict should leave previous local auth row intact, got %+v err=%v", auths, err)
+	}
+}
+
 func TestOperatorDeleteAuthFileUpstreamFailureLeavesSnapshotIntact(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	upstream := newOperatorMutationUpstream(t, liveAuthFixture{Priority: 100})
 	upstream.deleteFailureStatus = http.StatusFailedDependency
 	upstream.deleteFailureBody = `{"error":"upstream delete refused"}`
 	defer upstream.Close()
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
-	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	seedLiveAuthFile(t, service, sidecar.ID, now, liveAuthFixture{Priority: 100})
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
 
-	deleteAuthMutation(t, router, sidecar.ID, retainedAuthID, `{"confirm_name":"`+retainedAuthName+`"}`, http.StatusBadGateway, nil)
+	deleteAuthMutation(t, router, sidecar.ID, liveAuthID, `{"confirm_name":"`+liveAuthName+`"}`, http.StatusBadGateway, nil)
 	deletes := upstream.deletePayloads()
-	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != retainedAuthName {
+	if len(deletes) != 1 || len(deletes[0]) != 1 || deletes[0][0] != liveAuthName {
 		t.Fatalf("expected one named upstream delete attempt, got %+v", deletes)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 || auths[0].AuthID != retainedAuthID {
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 1 || auths[0].AuthID != liveAuthID {
 		t.Fatalf("upstream delete failure should leave local snapshot intact, got %+v err=%v", auths, err)
 	}
 	if upstream.getAuthFilesCount() != 1 {
@@ -640,7 +718,7 @@ type operatorMutationUpstream struct {
 	t      *testing.T
 	server *httptest.Server
 	mu     sync.Mutex
-	auth   retainedAuthFixture
+	auth   liveAuthFixture
 
 	paths                       []string
 	fieldPatches                []map[string]any
@@ -656,15 +734,16 @@ type operatorMutationUpstream struct {
 	authFilesFailureBody        string
 	deleteFailureStatus         int
 	deleteFailureBody           string
+	deleteLeavesFilesPresent    bool
 	zeroPriorityPatchClears     bool
 	deleteCapabilityHeaders     bool
 	deleteCapabilityCommit      string
 }
 
-func newOperatorMutationUpstream(t *testing.T, auth retainedAuthFixture) *operatorMutationUpstream {
+func newOperatorMutationUpstream(t *testing.T, auth liveAuthFixture) *operatorMutationUpstream {
 	t.Helper()
-	upstream := &operatorMutationUpstream{t: t, auth: auth, expectedPatchName: retainedAuthName, deleteCapabilityHeaders: true}
-	upstream.setAuthFiles(retainedAuthPayload(auth))
+	upstream := &operatorMutationUpstream{t: t, auth: auth, expectedPatchName: liveAuthName, deleteCapabilityHeaders: true}
+	upstream.setAuthFiles(liveAuthPayload(auth))
 	upstream.server = httptest.NewServer(http.HandlerFunc(upstream.serveHTTP))
 	return upstream
 }
@@ -832,6 +911,7 @@ func (u *operatorMutationUpstream) serveAuthFilesDelete(w http.ResponseWriter, r
 	u.deleteRequests = append(u.deleteRequests, append([]string(nil), payload.Names...))
 	deleteFailureStatus := u.deleteFailureStatus
 	deleteFailureBody := u.deleteFailureBody
+	deleteLeavesFilesPresent := u.deleteLeavesFilesPresent
 	if len(payload.Names) == 0 {
 		u.mu.Unlock()
 		w.WriteHeader(http.StatusBadRequest)
@@ -847,6 +927,11 @@ func (u *operatorMutationUpstream) serveAuthFilesDelete(w http.ResponseWriter, r
 		_, _ = w.Write([]byte(deleteFailureBody))
 		return
 	}
+	if deleteLeavesFilesPresent {
+		u.mu.Unlock()
+		writeAuthFixtureJSON(w, map[string]any{"status": "ok", "deleted": len(payload.Names), "api_key": "raw-delete-response-secret"})
+		return
+	}
 	deleteSet := make(map[string]struct{}, len(payload.Names))
 	for _, name := range payload.Names {
 		deleteSet[name] = struct{}{}
@@ -854,7 +939,11 @@ func (u *operatorMutationUpstream) serveAuthFilesDelete(w http.ResponseWriter, r
 	remaining := make([]map[string]any, 0, len(u.authFiles))
 	for _, file := range u.authFiles {
 		name, _ := file["name"].(string)
+		id, _ := file["id"].(string)
 		if _, ok := deleteSet[name]; ok {
+			continue
+		}
+		if _, ok := deleteSet[id]; ok {
 			continue
 		}
 		remaining = append(remaining, file)
@@ -875,7 +964,7 @@ func (u *operatorMutationUpstream) serveFieldsPatch(w http.ResponseWriter, r *ht
 	u.fieldPatches = append(u.fieldPatches, cloneMutationPayload(patch))
 	if priority, ok := patch["priority"]; ok {
 		for index := range u.authFiles {
-			if u.authFiles[index]["name"] == patch["name"] {
+			if u.authFiles[index]["name"] == patch["name"] || u.authFiles[index]["id"] == patch["name"] {
 				u.authFiles[index]["priority"] = intFromAny(priority)
 			}
 		}
@@ -898,7 +987,7 @@ func (u *operatorMutationUpstream) serveStatusPatch(w http.ResponseWriter, r *ht
 	u.statusPatches = append(u.statusPatches, cloneMutationPayload(patch))
 	if disabled, ok := patch["disabled"].(bool); ok {
 		for index := range u.authFiles {
-			if u.authFiles[index]["name"] == patch["name"] {
+			if u.authFiles[index]["name"] == patch["name"] || u.authFiles[index]["id"] == patch["name"] {
 				u.authFiles[index]["disabled"] = disabled
 			}
 		}

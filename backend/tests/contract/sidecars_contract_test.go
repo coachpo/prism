@@ -77,18 +77,14 @@ func TestSidecarManagementRoutesRequireAuthAndRedactSecrets(t *testing.T) {
 	}
 }
 
-func TestSidecarRouteSurfaceMatchesOpenAPI(t *testing.T) {
+func TestSidecarRouteSurfaceMatchesMountedManagementRouter(t *testing.T) {
 	mounted := collectMountedSidecarRoutes(t)
-	openAPI := loadSidecarOpenAPIPaths(t)
 
 	failures := make([]string, 0)
 	for path, methods := range expectedSidecarRouteSurface() {
 		for _, method := range methods {
 			if !mounted[path][method] {
 				failures = append(failures, method+" "+path+" missing from mounted management router")
-			}
-			if _, ok := openAPI[path][strings.ToLower(method)]; !ok {
-				failures = append(failures, method+" "+path+" missing from OpenAPI paths")
 			}
 		}
 	}
@@ -99,29 +95,21 @@ func TestSidecarRouteSurfaceMatchesOpenAPI(t *testing.T) {
 			}
 		}
 	}
-	for path, operations := range openAPI {
-		if !strings.HasPrefix(path, "/api/sidecars") {
-			continue
-		}
-		for operation := range operations {
-			method := strings.ToUpper(operation)
-			if !slices.Contains(expectedSidecarRouteSurface()[path], method) {
-				failures = append(failures, method+" "+path+" unexpectedly documented in OpenAPI paths")
-			}
-		}
-	}
 	if len(failures) > 0 {
 		sort.Strings(failures)
-		t.Fatalf("sidecar route/OpenAPI surface mismatch:\n%s", strings.Join(failures, "\n"))
+		t.Fatalf("sidecar route surface mismatch:\n%s", strings.Join(failures, "\n"))
 	}
 }
 
 func TestSidecarOpenAPIComponentsMatchCurrentSurface(t *testing.T) {
 	_, openAPI := loadSidecarOpenAPIArtifact(t)
+	assertSidecarOpenAPIPathSurface(t, openAPI.Paths)
 	assertSidecarOpenAPISchemaSet(t, openAPI.Components.Schemas)
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarCreateRequest", []string{"allow_insecure_http", "allow_private_network", "base_url", "enabled", "environment_label", "management_password", "name", "request_timeout_seconds", "skip_tls_verify", "sync_interval_seconds"})
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarUpdateRequest", []string{"allow_insecure_http", "allow_private_network", "base_url", "enabled", "environment_label", "management_password", "name", "request_timeout_seconds", "skip_tls_verify", "sync_interval_seconds"})
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarInstance", []string{"allow_insecure_http", "allow_private_network", "base_url", "base_url_canonical", "created_at", "credential_state", "enabled", "environment_label", "id", "last_successful_sync_at", "last_sync_at", "last_sync_error", "management_auth_state", "name", "pause_metadata", "request_timeout_seconds", "skip_tls_verify", "snapshot_stale_after", "sync_interval_seconds", "updated_at"})
+	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarAuthFile", []string{"auth_id", "auth_index", "disabled", "failed_count", "label", "model_states", "mutation_safe", "name", "observed_at", "priority", "provider", "quota_exceeded", "quota_next_recover_at", "quota_reason", "recent_requests", "sidecar_id", "snapshot", "status", "status_message", "success_count", "unavailable"})
+	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarAuthFilesResponse", []string{"items"})
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarAuthModel", []string{"display_name", "id", "owned_by", "type"})
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarAuthModelsResponse", []string{"models"})
 	assertSidecarMutationOpenAPIContract(t, openAPI)
@@ -217,32 +205,60 @@ type sidecarOpenAPIDocument struct {
 
 func loadSidecarOpenAPIArtifact(t *testing.T) ([]byte, sidecarOpenAPIDocument) {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "docs", "openapi.json")
+	path := filepath.Join("..", "..", "testdata", "openapi", "current.json")
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read OpenAPI artifact %s: %v", path, err)
+		t.Fatalf("read backend OpenAPI fixture %s: %v", path, err)
 	}
 	var doc sidecarOpenAPIDocument
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("decode OpenAPI artifact: %v", err)
+		t.Fatalf("decode backend OpenAPI fixture: %v", err)
 	}
 	return raw, doc
 }
 
-func loadSidecarOpenAPIPaths(t *testing.T) map[string]map[string]any {
+func assertSidecarOpenAPIPathSurface(t *testing.T, paths map[string]map[string]any) {
 	t.Helper()
-	_, doc := loadSidecarOpenAPIArtifact(t)
-	return doc.Paths
+	expected := expectedSidecarRouteSurface()
+	removedSegment := "auth-" + "snapshots"
+	for path, operationMap := range paths {
+		if !strings.HasPrefix(path, "/api/sidecars") {
+			continue
+		}
+		if strings.Contains(path, removedSegment) {
+			t.Fatalf("removed auth inventory path unexpectedly present in backend fixture: %s", path)
+		}
+		methods, ok := expected[path]
+		if !ok {
+			t.Fatalf("OpenAPI fixture has unexpected sidecar path %s", path)
+		}
+		for method := range operationMap {
+			if !slices.Contains(methods, strings.ToUpper(method)) {
+				t.Fatalf("OpenAPI fixture has unexpected sidecar operation %s %s", strings.ToUpper(method), path)
+			}
+		}
+	}
+	for path, methods := range expected {
+		operationMap, ok := paths[path]
+		if !ok {
+			t.Fatalf("OpenAPI fixture missing sidecar path %s", path)
+		}
+		for _, method := range methods {
+			if _, ok := operationMap[strings.ToLower(method)]; !ok {
+				t.Fatalf("OpenAPI fixture missing %s %s", method, path)
+			}
+		}
+	}
 }
 
 func assertSidecarOpenAPISchemaSet(t *testing.T, schemas map[string]any) {
 	t.Helper()
 	expected := map[string]bool{
+		"SidecarAuthFile":                     true,
+		"SidecarAuthFilesResponse":            true,
 		"SidecarAuthModel":                    true,
 		"SidecarAuthModelsResponse":           true,
 		"SidecarAuthMutationResponse":         true,
-		"SidecarAuthSnapshot":                 true,
-		"SidecarAuthSnapshotListResponse":     true,
 		"SidecarCreateRequest":                true,
 		"SidecarCredentialState":              true,
 		"SidecarInstance":                     true,
@@ -317,17 +333,13 @@ func assertSidecarMutationOpenAPIContract(t *testing.T, doc sidecarOpenAPIDocume
 		fieldNames = append(fieldNames, name)
 	}
 	sort.Strings(fieldNames)
-	wantFields := []string{"force_live", "priority"}
+	wantFields := []string{"priority"}
 	if !slices.Equal(fieldNames, wantFields) {
 		t.Fatalf("fields mutation request properties = %v want %v", fieldNames, wantFields)
 	}
 	priority := sidecarContractMap(t, fieldsProps, "priority")
 	if priority["type"] != "integer" || priority["minimum"] != float64(0) || priority["nullable"] == true {
 		t.Fatalf("fields mutation priority must be a non-null non-negative integer, got %v", priority)
-	}
-	forceLive := sidecarContractMap(t, fieldsProps, "force_live")
-	if forceLive["type"] != "boolean" || forceLive["nullable"] == true {
-		t.Fatalf("fields mutation force_live must be a non-null boolean, got %v", forceLive)
 	}
 
 	deleteSchema := sidecarMutationRequestSchema(t, doc, "/api/sidecars/{sidecar_id}/auth-files/{auth_id}", "delete")
@@ -358,20 +370,18 @@ func sidecarContractMap(t *testing.T, source map[string]any, key string) map[str
 
 func expectedSidecarRouteSurface() map[string][]string {
 	return map[string][]string{
-		"/api/sidecars":                                           {http.MethodGet, http.MethodPost},
-		"/api/sidecars/{sidecar_id}":                              {http.MethodGet, http.MethodPatch, http.MethodDelete},
-		"/api/sidecars/{sidecar_id}/test-connection":              {http.MethodPost},
-		"/api/sidecars/{sidecar_id}/sync":                         {http.MethodPost},
-		"/api/sidecars/{sidecar_id}/auth-files":                   {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/auth-files/models":            {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}":         {http.MethodDelete},
-		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}/status":  {http.MethodPatch},
-		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields":  {http.MethodPatch},
-		"/api/sidecars/{sidecar_id}/auth-snapshots":               {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}": {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/providers":                    {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/provider-snapshots":           {http.MethodGet},
-		"/api/sidecars/{sidecar_id}/sync-status":                  {http.MethodGet},
+		"/api/sidecars":                                          {http.MethodGet, http.MethodPost},
+		"/api/sidecars/{sidecar_id}":                             {http.MethodGet, http.MethodPatch, http.MethodDelete},
+		"/api/sidecars/{sidecar_id}/test-connection":             {http.MethodPost},
+		"/api/sidecars/{sidecar_id}/sync":                        {http.MethodPost},
+		"/api/sidecars/{sidecar_id}/auth-files":                  {http.MethodGet},
+		"/api/sidecars/{sidecar_id}/auth-files/models":           {http.MethodGet},
+		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}":        {http.MethodDelete},
+		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}/status": {http.MethodPatch},
+		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields": {http.MethodPatch},
+		"/api/sidecars/{sidecar_id}/providers":                   {http.MethodGet},
+		"/api/sidecars/{sidecar_id}/provider-snapshots":          {http.MethodGet},
+		"/api/sidecars/{sidecar_id}/sync-status":                 {http.MethodGet},
 	}
 }
 

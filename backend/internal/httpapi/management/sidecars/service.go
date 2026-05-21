@@ -22,10 +22,10 @@ type persistence interface {
 	UpdateSidecarInstance(context.Context, int, SidecarInstanceInput) (SidecarInstance, error)
 	SoftDeleteSidecarInstance(context.Context, int) (bool, error)
 	UpdateSidecarSyncMetadata(context.Context, SidecarSyncMetadataInput) (SidecarInstance, error)
-	SaveAuthSnapshot(context.Context, SidecarAuthSnapshotInput) (SidecarAuthSnapshot, error)
-	ReplaceAuthSnapshots(context.Context, int, []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error)
-	GetAuthSnapshot(context.Context, int, string) (SidecarAuthSnapshot, bool, error)
-	ListAuthSnapshots(context.Context, int) ([]SidecarAuthSnapshot, error)
+	SaveAuthFile(context.Context, SidecarAuthFileInput) (SidecarAuthFile, error)
+	ReplaceAuthFiles(context.Context, int, []SidecarAuthFileInput) ([]SidecarAuthFile, error)
+	GetAuthFile(context.Context, int, string) (SidecarAuthFile, bool, error)
+	ListAuthFiles(context.Context, int) ([]SidecarAuthFile, error)
 	SaveProviderSnapshot(context.Context, SidecarProviderSnapshotInput) (SidecarProviderSnapshot, error)
 	ReplaceProviderSnapshots(context.Context, int, string, []SidecarProviderSnapshotInput) ([]SidecarProviderSnapshot, error)
 	ListProviderSnapshots(context.Context, int) ([]SidecarProviderSnapshot, error)
@@ -105,8 +105,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Patch("/sidecars/{sidecar_id}/auth-files/{auth_id}/status", s.handlePatchAuthFileStatus)
 	api.Patch("/sidecars/{sidecar_id}/auth-files/{auth_id}/fields", s.handlePatchAuthFileFields)
 	api.Delete("/sidecars/{sidecar_id}/auth-files/{auth_id}", s.handleDeleteAuthFile)
-	api.Get("/sidecars/{sidecar_id}/auth-snapshots", s.handleListAuthSnapshots)
-	api.Get("/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}", s.handleGetAuthSnapshot)
 	api.Get("/sidecars/{sidecar_id}/providers", s.handleListSidecarProviders)
 	api.Get("/sidecars/{sidecar_id}/provider-snapshots", s.handleListProviderSnapshots)
 	api.Get("/sidecars/{sidecar_id}/sync-status", s.handleGetSidecarSyncStatus)
@@ -123,7 +121,7 @@ type memorySidecarStore struct {
 	nextID              int
 	nextSnapshotID      int
 	instances           map[int]SidecarInstance
-	authSnapshots       map[int]map[string]SidecarAuthSnapshot
+	authFiles           map[int]map[string]SidecarAuthFile
 	providerSnapshots   map[int]map[string]SidecarProviderSnapshot
 }
 
@@ -137,7 +135,7 @@ func newMemorySidecarStore(now func() time.Time, secretEncryptionKey string) *me
 		nextID:              1,
 		nextSnapshotID:      1,
 		instances:           map[int]SidecarInstance{},
-		authSnapshots:       map[int]map[string]SidecarAuthSnapshot{},
+		authFiles:           map[int]map[string]SidecarAuthFile{},
 		providerSnapshots:   map[int]map[string]SidecarProviderSnapshot{},
 	}
 }
@@ -222,18 +220,18 @@ func (s *memorySidecarStore) SoftDeleteSidecarInstance(_ context.Context, id int
 	return true, nil
 }
 
-func (s *memorySidecarStore) GetAuthSnapshot(_ context.Context, sidecarID int, authID string) (SidecarAuthSnapshot, bool, error) {
+func (s *memorySidecarStore) GetAuthFile(_ context.Context, sidecarID int, authID string) (SidecarAuthFile, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	snapshots := s.authSnapshots[sidecarID]
-	if snapshots == nil {
-		return SidecarAuthSnapshot{}, false, nil
+	files := s.authFiles[sidecarID]
+	if files == nil {
+		return SidecarAuthFile{}, false, nil
 	}
-	snapshot, ok := snapshots[authID]
-	if !ok {
-		return SidecarAuthSnapshot{}, false, nil
+	file, ok := files[strings.TrimSpace(authID)]
+	if !ok || !file.MutationSafe {
+		return SidecarAuthFile{}, false, nil
 	}
-	return cloneAuthSnapshot(snapshot), true, nil
+	return cloneAuthFile(file), true, nil
 }
 
 func (s *memorySidecarStore) normalizeInput(input SidecarInstanceInput) (SidecarInstanceInput, error) {
@@ -274,24 +272,24 @@ func cloneSidecarInstance(instance SidecarInstance) SidecarInstance {
 	return copy
 }
 
-func cloneAuthSnapshot(snapshot SidecarAuthSnapshot) SidecarAuthSnapshot {
-	copy := snapshot
-	copy.AuthIndex = cloneStringPtr(snapshot.AuthIndex)
-	copy.Provider = cloneStringPtr(snapshot.Provider)
-	copy.Label = cloneStringPtr(snapshot.Label)
-	copy.Status = cloneStringPtr(snapshot.Status)
-	copy.StatusMessage = cloneStringPtr(snapshot.StatusMessage)
-	copy.Disabled = cloneBoolPtr(snapshot.Disabled)
-	copy.Unavailable = cloneBoolPtr(snapshot.Unavailable)
-	copy.Priority = cloneIntPtr(snapshot.Priority)
-	copy.QuotaExceeded = cloneBoolPtr(snapshot.QuotaExceeded)
-	copy.QuotaReason = cloneStringPtr(snapshot.QuotaReason)
-	copy.QuotaNextRecoverAt = cloneTimePtr(snapshot.QuotaNextRecoverAt)
-	copy.SuccessCount = cloneIntPtr(snapshot.SuccessCount)
-	copy.FailedCount = cloneIntPtr(snapshot.FailedCount)
-	copy.RecentRequestsJSON = append([]byte(nil), snapshot.RecentRequestsJSON...)
-	copy.ModelStatesJSON = append([]byte(nil), snapshot.ModelStatesJSON...)
-	copy.SnapshotJSON = append([]byte(nil), snapshot.SnapshotJSON...)
+func cloneAuthFile(file SidecarAuthFile) SidecarAuthFile {
+	copy := file
+	copy.AuthIndex = cloneStringPtr(file.AuthIndex)
+	copy.Provider = cloneStringPtr(file.Provider)
+	copy.Label = cloneStringPtr(file.Label)
+	copy.Status = cloneStringPtr(file.Status)
+	copy.StatusMessage = cloneStringPtr(file.StatusMessage)
+	copy.Disabled = cloneBoolPtr(file.Disabled)
+	copy.Unavailable = cloneBoolPtr(file.Unavailable)
+	copy.Priority = cloneIntPtr(file.Priority)
+	copy.QuotaExceeded = cloneBoolPtr(file.QuotaExceeded)
+	copy.QuotaReason = cloneStringPtr(file.QuotaReason)
+	copy.QuotaNextRecoverAt = cloneTimePtr(file.QuotaNextRecoverAt)
+	copy.SuccessCount = cloneIntPtr(file.SuccessCount)
+	copy.FailedCount = cloneIntPtr(file.FailedCount)
+	copy.RecentRequestsJSON = append([]byte(nil), file.RecentRequestsJSON...)
+	copy.ModelStatesJSON = append([]byte(nil), file.ModelStatesJSON...)
+	copy.SnapshotJSON = append([]byte(nil), file.SnapshotJSON...)
 	return copy
 }
 

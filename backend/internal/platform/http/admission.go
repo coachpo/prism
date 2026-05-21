@@ -145,8 +145,6 @@ var managementRouteSpecs = []managementRouteSpec{
 	{name: "sidecar auth file delete", method: http.MethodDelete, pattern: "/sidecars/{sidecar_id}/auth-files/{auth_id}", tier: priority.ManagementTierM2},
 	{name: "sidecar auth file status patch", method: http.MethodPatch, pattern: "/sidecars/{sidecar_id}/auth-files/{auth_id}/status", tier: priority.ManagementTierM2},
 	{name: "sidecar auth file fields patch", method: http.MethodPatch, pattern: "/sidecars/{sidecar_id}/auth-files/{auth_id}/fields", tier: priority.ManagementTierM2},
-	{name: "sidecar auth snapshots list", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/auth-snapshots", tier: priority.ManagementTierM3},
-	{name: "sidecar auth snapshot read", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}", tier: priority.ManagementTierM3},
 	{name: "sidecar providers list", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/providers", tier: priority.ManagementTierM3},
 	{name: "sidecar provider snapshots list", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/provider-snapshots", tier: priority.ManagementTierM3},
 	{name: "sidecar sync status read", method: http.MethodGet, pattern: "/sidecars/{sidecar_id}/sync-status", tier: priority.ManagementTierM3},

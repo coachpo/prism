@@ -2,6 +2,7 @@ package sidecars
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sort"
 	"strings"
@@ -53,23 +54,46 @@ func TestSidecarManagementRoutesMatchCurrentSurface(t *testing.T) {
 
 func currentSidecarRouteSurface() map[string][]string {
 	return map[string][]string{
-		"/sidecars":                                           {http.MethodGet, http.MethodPost},
-		"/sidecars/{sidecar_id}":                              {http.MethodGet, http.MethodPatch, http.MethodDelete},
-		"/sidecars/{sidecar_id}/test-connection":              {http.MethodPost},
-		"/sidecars/{sidecar_id}/sync":                         {http.MethodPost},
-		"/sidecars/{sidecar_id}/auth-files":                   {http.MethodGet},
-		"/sidecars/{sidecar_id}/auth-files/models":            {http.MethodGet},
-		"/sidecars/{sidecar_id}/auth-files/{auth_id}":         {http.MethodDelete},
-		"/sidecars/{sidecar_id}/auth-files/{auth_id}/status":  {http.MethodPatch},
-		"/sidecars/{sidecar_id}/auth-files/{auth_id}/fields":  {http.MethodPatch},
-		"/sidecars/{sidecar_id}/auth-snapshots":               {http.MethodGet},
-		"/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}": {http.MethodGet},
-		"/sidecars/{sidecar_id}/providers":                    {http.MethodGet},
-		"/sidecars/{sidecar_id}/provider-snapshots":           {http.MethodGet},
-		"/sidecars/{sidecar_id}/sync-status":                  {http.MethodGet},
+		"/sidecars":                                          {http.MethodGet, http.MethodPost},
+		"/sidecars/{sidecar_id}":                             {http.MethodGet, http.MethodPatch, http.MethodDelete},
+		"/sidecars/{sidecar_id}/test-connection":             {http.MethodPost},
+		"/sidecars/{sidecar_id}/sync":                        {http.MethodPost},
+		"/sidecars/{sidecar_id}/auth-files":                  {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/models":           {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}":        {http.MethodDelete},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}/status": {http.MethodPatch},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}/fields": {http.MethodPatch},
+		"/sidecars/{sidecar_id}/providers":                   {http.MethodGet},
+		"/sidecars/{sidecar_id}/provider-snapshots":          {http.MethodGet},
+		"/sidecars/{sidecar_id}/sync-status":                 {http.MethodGet},
 	}
 }
 
 func sidecarRouteMethodAllowed(surface map[string][]string, route string, method string) bool {
 	return slices.Contains(surface[route], method)
+}
+
+func TestRemovedAuthInventoryRoutesFallThroughToRouter404(t *testing.T) {
+	service, err := NewService(config.Settings{SecretEncryptionKey: "unit-test-secret"}, Options{})
+	if err != nil {
+		t.Fatalf("new sidecar service: %v", err)
+	}
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+
+	removedSegment := "auth-" + "snapshots"
+	for _, path := range []string{
+		"/sidecars/1/" + removedSegment,
+		"/sidecars/1/" + removedSegment + "/2",
+	} {
+		routeContext := chi.NewRouteContext()
+		if router.Match(routeContext, http.MethodGet, path) {
+			t.Fatalf("removed auth inventory route unexpectedly matched: %s", path)
+		}
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("removed auth inventory route %s status = %d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+	}
 }

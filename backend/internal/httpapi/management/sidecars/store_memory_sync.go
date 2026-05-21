@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
 )
 
 func (s *memorySidecarStore) UpdateSidecarSyncMetadata(_ context.Context, input SidecarSyncMetadataInput) (SidecarInstance, error) {
@@ -32,111 +33,51 @@ func (s *memorySidecarStore) UpdateSidecarSyncMetadata(_ context.Context, input 
 	return cloneSidecarInstance(instance), nil
 }
 
-func (s *memorySidecarStore) SaveAuthSnapshot(_ context.Context, input SidecarAuthSnapshotInput) (SidecarAuthSnapshot, error) {
+func (s *memorySidecarStore) SaveAuthFile(_ context.Context, input SidecarAuthFileInput) (SidecarAuthFile, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.Name) == "" {
-		return SidecarAuthSnapshot{}, invalidInputError("sidecar_id, auth_id, and name are required")
+	normalized, err := normalizeAuthFileStoreInput(input)
+	if err != nil {
+		return SidecarAuthFile{}, err
 	}
-	if err := validateSidecarSnapshotJSON(input.SnapshotJSON); err != nil {
-		return SidecarAuthSnapshot{}, err
-	}
-	observedAt := input.ObservedAt
+	observedAt := normalized.ObservedAt
 	if observedAt.IsZero() {
 		observedAt = s.now().UTC()
 	}
-	snapshots := s.authSnapshots[input.SidecarID]
-	if snapshots == nil {
-		snapshots = map[string]SidecarAuthSnapshot{}
-		s.authSnapshots[input.SidecarID] = snapshots
+	files := s.authFiles[normalized.SidecarID]
+	if files == nil {
+		files = map[string]SidecarAuthFile{}
+		s.authFiles[normalized.SidecarID] = files
 	}
-	now := s.now().UTC()
-	snapshot, exists := snapshots[strings.TrimSpace(input.AuthID)]
-	if !exists {
-		snapshot.ID = s.nextSnapshotID
-		s.nextSnapshotID++
-		snapshot.SidecarID = input.SidecarID
-		snapshot.AuthID = strings.TrimSpace(input.AuthID)
-		snapshot.CreatedAt = now
-	}
-	snapshot.AuthIndex = cloneStringPtr(input.AuthIndex)
-	snapshot.Name = strings.TrimSpace(input.Name)
-	snapshot.Provider = cloneStringPtr(input.Provider)
-	snapshot.Label = cloneStringPtr(input.Label)
-	snapshot.Status = cloneStringPtr(input.Status)
-	snapshot.StatusMessage = cloneStringPtr(input.StatusMessage)
-	snapshot.Disabled = cloneBoolPtr(input.Disabled)
-	snapshot.Unavailable = cloneBoolPtr(input.Unavailable)
-	snapshot.Priority = cloneIntPtr(input.Priority)
-	snapshot.QuotaExceeded = cloneBoolPtr(input.QuotaExceeded)
-	snapshot.QuotaReason = cloneStringPtr(input.QuotaReason)
-	snapshot.QuotaNextRecoverAt = cloneTimePtr(input.QuotaNextRecoverAt)
-	snapshot.SuccessCount = cloneIntPtr(input.SuccessCount)
-	snapshot.FailedCount = cloneIntPtr(input.FailedCount)
-	snapshot.RecentRequestsJSON = memoryJSON(input.RecentRequestsJSON, "[]")
-	snapshot.ModelStatesJSON = memoryJSON(input.ModelStatesJSON, "{}")
-	snapshot.SnapshotJSON = memoryJSON(input.SnapshotJSON, "{}")
-	snapshot.ObservedAt = observedAt.UTC()
-	snapshot.UpdatedAt = now
-	snapshots[snapshot.AuthID] = snapshot
-	return cloneAuthSnapshot(snapshot), nil
+	file := authFileFromInput(normalized, observedAt)
+	files[file.StorageKey] = file
+	return cloneAuthFile(file), nil
 }
 
-func (s *memorySidecarStore) ReplaceAuthSnapshots(_ context.Context, sidecarID int, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	normalized, err := validateAuthSnapshotReplacementInputs(sidecarID, inputs)
+func (s *memorySidecarStore) ReplaceAuthFiles(_ context.Context, sidecarID int, inputs []SidecarAuthFileInput) ([]SidecarAuthFile, error) {
+	normalized, err := validateAuthFileReplacementInputs(sidecarID, inputs)
 	if err != nil {
 		return nil, err
 	}
-	snapshots := make(map[string]SidecarAuthSnapshot, len(normalized))
-	records := make([]SidecarAuthSnapshot, 0, len(normalized))
+	records := make([]SidecarAuthFile, 0, len(normalized))
 	now := s.now().UTC()
 	for _, input := range normalized {
 		observedAt := input.ObservedAt
 		if observedAt.IsZero() {
 			observedAt = now
 		}
-		snapshot := SidecarAuthSnapshot{
-			ID:                 s.nextSnapshotID,
-			SidecarID:          sidecarID,
-			AuthID:             input.AuthID,
-			AuthIndex:          cloneStringPtr(input.AuthIndex),
-			Name:               input.Name,
-			Provider:           cloneStringPtr(input.Provider),
-			Label:              cloneStringPtr(input.Label),
-			Status:             cloneStringPtr(input.Status),
-			StatusMessage:      cloneStringPtr(input.StatusMessage),
-			Disabled:           cloneBoolPtr(input.Disabled),
-			Unavailable:        cloneBoolPtr(input.Unavailable),
-			Priority:           cloneIntPtr(input.Priority),
-			QuotaExceeded:      cloneBoolPtr(input.QuotaExceeded),
-			QuotaReason:        cloneStringPtr(input.QuotaReason),
-			QuotaNextRecoverAt: cloneTimePtr(input.QuotaNextRecoverAt),
-			SuccessCount:       cloneIntPtr(input.SuccessCount),
-			FailedCount:        cloneIntPtr(input.FailedCount),
-			RecentRequestsJSON: memoryJSON(input.RecentRequestsJSON, "[]"),
-			ModelStatesJSON:    memoryJSON(input.ModelStatesJSON, "{}"),
-			SnapshotJSON:       memoryJSON(input.SnapshotJSON, "{}"),
-			ObservedAt:         observedAt.UTC(),
-			CreatedAt:          now,
-			UpdatedAt:          now,
-		}
-		s.nextSnapshotID++
-		snapshots[snapshot.AuthID] = snapshot
-		records = append(records, cloneAuthSnapshot(snapshot))
+		records = append(records, cloneAuthFile(authFileFromInput(input, observedAt)))
 	}
-	s.authSnapshots[sidecarID] = snapshots
 	return records, nil
 }
 
-func (s *memorySidecarStore) ListAuthSnapshots(_ context.Context, sidecarID int) ([]SidecarAuthSnapshot, error) {
+func (s *memorySidecarStore) ListAuthFiles(_ context.Context, sidecarID int) ([]SidecarAuthFile, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	snapshots := s.authSnapshots[sidecarID]
-	items := make([]SidecarAuthSnapshot, 0, len(snapshots))
-	for _, snapshot := range snapshots {
-		items = append(items, cloneAuthSnapshot(snapshot))
+	files := s.authFiles[sidecarID]
+	items := make([]SidecarAuthFile, 0, len(files))
+	for _, file := range files {
+		items = append(items, cloneAuthFile(file))
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Name == items[j].Name {
@@ -145,6 +86,33 @@ func (s *memorySidecarStore) ListAuthSnapshots(_ context.Context, sidecarID int)
 		return items[i].Name < items[j].Name
 	})
 	return items, nil
+}
+
+func authFileFromInput(input SidecarAuthFileInput, observedAt time.Time) SidecarAuthFile {
+	return SidecarAuthFile{
+		SidecarID:          input.SidecarID,
+		StorageKey:         input.StorageKey,
+		AuthID:             input.AuthID,
+		AuthIndex:          cloneStringPtr(input.AuthIndex),
+		Name:               input.Name,
+		Provider:           cloneStringPtr(input.Provider),
+		Label:              cloneStringPtr(input.Label),
+		Status:             cloneStringPtr(input.Status),
+		StatusMessage:      cloneStringPtr(input.StatusMessage),
+		Disabled:           cloneBoolPtr(input.Disabled),
+		Unavailable:        cloneBoolPtr(input.Unavailable),
+		Priority:           cloneIntPtr(input.Priority),
+		QuotaExceeded:      cloneBoolPtr(input.QuotaExceeded),
+		QuotaReason:        cloneStringPtr(input.QuotaReason),
+		QuotaNextRecoverAt: cloneTimePtr(input.QuotaNextRecoverAt),
+		SuccessCount:       cloneIntPtr(input.SuccessCount),
+		FailedCount:        cloneIntPtr(input.FailedCount),
+		RecentRequestsJSON: memoryJSON(input.RecentRequestsJSON, "[]"),
+		ModelStatesJSON:    memoryJSON(input.ModelStatesJSON, "{}"),
+		SnapshotJSON:       memoryJSON(input.SnapshotJSON, "{}"),
+		ObservedAt:         observedAt.UTC(),
+		MutationSafe:       input.AuthID != "",
+	}
 }
 
 func (s *memorySidecarStore) SaveProviderSnapshot(_ context.Context, input SidecarProviderSnapshotInput) (SidecarProviderSnapshot, error) {

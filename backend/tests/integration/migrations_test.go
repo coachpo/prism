@@ -119,7 +119,7 @@ func TestSidecarSchemaContract(t *testing.T) {
 }
 
 func TestSidecarHistoricalMigrationOrdinalsReachCurrentSchema(t *testing.T) {
-	for _, ordinal := range []int{17, 18, 19, 20, 21, 22, 23} {
+	for _, ordinal := range []int{14, 17, 18, 19, 20, 21, 22, 23, 24} {
 		t.Run(fmt.Sprintf("ordinal_%02d", ordinal), func(t *testing.T) {
 			testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
@@ -592,7 +592,7 @@ func assertCleanBreakLogRows(t *testing.T, ctx context.Context, conn *pgx.Conn, 
 
 func assertSidecarSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
-	tables := []string{"sidecar_instances", "sidecar_auth_snapshots", "sidecar_provider_snapshots"}
+	tables := []string{"sidecar_instances", "sidecar_provider_snapshots"}
 	for _, tableName := range tables {
 		var idDefault string
 		var createdType string
@@ -611,7 +611,6 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	}
 	assertColumnDataType(t, ctx, conn, "sidecar_instances", "deleted_at", "timestamp with time zone")
 	for tableName, columnNames := range map[string][]string{
-		"sidecar_auth_snapshots":     {"recent_requests_json", "model_states_json", "snapshot_json"},
 		"sidecar_provider_snapshots": {"snapshot_json"},
 	} {
 		for _, columnName := range columnNames {
@@ -622,6 +621,7 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_base_url_canonical", "base_url_canonical", "deleted_at IS NULL")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_instances_management_auth_state", "invalid_management_auth")
 	assertCurrentSidecarTables(t, ctx, conn)
+	assertLegacySidecarAuthInventorySchemaRemoved(t, ctx, conn)
 }
 
 func assertColumnDataType(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string) {
@@ -660,7 +660,86 @@ func assertCurrentSidecarTables(t *testing.T, ctx context.Context, conn *pgx.Con
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate current sidecar tables: %v", err)
 	}
-	assertStringSet(t, "sidecar tables", got, map[string]bool{"sidecar_auth_snapshots": true, "sidecar_instances": true, "sidecar_provider_snapshots": true})
+	assertStringSet(t, "sidecar tables", got, map[string]bool{"sidecar_instances": true, "sidecar_provider_snapshots": true})
+}
+
+func assertLegacySidecarAuthInventorySchemaRemoved(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	legacyTable := "sidecar_auth_" + "snapshots"
+	legacyColumn := "auth_" + "snapshot_id"
+
+	var tableExists bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public'
+			  AND c.relname = $1
+			  AND c.relkind IN ('r', 'p')
+		)`, legacyTable).Scan(&tableExists); err != nil {
+		t.Fatalf("check legacy sidecar auth inventory table absence: %v", err)
+	}
+	if tableExists {
+		t.Fatalf("expected legacy sidecar auth inventory table %s to be removed", legacyTable)
+	}
+
+	rows, err := conn.Query(ctx, `
+		SELECT table_name
+		FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND column_name = $1
+		  AND left(table_name, length('sidecar_')) = 'sidecar_'
+		ORDER BY table_name ASC`, legacyColumn)
+	if err != nil {
+		t.Fatalf("load legacy sidecar auth inventory columns: %v", err)
+	}
+	defer rows.Close()
+	unexpectedColumns := []string{}
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			t.Fatalf("scan legacy sidecar auth inventory column: %v", err)
+		}
+		unexpectedColumns = append(unexpectedColumns, tableName+"."+legacyColumn)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate legacy sidecar auth inventory columns: %v", err)
+	}
+	if len(unexpectedColumns) != 0 {
+		t.Fatalf("expected no legacy sidecar auth inventory columns, got %v", unexpectedColumns)
+	}
+
+	var constraintCount int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_constraint
+		WHERE conname = ANY($1::text[])`, []string{
+		"sidecar_watchdog_actions_auth_" + "snapshot_id_fkey",
+		"sidecar_watchdog_sweep_items_auth_" + "snapshot_id_fkey",
+	}).Scan(&constraintCount); err != nil {
+		t.Fatalf("count legacy sidecar auth inventory foreign keys: %v", err)
+	}
+	if constraintCount != 0 {
+		t.Fatalf("expected legacy sidecar auth inventory foreign keys to be removed, got %d", constraintCount)
+	}
+
+	var indexCount int
+	if err := conn.QueryRow(ctx, `
+		SELECT count(*)
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public'
+		  AND c.relkind = 'i'
+		  AND c.relname = ANY($1::text[])`, []string{
+		"idx_sidecar_auth_" + "snapshots_sidecar_id",
+		"uq_sidecar_auth_" + "snapshots_key",
+	}).Scan(&indexCount); err != nil {
+		t.Fatalf("count legacy sidecar auth inventory indexes: %v", err)
+	}
+	if indexCount != 0 {
+		t.Fatalf("expected legacy sidecar auth inventory indexes to be removed, got %d", indexCount)
+	}
 }
 
 func assertStringSet(t *testing.T, label string, got map[string]bool, expected map[string]bool) {

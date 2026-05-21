@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,37 +14,30 @@ import (
 )
 
 const cliProxyAuthFileDeleteBaselineCommit = "21fad9dbb447a2ab70d51d0ac3e3d032525a6054"
-
-var errOperatorMutationStaleSnapshot = errors.New("stale_snapshot")
+const deletedAuthFileStillPresentDetail = "deleted auth file still present in live sidecar state"
 
 var statusMutationAllowedFields = map[string]struct{}{
-	"disabled":   {},
-	"force_live": {},
+	"disabled": {},
 }
 
 var fieldsMutationAllowedFields = map[string]struct{}{
-	"force_live": {},
-	"priority":   {},
+	"priority": {},
 }
 
 var deleteMutationAllowedFields = map[string]struct{}{
 	"confirm_name": {},
 }
 
-var mutationAllowedQueryControls = map[string]struct{}{
-	"force_live": {},
-}
-
 type authMutationResponse struct {
 	State      string                     `json:"state"`
-	Snapshot   *authSnapshotResponse      `json:"snapshot,omitempty"`
+	Snapshot   *authFileResponse          `json:"snapshot,omitempty"`
 	SyncStatus *sidecarSyncStatusResponse `json:"sync_status,omitempty"`
 	SyncError  *string                    `json:"sync_error,omitempty"`
 }
 
 type operatorMutationTarget struct {
 	Instance        SidecarInstance
-	Snapshot        SidecarAuthSnapshot
+	AuthFile        SidecarAuthFile
 	DeleteSupported bool
 }
 
@@ -63,12 +55,7 @@ func (s *Service) handlePatchAuthFileStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	forceLive, err := mutationControlBool(raw, r, "force_live")
-	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
-	}
-	if unknown := mutationUnknownQueryParameters(r, mutationAllowedQueryControls); len(unknown) > 0 {
+	if unknown := mutationUnknownQueryParameters(r, nil); len(unknown) > 0 {
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, fmt.Sprintf("unsupported query parameters: %s", strings.Join(unknown, ", ")))
 		return
 	}
@@ -81,12 +68,12 @@ func (s *Service) handlePatchAuthFileStatus(w http.ResponseWriter, r *http.Reque
 		s.rejectOperatorMutation(w, r, err.Error())
 		return
 	}
-	target, err := s.loadOperatorMutationTarget(r.Context(), sidecarID, authID, forceLive)
+	target, err := s.loadOperatorMutationTarget(r.Context(), sidecarID, authID)
 	if err != nil {
 		s.handleOperatorMutationLoadError(w, r, sidecarID, err)
 		return
 	}
-	payload := map[string]any{"name": target.Snapshot.Name, "disabled": disabled}
+	payload := map[string]any{"name": target.AuthFile.Name, "disabled": disabled}
 	_, patchErr := s.patchOperatorAuthFile(r.Context(), target.Instance, "/auth-files/status", payload)
 	s.finishOperatorMutation(w, r, target, patchErr)
 }
@@ -105,12 +92,7 @@ func (s *Service) handlePatchAuthFileFields(w http.ResponseWriter, r *http.Reque
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	forceLive, err := mutationControlBool(raw, r, "force_live")
-	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
-	}
-	if unknown := mutationUnknownQueryParameters(r, mutationAllowedQueryControls); len(unknown) > 0 {
+	if unknown := mutationUnknownQueryParameters(r, nil); len(unknown) > 0 {
 		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, fmt.Sprintf("unsupported query parameters: %s", strings.Join(unknown, ", ")))
 		return
 	}
@@ -123,12 +105,12 @@ func (s *Service) handlePatchAuthFileFields(w http.ResponseWriter, r *http.Reque
 		s.rejectOperatorMutation(w, r, err.Error())
 		return
 	}
-	target, err := s.loadOperatorMutationTarget(r.Context(), sidecarID, authID, forceLive)
+	target, err := s.loadOperatorMutationTarget(r.Context(), sidecarID, authID)
 	if err != nil {
 		s.handleOperatorMutationLoadError(w, r, sidecarID, err)
 		return
 	}
-	payload["name"] = target.Snapshot.Name
+	payload["name"] = target.AuthFile.Name
 	_, patchErr := s.patchOperatorAuthFile(r.Context(), target.Instance, "/auth-files/fields", payload)
 	s.finishOperatorMutation(w, r, target, patchErr)
 }
@@ -165,15 +147,20 @@ func (s *Service) handleDeleteAuthFile(w http.ResponseWriter, r *http.Request) {
 		s.handleOperatorMutationLoadError(w, r, sidecarID, err)
 		return
 	}
-	deleteErr := s.deleteOperatorAuthFile(r.Context(), target.Instance, target.Snapshot.Name)
+	deleteErr := s.deleteOperatorAuthFile(r.Context(), target.Instance, target.AuthFile.Name)
 	if deleteErr != nil {
 		s.writeOperatorMutationPatchError(w, r, target.Instance, deleteErr)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.operatorDeleteResponseAfterSync(r.Context(), target))
+	response, syncErr := s.operatorDeleteResponseAfterSync(r.Context(), target)
+	if syncErr != nil {
+		s.writeOperatorMutationPatchError(w, r, target.Instance, syncErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) loadOperatorMutationTarget(ctx context.Context, sidecarID int, authID string, forceLive bool) (operatorMutationTarget, error) {
+func (s *Service) loadOperatorMutationTarget(ctx context.Context, sidecarID int, authID string) (operatorMutationTarget, error) {
 	instance, found, err := s.store.GetSidecarInstance(ctx, sidecarID)
 	if err != nil {
 		return operatorMutationTarget{}, err
@@ -181,42 +168,14 @@ func (s *Service) loadOperatorMutationTarget(ctx context.Context, sidecarID int,
 	if !found {
 		return operatorMutationTarget{}, notFoundError("sidecar instance not found")
 	}
-	snapshot, snapshotFound, err := s.store.GetAuthSnapshot(ctx, sidecarID, authID)
+	live, found, err := s.fetchLiveAuthFile(ctx, instance, authID, s.nowUTC())
 	if err != nil {
-		return operatorMutationTarget{}, err
-	}
-	now := s.nowUTC()
-	if sidecarSnapshotsStale(instance, now) {
-		if !forceLive {
-			if !snapshotFound {
-				snapshot = SidecarAuthSnapshot{SidecarID: sidecarID, AuthID: authID}
-			}
-			return operatorMutationTarget{Instance: instance, Snapshot: snapshot}, errOperatorMutationStaleSnapshot
-		}
-		return s.loadLiveOperatorMutationTarget(ctx, instance, authID, snapshot, snapshotFound, now)
-	}
-	if snapshotFound {
-		return s.loadLiveOperatorMutationTarget(ctx, instance, authID, snapshot, true, now)
-	}
-	if forceLive {
-		return s.loadLiveOperatorMutationTarget(ctx, instance, authID, snapshot, false, now)
-	}
-	return operatorMutationTarget{}, notFoundError("auth file snapshot not found")
-}
-
-func (s *Service) loadLiveOperatorMutationTarget(ctx context.Context, instance SidecarInstance, authID string, stored SidecarAuthSnapshot, hasStored bool, now time.Time) (operatorMutationTarget, error) {
-	live, found, err := s.fetchLiveAuthSnapshot(ctx, instance, authID, now)
-	if err != nil {
-		return operatorMutationTarget{Instance: instance, Snapshot: stored}, err
+		return operatorMutationTarget{Instance: instance}, err
 	}
 	if !found {
-		return operatorMutationTarget{Instance: instance, Snapshot: stored}, notFoundError("auth file not found in live sidecar state")
+		return operatorMutationTarget{Instance: instance}, notFoundError("auth file not found in live sidecar state")
 	}
-	if hasStored && stored.ID > 0 {
-		live.ID = stored.ID
-		live.CreatedAt = stored.CreatedAt
-	}
-	return operatorMutationTarget{Instance: instance, Snapshot: live}, nil
+	return operatorMutationTarget{Instance: instance, AuthFile: live}, nil
 }
 
 func (s *Service) loadOperatorDeleteTarget(ctx context.Context, sidecarID int, authID string, confirmName string) (operatorMutationTarget, error) {
@@ -227,28 +186,17 @@ func (s *Service) loadOperatorDeleteTarget(ctx context.Context, sidecarID int, a
 	if !found {
 		return operatorMutationTarget{}, notFoundError("sidecar instance not found")
 	}
-	stored, storedFound, err := s.store.GetAuthSnapshot(ctx, sidecarID, authID)
+	live, found, err := s.fetchLiveDeleteAuthFile(ctx, instance, authID, s.nowUTC())
 	if err != nil {
-		return operatorMutationTarget{}, err
-	}
-	if !storedFound {
-		return operatorMutationTarget{Instance: instance}, notFoundError("auth file snapshot not found")
-	}
-	live, found, err := s.fetchLiveDeleteAuthSnapshot(ctx, instance, authID, s.nowUTC())
-	if err != nil {
-		return operatorMutationTarget{Instance: instance, Snapshot: stored}, err
+		return operatorMutationTarget{Instance: instance}, err
 	}
 	if !found {
-		return operatorMutationTarget{Instance: instance, Snapshot: stored}, notFoundError("auth file not found in live sidecar state")
+		return operatorMutationTarget{Instance: instance}, notFoundError("auth file not found in live sidecar state")
 	}
 	if live.Name != confirmName {
-		return operatorMutationTarget{Instance: instance, Snapshot: live}, conflictError("stale_auth_confirmation")
+		return operatorMutationTarget{Instance: instance, AuthFile: live}, conflictError("stale_auth_confirmation")
 	}
-	if stored.ID > 0 {
-		live.ID = stored.ID
-		live.CreatedAt = stored.CreatedAt
-	}
-	return operatorMutationTarget{Instance: instance, Snapshot: live, DeleteSupported: true}, nil
+	return operatorMutationTarget{Instance: instance, AuthFile: live, DeleteSupported: true}, nil
 }
 
 func (s *Service) finishOperatorMutation(w http.ResponseWriter, r *http.Request, target operatorMutationTarget, patchErr error) {
@@ -264,10 +212,6 @@ func (s *Service) rejectOperatorMutation(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Service) handleOperatorMutationLoadError(w http.ResponseWriter, r *http.Request, sidecarID int, err error) {
-	if errors.Is(err, errOperatorMutationStaleSnapshot) {
-		writeError(w, r, s.corsSnapshot(), http.StatusConflict, "stale_snapshot")
-		return
-	}
 	if instance, found, loadErr := s.store.GetSidecarInstance(r.Context(), sidecarID); loadErr == nil && found {
 		s.writeOperatorMutationPatchError(w, r, instance, err)
 		return
@@ -295,98 +239,104 @@ func (s *Service) deleteOperatorAuthFile(ctx context.Context, instance SidecarIn
 	return err
 }
 
-func (s *Service) fetchLiveAuthSnapshot(ctx context.Context, instance SidecarInstance, authID string, observedAt time.Time) (SidecarAuthSnapshot, bool, error) {
+func (s *Service) fetchLiveAuthFile(ctx context.Context, instance SidecarInstance, authID string, observedAt time.Time) (SidecarAuthFile, bool, error) {
 	target, err := s.cliProxyTarget(instance)
 	if err != nil {
-		return SidecarAuthSnapshot{}, false, err
+		return SidecarAuthFile{}, false, err
 	}
 	authFiles, err := s.fetchSidecarAuthFileRows(ctx, target)
 	if err != nil {
-		return SidecarAuthSnapshot{}, false, err
+		return SidecarAuthFile{}, false, err
 	}
-	matches := make([]SidecarAuthSnapshot, 0, 1)
-	nameCounts := make(map[string]int, len(authFiles))
-	for _, raw := range authFiles {
-		input, err := normalizeSidecarAuthSnapshot(instance.ID, observedAt, raw)
-		if err != nil {
-			return SidecarAuthSnapshot{}, false, err
-		}
-		snapshot := authSnapshotFromInput(input)
-		nameCounts[snapshot.Name]++
-		if snapshot.AuthID == authID {
-			matches = append(matches, snapshot)
-		}
+	match, found, err := liveAuthFileMatch(instance.ID, observedAt, authFiles, authID)
+	if err != nil || !found {
+		return SidecarAuthFile{}, found, err
 	}
-	if len(matches) == 0 {
-		return SidecarAuthSnapshot{}, false, nil
-	}
-	if len(matches) > 1 {
-		return SidecarAuthSnapshot{}, false, unsafeAuthMutationIdentityError("multiple live auth rows match auth_id")
-	}
-	live := matches[0]
-	if !authSnapshotHasMutationStableIdentity(live) {
-		return SidecarAuthSnapshot{}, false, unsafeAuthMutationIdentityError("auth row identity is name-derived")
-	}
-	if nameCounts[live.Name] > 1 {
-		return SidecarAuthSnapshot{}, false, unsafeAuthMutationIdentityError("duplicate live auth file name")
-	}
-	return live, true, nil
+	return match.file, true, nil
 }
 
-func (s *Service) fetchLiveDeleteAuthSnapshot(ctx context.Context, instance SidecarInstance, authID string, observedAt time.Time) (SidecarAuthSnapshot, bool, error) {
+func (s *Service) fetchLiveDeleteAuthFile(ctx context.Context, instance SidecarInstance, authID string, observedAt time.Time) (SidecarAuthFile, bool, error) {
 	target, err := s.cliProxyTarget(instance)
 	if err != nil {
-		return SidecarAuthSnapshot{}, false, err
+		return SidecarAuthFile{}, false, err
 	}
 	authFiles, capabilityResponse, err := s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
 	if err != nil {
-		return SidecarAuthSnapshot{}, false, err
+		return SidecarAuthFile{}, false, err
 	}
 	if err := s.validateAuthDeleteCapability(ctx, target, capabilityResponse); err != nil {
-		return SidecarAuthSnapshot{}, false, err
+		return SidecarAuthFile{}, false, err
 	}
-	type deleteMatch struct {
-		fields   map[string]any
-		snapshot SidecarAuthSnapshot
+	match, found, err := liveAuthFileMatch(instance.ID, observedAt, authFiles, authID)
+	if err != nil || !found {
+		return SidecarAuthFile{}, found, err
 	}
-	matches := make([]deleteMatch, 0, 1)
-	nameCounts := make(map[string]int, len(authFiles))
+	if err := validateAuthDeleteLiveRow(match.file, match.fields); err != nil {
+		return SidecarAuthFile{}, false, err
+	}
+	return match.file, true, nil
+}
+
+type liveAuthFileMatchResult struct {
+	fields map[string]any
+	file   SidecarAuthFile
+}
+
+func liveAuthFileMatch(sidecarID int, observedAt time.Time, authFiles []json.RawMessage, authID string) (liveAuthFileMatchResult, bool, error) {
+	authID = strings.TrimSpace(authID)
+	if authID == "" {
+		return liveAuthFileMatchResult{}, false, unsafeAuthMutationIdentityError("auth_id is required")
+	}
+	matches := make([]liveAuthFileMatchResult, 0, 1)
+	unsafeMatches := 0
 	for _, raw := range authFiles {
 		fields, err := decodeSidecarSyncObject(raw)
 		if err != nil {
-			return SidecarAuthSnapshot{}, false, err
+			return liveAuthFileMatchResult{}, false, err
 		}
-		input, err := normalizeSidecarAuthSnapshot(instance.ID, observedAt, raw)
+		input, err := normalizeSidecarAuthFile(sidecarID, observedAt, raw)
 		if err != nil {
-			return SidecarAuthSnapshot{}, false, err
+			return liveAuthFileMatchResult{}, false, err
 		}
-		snapshot := authSnapshotFromInput(input)
-		nameCounts[snapshot.Name]++
-		if snapshot.AuthID == authID {
-			matches = append(matches, deleteMatch{fields: fields, snapshot: snapshot})
+		normalized, err := normalizeAuthFileStoreInput(input)
+		if err != nil {
+			return liveAuthFileMatchResult{}, false, err
 		}
-	}
-	if len(matches) == 0 {
-		return SidecarAuthSnapshot{}, false, nil
+		file := authFileFromInput(normalized, observedAt)
+		if file.MutationSafe && file.AuthID == authID {
+			matches = append(matches, liveAuthFileMatchResult{fields: fields, file: file})
+			continue
+		}
+		if !file.MutationSafe && displayOnlyAuthFileMatchesMutationID(fields, file, authID) {
+			unsafeMatches++
+		}
 	}
 	if len(matches) > 1 {
-		return SidecarAuthSnapshot{}, false, unsafeAuthMutationIdentityError("multiple live auth rows match auth_id")
+		return liveAuthFileMatchResult{}, false, unsafeAuthMutationIdentityError("multiple live auth rows match auth_id")
 	}
-	live := matches[0]
-	if !authSnapshotHasMutationStableIdentity(live.snapshot) {
-		return SidecarAuthSnapshot{}, false, unsafeAuthMutationIdentityError("auth row identity is name-derived")
+	if len(matches) == 1 {
+		return matches[0], true, nil
 	}
-	if nameCounts[live.snapshot.Name] > 1 {
-		return SidecarAuthSnapshot{}, false, unsafeAuthMutationIdentityError("duplicate live auth file name")
+	if unsafeMatches > 0 {
+		return liveAuthFileMatchResult{}, false, unsafeAuthMutationIdentityError("auth row has no upstream id")
 	}
-	if err := validateAuthDeleteLiveRow(live.snapshot, live.fields); err != nil {
-		return SidecarAuthSnapshot{}, false, err
-	}
-	return live.snapshot, true, nil
+	return liveAuthFileMatchResult{}, false, nil
 }
 
-func validateAuthDeleteLiveRow(snapshot SidecarAuthSnapshot, fields map[string]any) error {
-	name := strings.TrimSpace(snapshot.Name)
+func displayOnlyAuthFileMatchesMutationID(fields map[string]any, file SidecarAuthFile, authID string) bool {
+	if strings.TrimSpace(file.AuthID) != "" {
+		return false
+	}
+	for _, value := range []string{file.Name, trimmedStringValue(fields["auth_id"]), trimmedStringValue(fields["auth_index"]), trimmedStringValue(fields["path"])} {
+		if strings.TrimSpace(value) == authID {
+			return true
+		}
+	}
+	return false
+}
+
+func validateAuthDeleteLiveRow(file SidecarAuthFile, fields map[string]any) error {
+	name := strings.TrimSpace(file.Name)
 	if name == "" || strings.ContainsAny(name, `/\\`) {
 		return unsafeAuthMutationIdentityError("auth file name is path-like")
 	}
@@ -445,18 +395,6 @@ func unsafeAuthMutationIdentityError(reason string) error {
 	return conflictError("unsafe_auth_identity: " + reason)
 }
 
-func authSnapshotHasMutationStableIdentity(snapshot SidecarAuthSnapshot) bool {
-	authID := strings.TrimSpace(snapshot.AuthID)
-	name := strings.TrimSpace(snapshot.Name)
-	if authID == "" || name == "" {
-		return false
-	}
-	if snapshot.AuthIndex != nil && strings.TrimSpace(*snapshot.AuthIndex) != "" {
-		return true
-	}
-	return authID != name
-}
-
 func (s *Service) cliProxyTarget(instance SidecarInstance) (CLIProxyTarget, error) {
 	password, err := s.decryptManagementPassword(instance.EncryptedManagementPassword)
 	if err != nil {
@@ -468,20 +406,14 @@ func (s *Service) cliProxyTarget(instance SidecarInstance) (CLIProxyTarget, erro
 	return CLIProxyTarget{BaseURL: instance.BaseURLCanonical, ManagementPassword: password, AllowPrivateNetwork: instance.AllowPrivateNetwork, AllowInsecureHTTP: instance.AllowInsecureHTTP, SkipTLSVerify: instance.SkipTLSVerify, RequestTimeoutSeconds: instance.RequestTimeoutSeconds}, nil
 }
 
-func authSnapshotFromInput(input SidecarAuthSnapshotInput) SidecarAuthSnapshot {
-	return SidecarAuthSnapshot{SidecarID: input.SidecarID, AuthID: input.AuthID, AuthIndex: cloneStringPtr(input.AuthIndex), Name: input.Name, Provider: cloneStringPtr(input.Provider), Label: cloneStringPtr(input.Label), Status: cloneStringPtr(input.Status), StatusMessage: cloneStringPtr(input.StatusMessage), Disabled: cloneBoolPtr(input.Disabled), Unavailable: cloneBoolPtr(input.Unavailable), Priority: cloneIntPtr(input.Priority), QuotaExceeded: cloneBoolPtr(input.QuotaExceeded), QuotaReason: cloneStringPtr(input.QuotaReason), QuotaNextRecoverAt: cloneTimePtr(input.QuotaNextRecoverAt), SuccessCount: cloneIntPtr(input.SuccessCount), FailedCount: cloneIntPtr(input.FailedCount), RecentRequestsJSON: append([]byte(nil), input.RecentRequestsJSON...), ModelStatesJSON: append([]byte(nil), input.ModelStatesJSON...), SnapshotJSON: append([]byte(nil), input.SnapshotJSON...), ObservedAt: input.ObservedAt}
-}
-
 func (s *Service) operatorMutationResponseAfterSync(ctx context.Context, target operatorMutationTarget) authMutationResponse {
-	current := target.Snapshot
-	result, syncErr := s.SyncSidecar(ctx, target.Instance.ID)
-	if syncErr == nil {
-		if refreshed, found, err := s.store.GetAuthSnapshot(ctx, target.Instance.ID, target.Snapshot.AuthID); err == nil && found {
-			current = refreshed
-		}
+	current := target.AuthFile
+	result, refreshed, found, syncErr := s.refreshAuthFilesAfterMutation(ctx, target.Instance, target.AuthFile.AuthID)
+	if syncErr == nil && found {
+		current = refreshed
 	}
-	snapshot := buildAuthSnapshotResponse(current)
-	response := authMutationResponse{State: "succeeded", Snapshot: &snapshot}
+	authFile := buildAuthFileResponse(current)
+	response := authMutationResponse{State: "succeeded", Snapshot: &authFile}
 	if result.Sidecar.ID != 0 {
 		syncStatus := buildSidecarSyncStatusResponse(s.sidecarSyncStatus(result.Sidecar))
 		response.SyncStatus = &syncStatus
@@ -494,29 +426,70 @@ func (s *Service) operatorMutationResponseAfterSync(ctx context.Context, target 
 	return response
 }
 
-func (s *Service) operatorDeleteResponseAfterSync(ctx context.Context, target operatorMutationTarget) authMutationResponse {
-	result, syncErr := s.refreshAuthSnapshotsAfterDelete(ctx, target.Instance, target.Snapshot.AuthID, target.DeleteSupported)
+func (s *Service) refreshAuthFilesAfterMutation(ctx context.Context, instance SidecarInstance, authID string) (SidecarSyncResult, SidecarAuthFile, bool, error) {
+	syncedAt := s.nowUTC()
+	result := SidecarSyncResult{Sidecar: instance, SyncedAt: syncedAt}
+	target, err := s.cliProxyTarget(instance)
+	if err != nil {
+		failed, failErr := s.finishSyncFailure(ctx, result, instance, syncedAt, err)
+		return failed, SidecarAuthFile{}, false, failErr
+	}
+	authFiles, authFilesResponse, err := s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
+	if err != nil {
+		failed, failErr := s.finishSyncFailure(ctx, result, instance, syncedAt, err)
+		return failed, SidecarAuthFile{}, false, failErr
+	}
+	deleteSupported := s.authDeleteCapabilityKnownSupported(ctx, target, authFilesResponse)
+	authInputs := make([]SidecarAuthFileInput, 0, len(authFiles))
+	for _, raw := range authFiles {
+		input, err := normalizeSidecarAuthFileWithDeleteSupport(instance.ID, syncedAt, raw, deleteSupported)
+		if err != nil {
+			failed, failErr := s.finishSyncFailure(ctx, result, instance, syncedAt, err)
+			return failed, SidecarAuthFile{}, false, failErr
+		}
+		authInputs = append(authInputs, input)
+	}
+	refreshedAuthFiles, err := s.store.ReplaceAuthFiles(ctx, instance.ID, authInputs)
+	if err != nil {
+		failed, failErr := s.finishSyncFailure(ctx, result, instance, syncedAt, err)
+		return failed, SidecarAuthFile{}, false, failErr
+	}
+	for _, file := range refreshedAuthFiles {
+		if file.MutationSafe && file.AuthID == authID {
+			updated, err := s.finishSyncSuccess(ctx, instance, syncedAt)
+			if err != nil {
+				return result, SidecarAuthFile{}, false, err
+			}
+			result.Sidecar = updated
+			return result, file, true, nil
+		}
+	}
+	failed, failErr := s.finishSyncFailure(ctx, result, instance, syncedAt, notFoundError("auth file not found in live sidecar state after mutation"))
+	return failed, SidecarAuthFile{}, false, failErr
+}
+
+func (s *Service) operatorDeleteResponseAfterSync(ctx context.Context, target operatorMutationTarget) (authMutationResponse, error) {
+	result, syncErr := s.refreshAuthFilesAfterDelete(ctx, target.Instance, target.AuthFile.AuthID, target.DeleteSupported)
 	response := authMutationResponse{State: "succeeded"}
 	if result.Sidecar.ID != 0 {
 		syncStatus := buildSidecarSyncStatusResponse(s.sidecarSyncStatus(result.Sidecar))
 		response.SyncStatus = &syncStatus
 	}
 	if syncErr != nil {
+		if isDeletedAuthFileStillPresentError(syncErr) {
+			return response, syncErr
+		}
 		response.State = "succeeded_sync_failed"
-		snapshot := buildAuthSnapshotResponse(target.Snapshot)
-		response.Snapshot = &snapshot
+		authFile := buildAuthFileResponse(target.AuthFile)
+		response.Snapshot = &authFile
 		detail := sidecarErrorMessage(syncErr)
 		response.SyncError = &detail
-		return response
+		return response, nil
 	}
-	if refreshed, found, err := s.store.GetAuthSnapshot(ctx, target.Instance.ID, target.Snapshot.AuthID); err == nil && found {
-		snapshot := buildAuthSnapshotResponse(refreshed)
-		response.Snapshot = &snapshot
-	}
-	return response
+	return response, nil
 }
 
-func (s *Service) refreshAuthSnapshotsAfterDelete(ctx context.Context, instance SidecarInstance, deletedAuthID string, deleteSupported bool) (SidecarSyncResult, error) {
+func (s *Service) refreshAuthFilesAfterDelete(ctx context.Context, instance SidecarInstance, deletedAuthID string, deleteSupported bool) (SidecarSyncResult, error) {
 	syncedAt := s.nowUTC()
 	result := SidecarSyncResult{Sidecar: instance, SyncedAt: syncedAt}
 	target, err := s.cliProxyTarget(instance)
@@ -527,19 +500,18 @@ func (s *Service) refreshAuthSnapshotsAfterDelete(ctx context.Context, instance 
 	if err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
-	authInputs := make([]SidecarAuthSnapshotInput, 0, len(authFiles))
+	authInputs := make([]SidecarAuthFileInput, 0, len(authFiles))
 	for _, raw := range authFiles {
-		input, err := normalizeSidecarAuthSnapshotWithDeleteSupport(instance.ID, syncedAt, raw, deleteSupported)
+		input, err := normalizeSidecarAuthFileWithDeleteSupport(instance.ID, syncedAt, raw, deleteSupported)
 		if err != nil {
 			return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 		}
 		if input.AuthID == deletedAuthID {
-			return s.finishSyncFailure(ctx, result, instance, syncedAt, conflictError("deleted auth file still present in live sidecar state"))
+			return s.finishSyncFailure(ctx, result, instance, syncedAt, conflictError(deletedAuthFileStillPresentDetail))
 		}
 		authInputs = append(authInputs, input)
 	}
-	replaced, err := s.store.ReplaceAuthSnapshots(ctx, instance.ID, authInputs)
-	if err != nil {
+	if _, err := s.store.ReplaceAuthFiles(ctx, instance.ID, authInputs); err != nil {
 		return s.finishSyncFailure(ctx, result, instance, syncedAt, err)
 	}
 	updated, err := s.finishSyncSuccess(ctx, instance, syncedAt)
@@ -547,8 +519,12 @@ func (s *Service) refreshAuthSnapshotsAfterDelete(ctx context.Context, instance 
 		return result, err
 	}
 	result.Sidecar = updated
-	result.AuthSnapshotCount = len(replaced)
 	return result, nil
+}
+
+func isDeletedAuthFileStillPresentError(err error) bool {
+	var storeErr *StoreError
+	return errors.As(err, &storeErr) && storeErr.Code == StoreErrorConflict && storeErr.Message == deletedAuthFileStillPresentDetail
 }
 
 func sidecarErrorMessage(err error) string {
@@ -599,25 +575,6 @@ func decodeMutationObject(r *http.Request) (map[string]json.RawMessage, error) {
 		return nil, fmt.Errorf("request body must be a JSON object")
 	}
 	return raw, nil
-}
-
-func mutationControlBool(raw map[string]json.RawMessage, r *http.Request, name string) (bool, error) {
-	value := false
-	if rawValue, ok := raw[name]; ok {
-		parsed, err := optionalMutationBool(rawValue, name)
-		if err != nil {
-			return false, err
-		}
-		value = parsed
-	}
-	if queryValue := strings.TrimSpace(r.URL.Query().Get(name)); queryValue != "" {
-		parsed, err := strconv.ParseBool(queryValue)
-		if err != nil {
-			return false, fmt.Errorf("%s must be a boolean", name)
-		}
-		value = parsed
-	}
-	return value, nil
 }
 
 func requiredMutationBool(raw map[string]json.RawMessage, name string) (bool, error) {

@@ -82,7 +82,7 @@ type passwordResetSnapshot struct {
 	OTPHash      string
 }
 
-type appAuthSnapshot struct {
+type appAuthSettingsRecord struct {
 	ID                            int
 	AuthEnabled                   bool
 	Username                      *string
@@ -1340,11 +1340,11 @@ func loadEmailOutboxStatus(t *testing.T, harness *contractHarness, kind string) 
 	return status, attempts
 }
 
-func loadAppAuthSettings(t *testing.T, harness *contractHarness) appAuthSnapshot {
+func loadAppAuthSettings(t *testing.T, harness *contractHarness) appAuthSettingsRecord {
 	t.Helper()
 	var username, email, pendingEmail, passwordHash sqlNullString
 	var emailBoundAt sqlNullTime
-	var snapshot appAuthSnapshot
+	var snapshot appAuthSettingsRecord
 	if err := harness.conn.QueryRow(
 		context.Background(),
 		`SELECT id, auth_enabled, username, email, pending_email, password_hash, email_bound_at, email_verification_attempt_count, token_version FROM app_auth_settings WHERE singleton_key = 'app'`,

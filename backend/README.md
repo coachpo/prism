@@ -100,7 +100,8 @@ Enabled SMTP bootstrap example:
 ## Database and docs artifacts
 - Schema migrations are Go-managed and applied from `migrations/` at startup.
 - Startup now fails fast when an existing database has application tables but no `prism_schema_migrations` history; reset incompatible local databases instead of relying on migration cutover bridges.
-- The sidecar auth snapshot contract changed cleanly; databases created before this contract must be reset or manually remediated so `sidecar_auth_snapshots` matches the current migration source before startup.
+- The sidecar auth-file authority cleanup is destructive. Databases with `prism_schema_migrations` history migrate forward and drop the retired auth-observation table, legacy auth-observation references, and old auth-observation indexes automatically.
+- For local-only manual testing where a PostgreSQL reset is simpler than remediating a hand-edited database, stop Prism and run `docker compose down -v` from `backend/`, then `docker compose up -d prism-postgres` or `../start.sh headless` to recreate the local database. This deletes local PostgreSQL data.
 - Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
@@ -109,4 +110,4 @@ Enabled SMTP bootstrap example:
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
 - `docs/openapi.json` is the checked-in management and health contract that the Go server serves at `/openapi.json`.
 
-For local PostgreSQL provisioning without the root launcher, run `docker compose up -d postgres` from `backend/`.
+For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.

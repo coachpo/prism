@@ -15,7 +15,7 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
-func TestManualSyncPersistsSnapshotsAndIsIdempotent(t *testing.T) {
+func TestManualSyncPersistsProviderSnapshotsAndIsIdempotent(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 	requested := make([]string, 0)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +53,8 @@ func TestManualSyncPersistsSnapshotsAndIsIdempotent(t *testing.T) {
 
 	var response sidecarSyncResponse
 	postSidecarSync(t, router, sidecar.ID, http.StatusOK, &response)
-	if response.AuthSnapshotCount != 1 || response.ProviderSnapshotCount != 5 {
-		t.Fatalf("unexpected sync counts: %+v", response)
+	if response.ProviderSnapshotCount != 5 {
+		t.Fatalf("unexpected provider sync count: %+v", response)
 	}
 	stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
 	if err != nil || !ok {
@@ -67,16 +67,9 @@ func TestManualSyncPersistsSnapshotsAndIsIdempotent(t *testing.T) {
 	if stored.SnapshotStaleAfter == nil || !stored.SnapshotStaleAfter.Equal(wantStaleAfter) || stored.LastSyncError != nil || stored.ManagementAuthState != ManagementAuthStateValid {
 		t.Fatalf("success metadata mismatch: %+v", stored)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 {
-		t.Fatalf("list auth snapshots len=%d err=%v", len(auths), err)
-	}
-	firstAuthID := auths[0].AuthID
-	if auths[0].Priority == nil || *auths[0].Priority != 0 || auths[0].QuotaExceeded == nil || !*auths[0].QuotaExceeded {
-		t.Fatalf("auth priority/quota not normalized: %+v", auths[0])
-	}
-	if strings.Contains(string(auths[0].SnapshotJSON), "should-not-be-stored") {
-		t.Fatalf("auth snapshot stored unsupported runtime metadata: %s", auths[0].SnapshotJSON)
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("manual sync must not persist auth files, got %+v err=%v", auths, err)
 	}
 	providers, err := service.store.ListProviderSnapshots(t.Context(), sidecar.ID)
 	if err != nil || len(providers) != 5 {
@@ -88,15 +81,12 @@ func TestManualSyncPersistsSnapshotsAndIsIdempotent(t *testing.T) {
 			t.Fatalf("provider snapshot leaked raw secret: %s", provider.SnapshotJSON)
 		}
 	}
-	assertSidecarSnapshotRoutes(t, router, sidecar.ID)
+	assertSidecarLiveInventoryRoutes(t, router, sidecar.ID)
 	now = now.Add(time.Minute)
 	postSidecarSync(t, router, sidecar.ID, http.StatusOK, &response)
-	auths, err = service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 {
-		t.Fatalf("list repeated auth snapshots len=%d err=%v", len(auths), err)
-	}
-	if auths[0].AuthID != firstAuthID || !auths[0].ObservedAt.Equal(now) {
-		t.Fatalf("expected idempotent auth identity with fresh observed_at, got %+v", auths[0])
+	auths, err = service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("repeated manual sync must not persist auth files, got %+v err=%v", auths, err)
 	}
 	providers, err = service.store.ListProviderSnapshots(t.Context(), sidecar.ID)
 	if err != nil || len(providers) != 5 {
@@ -105,7 +95,7 @@ func TestManualSyncPersistsSnapshotsAndIsIdempotent(t *testing.T) {
 	assertNoUsageQueueRequest(t, requested)
 }
 
-func TestLargeAuthInventorySyncFitsBodyCapAndUsesReadOnlyRequests(t *testing.T) {
+func TestLargeAuthInventoryRouteFitsBodyCapAndSyncUsesProviderRequests(t *testing.T) {
 	const largeAuthInventoryRowCount = 1381
 
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
@@ -139,26 +129,26 @@ func TestLargeAuthInventorySyncFitsBodyCapAndUsesReadOnlyRequests(t *testing.T) 
 
 	var response sidecarSyncResponse
 	postSidecarSync(t, router, sidecar.ID, http.StatusOK, &response)
-	if response.State != "succeeded" || response.AuthSnapshotCount != largeAuthInventoryRowCount || response.ProviderSnapshotCount != 5 || response.SyncStatus.LastSuccessfulSyncAt == nil {
-		t.Fatalf("unexpected large inventory sync response: %+v", response)
+	if response.State != "succeeded" || response.ProviderSnapshotCount != 5 || response.SyncStatus.LastSuccessfulSyncAt == nil {
+		t.Fatalf("unexpected provider sync response: %+v", response)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != largeAuthInventoryRowCount {
-		t.Fatalf("large inventory auth snapshots len=%d err=%v", len(auths), err)
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("provider sync must not persist large auth inventory, got %+v err=%v", auths, err)
 	}
 	providers, err := service.store.ListProviderSnapshots(t.Context(), sidecar.ID)
 	if err != nil || len(providers) != 5 {
 		t.Fatalf("provider snapshots should still load independently, len=%d err=%v", len(providers), err)
 	}
 
-	var authList authSnapshotListResponse
+	var authList authFileListResponse
 	authRecorder := httptest.NewRecorder()
-	router.ServeHTTP(authRecorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/auth-snapshots", nil))
+	router.ServeHTTP(authRecorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/auth-files", nil))
 	if authRecorder.Code != http.StatusOK {
-		t.Fatalf("auth-snapshots status = %d body=%s", authRecorder.Code, authRecorder.Body.String())
+		t.Fatalf("auth-files status = %d body=%s", authRecorder.Code, authRecorder.Body.String())
 	}
 	if err := json.Unmarshal(authRecorder.Body.Bytes(), &authList); err != nil || len(authList.Items) != largeAuthInventoryRowCount {
-		t.Fatalf("auth-snapshots route items=%d err=%v", len(authList.Items), err)
+		t.Fatalf("auth-files route items=%d err=%v", len(authList.Items), err)
 	}
 
 	var providerList providerSnapshotListResponse
@@ -172,12 +162,12 @@ func TestLargeAuthInventorySyncFitsBodyCapAndUsesReadOnlyRequests(t *testing.T) 
 	}
 
 	wantRequests := []string{
-		"GET /v0/management/auth-files",
 		"GET /v0/management/gemini-api-key",
 		"GET /v0/management/claude-api-key",
 		"GET /v0/management/codex-api-key",
 		"GET /v0/management/vertex-api-key",
 		"GET /v0/management/openai-compatibility",
+		"GET /v0/management/auth-files",
 	}
 	if len(requested) != len(wantRequests) {
 		t.Fatalf("unexpected upstream request log: got %v want %v", requested, wantRequests)
@@ -187,17 +177,18 @@ func TestLargeAuthInventorySyncFitsBodyCapAndUsesReadOnlyRequests(t *testing.T) 
 			t.Fatalf("unexpected upstream request %d: got %q want %q; full log=%v", i, requested[i], want, requested)
 		}
 	}
-	t.Logf("large auth inventory sync rows=%d payload_bytes=%d body_cap_bytes=%d auth_snapshots=%d provider_snapshots=%d upstream_requests=%v", largeAuthInventoryRowCount, payloadBytes, defaultCLIProxyResponseBodyLimitBytes, len(auths), len(providers), requested)
+	t.Logf("large auth inventory route rows=%d payload_bytes=%d body_cap_bytes=%d persisted_auth_files=%d provider_snapshots=%d upstream_requests=%v", largeAuthInventoryRowCount, payloadBytes, defaultCLIProxyResponseBodyLimitBytes, len(auths), len(providers), requested)
 }
 
-func TestAuthFilesSyncRedactsSensitivePayloadFields(t *testing.T) {
+func TestAuthFilesRouteRedactsSensitivePayloadFields(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v0/management/auth-files" {
-			writeSyncJSON(w, sensitiveSyncAuthFixture())
+		if r.URL.Path != "/v0/management/auth-files" {
+			t.Errorf("unexpected management path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		serveSyncFixturePath(t, w, r)
+		writeSyncJSON(w, sensitiveSyncAuthFixture())
 	}))
 	defer server.Close()
 
@@ -205,30 +196,6 @@ func TestAuthFilesSyncRedactsSensitivePayloadFields(t *testing.T) {
 	sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
 	router := chi.NewRouter()
 	service.MountManagementRoutes(router)
-
-	var response sidecarSyncResponse
-	postSidecarSync(t, router, sidecar.ID, http.StatusOK, &response)
-	if response.AuthSnapshotCount != 2 || response.ProviderSnapshotCount != 5 {
-		t.Fatalf("unexpected sync counts for sensitive payload: %+v", response)
-	}
-
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 2 {
-		t.Fatalf("list sensitive auth snapshots len=%d err=%v", len(auths), err)
-	}
-	redactionObserved := false
-	for _, auth := range auths {
-		for _, raw := range []json.RawMessage{auth.SnapshotJSON, auth.RecentRequestsJSON, auth.ModelStatesJSON} {
-			text := string(raw)
-			assertAuthPayloadSecretFree(t, text)
-			if strings.Contains(text, "redacted-by-prism") {
-				redactionObserved = true
-			}
-		}
-	}
-	if !redactionObserved {
-		t.Fatalf("expected at least one sensitive auth value to be redacted in persisted snapshots: %+v", auths)
-	}
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/auth-files", nil))
@@ -239,15 +206,19 @@ func TestAuthFilesSyncRedactsSensitivePayloadFields(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), "redacted-by-prism") {
 		t.Fatalf("auth-files response did not expose redaction marker: %s", recorder.Body.String())
 	}
+
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("auth-files route must not persist live auth rows, got %+v err=%v", auths, err)
+	}
 }
 
-func TestSyncFailureMarksStaleAndPreservesSnapshots(t *testing.T) {
+func TestSyncFailureMarksStaleAndPreservesProviderSnapshots(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	failAuthFiles := false
+	failProviderAuth := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v0/management/auth-files" && failAuthFiles {
-			w.WriteHeader(http.StatusBadGateway)
-			_, _ = w.Write([]byte(`{"error":"temporary"}`))
+		if failProviderAuth {
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		serveSyncFixturePath(t, w, r)
@@ -258,14 +229,13 @@ func TestSyncFailureMarksStaleAndPreservesSnapshots(t *testing.T) {
 	if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 {
-		t.Fatalf("initial auth snapshots len=%d err=%v", len(auths), err)
+	providers, err := service.store.ListProviderSnapshots(t.Context(), sidecar.ID)
+	if err != nil || len(providers) != 5 {
+		t.Fatalf("initial provider snapshots len=%d err=%v", len(providers), err)
 	}
-	firstSnapshotID := auths[0].ID
 	firstSuccessAt := now
 	now = now.Add(2 * time.Minute)
-	failAuthFiles = true
+	failProviderAuth = true
 	result, err := service.SyncSidecar(t.Context(), sidecar.ID)
 	if err == nil || result.ErrorDetail == "" {
 		t.Fatalf("expected failed sync result, result=%+v err=%v", result, err)
@@ -279,143 +249,117 @@ func TestSyncFailureMarksStaleAndPreservesSnapshots(t *testing.T) {
 	}
 	status := service.sidecarSyncStatus(stored)
 	if !status.Stale || stored.SnapshotStaleAfter == nil || !stored.SnapshotStaleAfter.Equal(now) {
-		t.Fatalf("failed sync should mark snapshots stale now, status=%+v stored=%+v", status, stored)
+		t.Fatalf("failed sync should mark provider snapshots stale now, status=%+v stored=%+v", status, stored)
 	}
-	auths, err = service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 || auths[0].ID != firstSnapshotID {
-		t.Fatalf("failed sync should preserve previous snapshots, got %+v err=%v", auths, err)
+	providers, err = service.store.ListProviderSnapshots(t.Context(), sidecar.ID)
+	if err != nil || len(providers) != 5 {
+		t.Fatalf("failed sync should preserve previous provider snapshots, got %+v err=%v", providers, err)
 	}
 }
 
-func TestAuthFilesSyncRejectsMalformedRawPayloadsAndPreservesPreviousGeneration(t *testing.T) {
+func TestAuthFilesValidationRejectsMalformedRawPayloads(t *testing.T) {
 	tests := []struct {
 		name       string
 		payload    string
-		wantCode   string
 		wantDetail string
 	}{
-		{name: "legacy auth_files", payload: syncAuthFixtureWithEnvelopeKey(t, "auth_files"), wantCode: "sync_contract", wantDetail: "files must be present"},
-		{name: "missing files key", payload: `{"metadata":{"row_count":1},"provider_inventory":{"gemini-api-key":[{"api-key":"redacted-provider-key"}]}}`, wantCode: "sync_contract", wantDetail: "files must be present"},
-		{name: "files null", payload: `{"files":null,"metadata":{"row_count":0}}`, wantCode: "sync_contract", wantDetail: "files must be an array"},
-		{name: "malformed row", payload: `{"files":[{"provider":"gemini","priority":10,"api_key":"raw-malformed-row-secret"}],"metadata":{"row_count":1}}`, wantCode: "sync_failed", wantDetail: "auth snapshot requires id or name"},
+		{name: "legacy auth_files", payload: syncAuthFixtureWithEnvelopeKey(t, "auth_files"), wantDetail: "files must be present"},
+		{name: "missing files key", payload: `{"metadata":{"row_count":1},"provider_inventory":{"gemini-api-key":[{"api-key":"redacted-provider-key"}]}}`, wantDetail: "files must be present"},
+		{name: "files null", payload: `{"files":null,"metadata":{"row_count":0}}`, wantDetail: "files must be an array"},
+		{name: "malformed row", payload: `{"files":[{"provider":"gemini","priority":10,"api_key":"raw-malformed-row-secret"}],"metadata":{"row_count":1}}`, wantDetail: "auth file row requires id or name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-			authPayload := syncAuthFixture()
-			countProviderRequests := false
-			providerRequests := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/v0/management/auth-files" {
-					writeSyncJSON(w, authPayload)
-					return
-				}
-				if countProviderRequests {
-					providerRequests++
-				}
-				serveSyncFixturePath(t, w, r)
-			}))
-			defer server.Close()
-
-			service := newSyncTestService(t, func() time.Time { return now })
-			sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
-			if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
-				t.Fatalf("initial sync: %v", err)
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(tt.payload), &envelope); err != nil {
+				t.Fatalf("decode malformed auth fixture: %v", err)
 			}
-			previous, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-			if err != nil || len(previous) != 1 {
-				t.Fatalf("initial auth snapshots len=%d err=%v", len(previous), err)
+			rows, err := decodeSidecarAuthFileRows(envelope)
+			if err == nil {
+				_, err = normalizeSidecarAuthFile(42, time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC), rows[0])
 			}
-			previousSnapshotID := previous[0].ID
-			previousSnapshotJSON := string(previous[0].SnapshotJSON)
-			firstSuccessAt := now
-
-			now = now.Add(time.Minute)
-			authPayload = tt.payload
-			countProviderRequests = true
-			result, err := service.SyncSidecar(t.Context(), sidecar.ID)
-			if err == nil || result.ErrorCode != tt.wantCode || !strings.Contains(result.ErrorDetail, tt.wantDetail) {
-				t.Fatalf("expected failed sync code=%s detail containing %q, result=%+v err=%v", tt.wantCode, tt.wantDetail, result, err)
+			if err == nil || !strings.Contains(err.Error(), tt.wantDetail) {
+				t.Fatalf("expected auth-files validation error containing %q, got %v", tt.wantDetail, err)
 			}
-			assertAuthPayloadSecretFree(t, result.ErrorDetail)
-			if providerRequests != 0 {
-				t.Fatalf("provider inventory must not be used as fallback after /auth-files failure, provider requests=%d", providerRequests)
-			}
-
-			stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
-			if err != nil || !ok {
-				t.Fatalf("load failed sidecar ok=%v err=%v", ok, err)
-			}
-			if stored.LastSuccessfulSyncAt == nil || !stored.LastSuccessfulSyncAt.Equal(firstSuccessAt) || stored.LastSyncError == nil || !strings.Contains(*stored.LastSyncError, tt.wantDetail) {
-				t.Fatalf("failure metadata did not preserve success or record expected error: %+v", stored)
-			}
-			assertAuthPayloadSecretFree(t, *stored.LastSyncError)
-			auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-			if err != nil || len(auths) != 1 || auths[0].ID != previousSnapshotID || string(auths[0].SnapshotJSON) != previousSnapshotJSON {
-				t.Fatalf("failed generation should preserve previous auth snapshot, got %+v err=%v", auths, err)
-			}
+			assertAuthPayloadSecretFree(t, err.Error())
 		})
 	}
 }
 
-func TestSyncEmptyAuthFilesSemanticsFrozen(t *testing.T) {
+func TestSyncDoesNotRefreshAuthFiles(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
-	authPayload := syncAuthFixture()
-	countProviderRequests := false
 	providerRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v0/management/auth-files" {
-			writeSyncJSON(w, authPayload)
+			t.Errorf("sync must not request live auth files")
+			w.WriteHeader(http.StatusTeapot)
 			return
 		}
-		if countProviderRequests {
-			providerRequests++
-		}
+		providerRequests++
 		serveSyncFixturePath(t, w, r)
 	}))
 	defer server.Close()
 
 	service := newSyncTestService(t, func() time.Time { return now })
 	sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
-	if _, err := service.SyncSidecar(t.Context(), sidecar.ID); err != nil {
-		t.Fatalf("initial sync: %v", err)
-	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 {
-		t.Fatalf("initial auth snapshots len=%d err=%v", len(auths), err)
-	}
-	previousSnapshotID := auths[0].ID
-	previousSnapshotJSON := string(auths[0].SnapshotJSON)
-	firstSuccessAt := now
-
-	now = now.Add(time.Minute)
-	authPayload = `{"files":[],"metadata":{"row_count":0,"generated_at":"2026-05-10T12:01:00Z"}}`
-	countProviderRequests = true
 	result, err := service.SyncSidecar(t.Context(), sidecar.ID)
-	if err == nil || result.ErrorCode != "sync_contract" || !strings.Contains(result.ErrorDetail, "files must not be empty") {
-		t.Fatalf("expected empty-list sync contract failure, result=%+v err=%v", result, err)
+	if err != nil || result.ErrorCode != "" || result.ProviderSnapshotCount != 5 {
+		t.Fatalf("expected provider-only sync success, result=%+v err=%v", result, err)
 	}
-	if result.AuthSnapshotCount != 0 || result.ProviderSnapshotCount != 0 {
-		t.Fatalf("empty-list failure must not report replaced snapshots: %+v", result)
-	}
-	if providerRequests != 0 {
-		t.Fatalf("provider inventory must not be used as auth fallback after empty /auth-files, provider requests=%d", providerRequests)
+	if providerRequests != 5 {
+		t.Fatalf("provider inventory should sync without /auth-files, provider requests=%d", providerRequests)
 	}
 
 	stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
 	if err != nil || !ok {
-		t.Fatalf("load failed sidecar ok=%v err=%v", ok, err)
+		t.Fatalf("load synced sidecar ok=%v err=%v", ok, err)
 	}
-	if stored.LastSuccessfulSyncAt == nil || !stored.LastSuccessfulSyncAt.Equal(firstSuccessAt) || stored.LastSyncError == nil || !strings.Contains(*stored.LastSyncError, "files must not be empty") {
-		t.Fatalf("empty-list failure did not preserve previous success and record error: %+v", stored)
+	if stored.LastSuccessfulSyncAt == nil || !stored.LastSuccessfulSyncAt.Equal(now) || stored.LastSyncError != nil {
+		t.Fatalf("provider-only success metadata mismatch: %+v", stored)
 	}
 	status := service.sidecarSyncStatus(stored)
-	if !status.Stale || stored.SnapshotStaleAfter == nil || !stored.SnapshotStaleAfter.Equal(now) {
-		t.Fatalf("empty-list failure should mark snapshots stale now, status=%+v stored=%+v", status, stored)
+	if status.Stale || stored.SnapshotStaleAfter == nil || !stored.SnapshotStaleAfter.Equal(now.Add(2*time.Minute)) {
+		t.Fatalf("provider-only success should keep status fresh, status=%+v stored=%+v", status, stored)
 	}
-	auths, err = service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 1 || auths[0].ID != previousSnapshotID || string(auths[0].SnapshotJSON) != previousSnapshotJSON {
-		t.Fatalf("empty-list failure should preserve previous auth snapshot, got %+v err=%v", auths, err)
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
+	if err != nil || len(auths) != 0 {
+		t.Fatalf("provider-only sync should leave auth files independent, got %+v err=%v", auths, err)
+	}
+}
+
+func TestAuthFilesRouteAcceptsEmptyLiveFilesArray(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/v0/management/auth-files" {
+			t.Errorf("unexpected management path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		writeSyncJSON(w, `{"files":[],"metadata":{"row_count":0,"generated_at":"2026-05-10T12:00:00Z"}}`)
+	}))
+	defer server.Close()
+
+	service := newSyncTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, server.URL, true, 60)
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecar.ID)+"/auth-files", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("auth-files status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response authFileListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode auth-files response: %v", err)
+	}
+	if len(response.Items) != 0 {
+		t.Fatalf("expected empty live auth file list, got %+v", response.Items)
+	}
+	if requests != 1 {
+		t.Fatalf("auth-files route should fetch live inventory once, got %d requests", requests)
 	}
 }
 
@@ -452,7 +396,7 @@ func TestInvalidManagementAuthPausesPeriodicSyncUntilManualSync(t *testing.T) {
 	if summary.Synced != 0 || summary.Skipped != 1 {
 		t.Fatalf("expected paused sidecar to be skipped, got %+v", summary)
 	}
-	auths, err := service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
+	auths, err := service.store.ListAuthFiles(t.Context(), sidecar.ID)
 	if err != nil || len(auths) != 0 {
 		t.Fatalf("paused periodic sync should not write snapshots, got %+v err=%v", auths, err)
 	}
@@ -487,11 +431,10 @@ func TestAuthFilesEnvelopeRejectsLegacyKey(t *testing.T) {
 	}
 }
 
-func TestAuthFilesEnvelopeRejectsEmptyFilesArray(t *testing.T) {
-	_, err := decodeSidecarAuthFileRows(map[string]json.RawMessage{"files": json.RawMessage(`[]`)})
-	var contractErr *sidecarSyncContractError
-	if !errors.As(err, &contractErr) || !strings.Contains(err.Error(), "files must not be empty") {
-		t.Fatalf("expected empty files sync-contract error, got %T %v", err, err)
+func TestAuthFilesEnvelopeAcceptsEmptyFilesArray(t *testing.T) {
+	rows, err := decodeSidecarAuthFileRows(map[string]json.RawMessage{"files": json.RawMessage(`[]`)})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("expected empty files array to decode successfully, rows=%d err=%v", len(rows), err)
 	}
 }
 
@@ -650,9 +593,9 @@ func assertNoUsageQueueRequest(t *testing.T, paths []string) {
 	}
 }
 
-func assertSidecarSnapshotRoutes(t *testing.T, router http.Handler, sidecarID int) {
+func assertSidecarLiveInventoryRoutes(t *testing.T, router http.Handler, sidecarID int) {
 	t.Helper()
-	var authList authSnapshotListResponse
+	var authList authFileListResponse
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files", nil))
 	if recorder.Code != http.StatusOK {
@@ -662,7 +605,7 @@ func assertSidecarSnapshotRoutes(t *testing.T, router http.Handler, sidecarID in
 		t.Fatalf("decode auth-files route response: %v", err)
 	}
 	if len(authList.Items) != 1 || authList.Items[0].QuotaExceeded == nil || !*authList.Items[0].QuotaExceeded {
-		t.Fatalf("auth-files route did not return normalized auth snapshot: %+v", authList.Items)
+		t.Fatalf("auth-files route did not return normalized live auth file: %+v", authList.Items)
 	}
 
 	var providerList providerSnapshotListResponse

@@ -201,8 +201,6 @@ Prepare seed state through API (not manual DB edits):
 | `POST /api/sidecars/{sidecar_id}/test-connection` | O06 |
 | `POST /api/sidecars/{sidecar_id}/sync` | O07 |
 | `GET /api/sidecars/{sidecar_id}/auth-files` | O08 |
-| `GET /api/sidecars/{sidecar_id}/auth-snapshots` | O08 |
-| `GET /api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}` | O08 |
 | `GET /api/sidecars/{sidecar_id}/providers` | O09 |
 | `GET /api/sidecars/{sidecar_id}/provider-snapshots` | O09 |
 | `GET /api/sidecars/{sidecar_id}/sync-status` | O10 |
@@ -614,13 +612,13 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | O04 | P0 | Patch sidecar metadata or management password | `200`, updates metadata; password rotation resets management auth state without returning the raw value |
 | O05 | P0 | Delete sidecar | `204`, soft-deletes registration and removes it from list results |
 | O06 | P0 | Test sidecar connection | Success returns `state=succeeded`, management auth state, and status code; invalid management auth records pause state |
-| O07 | P0 | Manual sync | Success updates auth/provider snapshots and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
-| O08 | P0 | Auth inventory read | `auth-files` and `auth-snapshots` return normalized, redacted auth observations |
+| O07 | P0 | Manual sync | Success updates provider inventory and sync status; disabled sidecar returns `409`, invalid management auth returns `424` |
+| O08 | P0 | Auth inventory read | `auth-files` returns live, normalized, redacted auth observations from CLIProxyAPI |
 | O09 | P0 | Provider inventory read | Provider snapshots are normalized for supported provider keys and do not expose raw secrets |
 | O10 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
-| O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, can select a detail row, and renders auth/provider inventory |
-| O13 | P1 | Auth status mutation | Status patch succeeds only through Prism backend |
-| O14 | P1 | Auth priority mutation | Field patch accepts only priority plus optional `force_live` and rejects any other auth-file mutation field |
+| O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, can select a detail row, and renders live auth-files plus provider inventory |
+| O13 | P1 | Auth status mutation | Status patch succeeds only through Prism backend after live auth-file preflight |
+| O14 | P1 | Auth priority mutation | Field patch accepts only priority and rejects any other auth-file mutation field |
 | O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` rejects elevated priority overrides |
 
 ---

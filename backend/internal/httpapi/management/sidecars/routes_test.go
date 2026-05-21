@@ -94,8 +94,6 @@ func TestSidecarRouteSkeletonsMount(t *testing.T) {
 		{http.MethodGet, "/sidecars/sc_1/auth-files"},
 		{http.MethodPatch, "/sidecars/sc_1/auth-files/auth_001/status"},
 		{http.MethodPatch, "/sidecars/sc_1/auth-files/auth_001/fields"},
-		{http.MethodGet, "/sidecars/sc_1/auth-snapshots"},
-		{http.MethodGet, "/sidecars/sc_1/auth-snapshots/snap_1"},
 		{http.MethodGet, "/sidecars/sc_1/providers"},
 		{http.MethodGet, "/sidecars/sc_1/provider-snapshots"},
 		{http.MethodGet, "/sidecars/sc_1/sync-status"},

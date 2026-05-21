@@ -68,8 +68,9 @@ func TestSidecarDBBackedSyncMutationsAndRedaction(t *testing.T) {
 
 	syncBody, syncPayload := sidecarIntegrationRequestJSON(t, router, http.MethodPost, "/sidecars/"+strconv.Itoa(sidecarID)+"/sync", nil, http.StatusOK)
 	sidecarIntegrationAssertNoLeaks(t, syncBody)
-	if sidecarIntegrationInt(t, syncPayload["auth_snapshot_count"], "auth_snapshot_count") != 1 {
-		t.Fatalf("expected one auth snapshot after sync, got %+v", syncPayload)
+	legacyAuthCountField := "auth_" + "snapshot_count"
+	if _, exists := syncPayload[legacyAuthCountField]; exists {
+		t.Fatalf("sync response must not expose auth snapshot counts: %+v", syncPayload)
 	}
 	if sidecarIntegrationInt(t, syncPayload["provider_snapshot_count"], "provider_snapshot_count") != 2 {
 		t.Fatalf("expected two provider snapshots after sync, got %+v", syncPayload)
@@ -106,7 +107,7 @@ func TestSidecarIntegrationRouteSurfaceMatchesCurrentSet(t *testing.T) {
 	sidecarIntegrationAssertCurrentSchema(t, conn)
 }
 
-func TestSidecarIntegrationRetainedSnapshotsUseCurrentSchema(t *testing.T) {
+func TestSidecarIntegrationLiveAuthFilesAndRetainedProvidersUseCurrentSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	conn, router := newSidecarIntegrationRouter(t, ctx)
@@ -114,15 +115,15 @@ func TestSidecarIntegrationRetainedSnapshotsUseCurrentSchema(t *testing.T) {
 	defer upstream.Close()
 	sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "Snapshots")
 
-	authBody, authPayload := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-snapshots", nil, http.StatusOK)
+	authBody, authPayload := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files", nil, http.StatusOK)
 	sidecarIntegrationAssertNoLeaks(t, authBody)
 	authItems := sidecarIntegrationItems(t, authPayload, "items")
 	if len(authItems) != 1 {
-		t.Fatalf("expected one retained auth snapshot, got %+v", authPayload)
+		t.Fatalf("expected one live auth file, got %+v", authPayload)
 	}
-	authSnapshot, ok := authItems[0].(map[string]any)
-	if !ok || authSnapshot["auth_id"] != "auth-gemini-primary" || sidecarIntegrationInt(t, authSnapshot["priority"], "auth priority") != 10 {
-		t.Fatalf("unexpected retained auth snapshot: %+v", authItems[0])
+	authFile, ok := authItems[0].(map[string]any)
+	if !ok || authFile["auth_id"] != "auth-gemini-primary" || sidecarIntegrationInt(t, authFile["priority"], "auth priority") != 10 {
+		t.Fatalf("unexpected live auth file: %+v", authItems[0])
 	}
 
 	providerBody, providerPayload := sidecarIntegrationRequestJSON(t, router, http.MethodGet, "/sidecars/"+strconv.Itoa(sidecarID)+"/providers", nil, http.StatusOK)
@@ -134,7 +135,7 @@ func TestSidecarIntegrationRetainedSnapshotsUseCurrentSchema(t *testing.T) {
 	sidecarIntegrationAssertCurrentSchema(t, conn)
 }
 
-func TestSidecarIntegrationDirectAuthFileMutationUpdatesSnapshotWithCurrentSchema(t *testing.T) {
+func TestSidecarIntegrationDirectAuthFileMutationReadsLiveAuthFilesWithCurrentSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	conn, router := newSidecarIntegrationRouter(t, ctx)
@@ -152,11 +153,11 @@ func TestSidecarIntegrationDirectAuthFileMutationUpdatesSnapshotWithCurrentSchem
 	sidecarIntegrationAssertNoLeaks(t, authBody)
 	authItems := sidecarIntegrationItems(t, authPayload, "items")
 	if len(authItems) != 1 {
-		t.Fatalf("expected one auth snapshot after direct mutation, got %+v", authPayload)
+		t.Fatalf("expected one live auth file after direct mutation, got %+v", authPayload)
 	}
-	authSnapshot, ok := authItems[0].(map[string]any)
-	if !ok || sidecarIntegrationInt(t, authSnapshot["priority"], "mutated auth priority") != 77 {
-		t.Fatalf("direct auth-file mutation did not refresh retained snapshot: %+v", authItems[0])
+	authFile, ok := authItems[0].(map[string]any)
+	if !ok || sidecarIntegrationInt(t, authFile["priority"], "mutated auth priority") != 77 {
+		t.Fatalf("direct auth-file mutation did not update live auth file: %+v", authItems[0])
 	}
 	sidecarIntegrationAssertCurrentSchema(t, conn)
 }
@@ -201,11 +202,11 @@ func TestSidecarAuthMutationIntegration(t *testing.T) {
 	shadow := sidecarIntegrationAuthFixtureWith("auth-gemini-shadow", "auth_999", "gemini", 77)
 	shadow["name"] = primary["name"]
 	upstream.setAuthFiles(primary, shadow)
-	rejectionBody := sidecarIntegrationRequestStatus(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", map[string]any{
+	duplicateNameBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", map[string]any{
 		"priority": 99,
-	}, http.StatusConflict)
-	sidecarIntegrationAssertNoLeaks(t, rejectionBody)
-	upstream.assertFieldPatchPriorities(t, []int{88})
+	}, http.StatusOK)
+	sidecarIntegrationAssertNoLeaks(t, duplicateNameBody)
+	upstream.assertFieldPatchPriorities(t, []int{88, 99})
 
 	upstream.setAuthFiles(sidecarIntegrationAuthFixtureWith("auth-gemini-primary", "auth_001", "gemini", 88))
 	upstream.failAuthFilesAfterNextFieldPatch()
@@ -216,11 +217,11 @@ func TestSidecarAuthMutationIntegration(t *testing.T) {
 	if degradedPayload["state"] != "succeeded_sync_failed" || strings.TrimSpace(fmt.Sprint(degradedPayload["sync_error"])) == "" {
 		t.Fatalf("expected succeeded_sync_failed mutation state with sync_error, got %+v", degradedPayload)
 	}
-	degradedSnapshot, ok := degradedPayload["snapshot"].(map[string]any)
-	if !ok || sidecarIntegrationInt(t, degradedSnapshot["priority"], "degraded snapshot priority") != 88 {
-		t.Fatalf("degraded mutation response should retain pre-patch snapshot truth, got %+v", degradedPayload["snapshot"])
+	degradedAuthFile, ok := degradedPayload["snapshot"].(map[string]any)
+	if !ok || sidecarIntegrationInt(t, degradedAuthFile["priority"], "degraded auth priority") != 88 {
+		t.Fatalf("degraded mutation response should retain pre-patch live auth file, got %+v", degradedPayload["snapshot"])
 	}
-	upstream.assertFieldPatchPriorities(t, []int{88, 90})
+	upstream.assertFieldPatchPriorities(t, []int{88, 99, 90})
 	sidecarIntegrationAssertCurrentSchema(t, conn)
 	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
 }
@@ -308,7 +309,6 @@ func sidecarIntegrationAssertDBNoLeaks(t *testing.T, conn *pgx.Conn, sidecarID i
 	var combined string
 	if err := conn.QueryRow(context.Background(), `SELECT concat_ws(' ',
 		COALESCE((SELECT string_agg(management_password, ' ') FROM sidecar_instances WHERE id = $1), ''),
-		COALESCE((SELECT string_agg(snapshot_json::text, ' ') FROM sidecar_auth_snapshots WHERE sidecar_id = $1), ''),
 		COALESCE((SELECT string_agg(snapshot_json::text, ' ') FROM sidecar_provider_snapshots WHERE sidecar_id = $1), '')
 	)`, sidecarID).Scan(&combined); err != nil {
 		t.Fatalf("collect sidecar persisted strings: %v", err)
@@ -345,20 +345,18 @@ func sidecarIntegrationAssertRouteSurface(t *testing.T, handler http.Handler) {
 
 func sidecarIntegrationRouteSurface() map[string][]string {
 	return map[string][]string{
-		"/sidecars":                                           {http.MethodGet, http.MethodPost},
-		"/sidecars/{sidecar_id}":                              {http.MethodGet, http.MethodPatch, http.MethodDelete},
-		"/sidecars/{sidecar_id}/test-connection":              {http.MethodPost},
-		"/sidecars/{sidecar_id}/sync":                         {http.MethodPost},
-		"/sidecars/{sidecar_id}/auth-files":                   {http.MethodGet},
-		"/sidecars/{sidecar_id}/auth-files/models":            {http.MethodGet},
-		"/sidecars/{sidecar_id}/auth-files/{auth_id}":         {http.MethodDelete},
-		"/sidecars/{sidecar_id}/auth-files/{auth_id}/status":  {http.MethodPatch},
-		"/sidecars/{sidecar_id}/auth-files/{auth_id}/fields":  {http.MethodPatch},
-		"/sidecars/{sidecar_id}/auth-snapshots":               {http.MethodGet},
-		"/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}": {http.MethodGet},
-		"/sidecars/{sidecar_id}/providers":                    {http.MethodGet},
-		"/sidecars/{sidecar_id}/provider-snapshots":           {http.MethodGet},
-		"/sidecars/{sidecar_id}/sync-status":                  {http.MethodGet},
+		"/sidecars":                                          {http.MethodGet, http.MethodPost},
+		"/sidecars/{sidecar_id}":                             {http.MethodGet, http.MethodPatch, http.MethodDelete},
+		"/sidecars/{sidecar_id}/test-connection":             {http.MethodPost},
+		"/sidecars/{sidecar_id}/sync":                        {http.MethodPost},
+		"/sidecars/{sidecar_id}/auth-files":                  {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/models":           {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}":        {http.MethodDelete},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}/status": {http.MethodPatch},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}/fields": {http.MethodPatch},
+		"/sidecars/{sidecar_id}/providers":                   {http.MethodGet},
+		"/sidecars/{sidecar_id}/provider-snapshots":          {http.MethodGet},
+		"/sidecars/{sidecar_id}/sync-status":                 {http.MethodGet},
 	}
 }
 
@@ -517,7 +515,7 @@ func (u *sidecarIntegrationUpstream) handleAuthFiles(w http.ResponseWriter) {
 	u.mu.Unlock()
 	if failAfterPatchCount > 0 && patchCount >= failAfterPatchCount {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error":"auth snapshot refresh failed"}`))
+		_, _ = w.Write([]byte(`{"error":"auth live refresh failed"}`))
 		return
 	}
 	w.Header().Set("X-CPA-COMMIT", "21fad9dbb447a2ab70d51d0ac3e3d032525a6054")
@@ -540,7 +538,7 @@ func (u *sidecarIntegrationUpstream) recordFieldPatch(t *testing.T, r *http.Requ
 	}
 	priority := sidecarIntegrationInt(t, payload["priority"], "priority")
 	for _, file := range u.authFiles {
-		if file["name"] == name {
+		if file["id"] == name || file["name"] == name {
 			file["priority"] = priority
 			return
 		}

@@ -5592,79 +5592,6 @@
         }
       }
     },
-    "/api/sidecars/{sidecar_id}/auth-snapshots": {
-      "get": {
-        "tags": [
-          "sidecars"
-        ],
-        "summary": "List Sidecar Auth Snapshots",
-        "operationId": "list_sidecar_auth_snapshots_api_sidecars__sidecar_id__auth_snapshots_get",
-        "parameters": [
-          {
-            "name": "sidecar_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SidecarAuthSnapshotListResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}": {
-      "get": {
-        "tags": [
-          "sidecars"
-        ],
-        "summary": "Get Sidecar Auth Snapshot",
-        "operationId": "get_sidecar_auth_snapshot_api_sidecars__sidecar_id__auth_snapshots__snapshot_id__get",
-        "parameters": [
-          {
-            "name": "sidecar_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "name": "snapshot_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "string"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SidecarAuthSnapshot"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/sidecars/{sidecar_id}/provider-snapshots": {
       "get": {
         "tags": [
@@ -5719,7 +5646,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SidecarAuthSnapshotListResponse"
+                  "$ref": "#/components/schemas/SidecarAuthFilesResponse"
                 }
               }
             }
@@ -5941,9 +5868,6 @@
                 "properties": {
                   "disabled": {
                     "type": "boolean"
-                  },
-                  "force_live": {
-                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -6004,12 +5928,9 @@
                     "type": "integer",
                     "minimum": 0,
                     "description": "Auth priority update. Send 0 as the CLIProxyAPI clear/remove sentinel for stored priority metadata."
-                  },
-                  "force_live": {
-                    "type": "boolean"
                   }
                 },
-                "description": "Priority-only auth mutation. Omit force_live for normal guarded PATCH; set force_live only to force a live preflight for stale cached rows.",
+                "description": "Priority-only auth mutation. The request body requires priority; no other auth-file fields are mutable through Prism.",
                 "additionalProperties": false,
                 "required": [
                   "priority"
@@ -16716,108 +16637,6 @@
         ],
         "additionalProperties": false
       },
-      "SidecarAuthSnapshot": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "sidecar_id": {
-            "type": "integer"
-          },
-          "auth_id": {
-            "type": "string"
-          },
-          "auth_index": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string",
-            "nullable": true
-          },
-          "label": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "status_message": {
-            "type": "string",
-            "nullable": true
-          },
-          "disabled": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "unavailable": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "priority": {
-            "type": "integer",
-            "nullable": true
-          },
-          "quota_exceeded": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "quota_reason": {
-            "type": "string",
-            "nullable": true
-          },
-          "quota_next_recover_at": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "success_count": {
-            "type": "integer",
-            "nullable": true
-          },
-          "failed_count": {
-            "type": "integer",
-            "nullable": true
-          },
-          "recent_requests": {},
-          "model_states": {},
-          "observed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "snapshot": {
-            "description": "Redacted auth-file observation. Raw tokens, secrets, passwords, API keys, authorization values, and unredacted upstream fields are never returned."
-          }
-        },
-        "required": [
-          "id",
-          "sidecar_id",
-          "auth_id",
-          "name",
-          "observed_at"
-        ],
-        "additionalProperties": false
-      },
-      "SidecarAuthSnapshotListResponse": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SidecarAuthSnapshot"
-            }
-          }
-        },
-        "required": [
-          "items"
-        ],
-        "additionalProperties": false
-      },
       "SidecarAuthModel": {
         "type": "object",
         "properties": {
@@ -16965,9 +16784,6 @@
           "sync_status": {
             "$ref": "#/components/schemas/SidecarSyncStatusResponse"
           },
-          "auth_snapshot_count": {
-            "type": "integer"
-          },
           "provider_snapshot_count": {
             "type": "integer"
           },
@@ -16984,7 +16800,6 @@
           "state",
           "sidecar",
           "sync_status",
-          "auth_snapshot_count",
           "provider_snapshot_count"
         ],
         "additionalProperties": false
@@ -17000,7 +16815,7 @@
             ]
           },
           "snapshot": {
-            "$ref": "#/components/schemas/SidecarAuthSnapshot"
+            "$ref": "#/components/schemas/SidecarAuthFile"
           },
           "sync_status": {
             "$ref": "#/components/schemas/SidecarSyncStatusResponse"
@@ -17077,6 +16892,108 @@
           "stale",
           "due",
           "paused"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthFile": {
+        "type": "object",
+        "properties": {
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "auth_id": {
+            "type": "string"
+          },
+          "mutation_safe": {
+            "type": "boolean"
+          },
+          "auth_index": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "status_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "disabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "unavailable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "priority": {
+            "type": "integer",
+            "nullable": true
+          },
+          "quota_exceeded": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "quota_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "quota_next_recover_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "success_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "failed_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "recent_requests": {},
+          "model_states": {},
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot": {
+            "description": "Redacted auth-file observation. Raw tokens, secrets, passwords, API keys, authorization values, and unredacted upstream fields are never returned."
+          }
+        },
+        "required": [
+          "sidecar_id",
+          "auth_id",
+          "mutation_safe",
+          "name",
+          "observed_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthFilesResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarAuthFile"
+            }
+          }
+        },
+        "required": [
+          "items"
         ],
         "additionalProperties": false
       }

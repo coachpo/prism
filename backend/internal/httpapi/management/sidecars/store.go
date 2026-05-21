@@ -3,7 +3,9 @@ package sidecars
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,13 +30,6 @@ type StoreOptions struct {
 	Now                 func() time.Time
 	SecretEncryptionKey string
 }
-
-type sidecarSQLExecutor interface {
-	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-	QueryRow(context.Context, string, ...any) pgx.Row
-}
-
-const sidecarAuthSnapshotReplaceChunkSize = 250
 
 func NewStore(options StoreOptions) *Store {
 	now := options.Now
@@ -211,181 +206,53 @@ RETURNING `+sidecarInstanceSelectColumns,
 	return record, nil
 }
 
-func (s *Store) SaveAuthSnapshot(ctx context.Context, input SidecarAuthSnapshotInput) (SidecarAuthSnapshot, error) {
+func (s *Store) SaveAuthFile(ctx context.Context, input SidecarAuthFileInput) (SidecarAuthFile, error) {
 	if err := s.requirePool(); err != nil {
-		return SidecarAuthSnapshot{}, err
+		return SidecarAuthFile{}, err
 	}
-	if input.SidecarID <= 0 || strings.TrimSpace(input.AuthID) == "" || strings.TrimSpace(input.Name) == "" {
-		return SidecarAuthSnapshot{}, invalidInputError("sidecar_id, auth_id, and name are required")
+	normalized, err := normalizeAuthFileStoreInput(input)
+	if err != nil {
+		return SidecarAuthFile{}, err
 	}
-	observedAt := input.ObservedAt
+	observedAt := normalized.ObservedAt
 	if observedAt.IsZero() {
 		observedAt = s.currentTime()
 	}
-	if err := validateSidecarSnapshotJSON(input.SnapshotJSON); err != nil {
-		return SidecarAuthSnapshot{}, err
-	}
-	row := s.pool.QueryRow(ctx, `INSERT INTO sidecar_auth_snapshots (
-sidecar_id, auth_id, auth_index, name, provider, label, status, status_message,
-disabled, unavailable, priority, quota_exceeded, quota_reason, quota_next_recover_at,
-success_count, failed_count, recent_requests_json, model_states_json,
-snapshot_json, observed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20)
-ON CONFLICT (sidecar_id, auth_id) DO UPDATE SET
-auth_index = EXCLUDED.auth_index, name = EXCLUDED.name, provider = EXCLUDED.provider,
-label = EXCLUDED.label, status = EXCLUDED.status, status_message = EXCLUDED.status_message,
-disabled = EXCLUDED.disabled, unavailable = EXCLUDED.unavailable, priority = EXCLUDED.priority,
-quota_exceeded = EXCLUDED.quota_exceeded, quota_reason = EXCLUDED.quota_reason,
-quota_next_recover_at = EXCLUDED.quota_next_recover_at,
-success_count = EXCLUDED.success_count, failed_count = EXCLUDED.failed_count,
-recent_requests_json = EXCLUDED.recent_requests_json, model_states_json = EXCLUDED.model_states_json,
-snapshot_json = EXCLUDED.snapshot_json, observed_at = EXCLUDED.observed_at, updated_at = now()
-RETURNING `+sidecarAuthSnapshotSelectColumns,
-		input.SidecarID, strings.TrimSpace(input.AuthID), nullStringArg(input.AuthIndex), strings.TrimSpace(input.Name),
-		nullStringArg(input.Provider), nullStringArg(input.Label), nullStringArg(input.Status), nullStringArg(input.StatusMessage),
-		nullBoolArg(input.Disabled), nullBoolArg(input.Unavailable), nullIntArg(input.Priority), nullBoolArg(input.QuotaExceeded),
-		nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt),
-		nullIntArg(input.SuccessCount), nullIntArg(input.FailedCount), jsonbString(input.RecentRequestsJSON, "[]"),
-		jsonbString(input.ModelStatesJSON, "{}"), jsonbString(input.SnapshotJSON, "{}"), observedAt,
-	)
-	record, err := scanSidecarAuthSnapshot(row)
-	if err != nil {
-		return SidecarAuthSnapshot{}, mapStoreError(err)
-	}
-	return record, nil
+	return authFileFromInput(normalized, observedAt), nil
 }
 
-func (s *Store) ReplaceAuthSnapshots(ctx context.Context, sidecarID int, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error) {
+func (s *Store) ReplaceAuthFiles(ctx context.Context, sidecarID int, inputs []SidecarAuthFileInput) ([]SidecarAuthFile, error) {
 	if err := s.requirePool(); err != nil {
 		return nil, err
 	}
-	normalized, err := validateAuthSnapshotReplacementInputs(sidecarID, inputs)
+	normalized, err := validateAuthFileReplacementInputs(sidecarID, inputs)
 	if err != nil {
 		return nil, err
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin auth snapshot replacement: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `DELETE FROM sidecar_auth_snapshots WHERE sidecar_id = $1`, sidecarID); err != nil {
-		return nil, fmt.Errorf("delete sidecar auth snapshots: %w", err)
-	}
-	records := make([]SidecarAuthSnapshot, 0, len(normalized))
-	for start := 0; start < len(normalized); start += sidecarAuthSnapshotReplaceChunkSize {
-		end := min(start+sidecarAuthSnapshotReplaceChunkSize, len(normalized))
-		chunkRecords, err := s.insertAuthSnapshotReplacementChunk(ctx, tx, normalized[start:end])
-		if err != nil {
-			return nil, err
-		}
-		records = append(records, chunkRecords...)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit auth snapshot replacement: %w", err)
-	}
-	return records, nil
-}
-
-func (s *Store) insertAuthSnapshotReplacementChunk(ctx context.Context, tx pgx.Tx, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshot, error) {
-	if len(inputs) == 0 {
-		return nil, nil
-	}
-	var builder strings.Builder
-	builder.WriteString(`INSERT INTO sidecar_auth_snapshots (
-sidecar_id, auth_id, auth_index, name, provider, label, status, status_message,
-disabled, unavailable, priority, quota_exceeded, quota_reason, quota_next_recover_at,
-success_count, failed_count, recent_requests_json, model_states_json,
-snapshot_json, observed_at) VALUES `)
-	args := make([]any, 0, len(inputs)*20)
-	for i, input := range inputs {
-		if i > 0 {
-			builder.WriteString(", ")
-		}
-		appendAuthSnapshotInsertPlaceholders(&builder, len(args)+1)
+	records := make([]SidecarAuthFile, 0, len(normalized))
+	now := s.currentTime()
+	for _, input := range normalized {
 		observedAt := input.ObservedAt
 		if observedAt.IsZero() {
-			observedAt = s.currentTime()
+			observedAt = now
 		}
-		args = append(args,
-			input.SidecarID, input.AuthID, nullStringArg(input.AuthIndex), input.Name,
-			nullStringArg(input.Provider), nullStringArg(input.Label), nullStringArg(input.Status), nullStringArg(input.StatusMessage),
-			nullBoolArg(input.Disabled), nullBoolArg(input.Unavailable), nullIntArg(input.Priority), nullBoolArg(input.QuotaExceeded),
-			nullStringArg(input.QuotaReason), nullTimeArg(input.QuotaNextRecoverAt),
-			nullIntArg(input.SuccessCount), nullIntArg(input.FailedCount), jsonbString(input.RecentRequestsJSON, "[]"),
-			jsonbString(input.ModelStatesJSON, "{}"), jsonbString(input.SnapshotJSON, "{}"), observedAt,
-		)
-	}
-	builder.WriteString(` RETURNING `)
-	builder.WriteString(sidecarAuthSnapshotSelectColumns)
-	rows, err := tx.Query(ctx, builder.String(), args...)
-	if err != nil {
-		return nil, mapStoreError(err)
-	}
-	defer rows.Close()
-	records := make([]SidecarAuthSnapshot, 0, len(inputs))
-	for rows.Next() {
-		record, scanErr := scanSidecarAuthSnapshot(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		records = append(records, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate inserted sidecar auth snapshots: %w", err)
+		records = append(records, authFileFromInput(input, observedAt))
 	}
 	return records, nil
 }
 
-func appendAuthSnapshotInsertPlaceholders(builder *strings.Builder, first int) {
-	builder.WriteByte('(')
-	for index := range 20 {
-		if index > 0 {
-			builder.WriteString(", ")
-		}
-		_, _ = fmt.Fprintf(builder, "$%d", first+index)
-		if index == 16 || index == 17 || index == 18 {
-			builder.WriteString("::jsonb")
-		}
-	}
-	builder.WriteByte(')')
-}
-
-func (s *Store) GetAuthSnapshot(ctx context.Context, sidecarID int, authID string) (SidecarAuthSnapshot, bool, error) {
+func (s *Store) GetAuthFile(ctx context.Context, sidecarID int, authID string) (SidecarAuthFile, bool, error) {
 	if err := s.requirePool(); err != nil {
-		return SidecarAuthSnapshot{}, false, err
+		return SidecarAuthFile{}, false, err
 	}
-	row := s.pool.QueryRow(ctx, `SELECT `+sidecarAuthSnapshotSelectColumns+` FROM sidecar_auth_snapshots WHERE sidecar_id = $1 AND auth_id = $2`, sidecarID, authID)
-	record, err := scanSidecarAuthSnapshot(row)
-	if err == pgx.ErrNoRows {
-		return SidecarAuthSnapshot{}, false, nil
-	}
-	if err != nil {
-		return SidecarAuthSnapshot{}, false, fmt.Errorf("load sidecar auth snapshot: %w", err)
-	}
-	return record, true, nil
+	return SidecarAuthFile{}, false, nil
 }
 
-func (s *Store) ListAuthSnapshots(ctx context.Context, sidecarID int) ([]SidecarAuthSnapshot, error) {
+func (s *Store) ListAuthFiles(ctx context.Context, sidecarID int) ([]SidecarAuthFile, error) {
 	if err := s.requirePool(); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+sidecarAuthSnapshotSelectColumns+` FROM sidecar_auth_snapshots WHERE sidecar_id = $1 ORDER BY name ASC, auth_id ASC`, sidecarID)
-	if err != nil {
-		return nil, fmt.Errorf("query sidecar auth snapshots: %w", err)
-	}
-	defer rows.Close()
-	records := make([]SidecarAuthSnapshot, 0)
-	for rows.Next() {
-		record, scanErr := scanSidecarAuthSnapshot(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		records = append(records, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate sidecar auth snapshots: %w", err)
-	}
-	return records, nil
+	return []SidecarAuthFile{}, nil
 }
 
 func (s *Store) SaveProviderSnapshot(ctx context.Context, input SidecarProviderSnapshotInput) (SidecarProviderSnapshot, error) {
@@ -514,11 +381,6 @@ sync_interval_seconds, request_timeout_seconds, allow_private_network, allow_ins
 skip_tls_verify, last_sync_at, last_successful_sync_at, snapshot_stale_after,
 last_sync_error, management_auth_state, auth_failure_pause_until, deleted_at, created_at, updated_at`
 
-const sidecarAuthSnapshotSelectColumns = `id, sidecar_id, auth_id, auth_index, name, provider, label, status,
-status_message, disabled, unavailable, priority, quota_exceeded, quota_reason,
-quota_next_recover_at, success_count, failed_count,
-recent_requests_json, model_states_json, snapshot_json, observed_at, created_at, updated_at`
-
 const sidecarProviderSnapshotSelectColumns = `id, sidecar_id, provider_key, provider_item_key, name, label,
 status, disabled, snapshot_json, observed_at, created_at, updated_at`
 
@@ -613,60 +475,6 @@ func scanSidecarInstance(scanner interface{ Scan(...any) error }) (SidecarInstan
 	return record, nil
 }
 
-func scanSidecarAuthSnapshot(scanner interface{ Scan(...any) error }) (SidecarAuthSnapshot, error) {
-	var record SidecarAuthSnapshot
-	var authIndex, provider, label, status, statusMessage, quotaReason sql.NullString
-	var disabled, unavailable, quotaExceeded sql.NullBool
-	var priority, successCount, failedCount sql.NullInt64
-	var quotaNextRecoverAt sql.NullTime
-	var recentRequests, modelStates, snapshot []byte
-	err := scanner.Scan(
-		&record.ID,
-		&record.SidecarID,
-		&record.AuthID,
-		&authIndex,
-		&record.Name,
-		&provider,
-		&label,
-		&status,
-		&statusMessage,
-		&disabled,
-		&unavailable,
-		&priority,
-		&quotaExceeded,
-		&quotaReason,
-		&quotaNextRecoverAt,
-		&successCount,
-		&failedCount,
-		&recentRequests,
-		&modelStates,
-		&snapshot,
-		&record.ObservedAt,
-		&record.CreatedAt,
-		&record.UpdatedAt,
-	)
-	if err != nil {
-		return SidecarAuthSnapshot{}, err
-	}
-	record.AuthIndex = stringFromNull(authIndex)
-	record.Provider = stringFromNull(provider)
-	record.Label = stringFromNull(label)
-	record.Status = stringFromNull(status)
-	record.StatusMessage = stringFromNull(statusMessage)
-	record.Disabled = boolFromNull(disabled)
-	record.Unavailable = boolFromNull(unavailable)
-	record.Priority = intFromNull(priority)
-	record.QuotaExceeded = boolFromNull(quotaExceeded)
-	record.QuotaReason = stringFromNull(quotaReason)
-	record.QuotaNextRecoverAt = timeFromNull(quotaNextRecoverAt)
-	record.SuccessCount = intFromNull(successCount)
-	record.FailedCount = intFromNull(failedCount)
-	record.RecentRequestsJSON = cloneJSON(recentRequests)
-	record.ModelStatesJSON = cloneJSON(modelStates)
-	record.SnapshotJSON = cloneJSON(snapshot)
-	return record, nil
-}
-
 func scanSidecarProviderSnapshot(scanner interface{ Scan(...any) error }) (SidecarProviderSnapshot, error) {
 	var record SidecarProviderSnapshot
 	var name, label, status sql.NullString
@@ -728,34 +536,71 @@ func validateSidecarSnapshotJSON(raw json.RawMessage) error {
 	return found
 }
 
-func validateAuthSnapshotReplacementInputs(sidecarID int, inputs []SidecarAuthSnapshotInput) ([]SidecarAuthSnapshotInput, error) {
+const displayOnlyAuthStorageKeyPrefix = "display-only:"
+
+func validateAuthFileReplacementInputs(sidecarID int, inputs []SidecarAuthFileInput) ([]SidecarAuthFileInput, error) {
 	if sidecarID <= 0 {
 		return nil, invalidInputError("sidecar_id is required")
 	}
-	normalized := make([]SidecarAuthSnapshotInput, len(inputs))
-	seenAuthIDs := make(map[string]struct{}, len(inputs))
+	normalized := make([]SidecarAuthFileInput, len(inputs))
+	seenStorageKeys := make(map[string]struct{}, len(inputs))
 	for i, input := range inputs {
-		input.AuthID = strings.TrimSpace(input.AuthID)
-		input.Name = strings.TrimSpace(input.Name)
-		if input.SidecarID != sidecarID || input.AuthID == "" || input.Name == "" {
-			return nil, invalidInputError("auth replacement input does not match sidecar batch")
-		}
-		if _, exists := seenAuthIDs[input.AuthID]; exists {
-			return nil, invalidInputError("auth replacement input has duplicate auth_id")
-		}
-		seenAuthIDs[input.AuthID] = struct{}{}
-		if err := validateSidecarSnapshotJSON(input.SnapshotJSON); err != nil {
+		input.SidecarID = sidecarID
+		normalizedInput, err := normalizeAuthFileStoreInput(input)
+		if err != nil {
 			return nil, err
 		}
-		if err := validateJSONBInput(input.RecentRequestsJSON, "recent_requests_json"); err != nil {
-			return nil, err
+		if _, exists := seenStorageKeys[normalizedInput.StorageKey]; exists {
+			return nil, invalidInputError("auth replacement input has duplicate storage key")
 		}
-		if err := validateJSONBInput(input.ModelStatesJSON, "model_states_json"); err != nil {
-			return nil, err
-		}
-		normalized[i] = input
+		seenStorageKeys[normalizedInput.StorageKey] = struct{}{}
+		normalized[i] = normalizedInput
 	}
 	return normalized, nil
+}
+
+func normalizeAuthFileStoreInput(input SidecarAuthFileInput) (SidecarAuthFileInput, error) {
+	input.AuthID = strings.TrimSpace(input.AuthID)
+	input.StorageKey = strings.TrimSpace(input.StorageKey)
+	input.Name = strings.TrimSpace(input.Name)
+	if input.SidecarID <= 0 || input.Name == "" {
+		return SidecarAuthFileInput{}, invalidInputError("sidecar_id and name are required")
+	}
+	if input.AuthID != "" {
+		input.StorageKey = input.AuthID
+	} else if input.StorageKey == "" {
+		input.StorageKey = authFileDisplayStorageKey(input)
+	}
+	if input.StorageKey == "" {
+		return SidecarAuthFileInput{}, invalidInputError("auth file storage key is required")
+	}
+	if err := validateSidecarSnapshotJSON(input.SnapshotJSON); err != nil {
+		return SidecarAuthFileInput{}, err
+	}
+	if err := validateJSONBInput(input.RecentRequestsJSON, "recent_requests_json"); err != nil {
+		return SidecarAuthFileInput{}, err
+	}
+	if err := validateJSONBInput(input.ModelStatesJSON, "model_states_json"); err != nil {
+		return SidecarAuthFileInput{}, err
+	}
+	return input, nil
+}
+
+func authFileDisplayStorageKey(input SidecarAuthFileInput) string {
+	digest := sha256.New()
+	_, _ = digest.Write([]byte(strings.TrimSpace(input.Name)))
+	_, _ = digest.Write([]byte{0})
+	_, _ = digest.Write([]byte(strings.TrimSpace(stringValue(input.Provider))))
+	_, _ = digest.Write([]byte{0})
+	_, _ = digest.Write([]byte(strings.TrimSpace(stringValue(input.AuthIndex))))
+	return displayOnlyAuthStorageKeyPrefix + hex.EncodeToString(digest.Sum(nil))
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func validateJSONBInput(raw json.RawMessage, field string) error {
@@ -766,18 +611,6 @@ func validateJSONBInput(raw json.RawMessage, field string) error {
 	var payload any
 	if err := json.Unmarshal(trimmed, &payload); err != nil {
 		return invalidInputError("sidecar snapshot " + field + " must be valid JSON")
-	}
-	return nil
-}
-
-func validateJSONObjectInput(raw json.RawMessage, field string) error {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
-		return nil
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(trimmed, &payload); err != nil {
-		return invalidInputError(field + " must be a JSON object")
 	}
 	return nil
 }
@@ -879,20 +712,6 @@ func nullBoolArg(value *bool) any {
 	return *value
 }
 
-func nullIntArg(value *int) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
-func nullInt64Arg(value *int64) any {
-	if value == nil {
-		return nil
-	}
-	return *value
-}
-
 func nullTimeArg(value *time.Time) any {
 	if value == nil {
 		return nil
@@ -913,22 +732,6 @@ func boolFromNull(value sql.NullBool) *bool {
 		return nil
 	}
 	copied := value.Bool
-	return &copied
-}
-
-func intFromNull(value sql.NullInt64) *int {
-	if !value.Valid {
-		return nil
-	}
-	copied := int(value.Int64)
-	return &copied
-}
-
-func int64FromNull(value sql.NullInt64) *int64 {
-	if !value.Valid {
-		return nil
-	}
-	copied := value.Int64
 	return &copied
 }
 

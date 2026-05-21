@@ -43,10 +43,10 @@ export interface SidecarListResponse {
   items: SidecarInstance[];
 }
 
-export interface SidecarAuthSnapshot {
-  id: number;
+export interface SidecarAuthFile {
   sidecar_id: number;
   auth_id: string;
+  mutation_safe: boolean;
   auth_index?: string;
   name: string;
   provider?: string;
@@ -64,8 +64,8 @@ export interface SidecarAuthSnapshot {
   snapshot?: unknown;
 }
 
-export interface SidecarAuthSnapshotListResponse {
-  items: SidecarAuthSnapshot[];
+export interface SidecarAuthFilesResponse {
+  items: SidecarAuthFile[];
 }
 
 export interface SidecarAuthModel {
@@ -121,7 +121,6 @@ export interface SidecarSyncResponse {
   state: string;
   sidecar: SidecarInstance;
   sync_status: SidecarSyncStatus;
-  auth_snapshot_count: number;
   provider_snapshot_count: number;
   error_code?: string;
   error_detail?: string;
@@ -129,14 +128,13 @@ export interface SidecarSyncResponse {
 
 export type SidecarAuthMutationPriorityInput = {
   priority: number;
-  force_live?: boolean;
 };
 
 export type SidecarAuthMutationState = "succeeded" | "succeeded_sync_failed";
 
 export interface SidecarAuthMutationResponse {
   state: SidecarAuthMutationState;
-  snapshot?: SidecarAuthSnapshot;
+  snapshot?: SidecarAuthFile;
   sync_status?: SidecarSyncStatus;
   sync_error?: string | null;
 }

@@ -1,9 +1,8 @@
 import type {
+  SidecarAuthFilesResponse,
   SidecarAuthModelsResponse,
   SidecarAuthMutationPriorityInput,
   SidecarAuthMutationResponse,
-  SidecarAuthSnapshot,
-  SidecarAuthSnapshotListResponse,
   SidecarInstance,
   SidecarListResponse,
   SidecarProviderSnapshotListResponse,
@@ -34,7 +33,6 @@ type SidecarInstanceUpdateInput = Partial<SidecarInstanceWrite> & {
 
 type SidecarAuthMutationStatusInput = {
   disabled: boolean;
-  force_live?: boolean;
 };
 
 type SidecarAuthDeleteInput = {
@@ -63,10 +61,7 @@ export const sidecars = {
     request<SidecarSyncResponse>(`/api/sidecars/${id}/sync`, {
       method: "POST",
     }),
-  authSnapshots: (sidecarId: number) =>
-    request<SidecarAuthSnapshotListResponse>(`/api/sidecars/${sidecarId}/auth-snapshots`),
-  authSnapshot: (sidecarId: number, snapshotId: number | string) =>
-    request<SidecarAuthSnapshot>(`/api/sidecars/${sidecarId}/auth-snapshots/${encodeURIComponent(String(snapshotId))}`),
+  authFiles: (sidecarId: number) => request<SidecarAuthFilesResponse>(`/api/sidecars/${sidecarId}/auth-files`),
   providerSnapshots: (sidecarId: number) =>
     request<SidecarProviderSnapshotListResponse>(`/api/sidecars/${sidecarId}/provider-snapshots`),
   authFileModels: (sidecarId: number, authFileName: string) => {
@@ -82,24 +77,20 @@ export const sidecars = {
       },
     ),
   updateAuthFileStatus: (sidecarId: number, authId: string, data: SidecarAuthMutationStatusInput) => {
-    const { force_live: forceLive, ...payload } = data;
-    const query = forceLive ? "?force_live=true" : "";
     return request<SidecarAuthMutationResponse>(
-      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/status${query}`,
+      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/status`,
       {
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: JSON.stringify(data),
       },
     );
   },
   updateAuthFilePriority: (sidecarId: number, authId: string, data: SidecarAuthMutationPriorityInput) => {
-    const { force_live: forceLive, ...payload } = data;
-    const query = forceLive ? "?force_live=true" : "";
     return request<SidecarAuthMutationResponse>(
-      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/fields${query}`,
+      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/fields`,
       {
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: JSON.stringify(data),
       },
     );
   },

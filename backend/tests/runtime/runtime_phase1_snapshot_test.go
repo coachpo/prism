@@ -32,7 +32,7 @@ func TestRuntimeHotPathUsesPublishedPlanningSnapshotOnly(t *testing.T) {
 		t.Fatalf("expected published planning runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
 	}
 	observed.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	observed.assertExcludesCategory(t, runtimeSQLCategoryRuntimeStateTables)
 
 	request := upstream.lastRequest(t)
@@ -44,7 +44,7 @@ func TestRuntimeHotPathUsesPublishedPlanningSnapshotOnly(t *testing.T) {
 	}
 }
 
-func TestRuntimeHotPathUsesPublishedAuthSnapshotOnly(t *testing.T) {
+func TestRuntimeHotPathUsesPublishedAuthStateOnly(t *testing.T) {
 	harness := newRuntimePhase0Harness(t)
 	profileID := harness.activeProfileID(t)
 	suffix := randomSuffix()
@@ -67,7 +67,7 @@ func TestRuntimeHotPathUsesPublishedAuthSnapshotOnly(t *testing.T) {
 		t.Fatalf("expected published auth runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
 	}
 	observed.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	observed.assertExcludesCategory(t, runtimeSQLCategoryProxyKeyUsageWrite)
 
 	request := upstream.lastRequest(t)
@@ -105,7 +105,7 @@ func TestRuntimeManagementMutationPublishesNewSnapshotGeneration(t *testing.T) {
 		t.Fatalf("expected baseline mutation runtime request status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
 	}
 	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	if got := harness.upstream.lastRequest(t).Headers.Get(blockedHeaderName); got != "before-mutation" {
 		t.Fatalf("expected blocked header to pass before mutation, got %q", got)
 	}
@@ -126,7 +126,7 @@ func TestRuntimeManagementMutationPublishesNewSnapshotGeneration(t *testing.T) {
 		t.Fatalf("expected post-mutation runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
 	}
 	observed.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 
 	request := harness.upstream.lastRequest(t)
 	if request.Headers.Get(blockedHeaderName) != "" {
@@ -175,7 +175,7 @@ func TestRuntimeRefreshFailureKeepsLastGoodSnapshot(t *testing.T) {
 		t.Fatalf("expected refresh-failure baseline status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
 	}
 	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	if got := harness.upstream.lastRequest(t).Headers.Get(blockedHeaderName); got != "still-present-before-failure" {
 		t.Fatalf("expected blocked header to still pass before injected refresh failure, got %q", got)
 	}
@@ -236,7 +236,7 @@ func TestRuntimeCompiledSnapshotPublishesAuthAndRoutingTogether(t *testing.T) {
 		t.Fatalf("expected compiled-snapshot baseline status 200, got %d with body %s", baselineResponse.StatusCode, readResponseBody(t, baselineResponse))
 	}
 	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	baselineObserved.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	if got := harness.upstream.lastRequest(t).Headers.Get(blockedHeaderName); got != "before-compiled-publish" {
 		t.Fatalf("expected blocked header to pass before compiled publish, got %q", got)
 	}
@@ -270,7 +270,7 @@ func TestRuntimeCompiledSnapshotPublishesAuthAndRoutingTogether(t *testing.T) {
 		t.Fatalf("expected compiled-snapshot runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
 	}
 	observed.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	observed.assertExcludesCategory(t, runtimeSQLCategoryProxyKeyUsageWrite)
 
 	request := harness.upstream.lastRequest(t)

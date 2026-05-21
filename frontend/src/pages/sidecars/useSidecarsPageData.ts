@@ -4,7 +4,7 @@ import { ApiError, api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
   SidecarAuthModelsResponse,
-  SidecarAuthSnapshot,
+  SidecarAuthFile,
   SidecarInstance,
   SidecarProviderSnapshot,
   SidecarSyncResponse,
@@ -37,10 +37,6 @@ function mutationErrorDetail(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function isStaleSnapshotError(error: unknown) {
-  return error instanceof ApiError && error.status === 409 && mutationErrorDetail(error, "") === "stale_snapshot";
-}
-
 function isSidecarSyncResponse(value: unknown): value is SidecarSyncResponse {
   return typeof value === "object" && value !== null && typeof (value as { state?: unknown }).state === "string";
 }
@@ -54,6 +50,34 @@ function syncResponseFromError(error: unknown): SidecarSyncResponse | null {
 
 function syncFailureDetail(response: SidecarSyncResponse, fallback: string) {
   return response.error_detail ?? response.sync_status?.last_sync_error ?? fallback;
+}
+
+function authMutationFailureDetail(error: unknown, fallback: string) {
+  const detail = mutationErrorDetail(error, fallback).trim();
+  if (!(error instanceof ApiError)) {
+    return detail || fallback;
+  }
+
+  if (error.status === 404 || /auth file not found in live sidecar state/i.test(detail)) {
+    return "Live auth file was not found in the current sidecar state. Prism refreshed the live auth-file list; choose a current row before retrying.";
+  }
+
+  if (error.status === 409 && detail === "stale_auth_confirmation") {
+    return "The live auth-file name changed before delete confirmation. Prism refreshed the live auth-file list; confirm the current name before retrying.";
+  }
+
+  if (error.status === 409 && detail.startsWith("unsafe_auth_identity")) {
+    const reason = detail.split(":").slice(1).join(":").trim();
+    return reason
+      ? `Prism blocked this row because its live auth identity is unsafe: ${reason}.`
+      : "Prism blocked this row because its live auth identity is unsafe.";
+  }
+
+  if ([424, 502, 503, 504].includes(error.status) || /sidecar mutation failed|sidecar management|upstream/i.test(detail)) {
+    return `Sidecar upstream mutation failed: ${detail || fallback}`;
+  }
+
+  return detail || fallback;
 }
 
 export function useSidecarsPageData() {
@@ -71,7 +95,7 @@ export function useSidecarsPageData() {
   const [testingSidecarId, setTestingSidecarId] = useState<number | null>(null);
   const [syncingSidecarId, setSyncingSidecarId] = useState<number | null>(null);
   const [selectedSidecarId, setSelectedSidecarId] = useState<number | null>(null);
-  const [authSnapshots, setAuthSnapshots] = useState<SidecarAuthSnapshot[]>([]);
+  const [authFiles, setAuthFiles] = useState<SidecarAuthFile[]>([]);
   const [providerSnapshots, setProviderSnapshots] = useState<SidecarProviderSnapshot[]>([]);
   const [sidecarDetailLoading, setSidecarDetailLoading] = useState(false);
   const [sidecarDetailRefreshError, setSidecarDetailRefreshError] = useState<string | null>(null);
@@ -92,10 +116,18 @@ export function useSidecarsPageData() {
 
   const clearSidecarDetail = useCallback(() => {
     loadedDetailSidecarIdRef.current = null;
-    setAuthSnapshots([]);
+    setAuthFiles([]);
     setProviderSnapshots([]);
     setSidecarDetailRefreshError(null);
     setAuthMutationNotices({});
+  }, []);
+
+  const refreshLiveAuthFiles = useCallback(async (sidecarId: number) => {
+    const authResponse = await api.sidecars.authFiles(sidecarId);
+    setAuthFiles(authResponse.items);
+    loadedDetailSidecarIdRef.current = sidecarId;
+    setSidecarDetailRefreshError(null);
+    return authResponse.items;
   }, []);
 
   const fetchSidecarDetail = useCallback(async (sidecarId: number, options: FetchOptions = {}) => {
@@ -122,11 +154,11 @@ export function useSidecarsPageData() {
     const loadPromise = (async () => {
       const isCurrentRequest = () => detailRequestIdRef.current === requestId;
       try {
-        const authResponse = await api.sidecars.authSnapshots(sidecarId);
+        const authResponse = await api.sidecars.authFiles(sidecarId);
         if (!isCurrentRequest()) return;
         const providerResponse = await api.sidecars.providerSnapshots(sidecarId);
         if (!isCurrentRequest()) return;
-        setAuthSnapshots(authResponse.items);
+        setAuthFiles(authResponse.items);
         setProviderSnapshots(providerResponse.items);
         loadedDetailSidecarIdRef.current = sidecarId;
         setSidecarDetailRefreshError(null);
@@ -361,6 +393,28 @@ export function useSidecarsPageData() {
     setAuthMutationNotices((current) => ({ ...current, [authId]: notice }));
   };
 
+  const refreshLiveAuthFilesAfterMutation = async (
+    sidecarId: number,
+    authId: string,
+    refreshWarning: (detail: string) => string,
+    options: { notice?: boolean } = {},
+  ) => {
+    const messages = getStaticMessages();
+    try {
+      await refreshLiveAuthFiles(sidecarId);
+      return true;
+    } catch (error) {
+      const detail = mutationErrorDetail(error, messages.sidecarsPage.loadSingleFailed);
+      const message = refreshWarning(detail);
+      setSidecarDetailRefreshError(message);
+      if (options.notice !== false) {
+        setAuthMutationNotice(authId, { kind: "refresh_failed", message });
+        toast.warning(message);
+      }
+      return false;
+    }
+  };
+
   const applyAuthMutationSyncStatus = (sidecarId: number, syncStatus: Awaited<ReturnType<typeof api.sidecars.updateAuthFileStatus>>["sync_status"], syncError: string | null | undefined) => {
     if (!syncStatus) {
       return;
@@ -368,14 +422,14 @@ export function useSidecarsPageData() {
     setSidecars((current) => current.map((item) => item.id === sidecarId ? { ...item, ...syncStatus, last_sync_error: syncStatus.last_sync_error ?? syncError ?? item.last_sync_error } : item));
   };
 
-  const handleLoadAuthModels = async (snapshot: SidecarAuthSnapshot): Promise<SidecarAuthModelsResponse> => {
+  const handleLoadAuthModels = async (snapshot: SidecarAuthFile): Promise<SidecarAuthModelsResponse> => {
     if (selectedSidecarId === null) {
       return { models: [] };
     }
     return api.sidecars.authFileModels(selectedSidecarId, snapshot.name);
   };
 
-  const handleDeleteAuthFile = async (snapshot: SidecarAuthSnapshot, confirmName: string) => {
+  const handleDeleteAuthFile = async (snapshot: SidecarAuthFile, confirmName: string) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
       return;
@@ -385,32 +439,32 @@ export function useSidecarsPageData() {
     try {
       const response = await api.sidecars.deleteAuthFile(selectedSidecarId, snapshot.auth_id, { confirm_name: confirmName });
       applyAuthMutationSyncStatus(selectedSidecarId, response.sync_status, response.sync_error);
-      if (response.state === "succeeded_sync_failed") {
-        const detail = response.sync_error ?? messages.sidecarsPage.loadSingleFailed;
-        const message = messages.sidecarsPage.authDeleteRefreshWarning(detail);
-        setSidecarDetailRefreshError(message);
-        setAuthMutationNotice(snapshot.auth_id, { kind: "refresh_failed", message });
-        toast.warning(message);
+      const refreshed = await refreshLiveAuthFilesAfterMutation(
+        selectedSidecarId,
+        snapshot.auth_id,
+        messages.sidecarsPage.authDeleteRefreshWarning,
+      );
+      if (!refreshed) {
         return;
       }
-      if (response.snapshot) {
-        setAuthSnapshots((current) => current.map((item) => item.auth_id === response.snapshot?.auth_id ? response.snapshot! : item));
-      } else {
-        setAuthSnapshots((current) => current.filter((item) => item.auth_id !== snapshot.auth_id));
-      }
-      await fetchSidecarDetail(selectedSidecarId);
       setAuthMutationNotice(snapshot.auth_id, undefined);
       toast.success(messages.sidecarsPage.authDeleteSucceeded(snapshot.name));
     } catch (error) {
-      const message = messages.sidecarsPage.authDeleteFailed(mutationErrorDetail(error, messages.sidecarsPage.saveFailed));
+      const message = messages.sidecarsPage.authDeleteFailed(authMutationFailureDetail(error, messages.sidecarsPage.saveFailed));
       setAuthMutationNotice(snapshot.auth_id, { kind: "failed", message });
       toast.error(message);
+      await refreshLiveAuthFilesAfterMutation(
+        selectedSidecarId,
+        snapshot.auth_id,
+        messages.sidecarsPage.authDeleteRefreshWarning,
+        { notice: false },
+      );
     } finally {
       setMutatingAuthKey(null);
     }
   };
 
-  const handlePatchAuthPriority = async (snapshot: SidecarAuthSnapshot, priority: number, options: { forceLive?: boolean } = {}) => {
+  const handlePatchAuthPriority = async (snapshot: SidecarAuthFile, priority: number) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
       return;
@@ -420,38 +474,33 @@ export function useSidecarsPageData() {
     try {
       const response = await api.sidecars.updateAuthFilePriority(selectedSidecarId, snapshot.auth_id, {
         priority,
-        force_live: options.forceLive,
       });
       applyAuthMutationSyncStatus(selectedSidecarId, response.sync_status, response.sync_error);
-      if (response.state === "succeeded_sync_failed") {
-        const detail = response.sync_error ?? messages.sidecarsPage.loadSingleFailed;
-        const message = messages.sidecarsPage.authPriorityRefreshWarning(detail);
-        setSidecarDetailRefreshError(message);
-        setAuthMutationNotice(snapshot.auth_id, { kind: "refresh_failed", message });
-        toast.warning(message);
+      const refreshed = await refreshLiveAuthFilesAfterMutation(
+        selectedSidecarId,
+        snapshot.auth_id,
+        messages.sidecarsPage.authPriorityRefreshWarning,
+      );
+      if (!refreshed) {
         return;
       }
-      if (response.snapshot) {
-        setAuthSnapshots((current) => current.map((item) => item.auth_id === response.snapshot?.auth_id ? response.snapshot! : item));
-      }
-      await fetchSidecarDetail(selectedSidecarId);
       toast.success(messages.sidecarsPage.authPriorityUpdated(snapshot.name));
     } catch (error) {
-      if (isStaleSnapshotError(error)) {
-        const message = messages.sidecarsPage.authPriorityStaleBlocked;
-        setAuthMutationNotice(snapshot.auth_id, { kind: "stale_snapshot", message, retry: { kind: "priority", priority } });
-        toast.warning(message);
-      } else {
-        const message = mutationErrorDetail(error, messages.sidecarsPage.saveFailed);
-        setAuthMutationNotice(snapshot.auth_id, { kind: "failed", message });
-        toast.error(message);
-      }
+      const message = authMutationFailureDetail(error, messages.sidecarsPage.saveFailed);
+      setAuthMutationNotice(snapshot.auth_id, { kind: "failed", message });
+      toast.error(message);
+      await refreshLiveAuthFilesAfterMutation(
+        selectedSidecarId,
+        snapshot.auth_id,
+        messages.sidecarsPage.authPriorityRefreshWarning,
+        { notice: false },
+      );
     } finally {
       setMutatingAuthKey(null);
     }
   };
 
-  const handlePatchAuthStatus = async (snapshot: SidecarAuthSnapshot, disabled: boolean, options: { forceLive?: boolean } = {}) => {
+  const handlePatchAuthStatus = async (snapshot: SidecarAuthFile, disabled: boolean) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
       return;
@@ -461,33 +510,28 @@ export function useSidecarsPageData() {
     try {
       const response = await api.sidecars.updateAuthFileStatus(selectedSidecarId, snapshot.auth_id, {
         disabled,
-        force_live: options.forceLive,
       });
       applyAuthMutationSyncStatus(selectedSidecarId, response.sync_status, response.sync_error);
-      if (response.state === "succeeded_sync_failed") {
-        const detail = response.sync_error ?? messages.sidecarsPage.loadSingleFailed;
-        const message = messages.sidecarsPage.authStatusRefreshWarning(detail);
-        setSidecarDetailRefreshError(message);
-        setAuthMutationNotice(snapshot.auth_id, { kind: "refresh_failed", message });
-        toast.warning(message);
+      const refreshed = await refreshLiveAuthFilesAfterMutation(
+        selectedSidecarId,
+        snapshot.auth_id,
+        messages.sidecarsPage.authStatusRefreshWarning,
+      );
+      if (!refreshed) {
         return;
       }
-      if (response.snapshot) {
-        setAuthSnapshots((current) => current.map((item) => item.auth_id === response.snapshot?.auth_id ? response.snapshot! : item));
-      }
-      await fetchSidecarDetail(selectedSidecarId);
-      setAuthMutationNotice(snapshot.auth_id, { kind: "success", message: messages.sidecarsPage.authStatusUpdateApplied });
+      setAuthMutationNotice(snapshot.auth_id, { kind: "success", message: "Auth status updated and live auth files refreshed." });
       toast.success(messages.sidecarsPage.authStatusUpdated(snapshot.name, disabled));
     } catch (error) {
-      if (isStaleSnapshotError(error)) {
-        const message = messages.sidecarsPage.authStatusStaleBlocked;
-        setAuthMutationNotice(snapshot.auth_id, { kind: "stale_snapshot", message, retry: { kind: "status", disabled } });
-        toast.warning(message);
-      } else {
-        const message = messages.sidecarsPage.authStatusUpdateFailed(mutationErrorDetail(error, messages.sidecarsPage.saveFailed));
-        setAuthMutationNotice(snapshot.auth_id, { kind: "failed", message });
-        toast.error(message);
-      }
+      const message = messages.sidecarsPage.authStatusUpdateFailed(authMutationFailureDetail(error, messages.sidecarsPage.saveFailed));
+      setAuthMutationNotice(snapshot.auth_id, { kind: "failed", message });
+      toast.error(message);
+      await refreshLiveAuthFilesAfterMutation(
+        selectedSidecarId,
+        snapshot.auth_id,
+        messages.sidecarsPage.authStatusRefreshWarning,
+        { notice: false },
+      );
     } finally {
       setMutatingAuthKey(null);
     }
@@ -510,7 +554,7 @@ export function useSidecarsPageData() {
     syncingSidecarId,
     selectedSidecarId,
     selectedSidecar,
-    authSnapshots,
+    authFiles,
     providerSnapshots,
     sidecarDetailLoading,
     sidecarDetailRefreshError,

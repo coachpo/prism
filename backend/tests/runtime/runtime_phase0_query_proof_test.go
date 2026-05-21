@@ -31,7 +31,7 @@ const (
 	runtimeSQLCategoryRoundRobinState      runtimeSQLCategory = "round_robin_state"
 	runtimeSQLCategoryProxyKeyUsageWrite   runtimeSQLCategory = "proxy_key_usage_write"
 	runtimeSQLCategoryPlanningSnapshotWarm runtimeSQLCategory = "planning_snapshot_warm"
-	runtimeSQLCategoryAuthSnapshotWarm     runtimeSQLCategory = "auth_snapshot_warm"
+	runtimeSQLCategoryAuthWarm             runtimeSQLCategory = "auth_warm"
 )
 
 type runtimeCapturedStatement struct {
@@ -383,7 +383,7 @@ func matchesRuntimeSQLCategory(normalized string, category runtimeSQLCategory) b
 			"endpoint_fx_rate_settings",
 			"endpoints",
 		)
-	case runtimeSQLCategoryAuthSnapshotWarm:
+	case runtimeSQLCategoryAuthWarm:
 		return strings.Contains(normalized, "from app_auth_settings") ||
 			(strings.Contains(normalized, "from proxy_api_keys") && strings.Contains(normalized, "select"))
 	default:
@@ -663,7 +663,7 @@ func TestRuntimeStartupBuildsInitialPublishedSnapshot(t *testing.T) {
 		t.Fatalf("expected startup-published runtime request status 200, got %d with body %s", response.StatusCode, readResponseBody(t, response))
 	}
 	observed.assertExcludesCategory(t, runtimeSQLCategoryPlanningSnapshotWarm)
-	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthSnapshotWarm)
+	observed.assertExcludesCategory(t, runtimeSQLCategoryAuthWarm)
 	observed.assertExcludesCategory(t, runtimeSQLCategoryRuntimeStateTables)
 
 	requests := upstream.requestsSnapshot()

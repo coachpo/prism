@@ -22,7 +22,7 @@ Prism fronts multiple LLM API families and vendor-backed catalogs, letting you c
 - **Success-rate badges**: connection health based on recent request data
 - **Startup bootstrap config**: strict plaintext `config.json` management through `/settings#startup`, with hot apply for eligible runtime fields, masked secret metadata, and explicit confirmation for dangerous structural changes
 - **Config export/import**: PostgreSQL-backed profile and vendor bundles with profile-scoped replace-mode import
-- **CLIProxyAPI sidecars**: global sidecar registrations, auth/provider inventory snapshots, connection testing, manual sync, and direct auth-file mutations through `/sidecars` and `/api/sidecars/*`
+- **CLIProxyAPI sidecars**: global sidecar registrations, live auth-files, provider inventory, connection testing, manual sync, and direct auth-file mutations through `/sidecars` and `/api/sidecars/*`
 
 ### Architecture
 

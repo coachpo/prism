@@ -8,6 +8,7 @@ FRONTEND_DIR="$ROOT_DIR/frontend"
 DATABASE_PORT=15432
 BACKEND_PORT=18000
 FRONTEND_PORT=15173
+DATABASE_COMPOSE_PROJECT=prism
 DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"
 ORIGINAL_PATH="$PATH"
 
@@ -99,6 +100,10 @@ require_cmd() {
         echo "Error: missing required command: $1" >&2
         exit 1
     fi
+}
+
+postgres_compose() {
+    (cd "$BACKEND_DIR" && docker compose --project-name "$DATABASE_COMPOSE_PROJECT" "$@")
 }
 
 port_pids() {
@@ -214,7 +219,7 @@ cleanup() {
     [[ -n "${FRONTEND_PID:-}" ]] && kill "$FRONTEND_PID" 2>/dev/null || true
     wait 2>/dev/null || true
 
-    (cd "$BACKEND_DIR" && docker compose down --remove-orphans >/dev/null 2>&1) || true
+    postgres_compose down --remove-orphans >/dev/null 2>&1 || true
 
     exit "$exit_code"
 }
@@ -224,7 +229,7 @@ wait_for_postgres() {
     local attempts=60
 
     while (( attempts > 0 )); do
-        if (cd "$BACKEND_DIR" && docker compose exec -T prism-postgres pg_isready -U prism -d prism >/dev/null 2>&1); then
+        if postgres_compose exec -T prism-postgres pg_isready -U prism -d prism >/dev/null 2>&1; then
             return
         fi
 
@@ -318,12 +323,12 @@ BACKEND_BINARY="$BACKEND_DIR/prism-backend"
 ensure_bootstrap_config
 ensure_local_launcher_contract
 
-(cd "$BACKEND_DIR" && docker compose down --remove-orphans >/dev/null 2>&1) || true
+postgres_compose down --remove-orphans >/dev/null 2>&1 || true
 reclaim_backend_port
 reclaim_frontend_port
 ensure_database_port_available
 
-(cd "$BACKEND_DIR" && docker compose up -d prism-postgres)
+postgres_compose up -d prism-postgres
 wait_for_postgres
 
 (cd "$BACKEND_DIR" && "$BACKEND_BINARY") &

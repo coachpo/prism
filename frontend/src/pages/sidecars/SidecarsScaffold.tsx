@@ -54,7 +54,7 @@ export function SidecarsScaffold() {
           ) : null}
           <AuthFilesTable
             key={selectedSidecar.id}
-            authSnapshots={pageData.authSnapshots}
+            authFiles={pageData.authFiles}
             authMutationNotices={pageData.authMutationNotices}
             loading={pageData.sidecarDetailLoading}
             mutatingAuthKey={pageData.mutatingAuthKey}

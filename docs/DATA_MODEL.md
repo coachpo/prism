@@ -256,11 +256,14 @@ sidecar_instances (global)
   encrypted management_password
   enabled, sync_interval_seconds, request_timeout_seconds
   network policy flags, management_auth_state, sync metadata
-      | 1:N observations
+      | 1:N optional display observations
       v
-  sidecar_auth_snapshots / sidecar_provider_snapshots
+  sidecar_provider_snapshots
   sidecar_id FK -> sidecar_instances.id
-  normalized auth/provider observations
+  normalized provider observations
+
+  live auth-files remain in CLIProxyAPI
+  Prism reads them on demand through /api/sidecars/{id}/auth-files
 ```
 
 ## 2. Table Definitions
@@ -711,14 +714,14 @@ Sidecar tables are global instance state. They are not profile-scoped and do not
 | Table | Purpose |
 |---|---|
 | `sidecar_instances` | Sidecar registration, canonical base URL, encrypted management password, enabled flag, sync interval, request timeout, network policy flags, management-auth state, pause metadata, and sync timestamps. |
-| `sidecar_auth_snapshots` | Normalized latest auth-file observations from CLIProxyAPI `/auth-files`, including status, disabled/unavailable flags, priority, quota recovery, request counts, recent requests, model states, redacted snapshot JSON, and observation time. |
-| `sidecar_provider_snapshots` | Normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
+| `sidecar_provider_snapshots` | Optional normalized provider inventory observations for Gemini, Claude, Codex, Vertex, and OpenAI-compatible credentials. |
 
 Ownership notes:
 - Active `sidecar_instances` rows are unique on `lower(name)` and `base_url_canonical` among non-deleted registrations.
 - Stored management passwords use the backend secret-encryption key and are write-only at the API boundary.
-- Snapshot JSON must not persist raw token, secret, password, API-key, authorization, raw provider response, or raw provider identity values.
-- Auth/provider inventory is sourced from CLIProxyAPI and persisted as normalized snapshots for operator display.
+- Provider observation JSON must not persist raw token, secret, password, API-key, authorization, raw provider response, or raw provider identity values.
+- Auth-file inventory is sourced live from CLIProxyAPI and is not stored as a Prism table.
+- Provider inventory is sourced from CLIProxyAPI and may be persisted as normalized observations for operator display.
 - Sync work is scheduler-owned low-priority background work; request handlers enqueue or trigger bounded service methods rather than owning recurring timers.
 
 ### 2.15 `routing_connection_runtime_state` (profile-scoped runtime state, `UNLOGGED`)

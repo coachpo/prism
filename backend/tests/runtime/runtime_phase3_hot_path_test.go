@@ -17,7 +17,7 @@ import (
 func assertPhase3HotPathExcludesForbiddenSQL(tb testing.TB, snapshot runtimeSQLSnapshot) {
 	tb.Helper()
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryPlanningSnapshotWarm)
-	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryAuthSnapshotWarm)
+	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryAuthWarm)
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryRuntimeStateTables)
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryRoundRobinState)
 	snapshot.assertExcludesCategory(tb, runtimeSQLCategoryProxyKeyUsageWrite)

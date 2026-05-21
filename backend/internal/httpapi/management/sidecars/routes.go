@@ -147,14 +147,14 @@ type sidecarTestConnectionResponse struct {
 	StatusCode          int    `json:"status_code"`
 }
 
-type authSnapshotListResponse struct {
-	Items []authSnapshotResponse `json:"items"`
+type authFileListResponse struct {
+	Items []authFileResponse `json:"items"`
 }
 
-type authSnapshotResponse struct {
-	ID                 int             `json:"id"`
+type authFileResponse struct {
 	SidecarID          int             `json:"sidecar_id"`
-	AuthID             string          `json:"auth_id"`
+	AuthID             string          `json:"auth_id,omitempty"`
+	MutationSafe       bool            `json:"mutation_safe"`
 	AuthIndex          *string         `json:"auth_index,omitempty"`
 	Name               string          `json:"name"`
 	Provider           *string         `json:"provider,omitempty"`
@@ -332,23 +332,6 @@ func (s *Service) handleConnectionTestFailure(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeError(w, r, s.corsSnapshot(), http.StatusBadGateway, "sidecar connection test failed")
-}
-
-func (s *Service) handleGetAuthSnapshot(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.parseSidecarID(w, r)
-	if !ok || !s.ensureSidecarExists(w, r, id) {
-		return
-	}
-	snapshot, found, err := s.store.GetAuthSnapshot(r.Context(), id, strings.TrimSpace(chi.URLParam(r, "snapshot_id")))
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	if !found {
-		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "auth snapshot not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, buildAuthSnapshotResponse(snapshot))
 }
 
 func buildCreateInput(requestBody sidecarCreateRequest) (SidecarInstanceInput, error) {
@@ -579,8 +562,8 @@ func buildSidecarInstanceResponse(instance SidecarInstance) sidecarInstanceRespo
 	return sidecarInstanceResponse{ID: instance.ID, Name: instance.Name, BaseURL: instance.BaseURL, BaseURLCanonical: instance.BaseURLCanonical, Enabled: instance.Enabled, EnvironmentLabel: instance.EnvironmentLabel, AllowPrivateNetwork: instance.AllowPrivateNetwork, AllowInsecureHTTP: instance.AllowInsecureHTTP, SkipTLSVerify: instance.SkipTLSVerify, SyncIntervalSeconds: instance.SyncIntervalSeconds, RequestTimeoutSeconds: instance.RequestTimeoutSeconds, CredentialState: sidecarCredentialResponse{ManagementPasswordConfigured: passwordConfigured, ManagementPasswordMasked: masked}, ManagementAuthState: state, PauseMetadata: pause, LastSyncAt: instance.LastSyncAt, LastSuccessfulSyncAt: instance.LastSuccessfulSyncAt, SnapshotStaleAfter: instance.SnapshotStaleAfter, LastSyncError: instance.LastSyncError, CreatedAt: instance.CreatedAt, UpdatedAt: instance.UpdatedAt}
 }
 
-func buildAuthSnapshotResponse(snapshot SidecarAuthSnapshot) authSnapshotResponse {
-	return authSnapshotResponse{ID: snapshot.ID, SidecarID: snapshot.SidecarID, AuthID: snapshot.AuthID, AuthIndex: snapshot.AuthIndex, Name: snapshot.Name, Provider: snapshot.Provider, Label: snapshot.Label, Status: snapshot.Status, StatusMessage: snapshot.StatusMessage, Disabled: snapshot.Disabled, Unavailable: snapshot.Unavailable, Priority: snapshot.Priority, QuotaExceeded: snapshot.QuotaExceeded, QuotaReason: snapshot.QuotaReason, QuotaNextRecoverAt: snapshot.QuotaNextRecoverAt, SuccessCount: snapshot.SuccessCount, FailedCount: snapshot.FailedCount, RecentRequests: snapshot.RecentRequestsJSON, ModelStates: snapshot.ModelStatesJSON, ObservedAt: snapshot.ObservedAt, Snapshot: snapshot.SnapshotJSON}
+func buildAuthFileResponse(file SidecarAuthFile) authFileResponse {
+	return authFileResponse{SidecarID: file.SidecarID, AuthID: file.AuthID, MutationSafe: file.MutationSafe, AuthIndex: file.AuthIndex, Name: file.Name, Provider: file.Provider, Label: file.Label, Status: file.Status, StatusMessage: file.StatusMessage, Disabled: file.Disabled, Unavailable: file.Unavailable, Priority: file.Priority, QuotaExceeded: file.QuotaExceeded, QuotaReason: file.QuotaReason, QuotaNextRecoverAt: file.QuotaNextRecoverAt, SuccessCount: file.SuccessCount, FailedCount: file.FailedCount, RecentRequests: file.RecentRequestsJSON, ModelStates: file.ModelStatesJSON, ObservedAt: file.ObservedAt, Snapshot: file.SnapshotJSON}
 }
 
 func buildProviderSnapshotResponse(snapshot SidecarProviderSnapshot) providerSnapshotResponse {

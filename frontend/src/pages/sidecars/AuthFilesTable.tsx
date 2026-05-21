@@ -1,5 +1,5 @@
 import { type ComponentProps, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, Check, ChevronLeft, ChevronRight, Loader2, Power, PowerOff, RefreshCw, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { AlertTriangle, Boxes, Check, ChevronLeft, ChevronRight, Loader2, Power, PowerOff, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
 import {
@@ -43,24 +43,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarAuthModel, SidecarAuthModelsResponse, SidecarAuthSnapshot } from "@/lib/types";
+import type { SidecarAuthModel, SidecarAuthModelsResponse, SidecarAuthFile } from "@/lib/types";
 
 type FormSubmitEvent = Parameters<NonNullable<ComponentProps<"form">["onSubmit"]>>[0];
 
 type PendingMutation =
-  | { kind: "priority"; snapshot: SidecarAuthSnapshot; priority: number }
-  | { kind: "status"; snapshot: SidecarAuthSnapshot; disabled: boolean };
+  | { kind: "priority"; snapshot: SidecarAuthFile; priority: number }
+  | { kind: "status"; snapshot: SidecarAuthFile; disabled: boolean };
 
-export type AuthMutationNoticeKind = "success" | "stale_snapshot" | "failed" | "refresh_failed";
-
-type AuthMutationRetry =
-  | { kind: "status"; disabled: boolean }
-  | { kind: "priority"; priority: number };
+export type AuthMutationNoticeKind = "success" | "failed" | "refresh_failed";
 
 export interface AuthMutationNotice {
   kind: AuthMutationNoticeKind;
   message: string;
-  retry?: AuthMutationRetry;
 }
 
 type AuthSortMode = "name" | "routing-priority-desc" | "routing-priority-asc";
@@ -94,14 +89,14 @@ interface UsageLimitErrorDetail {
 }
 
 interface AuthFilesTableProps {
-  authSnapshots: SidecarAuthSnapshot[];
+  authFiles: SidecarAuthFile[];
   authMutationNotices: Record<string, AuthMutationNotice | undefined>;
   loading: boolean;
   mutatingAuthKey: string | null;
-  onDeleteAuthFile: (snapshot: SidecarAuthSnapshot, confirmName: string) => Promise<void>;
-  onLoadModels: (snapshot: SidecarAuthSnapshot) => Promise<SidecarAuthModelsResponse>;
-  onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number, options?: { forceLive?: boolean }) => Promise<void>;
-  onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean, options?: { forceLive?: boolean }) => Promise<void>;
+  onDeleteAuthFile: (snapshot: SidecarAuthFile, confirmName: string) => Promise<void>;
+  onLoadModels: (snapshot: SidecarAuthFile) => Promise<SidecarAuthModelsResponse>;
+  onPatchPriority: (snapshot: SidecarAuthFile, priority: number) => Promise<void>;
+  onPatchStatus: (snapshot: SidecarAuthFile, disabled: boolean) => Promise<void>;
 }
 
 const DEFAULT_AUTH_PAGE_SIZE = 30;
@@ -111,13 +106,13 @@ type AuthModelsDialogStatus = "loading" | "loaded" | "unsupported" | "error";
 type AuthModelsDialogState = {
   error?: string;
   models: SidecarAuthModel[];
-  snapshot: SidecarAuthSnapshot;
+  snapshot: SidecarAuthFile;
   status: AuthModelsDialogStatus;
 };
 
 type AuthDeleteDialogState = {
   confirmName: string;
-  snapshot: SidecarAuthSnapshot;
+  snapshot: SidecarAuthFile;
 };
 
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
@@ -205,7 +200,7 @@ function boolState(value: boolean | undefined, enabledLabel: string, disabledLab
   return fallbackLabel;
 }
 
-function statusIntent(snapshot: SidecarAuthSnapshot): BadgeIntent {
+function statusIntent(snapshot: SidecarAuthFile): BadgeIntent {
   if (snapshot.disabled || snapshot.unavailable) {
     return "danger";
   }
@@ -235,7 +230,7 @@ function summarizeJson(
 
 function getPriorityInputValue(
   drafts: Record<string, string>,
-  snapshot: SidecarAuthSnapshot,
+  snapshot: SidecarAuthFile,
 ) {
   return drafts[snapshot.auth_id] ?? (snapshot.priority === undefined ? "" : String(snapshot.priority));
 }
@@ -253,23 +248,8 @@ function normalizeAuthSearch(value: string) {
   return value.trim().toLowerCase();
 }
 
-function hasStableMutationIdentity(snapshot: SidecarAuthSnapshot) {
-  const authId = snapshot.auth_id.trim();
-  const name = snapshot.name.trim();
-  if (!authId || !name) {
-    return false;
-  }
-  return Boolean(snapshot.auth_index?.trim()) || authId !== name;
-}
-
-function isStatusMutationEligible(snapshot: SidecarAuthSnapshot, snapshots: SidecarAuthSnapshot[]) {
-  if (typeof snapshot.disabled !== "boolean" || snapshot.unavailable || !hasStableMutationIdentity(snapshot)) {
-    return false;
-  }
-
-  const authIdMatches = snapshots.filter((candidate) => candidate.auth_id === snapshot.auth_id).length;
-  const nameMatches = snapshots.filter((candidate) => candidate.name === snapshot.name).length;
-  return authIdMatches === 1 && nameMatches === 1;
+function isStatusMutationEligible(snapshot: SidecarAuthFile) {
+  return snapshot.mutation_safe && typeof snapshot.disabled === "boolean" && !snapshot.unavailable;
 }
 
 function isPathLikeAuthName(name: string) {
@@ -277,7 +257,7 @@ function isPathLikeAuthName(name: string) {
   return !trimmed || trimmed.includes("/") || trimmed.includes("\\");
 }
 
-function isDeleteMetadataEligible(snapshot: SidecarAuthSnapshot) {
+function isDeleteMetadataEligible(snapshot: SidecarAuthFile) {
   if (!isRecord(snapshot.snapshot)) {
     return false;
   }
@@ -289,8 +269,8 @@ function isDeleteMetadataEligible(snapshot: SidecarAuthSnapshot) {
     && snapshot.snapshot.path_present === true;
 }
 
-function isDeleteMutationEligible(snapshot: SidecarAuthSnapshot, snapshots: SidecarAuthSnapshot[]) {
-  return isStatusMutationEligible(snapshot, snapshots)
+function isDeleteMutationEligible(snapshot: SidecarAuthFile) {
+  return isStatusMutationEligible(snapshot)
     && !isPathLikeAuthName(snapshot.name)
     && isDeleteMetadataEligible(snapshot);
 }
@@ -305,15 +285,15 @@ function compareAuthText(left: string, right: string) {
   return 0;
 }
 
-function compareAuthByName(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot) {
+function compareAuthByName(left: SidecarAuthFile, right: SidecarAuthFile) {
   return compareAuthText(left.name, right.name) || compareAuthText(left.auth_id, right.auth_id);
 }
 
-function compareAuthByPriorityAsc(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot) {
+function compareAuthByPriorityAsc(left: SidecarAuthFile, right: SidecarAuthFile) {
   return (left.priority ?? 0) - (right.priority ?? 0) || compareAuthByName(left, right);
 }
 
-function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearchLabels) {
+function buildAuthSearchFields(snapshot: SidecarAuthFile, labels: AuthSearchLabels) {
   const fields = [
     snapshot.name,
     snapshot.auth_id,
@@ -336,7 +316,7 @@ function buildAuthSearchFields(snapshot: SidecarAuthSnapshot, labels: AuthSearch
   return fields.filter((field): field is string => Boolean(field));
 }
 
-function authMatchesSearch(snapshot: SidecarAuthSnapshot, normalizedSearch: string, labels: AuthSearchLabels) {
+function authMatchesSearch(snapshot: SidecarAuthFile, normalizedSearch: string, labels: AuthSearchLabels) {
   if (!normalizedSearch) {
     return true;
   }
@@ -344,7 +324,7 @@ function authMatchesSearch(snapshot: SidecarAuthSnapshot, normalizedSearch: stri
   return buildAuthSearchFields(snapshot, labels).some((field) => normalizeAuthSearch(field).includes(normalizedSearch));
 }
 
-function compareAuthSnapshots(left: SidecarAuthSnapshot, right: SidecarAuthSnapshot, sortMode: AuthSortMode) {
+function compareAuthSnapshots(left: SidecarAuthFile, right: SidecarAuthFile, sortMode: AuthSortMode) {
   if (sortMode === "routing-priority-asc") {
     return compareAuthByPriorityAsc(left, right);
   }
@@ -424,15 +404,9 @@ function UsageLimitStatusTooltip({
 }
 
 function AuthMutationNoticeCard({
-  mutating,
   notice,
-  onRetry,
-  retryLabel,
 }: {
-  mutating: boolean;
   notice: AuthMutationNotice;
-  onRetry: () => void;
-  retryLabel: string;
 }) {
   return (
     <div className={`flex max-w-64 flex-col gap-2 rounded-md border px-2 py-1.5 text-xs ${statusNoticeClasses(notice.kind)}`}>
@@ -440,19 +414,6 @@ function AuthMutationNoticeCard({
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>{notice.message}</span>
       </div>
-      {notice.kind === "stale_snapshot" && notice.retry ? (
-        <Button
-          type="button"
-          size="xs"
-          variant="outline"
-          className="w-fit bg-background/70"
-          disabled={mutating}
-          onClick={onRetry}
-        >
-          {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          {retryLabel}
-        </Button>
-      ) : null}
     </div>
   );
 }
@@ -599,7 +560,7 @@ function AuthDeleteDialog({
 }
 
 export function AuthFilesTable({
-  authSnapshots,
+  authFiles,
   authMutationNotices,
   loading,
   mutatingAuthKey,
@@ -635,17 +596,17 @@ export function AuthFilesTable({
     copy.authUnavailableLabel,
     copy.authUnobservedLabel,
   ]);
-  const derivedAuthSnapshots = useMemo(() => {
-    return authSnapshots
+  const derivedAuthFiles = useMemo(() => {
+    return authFiles
       .filter((snapshot) => authMatchesSearch(snapshot, normalizedAuthSearch, authSearchLabels))
       .sort((left, right) => compareAuthSnapshots(left, right, authSortMode));
-  }, [authSearchLabels, authSnapshots, authSortMode, normalizedAuthSearch]);
-  const totalAuthRows = derivedAuthSnapshots.length;
+  }, [authSearchLabels, authFiles, authSortMode, normalizedAuthSearch]);
+  const totalAuthRows = derivedAuthFiles.length;
   const totalPages = Math.max(1, Math.ceil(totalAuthRows / pageSize));
   const currentPageIndex = Math.min(pageIndex, totalPages - 1);
   const pageStartIndex = currentPageIndex * pageSize;
   const pageEndIndex = Math.min(pageStartIndex + pageSize, totalAuthRows);
-  const visibleAuthSnapshots = derivedAuthSnapshots.slice(pageStartIndex, pageEndIndex);
+  const visibleAuthFiles = derivedAuthFiles.slice(pageStartIndex, pageEndIndex);
   const pageStart = totalAuthRows > 0 ? pageStartIndex + 1 : 0;
   const hasPreviousPage = currentPageIndex > 0;
   const hasNextPage = pageEndIndex < totalAuthRows;
@@ -662,7 +623,7 @@ export function AuthFilesTable({
     setPendingMutation(mutation);
   };
 
-  const openModelsDialog = async (snapshot: SidecarAuthSnapshot) => {
+  const openModelsDialog = async (snapshot: SidecarAuthFile) => {
     setAuthModelsState({ models: [], snapshot, status: "loading" });
     try {
       const response = await onLoadModels(snapshot);
@@ -685,7 +646,7 @@ export function AuthFilesTable({
     setAuthModelsState(null);
   };
 
-  const openDeleteDialog = (snapshot: SidecarAuthSnapshot) => {
+  const openDeleteDialog = (snapshot: SidecarAuthFile) => {
     setAuthDeleteDialog({ confirmName: "", snapshot });
   };
 
@@ -700,14 +661,6 @@ export function AuthFilesTable({
     }
     await onDeleteAuthFile(authDeleteDialog.snapshot, authDeleteDialog.confirmName);
     closeDeleteDialog();
-  };
-
-  const retryMutation = (snapshot: SidecarAuthSnapshot, notice: AuthMutationNotice) => {
-    if (notice.retry?.kind === "status") {
-      void onPatchStatus(snapshot, notice.retry.disabled, { forceLive: true });
-    } else if (notice.retry?.kind === "priority") {
-      void onPatchPriority(snapshot, notice.retry.priority, { forceLive: true });
-    }
   };
 
   const confirmMutation = async () => {
@@ -733,7 +686,7 @@ export function AuthFilesTable({
         <CardDescription className="text-xs">{copy.authDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!loading && authSnapshots.length > 0 ? (
+        {!loading && authFiles.length > 0 ? (
           <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative w-full xl:max-w-sm">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -780,7 +733,7 @@ export function AuthFilesTable({
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />
             <div className="h-14 animate-pulse rounded-md bg-muted/50" />
           </div>
-        ) : authSnapshots.length === 0 ? (
+        ) : authFiles.length === 0 ? (
           <EmptyState title={copy.authEmptyTitle} description={copy.authEmptyDescription} />
         ) : totalAuthRows === 0 ? (
           <EmptyState title={copy.authFilteredEmptyTitle} description={copy.authFilteredEmptyDescription} />
@@ -800,15 +753,15 @@ export function AuthFilesTable({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {visibleAuthSnapshots.map((snapshot) => {
+                      {visibleAuthFiles.map((snapshot) => {
                         const priorityValue = getPriorityInputValue(draftPriorities, snapshot);
                         const parsedPriority = parsePriority(priorityValue);
                         const mutating = mutatingAuthKey === snapshot.auth_id;
                         const usageLimitError = parseUsageLimitStatusMessage(snapshot.status_message);
                         const statusBadgeIntent = usageLimitError ? "danger" : statusIntent(snapshot);
                         const statusBadgeLabel = snapshot.status ?? (usageLimitError ? copy.authUsageLimitTitle : copy.authUnobservedLabel);
-                        const canMutateAuth = isStatusMutationEligible(snapshot, authSnapshots);
-                        const canDeleteAuth = isDeleteMutationEligible(snapshot, authSnapshots);
+                        const canMutateAuth = isStatusMutationEligible(snapshot);
+                        const canDeleteAuth = isDeleteMutationEligible(snapshot);
                         const nextDisabled = !snapshot.disabled;
                         const mutationNotice = authMutationNotices[snapshot.auth_id];
 
@@ -901,12 +854,7 @@ export function AuthFilesTable({
                                   </Button>
                                 ) : null}
                                 {mutationNotice ? (
-                                  <AuthMutationNoticeCard
-                                    mutating={mutating}
-                                    notice={mutationNotice}
-                                    retryLabel={copy.authStatusRetryLive}
-                                    onRetry={() => retryMutation(snapshot, mutationNotice)}
-                                  />
+                                  <AuthMutationNoticeCard notice={mutationNotice} />
                                 ) : null}
                               </div>
                             </TableCell>
@@ -925,13 +873,14 @@ export function AuthFilesTable({
                                     type="number"
                                     value={priorityValue}
                                     aria-invalid={parsedPriority === null}
+                                    disabled={!canMutateAuth || mutating}
                                     onChange={(event) => setDraftPriorities((current) => ({ ...current, [snapshot.auth_id]: event.target.value }))}
                                   />
                                   <Button
                                     type="button"
                                     size="xs"
                                     variant="outline"
-                                    disabled={parsedPriority === null || mutating}
+                                    disabled={!canMutateAuth || parsedPriority === null || mutating}
                                     onClick={() => parsedPriority !== null && openMutation({ kind: "priority", snapshot, priority: parsedPriority })}
                                   >
                                     {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}

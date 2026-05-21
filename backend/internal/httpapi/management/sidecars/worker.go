@@ -37,14 +37,14 @@ func (s *Service) RegisterBackgroundWorker(scheduler *background.Scheduler) erro
 func (s *Service) handleScheduledSidecarSync(ctx context.Context, _ background.Job) background.JobResult {
 	summary, err := s.SyncDueSidecars(ctx)
 	if err != nil {
-		err = fmt.Errorf("sync due sidecars: %w", err)
-		slog.Error("sidecar sync worker failed", "error", err)
+		err = fmt.Errorf("sync due sidecar providers: %w", err)
+		slog.Error("sidecar provider sync worker failed", "error", err)
 		return background.JobResult{Status: background.JobFailed, Err: err, Retry: true}
 	}
 	if summary.Failed > 0 {
-		slog.Warn("sidecar sync worker completed with sidecar failures", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped, "failed", summary.Failed)
+		slog.Warn("sidecar provider sync worker completed with sidecar failures", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped, "failed", summary.Failed)
 	} else {
-		slog.Debug("sidecar sync worker completed", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped)
+		slog.Debug("sidecar provider sync worker completed", "checked", summary.Checked, "synced", summary.Synced, "skipped", summary.Skipped)
 	}
 	return background.JobResult{Status: background.JobSucceeded}
 }
