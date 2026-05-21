@@ -1,7 +1,7 @@
 # FRONTEND SIDECARS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/sidecars/` owns the global `/sidecars` route behind `../SidecarsPage.tsx`. It presents CLIProxyAPI sidecar registrations plus auth/provider inventory through Prism's backend-managed sidecar API.
+`pages/sidecars/` owns the global `/sidecars` route behind `../SidecarsPage.tsx`. It presents CLIProxyAPI sidecar registrations, live auth-files, and provider inventory through Prism's backend-managed sidecar API.
 
 ## STRUCTURE
 ```text
@@ -12,7 +12,7 @@ sidecars/
 ├── SidecarDialog.tsx          # Create/edit form
 ├── DeleteSidecarDialog.tsx    # Delete confirmation
 ├── AuthFilesTable.tsx         # Auth inventory and status/priority mutation UI
-├── ProviderInventoryTable.tsx # Provider inventory with masked snapshot summary
+├── ProviderInventoryTable.tsx # Provider inventory with masked observation summary
 └── sidecarFormState.ts        # Form defaults, validation, payload normalization
 ```
 

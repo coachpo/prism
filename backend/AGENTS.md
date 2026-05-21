@@ -44,7 +44,7 @@ backend/
 - `internal/platform/startup/` and `internal/platform/migrate/` own startup sequencing, SQL migration execution, vendor/profile/settings seeds, and endpoint-secret normalization.
 - `internal/platform/logretention/` owns daily partitions, 15-day horizon creation, retention deletes, and low-priority partition maintenance for `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - `internal/httpapi/management/` fans out into mounted management subpackages for auth, bootstrapconfig, configbundle, configrules, connections, endpoints, loadbalance, models, profiles, settings, sidecars, stats, vendors, and audit.
-- `internal/httpapi/management/sidecars/` owns global CLIProxyAPI sidecar control-plane routes, sidecar snapshots, direct auth-file mutations, and the low-priority sync worker.
+- `internal/httpapi/management/sidecars/` owns global CLIProxyAPI sidecar control-plane routes, live auth-file reads and mutations, optional provider inventory, and the low-priority sync worker.
 - `internal/httpapi/management/settings/` owns global log-retention settings and management-job creation in addition to profile-scoped costing and timezone settings.
 - `internal/httpapi/runtime/` owns OpenAI, Anthropic, and Gemini-compatible proxy routes plus runtime cache, request logging, telemetry outbox, streaming, load-balance helpers, and runtime partition ensuring.
 - `../docs/openapi.json` is the checked-in management/health contract served by the Go backend at `/openapi.json`; runtime proxy routes are documented narratively instead.
@@ -60,7 +60,7 @@ backend/
 - Runtime proxy entry, request planning, telemetry outbox, feedback pipeline, partition ensuring, and side-effect seams: `internal/httpapi/runtime/AGENTS.md`
 - Management settings costing, timezone, retention settings, and maintenance-job endpoints: `internal/httpapi/management/settings/AGENTS.md`
 - Management auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams: `internal/httpapi/management/auth/AGENTS.md`
-- Global sidecar registration, CLIProxyAPI sync, auth/provider inventory, and direct auth-file mutation: `internal/httpapi/management/sidecars/AGENTS.md`
+- Global sidecar registration, CLIProxyAPI sync, live auth-files, provider inventory, and direct auth-file mutation: `internal/httpapi/management/sidecars/AGENTS.md`
 - Shared transaction helper: `internal/pgxutil/tx.go`
 - SQL migrations, partitioned log schema, and startup sequencing: `migrations/`, `internal/platform/migrate/`, `internal/platform/logretention/`
 - Runtime stats, request-log shaping, runtime partition ensuring, and loadbalance business logic: `internal/domain/stats/`, `internal/domain/loadbalance/`, `internal/domain/audit/`, `internal/httpapi/runtime/log_partitions.go`
