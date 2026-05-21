@@ -127,14 +127,8 @@ export interface SidecarSyncResponse {
   error_detail?: string;
 }
 
-export type SidecarAuthTraceHeaderName = "x-correlation-id" | "x-request-id" | "x-trace-id";
-
-export type SidecarAuthMutationFieldsInput = {
-  priority?: number;
-  prefix?: string;
-  proxy_url?: string;
-  note?: string;
-  headers?: Partial<Record<SidecarAuthTraceHeaderName, string>>;
+export type SidecarAuthMutationPriorityInput = {
+  priority: number;
   force_live?: boolean;
 };
 

@@ -107,9 +107,11 @@ const { load } = createTsModuleLoader({
 });
 const { sidecars } = load(path.join(frontendDir, "src/lib/api/sidecars.ts"));
 
-test("sidecars auth mutation contract exposes sync failure truth model", async () => {
+test("sidecars priority mutation contract exposes sync failure truth model", async () => {
   requestCalls.length = 0;
-  const response = await sidecars.updateAuthFileFields(7, "auth_primary", { priority: 44 });
+  assert.equal(typeof sidecars.updateAuthFilePriority, "function");
+
+  const response = await sidecars.updateAuthFilePriority(7, "auth_primary", { priority: 44 });
 
   assert.equal(response.state, "succeeded_sync_failed");
   assert.equal(response.sync_error, "detail refresh failed");

@@ -24,13 +24,18 @@ func TestOperatorPriorityPatchSyncedWithoutRemovedSurfaceSideEffects(t *testing.
 	service.MountManagementRoutes(router)
 
 	var response authMutationResponse
-	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":42,"headers":{"X-Trace-ID":"trace-1"}}`, http.StatusOK, &response)
+	patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", `{"priority":42}`, http.StatusOK, &response)
 	if response.Snapshot == nil || response.Snapshot.Priority == nil || *response.Snapshot.Priority != 42 {
 		t.Fatalf("expected refreshed priority=42 snapshot, got %+v", response.Snapshot)
 	}
 	patches := upstream.fieldPatchPayloads()
 	if len(patches) != 1 || intFromAny(patches[0]["priority"]) != 42 || patches[0]["disabled"] != nil {
 		t.Fatalf("unexpected fields patch payloads: %+v", patches)
+	}
+	for _, removed := range []string{"prefix", "proxy_url", "note", "headers", "custom_headers"} {
+		if _, ok := patches[0][removed]; ok {
+			t.Fatalf("priority patch must not forward removed field %s: %+v", removed, patches[0])
+		}
 	}
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields"})
 }
@@ -65,7 +70,7 @@ func TestPatchAuthFilePriorityZeroMeaningFrozen(t *testing.T) {
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, []string{"/v0/management/auth-files", "/v0/management/auth-files/fields"})
 }
 
-func TestAuthFieldClearNullSemanticsFrozen(t *testing.T) {
+func TestAuthFieldsPayloadPriorityOnly(t *testing.T) {
 	decode := func(tb testing.TB, body string) map[string]json.RawMessage {
 		tb.Helper()
 		var raw map[string]json.RawMessage
@@ -75,46 +80,28 @@ func TestAuthFieldClearNullSemanticsFrozen(t *testing.T) {
 		return raw
 	}
 
-	t.Run("omitted fields preserve by omission", func(t *testing.T) {
+	t.Run("priority-only payload preserves omitted removed fields", func(t *testing.T) {
 		payload, fields, err := buildOperatorFieldsPayload(decode(t, `{"priority":7}`), retainedAuthName)
 		if err != nil {
 			t.Fatalf("build priority-only payload: %v", err)
 		}
-		if _, ok := payload["prefix"]; ok {
-			t.Fatalf("omitted prefix must not be forwarded: %+v", payload)
-		}
-		if _, ok := payload["proxy_url"]; ok {
-			t.Fatalf("omitted proxy_url must not be forwarded: %+v", payload)
-		}
-		if _, ok := payload["note"]; ok {
-			t.Fatalf("omitted note must not be forwarded: %+v", payload)
-		}
-		if _, ok := payload["headers"]; ok {
-			t.Fatalf("omitted headers must not be forwarded: %+v", payload)
-		}
-		if len(fields) != 1 || fields[0] != "priority" || intFromAny(payload["priority"]) != 7 {
+		if len(fields) != 1 || fields[0] != "priority" || intFromAny(payload["priority"]) != 7 || payload["name"] != retainedAuthName {
 			t.Fatalf("unexpected priority-only payload fields=%v payload=%+v", fields, payload)
+		}
+		for _, removed := range []string{"prefix", "proxy_url", "note", "headers", "custom_headers"} {
+			if _, ok := payload[removed]; ok {
+				t.Fatalf("removed field %s must not be forwarded: %+v", removed, payload)
+			}
 		}
 	})
 
-	t.Run("non-empty values replace explicitly exposed fields", func(t *testing.T) {
-		body := `{"prefix":"team-a/","proxy_url":"https://proxy.example.test","note":"operator note","headers":{"X-Trace-ID":"trace-1","X-Request-ID":"request-1","X-Correlation-ID":"correlation-1"}}`
-		payload, fields, err := buildOperatorFieldsPayload(decode(t, body), retainedAuthName)
+	t.Run("priority zero remains explicit sentinel", func(t *testing.T) {
+		payload, fields, err := buildOperatorFieldsPayload(decode(t, `{"priority":0}`), retainedAuthName)
 		if err != nil {
-			t.Fatalf("build full payload: %v", err)
+			t.Fatalf("build priority=0 payload: %v", err)
 		}
-		if payload["prefix"] != "team-a/" || payload["proxy_url"] != "https://proxy.example.test" || payload["note"] != "operator note" {
-			t.Fatalf("string fields not forwarded as replacements: %+v", payload)
-		}
-		headers, ok := payload["headers"].(map[string]string)
-		if !ok || headers["X-Trace-ID"] != "trace-1" || headers["X-Request-ID"] != "request-1" || headers["X-Correlation-ID"] != "correlation-1" {
-			t.Fatalf("allowed trace headers not forwarded as replacements: %+v", payload)
-		}
-		joinedFields := strings.Join(fields, ",")
-		for _, want := range []string{"prefix", "proxy_url", "note", "headers.X-Correlation-ID", "headers.X-Request-ID", "headers.X-Trace-ID"} {
-			if !strings.Contains(joinedFields, want) {
-				t.Fatalf("expected field %s in %v", want, fields)
-			}
+		if len(fields) != 1 || fields[0] != "priority" || intFromAny(payload["priority"]) != 0 {
+			t.Fatalf("priority=0 must remain a forwarded sentinel fields=%v payload=%+v", fields, payload)
 		}
 	})
 
@@ -123,18 +110,11 @@ func TestAuthFieldClearNullSemanticsFrozen(t *testing.T) {
 		body    string
 		wantErr string
 	}{
-		{name: "prefix null", body: `{"prefix":null}`, wantErr: "prefix cannot be null"},
-		{name: "prefix empty", body: `{"prefix":""}`, wantErr: "prefix must not be empty"},
-		{name: "proxy url null", body: `{"proxy_url":null}`, wantErr: "proxy_url cannot be null"},
-		{name: "proxy url empty", body: `{"proxy_url":"   "}`, wantErr: "proxy_url must not be empty"},
-		{name: "note null", body: `{"note":null}`, wantErr: "note cannot be null"},
-		{name: "note empty", body: `{"note":""}`, wantErr: "note must not be empty"},
-		{name: "headers null", body: `{"headers":null}`, wantErr: "headers cannot be null"},
-		{name: "headers empty object", body: `{"headers":{}}`, wantErr: "headers must include at least one header update"},
-		{name: "header value null", body: `{"headers":{"X-Trace-ID":null}}`, wantErr: "headers.X-Trace-ID cannot be null"},
-		{name: "header value empty", body: `{"headers":{"X-Trace-ID":""}}`, wantErr: "headers.X-Trace-ID must not be empty"},
-		{name: "custom headers empty object", body: `{"custom_headers":{}}`, wantErr: "custom_headers must include at least one header update"},
-		{name: "custom header value empty", body: `{"custom_headers":{"X-Request-ID":""}}`, wantErr: "custom_headers.X-Request-ID must not be empty"},
+		{name: "prefix", body: `{"priority":7,"prefix":"team-a/"}`, wantErr: "unsupported fields: prefix"},
+		{name: "proxy_url", body: `{"priority":7,"proxy_url":"https://proxy.example.test"}`, wantErr: "unsupported fields: proxy_url"},
+		{name: "note", body: `{"priority":7,"note":"operator note"}`, wantErr: "unsupported fields: note"},
+		{name: "headers", body: `{"priority":7,"headers":{"X-Trace-ID":"trace-1"}}`, wantErr: "unsupported fields: headers"},
+		{name: "custom_headers", body: `{"priority":7,"custom_headers":{"X-Trace-ID":"trace-1"}}`, wantErr: "unsupported fields: custom_headers"},
 	}
 	for _, tt := range rejections {
 		t.Run(tt.name, func(t *testing.T) {
@@ -218,6 +198,37 @@ func TestOperatorMutationParseFailuresSkipRemovedSurfaceActions(t *testing.T) {
 		t.Fatalf("parse failures should not call upstream, fields=%v status=%v gets=%d", upstream.fieldPatchPayloads(), upstream.statusPatchPayloads(), upstream.getAuthFilesCount())
 	}
 	upstream.assertAllowedManagementPaths(t, []string{"/v0/management/auth-files", "/v0/management/gemini-api-key", "/v0/management/claude-api-key", "/v0/management/codex-api-key", "/v0/management/vertex-api-key", "/v0/management/openai-compatibility"}, nil)
+}
+
+func TestOperatorMutationRejectsRemovedAuthFields(t *testing.T) {
+	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
+	upstream := newOperatorMutationUpstream(t, retainedAuthFixture{Priority: 100})
+	defer upstream.Close()
+	service := newSyncTestService(t, func() time.Time { return now })
+	sidecar := createSyncTestSidecar(t, service, upstream.URL(), true, 3600)
+	seedRetainedAuthSnapshot(t, service, sidecar.ID, now, retainedAuthFixture{Priority: 100})
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+
+	rejections := []struct {
+		name string
+		body string
+	}{
+		{name: "prefix", body: `{"priority":50,"prefix":"team-a/"}`},
+		{name: "proxy_url", body: `{"priority":50,"proxy_url":"https://proxy.example.test"}`},
+		{name: "note", body: `{"priority":50,"note":"operator note"}`},
+		{name: "headers", body: `{"priority":50,"headers":{"X-Trace-ID":"trace-1"}}`},
+		{name: "custom_headers", body: `{"priority":50,"custom_headers":{"X-Trace-ID":"trace-1"}}`},
+	}
+	for _, tt := range rejections {
+		t.Run(tt.name, func(t *testing.T) {
+			patchAuthMutation(t, router, sidecar.ID, retainedAuthID, "fields", tt.body, http.StatusBadRequest, nil)
+		})
+	}
+	if len(upstream.fieldPatchPayloads()) != 0 || upstream.getAuthFilesCount() != 0 {
+		t.Fatalf("removed field rejections should not call upstream, patches=%v gets=%d", upstream.fieldPatchPayloads(), upstream.getAuthFilesCount())
+	}
+	upstream.assertAllowedManagementPaths(t, nil, nil)
 }
 
 func TestOperatorMutationForceLivePreflightFailureSkipsRemovedSurfaceActions(t *testing.T) {

@@ -4,7 +4,6 @@ import { ApiError, api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
 import type {
   SidecarAuthModelsResponse,
-  SidecarAuthMutationFieldsInput,
   SidecarAuthSnapshot,
   SidecarInstance,
   SidecarProviderSnapshot,
@@ -17,7 +16,7 @@ import {
   toSidecarUpdatePayload,
   type SidecarFormState,
 } from "./sidecarFormState";
-import type { AuthFieldsPatchPayload, AuthMutationNotice } from "./AuthFilesTable";
+import type { AuthMutationNotice } from "./AuthFilesTable";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -411,7 +410,7 @@ export function useSidecarsPageData() {
     }
   };
 
-  const handlePatchAuthPriority = async (snapshot: SidecarAuthSnapshot, priority: number) => {
+  const handlePatchAuthPriority = async (snapshot: SidecarAuthSnapshot, priority: number, options: { forceLive?: boolean } = {}) => {
     const messages = getStaticMessages();
     if (selectedSidecarId === null) {
       return;
@@ -419,8 +418,10 @@ export function useSidecarsPageData() {
     setMutatingAuthKey(snapshot.auth_id);
     setAuthMutationNotice(snapshot.auth_id, undefined);
     try {
-      const fieldsPatch = { priority };
-      const response = await api.sidecars.updateAuthFileFields(selectedSidecarId, snapshot.auth_id, fieldsPatch);
+      const response = await api.sidecars.updateAuthFilePriority(selectedSidecarId, snapshot.auth_id, {
+        priority,
+        force_live: options.forceLive,
+      });
       applyAuthMutationSyncStatus(selectedSidecarId, response.sync_status, response.sync_error);
       if (response.state === "succeeded_sync_failed") {
         const detail = response.sync_error ?? messages.sidecarsPage.loadSingleFailed;
@@ -436,47 +437,12 @@ export function useSidecarsPageData() {
       await fetchSidecarDetail(selectedSidecarId);
       toast.success(messages.sidecarsPage.authPriorityUpdated(snapshot.name));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : messages.sidecarsPage.saveFailed);
-    } finally {
-      setMutatingAuthKey(null);
-    }
-  };
-
-  const handlePatchAuthFields = async (snapshot: SidecarAuthSnapshot, fieldsPatch: AuthFieldsPatchPayload, options: { forceLive?: boolean } = {}) => {
-    const messages = getStaticMessages();
-    if (selectedSidecarId === null) {
-      return;
-    }
-    setMutatingAuthKey(snapshot.auth_id);
-    setAuthMutationNotice(snapshot.auth_id, undefined);
-    try {
-      const requestPatch: SidecarAuthMutationFieldsInput = {
-        ...fieldsPatch,
-        force_live: options.forceLive,
-      };
-      const response = await api.sidecars.updateAuthFileFields(selectedSidecarId, snapshot.auth_id, requestPatch);
-      applyAuthMutationSyncStatus(selectedSidecarId, response.sync_status, response.sync_error);
-      if (response.state === "succeeded_sync_failed") {
-        const detail = response.sync_error ?? messages.sidecarsPage.loadSingleFailed;
-        const message = messages.sidecarsPage.authFieldsRefreshWarning(detail);
-        setSidecarDetailRefreshError(message);
-        setAuthMutationNotice(snapshot.auth_id, { kind: "refresh_failed", message });
-        toast.warning(message);
-        return;
-      }
-      if (response.snapshot) {
-        setAuthSnapshots((current) => current.map((item) => item.auth_id === response.snapshot?.auth_id ? response.snapshot! : item));
-      }
-      await fetchSidecarDetail(selectedSidecarId);
-      setAuthMutationNotice(snapshot.auth_id, { kind: "success", message: messages.sidecarsPage.authFieldsUpdateApplied });
-      toast.success(messages.sidecarsPage.authFieldsUpdated(snapshot.name));
-    } catch (error) {
       if (isStaleSnapshotError(error)) {
-        const message = messages.sidecarsPage.authFieldsStaleBlocked;
-        setAuthMutationNotice(snapshot.auth_id, { kind: "stale_snapshot", message, retry: { kind: "fields", fields: fieldsPatch } });
+        const message = messages.sidecarsPage.authPriorityStaleBlocked;
+        setAuthMutationNotice(snapshot.auth_id, { kind: "stale_snapshot", message, retry: { kind: "priority", priority } });
         toast.warning(message);
       } else {
-        const message = messages.sidecarsPage.authFieldsUpdateFailed(mutationErrorDetail(error, messages.sidecarsPage.saveFailed));
+        const message = mutationErrorDetail(error, messages.sidecarsPage.saveFailed);
         setAuthMutationNotice(snapshot.auth_id, { kind: "failed", message });
         toast.error(message);
       }
@@ -562,7 +528,6 @@ export function useSidecarsPageData() {
     handleManualSync,
     handleDeleteAuthFile,
     handleLoadAuthModels,
-    handlePatchAuthFields,
     handlePatchAuthPriority,
     handlePatchAuthStatus,
     refreshSidecars: fetchSidecars,

@@ -3,7 +3,7 @@
   "info": {
     "title": "LLM Proxy Gateway",
     "description": "A lightweight proxy gateway for routing LLM API requests with load balancing and failover.",
-    "version": "0.3.20"
+    "version": "0.3.21"
   },
   "paths": {
     "/api/auth/status": {
@@ -5387,6 +5387,650 @@
           }
         }
       }
+    },
+    "/api/sidecars": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecars",
+        "operationId": "list_sidecars_api_sidecars_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Create Sidecar",
+        "operationId": "create_sidecar_api_sidecars_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarInstance"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar",
+        "operationId": "get_sidecar_api_sidecars__sidecar_id__get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarInstance"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar",
+        "operationId": "update_sidecar_api_sidecars__sidecar_id__patch",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SidecarUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarInstance"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Delete Sidecar",
+        "operationId": "delete_sidecar_api_sidecars__sidecar_id__delete",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/test-connection": {
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Test Sidecar Connection",
+        "operationId": "test_sidecar_connection_api_sidecars__sidecar_id__test_connection_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarTestConnectionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/sync": {
+      "post": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Sync Sidecar",
+        "operationId": "sync_sidecar_api_sidecars__sidecar_id__sync_post",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarSyncResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-snapshots": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Auth Snapshots",
+        "operationId": "list_sidecar_auth_snapshots_api_sidecars__sidecar_id__auth_snapshots_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-snapshots/{snapshot_id}": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar Auth Snapshot",
+        "operationId": "get_sidecar_auth_snapshot_api_sidecars__sidecar_id__auth_snapshots__snapshot_id__get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/provider-snapshots": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Provider Snapshots",
+        "operationId": "list_sidecar_provider_snapshots_api_sidecars__sidecar_id__provider_snapshots_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarProviderSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Auth Files",
+        "operationId": "list_sidecar_auth_files_api_sidecars__sidecar_id__auth_files_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/models": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Auth File Models",
+        "description": "Read-only passthrough to the sidecar's auth-file model discovery route. A 200 response with an empty models array means discovery is supported but returned no models; 404 means the sidecar does not expose the discovery route.",
+        "operationId": "list_sidecar_auth_file_models_api_sidecars__sidecar_id__auth_files_models_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthModelsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-file models discovery unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/providers": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Providers",
+        "operationId": "list_sidecar_providers_api_sidecars__sidecar_id__providers_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarProviderSnapshotListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/sync-status": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Get Sidecar Sync Status",
+        "operationId": "get_sidecar_sync_status_api_sidecars__sidecar_id__sync_status_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarSyncStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/{auth_id}": {
+      "delete": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Delete Sidecar Auth File",
+        "operationId": "delete_sidecar_auth_file_api_sidecars__sidecar_id__auth_files__auth_id__delete",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "auth_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Must exactly match the current live auth file name confirmed by the operator."
+                  }
+                },
+                "required": [
+                  "confirm_name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthMutationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/{auth_id}/status": {
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar Auth File Status",
+        "operationId": "update_sidecar_auth_file_status_api_sidecars__sidecar_id__auth_files__auth_id__status_patch",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "auth_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "disabled": {
+                    "type": "boolean"
+                  },
+                  "force_live": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "disabled"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthMutationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields": {
+      "patch": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Update Sidecar Auth File Priority",
+        "operationId": "update_sidecar_auth_file_priority_api_sidecars__sidecar_id__auth_files__auth_id__fields_patch",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "auth_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "priority": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Auth priority update. Send 0 as the CLIProxyAPI clear/remove sentinel for stored priority metadata."
+                  },
+                  "force_live": {
+                    "type": "boolean"
+                  }
+                },
+                "description": "Priority-only auth mutation. Omit force_live for normal guarded PATCH; set force_live only to force a live preflight for stale cached rows.",
+                "additionalProperties": false,
+                "required": [
+                  "priority"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthMutationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7269,7 +7913,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -7280,7 +7925,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -7291,7 +7937,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           },
           "version": {
             "type": "integer",
@@ -7352,7 +7999,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -7363,7 +8011,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -7374,7 +8023,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           },
           "version": {
             "type": "integer",
@@ -11233,7 +11883,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -11244,7 +11895,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -11255,7 +11907,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           }
         },
         "additionalProperties": false,
@@ -11319,7 +11972,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -11330,7 +11984,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -11341,7 +11996,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           },
           "version": {
             "type": "integer",
@@ -11460,7 +12116,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cached Input Price"
+            "title": "Cached Input Price",
+            "description": "Optional cached input price. Null or omitted means default zero/effective zero in phase 1."
           },
           "cache_creation_price": {
             "anyOf": [
@@ -11471,7 +12128,8 @@
                 "type": "null"
               }
             ],
-            "title": "Cache Creation Price"
+            "title": "Cache Creation Price",
+            "description": "Optional cache creation price. Null or omitted means default zero/effective zero in phase 1."
           },
           "reasoning_price": {
             "anyOf": [
@@ -11482,7 +12140,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reasoning Price"
+            "title": "Reasoning Price",
+            "description": "Optional reasoning price. Null or omitted means default zero/effective zero in phase 1."
           }
         },
         "additionalProperties": false,
@@ -15815,6 +16474,611 @@
           }
         },
         "title": "ScopeControlError"
+      },
+      "SidecarCredentialState": {
+        "type": "object",
+        "properties": {
+          "management_password_configured": {
+            "type": "boolean"
+          },
+          "management_password": {
+            "type": "string",
+            "nullable": true,
+            "description": "Masked management password marker. Raw sidecar management passwords are write-only and never returned."
+          }
+        },
+        "required": [
+          "management_password_configured"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarCreateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "management_password": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Required sidecar management password. This value is write-only and never returned."
+          },
+          "enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "environment_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow_private_network": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "allow_insecure_http": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "skip_tls_verify": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "sync_interval_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "request_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          }
+        },
+        "required": [
+          "name",
+          "base_url",
+          "management_password"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "management_password": {
+            "type": "string",
+            "writeOnly": true,
+            "description": "Optional sidecar management password rotation. This value is write-only and never returned."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "environment_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow_private_network": {
+            "type": "boolean"
+          },
+          "allow_insecure_http": {
+            "type": "boolean"
+          },
+          "skip_tls_verify": {
+            "type": "boolean"
+          },
+          "sync_interval_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          },
+          "request_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SidecarPauseMetadata": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "paused_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarInstance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "base_url_canonical": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "environment_label": {
+            "type": "string",
+            "nullable": true
+          },
+          "allow_private_network": {
+            "type": "boolean"
+          },
+          "allow_insecure_http": {
+            "type": "boolean"
+          },
+          "skip_tls_verify": {
+            "type": "boolean"
+          },
+          "sync_interval_seconds": {
+            "type": "integer"
+          },
+          "request_timeout_seconds": {
+            "type": "integer"
+          },
+          "credential_state": {
+            "$ref": "#/components/schemas/SidecarCredentialState"
+          },
+          "management_auth_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "valid",
+              "invalid_management_auth"
+            ]
+          },
+          "pause_metadata": {
+            "$ref": "#/components/schemas/SidecarPauseMetadata"
+          },
+          "last_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_successful_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "snapshot_stale_after": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_sync_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "base_url",
+          "base_url_canonical",
+          "enabled",
+          "allow_private_network",
+          "allow_insecure_http",
+          "skip_tls_verify",
+          "sync_interval_seconds",
+          "request_timeout_seconds",
+          "credential_state",
+          "management_auth_state",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarInstance"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "auth_id": {
+            "type": "string"
+          },
+          "auth_index": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "status_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "disabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "unavailable": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "priority": {
+            "type": "integer",
+            "nullable": true
+          },
+          "quota_exceeded": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "quota_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "quota_next_recover_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "success_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "failed_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "recent_requests": {},
+          "model_states": {},
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot": {
+            "description": "Redacted auth-file observation. Raw tokens, secrets, passwords, API keys, authorization values, and unredacted upstream fields are never returned."
+          }
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "auth_id",
+          "name",
+          "observed_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthSnapshotListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarAuthSnapshot"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "owned_by": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthModelsResponse": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarAuthModel"
+            }
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarProviderSnapshot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "provider_key": {
+            "type": "string"
+          },
+          "provider_item_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "disabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot": {
+            "description": "Redacted provider inventory observation. Raw tokens, secrets, passwords, API keys, authorization values, and unredacted upstream fields are never returned."
+          }
+        },
+        "required": [
+          "id",
+          "sidecar_id",
+          "provider_key",
+          "provider_item_key",
+          "observed_at"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarProviderSnapshotListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarProviderSnapshot"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarTestConnectionResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "succeeded"
+            ]
+          },
+          "management_auth_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "valid",
+              "invalid_management_auth"
+            ]
+          },
+          "status_code": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "management_auth_state",
+          "status_code"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarSyncResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "skipped",
+              "failed"
+            ]
+          },
+          "sidecar": {
+            "$ref": "#/components/schemas/SidecarInstance"
+          },
+          "sync_status": {
+            "$ref": "#/components/schemas/SidecarSyncStatusResponse"
+          },
+          "auth_snapshot_count": {
+            "type": "integer"
+          },
+          "provider_snapshot_count": {
+            "type": "integer"
+          },
+          "error_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "error_detail": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "state",
+          "sidecar",
+          "sync_status",
+          "auth_snapshot_count",
+          "provider_snapshot_count"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthMutationResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "succeeded_sync_failed"
+            ]
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SidecarAuthSnapshot"
+          },
+          "sync_status": {
+            "$ref": "#/components/schemas/SidecarSyncStatusResponse"
+          },
+          "sync_error": {
+            "type": "string",
+            "description": "Present when state is succeeded_sync_failed; omitted for clean success."
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarSyncStatusResponse": {
+        "type": "object",
+        "properties": {
+          "sidecar_id": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "sync_interval_seconds": {
+            "type": "integer"
+          },
+          "management_auth_state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "valid",
+              "invalid_management_auth"
+            ]
+          },
+          "last_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_successful_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "snapshot_stale_after": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_sync_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "auth_failure_pause_until": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "due": {
+            "type": "boolean"
+          },
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sidecar_id",
+          "enabled",
+          "sync_interval_seconds",
+          "management_auth_state",
+          "stale",
+          "due",
+          "paused"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {

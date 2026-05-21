@@ -1,6 +1,6 @@
 import type {
   SidecarAuthModelsResponse,
-  SidecarAuthMutationFieldsInput,
+  SidecarAuthMutationPriorityInput,
   SidecarAuthMutationResponse,
   SidecarAuthSnapshot,
   SidecarAuthSnapshotListResponse,
@@ -92,7 +92,7 @@ export const sidecars = {
       },
     );
   },
-  updateAuthFileFields: (sidecarId: number, authId: string, data: SidecarAuthMutationFieldsInput) => {
+  updateAuthFilePriority: (sidecarId: number, authId: string, data: SidecarAuthMutationPriorityInput) => {
     const { force_live: forceLive, ...payload } = data;
     const query = forceLive ? "?force_live=true" : "";
     return request<SidecarAuthMutationResponse>(

@@ -5973,8 +5973,8 @@
         "tags": [
           "sidecars"
         ],
-        "summary": "Update Sidecar Auth File Fields",
-        "operationId": "update_sidecar_auth_file_fields_api_sidecars__sidecar_id__auth_files__auth_id__fields_patch",
+        "summary": "Update Sidecar Auth File Priority",
+        "operationId": "update_sidecar_auth_file_priority_api_sidecars__sidecar_id__auth_files__auth_id__fields_patch",
         "parameters": [
           {
             "name": "sidecar_id",
@@ -6002,47 +6002,18 @@
                 "properties": {
                   "priority": {
                     "type": "integer",
-                    "minimum": 0
-                  },
-                  "prefix": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Non-empty replacement only; omit to preserve the current value. Null or empty values are rejected."
-                  },
-                  "proxy_url": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Non-empty replacement only; omit to preserve the current value. Null or empty values are rejected."
-                  },
-                  "note": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Non-empty replacement only; omit to preserve the current value. Null or empty values are rejected."
-                  },
-                  "headers": {
-                    "type": "object",
-                    "minProperties": 1,
-                    "additionalProperties": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "description": "Allowlisted custom headers only: x-correlation-id, x-request-id, and x-trace-id. Header values must be non-empty strings; null, empty objects, and empty values are rejected."
-                  },
-                  "custom_headers": {
-                    "type": "object",
-                    "minProperties": 1,
-                    "additionalProperties": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "description": "Alias for headers. Do not send both headers and custom_headers. Header values must be non-empty strings; null, empty objects, and empty values are rejected."
+                    "minimum": 0,
+                    "description": "Auth priority update. Send 0 as the CLIProxyAPI clear/remove sentinel for stored priority metadata."
                   },
                   "force_live": {
                     "type": "boolean"
                   }
                 },
-                "description": "At least one mutable auth field is required.",
-                "additionalProperties": false
+                "description": "Priority-only auth mutation. Omit force_live for normal guarded PATCH; set force_live only to force a live preflight for stale cached rows.",
+                "additionalProperties": false,
+                "required": [
+                  "priority"
+                ]
               }
             }
           }

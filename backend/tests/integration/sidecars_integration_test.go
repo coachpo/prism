@@ -89,7 +89,6 @@ func TestSidecarDBBackedSyncMutationsAndRedaction(t *testing.T) {
 
 	mutationBody, _ := sidecarIntegrationRequestJSON(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", map[string]any{
 		"priority": 42,
-		"headers":  map[string]any{"X-Trace-ID": "trace-123"},
 	}, http.StatusOK)
 	sidecarIntegrationAssertNoLeaks(t, mutationBody)
 	upstream.assertFieldPatch(t, 42)
@@ -178,6 +177,25 @@ func TestSidecarAuthMutationIntegration(t *testing.T) {
 		t.Fatalf("expected succeeded mutation state, got %+v", mutationPayload)
 	}
 	upstream.assertFieldPatch(t, 88)
+
+	removedFieldRejections := []struct {
+		field string
+		body  map[string]any
+	}{
+		{field: "prefix", body: map[string]any{"priority": 89, "prefix": "team-a/"}},
+		{field: "proxy_url", body: map[string]any{"priority": 89, "proxy_url": "https://proxy.example.test"}},
+		{field: "note", body: map[string]any{"priority": 89, "note": "operator note"}},
+		{field: "headers", body: map[string]any{"priority": 89, "headers": map[string]any{"X-Trace-ID": "trace-123"}}},
+		{field: "custom_headers", body: map[string]any{"priority": 89, "custom_headers": map[string]any{"X-Trace-ID": "trace-123"}}},
+	}
+	for _, tt := range removedFieldRejections {
+		rejectionBody := sidecarIntegrationRequestStatus(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", tt.body, http.StatusBadRequest)
+		sidecarIntegrationAssertNoLeaks(t, rejectionBody)
+		if !strings.Contains(rejectionBody, "unsupported fields") || !strings.Contains(rejectionBody, tt.field) {
+			t.Fatalf("expected unsupported-field rejection for %s, got %s", tt.field, rejectionBody)
+		}
+	}
+	upstream.assertFieldPatchPriorities(t, []int{88})
 
 	primary := sidecarIntegrationAuthFixtureWith("auth-gemini-primary", "auth_001", "gemini", 88)
 	shadow := sidecarIntegrationAuthFixtureWith("auth-gemini-shadow", "auth_999", "gemini", 77)

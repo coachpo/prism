@@ -60,7 +60,6 @@ export function SidecarsScaffold() {
             mutatingAuthKey={pageData.mutatingAuthKey}
             onDeleteAuthFile={pageData.handleDeleteAuthFile}
             onLoadModels={pageData.handleLoadAuthModels}
-            onPatchFields={pageData.handlePatchAuthFields}
             onPatchPriority={pageData.handlePatchAuthPriority}
             onPatchStatus={pageData.handlePatchAuthStatus}
           />

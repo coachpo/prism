@@ -179,28 +179,6 @@ export interface Messages {
     authEnableAction: string;
     authEnableAuth: (name: string) => string;
     authEnabledLabel: string;
-    authFieldsApply: string;
-    authFieldsEditAction: string;
-    authFieldsEditDescription: (name: string) => string;
-    authFieldsEditFor: (name: string) => string;
-    authFieldsEditTitle: string;
-    authFieldsHeaderPlaceholder: (name: string) => string;
-    authFieldsNoClearHint: string;
-    authFieldsNoteLabel: string;
-    authFieldsNotePlaceholder: string;
-    authFieldsOperationalTitle: string;
-    authFieldsPrefixLabel: string;
-    authFieldsPrefixPlaceholder: string;
-    authFieldsPreserveHint: string;
-    authFieldsProxyUrlLabel: string;
-    authFieldsProxyUrlPlaceholder: string;
-    authFieldsRefreshWarning: (detail: string) => string;
-    authFieldsStaleBlocked: string;
-    authFieldsTraceHeadersDescription: string;
-    authFieldsTraceHeadersTitle: string;
-    authFieldsUpdateApplied: string;
-    authFieldsUpdateFailed: (detail: string) => string;
-    authFieldsUpdated: (name: string) => string;
     authMissingPriorityResolves: string;
     authModelsAction: string;
     authModelsDescription: string;
@@ -225,6 +203,7 @@ export interface Messages {
     authPriorityInputLabel: (name: string) => string;
     authPriorityLabel: (priority: number) => string;
     authPriorityRefreshWarning: (detail: string) => string;
+    authPriorityStaleBlocked: string;
     authPriorityUpdated: (name: string) => string;
     authRecentRequestsLabel: string;
     authSavePriority: string;
@@ -2338,28 +2317,6 @@ export const enMessages: Messages = {
     authEnableAction: "Enable",
     authEnableAuth: (name) => `Enable auth ${name}`,
     authEnabledLabel: "Enabled",
-    authFieldsApply: "Apply field edits",
-    authFieldsEditAction: "Edit live auth fields",
-    authFieldsEditDescription: (name) => `Replace approved non-destructive fields for ${name}. Blank fields are omitted so current live values are preserved and unresolved values stay hidden.`,
-    authFieldsEditFor: (name) => `Edit live auth fields for ${name}`,
-    authFieldsEditTitle: "Edit live auth fields",
-    authFieldsHeaderPlaceholder: (name) => `${name} value`,
-    authFieldsNoClearHint: "No clear operations are exposed: empty strings, nulls, arbitrary headers, secrets, and unresolved fields are not sent.",
-    authFieldsNoteLabel: "Note",
-    authFieldsNotePlaceholder: "Operational note",
-    authFieldsOperationalTitle: "Approved field replacements",
-    authFieldsPrefixLabel: "Prefix",
-    authFieldsPrefixPlaceholder: "team-a/",
-    authFieldsPreserveHint: "Only non-empty replacement values are sent. Current prefix, proxy URL, note, and header values are intentionally not displayed.",
-    authFieldsProxyUrlLabel: "Proxy URL",
-    authFieldsProxyUrlPlaceholder: "https://proxy.example.test",
-    authFieldsRefreshWarning: (detail) => `Fields changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
-    authFieldsStaleBlocked: "Snapshot is stale. Review the current live auth row before retrying these exact field edits.",
-    authFieldsTraceHeadersDescription: "Only x-correlation-id, x-request-id, and x-trace-id are accepted. Other headers stay hidden and unsendable.",
-    authFieldsTraceHeadersTitle: "Allowed trace headers",
-    authFieldsUpdateApplied: "Auth fields updated and refreshed local snapshot.",
-    authFieldsUpdateFailed: (detail) => `Auth field update failed: ${detail}`,
-    authFieldsUpdated: (name) => `Updated live auth fields for ${name}.`,
     authMissingPriorityResolves: "missing routes in baseline 0 bucket",
     authModelsAction: "Models",
     authModelsDescription: "Read-only model discovery from the selected CLIProxyAPI auth file.",
@@ -2377,13 +2334,14 @@ export const enMessages: Messages = {
     authModelsTypeColumn: "Type",
     authModelsUnsupportedDescription: "This CLIProxyAPI sidecar does not expose the read-only auth-file models route yet. Upgrade CLIProxyAPI to use this modal.",
     authModelsUnsupportedTitle: "Models discovery unsupported",
-    authPriorityClearMutationWarning: "Saving 0 sends PATCH priority: 0 as the field-update clear/reset sentinel. After refresh, the priority field may be missing while runtime routing still falls into baseline bucket 0.",
+    authPriorityClearMutationWarning: "Saving 0 sends PATCH priority: 0 as the priority clear/reset sentinel. After refresh, the priority field may be missing while runtime routing still falls into baseline bucket 0.",
     authPriorityMutationWarning: "Positive priorities are written as explicit routing priorities. Higher numbers are preferred; use 0 only when you intend the PATCH clear/reset behavior.",
     authPriorityValueRequired: "Enter 0 to clear/reset via PATCH, or a positive whole-number priority.",
     authPriorityColumn: "Priority",
     authPriorityInputLabel: (name) => `Priority for ${name}`,
     authPriorityLabel: (priority) => priority === 0 ? "priority 0 (baseline)" : `priority ${priority}`,
     authPriorityRefreshWarning: (detail) => `Priority changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
+    authPriorityStaleBlocked: "Snapshot is stale. Review the current live auth row before retrying this exact priority change.",
     authPriorityUpdated: (name) => `Updated priority for ${name}.`,
     authRecentRequestsLabel: "Recent",
     authSavePriority: "Save",

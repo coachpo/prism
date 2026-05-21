@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	neturl "net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,13 +24,8 @@ var statusMutationAllowedFields = map[string]struct{}{
 }
 
 var fieldsMutationAllowedFields = map[string]struct{}{
-	"custom_headers": {},
-	"force_live":     {},
-	"headers":        {},
-	"note":           {},
-	"prefix":         {},
-	"priority":       {},
-	"proxy_url":      {},
+	"force_live": {},
+	"priority":   {},
 }
 
 var deleteMutationAllowedFields = map[string]struct{}{
@@ -40,12 +34,6 @@ var deleteMutationAllowedFields = map[string]struct{}{
 
 var mutationAllowedQueryControls = map[string]struct{}{
 	"force_live": {},
-}
-
-var allowedMutationHeaderNames = map[string]struct{}{
-	"x-correlation-id": {},
-	"x-request-id":     {},
-	"x-trace-id":       {},
 }
 
 type authMutationResponse struct {
@@ -664,8 +652,11 @@ func optionalMutationBool(raw json.RawMessage, name string) (bool, error) {
 }
 
 func buildOperatorFieldsPayload(raw map[string]json.RawMessage, authName string) (map[string]any, []string, error) {
+	if unknown := mutationUnknownFields(raw, fieldsMutationAllowedFields); len(unknown) > 0 {
+		return nil, unknown, fmt.Errorf("unsupported fields: %s", strings.Join(unknown, ", "))
+	}
 	payload := map[string]any{"name": authName}
-	fields := make([]string, 0, len(raw))
+	fields := make([]string, 0, 1)
 	if rawValue, ok := raw["priority"]; ok {
 		priority, err := mutationInt(rawValue, "priority")
 		if err != nil {
@@ -676,27 +667,6 @@ func buildOperatorFieldsPayload(raw map[string]json.RawMessage, authName string)
 		}
 		payload["priority"] = priority
 		fields = append(fields, "priority")
-	}
-	for _, name := range []string{"prefix", "proxy_url", "note"} {
-		if rawValue, ok := raw[name]; ok {
-			text, err := mutationNonEmptyString(rawValue, name)
-			if err != nil {
-				return nil, []string{name}, err
-			}
-			if err := validateMutationStringField(name, text); err != nil {
-				return nil, []string{name}, err
-			}
-			payload[name] = text
-			fields = append(fields, name)
-		}
-	}
-	headers, headerFields, err := mutationHeaders(raw)
-	if err != nil {
-		return nil, headerFields, err
-	}
-	if len(headerFields) > 0 {
-		payload["headers"] = headers
-		fields = append(fields, headerFields...)
 	}
 	if len(fields) == 0 {
 		return nil, nil, fmt.Errorf("at least one mutable auth field is required")
@@ -711,117 +681,6 @@ func mutationInt(raw json.RawMessage, name string) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return *value, nil
-}
-
-func mutationNonEmptyString(raw json.RawMessage, name string) (string, error) {
-	if strings.TrimSpace(string(raw)) == "null" {
-		return "", fmt.Errorf("%s cannot be null; clearing is not supported, omit it to preserve the current value", name)
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("%s must be a string", name)
-	}
-	if strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("%s must not be empty; clearing is not supported, omit it to preserve the current value", name)
-	}
-	return value, nil
-}
-
-func mutationHeaders(raw map[string]json.RawMessage) (map[string]string, []string, error) {
-	headerRaw, headerSet := raw["headers"]
-	customRaw, customSet := raw["custom_headers"]
-	fieldRoot := "headers"
-	if headerSet && customSet {
-		return nil, []string{"headers", "custom_headers"}, fmt.Errorf("headers and custom_headers cannot both be set")
-	}
-	if customSet {
-		headerRaw = customRaw
-		headerSet = true
-		fieldRoot = "custom_headers"
-	}
-	if !headerSet {
-		return nil, nil, nil
-	}
-	if strings.TrimSpace(string(headerRaw)) == "null" {
-		return nil, []string{fieldRoot}, fmt.Errorf("%s cannot be null; clearing is not supported, omit it to preserve existing headers", fieldRoot)
-	}
-	var rawHeaders map[string]json.RawMessage
-	if err := json.Unmarshal(headerRaw, &rawHeaders); err != nil || rawHeaders == nil {
-		return nil, []string{fieldRoot}, fmt.Errorf("%s must be an object", fieldRoot)
-	}
-	if len(rawHeaders) == 0 {
-		return nil, []string{fieldRoot}, fmt.Errorf("%s must include at least one header update; clearing all headers is not supported", fieldRoot)
-	}
-	headers := make(map[string]string, len(rawHeaders))
-	fields := make([]string, 0, len(rawHeaders))
-	for key, rawValue := range rawHeaders {
-		name := strings.TrimSpace(key)
-		fieldName := fieldRoot + "." + name
-		if err := validateMutationHeaderName(name); err != nil {
-			return nil, []string{fieldName}, err
-		}
-		value, err := mutationNonEmptyString(rawValue, fieldName)
-		if err != nil {
-			return nil, []string{fieldName}, err
-		}
-		headers[name] = value
-		fields = append(fields, fieldName)
-	}
-	sort.Strings(fields)
-	return headers, fields, nil
-}
-
-func validateMutationHeaderName(name string) error {
-	if name == "" {
-		return fmt.Errorf("header names must not be empty")
-	}
-	if _, ok := allowedMutationHeaderNames[strings.ToLower(name)]; !ok {
-		return fmt.Errorf("header %s is not allowlisted", name)
-	}
-	if isSensitiveHeaderName(name) {
-		return fmt.Errorf("header %s is not allowed", name)
-	}
-	for _, r := range name {
-		if r <= 32 || r >= 127 || strings.ContainsRune("()<>@,;:\\\"/[]?={}", r) {
-			return fmt.Errorf("header %s is not a valid custom header name", name)
-		}
-	}
-	return nil
-}
-
-func validateMutationStringField(name string, value string) error {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return fmt.Errorf("%s must not be empty; clearing is not supported, omit it to preserve the current value", name)
-	}
-	if mutationValueLooksSensitive(trimmed) {
-		return fmt.Errorf("%s must not contain secret-like values", name)
-	}
-	if name != "proxy_url" {
-		return nil
-	}
-	parsed, err := neturl.Parse(trimmed)
-	if err != nil {
-		return fmt.Errorf("proxy_url must be a valid URL")
-	}
-	if parsed.User != nil {
-		return fmt.Errorf("proxy_url must not include credentials")
-	}
-	return nil
-}
-
-func mutationValueLooksSensitive(value string) bool {
-	normalized := strings.ToLower(value)
-	return strings.Contains(normalized, "api_key") ||
-		strings.Contains(normalized, "api-key") ||
-		strings.Contains(normalized, "apikey") ||
-		strings.Contains(normalized, "authorization") ||
-		strings.Contains(normalized, "bearer ") ||
-		strings.Contains(normalized, "oauth") ||
-		strings.Contains(normalized, "password") ||
-		strings.Contains(normalized, "secret") ||
-		strings.Contains(normalized, "token") ||
-		strings.Contains(normalized, "credential")
 }
 
 func mutationUnknownFields(raw map[string]json.RawMessage, allowed map[string]struct{}) []string {

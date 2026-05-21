@@ -1,5 +1,5 @@
 import { type ComponentProps, useMemo, useState } from "react";
-import { AlertTriangle, Boxes, Check, ChevronLeft, ChevronRight, Loader2, PencilLine, Power, PowerOff, RefreshCw, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { AlertTriangle, Boxes, Check, ChevronLeft, ChevronRight, Loader2, Power, PowerOff, RefreshCw, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, TypeBadge, ValueBadge, type BadgeIntent } from "@/components/StatusBadge";
 import {
@@ -33,7 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
@@ -44,7 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLocale } from "@/i18n/useLocale";
-import type { SidecarAuthModel, SidecarAuthModelsResponse, SidecarAuthMutationFieldsInput, SidecarAuthSnapshot, SidecarAuthTraceHeaderName } from "@/lib/types";
+import type { SidecarAuthModel, SidecarAuthModelsResponse, SidecarAuthSnapshot } from "@/lib/types";
 
 type FormSubmitEvent = Parameters<NonNullable<ComponentProps<"form">["onSubmit"]>>[0];
 
@@ -54,11 +53,9 @@ type PendingMutation =
 
 export type AuthMutationNoticeKind = "success" | "stale_snapshot" | "failed" | "refresh_failed";
 
-export type AuthFieldsPatchPayload = Omit<SidecarAuthMutationFieldsInput, "force_live">;
-
 type AuthMutationRetry =
   | { kind: "status"; disabled: boolean }
-  | { kind: "fields"; fields: AuthFieldsPatchPayload };
+  | { kind: "priority"; priority: number };
 
 export interface AuthMutationNotice {
   kind: AuthMutationNoticeKind;
@@ -103,20 +100,11 @@ interface AuthFilesTableProps {
   mutatingAuthKey: string | null;
   onDeleteAuthFile: (snapshot: SidecarAuthSnapshot, confirmName: string) => Promise<void>;
   onLoadModels: (snapshot: SidecarAuthSnapshot) => Promise<SidecarAuthModelsResponse>;
-  onPatchFields: (snapshot: SidecarAuthSnapshot, fields: AuthFieldsPatchPayload, options?: { forceLive?: boolean }) => Promise<void>;
-  onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number) => Promise<void>;
+  onPatchPriority: (snapshot: SidecarAuthSnapshot, priority: number, options?: { forceLive?: boolean }) => Promise<void>;
   onPatchStatus: (snapshot: SidecarAuthSnapshot, disabled: boolean, options?: { forceLive?: boolean }) => Promise<void>;
 }
 
 const DEFAULT_AUTH_PAGE_SIZE = 30;
-const AUTH_FIELD_TRACE_HEADERS = ["x-correlation-id", "x-request-id", "x-trace-id"] as const satisfies readonly SidecarAuthTraceHeaderName[];
-
-type AuthFieldDraft = {
-  headers: Record<SidecarAuthTraceHeaderName, string>;
-  note: string;
-  prefix: string;
-  proxy_url: string;
-};
 
 type AuthModelsDialogStatus = "loading" | "loaded" | "unsupported" | "error";
 
@@ -131,49 +119,6 @@ type AuthDeleteDialogState = {
   confirmName: string;
   snapshot: SidecarAuthSnapshot;
 };
-
-function createEmptyAuthFieldDraft(): AuthFieldDraft {
-  return {
-    headers: {
-      "x-correlation-id": "",
-      "x-request-id": "",
-      "x-trace-id": "",
-    },
-    note: "",
-    prefix: "",
-    proxy_url: "",
-  };
-}
-
-function optionalTrimmedString(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function buildAuthFieldsPatch(draft: AuthFieldDraft): AuthFieldsPatchPayload | null {
-  const patch: AuthFieldsPatchPayload = {};
-  const prefix = optionalTrimmedString(draft.prefix);
-  const proxyUrl = optionalTrimmedString(draft.proxy_url);
-  const note = optionalTrimmedString(draft.note);
-  const headers: Partial<Record<SidecarAuthTraceHeaderName, string>> = {};
-
-  if (prefix) patch.prefix = prefix;
-  if (proxyUrl) patch.proxy_url = proxyUrl;
-  if (note) patch.note = note;
-
-  for (const headerName of AUTH_FIELD_TRACE_HEADERS) {
-    const headerValue = optionalTrimmedString(draft.headers[headerName]);
-    if (headerValue) {
-      headers[headerName] = headerValue;
-    }
-  }
-
-  if (Object.keys(headers).length > 0) {
-    patch.headers = headers;
-  }
-
-  return Object.keys(patch).length > 0 ? patch : null;
-}
 
 function formatTimestamp(value: string | undefined, locale: string, fallback: string) {
   if (!value) {
@@ -512,17 +457,6 @@ function AuthMutationNoticeCard({
   );
 }
 
-type AuthFieldsDialogProps = {
-  draft: AuthFieldDraft;
-  mutating: boolean;
-  onClose: () => void;
-  onDraftChange: (draft: AuthFieldDraft) => void;
-  onSubmit: (event: FormSubmitEvent) => void;
-  open: boolean;
-  patch: AuthFieldsPatchPayload | null;
-  snapshot: SidecarAuthSnapshot | null;
-};
-
 function AuthModelsDialog({
   onClose,
   state,
@@ -590,77 +524,6 @@ function AuthModelsDialog({
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>{messages.common.close}</Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AuthFieldsDialog({
-  draft,
-  mutating,
-  onClose,
-  onDraftChange,
-  onSubmit,
-  open,
-  patch,
-  snapshot,
-}: AuthFieldsDialogProps) {
-  const { messages } = useLocale();
-  const copy = messages.sidecarsPage;
-
-  const updateField = (field: "prefix" | "proxy_url" | "note", value: string) => {
-    onDraftChange({ ...draft, [field]: value });
-  };
-  const updateHeader = (headerName: SidecarAuthTraceHeaderName, value: string) => {
-    onDraftChange({ ...draft, headers: { ...draft.headers, [headerName]: value } });
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className="sm:max-w-2xl" showCloseButton={!mutating}>
-        <form className="contents" onSubmit={onSubmit}>
-          <DialogHeader>
-            <DialogTitle>{copy.authFieldsEditTitle}</DialogTitle>
-            <DialogDescription>{copy.authFieldsEditDescription(snapshot?.name ?? "")}</DialogDescription>
-          </DialogHeader>
-          <DialogBody className="space-y-4">
-            <div className="rounded-xl border bg-muted/20 p-4">
-              <p className="text-sm font-medium">{copy.authFieldsOperationalTitle}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{copy.authFieldsPreserveHint}</p>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="auth-fields-prefix">{copy.authFieldsPrefixLabel}</Label>
-                  <Input id="auth-fields-prefix" value={draft.prefix} placeholder={copy.authFieldsPrefixPlaceholder} onChange={(event) => updateField("prefix", event.target.value)} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="auth-fields-proxy-url">{copy.authFieldsProxyUrlLabel}</Label>
-                  <Input id="auth-fields-proxy-url" value={draft.proxy_url} placeholder={copy.authFieldsProxyUrlPlaceholder} onChange={(event) => updateField("proxy_url", event.target.value)} />
-                </div>
-                <div className="flex flex-col gap-2 md:col-span-2">
-                  <Label htmlFor="auth-fields-note">{copy.authFieldsNoteLabel}</Label>
-                  <Textarea id="auth-fields-note" value={draft.note} placeholder={copy.authFieldsNotePlaceholder} onChange={(event) => updateField("note", event.target.value)} />
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border bg-muted/20 p-4">
-              <p className="text-sm font-medium">{copy.authFieldsTraceHeadersTitle}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{copy.authFieldsTraceHeadersDescription}</p>
-              <div className="mt-4 grid gap-4 md:grid-cols-3">
-                {AUTH_FIELD_TRACE_HEADERS.map((headerName) => (
-                  <div key={headerName} className="flex flex-col gap-2">
-                    <Label htmlFor={`auth-fields-${headerName}`}>{headerName}</Label>
-                    <Input id={`auth-fields-${headerName}`} value={draft.headers[headerName]} placeholder={copy.authFieldsHeaderPlaceholder(headerName)} onChange={(event) => updateHeader(headerName, event.target.value)} />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground dark:text-warning">{copy.authFieldsNoClearHint}</p>
-          </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={mutating}>{copy.cancel}</Button>
-            <Button type="submit" disabled={mutating || patch === null}>{mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}{copy.authFieldsApply}</Button>
-          </DialogFooter>
-        </form>
       </DialogContent>
     </Dialog>
   );
@@ -742,7 +605,6 @@ export function AuthFilesTable({
   mutatingAuthKey,
   onDeleteAuthFile,
   onLoadModels,
-  onPatchFields,
   onPatchPriority,
   onPatchStatus,
 }: AuthFilesTableProps) {
@@ -751,10 +613,8 @@ export function AuthFilesTable({
   const paginationCopy = messages.requestLogs;
   const [draftPriorities, setDraftPriorities] = useState<Record<string, string>>({});
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
-  const [fieldsDialogSnapshot, setFieldsDialogSnapshot] = useState<SidecarAuthSnapshot | null>(null);
   const [authModelsState, setAuthModelsState] = useState<AuthModelsDialogState | null>(null);
   const [authDeleteDialog, setAuthDeleteDialog] = useState<AuthDeleteDialogState | null>(null);
-  const [authFieldDraft, setAuthFieldDraft] = useState<AuthFieldDraft>(() => createEmptyAuthFieldDraft());
   const [authSearch, setAuthSearch] = useState("");
   const [authSortMode, setAuthSortMode] = useState<AuthSortMode>("name");
   const [pageIndex, setPageIndex] = useState(0);
@@ -787,7 +647,6 @@ export function AuthFilesTable({
   const pageEndIndex = Math.min(pageStartIndex + pageSize, totalAuthRows);
   const visibleAuthSnapshots = derivedAuthSnapshots.slice(pageStartIndex, pageEndIndex);
   const pageStart = totalAuthRows > 0 ? pageStartIndex + 1 : 0;
-  const authFieldsPatch = buildAuthFieldsPatch(authFieldDraft);
   const hasPreviousPage = currentPageIndex > 0;
   const hasNextPage = pageEndIndex < totalAuthRows;
 
@@ -801,16 +660,6 @@ export function AuthFilesTable({
 
   const openMutation = (mutation: PendingMutation) => {
     setPendingMutation(mutation);
-  };
-
-  const openFieldsDialog = (snapshot: SidecarAuthSnapshot) => {
-    setAuthFieldDraft(createEmptyAuthFieldDraft());
-    setFieldsDialogSnapshot(snapshot);
-  };
-
-  const closeFieldsDialog = () => {
-    setFieldsDialogSnapshot(null);
-    setAuthFieldDraft(createEmptyAuthFieldDraft());
   };
 
   const openModelsDialog = async (snapshot: SidecarAuthSnapshot) => {
@@ -853,21 +702,11 @@ export function AuthFilesTable({
     closeDeleteDialog();
   };
 
-  const submitFieldsDialog = async (event: FormSubmitEvent) => {
-    event.preventDefault();
-    if (!fieldsDialogSnapshot || !authFieldsPatch) {
-      return;
-    }
-    await onPatchFields(fieldsDialogSnapshot, authFieldsPatch);
-    closeFieldsDialog();
-  };
-
   const retryMutation = (snapshot: SidecarAuthSnapshot, notice: AuthMutationNotice) => {
     if (notice.retry?.kind === "status") {
       void onPatchStatus(snapshot, notice.retry.disabled, { forceLive: true });
-    }
-    if (notice.retry?.kind === "fields") {
-      void onPatchFields(snapshot, notice.retry.fields, { forceLive: true });
+    } else if (notice.retry?.kind === "priority") {
+      void onPatchPriority(snapshot, notice.retry.priority, { forceLive: true });
     }
   };
 
@@ -1100,20 +939,6 @@ export function AuthFilesTable({
                                   </Button>
                                 </div>
                                 {parsedPriority === null ? <span className="text-xs text-warning">{copy.authPriorityValueRequired}</span> : null}
-                                {canMutateAuth ? (
-                                  <Button
-                                    type="button"
-                                    size="xs"
-                                    variant="outline"
-                                    className="w-fit"
-                                    aria-label={copy.authFieldsEditFor(snapshot.name)}
-                                    disabled={mutating}
-                                    onClick={() => openFieldsDialog(snapshot)}
-                                  >
-                                    {mutating ? <Loader2 className="h-3 w-3 animate-spin" /> : <PencilLine className="h-3 w-3" />}
-                                    {copy.authFieldsEditAction}
-                                  </Button>
-                                ) : null}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1177,17 +1002,6 @@ export function AuthFilesTable({
       <AuthModelsDialog
         onClose={closeModelsDialog}
         state={authModelsState}
-      />
-
-      <AuthFieldsDialog
-        draft={authFieldDraft}
-        mutating={fieldsDialogSnapshot !== null && mutatingAuthKey === fieldsDialogSnapshot.auth_id}
-        onClose={closeFieldsDialog}
-        onDraftChange={setAuthFieldDraft}
-        onSubmit={submitFieldsDialog}
-        open={fieldsDialogSnapshot !== null}
-        patch={authFieldsPatch}
-        snapshot={fieldsDialogSnapshot}
       />
 
       <AuthDeleteDialog

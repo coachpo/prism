@@ -211,11 +211,11 @@ func TestCLIProxyManagementContractAuthStatusPatch(t *testing.T) {
 	}
 }
 
-func TestCLIProxyManagementContractEditableAuthFieldsPatch(t *testing.T) {
+func TestCLIProxyManagementContractPriorityOnlyAuthFieldsPatch(t *testing.T) {
 	harness := newCLIProxyContractHarness(t, map[string]cliProxyRoute{
 		"/auth-files/fields": cliProxyFieldsPatchRoute(t),
 	})
-	patch := strings.NewReader(`{"name":"gemini-primary.json","prefix":"team-a/","proxy_url":"http://127.0.0.1:18080","headers":{"X-Fixture":"true"},"priority":10,"note":"priority patch fixture"}`)
+	patch := strings.NewReader(`{"name":"gemini-primary.json","priority":10}`)
 	var response cliProxyAuthFieldsResponse
 	contractErr := fetchCLIProxyJSON(context.Background(), harness.client, http.MethodPatch, harness.url("/auth-files/fields"), patch, cliProxyManagementHeaders(cliProxyManagementKey, ""), &response)
 	if contractErr != nil {
@@ -225,7 +225,7 @@ func TestCLIProxyManagementContractEditableAuthFieldsPatch(t *testing.T) {
 		t.Fatalf("expected source-backed fields patch response, got %+v", response)
 	}
 	if response.Priority == nil || *response.Priority != 10 {
-		t.Fatalf("expected editable fields patch to set priority=10, got %+v", response.Priority)
+		t.Fatalf("expected priority-only fields patch to set priority=10, got %+v", response.Priority)
 	}
 }
 
@@ -433,8 +433,8 @@ func cliProxyFieldsPatchRoute(t *testing.T) cliProxyRoute {
 			writeCLIProxyFixtureJSON(w, http.StatusBadRequest, `{"error":"invalid request body"}`)
 			return
 		}
-		if patch.Name != "gemini-primary.json" || patch.Priority == nil || *patch.Priority != 10 || patch.Headers["X-Fixture"] != "true" {
-			t.Fatalf("unexpected source-backed fields patch payload: %+v", patch)
+		if patch.Name != "gemini-primary.json" || patch.Priority == nil || *patch.Priority != 10 {
+			t.Fatalf("unexpected source-backed priority-only fields patch payload: %+v", patch)
 		}
 		writeCLIProxyFixtureJSON(w, http.StatusOK, `{"status":"ok","updated":"gemini-primary.json","priority":10}`)
 	}
@@ -573,12 +573,8 @@ type cliProxyAuthStatusResponse struct {
 }
 
 type cliProxyAuthFieldsPatch struct {
-	Name     string            `json:"name"`
-	Prefix   *string           `json:"prefix"`
-	ProxyURL *string           `json:"proxy_url"`
-	Headers  map[string]string `json:"headers"`
-	Priority *int              `json:"priority"`
-	Note     *string           `json:"note"`
+	Name     string `json:"name"`
+	Priority *int   `json:"priority"`
 }
 
 type cliProxyAuthFieldsResponse struct {

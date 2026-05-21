@@ -308,19 +308,26 @@ func assertSidecarMutationOpenAPIContract(t *testing.T, doc sidecarOpenAPIDocume
 	}
 
 	fieldsSchema := sidecarMutationRequestSchema(t, doc, "/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields", "patch")
-	fieldsProps := sidecarContractMap(t, fieldsSchema, "properties")
-	for _, name := range []string{"prefix", "proxy_url", "note"} {
-		field := sidecarContractMap(t, fieldsProps, name)
-		if field["nullable"] == true || field["minLength"] != float64(1) {
-			t.Fatalf("%s must be documented as non-null non-empty string, got %v", name, field)
-		}
+	if fieldsSchema["type"] != "object" || fieldsSchema["additionalProperties"] != false {
+		t.Fatalf("fields mutation request must be a closed object schema, got %v", fieldsSchema)
 	}
-	for _, name := range []string{"headers", "custom_headers"} {
-		field := sidecarContractMap(t, fieldsProps, name)
-		values := sidecarContractMap(t, field, "additionalProperties")
-		if field["nullable"] == true || field["minProperties"] != float64(1) || values["nullable"] == true || values["minLength"] != float64(1) {
-			t.Fatalf("%s must reject null, empty object, and empty values in OpenAPI, got %v", name, field)
-		}
+	fieldsProps := sidecarContractMap(t, fieldsSchema, "properties")
+	fieldNames := make([]string, 0, len(fieldsProps))
+	for name := range fieldsProps {
+		fieldNames = append(fieldNames, name)
+	}
+	sort.Strings(fieldNames)
+	wantFields := []string{"force_live", "priority"}
+	if !slices.Equal(fieldNames, wantFields) {
+		t.Fatalf("fields mutation request properties = %v want %v", fieldNames, wantFields)
+	}
+	priority := sidecarContractMap(t, fieldsProps, "priority")
+	if priority["type"] != "integer" || priority["minimum"] != float64(0) || priority["nullable"] == true {
+		t.Fatalf("fields mutation priority must be a non-null non-negative integer, got %v", priority)
+	}
+	forceLive := sidecarContractMap(t, fieldsProps, "force_live")
+	if forceLive["type"] != "boolean" || forceLive["nullable"] == true {
+		t.Fatalf("fields mutation force_live must be a non-null boolean, got %v", forceLive)
 	}
 
 	deleteSchema := sidecarMutationRequestSchema(t, doc, "/api/sidecars/{sidecar_id}/auth-files/{auth_id}", "delete")

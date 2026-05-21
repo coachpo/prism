@@ -620,7 +620,7 @@ Run these checks in both `en` and `zh-CN` after the frontend is up:
 | O10 | P1 | Sync-status read | Status includes `management_auth_state`, `stale`, `due`, `paused`, sync timestamps, and auth-failure pause metadata without profile scope |
 | O11 | P0 | `/sidecars` UI load | Route loads outside selected-profile scope, shows sidecar health, can select a detail row, and renders auth/provider inventory |
 | O13 | P1 | Auth status mutation | Status patch succeeds only through Prism backend |
-| O14 | P1 | Auth priority/field mutation | Field patch accepts allowed fields/header names and rejects unsupported fields |
+| O14 | P1 | Auth priority mutation | Field patch accepts only priority plus optional `force_live` and rejects any other auth-file mutation field |
 | O15 | P1 | Sidecar worker priority | `sidecar_snapshot_sync` rejects elevated priority overrides |
 
 ---

@@ -607,45 +607,39 @@ test.describe("sidecars management", () => {
     await expectNoRawSecrets(page);
   });
 
-  test("authfile live field editor updates approved fields", async ({ page }) => {
+  test("authfile browser hides live field editor controls while keeping priority save", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
 
     await page.goto("/sidecars");
 
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
-    await primaryRow.getByRole("button", { name: "Edit live auth fields for primary-oauth.json" }).click();
+    await expect(primaryRow).toContainText("priority 20");
+    await expect(page.getByRole("button", { name: /Edit live auth fields/ })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Edit live auth fields" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Apply field edits" })).toHaveCount(0);
 
-    const dialog = page.getByRole("dialog", { name: "Edit live auth fields" });
-    await expect(dialog).toContainText("Only non-empty replacement values are sent");
-    await page.getByLabel("Prefix").fill(" team-a/ ");
-    await page.getByLabel("Proxy URL").fill(" https://proxy.example.test ");
-    await page.getByLabel("Note").fill(" operator note ");
-    await page.getByLabel("x-correlation-id").fill(" corr-123 ");
-    await page.getByLabel("x-request-id").fill(" req-456 ");
-    await page.getByLabel("x-trace-id").fill(" trace-789 ");
-    await dialog.getByRole("button", { name: "Apply field edits" }).click();
+    await page.getByLabel("Priority for primary-oauth.json").fill("42");
+    await expect(primaryRow.getByRole("button", { name: "Save" })).toBeEnabled();
+    await primaryRow.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("alertdialog", { name: "Confirm manual auth mutation" })).toContainText("Positive priorities are written as explicit routing priorities");
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
 
     await expect.poll(() => api.fieldPatchPayloads.length).toBe(1);
     expect(api.fieldPatchPayloads[0]).toEqual({
       authId: "auth-primary",
       forceLive: false,
-      payload: {
-        prefix: "team-a/",
-        proxy_url: "https://proxy.example.test",
-        note: "operator note",
-        headers: {
-          "x-correlation-id": "corr-123",
-          "x-request-id": "req-456",
-          "x-trace-id": "trace-789",
-        },
-      },
+      payload: { priority: 42 },
     });
+    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("prefix");
+    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("proxy_url");
+    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("note");
+    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("headers");
     expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("custom_headers");
-    await expect(primaryRow).toContainText("Auth fields updated and refreshed local snapshot.");
+    await expect(primaryRow).toContainText("priority 42");
     await expectNoRawSecrets(page);
   });
 
-  test("authfile live field editor hides unresolved fields", async ({ page }) => {
+  test("authfile browser does not expose unresolved live fields", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
       authSnapshots: [
         authSnapshot({
@@ -665,51 +659,45 @@ test.describe("sidecars management", () => {
 
     await page.goto("/sidecars");
 
-    await expect(page.getByRole("button", { name: "Edit live auth fields for name-derived-fields.json" })).toHaveCount(0);
     const safeRow = page.getByRole("row").filter({ hasText: "safe-fields.json" });
-    await safeRow.getByRole("button", { name: "Edit live auth fields for safe-fields.json" }).click();
-
-    const dialog = page.getByRole("dialog", { name: "Edit live auth fields" });
-    await expect(dialog).not.toContainText("authorization");
-    await expect(dialog).not.toContainText("refresh_token");
-    await expect(dialog).not.toContainText("custom_headers");
-    await expect(dialog).not.toContainText("x-extra-id");
-    await page.getByLabel("Note").fill("   ");
-    await page.getByLabel("x-request-id").fill(" req-only ");
-    await dialog.getByRole("button", { name: "Apply field edits" }).click();
-
-    await expect.poll(() => api.fieldPatchPayloads.length).toBe(1);
-    expect(api.fieldPatchPayloads[0]).toEqual({
-      authId: "auth-safe-fields",
-      forceLive: false,
-      payload: { headers: { "x-request-id": "req-only" } },
-    });
-    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("note");
+    await expect(safeRow).toContainText("priority 20");
+    await expect(safeRow.getByRole("button", { name: /Edit live auth fields/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Edit live auth fields/ })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Edit live auth fields" })).toHaveCount(0);
+    await expect(page.getByText("authorization")).toHaveCount(0);
+    await expect(page.getByText("refresh_token")).toHaveCount(0);
+    await expect(page.getByText("custom_headers")).toHaveCount(0);
+    await expect(page.getByText("x-extra-id")).toHaveCount(0);
+    await expect(page.getByText("raw-secret")).toHaveCount(0);
+    expect(api.fieldPatchPayloads).toEqual([]);
     await expectNoRawSecrets(page);
   });
 
-  test("retries stale auth field edits with live snapshot and preserves detail on degraded refresh", async ({ page }) => {
+  test("retries stale priority edits with live snapshot and preserves detail on degraded refresh", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
       fieldsMutationOutcomesByAuthId: { "auth-primary": ["stale_snapshot", "succeeded_sync_failed"] },
-      fieldsSyncErrorByAuthId: { "auth-primary": "detail refresh failed after field patch" },
+      fieldsSyncErrorByAuthId: { "auth-primary": "detail refresh failed after priority patch" },
     });
 
     await page.goto("/sidecars");
 
     const detail = page.getByTestId("sidecar-detail");
     const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
-    await primaryRow.getByRole("button", { name: "Edit live auth fields for primary-oauth.json" }).click();
-    await page.getByLabel("Note").fill("retryable note");
-    await page.getByRole("dialog", { name: "Edit live auth fields" }).getByRole("button", { name: "Apply field edits" }).click();
+    await page.getByLabel("Priority for primary-oauth.json").fill("42");
+    await expect(primaryRow.getByRole("button", { name: "Save" })).toBeEnabled();
+    await primaryRow.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
 
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, forceLive, payload }) => `${authId}:${String(forceLive)}:${String(payload.priority)}`)).toContain("auth-primary:false:42");
     await expect(primaryRow).toContainText("Snapshot is stale");
     await expect(primaryRow.getByRole("button", { name: "Retry with live snapshot" })).toBeVisible();
-    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, forceLive }) => `${authId}:${String(forceLive)}`)).toContain("auth-primary:false");
+    expect(api.fieldPatchPayloads[0].payload).toEqual({ priority: 42 });
 
     await primaryRow.getByRole("button", { name: "Retry with live snapshot" }).click();
-    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, forceLive }) => `${authId}:${String(forceLive)}`)).toContain("auth-primary:true");
-    await expect(primaryRow).toContainText("Fields changed upstream, but Prism could not refresh auth details");
-    await expect(detail).toContainText("detail refresh failed after field patch");
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, forceLive, payload }) => `${authId}:${String(forceLive)}:${String(payload.priority)}`)).toContain("auth-primary:true:42");
+    expect(api.fieldPatchPayloads[1].payload).toEqual({ priority: 42 });
+    await expect(primaryRow).toContainText("Priority changed upstream, but Prism could not refresh auth details");
+    await expect(detail).toContainText("detail refresh failed after priority patch");
     await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json");
   });
 
