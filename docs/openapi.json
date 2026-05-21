@@ -5727,6 +5727,64 @@
         }
       }
     },
+    "/api/sidecars/{sidecar_id}/auth-files/models": {
+      "get": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "List Sidecar Auth File Models",
+        "description": "Read-only passthrough to the sidecar's auth-file model discovery route. A 200 response with an empty models array means discovery is supported but returned no models; 404 means the sidecar does not expose the discovery route.",
+        "operationId": "list_sidecar_auth_file_models_api_sidecars__sidecar_id__auth_files_models_get",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthModelsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-file models discovery unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "detail"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sidecars/{sidecar_id}/providers": {
       "get": {
         "tags": [
@@ -5782,6 +5840,66 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SidecarSyncStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidecars/{sidecar_id}/auth-files/{auth_id}": {
+      "delete": {
+        "tags": [
+          "sidecars"
+        ],
+        "summary": "Delete Sidecar Auth File",
+        "operationId": "delete_sidecar_auth_file_api_sidecars__sidecar_id__auth_files__auth_id__delete",
+        "parameters": [
+          {
+            "name": "sidecar_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "auth_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Must exactly match the current live auth file name confirmed by the operator."
+                  }
+                },
+                "required": [
+                  "confirm_name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SidecarAuthMutationResponse"
                 }
               }
             }
@@ -5888,31 +6006,36 @@
                   },
                   "prefix": {
                     "type": "string",
-                    "nullable": true
+                    "minLength": 1,
+                    "description": "Non-empty replacement only; omit to preserve the current value. Null or empty values are rejected."
                   },
                   "proxy_url": {
                     "type": "string",
-                    "nullable": true
+                    "minLength": 1,
+                    "description": "Non-empty replacement only; omit to preserve the current value. Null or empty values are rejected."
                   },
                   "note": {
                     "type": "string",
-                    "nullable": true
+                    "minLength": 1,
+                    "description": "Non-empty replacement only; omit to preserve the current value. Null or empty values are rejected."
                   },
                   "headers": {
                     "type": "object",
+                    "minProperties": 1,
                     "additionalProperties": {
                       "type": "string",
-                      "nullable": true
+                      "minLength": 1
                     },
-                    "description": "Allowlisted custom headers only: x-correlation-id, x-request-id, and x-trace-id."
+                    "description": "Allowlisted custom headers only: x-correlation-id, x-request-id, and x-trace-id. Header values must be non-empty strings; null, empty objects, and empty values are rejected."
                   },
                   "custom_headers": {
                     "type": "object",
+                    "minProperties": 1,
                     "additionalProperties": {
                       "type": "string",
-                      "nullable": true
+                      "minLength": 1
                     },
-                    "description": "Alias for headers. Do not send both headers and custom_headers."
+                    "description": "Alias for headers. Do not send both headers and custom_headers. Header values must be non-empty strings; null, empty objects, and empty values are rejected."
                   },
                   "force_live": {
                     "type": "boolean"
@@ -16724,6 +16847,45 @@
         ],
         "additionalProperties": false
       },
+      "SidecarAuthModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "owned_by": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "SidecarAuthModelsResponse": {
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SidecarAuthModel"
+            }
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "additionalProperties": false
+      },
       "SidecarProviderSnapshot": {
         "type": "object",
         "properties": {
@@ -16860,7 +17022,11 @@
         "type": "object",
         "properties": {
           "state": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "succeeded_sync_failed"
+            ]
           },
           "snapshot": {
             "$ref": "#/components/schemas/SidecarAuthSnapshot"
@@ -16870,7 +17036,7 @@
           },
           "sync_error": {
             "type": "string",
-            "nullable": true
+            "description": "Present when state is succeeded_sync_failed; omitted for clean success."
           }
         },
         "required": [

@@ -147,13 +147,14 @@ func (s *Service) syncSidecarInstance(ctx context.Context, instance SidecarInsta
 }
 
 func (s *Service) collectSidecarSnapshots(ctx context.Context, sidecarID int, observedAt time.Time, target CLIProxyTarget) ([]SidecarAuthSnapshotInput, []SidecarProviderSnapshotBatch, error) {
-	authFiles, err := s.fetchSidecarAuthFileRows(ctx, target)
+	authFiles, authFilesResponse, err := s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
 	if err != nil {
 		return nil, nil, err
 	}
+	deleteSupported := s.authDeleteCapabilityKnownSupported(ctx, target, authFilesResponse)
 	authInputs := make([]SidecarAuthSnapshotInput, 0, len(authFiles))
 	for _, raw := range authFiles {
-		input, err := normalizeSidecarAuthSnapshot(sidecarID, observedAt, raw)
+		input, err := normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID, observedAt, raw, deleteSupported)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -326,14 +327,35 @@ func newSidecarSyncContractError(detail string) error {
 }
 
 func (s *Service) fetchSidecarAuthFileRows(ctx context.Context, target CLIProxyTarget) ([]json.RawMessage, error) {
+	rows, _, err := s.fetchSidecarAuthFileRowsWithResponse(ctx, target)
+	return rows, err
+}
+
+func (s *Service) fetchSidecarAuthFileRowsWithResponse(ctx context.Context, target CLIProxyTarget) ([]json.RawMessage, CLIProxyResponse, error) {
 	var envelope map[string]json.RawMessage
-	if _, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &envelope); err != nil {
-		return nil, err
+	response, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &envelope)
+	if err != nil {
+		return nil, response, err
 	}
-	return decodeSidecarAuthFileRows(envelope)
+	rows, err := decodeSidecarAuthFileRows(envelope)
+	return rows, response, err
+}
+
+func (s *Service) fetchSidecarAuthFileRowsWithResponseAllowEmpty(ctx context.Context, target CLIProxyTarget) ([]json.RawMessage, CLIProxyResponse, error) {
+	var envelope map[string]json.RawMessage
+	response, err := s.cliProxyClient.FetchJSON(ctx, target, http.MethodGet, "/auth-files", nil, &envelope)
+	if err != nil {
+		return nil, response, err
+	}
+	rows, err := decodeSidecarAuthFileRowsWithEmptyPolicy(envelope, true)
+	return rows, response, err
 }
 
 func decodeSidecarAuthFileRows(envelope map[string]json.RawMessage) ([]json.RawMessage, error) {
+	return decodeSidecarAuthFileRowsWithEmptyPolicy(envelope, false)
+}
+
+func decodeSidecarAuthFileRowsWithEmptyPolicy(envelope map[string]json.RawMessage, allowEmpty bool) ([]json.RawMessage, error) {
 	filesRaw, ok := envelope["files"]
 	if !ok {
 		return nil, newSidecarSyncContractError("/auth-files response files must be present")
@@ -346,10 +368,17 @@ func decodeSidecarAuthFileRows(envelope map[string]json.RawMessage) ([]json.RawM
 	if err := json.Unmarshal(trimmed, &files); err != nil || files == nil {
 		return nil, newSidecarSyncContractError("/auth-files response files must be an array")
 	}
+	if len(files) == 0 && !allowEmpty {
+		return nil, newSidecarSyncContractError("/auth-files response files must not be empty; empty-list deletion semantics are ambiguous")
+	}
 	return files, nil
 }
 
 func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.RawMessage) (SidecarAuthSnapshotInput, error) {
+	return normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID, observedAt, raw, false)
+}
+
+func normalizeSidecarAuthSnapshotWithDeleteSupport(sidecarID int, observedAt time.Time, raw json.RawMessage, deleteSupported bool) (SidecarAuthSnapshotInput, error) {
 	fields, err := decodeSidecarSyncObject(raw)
 	if err != nil {
 		return SidecarAuthSnapshotInput{}, err
@@ -359,7 +388,7 @@ func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.
 	if authID == "" || name == "" {
 		return SidecarAuthSnapshotInput{}, invalidInputError("auth snapshot requires id or name")
 	}
-	snapshot, err := normalizedAuthSnapshotJSON(fields)
+	snapshot, err := normalizedAuthSnapshotJSON(fields, deleteSupported)
 	if err != nil {
 		return SidecarAuthSnapshotInput{}, err
 	}
@@ -396,12 +425,15 @@ func normalizeSidecarAuthSnapshot(sidecarID int, observedAt time.Time, raw json.
 	}, nil
 }
 
-func normalizedAuthSnapshotJSON(fields map[string]any) (json.RawMessage, error) {
-	snapshot := map[string]any{}
-	for _, key := range []string{"id", "auth_index", "name", "type", "provider", "label", "status", "status_message", "disabled", "unavailable", "priority", "success", "failed", "quota", "recent_requests", "model_states", "note"} {
+func normalizedAuthSnapshotJSON(fields map[string]any, deleteSupported bool) (json.RawMessage, error) {
+	snapshot := map[string]any{"delete_supported": deleteSupported}
+	for _, key := range []string{"id", "auth_index", "name", "type", "provider", "label", "status", "status_message", "disabled", "unavailable", "runtime_only", "source", "priority", "success", "failed", "quota", "recent_requests", "model_states", "note"} {
 		if value, ok := fields[key]; ok {
 			snapshot[key] = sanitizeSidecarSnapshotValue(key, value)
 		}
+	}
+	if _, ok := fields["path"]; ok {
+		snapshot["path_present"] = trimmedStringValue(fields["path"]) != ""
 	}
 	missing := missingSyncFields(fields, "quota", "model_states", "recent_requests")
 	if len(missing) > 0 {

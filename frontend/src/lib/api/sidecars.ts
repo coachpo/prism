@@ -1,4 +1,6 @@
 import type {
+  SidecarAuthModelsResponse,
+  SidecarAuthMutationFieldsInput,
   SidecarAuthMutationResponse,
   SidecarAuthSnapshot,
   SidecarAuthSnapshotListResponse,
@@ -30,6 +32,15 @@ type SidecarInstanceUpdateInput = Partial<SidecarInstanceWrite> & {
   management_password?: string | null;
 };
 
+type SidecarAuthMutationStatusInput = {
+  disabled: boolean;
+  force_live?: boolean;
+};
+
+type SidecarAuthDeleteInput = {
+  confirm_name: string;
+};
+
 export const sidecars = {
   list: () => request<SidecarListResponse>("/api/sidecars"),
   get: (id: number) => request<SidecarInstance>(`/api/sidecars/${id}`),
@@ -55,17 +66,41 @@ export const sidecars = {
   authSnapshots: (sidecarId: number) =>
     request<SidecarAuthSnapshotListResponse>(`/api/sidecars/${sidecarId}/auth-snapshots`),
   authSnapshot: (sidecarId: number, snapshotId: number | string) =>
-    request<SidecarAuthSnapshot>(
-      `/api/sidecars/${sidecarId}/auth-snapshots/${encodeURIComponent(String(snapshotId))}`
-    ),
+    request<SidecarAuthSnapshot>(`/api/sidecars/${sidecarId}/auth-snapshots/${encodeURIComponent(String(snapshotId))}`),
   providerSnapshots: (sidecarId: number) =>
     request<SidecarProviderSnapshotListResponse>(`/api/sidecars/${sidecarId}/provider-snapshots`),
-  updateAuthFileFields: (sidecarId: number, authId: string, data: { priority: number }) =>
+  authFileModels: (sidecarId: number, authFileName: string) => {
+    const query = new URLSearchParams({ name: authFileName });
+    return request<SidecarAuthModelsResponse>(`/api/sidecars/${sidecarId}/auth-files/models?${query.toString()}`);
+  },
+  deleteAuthFile: (sidecarId: number, authId: string, data: SidecarAuthDeleteInput) =>
     request<SidecarAuthMutationResponse>(
-      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/fields`,
+      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify(data),
+      },
+    ),
+  updateAuthFileStatus: (sidecarId: number, authId: string, data: SidecarAuthMutationStatusInput) => {
+    const { force_live: forceLive, ...payload } = data;
+    const query = forceLive ? "?force_live=true" : "";
+    return request<SidecarAuthMutationResponse>(
+      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/status${query}`,
       {
         method: "PATCH",
-        body: JSON.stringify(data),
-      }
-    ),
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+  updateAuthFileFields: (sidecarId: number, authId: string, data: SidecarAuthMutationFieldsInput) => {
+    const { force_live: forceLive, ...payload } = data;
+    const query = forceLive ? "?force_live=true" : "";
+    return request<SidecarAuthMutationResponse>(
+      `/api/sidecars/${sidecarId}/auth-files/${encodeURIComponent(authId)}/fields${query}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
 };

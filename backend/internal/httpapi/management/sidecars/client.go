@@ -65,6 +65,9 @@ type CLIProxyTarget struct {
 type CLIProxyResponse struct {
 	StatusCode int
 	Path       string
+	Version    string
+	Commit     string
+	BuildDate  string
 }
 
 type CLIProxyClientError struct {
@@ -94,6 +97,19 @@ func (err *CLIProxyClientError) Unwrap() error {
 	return err.Err
 }
 
+func cliProxyResponseFromHTTP(response *http.Response, managementPath string) CLIProxyResponse {
+	if response == nil {
+		return CLIProxyResponse{Path: managementPath}
+	}
+	return CLIProxyResponse{
+		StatusCode: response.StatusCode,
+		Path:       managementPath,
+		Version:    strings.TrimSpace(response.Header.Get("X-CPA-VERSION")),
+		Commit:     strings.ToLower(strings.TrimSpace(response.Header.Get("X-CPA-COMMIT"))),
+		BuildDate:  strings.TrimSpace(response.Header.Get("X-CPA-BUILD-DATE")),
+	}
+}
+
 type dnsResolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
 }
@@ -113,6 +129,7 @@ func NewCLIProxyClient(httpClient *http.Client) *CLIProxyClient {
 
 var cliProxyManagementPathList = []string{
 	"/auth-files",
+	"/auth-files/models",
 	"/auth-files/status",
 	"/auth-files/fields",
 	"/gemini-api-key",
@@ -124,6 +141,7 @@ var cliProxyManagementPathList = []string{
 
 var cliProxyManagementPathAllowlist = map[string]struct{}{
 	"/auth-files":           {},
+	"/auth-files/models":    {},
 	"/auth-files/status":    {},
 	"/auth-files/fields":    {},
 	"/gemini-api-key":       {},
@@ -131,6 +149,21 @@ var cliProxyManagementPathAllowlist = map[string]struct{}{
 	"/codex-api-key":        {},
 	"/vertex-api-key":       {},
 	"/openai-compatibility": {},
+}
+
+var cliProxyManagementMethodAllowlist = map[string]map[string]struct{}{
+	"/auth-files": {
+		http.MethodDelete: {},
+		http.MethodGet:    {},
+	},
+	"/auth-files/models":    {http.MethodGet: {}},
+	"/auth-files/status":    {http.MethodPatch: {}},
+	"/auth-files/fields":    {http.MethodPatch: {}},
+	"/gemini-api-key":       {http.MethodGet: {}},
+	"/claude-api-key":       {http.MethodGet: {}},
+	"/codex-api-key":        {http.MethodGet: {}},
+	"/vertex-api-key":       {http.MethodGet: {}},
+	"/openai-compatibility": {http.MethodGet: {}},
 }
 
 func SupportedCLIProxyManagementPaths() []string {
@@ -202,6 +235,10 @@ func normalizeCLIProxyBasePath(rawPath string) string {
 }
 
 func (c *CLIProxyClient) FetchJSON(ctx context.Context, target CLIProxyTarget, method string, managementPath string, payload any, responseTarget any) (CLIProxyResponse, error) {
+	return c.FetchJSONWithQuery(ctx, target, method, managementPath, nil, payload, responseTarget)
+}
+
+func (c *CLIProxyClient) FetchJSONWithQuery(ctx context.Context, target CLIProxyTarget, method string, managementPath string, query urlpkg.Values, payload any, responseTarget any) (CLIProxyResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -214,7 +251,10 @@ func (c *CLIProxyClient) FetchJSON(ctx context.Context, target CLIProxyTarget, m
 	if err != nil {
 		return CLIProxyResponse{}, err
 	}
-	requestURL, err := buildCLIProxyManagementURL(baseURL, path)
+	if err := validateCLIProxyManagementMethod(method, path); err != nil {
+		return CLIProxyResponse{}, err
+	}
+	requestURL, err := buildCLIProxyManagementURL(baseURL, path, query)
 	if err != nil {
 		return CLIProxyResponse{}, err
 	}
@@ -274,7 +314,7 @@ func (c *CLIProxyClient) fetchJSONAttempt(ctx context.Context, client *http.Clie
 	defer response.Body.Close()
 	if response.StatusCode >= http.StatusInternalServerError && allowRetry && method == http.MethodGet {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
-		return CLIProxyResponse{StatusCode: response.StatusCode, Path: managementPath}, true, &CLIProxyClientError{Code: CLIProxyErrorUpstreamStatus, StatusCode: response.StatusCode, Path: managementPath}
+		return cliProxyResponseFromHTTP(response, managementPath), true, &CLIProxyClientError{Code: CLIProxyErrorUpstreamStatus, StatusCode: response.StatusCode, Path: managementPath}
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
 		return CLIProxyResponse{}, false, &CLIProxyClientError{Code: CLIProxyErrorInvalidManagementAuth, StatusCode: response.StatusCode, Path: managementPath}
@@ -287,7 +327,7 @@ func (c *CLIProxyClient) fetchJSONAttempt(ctx context.Context, client *http.Clie
 	}
 	if responseTarget == nil {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
-		return CLIProxyResponse{StatusCode: response.StatusCode, Path: managementPath}, false, nil
+		return cliProxyResponseFromHTTP(response, managementPath), false, nil
 	}
 	body, err := readCappedBody(response.Body, c.responseBodyLimit())
 	if err != nil {
@@ -296,7 +336,7 @@ func (c *CLIProxyClient) fetchJSONAttempt(ctx context.Context, client *http.Clie
 	if err := json.Unmarshal(body, responseTarget); err != nil {
 		return CLIProxyResponse{}, false, &CLIProxyClientError{Code: CLIProxyErrorMalformedJSON, Path: managementPath, Err: err}
 	}
-	return CLIProxyResponse{StatusCode: response.StatusCode, Path: managementPath}, false, nil
+	return cliProxyResponseFromHTTP(response, managementPath), false, nil
 }
 
 func (c *CLIProxyClient) responseBodyLimit() int64 {
@@ -359,7 +399,22 @@ func normalizeCLIProxyManagementPath(rawPath string) (string, error) {
 	return cleaned, nil
 }
 
-func buildCLIProxyManagementURL(baseURL string, managementPath string) (string, error) {
+func validateCLIProxyManagementMethod(method string, path string) error {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == "" {
+		return &CLIProxyClientError{Code: CLIProxyErrorUnsupportedPath, Path: path, Err: errors.New("management method is not allowlisted")}
+	}
+	allowed, ok := cliProxyManagementMethodAllowlist[path]
+	if !ok {
+		return &CLIProxyClientError{Code: CLIProxyErrorUnsupportedPath, Path: path, Err: errors.New("management path is not allowlisted")}
+	}
+	if _, ok := allowed[method]; !ok {
+		return &CLIProxyClientError{Code: CLIProxyErrorUnsupportedPath, Path: path, Err: errors.New("management method is not allowlisted")}
+	}
+	return nil
+}
+
+func buildCLIProxyManagementURL(baseURL string, managementPath string, query urlpkg.Values) (string, error) {
 	parsed, err := urlpkg.Parse(baseURL)
 	if err != nil {
 		return "", &CLIProxyClientError{Code: CLIProxyErrorInvalidBaseURL, Path: managementPath, Err: err}
@@ -367,7 +422,7 @@ func buildCLIProxyManagementURL(baseURL string, managementPath string) (string, 
 	basePath := strings.TrimRight(parsed.Path, "/")
 	parsed.Path = basePath + cliProxyManagementPrefixValue + managementPath
 	parsed.RawPath = ""
-	parsed.RawQuery = ""
+	parsed.RawQuery = query.Encode()
 	parsed.Fragment = ""
 	return parsed.String(), nil
 }

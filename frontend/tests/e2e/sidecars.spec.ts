@@ -27,17 +27,21 @@ type AuthSnapshot = {
   id: number;
   sidecar_id: number;
   auth_id: string;
+  auth_index?: string;
   name: string;
   provider?: string;
   label?: string;
   status?: string;
+  status_message?: string;
   disabled?: boolean;
   unavailable?: boolean;
   priority?: number;
   success_count?: number;
   failed_count?: number;
   recent_requests?: unknown;
+  model_states?: unknown;
   observed_at: string;
+  snapshot?: unknown;
 };
 
 type ProviderSnapshot = {
@@ -51,6 +55,13 @@ type ProviderSnapshot = {
   disabled?: boolean;
   observed_at: string;
   snapshot?: unknown;
+};
+
+type AuthModel = {
+  id: string;
+  display_name?: string;
+  type?: string;
+  owned_by?: string;
 };
 
 const now = "2026-05-10T12:00:00.000Z";
@@ -100,6 +111,7 @@ function authSnapshot(overrides: Partial<AuthSnapshot>): AuthSnapshot {
     failed_count: 1,
     recent_requests: [{ minute: now, count: 2 }],
     observed_at: now,
+    snapshot: { delete_supported: true, runtime_only: false, source: "file", path_present: true },
     ...overrides,
   };
 }
@@ -176,10 +188,24 @@ async function expectNoRawSecrets(page: Page) {
   });
 }
 
+type AuthStatusMutationOutcome = "succeeded" | "stale_snapshot" | "upstream_failure" | "succeeded_sync_failed";
+
 type MockSidecarsApiOptions = {
+  authModelsByName?: Record<string, AuthModel[]>;
+  authModelsUnsupportedNames?: string[];
   authSnapshots?: AuthSnapshot[];
   authSnapshotsBySidecarId?: Record<number, AuthSnapshot[]>;
+  authSnapshotFailureAfterRequestBySidecarId?: Record<number, number>;
+  authSnapshotFailureDetailBySidecarId?: Record<number, string>;
   detailDelayBySidecarId?: Record<number, number>;
+  deleteMutationOutcomesByAuthId?: Record<string, AuthStatusMutationOutcome[]>;
+  deleteSyncErrorByAuthId?: Record<string, string>;
+  fieldsMutationOutcomesByAuthId?: Record<string, AuthStatusMutationOutcome[]>;
+  fieldsSyncErrorByAuthId?: Record<string, string>;
+  statusMutationOutcomesByAuthId?: Record<string, AuthStatusMutationOutcome[]>;
+  statusSyncErrorByAuthId?: Record<string, string>;
+  syncStateBySidecarId?: Record<number, "succeeded" | "succeeded_sync_failed" | "failed">;
+  syncErrorBySidecarId?: Record<number, string>;
 };
 
 async function expectAuthOrder(page: Page, orderedText: string[]) {
@@ -201,6 +227,20 @@ async function mockSidecarsApi(
   let authSnapshots = options.authSnapshots ? [...options.authSnapshots] : defaultAuthSnapshots();
   const providerSnapshots = defaultProviderSnapshots();
   const calls: string[] = [];
+  const deletePayloads: Array<{ authId: string; payload: Record<string, unknown> }> = [];
+  const fieldPatchPayloads: Array<{ authId: string; forceLive: boolean; payload: Record<string, unknown> }> = [];
+  const statusPatchPayloads: Array<{ authId: string; forceLive: boolean; payload: Record<string, unknown> }> = [];
+  const deleteMutationOutcomeQueues = Object.fromEntries(
+    Object.entries(options.deleteMutationOutcomesByAuthId ?? {}).map(([authId, outcomes]) => [authId, [...outcomes]]),
+  );
+  const fieldsMutationOutcomeQueues = Object.fromEntries(
+    Object.entries(options.fieldsMutationOutcomesByAuthId ?? {}).map(([authId, outcomes]) => [authId, [...outcomes]]),
+  );
+  const statusMutationOutcomeQueues = Object.fromEntries(
+    Object.entries(options.statusMutationOutcomesByAuthId ?? {}).map(([authId, outcomes]) => [authId, [...outcomes]]),
+  );
+  const authSnapshotRequestCounts = new Map<number, number>();
+  const detailRequestCounts = new Map<number, number>();
 
   const delayDetail = async (sidecarId: number) => {
     const delay = options.detailDelayBySidecarId?.[sidecarId] ?? 0;
@@ -257,19 +297,110 @@ async function mockSidecarsApi(
     if (authSnapshotsMatch && request.method() === "GET") {
       const sidecarId = Number(authSnapshotsMatch[1]);
       await delayDetail(sidecarId);
+      const requestNumber = (authSnapshotRequestCounts.get(sidecarId) ?? 0) + 1;
+      authSnapshotRequestCounts.set(sidecarId, requestNumber);
+      const failAfter = options.authSnapshotFailureAfterRequestBySidecarId?.[sidecarId];
+      if (failAfter !== undefined && requestNumber > failAfter) {
+        return json(route, { detail: options.authSnapshotFailureDetailBySidecarId?.[sidecarId] ?? "auth snapshot refresh failed" }, 500);
+      }
       return json(route, { items: authSnapshotsFor(sidecarId) });
     }
     const providerSnapshotsMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/provider-snapshots$/);
     if (providerSnapshotsMatch && request.method() === "GET") {
       const sidecarId = Number(providerSnapshotsMatch[1]);
       await delayDetail(sidecarId);
+      const providerRequestNumber = (detailRequestCounts.get(sidecarId) ?? 0) + 1;
+      detailRequestCounts.set(sidecarId, providerRequestNumber);
       return json(route, { items: providerSnapshots });
     }
+    const modelsMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/auth-files\/models$/);
+    if (modelsMatch && request.method() === "GET") {
+      const name = url.searchParams.get("name") ?? "";
+      if (options.authModelsUnsupportedNames?.includes(name)) {
+        return json(route, { detail: "authfile models discovery unsupported" }, 404);
+      }
+      return json(route, { models: options.authModelsByName?.[name] ?? [] });
+    }
+    const deleteAuthMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/auth-files\/([^/]+)$/);
+    if (deleteAuthMatch && request.method() === "DELETE") {
+      const authId = decodeURIComponent(deleteAuthMatch[2]);
+      const payload = JSON.parse(request.postData() ?? "{}") as Record<string, unknown>;
+      deletePayloads.push({ authId, payload });
+      const outcomeQueue = deleteMutationOutcomeQueues[authId] ?? [];
+      const outcome = outcomeQueue.shift() ?? "succeeded";
+      if (outcome === "stale_snapshot") {
+        return json(route, { detail: "stale_auth_confirmation" }, 409);
+      }
+      if (outcome === "upstream_failure") {
+        return json(route, { detail: "upstream refused auth delete" }, 424);
+      }
+      const previousSnapshot = authSnapshots.find((snapshot) => snapshot.auth_id === authId);
+      if (outcome === "succeeded_sync_failed") {
+        return json(route, {
+          state: "succeeded_sync_failed",
+          snapshot: previousSnapshot,
+          sync_error: options.deleteSyncErrorByAuthId?.[authId] ?? "auth delete refresh failed",
+        });
+      }
+      authSnapshots = authSnapshots.filter((snapshot) => snapshot.auth_id !== authId);
+      return json(route, { state: "succeeded" });
+    }
+
     const mutationMatch = pathname.match(/^\/api\/sidecars\/(\d+)\/auth-files\/([^/]+)\/(status|fields)$/);
     if (mutationMatch && request.method() === "PATCH") {
       const authId = decodeURIComponent(mutationMatch[2]);
-      const payload = JSON.parse(request.postData() ?? "{}");
-      authSnapshots = authSnapshots.map((snapshot) => snapshot.auth_id === authId ? { ...snapshot, ...payload } : snapshot);
+      const mutationKind = mutationMatch[3];
+      const payload = JSON.parse(request.postData() ?? "{}") as Partial<AuthSnapshot> & Record<string, unknown>;
+      if (mutationKind === "status") {
+        const forceLive = url.searchParams.get("force_live") === "true";
+        statusPatchPayloads.push({ authId, forceLive, payload });
+        const outcomeQueue = statusMutationOutcomeQueues[authId] ?? [];
+        const outcome = outcomeQueue.shift() ?? "succeeded";
+        if (outcome === "stale_snapshot") {
+          return json(route, { detail: "stale_snapshot" }, 409);
+        }
+        if (outcome === "upstream_failure") {
+          return json(route, { detail: "upstream refused auth status" }, 424);
+        }
+        const previousSnapshot = authSnapshots.find((snapshot) => snapshot.auth_id === authId);
+        if (outcome === "succeeded_sync_failed") {
+          return json(route, {
+            state: "succeeded_sync_failed",
+            snapshot: previousSnapshot,
+            sync_error: options.statusSyncErrorByAuthId?.[authId] ?? "auth detail refresh failed",
+          });
+        }
+        authSnapshots = authSnapshots.map((snapshot) => snapshot.auth_id === authId ? { ...snapshot, disabled: Boolean(payload.disabled) } : snapshot);
+        return json(route, { state: "succeeded", snapshot: authSnapshots.find((snapshot) => snapshot.auth_id === authId) });
+      }
+      const forceLive = url.searchParams.get("force_live") === "true";
+      fieldPatchPayloads.push({ authId, forceLive, payload });
+      const outcomeQueue = fieldsMutationOutcomeQueues[authId] ?? [];
+      const outcome = outcomeQueue.shift() ?? "succeeded";
+      if (outcome === "stale_snapshot") {
+        return json(route, { detail: "stale_snapshot" }, 409);
+      }
+      if (outcome === "upstream_failure") {
+        return json(route, { detail: "upstream refused auth fields" }, 424);
+      }
+      const previousSnapshot = authSnapshots.find((snapshot) => snapshot.auth_id === authId);
+      if (outcome === "succeeded_sync_failed") {
+        return json(route, {
+          state: "succeeded_sync_failed",
+          snapshot: previousSnapshot,
+          sync_error: options.fieldsSyncErrorByAuthId?.[authId] ?? "auth field refresh failed",
+        });
+      }
+      authSnapshots = authSnapshots.map((snapshot) => {
+        if (snapshot.auth_id !== authId) {
+          return snapshot;
+        }
+        const nextSnapshot: AuthSnapshot = { ...snapshot, ...payload };
+        if (payload.priority === 0) {
+          delete nextSnapshot.priority;
+        }
+        return nextSnapshot;
+      });
       return json(route, { state: "succeeded", snapshot: authSnapshots.find((snapshot) => snapshot.auth_id === authId) });
     }
 
@@ -285,7 +416,17 @@ async function mockSidecarsApi(
         return json(route, { state: "succeeded", management_auth_state: "valid", status_code: 200 });
       }
       if (action === "sync") {
-        return json(route, { state: "succeeded", sidecar: existing, sync_status: syncStatus(existing), auth_snapshot_count: authSnapshots.length, provider_snapshot_count: providerSnapshots.length });
+        const state = options.syncStateBySidecarId?.[id] ?? "succeeded";
+        const errorDetail = options.syncErrorBySidecarId?.[id] ?? "detail refresh failed";
+        const syncResponse = {
+          state,
+          sidecar: existing,
+          sync_status: { ...syncStatus(existing), last_sync_error: state === "succeeded" ? undefined : errorDetail },
+          auth_snapshot_count: authSnapshots.length,
+          provider_snapshot_count: providerSnapshots.length,
+          error_detail: state === "failed" ? errorDetail : undefined,
+        };
+        return json(route, syncResponse, state === "failed" ? 502 : 200);
       }
       if (request.method() === "PATCH") {
         const payload = JSON.parse(request.postData() ?? "{}");
@@ -302,7 +443,7 @@ async function mockSidecarsApi(
     throw new Error(`Unhandled sidecars mock API route: ${request.method()} ${pathname}`);
   });
 
-  return { calls };
+  return { calls, deletePayloads, fieldPatchPayloads, statusPatchPayloads };
 }
 
 test.describe("sidecars management", () => {
@@ -323,7 +464,7 @@ test.describe("sidecars management", () => {
     await expectNoRawSecrets(page);
   });
 
-  test("renders retained sidecar detail inventory and priority validation", async ({ page }) => {
+  test("authfile priority uses frozen zero semantics", async ({ page }) => {
     const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
     const consoleErrors: string[] = [];
     page.on("console", (message) => {
@@ -337,8 +478,9 @@ test.describe("sidecars management", () => {
 
     await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI primary detail");
     await expect(page.getByTestId("sidecar-auth-files")).toContainText("zero-priority.json");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter a positive priority.");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("missing resolves to initial");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("priority 0 (baseline)");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("missing routes in baseline 0 bucket");
+    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter 0 to clear/reset via PATCH, or a positive whole-number priority.");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
     await expect(page.getByTestId("sidecar-provider-inventory")).toContainText("Masked fields");
     await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/auth-snapshots");
@@ -346,11 +488,376 @@ test.describe("sidecars management", () => {
     await expectNoRawSecrets(page);
 
     const zeroPriorityRow = page.getByRole("row").filter({ hasText: "zero-priority.json" });
-    await page.getByLabel("Priority for zero-priority.json").fill("0");
+    await page.getByLabel("Priority for zero-priority.json").fill("-1");
     await expect(zeroPriorityRow.getByRole("button", { name: "Save" })).toBeDisabled();
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("Enter a positive priority.");
+    await expect(zeroPriorityRow).toContainText("Enter 0 to clear/reset via PATCH, or a positive whole-number priority.");
+
+    await page.getByLabel("Priority for zero-priority.json").fill("0");
+    await expect(zeroPriorityRow.getByRole("button", { name: "Save" })).toBeEnabled();
+    await zeroPriorityRow.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("alertdialog", { name: "Confirm manual auth mutation" })).toContainText("Saving 0 sends PATCH priority: 0");
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, payload }) => `${authId}:${String(payload.priority)}`)).toContain("auth-zero-priority:0");
+    await expect(zeroPriorityRow).toContainText("missing routes in baseline 0 bucket");
     await expectNoRawSecrets(page);
     expect(consoleErrors).toEqual([]);
+  });
+
+  test("authfile models modal shows supported data", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authModelsByName: {
+        "primary-oauth.json": [
+          { id: "gemini-1.5-pro", display_name: "Gemini 1.5 Pro", type: "chat", owned_by: "google" },
+          { id: "gemini-1.5-flash" },
+        ],
+      },
+      authSnapshots: [authSnapshot({ model_states: [{ id: "snapshot-only-model" }] })],
+    });
+
+    await page.goto("/sidecars");
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await primaryRow.getByRole("button", { name: "View read-only models for primary-oauth.json" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "primary-oauth.json models" });
+    await expect(dialog).toContainText("Observational only");
+    await expect(dialog).toContainText("gemini-1.5-pro");
+    await expect(dialog).toContainText("Gemini 1.5 Pro");
+    await expect(dialog).toContainText("gemini-1.5-flash");
+    await expect(dialog).not.toContainText("snapshot-only-model");
+    await expect.poll(() => api.calls).toContain("GET /api/sidecars/1/auth-files/models");
+    expect(api.fieldPatchPayloads).toEqual([]);
+    expect(api.statusPatchPayloads).toEqual([]);
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile models modal reports unsupported sidecar", async ({ page }) => {
+    await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authModelsUnsupportedNames: ["primary-oauth.json"],
+    });
+
+    await page.goto("/sidecars");
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await primaryRow.getByRole("button", { name: "View read-only models for primary-oauth.json" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "primary-oauth.json models" });
+    await expect(dialog).toContainText("Models discovery unsupported");
+    await expect(dialog).toContainText("does not expose the read-only auth-file models route yet");
+    await expect(dialog).not.toContainText("No models returned");
+    await expectNoRawSecrets(page);
+  });
+
+  test("hides authfile delete action for unsupported and unsafe rows", async ({ page }) => {
+    await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authSnapshots: [
+        authSnapshot({ id: 201, auth_id: "auth-runtime", name: "runtime-only.json", snapshot: { delete_supported: true, runtime_only: true, source: "file", path_present: true } }),
+        authSnapshot({ id: 202, auth_id: "auth-memory", name: "memory-only.json", snapshot: { delete_supported: true, runtime_only: false, source: "memory", path_present: true } }),
+        authSnapshot({ id: 203, auth_id: "auth-missing-path", name: "missing-path.json", snapshot: { delete_supported: true, runtime_only: false, source: "file", path_present: false } }),
+        authSnapshot({ id: 204, auth_id: "auth-path-like", name: "nested/path-like.json", snapshot: { delete_supported: true, runtime_only: false, source: "file", path_present: true } }),
+        authSnapshot({ id: 205, auth_id: "name-derived.json", name: "name-derived.json", snapshot: { delete_supported: true, runtime_only: false, source: "file", path_present: true } }),
+        authSnapshot({ id: 206, auth_id: "auth-unknown-delete", name: "unknown-delete.json", snapshot: { delete_supported: false, runtime_only: false, source: "file", path_present: true } }),
+      ],
+    });
+
+    await page.goto("/sidecars");
+
+    await expect(page.getByRole("button", { name: /Delete auth file/ })).toHaveCount(0);
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile priority positive values still update", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
+
+    await page.goto("/sidecars");
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await expect(primaryRow).toContainText("priority 20");
+
+    await page.getByLabel("Priority for primary-oauth.json").fill("42");
+    await expect(primaryRow.getByRole("button", { name: "Save" })).toBeEnabled();
+    await primaryRow.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("alertdialog", { name: "Confirm manual auth mutation" })).toContainText("Positive priorities are written as explicit routing priorities");
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, payload }) => `${authId}:${String(payload.priority)}`)).toContain("auth-primary:42");
+    await expect(primaryRow).toContainText("priority 42");
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile detail refresh failure preserves last state", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      fieldsMutationOutcomesByAuthId: { "auth-primary": ["succeeded_sync_failed"] },
+      fieldsSyncErrorByAuthId: { "auth-primary": "detail refresh failed after priority patch" },
+    });
+
+    await page.goto("/sidecars");
+
+    const detail = page.getByTestId("sidecar-detail");
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await page.getByLabel("Priority for primary-oauth.json").fill("42");
+    await primaryRow.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, payload }) => `${authId}:${String(payload.priority)}`)).toContain("auth-primary:42");
+    await expect(primaryRow).toContainText("Priority changed upstream, but Prism could not refresh auth details");
+    await expect(detail).toContainText("detail refresh failed after priority patch");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json");
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile live field editor updates approved fields", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
+
+    await page.goto("/sidecars");
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await primaryRow.getByRole("button", { name: "Edit live auth fields for primary-oauth.json" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Edit live auth fields" });
+    await expect(dialog).toContainText("Only non-empty replacement values are sent");
+    await page.getByLabel("Prefix").fill(" team-a/ ");
+    await page.getByLabel("Proxy URL").fill(" https://proxy.example.test ");
+    await page.getByLabel("Note").fill(" operator note ");
+    await page.getByLabel("x-correlation-id").fill(" corr-123 ");
+    await page.getByLabel("x-request-id").fill(" req-456 ");
+    await page.getByLabel("x-trace-id").fill(" trace-789 ");
+    await dialog.getByRole("button", { name: "Apply field edits" }).click();
+
+    await expect.poll(() => api.fieldPatchPayloads.length).toBe(1);
+    expect(api.fieldPatchPayloads[0]).toEqual({
+      authId: "auth-primary",
+      forceLive: false,
+      payload: {
+        prefix: "team-a/",
+        proxy_url: "https://proxy.example.test",
+        note: "operator note",
+        headers: {
+          "x-correlation-id": "corr-123",
+          "x-request-id": "req-456",
+          "x-trace-id": "trace-789",
+        },
+      },
+    });
+    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("custom_headers");
+    await expect(primaryRow).toContainText("Auth fields updated and refreshed local snapshot.");
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile live field editor hides unresolved fields", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authSnapshots: [
+        authSnapshot({
+          id: 31,
+          auth_id: "auth-safe-fields",
+          auth_index: "auth_031",
+          name: "safe-fields.json",
+          snapshot: {
+            authorization: "Bearer raw-secret",
+            custom_headers: { "x-extra-id": "hidden" },
+            refresh_token: "raw-secret",
+          },
+        }),
+        authSnapshot({ id: 32, auth_id: "name-derived-fields.json", name: "name-derived-fields.json", disabled: false }),
+      ],
+    });
+
+    await page.goto("/sidecars");
+
+    await expect(page.getByRole("button", { name: "Edit live auth fields for name-derived-fields.json" })).toHaveCount(0);
+    const safeRow = page.getByRole("row").filter({ hasText: "safe-fields.json" });
+    await safeRow.getByRole("button", { name: "Edit live auth fields for safe-fields.json" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Edit live auth fields" });
+    await expect(dialog).not.toContainText("authorization");
+    await expect(dialog).not.toContainText("refresh_token");
+    await expect(dialog).not.toContainText("custom_headers");
+    await expect(dialog).not.toContainText("x-extra-id");
+    await page.getByLabel("Note").fill("   ");
+    await page.getByLabel("x-request-id").fill(" req-only ");
+    await dialog.getByRole("button", { name: "Apply field edits" }).click();
+
+    await expect.poll(() => api.fieldPatchPayloads.length).toBe(1);
+    expect(api.fieldPatchPayloads[0]).toEqual({
+      authId: "auth-safe-fields",
+      forceLive: false,
+      payload: { headers: { "x-request-id": "req-only" } },
+    });
+    expect(api.fieldPatchPayloads[0].payload).not.toHaveProperty("note");
+    await expectNoRawSecrets(page);
+  });
+
+  test("retries stale auth field edits with live snapshot and preserves detail on degraded refresh", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      fieldsMutationOutcomesByAuthId: { "auth-primary": ["stale_snapshot", "succeeded_sync_failed"] },
+      fieldsSyncErrorByAuthId: { "auth-primary": "detail refresh failed after field patch" },
+    });
+
+    await page.goto("/sidecars");
+
+    const detail = page.getByTestId("sidecar-detail");
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await primaryRow.getByRole("button", { name: "Edit live auth fields for primary-oauth.json" }).click();
+    await page.getByLabel("Note").fill("retryable note");
+    await page.getByRole("dialog", { name: "Edit live auth fields" }).getByRole("button", { name: "Apply field edits" }).click();
+
+    await expect(primaryRow).toContainText("Snapshot is stale");
+    await expect(primaryRow.getByRole("button", { name: "Retry with live snapshot" })).toBeVisible();
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, forceLive }) => `${authId}:${String(forceLive)}`)).toContain("auth-primary:false");
+
+    await primaryRow.getByRole("button", { name: "Retry with live snapshot" }).click();
+    await expect.poll(() => api.fieldPatchPayloads.map(({ authId, forceLive }) => `${authId}:${String(forceLive)}`)).toContain("auth-primary:true");
+    await expect(primaryRow).toContainText("Fields changed upstream, but Prism could not refresh auth details");
+    await expect(detail).toContainText("detail refresh failed after field patch");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json");
+  });
+
+  test("renders status controls only for safe auth rows and handles normal status success", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authSnapshots: [
+        authSnapshot({ id: 31, auth_id: "auth-safe-enabled", name: "safe-enabled.json", disabled: false }),
+        authSnapshot({ id: 32, auth_id: "auth_safe_disabled", auth_index: "auth_032", name: "safe-disabled.json", disabled: true, unavailable: false }),
+        authSnapshot({ id: 33, auth_id: "name-derived.json", name: "name-derived.json", disabled: false }),
+        authSnapshot({ id: 34, auth_id: "auth-duplicate-a", name: "duplicate-name.json", disabled: false }),
+        authSnapshot({ id: 35, auth_id: "auth-duplicate-b", name: "duplicate-name.json", disabled: false }),
+        authSnapshot({ id: 36, auth_id: "auth-unavailable", name: "unavailable.json", disabled: true, unavailable: true }),
+      ],
+    });
+
+    await page.goto("/sidecars");
+
+    const safeEnabledRow = page.getByRole("row").filter({ hasText: "safe-enabled.json" });
+    const safeDisabledRow = page.getByRole("row").filter({ hasText: "safe-disabled.json" });
+    await expect(safeEnabledRow.getByRole("button", { name: "Disable auth safe-enabled.json" })).toBeVisible();
+    await expect(safeDisabledRow.getByRole("button", { name: "Enable auth safe-disabled.json" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Disable auth name-derived.json" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Disable auth duplicate-name.json" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Enable auth unavailable.json" })).toHaveCount(0);
+
+    await safeEnabledRow.getByRole("button", { name: "Disable auth safe-enabled.json" }).click();
+    await expect(page.getByRole("alertdialog", { name: "Confirm manual auth mutation" })).toContainText("Disabling an auth file uses the backend safety gate");
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect.poll(() => api.statusPatchPayloads.map(({ authId, payload }) => `${authId}:${String(payload.disabled)}`)).toContain("auth-safe-enabled:true");
+    await expect(safeEnabledRow).toContainText("Disabled");
+    await expect(safeEnabledRow).toContainText("Auth status updated and refreshed local snapshot.");
+  });
+
+  test("authfile status toggle retries stale snapshot with force live", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      statusMutationOutcomesByAuthId: { "auth-primary": ["stale_snapshot", "succeeded"] },
+    });
+
+    await page.goto("/sidecars");
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await primaryRow.getByRole("button", { name: "Disable auth primary-oauth.json" }).click();
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect(primaryRow).toContainText("Snapshot is stale");
+    await expect(primaryRow.getByRole("button", { name: "Retry with live snapshot" })).toBeVisible();
+    await expect.poll(() => api.statusPatchPayloads.map(({ authId, forceLive }) => `${authId}:${String(forceLive)}`)).toContain("auth-primary:false");
+
+    await primaryRow.getByRole("button", { name: "Retry with live snapshot" }).click();
+    await expect.poll(() => api.statusPatchPayloads.map(({ authId, forceLive }) => `${authId}:${String(forceLive)}`)).toContain("auth-primary:true");
+    await expect(primaryRow).toContainText("Disabled");
+    await expect(primaryRow).toContainText("Auth status updated and refreshed local snapshot.");
+  });
+
+  test("authfile single delete requires name confirmation", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })]);
+
+    await page.goto("/sidecars");
+
+    const authFiles = page.getByTestId("sidecar-auth-files");
+    const primaryRow = page.getByRole("row").filter({ hasText: "primary-oauth.json" });
+    await primaryRow.getByRole("button", { name: "Delete auth file primary-oauth.json" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Delete auth file" });
+    await expect(dialog).toContainText("This removes the live auth file upstream");
+    await expect(dialog.getByRole("button", { name: "Delete auth file" })).toBeDisabled();
+    await page.getByLabel("Confirm auth file name").fill("wrong.json");
+    await expect(dialog).toContainText("The name must match the current live auth file exactly.");
+    await expect(dialog.getByRole("button", { name: "Delete auth file" })).toBeDisabled();
+    await page.getByLabel("Confirm auth file name").fill("primary-oauth.json");
+    await dialog.getByRole("button", { name: "Delete auth file" }).click();
+
+    await expect.poll(() => api.deletePayloads).toEqual([{ authId: "auth-primary", payload: { confirm_name: "primary-oauth.json" } }]);
+    await expect(authFiles).not.toContainText("primary-oauth.json");
+    await expect(authFiles).toContainText("zero-priority.json");
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile delete distinguishes refresh failure", async ({ page }) => {
+    const api = await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authSnapshots: [
+        authSnapshot({ id: 41, auth_id: "auth-delete-refresh-fail", name: "delete-refresh-fail.json" }),
+        authSnapshot({ id: 42, auth_id: "auth-delete-upstream-fail", name: "delete-upstream-fail.json" }),
+      ],
+      deleteMutationOutcomesByAuthId: {
+        "auth-delete-refresh-fail": ["succeeded_sync_failed"],
+        "auth-delete-upstream-fail": ["upstream_failure"],
+      },
+      deleteSyncErrorByAuthId: { "auth-delete-refresh-fail": "detail refresh failed after delete" },
+    });
+
+    await page.goto("/sidecars");
+
+    const detail = page.getByTestId("sidecar-detail");
+    const authFiles = detail.getByTestId("sidecar-auth-files");
+    const refreshFailRow = page.getByRole("row").filter({ hasText: "delete-refresh-fail.json" });
+    await refreshFailRow.getByRole("button", { name: "Delete auth file delete-refresh-fail.json" }).click();
+    await page.getByLabel("Confirm auth file name").fill("delete-refresh-fail.json");
+    await page.getByRole("dialog", { name: "Delete auth file" }).getByRole("button", { name: "Delete auth file" }).click();
+
+    await expect.poll(() => api.deletePayloads.map(({ authId, payload }) => `${authId}:${String(payload.confirm_name)}`)).toContain("auth-delete-refresh-fail:delete-refresh-fail.json");
+    await expect(refreshFailRow).toContainText("Auth file was deleted upstream, but Prism could not refresh auth details");
+    await expect(detail).toContainText("detail refresh failed after delete");
+    await expect(authFiles).toContainText("delete-refresh-fail.json");
+
+    const upstreamFailRow = page.getByRole("row").filter({ hasText: "delete-upstream-fail.json" });
+    await upstreamFailRow.getByRole("button", { name: "Delete auth file delete-upstream-fail.json" }).click();
+    await page.getByLabel("Confirm auth file name").fill("delete-upstream-fail.json");
+    await page.getByRole("dialog", { name: "Delete auth file" }).getByRole("button", { name: "Delete auth file" }).click();
+
+    await expect.poll(() => api.deletePayloads.map(({ authId, payload }) => `${authId}:${String(payload.confirm_name)}`)).toContain("auth-delete-upstream-fail:delete-upstream-fail.json");
+    await expect(upstreamFailRow).toContainText("Auth file delete failed: upstream refused auth delete");
+    await expect(authFiles).toContainText("delete-upstream-fail.json");
+    await expectNoRawSecrets(page);
+  });
+
+  test("authfile status mutation distinguishes refresh failure", async ({ page }) => {
+    await mockSidecarsApi(page, [sidecar({ id: 1 })], {
+      authSnapshots: [
+        authSnapshot({ id: 41, auth_id: "auth-refresh-fail", name: "refresh-fail.json", disabled: false }),
+        authSnapshot({ id: 42, auth_id: "auth-upstream-fail", name: "upstream-fail.json", disabled: false }),
+      ],
+      statusMutationOutcomesByAuthId: {
+        "auth-refresh-fail": ["succeeded_sync_failed"],
+        "auth-upstream-fail": ["upstream_failure"],
+      },
+      statusSyncErrorByAuthId: { "auth-refresh-fail": "detail refresh failed after status patch" },
+    });
+
+    await page.goto("/sidecars");
+
+    const detail = page.getByTestId("sidecar-detail");
+    const refreshFailRow = page.getByRole("row").filter({ hasText: "refresh-fail.json" });
+    await refreshFailRow.getByRole("button", { name: "Disable auth refresh-fail.json" }).click();
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect(refreshFailRow).toContainText("Enabled");
+    await expect(refreshFailRow).toContainText("Status changed upstream, but Prism could not refresh auth details");
+    await expect(detail).toContainText("detail refresh failed after status patch");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("refresh-fail.json");
+
+    const upstreamFailRow = page.getByRole("row").filter({ hasText: "upstream-fail.json" });
+    await upstreamFailRow.getByRole("button", { name: "Disable auth upstream-fail.json" }).click();
+    await page.getByRole("alertdialog", { name: "Confirm manual auth mutation" }).getByRole("button", { name: "Apply change" }).click();
+
+    await expect(upstreamFailRow).toContainText("Auth status update failed: upstream refused auth status");
+    await expect(upstreamFailRow).not.toContainText("Retry with live snapshot");
   });
 
   test("filters, sorts, tie-breaks, and paginates auth files", async ({ page }) => {
@@ -429,20 +936,47 @@ test.describe("sidecars management", () => {
     })).toBe(true);
   });
 
-  test("keeps detail responses scoped to the selected sidecar", async ({ page }) => {
+  test("preserves the last sidecar detail when refresh fails", async ({ page }) => {
     await mockSidecarsApi(
       page,
-      [sidecar({ id: 1, name: "AAA CLIProxyAPI slow" }), sidecar({ id: 2, name: "ZZZ CLIProxyAPI edge" })],
-      { detailDelayBySidecarId: { 1: 300 } },
+      [sidecar({ id: 1, name: "CLIProxyAPI primary" })],
+      {
+        authSnapshotFailureAfterRequestBySidecarId: { 1: 1 },
+        authSnapshotFailureDetailBySidecarId: { 1: "auth snapshot refresh failed after sync" },
+      },
     );
 
     await page.goto("/sidecars");
-    const edgeRow = page.getByRole("row").filter({ hasText: "ZZZ CLIProxyAPI edge" });
-    await edgeRow.getByRole("button", { name: "View details" }).click();
+    const detail = page.getByTestId("sidecar-detail");
+    await expect(detail).toContainText("CLIProxyAPI primary detail");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
+    await expect(detail.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
 
-    await expect(page.getByTestId("sidecar-detail")).toContainText("CLIProxyAPI edge detail");
-    await expect(page.getByTestId("sidecar-auth-files")).toContainText("edge-oauth.json");
-    await expect(page.getByTestId("sidecar-auth-files")).not.toContainText("primary-oauth.json");
+    const primaryRow = page.getByRole("row").filter({ hasText: "CLIProxyAPI primary" });
+    await primaryRow.getByRole("button", { name: "Sync now" }).click();
+
+    await expect(detail).toContainText("Failed to load sidecar details.");
+    await expect(detail).toContainText("CLIProxyAPI primary detail");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
+    await expect(detail.getByTestId("sidecar-provider-inventory")).toContainText("Provider inventory");
+  });
+
+  test("surfaces backend detail when manual sidecar sync fails", async ({ page }) => {
+    await mockSidecarsApi(
+      page,
+      [sidecar({ id: 1, name: "CLIProxyAPI primary" })],
+      { syncStateBySidecarId: { 1: "failed" }, syncErrorBySidecarId: { 1: "upstream auth-files contract failed" } },
+    );
+
+    await page.goto("/sidecars");
+    const detail = page.getByTestId("sidecar-detail");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
+
+    const primaryRow = page.getByRole("row").filter({ hasText: "CLIProxyAPI primary" });
+    await primaryRow.getByRole("button", { name: "Sync now" }).click();
+
+    await expect(detail).toContainText("Sidecar sync did not complete: upstream auth-files contract failed");
+    await expect(detail.getByTestId("sidecar-auth-files")).toContainText("primary-oauth.json", { timeout: 10000 });
   });
 
   test("creates, edits, tests, syncs, and deletes sidecars through backend API routes", async ({ page }) => {

@@ -358,13 +358,18 @@ func TestAuthFilesSyncRejectsMalformedRawPayloadsAndPreservesPreviousGeneration(
 	}
 }
 
-func TestAuthFilesSyncAcceptsEmptyFilesArrayAsSuccessfulGeneration(t *testing.T) {
+func TestSyncEmptyAuthFilesSemanticsFrozen(t *testing.T) {
 	now := time.Date(2026, time.May, 10, 12, 0, 0, 0, time.UTC)
 	authPayload := syncAuthFixture()
+	countProviderRequests := false
+	providerRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v0/management/auth-files" {
 			writeSyncJSON(w, authPayload)
 			return
+		}
+		if countProviderRequests {
+			providerRequests++
 		}
 		serveSyncFixturePath(t, w, r)
 	}))
@@ -379,23 +384,38 @@ func TestAuthFilesSyncAcceptsEmptyFilesArrayAsSuccessfulGeneration(t *testing.T)
 	if err != nil || len(auths) != 1 {
 		t.Fatalf("initial auth snapshots len=%d err=%v", len(auths), err)
 	}
+	previousSnapshotID := auths[0].ID
+	previousSnapshotJSON := string(auths[0].SnapshotJSON)
+	firstSuccessAt := now
 
 	now = now.Add(time.Minute)
 	authPayload = `{"files":[],"metadata":{"row_count":0,"generated_at":"2026-05-10T12:01:00Z"}}`
+	countProviderRequests = true
 	result, err := service.SyncSidecar(t.Context(), sidecar.ID)
-	if err != nil {
-		t.Fatalf("empty files sync should succeed: result=%+v err=%v", result, err)
+	if err == nil || result.ErrorCode != "sync_contract" || !strings.Contains(result.ErrorDetail, "files must not be empty") {
+		t.Fatalf("expected empty-list sync contract failure, result=%+v err=%v", result, err)
 	}
-	if result.AuthSnapshotCount != 0 || result.ProviderSnapshotCount != 5 || result.ErrorDetail != "" {
-		t.Fatalf("unexpected empty generation result: %+v", result)
+	if result.AuthSnapshotCount != 0 || result.ProviderSnapshotCount != 0 {
+		t.Fatalf("empty-list failure must not report replaced snapshots: %+v", result)
+	}
+	if providerRequests != 0 {
+		t.Fatalf("provider inventory must not be used as auth fallback after empty /auth-files, provider requests=%d", providerRequests)
+	}
+
+	stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
+	if err != nil || !ok {
+		t.Fatalf("load failed sidecar ok=%v err=%v", ok, err)
+	}
+	if stored.LastSuccessfulSyncAt == nil || !stored.LastSuccessfulSyncAt.Equal(firstSuccessAt) || stored.LastSyncError == nil || !strings.Contains(*stored.LastSyncError, "files must not be empty") {
+		t.Fatalf("empty-list failure did not preserve previous success and record error: %+v", stored)
+	}
+	status := service.sidecarSyncStatus(stored)
+	if !status.Stale || stored.SnapshotStaleAfter == nil || !stored.SnapshotStaleAfter.Equal(now) {
+		t.Fatalf("empty-list failure should mark snapshots stale now, status=%+v stored=%+v", status, stored)
 	}
 	auths, err = service.store.ListAuthSnapshots(t.Context(), sidecar.ID)
-	if err != nil || len(auths) != 0 {
-		t.Fatalf("empty files generation should replace previous auth rows, got %+v err=%v", auths, err)
-	}
-	stored, ok, err := service.store.GetSidecarInstance(t.Context(), sidecar.ID)
-	if err != nil || !ok || stored.LastSuccessfulSyncAt == nil || !stored.LastSuccessfulSyncAt.Equal(now) || stored.LastSyncError != nil {
-		t.Fatalf("empty generation should be a successful sync, stored=%+v ok=%v err=%v", stored, ok, err)
+	if err != nil || len(auths) != 1 || auths[0].ID != previousSnapshotID || string(auths[0].SnapshotJSON) != previousSnapshotJSON {
+		t.Fatalf("empty-list failure should preserve previous auth snapshot, got %+v err=%v", auths, err)
 	}
 }
 
@@ -467,13 +487,11 @@ func TestAuthFilesEnvelopeRejectsLegacyKey(t *testing.T) {
 	}
 }
 
-func TestAuthFilesEnvelopeAcceptsEmptyFilesArray(t *testing.T) {
-	files, err := decodeSidecarAuthFileRows(map[string]json.RawMessage{"files": json.RawMessage(`[]`)})
-	if err != nil {
-		t.Fatalf("expected empty files array to succeed, got %v", err)
-	}
-	if len(files) != 0 {
-		t.Fatalf("expected zero auth file rows, got %+v", files)
+func TestAuthFilesEnvelopeRejectsEmptyFilesArray(t *testing.T) {
+	_, err := decodeSidecarAuthFileRows(map[string]json.RawMessage{"files": json.RawMessage(`[]`)})
+	var contractErr *sidecarSyncContractError
+	if !errors.As(err, &contractErr) || !strings.Contains(err.Error(), "files must not be empty") {
+		t.Fatalf("expected empty files sync-contract error, got %T %v", err, err)
 	}
 }
 

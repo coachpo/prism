@@ -158,21 +158,82 @@ export interface Messages {
     authActionConfirmTitle: string;
     authAuthFileColumn: string;
     authDescription: string;
+    authDeleteAction: string;
+    authDeleteConfirmNameHint: (name: string) => string;
+    authDeleteConfirmNameLabel: string;
+    authDeleteConfirmNameMismatch: string;
+    authDeleteDeleting: string;
+    authDeleteDescription: (name: string) => string;
+    authDeleteFailed: (detail: string) => string;
+    authDeleteFor: (name: string) => string;
+    authDeleteRefreshWarning: (detail: string) => string;
+    authDeleteSucceeded: (name: string) => string;
+    authDeleteTitle: string;
+    authDeleteWarningDescription: string;
+    authDeleteWarningTitle: string;
+    authDisableAction: string;
     authDisableAuth: (name: string) => string;
     authDisabledLabel: string;
     authEmptyDescription: string;
     authEmptyTitle: string;
+    authEnableAction: string;
     authEnableAuth: (name: string) => string;
     authEnabledLabel: string;
+    authFieldsApply: string;
+    authFieldsEditAction: string;
+    authFieldsEditDescription: (name: string) => string;
+    authFieldsEditFor: (name: string) => string;
+    authFieldsEditTitle: string;
+    authFieldsHeaderPlaceholder: (name: string) => string;
+    authFieldsNoClearHint: string;
+    authFieldsNoteLabel: string;
+    authFieldsNotePlaceholder: string;
+    authFieldsOperationalTitle: string;
+    authFieldsPrefixLabel: string;
+    authFieldsPrefixPlaceholder: string;
+    authFieldsPreserveHint: string;
+    authFieldsProxyUrlLabel: string;
+    authFieldsProxyUrlPlaceholder: string;
+    authFieldsRefreshWarning: (detail: string) => string;
+    authFieldsStaleBlocked: string;
+    authFieldsTraceHeadersDescription: string;
+    authFieldsTraceHeadersTitle: string;
+    authFieldsUpdateApplied: string;
+    authFieldsUpdateFailed: (detail: string) => string;
+    authFieldsUpdated: (name: string) => string;
     authMissingPriorityResolves: string;
+    authModelsAction: string;
+    authModelsDescription: string;
+    authModelsDisplayNameColumn: string;
+    authModelsEmptyDescription: string;
+    authModelsEmptyTitle: string;
+    authModelsErrorDescription: string;
+    authModelsErrorTitle: string;
+    authModelsFor: (name: string) => string;
+    authModelsIdColumn: string;
+    authModelsLoading: string;
+    authModelsOwnedByColumn: string;
+    authModelsReadOnlyHint: string;
+    authModelsTitle: (name: string) => string;
+    authModelsTypeColumn: string;
+    authModelsUnsupportedDescription: string;
+    authModelsUnsupportedTitle: string;
+    authPriorityClearMutationWarning: string;
     authPriorityMutationWarning: string;
-    authPriorityPositiveRequired: string;
+    authPriorityValueRequired: string;
     authPriorityColumn: string;
     authPriorityInputLabel: (name: string) => string;
     authPriorityLabel: (priority: number) => string;
+    authPriorityRefreshWarning: (detail: string) => string;
     authPriorityUpdated: (name: string) => string;
     authRecentRequestsLabel: string;
     authSavePriority: string;
+    authStatusMutationWarning: (disabled: boolean) => string;
+    authStatusRefreshWarning: (detail: string) => string;
+    authStatusRetryLive: string;
+    authStatusStaleBlocked: string;
+    authStatusUpdateApplied: string;
+    authStatusUpdateFailed: (detail: string) => string;
     authStatusUpdated: (name: string, disabled: boolean) => string;
     authStateColumn: string;
     authSuccessRequestsLabel: string;
@@ -275,6 +336,7 @@ export interface Messages {
     syncAccepted: (name: string) => string;
     syncColumn: string;
     syncFailed: string;
+    syncFailedWithDetail: (detail: string) => string;
     syncIntervalLabel: string;
     syncNow: string;
     tableDescription: string;
@@ -2255,21 +2317,82 @@ export const enMessages: Messages = {
     authActionConfirmTitle: "Confirm manual auth mutation",
     authAuthFileColumn: "Auth file",
     authDescription: "Synced OAuth/auth inventory with routing priority. Secrets and raw tokens are never shown.",
+    authDeleteAction: "Delete auth file",
+    authDeleteConfirmNameHint: (name) => `Type ${name} exactly to confirm this single auth-file delete.`,
+    authDeleteConfirmNameLabel: "Confirm auth file name",
+    authDeleteConfirmNameMismatch: "The name must match the current live auth file exactly.",
+    authDeleteDeleting: "Deleting auth file...",
+    authDeleteDescription: (name) => `Delete ${name} from the live CLIProxyAPI auth file set?`,
+    authDeleteFailed: (detail) => `Auth file delete failed: ${detail}`,
+    authDeleteFor: (name) => `Delete auth file ${name}`,
+    authDeleteRefreshWarning: (detail) => `Auth file was deleted upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
+    authDeleteSucceeded: (name) => `Deleted auth file ${name}.`,
+    authDeleteTitle: "Delete auth file",
+    authDeleteWarningDescription: "This calls CLIProxyAPI through Prism for exactly this auth file name. Prism first checks the current live row and requires the typed name to match.",
+    authDeleteWarningTitle: "This removes the live auth file upstream",
+    authDisableAction: "Disable",
     authDisableAuth: (name) => `Disable auth ${name}`,
     authDisabledLabel: "Disabled",
     authEmptyDescription: "Run a sidecar sync to populate auth inventory.",
     authEmptyTitle: "No auth snapshots",
+    authEnableAction: "Enable",
     authEnableAuth: (name) => `Enable auth ${name}`,
     authEnabledLabel: "Enabled",
-    authMissingPriorityResolves: "missing resolves to initial",
-    authPriorityMutationWarning: "Manual priority writes must be positive. Missing priority continues to resolve to the sidecar default routing order.",
-    authPriorityPositiveRequired: "Enter a positive priority.",
+    authFieldsApply: "Apply field edits",
+    authFieldsEditAction: "Edit live auth fields",
+    authFieldsEditDescription: (name) => `Replace approved non-destructive fields for ${name}. Blank fields are omitted so current live values are preserved and unresolved values stay hidden.`,
+    authFieldsEditFor: (name) => `Edit live auth fields for ${name}`,
+    authFieldsEditTitle: "Edit live auth fields",
+    authFieldsHeaderPlaceholder: (name) => `${name} value`,
+    authFieldsNoClearHint: "No clear operations are exposed: empty strings, nulls, arbitrary headers, secrets, and unresolved fields are not sent.",
+    authFieldsNoteLabel: "Note",
+    authFieldsNotePlaceholder: "Operational note",
+    authFieldsOperationalTitle: "Approved field replacements",
+    authFieldsPrefixLabel: "Prefix",
+    authFieldsPrefixPlaceholder: "team-a/",
+    authFieldsPreserveHint: "Only non-empty replacement values are sent. Current prefix, proxy URL, note, and header values are intentionally not displayed.",
+    authFieldsProxyUrlLabel: "Proxy URL",
+    authFieldsProxyUrlPlaceholder: "https://proxy.example.test",
+    authFieldsRefreshWarning: (detail) => `Fields changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
+    authFieldsStaleBlocked: "Snapshot is stale. Review the current live auth row before retrying these exact field edits.",
+    authFieldsTraceHeadersDescription: "Only x-correlation-id, x-request-id, and x-trace-id are accepted. Other headers stay hidden and unsendable.",
+    authFieldsTraceHeadersTitle: "Allowed trace headers",
+    authFieldsUpdateApplied: "Auth fields updated and refreshed local snapshot.",
+    authFieldsUpdateFailed: (detail) => `Auth field update failed: ${detail}`,
+    authFieldsUpdated: (name) => `Updated live auth fields for ${name}.`,
+    authMissingPriorityResolves: "missing routes in baseline 0 bucket",
+    authModelsAction: "Models",
+    authModelsDescription: "Read-only model discovery from the selected CLIProxyAPI auth file.",
+    authModelsDisplayNameColumn: "Display name",
+    authModelsEmptyDescription: "This sidecar supports model discovery, but no models were returned for this auth file.",
+    authModelsEmptyTitle: "No models returned",
+    authModelsErrorDescription: "Prism could not read models for this auth file.",
+    authModelsErrorTitle: "Models unavailable",
+    authModelsFor: (name) => `View read-only models for ${name}`,
+    authModelsIdColumn: "Model ID",
+    authModelsLoading: "Loading models...",
+    authModelsOwnedByColumn: "Owned by",
+    authModelsReadOnlyHint: "Observational only: this does not write auth files, refresh snapshots, or use cached inventory as fallback model data.",
+    authModelsTitle: (name) => `${name} models`,
+    authModelsTypeColumn: "Type",
+    authModelsUnsupportedDescription: "This CLIProxyAPI sidecar does not expose the read-only auth-file models route yet. Upgrade CLIProxyAPI to use this modal.",
+    authModelsUnsupportedTitle: "Models discovery unsupported",
+    authPriorityClearMutationWarning: "Saving 0 sends PATCH priority: 0 as the field-update clear/reset sentinel. After refresh, the priority field may be missing while runtime routing still falls into baseline bucket 0.",
+    authPriorityMutationWarning: "Positive priorities are written as explicit routing priorities. Higher numbers are preferred; use 0 only when you intend the PATCH clear/reset behavior.",
+    authPriorityValueRequired: "Enter 0 to clear/reset via PATCH, or a positive whole-number priority.",
     authPriorityColumn: "Priority",
     authPriorityInputLabel: (name) => `Priority for ${name}`,
-    authPriorityLabel: (priority) => `priority ${priority}`,
+    authPriorityLabel: (priority) => priority === 0 ? "priority 0 (baseline)" : `priority ${priority}`,
+    authPriorityRefreshWarning: (detail) => `Priority changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
     authPriorityUpdated: (name) => `Updated priority for ${name}.`,
     authRecentRequestsLabel: "Recent",
     authSavePriority: "Save",
+    authStatusMutationWarning: (disabled) => `${disabled ? "Disabling" : "Enabling"} an auth file uses the backend safety gate and then refreshes Prism's retained snapshot.`,
+    authStatusRefreshWarning: (detail) => `Status changed upstream, but Prism could not refresh auth details. Last-known detail remains visible. Refresh error: ${detail}`,
+    authStatusRetryLive: "Retry with live snapshot",
+    authStatusStaleBlocked: "Snapshot is stale. Review the current live auth row before retrying this exact status change.",
+    authStatusUpdateApplied: "Auth status updated and refreshed local snapshot.",
+    authStatusUpdateFailed: (detail) => `Auth status update failed: ${detail}`,
     authStatusUpdated: (name, disabled) => `${disabled ? "Disabled" : "Enabled"} ${name}.`,
     authStateColumn: "State",
     authSuccessRequestsLabel: "Success",
@@ -2372,6 +2495,7 @@ export const enMessages: Messages = {
     syncAccepted: (name) => `Manual sync accepted for ${name}.`,
     syncColumn: "Sync metadata",
     syncFailed: "Failed to request sidecar sync.",
+    syncFailedWithDetail: (detail) => `Sidecar sync did not complete: ${detail}`,
     syncIntervalLabel: "Sync interval (seconds)",
     syncNow: "Sync now",
     tableDescription: "Global sidecar registrations, health state, sync metadata, and management-secret status.",

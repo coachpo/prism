@@ -186,9 +186,10 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 
 1. The sidecars page is global instance control-plane UI, not selected-profile configuration.
 2. Operators register CLIProxyAPI sidecar base URLs, management passwords, sync intervals, request timeout, and network policy flags.
-3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, and patch auth-file status or operational fields through Prism's backend.
-4. Auth-file status and field mutations flow through Prism backend routes; the browser never calls CLIProxyAPI directly.
-5. Sidecar snapshot sync runs as a low-priority bounded scheduler job.
+3. The page can test management auth, trigger manual sync, inspect auth-file and provider snapshots, open read-only auth-file model discovery, patch auth-file status or operational fields, and delete one confirmed auth file through Prism's backend.
+4. Auth-file model discovery, status/field mutations, and single-authfile delete flow through Prism backend routes; the browser never calls CLIProxyAPI directly.
+5. Auth mutation/delete responses can report `succeeded` or `succeeded_sync_failed`; the frontend should preserve the last known detail view and surface the returned `sync_status` / `sync_error` instead of treating the refresh as fresh truth.
+6. Sidecar snapshot sync runs as a low-priority bounded scheduler job.
 
 **Backend touchpoints**
 
@@ -200,6 +201,8 @@ The loadbalance strategy routes continue to use selected-profile scope through `
 - `POST /api/sidecars/{sidecar_id}/test-connection`
 - `POST /api/sidecars/{sidecar_id}/sync`
 - `GET /api/sidecars/{sidecar_id}/auth-files`
+- `GET /api/sidecars/{sidecar_id}/auth-files/models?name=...`
+- `DELETE /api/sidecars/{sidecar_id}/auth-files/{auth_id}`
 - `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/status`
 - `PATCH /api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields`
 - `GET /api/sidecars/{sidecar_id}/auth-snapshots`

@@ -58,6 +58,8 @@ func currentSidecarRouteSurface() map[string][]string {
 		"/sidecars/{sidecar_id}/test-connection":              {http.MethodPost},
 		"/sidecars/{sidecar_id}/sync":                         {http.MethodPost},
 		"/sidecars/{sidecar_id}/auth-files":                   {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/models":            {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}":         {http.MethodDelete},
 		"/sidecars/{sidecar_id}/auth-files/{auth_id}/status":  {http.MethodPatch},
 		"/sidecars/{sidecar_id}/auth-files/{auth_id}/fields":  {http.MethodPatch},
 		"/sidecars/{sidecar_id}/auth-snapshots":               {http.MethodGet},

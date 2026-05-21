@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import { AuthFilesTable } from "./AuthFilesTable";
 import { DeleteSidecarDialog } from "./DeleteSidecarDialog";
@@ -12,6 +13,7 @@ export function SidecarsScaffold() {
   const pageData = useSidecarsPageData();
   const copy = messages.sidecarsPage;
   const sidecarDetailRef = useRef<HTMLDivElement | null>(null);
+  const selectedSidecar = pageData.selectedSidecar;
 
   const handleSelectSidecar = (sidecarId: number) => {
     pageData.setSelectedSidecarId(sidecarId);
@@ -36,18 +38,31 @@ export function SidecarsScaffold() {
         onTestConnection={pageData.handleTestConnection}
         onManualSync={pageData.handleManualSync}
       />
-      {pageData.selectedSidecar ? (
+      {selectedSidecar ? (
         <div ref={sidecarDetailRef} className="space-y-6" data-testid="sidecar-detail">
           <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold">{copy.detailTitle(pageData.selectedSidecar.name)}</h2>
+            <h2 className="text-base font-semibold">{copy.detailTitle(selectedSidecar.name)}</h2>
             <p className="text-sm text-muted-foreground">{copy.tableDescription}</p>
           </div>
+          {pageData.sidecarDetailRefreshError ? (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+              <span>{pageData.sidecarDetailRefreshError}</span>
+              <Button type="button" variant="outline" size="sm" onClick={() => void pageData.refreshSidecarDetail(selectedSidecar.id)}>
+                Retry
+              </Button>
+            </div>
+          ) : null}
           <AuthFilesTable
-            key={pageData.selectedSidecar.id}
+            key={selectedSidecar.id}
             authSnapshots={pageData.authSnapshots}
+            authMutationNotices={pageData.authMutationNotices}
             loading={pageData.sidecarDetailLoading}
             mutatingAuthKey={pageData.mutatingAuthKey}
+            onDeleteAuthFile={pageData.handleDeleteAuthFile}
+            onLoadModels={pageData.handleLoadAuthModels}
+            onPatchFields={pageData.handlePatchAuthFields}
             onPatchPriority={pageData.handlePatchAuthPriority}
+            onPatchStatus={pageData.handlePatchAuthStatus}
           />
           <ProviderInventoryTable
             loading={pageData.sidecarDetailLoading}

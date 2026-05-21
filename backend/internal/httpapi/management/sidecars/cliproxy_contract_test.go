@@ -17,21 +17,24 @@ import (
 )
 
 const (
-	cliProxyManagementPrefix       = "/v0/management"
-	cliProxyManagementKey          = "fixture-management-key"
-	conditionUnobservable          = "condition_unobservable"
-	maxCLIProxyContractBodyBytes   = int64(4 << 20)
-	cliProxyCodeUnauthorized       = "unauthorized"
-	cliProxyCodeForbidden          = "forbidden"
-	cliProxyCodeManagementDisabled = "management_disabled"
-	cliProxyCodeMalformedJSON      = "malformed_json"
-	cliProxyCodeOversizedBody      = "oversized_body"
-	cliProxyCodeTimeout            = "timeout"
-	cliProxyCodeUpstreamStatus     = "upstream_status"
+	cliProxyManagementPrefix            = "/v0/management"
+	cliProxyManagementKey               = "fixture-management-key"
+	conditionUnobservable               = "condition_unobservable"
+	maxCLIProxyContractBodyBytes        = int64(4 << 20)
+	cliProxyCodeUnauthorized            = "unauthorized"
+	cliProxyCodeForbidden               = "forbidden"
+	cliProxyCodeManagementDisabled      = "management_disabled"
+	cliProxyCodeMalformedJSON           = "malformed_json"
+	cliProxyCodeOversizedBody           = "oversized_body"
+	cliProxyCodeTimeout                 = "timeout"
+	cliProxyCodeUpstreamStatus          = "upstream_status"
+	cliProxyPriorityZeroAuthFileMeaning = "baseline/lowest numeric priority"
+	cliProxyPriorityZeroPatchMeaning    = "API-specific clear/remove sentinel"
 )
 
 var cliProxySupportedManagementPaths = []string{
 	"/auth-files",
+	"/auth-files/models",
 	"/auth-files/status",
 	"/auth-files/fields",
 	"/gemini-api-key",
@@ -60,6 +63,7 @@ var cliProxyProviderResponseKeys = map[string]string{
 func TestCLIProxyManagementContractAllowlist(t *testing.T) {
 	expected := []string{
 		"/auth-files",
+		"/auth-files/models",
 		"/auth-files/status",
 		"/auth-files/fields",
 		"/gemini-api-key",
@@ -104,15 +108,36 @@ func TestCLIProxyManagementContractAuthFilesPayload(t *testing.T) {
 	if primary.Priority == nil || *primary.Priority != 20 {
 		t.Fatalf("expected gemini-primary priority=20, got %+v", primary.Priority)
 	}
-	deprioritized := findCLIProxyAuthObservation(t, observations, "claude-deprioritized.json")
-	if deprioritized.Priority == nil || *deprioritized.Priority != 0 {
-		t.Fatalf("expected priority 0 fixture row, got %+v", deprioritized.Priority)
+	baseline := findCLIProxyAuthObservation(t, observations, "claude-baseline.json")
+	if baseline.Priority == nil || *baseline.Priority != 0 {
+		t.Fatalf("expected priority 0 fixture row, got %+v", baseline.Priority)
 	}
-	if got := cliProxyPriorityMeaning(*deprioritized.Priority); got != "lowest/deprioritized" {
-		t.Fatalf("priority 0 must mean lowest/deprioritized scheduling priority, got %q", got)
+	if got := cliProxyAuthFilePriorityMeaning(*baseline.Priority); got != cliProxyPriorityZeroAuthFileMeaning {
+		t.Fatalf("priority 0 authfile JSON must mean %q, got %q", cliProxyPriorityZeroAuthFileMeaning, got)
 	}
-	if missing := deprioritized.UnobservableFields; !slices.Equal(missing, []string{"quota", "model_states"}) {
-		t.Fatalf("expected unavailable live quota/model_states to be condition_unobservable, got %+v", deprioritized)
+	if missing := baseline.UnobservableFields; !slices.Equal(missing, []string{"quota", "model_states"}) {
+		t.Fatalf("expected unavailable live quota/model_states to be condition_unobservable, got %+v", baseline)
+	}
+}
+
+func TestCLIProxyPriorityZeroMeaningFrozen(t *testing.T) {
+	payload := decodeCLIProxyFixture[cliProxyAuthFilesResponse](t, liveAuthFilesContractFixture)
+	observations, err := validateCLIProxyAuthFilesContract(payload)
+	if err != nil {
+		t.Fatalf("validate priority-zero authfile fixture: %v", err)
+	}
+	baseline := findCLIProxyAuthObservation(t, observations, "claude-baseline.json")
+	if baseline.Priority == nil || *baseline.Priority != 0 {
+		t.Fatalf("authfile JSON priority=0 must remain observable as explicit zero, got %+v", baseline.Priority)
+	}
+	if slices.Contains(baseline.UnobservableFields, "priority") {
+		t.Fatalf("authfile JSON priority=0 must not be treated as missing priority, got %+v", baseline)
+	}
+	if got := cliProxyAuthFilePriorityMeaning(0); got != cliProxyPriorityZeroAuthFileMeaning {
+		t.Fatalf("authfile JSON priority=0 meaning changed: got %q want %q", got, cliProxyPriorityZeroAuthFileMeaning)
+	}
+	if got := cliProxyFieldsPatchPriorityMeaning(0); got != cliProxyPriorityZeroPatchMeaning {
+		t.Fatalf("fields PATCH priority=0 meaning changed: got %q want %q", got, cliProxyPriorityZeroPatchMeaning)
 	}
 }
 
@@ -126,19 +151,13 @@ func TestCLIProxyManagementContractAuthFilesEnvelopeFailures(t *testing.T) {
 		{name: "legacy auth_files only", fixture: cliProxyAuthFilesFixtureWithEnvelopeKey(t, "auth_files"), wantErr: "files must be present"},
 		{name: "files null", fixture: `{"files":null,"metadata":{"row_count":0}}`, wantErr: "files must be an array"},
 		{name: "files not array", fixture: `{"files":{"id":"auth-gemini-primary","name":"gemini-primary.json"},"metadata":{"row_count":1}}`, wantErr: "files must be an array"},
-		{name: "empty files array succeeds", fixture: `{"files":[],"metadata":{"row_count":0}}`},
+		{name: "empty files array fails closed", fixture: `{"files":[],"metadata":{"row_count":0}}`, wantErr: "files must include at least one entry"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			payload, err := decodeCLIProxyAuthFilesEnvelope([]byte(tt.fixture))
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("expected empty files array to decode successfully, got %v", err)
-				}
-				if len(payload.Files) != 0 {
-					t.Fatalf("expected empty files array, got %+v", payload.Files)
-				}
-				return
+			if err == nil {
+				_, err = validateCLIProxyAuthFilesContract(payload)
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("expected %q error, got %v", tt.wantErr, err)
@@ -196,7 +215,7 @@ func TestCLIProxyManagementContractEditableAuthFieldsPatch(t *testing.T) {
 	harness := newCLIProxyContractHarness(t, map[string]cliProxyRoute{
 		"/auth-files/fields": cliProxyFieldsPatchRoute(t),
 	})
-	patch := strings.NewReader(`{"name":"gemini-primary.json","prefix":"team-a/","proxy_url":"http://127.0.0.1:18080","headers":{"X-Fixture":"true"},"priority":0,"note":"deprioritized fixture"}`)
+	patch := strings.NewReader(`{"name":"gemini-primary.json","prefix":"team-a/","proxy_url":"http://127.0.0.1:18080","headers":{"X-Fixture":"true"},"priority":10,"note":"priority patch fixture"}`)
 	var response cliProxyAuthFieldsResponse
 	contractErr := fetchCLIProxyJSON(context.Background(), harness.client, http.MethodPatch, harness.url("/auth-files/fields"), patch, cliProxyManagementHeaders(cliProxyManagementKey, ""), &response)
 	if contractErr != nil {
@@ -205,11 +224,8 @@ func TestCLIProxyManagementContractEditableAuthFieldsPatch(t *testing.T) {
 	if response.Status != "ok" || response.Updated == "" {
 		t.Fatalf("expected source-backed fields patch response, got %+v", response)
 	}
-	if response.Priority == nil || *response.Priority != 0 {
-		t.Fatalf("expected editable fields patch to accept priority=0, got %+v", response.Priority)
-	}
-	if got := cliProxyPriorityMeaning(*response.Priority); got != "lowest/deprioritized" {
-		t.Fatalf("priority 0 after fields PATCH must stay lowest/deprioritized, got %q", got)
+	if response.Priority == nil || *response.Priority != 10 {
+		t.Fatalf("expected editable fields patch to set priority=10, got %+v", response.Priority)
 	}
 }
 
@@ -417,10 +433,10 @@ func cliProxyFieldsPatchRoute(t *testing.T) cliProxyRoute {
 			writeCLIProxyFixtureJSON(w, http.StatusBadRequest, `{"error":"invalid request body"}`)
 			return
 		}
-		if patch.Name != "gemini-primary.json" || patch.Priority == nil || *patch.Priority != 0 || patch.Headers["X-Fixture"] != "true" {
+		if patch.Name != "gemini-primary.json" || patch.Priority == nil || *patch.Priority != 10 || patch.Headers["X-Fixture"] != "true" {
 			t.Fatalf("unexpected source-backed fields patch payload: %+v", patch)
 		}
-		writeCLIProxyFixtureJSON(w, http.StatusOK, `{"status":"ok","updated":"gemini-primary.json","priority":0}`)
+		writeCLIProxyFixtureJSON(w, http.StatusOK, `{"status":"ok","updated":"gemini-primary.json","priority":10}`)
 	}
 }
 
@@ -788,11 +804,18 @@ func findCLIProxyAuthObservation(t *testing.T, observations []cliProxyAuthFileOb
 	return cliProxyAuthFileObservation{}
 }
 
-func cliProxyPriorityMeaning(priority int) string {
+func cliProxyAuthFilePriorityMeaning(priority int) string {
 	if priority == 0 {
-		return "lowest/deprioritized"
+		return cliProxyPriorityZeroAuthFileMeaning
 	}
-	return "higher scheduling precedence"
+	return "higher numeric values are preferred"
+}
+
+func cliProxyFieldsPatchPriorityMeaning(priority int) string {
+	if priority == 0 {
+		return cliProxyPriorityZeroPatchMeaning
+	}
+	return "set explicit priority"
 }
 
 func decodeCLIProxyFixture[T any](t *testing.T, fixture string) T {
@@ -905,19 +928,19 @@ const liveAuthFilesContractFixture = `{
       "note": "source-backed fixture row"
     },
     {
-      "id": "auth-claude-deprioritized",
+      "id": "auth-claude-baseline",
       "auth_index": "auth_002",
-      "name": "claude-deprioritized.json",
+      "name": "claude-baseline.json",
       "type": "claude",
       "provider": "claude",
-      "label": "Claude deprioritized",
+      "label": "Claude baseline",
       "status": "active",
       "disabled": false,
       "unavailable": false,
       "runtime_only": false,
       "source": "file",
       "size": 384,
-      "path": "/mock/cliproxy/auth/claude-deprioritized.json",
+      "path": "/mock/cliproxy/auth/claude-baseline.json",
       "priority": 0,
       "success": 1,
       "failed": 2,
@@ -929,7 +952,7 @@ const liveAuthFilesContractFixture = `{
           "failure_count": 1
         }
       ],
-      "note": "priority 0 means lowest/deprioritized"
+      "note": "priority 0 is the baseline/lowest numeric bucket"
     }
   ]
 }`

@@ -122,10 +122,13 @@ func TestSidecarOpenAPIComponentsMatchCurrentSurface(t *testing.T) {
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarCreateRequest", []string{"allow_insecure_http", "allow_private_network", "base_url", "enabled", "environment_label", "management_password", "name", "request_timeout_seconds", "skip_tls_verify", "sync_interval_seconds"})
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarUpdateRequest", []string{"allow_insecure_http", "allow_private_network", "base_url", "enabled", "environment_label", "management_password", "name", "request_timeout_seconds", "skip_tls_verify", "sync_interval_seconds"})
 	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarInstance", []string{"allow_insecure_http", "allow_private_network", "base_url", "base_url_canonical", "created_at", "credential_state", "enabled", "environment_label", "id", "last_successful_sync_at", "last_sync_at", "last_sync_error", "management_auth_state", "name", "pause_metadata", "request_timeout_seconds", "skip_tls_verify", "snapshot_stale_after", "sync_interval_seconds", "updated_at"})
+	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarAuthModel", []string{"display_name", "id", "owned_by", "type"})
+	assertSidecarOpenAPIProperties(t, openAPI.Components.Schemas, "SidecarAuthModelsResponse", []string{"models"})
+	assertSidecarMutationOpenAPIContract(t, openAPI)
 }
 
 func TestSidecarAPIAllowlistContract(t *testing.T) {
-	expectedPaths := []string{"/auth-files", "/auth-files/status", "/auth-files/fields", "/gemini-api-key", "/claude-api-key", "/codex-api-key", "/vertex-api-key", "/openai-compatibility"}
+	expectedPaths := []string{"/auth-files", "/auth-files/models", "/auth-files/status", "/auth-files/fields", "/gemini-api-key", "/claude-api-key", "/codex-api-key", "/vertex-api-key", "/openai-compatibility"}
 	paths := managementsidecars.SupportedCLIProxyManagementPaths()
 	if !slices.Equal(paths, expectedPaths) {
 		t.Fatalf("CLIProxyAPI management allowlist changed: got %v want %v", paths, expectedPaths)
@@ -235,6 +238,8 @@ func loadSidecarOpenAPIPaths(t *testing.T) map[string]map[string]any {
 func assertSidecarOpenAPISchemaSet(t *testing.T, schemas map[string]any) {
 	t.Helper()
 	expected := map[string]bool{
+		"SidecarAuthModel":                    true,
+		"SidecarAuthModelsResponse":           true,
 		"SidecarAuthMutationResponse":         true,
 		"SidecarAuthSnapshot":                 true,
 		"SidecarAuthSnapshotListResponse":     true,
@@ -289,6 +294,61 @@ func assertSidecarOpenAPIProperties(t *testing.T, schemas map[string]any, schema
 	}
 }
 
+func assertSidecarMutationOpenAPIContract(t *testing.T, doc sidecarOpenAPIDocument) {
+	t.Helper()
+	mutationSchema := sidecarContractMap(t, doc.Components.Schemas, "SidecarAuthMutationResponse")
+	mutationProps := sidecarContractMap(t, mutationSchema, "properties")
+	state := sidecarContractMap(t, mutationProps, "state")
+	stateEnum, ok := state["enum"].([]any)
+	if !ok || len(stateEnum) != 2 || stateEnum[0] != "succeeded" || stateEnum[1] != "succeeded_sync_failed" {
+		t.Fatalf("SidecarAuthMutationResponse.state enum = %v", state["enum"])
+	}
+	if syncError := sidecarContractMap(t, mutationProps, "sync_error"); syncError["nullable"] == true {
+		t.Fatalf("SidecarAuthMutationResponse.sync_error must be optional string, not nullable")
+	}
+
+	fieldsSchema := sidecarMutationRequestSchema(t, doc, "/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields", "patch")
+	fieldsProps := sidecarContractMap(t, fieldsSchema, "properties")
+	for _, name := range []string{"prefix", "proxy_url", "note"} {
+		field := sidecarContractMap(t, fieldsProps, name)
+		if field["nullable"] == true || field["minLength"] != float64(1) {
+			t.Fatalf("%s must be documented as non-null non-empty string, got %v", name, field)
+		}
+	}
+	for _, name := range []string{"headers", "custom_headers"} {
+		field := sidecarContractMap(t, fieldsProps, name)
+		values := sidecarContractMap(t, field, "additionalProperties")
+		if field["nullable"] == true || field["minProperties"] != float64(1) || values["nullable"] == true || values["minLength"] != float64(1) {
+			t.Fatalf("%s must reject null, empty object, and empty values in OpenAPI, got %v", name, field)
+		}
+	}
+
+	deleteSchema := sidecarMutationRequestSchema(t, doc, "/api/sidecars/{sidecar_id}/auth-files/{auth_id}", "delete")
+	deleteProps := sidecarContractMap(t, deleteSchema, "properties")
+	confirmName := sidecarContractMap(t, deleteProps, "confirm_name")
+	if confirmName["nullable"] == true || confirmName["minLength"] != float64(1) {
+		t.Fatalf("delete confirm_name must be required non-null non-empty string, got %v", confirmName)
+	}
+}
+
+func sidecarMutationRequestSchema(t *testing.T, doc sidecarOpenAPIDocument, path string, method string) map[string]any {
+	t.Helper()
+	operation := sidecarContractMap(t, doc.Paths[path], method)
+	requestBody := sidecarContractMap(t, operation, "requestBody")
+	content := sidecarContractMap(t, requestBody, "content")
+	jsonContent := sidecarContractMap(t, content, "application/json")
+	return sidecarContractMap(t, jsonContent, "schema")
+}
+
+func sidecarContractMap(t *testing.T, source map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := source[key].(map[string]any)
+	if !ok {
+		t.Fatalf("OpenAPI key %s missing or malformed in %v", key, source)
+	}
+	return value
+}
+
 func expectedSidecarRouteSurface() map[string][]string {
 	return map[string][]string{
 		"/api/sidecars":                                           {http.MethodGet, http.MethodPost},
@@ -296,6 +356,8 @@ func expectedSidecarRouteSurface() map[string][]string {
 		"/api/sidecars/{sidecar_id}/test-connection":              {http.MethodPost},
 		"/api/sidecars/{sidecar_id}/sync":                         {http.MethodPost},
 		"/api/sidecars/{sidecar_id}/auth-files":                   {http.MethodGet},
+		"/api/sidecars/{sidecar_id}/auth-files/models":            {http.MethodGet},
+		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}":         {http.MethodDelete},
 		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}/status":  {http.MethodPatch},
 		"/api/sidecars/{sidecar_id}/auth-files/{auth_id}/fields":  {http.MethodPatch},
 		"/api/sidecars/{sidecar_id}/auth-snapshots":               {http.MethodGet},

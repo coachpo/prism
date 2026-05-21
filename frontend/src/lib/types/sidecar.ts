@@ -68,6 +68,17 @@ export interface SidecarAuthSnapshotListResponse {
   items: SidecarAuthSnapshot[];
 }
 
+export interface SidecarAuthModel {
+  id: string;
+  display_name?: string;
+  type?: string;
+  owned_by?: string;
+}
+
+export interface SidecarAuthModelsResponse {
+  models: SidecarAuthModel[];
+}
+
 export interface SidecarProviderSnapshot {
   id: number;
   sidecar_id: number;
@@ -85,7 +96,6 @@ export interface SidecarProviderSnapshotListResponse {
   items: SidecarProviderSnapshot[];
 }
 
-
 export interface SidecarTestConnectionResponse {
   state: "succeeded";
   management_auth_state: SidecarManagementAuthState;
@@ -117,45 +127,22 @@ export interface SidecarSyncResponse {
   error_detail?: string;
 }
 
-export interface SidecarAuthMutationResponse {
-  state: string;
-  snapshot?: SidecarAuthSnapshot;
-  sync_error?: string;
-}
+export type SidecarAuthTraceHeaderName = "x-correlation-id" | "x-request-id" | "x-trace-id";
 
-export interface SidecarTestConnectionResponse {
-  state: "succeeded";
-  management_auth_state: SidecarManagementAuthState;
-  status_code: number;
-}
+export type SidecarAuthMutationFieldsInput = {
+  priority?: number;
+  prefix?: string;
+  proxy_url?: string;
+  note?: string;
+  headers?: Partial<Record<SidecarAuthTraceHeaderName, string>>;
+  force_live?: boolean;
+};
 
-export interface SidecarSyncStatus {
-  sidecar_id: number;
-  enabled: boolean;
-  sync_interval_seconds: number;
-  management_auth_state: SidecarManagementAuthState;
-  last_sync_at?: string;
-  last_successful_sync_at?: string;
-  snapshot_stale_after?: string;
-  last_sync_error?: string;
-  auth_failure_pause_until?: string;
-  stale: boolean;
-  due: boolean;
-  paused: boolean;
-}
-
-export interface SidecarSyncResponse {
-  state: string;
-  sidecar: SidecarInstance;
-  sync_status: SidecarSyncStatus;
-  auth_snapshot_count: number;
-  provider_snapshot_count: number;
-  error_code?: string;
-  error_detail?: string;
-}
+export type SidecarAuthMutationState = "succeeded" | "succeeded_sync_failed";
 
 export interface SidecarAuthMutationResponse {
-  state: string;
+  state: SidecarAuthMutationState;
   snapshot?: SidecarAuthSnapshot;
-  sync_error?: string;
+  sync_status?: SidecarSyncStatus;
+  sync_error?: string | null;
 }

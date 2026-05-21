@@ -56,7 +56,7 @@ func TestCLIProxyClientRetryNoRedirectAndAllowlist(t *testing.T) {
 	t.Parallel()
 	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v0/management/auth-files/status" {
+		if r.URL.Path != "/v0/management/auth-files" {
 			t.Fatalf("unexpected management path %s", r.URL.Path)
 		}
 		if got := r.Header.Get("X-Management-Key"); got != "secret-key" {
@@ -68,6 +68,9 @@ func TestCLIProxyClientRetryNoRedirectAndAllowlist(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":"temporary"}`))
 			return
 		}
+		w.Header().Set("X-CPA-COMMIT", "21FAD9DBB447A2AB70D51D0AC3E3D032525A6054")
+		w.Header().Set("X-CPA-VERSION", "test-version")
+		w.Header().Set("X-CPA-BUILD-DATE", "2026-05-21T00:00:00Z")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}))
 	defer server.Close()
@@ -75,12 +78,15 @@ func TestCLIProxyClientRetryNoRedirectAndAllowlist(t *testing.T) {
 	client := NewCLIProxyClient(server.Client())
 	var payload map[string]string
 	started := time.Now()
-	_, err := client.FetchJSON(context.Background(), CLIProxyTarget{BaseURL: server.URL, ManagementPassword: "secret-key", AllowPrivateNetwork: true, AllowInsecureHTTP: true}, http.MethodGet, "/auth-files/status", nil, &payload)
+	response, err := client.FetchJSON(context.Background(), CLIProxyTarget{BaseURL: server.URL, ManagementPassword: "secret-key", AllowPrivateNetwork: true, AllowInsecureHTTP: true}, http.MethodGet, "/auth-files", nil, &payload)
 	if err != nil {
 		t.Fatalf("expected retry to recover from transient 5xx: %v", err)
 	}
 	if requestCount != 2 || payload["status"] != "ok" {
 		t.Fatalf("expected one retry and successful payload, count=%d payload=%v", requestCount, payload)
+	}
+	if response.Commit != cliProxyAuthFileDeleteBaselineCommit || response.Version != "test-version" || response.BuildDate == "" {
+		t.Fatalf("expected CPA response metadata, got %+v", response)
 	}
 	if elapsed := time.Since(started); elapsed < 250*time.Millisecond {
 		t.Fatalf("expected retry backoff of at least 250ms, got %s", elapsed)

@@ -59,7 +59,7 @@ func retainedAuthPayload(auth retainedAuthFixture) map[string]any {
 	if provider == "" {
 		provider = "gemini"
 	}
-	payload := map[string]any{"id": retainedAuthID, "auth_index": retainedAuthIndex, "name": retainedAuthName, "provider": provider, "label": "Gemini primary", "status": "active", "disabled": auth.Disabled, "unavailable": auth.Unavailable, "priority": auth.Priority, "failed": auth.FailureCount, "recent_requests": []any{map[string]any{"window_start": "2026-05-10T11:59:00Z", "window_end": "2026-05-10T12:00:00Z", "failure_count": auth.FailureCount}}}
+	payload := map[string]any{"id": retainedAuthID, "auth_index": retainedAuthIndex, "name": retainedAuthName, "provider": provider, "label": "Gemini primary", "status": "active", "disabled": auth.Disabled, "unavailable": auth.Unavailable, "runtime_only": false, "source": "file", "path": "/mock/cliproxy/auth/" + retainedAuthName, "priority": auth.Priority, "failed": auth.FailureCount, "recent_requests": []any{map[string]any{"window_start": "2026-05-10T11:59:00Z", "window_end": "2026-05-10T12:00:00Z", "failure_count": auth.FailureCount}}}
 	if auth.QuotaExceeded || auth.QuotaNextRecoverAt != nil {
 		quota := map[string]any{"exceeded": auth.QuotaExceeded, "reason": "rate_limit"}
 		if auth.QuotaNextRecoverAt != nil {

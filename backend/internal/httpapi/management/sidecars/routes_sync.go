@@ -1,7 +1,11 @@
 package sidecars
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	neturl "net/url"
+	"strings"
 	"time"
 )
 
@@ -30,6 +34,17 @@ type sidecarSyncStatusResponse struct {
 	Paused                bool       `json:"paused"`
 }
 
+type authFileModelsResponse struct {
+	Models []authFileModelResponse `json:"models"`
+}
+
+type authFileModelResponse struct {
+	ID          string  `json:"id"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Type        *string `json:"type,omitempty"`
+	OwnedBy     *string `json:"owned_by,omitempty"`
+}
+
 func (s *Service) handleTriggerSidecarSync(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.parseSidecarID(w, r)
 	if !ok {
@@ -49,6 +64,36 @@ func (s *Service) handleTriggerSidecarSync(w http.ResponseWriter, r *http.Reques
 
 func (s *Service) handleListSidecarAuthFiles(w http.ResponseWriter, r *http.Request) {
 	s.handleListAuthSnapshots(w, r)
+}
+
+func (s *Service) handleListSidecarAuthFileModels(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.parseSidecarID(w, r)
+	if !ok {
+		return
+	}
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "name is required")
+		return
+	}
+	instance, found, err := s.store.GetSidecarInstance(r.Context(), id)
+	if err != nil {
+		writeDomainError(w, r, s.corsSnapshot(), err)
+		return
+	}
+	if !found {
+		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "sidecar not found")
+		return
+	}
+	models, err := s.fetchSidecarAuthFileModels(r.Context(), instance, name)
+	if err != nil {
+		s.writeAuthFileModelsError(w, r, instance, err)
+		return
+	}
+	if models.Models == nil {
+		models.Models = []authFileModelResponse{}
+	}
+	writeJSON(w, http.StatusOK, models)
 }
 
 func (s *Service) handleListAuthSnapshots(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +149,39 @@ func (s *Service) handleGetSidecarSyncStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, buildSidecarSyncStatusResponse(s.sidecarSyncStatus(instance)))
+}
+
+func (s *Service) fetchSidecarAuthFileModels(ctx context.Context, instance SidecarInstance, name string) (authFileModelsResponse, error) {
+	target, err := s.cliProxyTarget(instance)
+	if err != nil {
+		return authFileModelsResponse{}, err
+	}
+	models := authFileModelsResponse{}
+	_, err = s.cliProxyClient.FetchJSONWithQuery(ctx, target, http.MethodGet, "/auth-files/models", neturl.Values{"name": []string{name}}, nil, &models)
+	return models, err
+}
+
+func (s *Service) writeAuthFileModelsError(w http.ResponseWriter, r *http.Request, instance SidecarInstance, err error) {
+	if errors.Is(err, errSidecarManagementPasswordMissing) {
+		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "management password is not configured")
+		return
+	}
+	var clientErr *CLIProxyClientError
+	if errors.As(err, &clientErr) {
+		switch clientErr.Code {
+		case CLIProxyErrorInvalidManagementAuth:
+			s.markInvalidManagementAuth(r.Context(), instance)
+			writeError(w, r, s.corsSnapshot(), http.StatusFailedDependency, "sidecar management authentication failed")
+		case CLIProxyErrorManagementDisabled:
+			writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "authfile models discovery unsupported")
+		case CLIProxyErrorRequestBuild, CLIProxyErrorUnsupportedPath:
+			writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, "sidecar models request could not be built")
+		default:
+			writeError(w, r, s.corsSnapshot(), http.StatusBadGateway, "sidecar models discovery failed")
+		}
+		return
+	}
+	writeDomainError(w, r, s.corsSnapshot(), err)
 }
 
 func buildSidecarSyncResponse(s *Service, result SidecarSyncResult) sidecarSyncResponse {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -161,6 +162,51 @@ func TestSidecarIntegrationDirectAuthFileMutationUpdatesSnapshotWithCurrentSchem
 	sidecarIntegrationAssertCurrentSchema(t, conn)
 }
 
+func TestSidecarAuthMutationIntegration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	conn, router := newSidecarIntegrationRouter(t, ctx)
+	upstream := newSidecarIntegrationUpstream(t)
+	defer upstream.Close()
+	sidecarID := sidecarIntegrationCreateAndSyncSidecar(t, conn, router, upstream, "Safe Mutation")
+
+	mutationBody, mutationPayload := sidecarIntegrationRequestJSON(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", map[string]any{
+		"priority": 88,
+	}, http.StatusOK)
+	sidecarIntegrationAssertNoLeaks(t, mutationBody)
+	if mutationPayload["state"] != "succeeded" {
+		t.Fatalf("expected succeeded mutation state, got %+v", mutationPayload)
+	}
+	upstream.assertFieldPatch(t, 88)
+
+	primary := sidecarIntegrationAuthFixtureWith("auth-gemini-primary", "auth_001", "gemini", 88)
+	shadow := sidecarIntegrationAuthFixtureWith("auth-gemini-shadow", "auth_999", "gemini", 77)
+	shadow["name"] = primary["name"]
+	upstream.setAuthFiles(primary, shadow)
+	rejectionBody := sidecarIntegrationRequestStatus(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", map[string]any{
+		"priority": 99,
+	}, http.StatusConflict)
+	sidecarIntegrationAssertNoLeaks(t, rejectionBody)
+	upstream.assertFieldPatchPriorities(t, []int{88})
+
+	upstream.setAuthFiles(sidecarIntegrationAuthFixtureWith("auth-gemini-primary", "auth_001", "gemini", 88))
+	upstream.failAuthFilesAfterNextFieldPatch()
+	degradedBody, degradedPayload := sidecarIntegrationRequestJSON(t, router, http.MethodPatch, "/sidecars/"+strconv.Itoa(sidecarID)+"/auth-files/auth-gemini-primary/fields", map[string]any{
+		"priority": 90,
+	}, http.StatusOK)
+	sidecarIntegrationAssertNoLeaks(t, degradedBody)
+	if degradedPayload["state"] != "succeeded_sync_failed" || strings.TrimSpace(fmt.Sprint(degradedPayload["sync_error"])) == "" {
+		t.Fatalf("expected succeeded_sync_failed mutation state with sync_error, got %+v", degradedPayload)
+	}
+	degradedSnapshot, ok := degradedPayload["snapshot"].(map[string]any)
+	if !ok || sidecarIntegrationInt(t, degradedSnapshot["priority"], "degraded snapshot priority") != 88 {
+		t.Fatalf("degraded mutation response should retain pre-patch snapshot truth, got %+v", degradedPayload["snapshot"])
+	}
+	upstream.assertFieldPatchPriorities(t, []int{88, 90})
+	sidecarIntegrationAssertCurrentSchema(t, conn)
+	sidecarIntegrationAssertDBNoLeaks(t, conn, sidecarID)
+}
+
 func newSidecarIntegrationRouter(t *testing.T, ctx context.Context) (*pgx.Conn, http.Handler) {
 	t.Helper()
 	conn, _, router := newSidecarIntegrationServiceRouter(t, ctx)
@@ -286,6 +332,8 @@ func sidecarIntegrationRouteSurface() map[string][]string {
 		"/sidecars/{sidecar_id}/test-connection":              {http.MethodPost},
 		"/sidecars/{sidecar_id}/sync":                         {http.MethodPost},
 		"/sidecars/{sidecar_id}/auth-files":                   {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/models":            {http.MethodGet},
+		"/sidecars/{sidecar_id}/auth-files/{auth_id}":         {http.MethodDelete},
 		"/sidecars/{sidecar_id}/auth-files/{auth_id}/status":  {http.MethodPatch},
 		"/sidecars/{sidecar_id}/auth-files/{auth_id}/fields":  {http.MethodPatch},
 		"/sidecars/{sidecar_id}/auth-snapshots":               {http.MethodGet},
@@ -377,10 +425,11 @@ func sidecarIntegrationCreateAndSyncSidecar(t *testing.T, conn *pgx.Conn, router
 }
 
 type sidecarIntegrationUpstream struct {
-	server       *httptest.Server
-	mu           sync.Mutex
-	fieldPatches []map[string]any
-	authFiles    []map[string]any
+	server                          *httptest.Server
+	mu                              sync.Mutex
+	fieldPatches                    []map[string]any
+	authFiles                       []map[string]any
+	authFilesFailureAfterPatchCount int
 }
 
 func newSidecarIntegrationUpstream(t *testing.T) *sidecarIntegrationUpstream {
@@ -404,6 +453,12 @@ func (u *sidecarIntegrationUpstream) setAuthFiles(files ...map[string]any) {
 	for _, file := range files {
 		u.authFiles = append(u.authFiles, sidecarIntegrationCloneMap(file))
 	}
+}
+
+func (u *sidecarIntegrationUpstream) failAuthFilesAfterNextFieldPatch() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.authFilesFailureAfterPatchCount = len(u.fieldPatches) + 1
 }
 
 func (u *sidecarIntegrationUpstream) handle(t *testing.T, w http.ResponseWriter, r *http.Request) {
@@ -435,11 +490,20 @@ func (u *sidecarIntegrationUpstream) handle(t *testing.T, w http.ResponseWriter,
 
 func (u *sidecarIntegrationUpstream) handleAuthFiles(w http.ResponseWriter) {
 	u.mu.Lock()
+	failAfterPatchCount := u.authFilesFailureAfterPatchCount
+	patchCount := len(u.fieldPatches)
 	files := make([]any, 0, len(u.authFiles))
 	for _, file := range u.authFiles {
 		files = append(files, sidecarIntegrationCloneMap(file))
 	}
 	u.mu.Unlock()
+	if failAfterPatchCount > 0 && patchCount >= failAfterPatchCount {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"auth snapshot refresh failed"}`))
+		return
+	}
+	w.Header().Set("X-CPA-COMMIT", "21fad9dbb447a2ab70d51d0ac3e3d032525a6054")
+	w.Header().Set("X-CPA-VERSION", "integration-delete-capable")
 	sidecarIntegrationWriteJSON(w, map[string]any{"files": files})
 }
 
@@ -507,7 +571,7 @@ func sidecarIntegrationAuthFixture() map[string]any {
 
 func sidecarIntegrationAuthFixtureWith(authID string, authIndex string, provider string, priority int) map[string]any {
 	return map[string]any{
-		"id": authID, "auth_index": authIndex, "name": authID + ".json", "provider": provider, "label": authID, "status": "active", "disabled": false, "priority": priority,
+		"id": authID, "auth_index": authIndex, "name": authID + ".json", "provider": provider, "label": authID, "status": "active", "disabled": false, "runtime_only": false, "source": "file", "path": "/mock/cliproxy/auth/" + authID + ".json", "priority": priority,
 		"quota": map[string]any{"exceeded": false, "reason": "", "next_recover_at": nil}, "recent_requests": []any{map[string]any{"success": 4, "failed": 0}}, "model_states": map[string]any{"default": map[string]any{"status": "active", "api_key": "raw-auth-token"}},
 		"api_key": "raw-auth-secret",
 	}
