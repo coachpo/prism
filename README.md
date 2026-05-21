@@ -54,7 +54,7 @@ cd prism
 
 Prism is a monorepo: the backend and frontend live in the same checkout under `backend/` and `frontend/`.
 
-The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `5432`.
+The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
 
 Log retention is configured from the Settings Global tab. Normal retention is global across all profiles and runs as durable `log_retention` jobs. It drops expired daily log partitions first, then cleans only the cutoff-overlapping boundary partition and vacuums that child with `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`. Manual shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are emergency operator actions only; `pg_repack` is not available in the default local `postgres:16-alpine` image.
 
@@ -93,7 +93,7 @@ docker run -d \
   ghcr.io/coachpo/prism-frontend:latest
 ```
 
-Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting. Existing bootstrap `config.json` files must include `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` before starting this upgraded backend. Set `runtime.transport.requestTimeout` to `"60s"` to preserve the prior whole-request upstream timeout behavior, and set `runtime.sideEffects.attemptTimeout` to the newly seeded default `"10s"` for each background side-effect enqueue attempt.
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting. Existing bootstrap `config.json` files must include `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` before starting this upgraded backend. Set `runtime.transport.requestTimeout` to `"60s"` to preserve the prior whole-request upstream timeout behavior, and set `runtime.sideEffects.attemptTimeout` to the newly seeded default `"10s"` for each background side-effect enqueue attempt.
 
 The backend image runs as `prism:prism`, UID/GID `1000:1000`. The bind-mounted directory that contains `PRISM_CONFIG_PATH`, such as `/absolute/secure/path/prism-config` for `/app/config/config.json`, must be writable by UID/GID `1000:1000` so the Startup API can create and replace the bootstrap file. For an existing root-owned bind mount, remediate the host directory once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 
@@ -169,7 +169,7 @@ Use [`frontend/.env.example`](frontend/.env.example) as the frontend sample.
 Plaintext bootstrap startup uses a single steady-state external input:
 
 - `PRISM_CONFIG_PATH` points at a plaintext bootstrap file such as `config.json`
-- `DATABASE_URL` is optional and defaults to `postgres://prism:prism@localhost:5432/prism?sslmode=disable`
+- `DATABASE_URL` is optional and defaults to `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
 
 The Startup tab at `/settings#startup` manages that plaintext file directly. GET returns masked metadata only, field-level apply capabilities, and pending apply state only when the file differs from the live applied baseline. PUT applies explicit preserve or replace secret actions with expected revision and etag checks, writes the file, and immediately publishes eligible hot fields. Dangerous host, port, database, JWT signing key, and bundle key changes require confirmation tokens. `runtime.secretEncryptionKey` is preserve only in v1, and redacted placeholders are not persisted.
 
@@ -214,8 +214,8 @@ To send password-reset and recovery-email verification messages, set `mail.enabl
 
 Other configuration notes:
 
-- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `5432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
-- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port stays `18000`, and the bootstrap config resolves to the launcher-managed PostgreSQL DSN `postgres://prism:prism@localhost:5432/prism?sslmode=disable`
+- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `15432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
+- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port stays `18000`, and the bootstrap config resolves to the launcher-managed PostgreSQL DSN `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
 - If you set `PRISM_CONFIG_PATH` in `.env`, `./start.sh` resolves relative paths from the repo root before launching the backend
 - Direct backend runs should prefer an absolute `PRISM_CONFIG_PATH`
 - Frontend build/runtime metadata uses `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`

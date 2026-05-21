@@ -21,7 +21,7 @@
                     └──────────────────────────────────────────┘
 ```
 
-*Local `./start.sh` defaults are backend `18000`, frontend `15173`, and PostgreSQL `5432`. Standalone frontend containers commonly expose `3000`.
+*Local `./start.sh` defaults are backend `18000`, frontend `15173`, and PostgreSQL `15432`. Standalone frontend containers commonly expose `3000`.
 
 ## 2. Component Architecture
 
@@ -53,7 +53,7 @@ backend/
 ├── testdata/                   # checked-in OpenAPI, bundle, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
 ├── Dockerfile                  # live Go backend image build
-├── docker-compose.yml          # local PostgreSQL helper on host port 5432
+├── docker-compose.yml          # local PostgreSQL helper on host port 15432
 └── VERSION                     # backend version surface
 ```
 
@@ -106,7 +106,7 @@ frontend/
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
 - Root local orchestration lives in `start.sh`: it loads the root `.env`, starts PostgreSQL from `backend/docker-compose.yml`, validates that the selected bootstrap config still matches the fixed local launcher contract, and launches the Go backend service on `18000`.
 - `./start.sh full` launches the frontend on `15173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000` so browser traffic stays same-origin.
-- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; the only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:5432/prism?sslmode=disable`.
+- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; the only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
 - Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; old encrypted bootstrap files must be replaced before boot, and there is no compatibility mode for older bootstrap file shapes.
 - The backend image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
