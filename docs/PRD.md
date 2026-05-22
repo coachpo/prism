@@ -133,7 +133,7 @@ Single operator (developer/power user) running the application locally or on a l
 - Config export/import uses the Go-era split-bundle contract: profile bundles are `version: 1` with `bundle_kind: profile_config`, and vendor catalog bundles are `version: 1` with `bundle_kind: vendor_catalog`
 - Profile bundles carry `vendor_refs`, `profile_settings`, nullable `api_key_secret_ref`, encrypted `secret_payload`, top-level `loadbalance_strategies`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable `vendor_key`, and `api_family`
 - Profile import preview validates bundle kind, version, secret decryption, and vendor resolution before replace-mode import; unsupported versions are rejected
-- Database setup is managed by the Go backend runtime and applies the checked-in migration chain on startup
+- Database setup is managed by the Go backend runtime and applies the checked-in fresh-install baseline on startup
 ### 4.9 Request Statistics & Analytics
 - Automatic logging of all proxy requests with telemetry data
 - Each request log captures: profile ID attribution, requested `model_id`, `resolved_target_model_id` (when proxy routing selected a native target), `api_family`, connection used (ID, endpoint base URL, description), Prism `ingress_request_id`, per-request `attempt_number`, best-effort `provider_correlation_id`, HTTP status, response time (ms), token usage (if available from upstream response), whether the request was streamed, and timestamp
@@ -242,7 +242,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 | Latency overhead | < 50ms added to proxy requests |
 | Concurrent requests | Support 10+ simultaneous proxy requests |
 | Database | PostgreSQL (Go-managed startup migrations) |
-| API standard | OpenAPI 3.1 contract served from the checked-in artifact |
+| API standard | Markdown API contract maintained in `docs/API_SPEC.md` |
 | CORS | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL |
 
 ## 6. Tech Stack
@@ -253,7 +253,7 @@ Database-backed header blocklist with CRUD API. Supports exact and prefix match 
 | HTTP Client | Go `net/http` streaming transport |
 | Database | PostgreSQL via pgx |
 | Frontend | React 19, Vite 8, TypeScript, Tailwind CSS 4, shadcn/ui, React Router 7 |
-| API Contract | OpenAPI 3.1 served from checked-in `docs/openapi.json` |
+| API Contract | `docs/API_SPEC.md` markdown reference |
 | Communication | REST API with JSON, SSE for streaming proxy, WebSocket for realtime updates |
 
 ## 7. Out of Scope (v1)

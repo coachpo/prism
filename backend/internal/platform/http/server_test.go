@@ -26,7 +26,6 @@ import (
 	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
-	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/admission"
@@ -339,10 +338,6 @@ func TestProxyAdmissionAttachesServerSideWorkload(t *testing.T) {
 func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 	t.Parallel()
 
-	openAPIDocument, err := openapi.Load()
-	if err != nil {
-		t.Fatalf("load OpenAPI document: %v", err)
-	}
 	settings := config.Settings{
 		Host:                             "127.0.0.1",
 		Port:                             18000,
@@ -353,7 +348,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 	}
 	handler, err := NewHandlerWithDependencies(settings, Dependencies{
 		Version:                "route-assembly-test",
-		OpenAPI:                openAPIDocument,
 		DatabasePools:          &platformdb.DatabasePools{},
 		AuthService:            &managementauth.Service{},
 		BootstrapConfigService: &managementbootstrapconfig.Service{},
@@ -375,9 +369,6 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/health"},
 		{method: http.MethodGet, path: "/metrics"},
-		{method: http.MethodGet, path: "/openapi.json"},
-		{method: http.MethodGet, path: "/docs"},
-		{method: http.MethodGet, path: "/redoc"},
 		{method: http.MethodGet, path: "/api/auth/status"},
 		{method: http.MethodGet, path: "/api/profiles/active"},
 		{method: http.MethodGet, path: "/api/config/bootstrap"},

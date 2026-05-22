@@ -53,7 +53,7 @@ func TestPartitionRetentionGuardrails(t *testing.T) {
 		}
 	}
 
-	migration := readSource(t, root, "migrations/000013_partitioned_log_retention.sql")
+	migration := readSource(t, root, "migrations/000001_initial_schema.sql")
 	for _, want := range []string{"request_log_id bigint", "request_log_created_at timestamp with time zone", "ingress_request_id character varying(36)"} {
 		if !strings.Contains(migration, want) {
 			t.Fatalf("partitioned audit schema missing weak request marker %q", want)

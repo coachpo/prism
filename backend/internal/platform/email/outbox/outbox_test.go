@@ -222,7 +222,7 @@ func openTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		t.Fatalf("open pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	migration, err := os.ReadFile("../../../../migrations/000008_email_outbox.sql")
+	migration, err := os.ReadFile("../../../../migrations/000001_initial_schema.sql")
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}

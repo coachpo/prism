@@ -633,7 +633,7 @@ func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, s.corsSnapshot(), http.StatusUnauthorized, "Proxy API key required")
 		return
 	}
-	writeError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Runtime proxy not implemented in S5")
+	writeError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Runtime proxy unavailable without a runtime service")
 }
 
 func decodeJSONBody(request *http.Request, target any) error {

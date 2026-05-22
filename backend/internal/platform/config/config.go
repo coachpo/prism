@@ -301,10 +301,6 @@ func (s Settings) ManagementAdmissionBudget() ManagementAdmissionBudget {
 	return normalizeManagementAdmissionBudget(s.ManagementAdmissionControlBudget, defaultBudget, maxLowerPriority)
 }
 
-func (s Settings) DocsEnabled() bool {
-	return s.AppEnv != EnvironmentProduction
-}
-
 func (s Settings) CORSAllowedOriginsList() []string {
 	parts := strings.Split(s.CORSAllowedOrigins, ",")
 	origins := make([]string, 0, len(parts))

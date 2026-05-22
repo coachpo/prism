@@ -1,7 +1,7 @@
 # DOCS REFERENCE MAP
 
 ## OVERVIEW
-`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references, the checked-in OpenAPI artifact, and archive material. Active working plans live outside `docs/` under `../.sisyphus/plans/`; archive notes never outrank live docs or owning code AGENTS files.
+`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references and archive material. Active working plans live outside `docs/` under `../.sisyphus/plans/`; archive notes never outrank live docs or owning code AGENTS files.
 
 ## STRUCTURE
 ```text
@@ -10,7 +10,6 @@ docs/
 ├── ARCHITECTURE.md
 ├── API_SPEC.md
 ├── DATA_MODEL.md
-├── openapi.json
 ├── PRD.md
 ├── REQUESTS_PAGE.md
 ├── SMOKE_TEST_PLAN.md
@@ -22,8 +21,7 @@ docs/
 
 ## OWNERSHIP
 - `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
-- `openapi.json` is the checked-in management and health contract artifact served by the backend; keep it aligned with backend ownership docs instead of treating it as the narrative source of truth.
-- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio, `openapi.json`, and owning backend/frontend AGENTS files.
+- `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
 - `archive/` holds the boundary file plus dated finished notes and retained evidence, including the 2026-05-10 sidecars live-smoke record.
 - Archived run notes use `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
 - Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
@@ -32,9 +30,8 @@ docs/
 - Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
-- Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000013_partitioned_log_retention.sql`
-- Sidecars control-plane contract: `../backend/internal/httpapi/management/sidecars/AGENTS.md`, `../backend/internal/httpapi/management/sidecars/`, `../backend/migrations/000014_cli_proxy_sidecars.sql`, `../frontend/src/pages/sidecars/`, `openapi.json`
-- Checked-in OpenAPI artifact: `openapi.json`, `../backend/AGENTS.md`
+- Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
+- Sidecars control-plane contract: `../backend/internal/httpapi/management/sidecars/AGENTS.md`, `../backend/internal/httpapi/management/sidecars/`, `../backend/migrations/000001_initial_schema.sql`, `../frontend/src/pages/sidecars/`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
@@ -53,7 +50,7 @@ docs/
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
-- Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, migration `000014_cli_proxy_sidecars.sql`, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
+- Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, the baseline sidecar schema, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
 - Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; archive run notes are evidence only.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
 - Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
@@ -70,3 +67,4 @@ docs/
 - Do not leave CLIProxyAPI envelope rules, route contracts, or other live sidecar details canonical only in `docs/archive/`.
 - Do not describe bootstrap config as DB-backed, encrypted, hot-reloaded, or merged with PostgreSQL profile/vendor bundle import.
 - Do not document log retention as a generic cleanup query; it is partitioned-log ownership across runtime writers, management jobs, and platform maintenance.
+

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { getStaticMessages } from "@/i18n/staticMessages";
-import type {
-  RequestLogFilterModelOption,
-  RequestLogFilterEndpointOption,
-  RequestLogListItem,
+import {
+  STATS_FROM_TIME_PARAM,
+  type RequestLogFilterModelOption,
+  type RequestLogFilterEndpointOption,
+  type RequestLogListItem,
 } from "@/lib/types";
 import type { RequestLogPageState } from "./queryParams";
 import { timeRangeToFromTime } from "./queryParams";
@@ -66,7 +67,7 @@ export function useRequestLogsPageData({ revision, state, enabled = true }: UseR
       model_id: state.model_id || undefined,
       status_family: state.status_family === "all" ? undefined : state.status_family,
       endpoint_id: state.endpoint_id ? parseInt(state.endpoint_id, 10) : undefined,
-      from_time: fromTime,
+      [STATS_FROM_TIME_PARAM]: fromTime,
       limit: state.limit,
       offset: state.offset,
     };

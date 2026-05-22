@@ -30,9 +30,8 @@ type bootstrapSeededFile struct {
 		UpdatedAt     string `json:"updatedAt"`
 	} `json:"meta"`
 	Server struct {
-		Host        string `json:"host"`
-		Port        int    `json:"port"`
-		DocsEnabled bool   `json:"docsEnabled"`
+		Host string `json:"host"`
+		Port int    `json:"port"`
 	} `json:"server"`
 	Database struct {
 		URL   string `json:"url"`
@@ -291,7 +290,7 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.Host != "0.0.0.0" || settings.Port != 18000 {
 		t.Fatalf("unexpected seeded server settings: %+v", settings)
 	}
-	if settings.AppEnv != config.EnvironmentDevelopment || !settings.DocsEnabled() {
+	if settings.AppEnv != config.EnvironmentDevelopment {
 		t.Fatalf("unexpected seeded app environment: %q", settings.AppEnv)
 	}
 	if settings.DatabaseURL != wantDatabaseURL {
@@ -358,7 +357,7 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Meta.SchemaVersion != 1 || seeded.Meta.Revision != 1 || seeded.Meta.CreatedAt != seededAt.Format(time.RFC3339) || seeded.Meta.UpdatedAt != seededAt.Format(time.RFC3339) {
 		t.Fatalf("unexpected seeded meta payload: %+v", seeded.Meta)
 	}
-	if seeded.Server.Host != "0.0.0.0" || seeded.Server.Port != 18000 || !seeded.Server.DocsEnabled {
+	if seeded.Server.Host != "0.0.0.0" || seeded.Server.Port != 18000 {
 		t.Fatalf("unexpected seeded server payload: %+v", seeded.Server)
 	}
 	if seeded.Database.URL != wantDatabaseURL {

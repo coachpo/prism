@@ -45,7 +45,6 @@ func TestBootstrapConfigApplyRegistryCoversPlanFields(t *testing.T) {
 		bootstrapFieldRuntimeSideEffectsAttemptTimeout,
 		bootstrapFieldServerHost,
 		bootstrapFieldServerPort,
-		bootstrapFieldServerDocsEnabled,
 		BootstrapConfigSecretDatabaseURL,
 		bootstrapFieldDatabasePoolsTotalMaxConns,
 		bootstrapFieldDatabasePoolsManagementMaxConns,

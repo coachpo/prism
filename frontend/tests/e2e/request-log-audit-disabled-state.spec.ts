@@ -311,9 +311,11 @@ async function mockRequestLogDetailRoutes(page: Page, scenario: AuditScenario) {
 
       return fulfillJson({
         items: searchParams.get("request_log_id") === "101" ? [auditListItem] : [],
-        total: searchParams.get("request_log_id") === "101" ? 1 : 0,
+        next_cursor: null,
+        has_more: false,
+        window: { from: searchParams.get("from"), to: searchParams.get("to") },
         limit: 20,
-        offset: 0,
+        sort: "desc",
       });
     }
 
@@ -419,9 +421,11 @@ async function mockSwitchingAuditRoutes(page: Page) {
 
       return fulfillJson({
         items: requestLogId === "202" ? [secondAuditListItem] : [firstAuditListItem],
-        total: 1,
+        next_cursor: null,
+        has_more: false,
+        window: { from: searchParams.get("from"), to: searchParams.get("to") },
         limit: 20,
-        offset: 0,
+        sort: "desc",
       });
     }
 
@@ -470,8 +474,8 @@ function expectAuditWindowParams(
 ) {
   const params = new URLSearchParams(searchParamString);
   expect(params.get("request_log_id")).toBe(requestLogId);
-  expect(params.get("from_time")).toBe(fromTime);
-  expect(params.get("to_time")).toBe(toTime);
+  expect(params.get("from")).toBe(fromTime);
+  expect(params.get("to")).toBe(toTime);
   expect(params.get("limit")).toBe("20");
 }
 

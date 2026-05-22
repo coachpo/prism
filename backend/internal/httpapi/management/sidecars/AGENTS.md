@@ -25,7 +25,7 @@ sidecars/
 - Provider sync, live auth-file reads, and status payloads: `routes_sync.go`, `sync.go`, `providers.go`.
 - Auth-file operator mutations: `routes_mutations.go`.
 - CLIProxyAPI network/auth policy and supported management paths: `client.go`, `cliproxy_contract_test.go`.
-- Durable sidecar tables and uniqueness constraints: `../../../../migrations/000014_cli_proxy_sidecars.sql`.
+- Durable sidecar tables and uniqueness constraints: `../../../../migrations/000001_initial_schema.sql` plus `store.go`.
 - Lifecycle wiring and worker priority: `../../../platform/lifecycle/production.go`, `worker.go`, `../../../../tests/priority/sidecar_worker_priority_test.go`.
 - Regression coverage: `routes*_test.go`, `routes_removed_surfaces_test.go`, `sync_test.go`, `store_test.go`, `client_test.go`, `cliproxy_contract_test.go`, `../../../../tests/{contract,integration}/sidecars*_test.go`.
 

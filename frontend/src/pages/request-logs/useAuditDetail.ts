@@ -12,8 +12,8 @@ const RETRY_DELAY_MS = 1000;
 const AUDIT_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 interface RequestLogAuditWindow {
-  from_time: string;
-  to_time: string;
+  from: string;
+  to: string;
 }
 
 export function deriveRequestLogAuditWindow(requestCreatedAt: string | null): RequestLogAuditWindow | null {
@@ -27,8 +27,8 @@ export function deriveRequestLogAuditWindow(requestCreatedAt: string | null): Re
   }
 
   return {
-    from_time: new Date(createdTime - AUDIT_WINDOW_MS).toISOString(),
-    to_time: new Date(createdTime + AUDIT_WINDOW_MS).toISOString(),
+    from: new Date(createdTime - AUDIT_WINDOW_MS).toISOString(),
+    to: new Date(createdTime + AUDIT_WINDOW_MS).toISOString(),
   };
 }
 
@@ -54,7 +54,7 @@ export function useAuditDetail({
   const activeAuditKeyRef = useRef<string | null>(null);
   const auditWindow = useMemo(() => deriveRequestLogAuditWindow(requestCreatedAt), [requestCreatedAt]);
   const currentAuditKey = requestLogId !== null && auditWindow
-    ? `${requestLogId}:${auditWindow.from_time}:${auditWindow.to_time}`
+    ? `${requestLogId}:${auditWindow.from}:${auditWindow.to}`
     : null;
   const isActive = enabled && requestLogId !== null;
   const captureMode = resolveRequestAuditCaptureMode({
@@ -83,8 +83,8 @@ export function useAuditDetail({
 
       try {
         const listResult = await api.audit.listForRequestLog(logId, {
-          from_time: fromTime,
-          to_time: toTime,
+          from: fromTime,
+          to: toTime,
           limit: 20,
         });
 
@@ -137,7 +137,7 @@ export function useAuditDetail({
     }
 
     const fetchTimeoutId = setTimeout(() => {
-      void fetchAudits(requestLogId, currentAuditKey, auditWindow.from_time, auditWindow.to_time, captureMode);
+      void fetchAudits(requestLogId, currentAuditKey, auditWindow.from, auditWindow.to, captureMode);
     }, 0);
 
     return () => {

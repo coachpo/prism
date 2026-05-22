@@ -3,6 +3,7 @@ import type { Connection } from "./routing";
 import type {
   LoadbalanceStrategySummary,
 } from "./loadbalance";
+import type { UsageSnapshotPreset } from "./usage-statistics";
 
 export type ModelType = "native" | "proxy";
 
@@ -358,6 +359,9 @@ export interface StatsSummary {
 
 export type RequestStatusFamily = "4xx" | "5xx";
 
+export const STATS_FROM_TIME_PARAM = "from_time" as const;
+export const STATS_TO_TIME_PARAM = "to_time" as const;
+
 export interface StatsRequestParams {
   ingress_request_id?: string;
   model_id?: string;
@@ -376,6 +380,12 @@ export interface StatsSummaryParams {
   api_family?: ApiFamily;
   endpoint_id?: number;
   connection_id?: number;
+}
+
+export interface EndpointModelStatisticsParams {
+  preset?: UsageSnapshotPreset;
+  from_time?: string;
+  to_time?: string;
 }
 
 export interface ModelMetricsBatchParams {
@@ -490,6 +500,15 @@ export interface ThroughputStatsResponse {
   total_requests: number;
   time_window_seconds: number;
   buckets: ThroughputBucket[];
+}
+
+export interface ThroughputStatsParams {
+  from_time?: string;
+  to_time?: string;
+  model_id?: string;
+  api_family?: string;
+  endpoint_id?: number;
+  connection_id?: number;
 }
 
 export interface DashboardRouteSnapshot {

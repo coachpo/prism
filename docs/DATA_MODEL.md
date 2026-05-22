@@ -661,7 +661,7 @@ Retention semantics:
 - Normal retention is global across all profiles and implemented by durable `log_retention` jobs with `profile_id = 0`.
 - Whole child partitions with upper bound `<= cutoff` are dropped. Only the cutoff-overlapping boundary child receives bounded row cleanup and `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Managed partition diagnostics should read `pg_class`, `pg_inherits`, `pg_total_relation_size`, `pg_relation_size`, and `pg_class.reltoastrelid` so operators can see root, child, and TOAST relations without mutating data.
-- The partitioned-log upgrade is a clean break. Old log rows are not preserved.
+- Partitioned retention manages the current log-table set only; historical log storage shapes are not rewritten into current partitions.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink options only. `pg_repack` is not installed in the default local `postgres:16-alpine` image.
 
 Safe catalog inspection template:
@@ -709,7 +709,7 @@ VACUUM (ANALYZE, PROCESS_TOAST TRUE) public.request_logs_pYYYYMMDD;
 
 ### 2.14A `sidecar_*` tables (global CLIProxyAPI control plane)
 
-Sidecar tables are global instance state. They are not profile-scoped and do not participate in profile bundle import/export. Migration `000014_cli_proxy_sidecars.sql` creates the retained sidecar domain.
+Sidecar tables are global instance state. They are not profile-scoped and do not participate in profile bundle import/export. The baseline schema creates the sidecar domain.
 
 | Table | Purpose |
 |---|---|
@@ -930,7 +930,7 @@ CREATE INDEX idx_webauthn_credentials_auth_subject ON webauthn_credentials(auth_
 CREATE INDEX idx_webauthn_credentials_last_used ON webauthn_credentials(last_used_at);
 ```
 
-Sidecar uniqueness and indexes are defined in `000014_cli_proxy_sidecars.sql`; they cover active sidecar names and canonical URLs plus per-sidecar snapshot lookups.
+Sidecar uniqueness and indexes are part of the baseline schema; they cover active sidecar names and canonical URLs plus per-sidecar snapshot lookups.
 
 ## 4. Relationship and Ownership Rules
 

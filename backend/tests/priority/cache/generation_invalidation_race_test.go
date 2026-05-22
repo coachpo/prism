@@ -14,7 +14,7 @@ func TestGenerationInvalidationRace(t *testing.T) {
 	generationSource := readSource(t, filepath.Join(backendRoot, "internal", "httpapi", "runtime", "generations.go"))
 	pgxutilSource := readSource(t, filepath.Join(backendRoot, "internal", "pgxutil", "tx.go"))
 	middlewareSource := readSource(t, filepath.Join(backendRoot, "internal", "platform", "http", "runtime_cache_invalidation.go"))
-	migrationSource := readSource(t, filepath.Join(backendRoot, "migrations", "000010_runtime_cache_generations.sql"))
+	migrationSource := readSource(t, filepath.Join(backendRoot, "migrations", "000001_initial_schema.sql"))
 
 	for _, want := range []string{
 		"runtime_cache_generations",

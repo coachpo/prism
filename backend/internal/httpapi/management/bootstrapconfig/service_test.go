@@ -112,8 +112,8 @@ func TestBootstrapConfigRouteValidateReportsRestartOnlyPlannedChanges(t *testing
 	fixture := newBootstrapRouteFixture(t)
 	before := mustReadFile(t, fixture.path)
 	request := bootstrapRouteRequestForSnapshot(t, fixture.snapshot)
-	nextDocsEnabled := !*fixture.snapshot.Values.Server.DocsEnabled
-	request.Values.Server.DocsEnabled = &nextDocsEnabled
+	request.Values.Server.Port = routeIntPtr(*fixture.snapshot.Values.Server.Port + 1)
+	request.Confirmations = []string{config.BootstrapConfigConfirmationServerPortChange}
 
 	response := fixture.doJSON(t, http.MethodPost, "/api/config/bootstrap/validate", request)
 
@@ -123,7 +123,7 @@ func TestBootstrapConfigRouteValidateReportsRestartOnlyPlannedChanges(t *testing
 	if !body.RestartRequired || body.PlannedChanges == nil || !body.PlannedChanges.RestartRequired {
 		t.Fatalf("expected restart-only validation planning, got restart=%v planned=%+v", body.RestartRequired, body.PlannedChanges)
 	}
-	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: "server.docs_enabled", Mode: config.BootstrapConfigApplyModeRestartRequired}})
+	assertFieldChangesEqual(t, body.PlannedChanges.ChangedFields, []config.BootstrapConfigFieldChange{{Field: "server.port", Mode: config.BootstrapConfigApplyModeRestartRequired}})
 }
 
 func TestBootstrapConfigRouteValidateReportsRuntimeSideEffectsAttemptTimeoutRestartRequired(t *testing.T) {
@@ -267,8 +267,8 @@ func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T
 	hotRuntime := &fakeBootstrapHotApplyRuntime{}
 	fixture := newBootstrapRouteFixtureFromSnapshotWithHotRuntime(t, path, manager, snapshot, settings, snapshot.FileRevision, snapshot.DocumentETag, hotRuntime)
 	request := bootstrapRouteRequestForSnapshot(t, snapshot)
-	nextDocsEnabled := !*snapshot.Values.Server.DocsEnabled
-	request.Values.Server.DocsEnabled = &nextDocsEnabled
+	request.Values.Server.Port = routeIntPtr(*snapshot.Values.Server.Port + 1)
+	request.Confirmations = []string{config.BootstrapConfigConfirmationServerPortChange}
 
 	response := fixture.doJSON(t, http.MethodPut, "/api/config/bootstrap", request)
 
@@ -281,7 +281,7 @@ func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T
 		t.Fatalf("expected restart-only apply result, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
 	}
 	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{})
-	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{"server.docs_enabled"})
+	assertStringSetEqual(t, body.ApplyResult.RestartRequiredFields, []string{"server.port"})
 	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
 
@@ -291,7 +291,7 @@ func TestBootstrapConfigRoutePutRestartOnlyDoesNotPublishHotRuntime(t *testing.T
 	if !getBody.RestartRequired || getBody.ApplyResult == nil {
 		t.Fatalf("expected GET to report restart-only drift, got restart=%v result=%+v", getBody.RestartRequired, getBody.ApplyResult)
 	}
-	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{"server.docs_enabled"})
+	assertStringSetEqual(t, getBody.ApplyResult.RestartRequiredFields, []string{"server.port"})
 	assertStringSetEqual(t, getBody.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, getBody.ApplyResult.FailedHotApplyFields, []string{})
 }

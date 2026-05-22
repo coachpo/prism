@@ -187,9 +187,9 @@ func TestManagementDashboardStatsFreshnessShape(t *testing.T) {
 }
 
 func TestManagementMetricsExposed(t *testing.T) {
-	serverSource := s15ReadBackendSource(t, "internal/platform/http/server.go")
+	managementBranchSource := s15ReadBackendSource(t, "internal/platform/http/management_branch.go")
 	dbSource := s15ReadBackendSource(t, "internal/platform/db/pools.go")
-	if !strings.Contains(serverSource, `router.Get("/metrics", platformdb.MetricsHandler(deps.DatabasePools))`) || !strings.Contains(serverSource, "deps.DatabasePools != nil") {
+	if !strings.Contains(managementBranchSource, `router.Get("/metrics", platformdb.MetricsHandler(deps.DatabasePools))`) || !strings.Contains(managementBranchSource, "deps.DatabasePools != nil") {
 		t.Fatalf("expected server to expose /metrics when database pools are configured")
 	}
 	for _, metric := range []string{"prism_db_pool_acquired_connections", "prism_db_pool_max_connections", "prism_db_pool_acquire_timeout_count"} {
@@ -625,11 +625,18 @@ func TestManagementAuditRejectsUnsupportedFilters(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&actor_id=operator", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusBadRequest)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	assertErrorCode(t, payload, "audit_filter_unsupported")
+	cases := []string{
+		"actor_id=operator",
+		"from_time=" + fixedS15Now.Add(-time.Hour).Format(time.RFC3339),
+		"to_time=" + fixedS15Now.Format(time.RFC3339),
+	}
+	for _, query := range cases {
+		response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/audit/logs?"+s15AuditWindowQuery()+"&"+query, nil, modelHeader(profileID))
+		assertStatus(t, response, http.StatusBadRequest)
+		var payload map[string]any
+		decodeJSONResponse(t, response, &payload)
+		assertErrorCode(t, payload, "audit_filter_unsupported")
+	}
 }
 
 func TestManagementAuditCursorIntegrity(t *testing.T) {

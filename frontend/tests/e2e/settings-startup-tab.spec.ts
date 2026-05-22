@@ -91,7 +91,6 @@ function createApplyCapabilities() {
   const restartFields = [
     ["server.host", "server-host-change"],
     ["server.port", "server-port-change"],
-    ["server.docs_enabled", ""],
     ["database.url", "database-url-change"],
     ["database.pools.total_max_conns", ""],
     ["database.pools.management.max_conns", ""],
@@ -148,7 +147,7 @@ function createBootstrapResponse() {
       | { changed_fields: { field: string; mode: string }[]; restart_required: boolean }
       | undefined,
     values: {
-      server: { host: "127.0.0.1", port: 18000, docs_enabled: true },
+      server: { host: "127.0.0.1", port: 18000 },
       database: {
         pools: {
           total_max_conns: 42,
@@ -631,7 +630,7 @@ test("backend validation renders planned hot-apply and restart effects before sa
   validateResponse.planned_changes = {
     changed_fields: [
       { field: "http.cors_allowed_origins", mode: "hot_apply" },
-      { field: "server.docs_enabled", mode: "restart_required" },
+      { field: "server.port", mode: "restart_required" },
     ],
     restart_required: true,
   };
@@ -641,11 +640,11 @@ test("backend validation renders planned hot-apply and restart effects before sa
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByLabel("CORS allowed origins").fill("http://localhost:15173, http://127.0.0.1:15173");
-  await page.getByRole("switch", { name: "Docs enabled" }).click();
+  await page.getByRole("spinbutton", { name: "Server port" }).fill("18001");
   await page.getByRole("button", { name: "Validate" }).click();
 
   await expect(page.getByRole("row", { name: /CORS allowed origins.*Will apply immediately after save\./i })).toBeVisible();
-  await expect(page.getByRole("row", { name: /Docs enabled.*Will be written for the next restart\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Server port.*Will be written for the next restart\./i })).toBeVisible();
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(0);
 });
@@ -728,12 +727,12 @@ test("restart fields without backend confirmation tokens do not require dangerou
     updateResponse: (payload, current) => ({
       ...current,
       file_revision: current.file_revision + 1,
-      document_etag: "etag-docs-8",
+      document_etag: "etag-restart-8",
       updated_at: "2026-04-28T12:05:00Z",
       restart_required: true,
       apply_result: {
         applied_now_fields: [],
-        restart_required_fields: ["server.docs_enabled"],
+        restart_required_fields: ["runtime.side_effects.attempt_timeout"],
         unchanged_fields: [],
         pending_hot_apply_fields: [],
         failed_hot_apply_fields: [],
@@ -745,14 +744,14 @@ test("restart fields without backend confirmation tokens do not require dangerou
   await page.goto("/settings#startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
-  await page.getByRole("switch", { name: "Docs enabled" }).click();
+  await page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" }).fill("15s");
   await expect(page.getByText("1 restart change staged")).toBeVisible();
   await expect(page.getByText("Dangerous changes staged")).toHaveCount(0);
   await page.getByRole("button", { name: "Save startup config" }).click();
 
   await expect(page.getByRole("alertdialog", { name: "Save dangerous startup changes?" })).toHaveCount(0);
   await expect(page.getByText("Saved to config.json. Structural settings require restart.")).toBeVisible();
-  await expect(page.getByRole("row", { name: /Docs enabled.*Saved for the next Prism restart\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Telemetry enqueue attempt timeout.*Saved for the next Prism restart\./i })).toBeVisible();
   expect(routes.getUpdateRequests()[0]).toMatchObject({ confirmations: [] });
 });
 

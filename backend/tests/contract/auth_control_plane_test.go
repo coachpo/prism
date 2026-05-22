@@ -962,7 +962,7 @@ func TestProxyKeyRotate(t *testing.T) {
 	assertErrorResponse(t, historicalRotateResponse, http.StatusConflict, "Expired proxy API keys cannot be rotated")
 
 	newKeyRuntime := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/v1/chat/completions", map[string]any{"model": "gpt-4o"}, map[string]string{"Authorization": "Bearer " + rotatedKey})
-	assertErrorResponse(t, newKeyRuntime, http.StatusNotImplemented, "Runtime proxy not implemented in S5")
+	assertErrorResponse(t, newKeyRuntime, http.StatusNotImplemented, "Runtime proxy unavailable without a runtime service")
 }
 
 func TestProxyKeyRuntimeSeparation(t *testing.T) {
@@ -990,10 +990,10 @@ func TestProxyKeyRuntimeSeparation(t *testing.T) {
 	assertErrorResponse(t, sessionCookieAgainstRuntime, http.StatusUnauthorized, "Proxy API key required")
 
 	proxyKeyRuntime := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/v1/chat/completions", map[string]any{"model": "gpt-4o"}, map[string]string{"Authorization": "Bearer " + rawKey})
-	assertErrorResponse(t, proxyKeyRuntime, http.StatusNotImplemented, "Runtime proxy not implemented in S5")
+	assertErrorResponse(t, proxyKeyRuntime, http.StatusNotImplemented, "Runtime proxy unavailable without a runtime service")
 
 	proxyKeyRuntimeBeta := harness.requestJSON(t, harness.newClient(t), http.MethodPost, "/v1beta/models/example:generateContent", map[string]any{"model": "gemini-pro"}, map[string]string{"X-API-Key": rawKey})
-	assertErrorResponse(t, proxyKeyRuntimeBeta, http.StatusNotImplemented, "Runtime proxy not implemented in S5")
+	assertErrorResponse(t, proxyKeyRuntimeBeta, http.StatusNotImplemented, "Runtime proxy unavailable without a runtime service")
 
 	proxyKey := loadProxyKeyByPrefix(t, harness, createdPayload["item"].(map[string]any)["key_prefix"].(string))
 	if proxyKey.LastUsedAt != nil {

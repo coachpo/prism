@@ -23,7 +23,6 @@ RUN apt-get update \
 COPY --from=builder /out/prism-backend /usr/local/bin/prism-backend
 COPY backend/VERSION ./VERSION
 COPY backend/migrations ./migrations
-COPY docs/openapi.json /app/docs/openapi.json
 
 RUN chown -R prism:prism /app/config /app/backend
 

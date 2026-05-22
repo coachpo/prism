@@ -25,7 +25,7 @@ platform/
 
 ## WHERE TO LOOK
 - Production dependency graph, service registration, runtime cache bootstrap, scheduler start, and shutdown order: `lifecycle/production.go`, `lifecycle/app.go`
-- Router mounting, middleware, `/health`, `/metrics`, docs routes, and hot bootstrap runtime snapshots: `http/server.go`, `http/hot_bootstrap_runtime.go`
+- Router mounting, middleware, `/health`, `/metrics`, `/api`, `/v1`, `/v1beta`, and hot bootstrap runtime snapshots: `http/server.go`, `http/management_branch.go`, `http/runtime_branch.go`, `http/dependencies.go`, `http/hot_bootstrap_runtime.go`
 - Plaintext bootstrap contract, restart-required fields, hot-apply publishing, and safe secret metadata: `config/`
 - Startup migration and seed flow: `startup/`, `migrate/`, `../../migrations/`
 - DB lane budgets and pool handles: `db/`
@@ -39,13 +39,13 @@ platform/
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing surface is itself a shipped contract or guardrail.
 - Keep `lifecycle/` as the production composition boundary. Feature services are wired there, while handlers and domain packages stay outside platform.
 - Keep hot-eligible bootstrap state behind `http.HotBootstrapConfigRuntime`; it publishes CORS, auth, mail, runtime proxy transport, and admission snapshots without restarting the process.
-- Keep listener, docs, database URL, pool budgets, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, and state-transfer bundle key restart-required.
+- Keep listener, database URL, pool budgets, runtime side-effect attempt timeout, runtime secret encryption key, JWT signing key, and state-transfer bundle key restart-required.
 - Keep database capacity lane-specific. Runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs must not borrow each other's protected budgets.
 - Keep request-path side effects on scheduler workers, durable outboxes, or after-commit wakeups.
 - Keep partitioned log-retention work on `logretention.Store` plus the low-priority `log_partition_maintenance` worker. Managed tables are `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`.
 - Keep retention jobs low-priority and management-owned through `managementjobs/`; handlers should enqueue jobs, not run partition cleanup inline.
 - Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, then DB close.
-- Keep migrations forward-only and schema-history-aware. Existing app tables without `prism_schema_migrations` must fail fast instead of relying on cutover bridges.
+- Keep migrations fresh-install-only and schema-history-aware. Existing app tables without the current `prism_schema_migrations` baseline must fail fast instead of rewriting historical schemas.
 
 ## ANTI-PATTERNS
 - Do not put provider sends, cache invalidations, dashboard publishes, or email delivery inline on request paths.

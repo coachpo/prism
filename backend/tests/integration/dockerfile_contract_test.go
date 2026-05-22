@@ -31,6 +31,12 @@ func TestDockerfileNonRootContract(t *testing.T) {
 		}
 	}
 
+	for _, token := range []string{"COPY docs/", "/app/docs/"} {
+		if strings.Contains(dockerfile, token) {
+			t.Fatalf("Dockerfile must not copy docs artifacts %q", token)
+		}
+	}
+
 	userIndex := strings.Index(dockerfile, "USER prism:prism")
 	cmdIndex := strings.Index(dockerfile, "CMD [\"prism-backend\"]")
 	if userIndex > cmdIndex {

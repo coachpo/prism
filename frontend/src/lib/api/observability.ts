@@ -38,6 +38,8 @@ import type {
   TimezonePreferenceUpdate,
   ThroughputStatsResponse,
   RequestLogDetail,
+  EndpointModelStatisticsParams,
+  ThroughputStatsParams,
   UserAgentClientRule,
   UserAgentClientRuleCreate,
   UserAgentClientRuleUpdate,
@@ -48,8 +50,8 @@ import type {
 } from "../types";
 import { buildQuery, request } from "./core";
 
-type RequestLogAuditParams = Required<Pick<AuditLogParams, "from_time" | "to_time">>
-  & Pick<AuditLogParams, "limit">;
+type RequestLogAuditParams = Required<Pick<AuditLogParams, "from" | "to">>
+  & Pick<AuditLogParams, "limit" | "cursor">;
 
 function buildStatsQuery(params?: StatsRequestParams) {
   return buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
@@ -67,9 +69,9 @@ export const stats = {
   },
   endpointModelStatistics: (
     endpointId: number,
-    params?: { preset?: UsageSnapshotPreset; from_time?: string; to_time?: string },
+    params?: EndpointModelStatisticsParams,
   ) => {
-    const query = buildQuery(params);
+    const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
     return request<UsageModelStatistic[]>(`/api/stats/endpoints/${endpointId}/models${query ? `?${query}` : ""}`);
   },
   summary: (params?: StatsSummaryParams) => {
@@ -89,15 +91,8 @@ export const stats = {
     const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
     return request<SpendingReportResponse>(`/api/stats/spending${query ? `?${query}` : ""}`);
   },
-  throughput: (params?: {
-    from_time?: string;
-    to_time?: string;
-    model_id?: string;
-    api_family?: string;
-    endpoint_id?: number;
-    connection_id?: number;
-  }) => {
-    const query = buildQuery(params);
+  throughput: (params?: ThroughputStatsParams) => {
+    const query = buildQuery(params as Record<string, string | number | boolean | null | undefined> | undefined);
     return request<ThroughputStatsResponse>(`/api/stats/throughput${query ? `?${query}` : ""}`);
   },
 };

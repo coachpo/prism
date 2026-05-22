@@ -6,9 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,36 +16,9 @@ import (
 	"github.com/coachpo/prism/backend/internal/platform/migrate"
 )
 
-var expectedPrismMigrationVersions = loadExpectedPrismMigrationVersions()
+var expectedPrismMigrationVersions = []string{migrate.DefaultBaselineVersion}
 
-func loadExpectedPrismMigrationVersions() []string {
-	entries, err := os.ReadDir(migrate.DefaultMigrationsDir())
-	if err != nil {
-		panic(fmt.Sprintf("read migrations directory: %v", err))
-	}
-	versions := []string{}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
-			continue
-		}
-		versions = append(versions, strings.TrimSuffix(entry.Name(), ".sql"))
-	}
-	return versions
-}
-
-func migrationVersionByOrdinal(t *testing.T, ordinal int) string {
-	t.Helper()
-	prefix := fmt.Sprintf("%06d_", ordinal)
-	for _, version := range expectedPrismMigrationVersions {
-		if strings.HasPrefix(version, prefix) {
-			return version
-		}
-	}
-	t.Fatalf("unknown migration ordinal %d", ordinal)
-	return ""
-}
-
-func TestBaselineFreshApply(t *testing.T) {
+func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -69,6 +40,7 @@ func TestBaselineFreshApply(t *testing.T) {
 	assertHistoryVersions(t, testContext, conn, expectedVersions)
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
+	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
 	assertPartitionedLogSchemaContract(t, testContext, conn)
 	assertSidecarSchemaContract(t, testContext, conn)
@@ -85,10 +57,10 @@ func TestPartitionedLogSchemaContract(t *testing.T) {
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run partitioned log schema migration: %v", err)
+		t.Fatalf("run partitioned log schema baseline: %v", err)
 	}
 	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected partitioned log schema migration to apply, got %q", result.Outcome)
+		t.Fatalf("expected partitioned log schema baseline to apply, got %q", result.Outcome)
 	}
 
 	assertPartitionedLogSchemaContract(t, testContext, conn)
@@ -105,10 +77,10 @@ func TestSidecarSchemaContract(t *testing.T) {
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run sidecar schema migration: %v", err)
+		t.Fatalf("run sidecar schema baseline: %v", err)
 	}
 	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected sidecar schema migration to apply, got %q", result.Outcome)
+		t.Fatalf("expected sidecar schema baseline to apply, got %q", result.Outcome)
 	}
 
 	expectedVersions := expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion)
@@ -118,57 +90,56 @@ func TestSidecarSchemaContract(t *testing.T) {
 	assertLogRetentionSettingsContract(t, testContext, conn)
 }
 
-func TestSidecarHistoricalMigrationOrdinalsReachCurrentSchema(t *testing.T) {
-	for _, ordinal := range []int{14, 17, 18, 19, 20, 21, 22, 23, 24} {
-		t.Run(fmt.Sprintf("ordinal_%02d", ordinal), func(t *testing.T) {
-			testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-
-			harness := newPostgresHarness(t)
-			runner := newRunner(t)
-			conn := harness.openDatabase(t, testContext, fmt.Sprintf("sidecar_ordinal_%02d", ordinal))
-			defer func() { _ = conn.Close(testContext) }()
-
-			throughVersion := migrationVersionByOrdinal(t, ordinal)
-			applyMigrationsThrough(t, testContext, conn, throughVersion)
-
-			result, err := runner.Run(testContext, conn)
-			if err != nil {
-				t.Fatalf("run sidecar migrations after ordinal %02d: %v", ordinal, err)
-			}
-			if result.Outcome != migrate.OutcomeApply {
-				t.Fatalf("expected sidecar migrations after ordinal %02d to apply, got %q", ordinal, result.Outcome)
-			}
-			assertMigrationVersions(t, "applied versions", result.Versions, expectedMigrationVersionsFrom(t, migrationVersionByOrdinal(t, ordinal+1)))
-			assertHistoryVersions(t, testContext, conn, expectedPrismMigrationVersions)
-			assertSidecarSchemaContract(t, testContext, conn)
-			assertLogRetentionSettingsContract(t, testContext, conn)
-		})
-	}
-}
-
-func TestBaselineExistingDatabaseWithoutHistoryFails(t *testing.T) {
+func TestDirtyDatabaseWithoutMigrationHistoryFails(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "existing_without_history")
-	defer func() { _ = conn.Close(testContext) }()
 
-	if _, err := conn.Exec(testContext, `CREATE TABLE unmanaged_table (id BIGSERIAL PRIMARY KEY)`); err != nil {
-		t.Fatalf("seed unmanaged table: %v", err)
-	}
+	t.Run("missing_history", func(t *testing.T) {
+		conn := harness.openDatabase(t, testContext, "existing_without_history")
+		defer func() { _ = conn.Close(testContext) }()
 
-	result, err := runner.Run(testContext, conn)
-	if err == nil {
-		t.Fatalf("expected unmanaged database without migration history to fail, got %+v", result)
-	}
-	if !strings.Contains(err.Error(), "prism_schema_migrations is missing") {
-		t.Fatalf("expected missing history error, got %v", err)
-	}
+		if _, err := conn.Exec(testContext, `CREATE TABLE app_auth_settings (id BIGSERIAL PRIMARY KEY)`); err != nil {
+			t.Fatalf("seed app table: %v", err)
+		}
 
-	assertHistoryTableMissing(t, testContext, conn)
+		result, err := runner.Run(testContext, conn)
+		if err == nil {
+			t.Fatalf("expected database without migration history to fail, got %+v", result)
+		}
+		if !strings.Contains(err.Error(), "prism_schema_migrations is missing") {
+			t.Fatalf("expected missing history error, got %v", err)
+		}
+
+		assertHistoryTableMissing(t, testContext, conn)
+	})
+
+	t.Run("obsolete_history", func(t *testing.T) {
+		conn := harness.openDatabase(t, testContext, "existing_obsolete_history")
+		defer func() { _ = conn.Close(testContext) }()
+
+		if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
+			t.Fatalf("create obsolete migration history table: %v", err)
+		}
+		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ('000001_baseline', NOW())`); err != nil {
+			t.Fatalf("seed obsolete migration history: %v", err)
+		}
+		if _, err := conn.Exec(testContext, `CREATE TABLE app_auth_settings (id BIGSERIAL PRIMARY KEY)`); err != nil {
+			t.Fatalf("seed app table: %v", err)
+		}
+
+		result, err := runner.Run(testContext, conn)
+		if err == nil {
+			t.Fatalf("expected database with obsolete migration history to fail, got %+v", result)
+		}
+		if !strings.Contains(err.Error(), "current baseline "+migrate.DefaultBaselineVersion) {
+			t.Fatalf("expected current-baseline history error, got %v", err)
+		}
+
+		assertHistoryVersionMissing(t, testContext, conn, migrate.DefaultBaselineVersion)
+	})
 }
 
 func TestBaselineSecondRunNoop(t *testing.T) {
@@ -202,207 +173,23 @@ func TestBaselineSecondRunNoop(t *testing.T) {
 	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
 }
 
-func TestRuntimeCacheGenerationMigration(t *testing.T) {
+func TestRuntimeCacheGenerationSchemaContract(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	harness := newPostgresHarness(t)
 	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "runtime_cache_generation_migration")
+	conn := harness.openDatabase(t, testContext, "runtime_cache_generation_schema")
 	defer func() { _ = conn.Close(testContext) }()
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run runtime cache generation migration: %v", err)
+		t.Fatalf("run runtime cache generation schema baseline: %v", err)
 	}
 	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected runtime cache generation migration to apply, got %q", result.Outcome)
+		t.Fatalf("expected runtime cache generation schema baseline to apply, got %q", result.Outcome)
 	}
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
-}
-
-func TestProxyTargetSelectionStrategiesMigrationBackfillsAndEnforcesContracts(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "proxy_target_selection_strategies_migration")
-	defer func() { _ = conn.Close(testContext) }()
-
-	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
-		t.Fatalf("create prism migration history table: %v", err)
-	}
-	for _, version := range expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion)[:11] {
-		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, version); err != nil {
-			t.Fatalf("seed prism migration history %s: %v", version, err)
-		}
-	}
-	createLegacyProxyTargetSelectionTables(t, testContext, conn)
-	if _, err := conn.Exec(testContext, `INSERT INTO model_configs (id, model_type, loadbalance_strategy_id) VALUES (1, 'native', 7), (2, 'proxy', NULL)`); err != nil {
-		t.Fatalf("seed legacy model_configs rows: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position) VALUES (2, 1, 4)`); err != nil {
-		t.Fatalf("seed legacy model_proxy_targets row: %v", err)
-	}
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run proxy target selection strategies migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected proxy target selection strategies migration to apply, got %q", result.Outcome)
-	}
-	expectedVersions := expectedMigrationVersionsFrom(t, "000012_proxy_target_selection_strategies")
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-	assertProxyTargetSelectionMigration(t, testContext, conn)
-}
-
-func TestStreamOutcomeTelemetryMigrationBackfillsAndEnforcesContracts(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "stream_outcome_telemetry_migration")
-	defer func() { _ = conn.Close(testContext) }()
-
-	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
-		t.Fatalf("create prism migration history table: %v", err)
-	}
-	for _, version := range []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy", "000005_audit_log_request_time_provenance", "000006_request_generation_params_telemetry", "000007_management_outbox", "000008_email_outbox", "000009_management_audit_stats_phase7", "000010_runtime_cache_generations"} {
-		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, version); err != nil {
-			t.Fatalf("seed prism migration history %s: %v", version, err)
-		}
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, ingress_request_id character varying(36), attempt_number integer, is_stream boolean NOT NULL, completion_duration_ms integer, ttft_ms integer)`); err != nil {
-		t.Fatalf("create stream telemetry legacy request_logs table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE usage_request_events (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, ingress_request_id character varying(36) NOT NULL, attempt_count integer NOT NULL, completion_duration_ms integer)`); err != nil {
-		t.Fatalf("create stream telemetry legacy usage_request_events table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (profile_id, ingress_request_id, attempt_number, is_stream, completion_duration_ms, ttft_ms) VALUES (1, 'req-nonstream', 1, FALSE, NULL, NULL), (1, 'req-completed', 1, TRUE, 250, 40), (1, 'req-unknown', 2, TRUE, NULL, 35)`); err != nil {
-		t.Fatalf("seed stream telemetry legacy request_logs rows: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO usage_request_events (profile_id, ingress_request_id, attempt_count, completion_duration_ms) VALUES (1, 'req-nonstream', 1, NULL), (1, 'req-completed', 1, NULL), (1, 'req-unknown', 2, NULL), (1, 'req-usage-completed', 1, 90), (1, 'req-usage-unknown', 1, NULL)`); err != nil {
-		t.Fatalf("seed stream telemetry legacy usage_request_events rows: %v", err)
-	}
-	createLegacyProxyTargetSelectionTables(t, testContext, conn)
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run stream outcome telemetry migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected stream outcome telemetry migration to apply, got %q", result.Outcome)
-	}
-	expectedVersions := expectedMigrationVersionsFrom(t, "000011_stream_outcome_telemetry")
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-
-	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
-	assertCleanBreakLogRows(t, testContext, conn, "request_logs")
-	assertCleanBreakLogRows(t, testContext, conn, "usage_request_events")
-}
-
-func TestRequestLogAuditEnabledAtRequestMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "request_logs_audit_enabled_backfill")
-	defer func() { _ = conn.Close(testContext) }()
-
-	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
-		t.Fatalf("create prism migration history table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, migrate.DefaultBaselineVersion); err != nil {
-		t.Fatalf("seed prism baseline history: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, audit_enabled_at_request boolean)`); err != nil {
-		t.Fatalf("create legacy request_logs table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE audit_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, request_log_id bigint, request_body text, response_body text)`); err != nil {
-		t.Fatalf("create legacy audit_logs table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE user_settings (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, report_currency_code character varying(3) NOT NULL, report_currency_symbol character varying(5) NOT NULL, timezone_preference character varying(100), created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`); err != nil {
-		t.Fatalf("create legacy user_settings table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (profile_id, audit_enabled_at_request) VALUES (1, NULL), (1, TRUE), (1, FALSE)`); err != nil {
-		t.Fatalf("seed legacy request_logs rows: %v", err)
-	}
-	createLegacyProxyTargetSelectionTables(t, testContext, conn)
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run request-log audit snapshot migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected legacy request_logs database to apply migration, got %q", result.Outcome)
-	}
-	expectedVersions := expectedMigrationVersionsFrom(t, "000002_request_logs_audit_enabled_at_request_not_null")
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-	assertCleanBreakLogRows(t, testContext, conn, "request_logs")
-	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
-	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
-}
-
-func TestAuditLogRequestTimeProvenanceMigrationBackfillsAndEnforcesNotNull(t *testing.T) {
-	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	harness := newPostgresHarness(t)
-	runner := newRunner(t)
-	conn := harness.openDatabase(t, testContext, "audit_log_request_time_provenance")
-	defer func() { _ = conn.Close(testContext) }()
-
-	if _, err := conn.Exec(testContext, `CREATE TABLE prism_schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`); err != nil {
-		t.Fatalf("create prism migration history table: %v", err)
-	}
-	for _, version := range []string{migrate.DefaultBaselineVersion, "000002_request_logs_audit_enabled_at_request_not_null", "000003_runtime_telemetry_outbox", "000004_user_settings_retention_policy"} {
-		if _, err := conn.Exec(testContext, `INSERT INTO prism_schema_migrations (version, applied_at) VALUES ($1, NOW())`, version); err != nil {
-			t.Fatalf("seed prism migration history %s: %v", version, err)
-		}
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE request_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, audit_enabled_at_request boolean NOT NULL)`); err != nil {
-		t.Fatalf("create legacy request_logs table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `CREATE TABLE audit_logs (id BIGSERIAL PRIMARY KEY, profile_id integer NOT NULL, request_log_id bigint, request_body text, response_body text)`); err != nil {
-		t.Fatalf("create legacy audit_logs table: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO request_logs (id, profile_id, audit_enabled_at_request) VALUES (1, 2, TRUE), (2, 2, FALSE)`); err != nil {
-		t.Fatalf("seed legacy request_logs rows: %v", err)
-	}
-	if _, err := conn.Exec(testContext, `INSERT INTO audit_logs (id, profile_id, request_log_id, request_body, response_body) VALUES (10, 2, 1, '{"request":true}', '{"response":true}'), (11, 2, 2, NULL, NULL), (12, 2, NULL, '{"orphan":true}', NULL)`); err != nil {
-		t.Fatalf("seed legacy audit_logs rows: %v", err)
-	}
-	createLegacyProxyTargetSelectionTables(t, testContext, conn)
-
-	result, err := runner.Run(testContext, conn)
-	if err != nil {
-		t.Fatalf("run audit-log provenance migration: %v", err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected legacy audit_logs database to apply migration, got %q", result.Outcome)
-	}
-	expectedVersions := expectedMigrationVersionsFrom(t, "000005_audit_log_request_time_provenance")
-	assertMigrationVersions(t, "applied versions", result.Versions, expectedVersions)
-	assertHistoryVersions(t, testContext, conn, expectedMigrationVersionsFrom(t, migrate.DefaultBaselineVersion))
-
-	assertCleanBreakLogRows(t, testContext, conn, "request_logs")
-
-	var requestLogIsNullable string
-	var requestLogDefault string
-	if err := conn.QueryRow(testContext, `SELECT is_nullable, COALESCE(column_default, '') FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'request_logs' AND column_name = 'audit_capture_bodies_at_request'`).Scan(&requestLogIsNullable, &requestLogDefault); err != nil {
-		t.Fatalf("load request_logs audit_capture_bodies_at_request column contract: %v", err)
-	}
-	if requestLogIsNullable != "NO" || !strings.Contains(strings.ToLower(requestLogDefault), "false") {
-		t.Fatalf("expected request_logs.audit_capture_bodies_at_request NOT NULL with false default, got is_nullable=%q default=%q", requestLogIsNullable, requestLogDefault)
-	}
-
-	assertCleanBreakLogRows(t, testContext, conn, "audit_logs")
 }
 
 type postgresHarness struct {
@@ -482,49 +269,6 @@ func assertMigrationVersions(t *testing.T, label string, got []string, expected 
 	}
 }
 
-func createLegacyProxyTargetSelectionTables(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	if _, err := conn.Exec(ctx, `CREATE TABLE model_configs (id BIGSERIAL PRIMARY KEY, model_type character varying(20) NOT NULL, loadbalance_strategy_id integer)`); err != nil {
-		t.Fatalf("create legacy model_configs table: %v", err)
-	}
-	if _, err := conn.Exec(ctx, `CREATE TABLE model_proxy_targets (id BIGSERIAL PRIMARY KEY, source_model_config_id integer NOT NULL, target_model_config_id integer NOT NULL, position integer NOT NULL)`); err != nil {
-		t.Fatalf("create legacy model_proxy_targets table: %v", err)
-	}
-}
-
-func assertProxyTargetSelectionMigration(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	var nativeSelector string
-	var proxySelector string
-	if err := conn.QueryRow(ctx, `SELECT COALESCE(proxy_selection_strategy, '') FROM model_configs WHERE id = 1`).Scan(&nativeSelector); err != nil {
-		t.Fatalf("load migrated native proxy_selection_strategy: %v", err)
-	}
-	if nativeSelector != "" {
-		t.Fatalf("expected native proxy_selection_strategy to stay null, got %q", nativeSelector)
-	}
-	if err := conn.QueryRow(ctx, `SELECT proxy_selection_strategy FROM model_configs WHERE id = 2`).Scan(&proxySelector); err != nil {
-		t.Fatalf("load migrated proxy proxy_selection_strategy: %v", err)
-	}
-	if proxySelector != "ordered_fallback" {
-		t.Fatalf("expected proxy selector ordered_fallback, got %q", proxySelector)
-	}
-
-	var weight int
-	var targetPriority int
-	if err := conn.QueryRow(ctx, `SELECT weight, target_priority FROM model_proxy_targets WHERE source_model_config_id = 2 AND target_model_config_id = 1`).Scan(&weight, &targetPriority); err != nil {
-		t.Fatalf("load migrated proxy target metadata: %v", err)
-	}
-	if weight != 1 || targetPriority != 4 {
-		t.Fatalf("expected migrated proxy target weight=1 target_priority=4, got weight=%d target_priority=%d", weight, targetPriority)
-	}
-	if _, err := conn.Exec(ctx, `INSERT INTO model_configs (model_type, loadbalance_strategy_id, proxy_selection_strategy) VALUES ('proxy', NULL, NULL)`); err == nil {
-		t.Fatal("expected proxy model without proxy_selection_strategy to violate migration constraint")
-	}
-	if _, err := conn.Exec(ctx, `INSERT INTO model_proxy_targets (source_model_config_id, target_model_config_id, position, weight, target_priority) VALUES (2, 1, 5, 0, 5)`); err == nil {
-		t.Fatal("expected proxy target with weight 0 to violate migration constraint")
-	}
-}
-
 func assertHistoryVersions(t *testing.T, ctx context.Context, conn *pgx.Conn, expected []string) {
 	t.Helper()
 
@@ -575,19 +319,16 @@ func assertHistoryTableMissing(t *testing.T, ctx context.Context, conn *pgx.Conn
 	}
 }
 
-func assertCleanBreakTableRows(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
+func assertHistoryVersionMissing(t *testing.T, ctx context.Context, conn *pgx.Conn, version string) {
 	t.Helper()
-	var count int
-	if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM `+quoteIdentifier(tableName)).Scan(&count); err != nil {
-		t.Fatalf("count clean-break %s rows: %v", tableName, err)
-	}
-	if count != 0 {
-		t.Fatalf("expected clean-break %s migration to discard legacy rows, got %d", tableName, count)
-	}
-}
 
-func assertCleanBreakLogRows(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string) {
-	assertCleanBreakTableRows(t, ctx, conn, tableName)
+	var exists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM prism_schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
+		t.Fatalf("check prism migration history version %s absence: %v", version, err)
+	}
+	if exists {
+		t.Fatalf("expected prism migration history version %s to remain absent", version)
+	}
 }
 
 func assertSidecarSchemaContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
@@ -621,7 +362,6 @@ WHERE id.table_schema = 'public' AND id.table_name = $1 AND id.column_name = 'id
 	assertIndexDefinitionContains(t, ctx, conn, "uq_sidecar_instances_live_base_url_canonical", "base_url_canonical", "deleted_at IS NULL")
 	assertConstraintDefinitionContains(t, ctx, conn, "ck_sidecar_instances_management_auth_state", "invalid_management_auth")
 	assertCurrentSidecarTables(t, ctx, conn)
-	assertLegacySidecarAuthInventorySchemaRemoved(t, ctx, conn)
 }
 
 func assertColumnDataType(t *testing.T, ctx context.Context, conn *pgx.Conn, tableName string, columnName string, dataType string) {
@@ -661,85 +401,6 @@ func assertCurrentSidecarTables(t *testing.T, ctx context.Context, conn *pgx.Con
 		t.Fatalf("iterate current sidecar tables: %v", err)
 	}
 	assertStringSet(t, "sidecar tables", got, map[string]bool{"sidecar_instances": true, "sidecar_provider_snapshots": true})
-}
-
-func assertLegacySidecarAuthInventorySchemaRemoved(t *testing.T, ctx context.Context, conn *pgx.Conn) {
-	t.Helper()
-	legacyTable := "sidecar_auth_" + "snapshots"
-	legacyColumn := "auth_" + "snapshot_id"
-
-	var tableExists bool
-	if err := conn.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM pg_class c
-			JOIN pg_namespace n ON n.oid = c.relnamespace
-			WHERE n.nspname = 'public'
-			  AND c.relname = $1
-			  AND c.relkind IN ('r', 'p')
-		)`, legacyTable).Scan(&tableExists); err != nil {
-		t.Fatalf("check legacy sidecar auth inventory table absence: %v", err)
-	}
-	if tableExists {
-		t.Fatalf("expected legacy sidecar auth inventory table %s to be removed", legacyTable)
-	}
-
-	rows, err := conn.Query(ctx, `
-		SELECT table_name
-		FROM information_schema.columns
-		WHERE table_schema = 'public'
-		  AND column_name = $1
-		  AND left(table_name, length('sidecar_')) = 'sidecar_'
-		ORDER BY table_name ASC`, legacyColumn)
-	if err != nil {
-		t.Fatalf("load legacy sidecar auth inventory columns: %v", err)
-	}
-	defer rows.Close()
-	unexpectedColumns := []string{}
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			t.Fatalf("scan legacy sidecar auth inventory column: %v", err)
-		}
-		unexpectedColumns = append(unexpectedColumns, tableName+"."+legacyColumn)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate legacy sidecar auth inventory columns: %v", err)
-	}
-	if len(unexpectedColumns) != 0 {
-		t.Fatalf("expected no legacy sidecar auth inventory columns, got %v", unexpectedColumns)
-	}
-
-	var constraintCount int
-	if err := conn.QueryRow(ctx, `
-		SELECT count(*)
-		FROM pg_constraint
-		WHERE conname = ANY($1::text[])`, []string{
-		"sidecar_watchdog_actions_auth_" + "snapshot_id_fkey",
-		"sidecar_watchdog_sweep_items_auth_" + "snapshot_id_fkey",
-	}).Scan(&constraintCount); err != nil {
-		t.Fatalf("count legacy sidecar auth inventory foreign keys: %v", err)
-	}
-	if constraintCount != 0 {
-		t.Fatalf("expected legacy sidecar auth inventory foreign keys to be removed, got %d", constraintCount)
-	}
-
-	var indexCount int
-	if err := conn.QueryRow(ctx, `
-		SELECT count(*)
-		FROM pg_class c
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname = 'public'
-		  AND c.relkind = 'i'
-		  AND c.relname = ANY($1::text[])`, []string{
-		"idx_sidecar_auth_" + "snapshots_sidecar_id",
-		"uq_sidecar_auth_" + "snapshots_key",
-	}).Scan(&indexCount); err != nil {
-		t.Fatalf("count legacy sidecar auth inventory indexes: %v", err)
-	}
-	if indexCount != 0 {
-		t.Fatalf("expected legacy sidecar auth inventory indexes to be removed, got %d", indexCount)
-	}
 }
 
 func assertStringSet(t *testing.T, label string, got map[string]bool, expected map[string]bool) {
@@ -1311,64 +972,6 @@ func assertLogRetentionSettingsContract(t *testing.T, ctx context.Context, conn 
 	assertConstraintDefinitionContains(t, ctx, conn, "log_retention_settings_singleton_key_check", "'global'")
 }
 
-func applyMigrationsThrough(t *testing.T, ctx context.Context, conn *pgx.Conn, throughVersion string) {
-	t.Helper()
-	subsetDir := t.TempDir()
-	entries, err := os.ReadDir(migrate.DefaultMigrationsDir())
-	if err != nil {
-		t.Fatalf("read migrations directory for subset: %v", err)
-	}
-	copied := false
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
-			continue
-		}
-		version := strings.TrimSuffix(entry.Name(), ".sql")
-		if version > throughVersion {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(migrate.DefaultMigrationsDir(), entry.Name()))
-		if err != nil {
-			t.Fatalf("read migration %s for subset: %v", entry.Name(), err)
-		}
-		if err := os.WriteFile(filepath.Join(subsetDir, entry.Name()), raw, 0o600); err != nil {
-			t.Fatalf("write migration %s to subset: %v", entry.Name(), err)
-		}
-		if version == throughVersion {
-			copied = true
-		}
-	}
-	if !copied {
-		t.Fatalf("migration subset did not include requested version %s", throughVersion)
-	}
-
-	runner, err := migrate.New(migrate.Options{MigrationsDir: subsetDir})
-	if err != nil {
-		t.Fatalf("build subset migration runner: %v", err)
-	}
-	result, err := runner.Run(ctx, conn)
-	if err != nil {
-		t.Fatalf("apply migrations through %s: %v", throughVersion, err)
-	}
-	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected subset migrations through %s to apply, got %q", throughVersion, result.Outcome)
-	}
-	assertMigrationVersions(t, "applied subset versions", result.Versions, expectedMigrationVersionsThrough(t, throughVersion))
-}
-
-func expectedMigrationVersionsThrough(t *testing.T, throughVersion string) []string {
-	t.Helper()
-	versions := []string{}
-	for _, version := range expectedPrismMigrationVersions {
-		versions = append(versions, version)
-		if version == throughVersion {
-			return versions
-		}
-	}
-	t.Fatalf("unknown migration version %q", throughVersion)
-	return nil
-}
-
 func assertNoLogChildPartitions(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	var childCount int
@@ -1469,10 +1072,10 @@ func TestSidecarCurrentSchemaConstraints(t *testing.T) {
 
 	result, err := runner.Run(testContext, conn)
 	if err != nil {
-		t.Fatalf("run sidecar current schema migrations: %v", err)
+		t.Fatalf("run sidecar current schema baseline: %v", err)
 	}
 	if result.Outcome != migrate.OutcomeApply {
-		t.Fatalf("expected sidecar current schema migrations to apply, got %q", result.Outcome)
+		t.Fatalf("expected sidecar current schema baseline to apply, got %q", result.Outcome)
 	}
 
 	assertSidecarSchemaContract(t, testContext, conn)

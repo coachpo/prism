@@ -328,7 +328,7 @@ async function mockProtectedShellRoutes(
   return { requestCounts };
 }
 
-test.describe("shell sidebar renovation regression", () => {
+test.describe("protected shell sidebar regression", () => {
   test("keeps protected shell chrome behind the fallback until costing bootstrap resolves", async ({ page }) => {
     const costingGate = createDeferred();
     const { requestCounts } = await mockProtectedShellRoutes(page, {

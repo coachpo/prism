@@ -290,30 +290,6 @@ func (s *Service) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Service) handleRuntimeProbe(w http.ResponseWriter, r *http.Request) {
-	modelID, err := runtimeModelID(r)
-	if err != nil {
-		writeError(w, r, s.corsSnapshot(), http.StatusBadRequest, err.Error())
-		return
-	}
-	resolution, err := pgxutil.InTxValue(r.Context(), s.pool, "profile", func(tx pgx.Tx) (bool, error) {
-		activeProfile, err := profiledomain.ResolveActiveProfile(r.Context(), tx, s.nowUTC)
-		if err != nil {
-			return false, err
-		}
-		return profiledomain.ModelExists(r.Context(), tx, activeProfile.ID, modelID)
-	})
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	if !resolution {
-		writeError(w, r, s.corsSnapshot(), http.StatusNotFound, "Model not found in active profile")
-		return
-	}
-	writeError(w, r, s.corsSnapshot(), http.StatusNotImplemented, "Runtime proxy not implemented in S6")
-}
-
 func insertProfile(ctx context.Context, tx pgx.Tx, requestBody profileCreateRequest, now time.Time) (profiledomain.Profile, error) {
 	profile, err := scanDomainProfile(tx.QueryRow(
 		ctx,
@@ -449,31 +425,6 @@ func scanDomainProfile(scanner interface{ Scan(...any) error }) (profiledomain.P
 		profile.DeletedAt = &value
 	}
 	return profile, nil
-}
-
-func runtimeModelID(request *http.Request) (string, error) {
-	path := strings.TrimSpace(request.URL.Path)
-	if strings.HasPrefix(path, "/v1beta/models/") {
-		trimmed := strings.TrimPrefix(path, "/v1beta/models/")
-		if index := strings.IndexAny(trimmed, ":/"); index >= 0 {
-			trimmed = trimmed[:index]
-		}
-		if strings.TrimSpace(trimmed) == "" {
-			return "", errors.New("model is required")
-		}
-		return trimmed, nil
-	}
-	defer func() { _ = request.Body.Close() }()
-	var payload struct {
-		Model string `json:"model"`
-	}
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-		return "", errors.New("invalid request body")
-	}
-	if strings.TrimSpace(payload.Model) == "" {
-		return "", errors.New("model is required")
-	}
-	return strings.TrimSpace(payload.Model), nil
 }
 
 func decodeJSONBody(request *http.Request, target any) error {

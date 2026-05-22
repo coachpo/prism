@@ -110,7 +110,6 @@ const (
 	bootstrapFieldDatabaseManagementAdmissionM3Max      = "database.management_admission.m3_max_concurrent"
 	bootstrapFieldServerHost                            = "server.host"
 	bootstrapFieldServerPort                            = "server.port"
-	bootstrapFieldServerDocsEnabled                     = "server.docs_enabled"
 	bootstrapFieldDatabasePoolsTotalMaxConns            = "database.pools.total_max_conns"
 	bootstrapFieldDatabasePoolsManagementMaxConns       = "database.pools.management.max_conns"
 	bootstrapFieldDatabasePoolsManagementMinIdleConns   = "database.pools.management.min_idle_conns"
@@ -168,7 +167,6 @@ var bootstrapConfigFieldRegistry = []bootstrapConfigFieldRegistration{
 	restartRequiredBootstrapField(bootstrapFieldRuntimeSideEffectsAttemptTimeout, ""),
 	restartRequiredBootstrapField(bootstrapFieldServerHost, BootstrapConfigConfirmationServerHostChange),
 	restartRequiredBootstrapField(bootstrapFieldServerPort, BootstrapConfigConfirmationServerPortChange),
-	restartRequiredBootstrapField(bootstrapFieldServerDocsEnabled, ""),
 	restartRequiredBootstrapField(BootstrapConfigSecretDatabaseURL, BootstrapConfigConfirmationDatabaseURLChange),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsTotalMaxConns, ""),
 	restartRequiredBootstrapField(bootstrapFieldDatabasePoolsManagementMaxConns, ""),
@@ -342,12 +340,10 @@ func addBootstrapServerFieldValues(fields map[string]bootstrapConfigFieldValue, 
 	if values == nil {
 		fields[bootstrapFieldServerHost] = bootstrapStringFieldValue(nil)
 		fields[bootstrapFieldServerPort] = bootstrapIntFieldValue(nil)
-		fields[bootstrapFieldServerDocsEnabled] = bootstrapBoolFieldValue(nil)
 		return
 	}
 	fields[bootstrapFieldServerHost] = bootstrapStringFieldValue(values.Host)
 	fields[bootstrapFieldServerPort] = bootstrapIntFieldValue(values.Port)
-	fields[bootstrapFieldServerDocsEnabled] = bootstrapBoolFieldValue(values.DocsEnabled)
 }
 
 func addBootstrapDatabaseFieldValues(fields map[string]bootstrapConfigFieldValue, values *BootstrapConfigDatabaseValues) {
@@ -585,9 +581,8 @@ func bootstrapConfigValuesFromSettings(settings Settings) BootstrapConfigValues 
 	bufferingMode := string(settings.ResolvedRuntimeBufferingMode())
 	return BootstrapConfigValues{
 		Server: &BootstrapConfigServerValues{
-			Host:        stringPointer(strings.TrimSpace(settings.Host)),
-			Port:        intPointer(settings.Port),
-			DocsEnabled: boolPointer(settings.DocsEnabled()),
+			Host: stringPointer(strings.TrimSpace(settings.Host)),
+			Port: intPointer(settings.Port),
 		},
 		Database: &BootstrapConfigDatabaseValues{
 			Pools: &BootstrapConfigDatabasePoolsValues{

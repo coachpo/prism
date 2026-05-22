@@ -200,7 +200,7 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 	}
 
 	now := time.Date(2026, 4, 18, 11, 30, 0, 0, time.UTC)
-	profileID := insertProfile(t, testContext, conn, profileSeed{
+	insertProfile(t, testContext, conn, profileSeed{
 		Name:        "Seed Profile",
 		Description: "existing profile",
 		IsActive:    true,
@@ -210,36 +210,15 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	})
-	googleVendorID := insertVendor(t, testContext, conn, vendorSeed{
-		Key:                "google",
-		Name:               "Google Legacy",
-		Description:        "Legacy Google vendor",
-		IconKey:            "google-legacy",
-		AuditEnabled:       true,
-		AuditCaptureBodies: false,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-	})
 	geminiVendorID := insertVendor(t, testContext, conn, vendorSeed{
 		Key:                "gemini",
-		Name:               "Gemini Legacy",
-		Description:        "Old Gemini vendor",
-		IconKey:            "gemini-legacy",
+		Name:               "Gemini Existing",
+		Description:        "Previous Gemini vendor",
+		IconKey:            "gemini-old",
 		AuditEnabled:       true,
 		AuditCaptureBodies: false,
 		CreatedAt:          now,
 		UpdatedAt:          now,
-	})
-	insertModelConfig(t, testContext, conn, modelConfigSeed{
-		ProfileID:              profileID,
-		VendorID:               sql.NullInt64{Int64: int64(googleVendorID), Valid: true},
-		APIFamily:              "openai",
-		ModelID:                "proxy-google-model",
-		ModelType:              "proxy",
-		ProxySelectionStrategy: sql.NullString{String: "ordered_fallback", Valid: true},
-		IsEnabled:              true,
-		CreatedAt:              now,
-		UpdatedAt:              now,
 	})
 	insertSystemUserAgentRule(t, testContext, conn, systemUserAgentRuleSeed{
 		Name:      "Claude Code",
@@ -269,9 +248,6 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 	}
 
 	vendors := loadVendorsByKey(t, testContext, conn)
-	if _, ok := vendors["google"]; ok {
-		t.Fatalf("expected legacy google vendor row to be merged away")
-	}
 	geminiVendor, ok := vendors["gemini"]
 	if !ok {
 		t.Fatalf("expected canonical gemini vendor to exist")
@@ -285,16 +261,6 @@ func TestStartupVendorAndRuleSeeds(t *testing.T) {
 	if !geminiVendor.AuditEnabled || geminiVendor.AuditCaptureBodies {
 		t.Fatalf("expected existing gemini vendor audit flags to be preserved, got %+v", geminiVendor)
 	}
-	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM vendors WHERE key = 'google'`, 0)
-
-	var rewiredVendorID int
-	if err := conn.QueryRow(testContext, `SELECT vendor_id FROM model_configs WHERE model_id = 'proxy-google-model'`).Scan(&rewiredVendorID); err != nil {
-		t.Fatalf("load rewired model_config vendor_id: %v", err)
-	}
-	if rewiredVendorID != geminiVendorID {
-		t.Fatalf("expected model_configs.vendor_id to rewire from legacy google id %d to gemini id %d, got %d", googleVendorID, geminiVendorID, rewiredVendorID)
-	}
-
 	var claudeCount int
 	var claudePattern string
 	var claudeEnabled bool

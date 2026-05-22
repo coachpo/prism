@@ -695,8 +695,6 @@ export interface Messages {
     databaseAndCapacityTitle: string;
     databaseUrl: string;
     databaseUrlChangeLabel: string;
-    docsEnabled: string;
-    docsEnabledDescription: string;
     enterNewValueWhenReplacing: string;
     expectContinueTimeout: string;
     failedToLoad: string;
@@ -1629,6 +1627,7 @@ export interface Messages {
     optionalPriceDefault: string;
     profileScopedSettings: string;
     scopeCallout: (profileLabel: string) => string;
+    selectedProfileFallback: string;
     tableTitle: string;
     templateUsage: string;
     templateUsageDescription: (name: string) => string;
@@ -2856,8 +2855,6 @@ export const enMessages: Messages = {
     databaseAndCapacityTitle: "Database and capacity",
     databaseUrl: "Database URL",
     databaseUrlChangeLabel: "Database URL replacement points Prism at a different PostgreSQL target",
-    docsEnabled: "Docs enabled",
-    docsEnabledDescription: "Serve Swagger UI, ReDoc, and OpenAPI after restart.",
     enterNewValueWhenReplacing: "Enter a new value only when replacing it.",
     expectContinueTimeout: "Expect continue timeout",
     failedToLoad: "Failed to load startup bootstrap config",
@@ -2972,7 +2969,7 @@ export const enMessages: Messages = {
     secrets: "Secrets",
     selectMode: "Select mode",
     server: "Server",
-    serverAndBrowserAccessDescription: "Listener and docs settings require restart; browser CORS origins apply immediately.",
+    serverAndBrowserAccessDescription: "Listener settings require restart; browser CORS origins apply immediately.",
     serverAndBrowserAccessTitle: "Server and browser access",
     serverHost: "Server host",
     serverHostRequired: "Server host is required.",
@@ -3846,6 +3843,7 @@ export const enMessages: Messages = {
     optionalPriceDefault: "0 (default)",
     profileScopedSettings: "Profile-scoped settings",
     scopeCallout: (profileLabel) => `Changes here affect ${profileLabel} and its runtime traffic.`,
+    selectedProfileFallback: "the selected profile",
     tableTitle: "Pricing Templates",
     templateUsage: "Template Usage",
     templateUsageDescription: (name) => `Connections currently using the "${name}" template.`,

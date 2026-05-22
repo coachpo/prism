@@ -3,7 +3,6 @@ package profiles
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -87,10 +86,6 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 	api.Patch("/profiles/{profile_id}", s.handleUpdateProfile)
 	api.Post("/profiles/{profile_id}/activate", s.handleActivateProfile)
 	api.Delete("/profiles/{profile_id}", s.handleDeleteProfile)
-}
-
-func (s *Service) RuntimeProbeHandler() http.Handler {
-	return http.HandlerFunc(s.handleRuntimeProbe)
 }
 
 func isUniqueViolation(err error, constraint string) bool {

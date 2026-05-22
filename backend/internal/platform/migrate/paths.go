@@ -7,7 +7,7 @@ import (
 
 const (
 	HistoryTable           = "prism_schema_migrations"
-	DefaultBaselineVersion = "000001_baseline"
+	DefaultBaselineVersion = "000001_initial_schema"
 )
 
 func DefaultMigrationsDir() string {

@@ -225,7 +225,6 @@ export class WebSocketClient {
           return;
         }
 
-        console.log("[WebSocket] Disconnected");
         this.stopHeartbeat();
         this.ws = null;
 
@@ -440,10 +439,6 @@ export class WebSocketClient {
     const delay = calculateReconnectDelay(
       this.reconnectInterval,
       this.reconnectAttempts
-    );
-
-    console.log(
-      `[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`
     );
 
     this.reconnectTimer = setTimeout(() => {

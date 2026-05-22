@@ -414,9 +414,6 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if settings.Host != "0.0.0.0" || settings.Port != 18000 {
 			t.Fatalf("unexpected server settings: %+v", settings)
 		}
-		if !settings.DocsEnabled() {
-			t.Fatal("expected docs to be enabled from bootstrap config")
-		}
 		if settings.DatabaseURL != bootstrapContractDatabaseURL {
 			t.Fatalf("expected database URL %q, got %q", bootstrapContractDatabaseURL, settings.DatabaseURL)
 		}

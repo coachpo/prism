@@ -9,12 +9,12 @@ This directory owns Prism's live Go backend service.
 ```text
 backend/
 ├── cmd/prism-backend/              # Go process entrypoint
-├── internal/httpapi/               # management, sidecars, runtime, realtime, and docs handlers
+├── internal/httpapi/               # management, sidecars, runtime, realtime, and shared handler seams
 ├── internal/platform/              # config, server assembly, migrations, startup, workers, version
 ├── internal/domain/                # audit, loadbalance, and stats domain logic
 ├── internal/{endpoint,profile,vendor}domain/ # shared management-domain helpers
-├── migrations/                     # SQL migration chain applied by the Go runtime
-├── testdata/                       # checked-in OpenAPI, bundle, and realtime fixtures
+├── migrations/                     # fresh-install SQL baseline applied by the Go runtime
+├── testdata/                       # bundle, request, bootstrap, and realtime fixtures
 ├── tests/                          # Go contract, integration, and runtime regressions
 ├── docker-compose.yml              # local PostgreSQL provisioning
 ├── Dockerfile                      # Go backend image build
@@ -30,11 +30,6 @@ Recommended local entrypoints:
 ```
 
 When launched through `../start.sh`, the backend listens on `http://localhost:18000`.
-
-If the selected bootstrap config keeps docs enabled, it also serves:
-- Swagger UI: `http://localhost:18000/docs`
-- ReDoc: `http://localhost:18000/redoc`
-- OpenAPI JSON: `http://localhost:18000/openapi.json`
 
 Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
 
@@ -60,7 +55,7 @@ go build ./cmd/prism-backend
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
 - Bootstrap writes are file-durable. Eligible hot fields apply immediately when written through the Startup tab or `PUT /api/config/bootstrap`; structural fields remain pending until restart.
 - Hot fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits.
-- Restart-required fields include listener host and port, docs enablement, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
+- Restart-required fields include listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and state-transfer bundle key.
 - External edits to the bootstrap file are not watched automatically. Use the Startup tab or `PUT /api/config/bootstrap` to publish hot-eligible file edits into the running process.
 - The bootstrap API stays file-backed only, so `/api/config/bootstrap` is separate from PostgreSQL-backed settings flows.
 - Raw bootstrap files require `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Set `runtime.transport.requestTimeout` to `"60s"` to keep the prior whole-request upstream timeout behavior. Set `runtime.sideEffects.attemptTimeout` to the newly seeded default `"10s"` for each background side-effect enqueue attempt. Missing either required field fails startup validation by design.
@@ -97,17 +92,14 @@ Enabled SMTP bootstrap example:
 }
 ```
 
-## Database and docs artifacts
-- Schema migrations are Go-managed and applied from `migrations/` at startup.
-- Startup now fails fast when an existing database has application tables but no `prism_schema_migrations` history; reset incompatible local databases instead of relying on migration cutover bridges.
-- The sidecar auth-file authority cleanup is destructive. Databases with `prism_schema_migrations` history migrate forward and drop the retired auth-observation table, legacy auth-observation references, and old auth-observation indexes automatically.
+## Database and runtime data
+- Fresh-install schema setup is Go-managed and applied from the single checked-in baseline under `migrations/` at startup.
+- Prism supports empty PostgreSQL databases and databases already stamped with the current `prism_schema_migrations` baseline. Databases with application tables but missing current baseline history fail fast; reset incompatible local databases instead of expecting startup to rewrite historical schemas.
 - For local-only manual testing where a PostgreSQL reset is simpler than remediating a hand-edited database, stop Prism and run `docker compose down -v` from `backend/`, then `docker compose up -d prism-postgres` or `../start.sh headless` to recreate the local database. This deletes local PostgreSQL data.
 - Request telemetry, usage attribution, audit rows, and load-balance history live in PostgreSQL partitioned log tables.
 - Normal log retention is global across all profiles. Configure it through `/api/settings/log-retention` and run it through durable `log_retention` jobs from `POST /api/maintenance/log-retention/jobs`.
 - Retention drops whole daily child partitions whose upper bound is `<= cutoff`. Only the cutoff-overlapping boundary child receives bounded cleanup plus `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`.
 - Audit rows keep weak request references through `request_log_id`, `request_log_created_at`, and `ingress_request_id`; request detail links can be missing after request-log retention expires first.
-- The partitioned-log upgrade is a clean break for old log rows. Old log rows are not preserved.
 - `VACUUM FULL`, `CLUSTER`, and `pg_repack` are manual or emergency shrink tools only, not automatic retention steps. The default local `postgres:16-alpine` database does not include `pg_repack`.
-- `docs/openapi.json` is the checked-in management and health contract that the Go server serves at `/openapi.json`.
 
 For local PostgreSQL provisioning without the root launcher, run `docker compose up -d prism-postgres` from `backend/`.

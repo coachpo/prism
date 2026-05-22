@@ -34,8 +34,7 @@ backend/
 │   ├── httpapi/
 │   │   ├── management/         # /api/* management handlers, including sidecars
 │   │   ├── runtime/            # /v1/* and /v1beta/* proxy handlers
-│   │   ├── realtime/           # WebSocket room management and publishing
-│   │   └── openapi/            # checked-in OpenAPI loader and docs handlers
+│   │   └── realtime/           # WebSocket room management and publishing
 │   ├── platform/
 │   │   ├── config/             # environment and runtime settings
 │   │   ├── http/               # server assembly and route mounting
@@ -49,8 +48,8 @@ backend/
 │   ├── endpointdomain/         # endpoint and connection helpers
 │   ├── profiledomain/          # selected vs active profile helpers
 │   └── vendordomain/           # shared vendor catalog helpers
-├── migrations/                 # SQL migration chain applied at startup
-├── testdata/                   # checked-in OpenAPI, bundle, and realtime fixtures
+├── migrations/                 # Fresh-install SQL baseline applied at startup
+├── testdata/                   # bundle, request, bootstrap, and realtime fixtures
 ├── tests/                      # Go contract, integration, and runtime regressions
 ├── Dockerfile                  # live Go backend image build
 ├── docker-compose.yml          # local PostgreSQL helper on host port 15432
@@ -112,7 +111,7 @@ frontend/
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
 - The current implementation keeps the split-bundle contract canonical, with `profile_config` and `vendor_catalog` both on one `version: 1` story and no surviving older bundle narrative.
-- `backend/Dockerfile` is the live Go backend image build path and copies `migrations/` plus `docs/openapi.json` into the image.
+- `backend/Dockerfile` is the live Go backend image build path and copies the backend binary, version surface, and `migrations/` into the image.
 - `.github/workflows/docker-images.yml` builds Docker images only (no backend pytest or frontend lint/typecheck jobs) and currently targets `linux/arm64`.
 
 ### 2.4 Priority Enforcement And Operator-Facing Failure Modes
@@ -192,11 +191,11 @@ OpenAI runtime support is limited to generation proxying for `POST /v1/chat/comp
 Note: Gemini requests use native `/v1beta/models/{model}:...` paths only. When a Gemini proxy model resolves to a different native model ID, the proxy rewrites the model ID segment in the URL path to the resolved native target model ID before forwarding upstream.
 For Gemini, the `:streamGenerateContent` path is authoritative for stream classification even when the request body omits `stream: true`.
 
-Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes proxy buffering mode and an HTTP client built from startup bootstrap transport settings. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls. Existing bootstrap files must include this field; `"60s"` keeps the prior timeout behavior, and a missing value fails startup validation by design. Raw `runtime.sideEffects.attemptTimeout` is a separate per-attempt background side-effect enqueue budget, defaults to `"10s"` in newly seeded configs, fails startup validation when missing from existing configs, and is restart-required rather than hot-applied.
+Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes proxy buffering mode and an HTTP client built from startup bootstrap transport settings. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls. A missing request timeout fails startup validation by design. Raw `runtime.sideEffects.attemptTimeout` is a separate per-attempt background side-effect enqueue budget and is restart-required rather than hot-applied.
 
 Hot bootstrap projection builds a new aggregate snapshot, validates it, then atomically publishes it for future work. CORS origin checks, auth TTL and cookie metadata, mail delivery settings, runtime buffering, runtime transport, and M2/M3 management admission limits are hot-apply boundaries. New requests and new email sends read the current snapshot; in-flight proxy requests keep the HTTP client they captured, and a retired runtime transport only has idle connections closed.
 
-Restart-required boundaries are structural process resources: listener host and port, docs route enablement, PostgreSQL URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and the state-transfer bundle key. Those values can be written through the bootstrap API, but they do not change the running process until Prism restarts.
+Restart-required boundaries are structural process resources: listener host and port, PostgreSQL URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, auth JWT signing key, and the state-transfer bundle key. Those values can be written through the bootstrap API, but they do not change the running process until Prism restarts.
 
 Vendor rows are global publisher metadata. Models may keep `vendor_id = null` and `vendor = null`, while runtime compatibility and redirect checks still use the model's required `api_family`, not the vendor row. The frontend owns vendor icon rendering through a locally vendored registry sourced from pinned `cc-switch` presets, and it falls back to a monogram or placeholder only at render time when icon data or vendor metadata is missing or unknown. The Models page still renders each row's `api_family` metadata even when vendor identity is absent.
 
@@ -643,9 +642,9 @@ Audit rows keep weak request metadata rather than a hard dependency on live requ
 
 Deleting or expiring request logs does not delete audit rows. Deleting or expiring audit rows does not affect request logs. Operators should treat request-to-audit linking as best-effort historical context, not as guaranteed referential availability.
 
-### 9.5 Upgrade Semantics
+### 9.5 Current Retention Boundaries
 
-The partitioned retention upgrade is a clean break for historical log tables. Old log rows are not preserved by the upgrade, and there is no compatibility path for pre-upgrade log storage.
+Partitioned retention manages the current log-table set only. Prism does not rewrite historical log storage shapes into the current partitions.
 
 ### 9.6 Frontend Placement
 

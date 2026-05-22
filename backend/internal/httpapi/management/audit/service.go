@@ -205,11 +205,11 @@ func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, er
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
-	fromTime, err := parseRequiredTimeAlias(r, "from", "from_time")
+	fromTime, err := parseRequiredTime(r, "from")
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
-	toTime, err := parseRequiredTimeAlias(r, "to", "to_time")
+	toTime, err := parseRequiredTime(r, "to")
 	if err != nil {
 		return auditdomain.ListParams{}, err
 	}
@@ -235,7 +235,7 @@ func parseListParams(r *http.Request, profileID int) (auditdomain.ListParams, er
 }
 
 func rejectUnsupportedListFilters(r *http.Request) error {
-	allowed := []string{"request_log_id", "vendor_id", "model_id", "status_code", "endpoint_id", "connection_id", "from", "to", "from_time", "to_time", "limit", "cursor", "sort"}
+	allowed := []string{"request_log_id", "vendor_id", "model_id", "status_code", "endpoint_id", "connection_id", "from", "to", "limit", "cursor", "sort"}
 	for key := range r.URL.Query() {
 		if !slices.Contains(allowed, key) {
 			return &auditdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "audit_filter_unsupported", Detail: fmt.Sprintf("Unsupported audit filter %q.", key)}
@@ -244,15 +244,8 @@ func rejectUnsupportedListFilters(r *http.Request) error {
 	return nil
 }
 
-func parseRequiredTimeAlias(r *http.Request, primary string, legacy string) (*time.Time, error) {
-	parsed, err := parseOptionalTime(r, primary)
-	if err != nil {
-		return nil, err
-	}
-	if parsed != nil {
-		return parsed, nil
-	}
-	parsed, err = parseOptionalTime(r, legacy)
+func parseRequiredTime(r *http.Request, key string) (*time.Time, error) {
+	parsed, err := parseOptionalTime(r, key)
 	if err != nil {
 		return nil, err
 	}

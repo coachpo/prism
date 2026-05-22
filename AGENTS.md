@@ -40,7 +40,7 @@ prism/
 ## HIERARCHY
 - `backend/AGENTS.md`: backend monorepo directory root for runtime, platform, HTTP API, and test boundaries.
 - `backend/internal/platform/AGENTS.md`: backend process infrastructure, lifecycle assembly, hot bootstrap runtime, DB lanes, scheduler, migrations, partitioned log retention, and side-effect ownership.
-- `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, OpenAPI, proxy-key usage, retention-job, and request-context HTTP seams.
+- `backend/internal/httpapi/AGENTS.md`: mounted management, runtime, realtime, proxy-key usage, retention-job, and request-context HTTP seams.
 - `backend/internal/httpapi/runtime/AGENTS.md`: runtime proxy entry, request planning, telemetry outbox, feedback pipeline, partition ensuring, and runtime side-effect seams.
 - `backend/internal/httpapi/management/settings/AGENTS.md`: profile-scoped costing/timezone settings, global log-retention settings, and maintenance job creation seams.
 - `backend/internal/httpapi/management/auth/AGENTS.md`: auth status/session/bootstrap, proxy-key, WebAuthn, reset-email, realtime, and runtime-cache seams.
@@ -62,7 +62,7 @@ prism/
 ## SHARED FACTS
 - `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, and uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
 - `start.sh` keeps a fixed local launcher contract by using plaintext bootstrap ownership, the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000`.
-- Plaintext bootstrap startup is file-backed. Existing bootstrap files must include `runtime.transport.requestTimeout`, usually `"60s"`, and `runtime.sideEffects.attemptTimeout`, usually `"10s"`; legacy encrypted bootstrap files are rejected instead of migrated in place.
+- Plaintext bootstrap startup is file-backed. Bootstrap files must include `runtime.transport.requestTimeout`, usually `"60s"`, and `runtime.sideEffects.attemptTimeout`, usually `"10s"`; legacy encrypted bootstrap files are rejected.
 - Mail delivery is bootstrap-managed and disabled by default. Enabled SMTP validates at startup; invalid enabled mail config must fail rather than falling back to no-op delivery.
 - Backend database capacity is split into named lanes for runtime execution, telemetry, feedback, management, realtime, cache refresh, and background jobs. Background or management work must not borrow protected proxy capacity.
 - Partitioned log retention covers `request_logs`, `audit_logs`, `usage_request_events`, and `loadbalance_events`; runtime writers ensure daily partitions, and the low-priority platform worker maintains a 15-day horizon.
@@ -77,8 +77,8 @@ prism/
 - Operator-facing launcher, release, and deploy helpers: `README.md`, `start.sh`, `release.sh`, `deploy.sh`, `frontend/.env.example`
 - Backend/frontend version surfaces: `backend/VERSION`, `frontend/VERSION`, `frontend/package.json`
 - Backend container contract: `backend/Dockerfile`, `backend/tests/integration/dockerfile_contract_test.go`
-- Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000013_partitioned_log_retention.sql`
-- Sidecars control plane: `backend/internal/httpapi/management/sidecars/`, `backend/migrations/000014_cli_proxy_sidecars.sql`, `frontend/src/pages/sidecars/`, `frontend/src/lib/api/sidecars.ts`
+- Partitioned log retention: `backend/internal/platform/logretention/`, `backend/internal/httpapi/runtime/log_partitions.go`, `backend/migrations/000001_initial_schema.sql`
+- Sidecars control plane: `backend/internal/httpapi/management/sidecars/`, `backend/migrations/000001_initial_schema.sql`, `frontend/src/pages/sidecars/`, `frontend/src/lib/api/sidecars.ts`
 - Runtime proxy planning, telemetry, and partition ensuring: `backend/internal/httpapi/runtime/`, `backend/tests/runtime/`, `frontend/src/pages/request-logs/`
 - Management settings and retention jobs: `backend/internal/httpapi/management/settings/`, `frontend/src/pages/settings/`, `docs/WORKFLOWS.md`
 - Frontend toolchain and shadcn registry config: `frontend/package.json`, `frontend/components.json`, `frontend/src/index.css`

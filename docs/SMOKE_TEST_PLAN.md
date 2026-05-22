@@ -220,7 +220,7 @@ Prepare seed state through API (not manual DB edits):
 | A02 | P0 | Start in `full` mode | Backend + frontend reachable |
 | A03 | P0 | First boot with empty DB | DB created, vendors seeded |
 | A04 | P0 | `GET /health` | `200`, JSON contains `status=ok` and a non-empty `version` string |
-| A05 | P1 | OpenAPI endpoints (`/docs`, `/redoc`, `/openapi.json`) | Accessible |
+| A05 | P1 | Backend-served API documentation surface | Not exposed by the backend |
 | A06 | P1 | CORS preflight | Local launcher traffic stays same-origin through the Vite proxy in `full` mode; explicit backend base URLs remain available for standalone frontend workflows |
 
 ## B. Configuration CRUD and Validation
@@ -431,7 +431,7 @@ Prepare seed state through API (not manual DB edits):
 | J01 | P1 | 10+ concurrent proxy requests | No crashes; logs complete |
 | J02 | P1 | Added proxy latency quick check | Within acceptable envelope |
 | J03 | P1 | No-auth local operation | Expected unrestricted local usage |
-| J04 | P1 | OpenAPI sanity | Core routes present |
+| J04 | P1 | API reference sanity | Core routes present in the markdown API reference |
 | J05 | P1 | PostgreSQL hygiene | DB schema and migration state are valid for smoke environment |
 
 ## Locale Smoke Addendum

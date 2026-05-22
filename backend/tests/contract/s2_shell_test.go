@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -55,38 +54,14 @@ func TestHealthVersionSurface(t *testing.T) {
 	}
 }
 
-func TestDocsSurface(t *testing.T) {
+func TestServedDocsSurfaceRemoved(t *testing.T) {
 	handler := newShellHandler(t)
 
 	for _, path := range []string{"/docs", "/redoc", "/openapi.json"} {
 		response := exerciseRequest(t, handler, path)
-		if response.Code != http.StatusOK {
-			t.Fatalf("expected %s to return 200, got %d", path, response.Code)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("expected %s to be absent with 404, got %d", path, response.Code)
 		}
-		if response.Body.Len() == 0 {
-			t.Fatalf("expected %s body to be non-empty", path)
-		}
-	}
-
-	docsResponse := exerciseRequest(t, handler, "/docs")
-	if !strings.Contains(docsResponse.Body.String(), "/openapi.json") {
-		t.Fatalf("expected /docs to reference /openapi.json")
-	}
-
-	redocResponse := exerciseRequest(t, handler, "/redoc")
-	if !strings.Contains(redocResponse.Body.String(), "/openapi.json") {
-		t.Fatalf("expected /redoc to reference /openapi.json")
-	}
-
-	openAPIResponse := exerciseRequest(t, handler, "/openapi.json")
-	var document struct {
-		Paths map[string]json.RawMessage `json:"paths"`
-	}
-	if err := json.Unmarshal(openAPIResponse.Body.Bytes(), &document); err != nil {
-		t.Fatalf("decode /openapi.json response: %v", err)
-	}
-	if _, ok := document.Paths["/health"]; !ok {
-		t.Fatalf("expected /openapi.json to include /health")
 	}
 }
 
@@ -133,33 +108,6 @@ func TestNormativeDocsParity(t *testing.T) {
 	})
 }
 
-func TestOpenAPIDiff(t *testing.T) {
-	live := loadOpenAPIDocument(t, newShellHandler(t))
-	checkedIn := loadOpenAPISpecMap(t, docsPath(t, "openapi.json"))
-
-	if !reflect.DeepEqual(checkedIn, live) {
-		t.Fatalf("checked-in OpenAPI artifact drifted from live shell document")
-	}
-}
-
-func TestOpenAPIRuntimeExclusion(t *testing.T) {
-	handler := newShellHandler(t)
-	response := exerciseRequest(t, handler, "/openapi.json")
-
-	var document struct {
-		Paths map[string]json.RawMessage `json:"paths"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
-		t.Fatalf("decode /openapi.json response: %v", err)
-	}
-
-	for path := range document.Paths {
-		if strings.HasPrefix(path, "/v1") || strings.HasPrefix(path, "/v1beta") {
-			t.Fatalf("expected live OpenAPI document to exclude runtime paths, found %q", path)
-		}
-	}
-}
-
 func newShellHandler(t *testing.T) http.Handler {
 	t.Helper()
 
@@ -173,30 +121,6 @@ func newShellHandler(t *testing.T) http.Handler {
 	}
 
 	return handler
-}
-
-func loadOpenAPIDocument(t *testing.T, handler http.Handler) map[string]any {
-	t.Helper()
-	response := exerciseRequest(t, handler, "/openapi.json")
-	return decodeOpenAPISpec(t, response.Body.Bytes())
-}
-
-func loadOpenAPISpecMap(t *testing.T, path string) map[string]any {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return decodeOpenAPISpec(t, raw)
-}
-
-func decodeOpenAPISpec(t *testing.T, raw []byte) map[string]any {
-	t.Helper()
-	var spec map[string]any
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		t.Fatalf("decode OpenAPI spec: %v", err)
-	}
-	return spec
 }
 
 func assertFileContains(t *testing.T, path string, needles []string) {

@@ -474,7 +474,7 @@ async function mockDashboardRoutes(
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
-test.describe("dashboard routing shell renovation", () => {
+test.describe("dashboard routing shell", () => {
   test("keeps the routing shell chrome and model-node activation behavior", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (message) => {

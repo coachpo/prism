@@ -553,7 +553,7 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.locator('[data-testid="usage-health-cell"][data-status="ok"]').first()).toBeVisible();
 }
 
-test.describe("chart renovation statistics regression", () => {
+test.describe("shared chart statistics regression", () => {
   test("covers populated statistics and dashboard analytics chart surfaces from the shared usage snapshot content", async ({ page }) => {
     await mockUsageRoutes(page);
     await seedUsageStatisticsState(page, ["gpt-5.4"]);

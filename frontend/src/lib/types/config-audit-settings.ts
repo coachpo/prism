@@ -365,11 +365,18 @@ export interface AuditLogDetail {
   created_at: string;
 }
 
+export interface AuditLogListWindow {
+  from: string;
+  to: string;
+}
+
 export interface AuditLogListResponse {
   items: AuditLogListItem[];
-  total: number;
+  next_cursor: string | null;
+  has_more: boolean;
+  window: AuditLogListWindow;
   limit: number;
-  offset: number;
+  sort: "desc";
 }
 
 export interface AuditLogParams {
@@ -379,10 +386,11 @@ export interface AuditLogParams {
   status_code?: number;
   endpoint_id?: number;
   connection_id?: number;
-  from_time?: string;
-  to_time?: string;
+  from?: string;
+  to?: string;
   limit?: number;
-  offset?: number;
+  cursor?: string;
+  sort?: "desc";
 }
 
 export type LogRetentionTable =

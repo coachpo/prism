@@ -11,11 +11,11 @@ import { usePricingTemplatesPageData } from "./pricing-templates/usePricingTempl
 export function PricingTemplatesPage() {
   const { messages } = useLocale();
   const { selectedProfile, revision } = useProfileContext();
+  const copy = messages.pricingTemplatesUi;
   const selectedProfileLabel = selectedProfile
     ? `${selectedProfile.name} (#${selectedProfile.id})`
-    : messages.loadbalanceStrategiesPage.selectedProfileFallback;
+    : copy.selectedProfileFallback;
   const data = usePricingTemplatesPageData(revision);
-  const copy = messages.pricingTemplatesUi;
 
   return (
     <div className="space-y-6">

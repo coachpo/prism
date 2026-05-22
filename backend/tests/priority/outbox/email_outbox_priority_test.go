@@ -40,7 +40,7 @@ func TestEmailOutboxRetryAndIdempotency(t *testing.T) {
 		"handleScheduledSend",
 	})
 
-	assertFileContains(t, filepath.Join(backendRoot, "migrations/000008_email_outbox.sql"), []string{
+	assertFileContains(t, filepath.Join(backendRoot, "migrations/000001_initial_schema.sql"), []string{
 		"email_outbox",
 		"idx_email_outbox_idempotency_key",
 		"idx_email_outbox_due",

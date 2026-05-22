@@ -17,7 +17,6 @@ export type BootstrapConfigConfirmationToken =
 export interface BootstrapConfigServerValues {
   host: string | null;
   port: number | null;
-  docs_enabled: boolean | null;
 }
 
 export interface BootstrapConfigDatabasePoolValues {

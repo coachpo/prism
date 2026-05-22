@@ -30,45 +30,6 @@ func (s Service) seedVendors(ctx context.Context, conn *pgx.Conn) error {
 			existingByKey[vendor.Key] = vendor
 		}
 
-		legacyGoogleVendor, hasLegacyGoogle := existingByKey["google"]
-		geminiVendor, hasGemini := existingByKey["gemini"]
-		canonicalGemini, ok := systemVendorByKey["gemini"]
-		if !ok {
-			return fmt.Errorf("canonical gemini vendor definition is missing")
-		}
-
-		if hasLegacyGoogle {
-			if hasGemini && geminiVendor.ID != legacyGoogleVendor.ID {
-				if err := applyCanonicalVendorIdentity(ctx, tx, geminiVendor, canonicalGemini, now); err != nil {
-					return err
-				}
-				if _, err := tx.Exec(
-					ctx,
-					`UPDATE model_configs SET vendor_id = $2 WHERE vendor_id = $1`,
-					legacyGoogleVendor.ID,
-					geminiVendor.ID,
-				); err != nil {
-					return fmt.Errorf("rewire legacy google vendor references: %w", err)
-				}
-				if _, err := tx.Exec(ctx, `DELETE FROM vendors WHERE id = $1`, legacyGoogleVendor.ID); err != nil {
-					return fmt.Errorf("delete legacy google vendor: %w", err)
-				}
-			} else {
-				if err := applyCanonicalVendorIdentity(ctx, tx, legacyGoogleVendor, canonicalGemini, now); err != nil {
-					return err
-				}
-			}
-		}
-
-		vendors, err = loadVendors(ctx, tx)
-		if err != nil {
-			return err
-		}
-		existingByKey = map[string]vendorRow{}
-		for _, vendor := range vendors {
-			existingByKey[vendor.Key] = vendor
-		}
-
 		for _, definition := range DefaultVendors {
 			if current, ok := existingByKey[definition.Key]; ok {
 				if err := applyCanonicalVendorIdentity(ctx, tx, current, definition, now); err != nil {

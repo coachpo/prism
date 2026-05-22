@@ -26,7 +26,7 @@
 - Do not invent child test AGENTS files.
 - Keep regression notes grounded in current Go package boundaries and live backend ownership docs.
 - Treat `tests/priority/` as the guardrail for no-inline side effects, scheduler-owned background work, and DB lane isolation.
-- Keep partitioned log tests aligned with `internal/platform/logretention/`, runtime partition ensuring, and migration `000013_partitioned_log_retention.sql`.
+- Keep partitioned log tests aligned with `internal/platform/logretention/`, runtime partition ensuring, and the baseline migration `000001_initial_schema.sql`.
 - Keep Dockerfile contract tests aligned with non-root `prism:prism` execution, `/app/config` ownership, and `/app/config/config.json` defaults.
 - Keep bootstrap tests aligned with the plaintext v1 contract: required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, unsupported legacy encrypted files, metadata-only safe secret responses, and fail-fast enabled SMTP.
 

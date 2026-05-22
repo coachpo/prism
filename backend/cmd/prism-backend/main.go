@@ -121,8 +121,6 @@ func run(ctx context.Context) error {
 		"starting prism backend",
 		"addr",
 		server.Addr,
-		"docs_enabled",
-		settings.DocsEnabled(),
 	)
 
 	if err := app.Run(ctx); err != nil {

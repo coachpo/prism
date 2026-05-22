@@ -8,10 +8,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +23,7 @@ import (
 )
 
 func TestProfileBootstrap(t *testing.T) {
-	t.Run("bootstrap payload and nullable schema", func(t *testing.T) {
+	t.Run("bootstrap payload", func(t *testing.T) {
 		harness := newProfileContractHarness(t)
 
 		bootstrapResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/profiles/bootstrap", nil, nil)
@@ -60,8 +56,6 @@ func TestProfileBootstrap(t *testing.T) {
 		if got := jsonInt(t, activePayload["id"]); got != activeID {
 			t.Fatalf("expected /api/profiles/active id %d, got %+v", activeID, activePayload)
 		}
-
-		assertBootstrapSchemaAllowsNullActiveProfile(t)
 	})
 
 	t.Run("lifecycle capacity cas and delete guardrails", func(t *testing.T) {
@@ -463,81 +457,6 @@ func scopeProbeRequest(t *testing.T, rawURL string, headerValue *string) *http.R
 		_ = response.Body.Close()
 	})
 	return response
-}
-
-func assertBootstrapSchemaAllowsNullActiveProfile(t *testing.T) {
-	t.Helper()
-	spec := loadOpenAPISpec(t)
-	paths := asMap(t, spec["paths"])
-	bootstrapPath := asMap(t, paths["/api/profiles/bootstrap"])
-	getOperation := asMap(t, bootstrapPath["get"])
-	responses := asMap(t, getOperation["responses"])
-	okResponse := asMap(t, responses["200"])
-	content := asMap(t, okResponse["content"])
-	appJSON := asMap(t, content["application/json"])
-	schema := resolveSchema(t, spec, appJSON["schema"])
-	properties := asMap(t, schema["properties"])
-	activeProfile := asMap(t, properties["active_profile"])
-	if !schemaAllowsNull(activeProfile) {
-		t.Fatalf("expected bootstrap active_profile schema to allow null, got %+v", activeProfile)
-	}
-}
-
-func loadOpenAPISpec(t *testing.T) map[string]any {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve contract test file path")
-	}
-	openAPIPath := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "docs", "openapi.json"))
-	raw, err := os.ReadFile(openAPIPath)
-	if err != nil {
-		t.Fatalf("read docs/openapi.json: %v", err)
-	}
-	var spec map[string]any
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		t.Fatalf("decode docs/openapi.json: %v", err)
-	}
-	return spec
-}
-
-func resolveSchema(t *testing.T, spec map[string]any, value any) map[string]any {
-	t.Helper()
-	schema := asMap(t, value)
-	ref, ok := schema["$ref"].(string)
-	if !ok {
-		return schema
-	}
-	if !strings.HasPrefix(ref, "#/") {
-		t.Fatalf("unsupported schema ref %q", ref)
-	}
-	current := any(spec)
-	for _, part := range strings.Split(strings.TrimPrefix(ref, "#/"), "/") {
-		current = asMap(t, current)[part]
-	}
-	return asMap(t, current)
-}
-
-func schemaAllowsNull(schema map[string]any) bool {
-	if nullable, ok := schema["nullable"].(bool); ok && nullable {
-		return true
-	}
-	for _, key := range []string{"anyOf", "oneOf"} {
-		rawOptions, ok := schema[key].([]any)
-		if !ok {
-			continue
-		}
-		for _, rawOption := range rawOptions {
-			option, ok := rawOption.(map[string]any)
-			if !ok {
-				continue
-			}
-			if optionType, ok := option["type"].(string); ok && optionType == "null" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func asMap(t *testing.T, value any) map[string]any {

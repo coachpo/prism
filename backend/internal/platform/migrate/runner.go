@@ -78,11 +78,20 @@ func (r Runner) Run(ctx context.Context, conn *pgx.Conn) (Result, error) {
 		return Result{}, err
 	}
 
-	if len(appliedVersions) == 0 && len(applicationTables) > 0 {
-		return Result{}, fmt.Errorf(
-			"database contains existing application tables but %s is missing; reset the database and let Prism reapply Go migrations",
-			HistoryTable,
-		)
+	if len(applicationTables) > 0 {
+		if len(appliedVersions) == 0 {
+			return Result{}, fmt.Errorf(
+				"database contains existing application tables but %s is missing; reset the database and let Prism reapply Go migrations",
+				HistoryTable,
+			)
+		}
+		if migrationVersionPending(pending, DefaultBaselineVersion) {
+			return Result{}, fmt.Errorf(
+				"database contains existing application tables but current baseline %s is not recorded in %s; reset the database and let Prism reapply Go migrations",
+				DefaultBaselineVersion,
+				HistoryTable,
+			)
+		}
 	}
 
 	if err := pgxutil.InTx(ctx, conn, "migration", func(tx pgx.Tx) error {
@@ -156,6 +165,15 @@ func pendingMigrations(migrations []fileMigration, applied map[string]struct{}) 
 		pending = append(pending, migration)
 	}
 	return pending
+}
+
+func migrationVersionPending(migrations []fileMigration, version string) bool {
+	for _, migration := range migrations {
+		if migration.Version == version {
+			return true
+		}
+	}
+	return false
 }
 
 func migrationVersions(migrations []fileMigration) []string {

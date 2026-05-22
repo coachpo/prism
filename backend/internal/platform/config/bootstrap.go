@@ -113,9 +113,8 @@ type BootstrapConfigValues struct {
 }
 
 type BootstrapConfigServerValues struct {
-	Host        *string `json:"host"`
-	Port        *int    `json:"port"`
-	DocsEnabled *bool   `json:"docs_enabled"`
+	Host *string `json:"host"`
+	Port *int    `json:"port"`
 }
 
 type BootstrapConfigDatabaseValues struct {
@@ -273,9 +272,8 @@ type bootstrapMeta struct {
 }
 
 type bootstrapServer struct {
-	Host        *string `json:"host"`
-	Port        *int    `json:"port"`
-	DocsEnabled *bool   `json:"docsEnabled"`
+	Host *string `json:"host"`
+	Port *int    `json:"port"`
 }
 
 type bootstrapDatabase struct {
@@ -863,9 +861,8 @@ func missingBootstrapConfigConfirmations(current bootstrapConfigDocument, candid
 func safeBootstrapConfigValues(document bootstrapConfigDocument) BootstrapConfigValues {
 	return BootstrapConfigValues{
 		Server: &BootstrapConfigServerValues{
-			Host:        cloneStringPointer(document.Server.Host),
-			Port:        cloneIntPointer(document.Server.Port),
-			DocsEnabled: cloneBoolPointer(document.Server.DocsEnabled),
+			Host: cloneStringPointer(document.Server.Host),
+			Port: cloneIntPointer(document.Server.Port),
 		},
 		Database: &BootstrapConfigDatabaseValues{
 			Pools: safeBootstrapDatabasePoolsValues(document.Database.Pools),
@@ -959,7 +956,7 @@ func bootstrapServerFromSafeValues(values *BootstrapConfigServerValues) *bootstr
 	if values == nil {
 		return nil
 	}
-	return &bootstrapServer{Host: cloneStringPointer(values.Host), Port: cloneIntPointer(values.Port), DocsEnabled: cloneBoolPointer(values.DocsEnabled)}
+	return &bootstrapServer{Host: cloneStringPointer(values.Host), Port: cloneIntPointer(values.Port)}
 }
 
 func bootstrapDatabaseFromSafeValues(values *BootstrapConfigDatabaseValues, databaseURL *string) *bootstrapDatabase {
@@ -1220,7 +1217,7 @@ func safeBootstrapServerValues(server *bootstrapServer) *BootstrapConfigServerVa
 	if server == nil {
 		return nil
 	}
-	return &BootstrapConfigServerValues{Host: cloneStringPointer(server.Host), Port: cloneIntPointer(server.Port), DocsEnabled: cloneBoolPointer(server.DocsEnabled)}
+	return &BootstrapConfigServerValues{Host: cloneStringPointer(server.Host), Port: cloneIntPointer(server.Port)}
 }
 
 func safeBootstrapDatabaseValues(database *bootstrapDatabase) *BootstrapConfigDatabaseValues {
@@ -1542,8 +1539,7 @@ func (s bootstrapServer) validate() error {
 	if _, err := requiredIntRange("server.port", s.Port, 1, 65535); err != nil {
 		return err
 	}
-	_, err := requiredBool("server.docsEnabled", s.DocsEnabled)
-	return err
+	return nil
 }
 
 func (d bootstrapDatabase) validate() error {
@@ -1889,10 +1885,6 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	docsEnabled, err := requiredBool("server.docsEnabled", d.Server.DocsEnabled)
-	if err != nil {
-		return Settings{}, err
-	}
 	databaseURL, err := requiredTrimmedString("database.url", d.Database.URL, 1, 0)
 	if err != nil {
 		return Settings{}, err
@@ -1942,15 +1934,10 @@ func (d bootstrapConfigDocument) toSettings() (Settings, error) {
 		return Settings{}, err
 	}
 
-	appEnv := EnvironmentProduction
-	if docsEnabled {
-		appEnv = EnvironmentDevelopment
-	}
-
 	return Settings{
 		Host:                             host,
 		Port:                             port,
-		AppEnv:                           appEnv,
+		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      databaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
 		RuntimeBufferingMode:             RuntimeBufferingMode(runtimeBufferingMode),
@@ -2162,9 +2149,8 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 			UpdatedAt:     stringPointer(timestamp),
 		},
 		Server: &bootstrapServer{
-			Host:        stringPointer(strings.TrimSpace(settings.Host)),
-			Port:        intPointer(settings.Port),
-			DocsEnabled: boolPointer(settings.DocsEnabled()),
+			Host: stringPointer(strings.TrimSpace(settings.Host)),
+			Port: intPointer(settings.Port),
 		},
 		Database: &bootstrapDatabase{
 			URL: stringPointer(databaseURL),

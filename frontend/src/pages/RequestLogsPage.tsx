@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useLocale } from "@/i18n/useLocale";
@@ -81,82 +80,80 @@ export function RequestLogsPage() {
   };
 
   return (
-    <TooltipProvider>
-      <div className="space-y-6 pb-8">
-        <PageHeader
-          title={messages.requestLogs.requestLogsTitle}
-          description={messages.requestLogs.requestLogsDescription}
+    <div className="space-y-6 pb-8">
+      <PageHeader
+        title={messages.requestLogs.requestLogsTitle}
+        description={messages.requestLogs.requestLogsDescription}
+      />
+
+      {isExactMode && (
+        <RequestFocusBanner
+          requestId={state.request_id}
+          onExit={actions.clearRequest}
         />
+      )}
 
-        {isExactMode && (
-          <RequestFocusBanner
-            requestId={state.request_id}
-            onExit={actions.clearRequest}
-          />
-        )}
+      {!isExactMode && (
+        <FiltersBar
+          actions={actions}
+          filterOptions={filterOptions}
+          filterOptionsLoaded={filterOptionsLoaded}
+          onRefresh={refresh}
+          isRefreshing={loading}
+        />
+      )}
 
-        {!isExactMode && (
-          <FiltersBar
-            actions={actions}
-            filterOptions={filterOptions}
-            filterOptionsLoaded={filterOptionsLoaded}
-            onRefresh={refresh}
-            isRefreshing={loading}
-          />
-        )}
+      {surfaceError && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <p>{surfaceError}</p>
+        </div>
+      )}
 
-        {surfaceError && (
-          <div className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <p>{surfaceError}</p>
+      {showExactNotFound ? (
+        <div
+          className="flex flex-col items-center justify-center gap-3 rounded-lg border bg-card py-24 text-center shadow-sm"
+          data-testid="request-log-not-found"
+        >
+          <div className="rounded-full bg-muted p-4 mb-2">
+            <SearchX className="h-8 w-8 text-muted-foreground" />
           </div>
-        )}
-
-        {showExactNotFound ? (
-          <div
-            className="flex flex-col items-center justify-center gap-3 rounded-lg border bg-card py-24 text-center shadow-sm"
-            data-testid="request-log-not-found"
+          <h3 className="text-lg font-medium">{messages.requestLogs.requestNotFound}</h3>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            {messages.requestLogs.requestNotFoundDescription(state.request_id)}
+          </p>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={actions.clearRequest}
           >
-            <div className="rounded-full bg-muted p-4 mb-2">
-              <SearchX className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium">{messages.requestLogs.requestNotFound}</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              {messages.requestLogs.requestNotFoundDescription(state.request_id)}
-            </p>
-            <Button
-              variant="outline"
-              className="mt-4"
-              onClick={actions.clearRequest}
-            >
-              {messages.requestLogs.returnToRequestList}
-            </Button>
-          </div>
-        ) : (
-          <RequestLogsTable
-            items={items}
-            total={total}
-            loading={loading}
-            limit={state.limit}
-            offset={state.offset}
-            activeRequestId={listVisibleRequestId ?? null}
-            onSelectRequest={handleSelectRequest}
-            onSetLimit={actions.setLimit}
-            onNextPage={() => actions.goToNextPage(total)}
-            onPreviousPage={actions.goToPreviousPage}
-            formatTimestamp={format}
-          />
-        )}
-
-        <RequestLogDetailSheet
-          request={selectedRequest}
-          open={sheetOpen}
-          activeTab={currentActiveTab}
-          onTabChange={handleTabChange}
-          onClose={handleCloseRequest}
+            {messages.requestLogs.returnToRequestList}
+          </Button>
+        </div>
+      ) : (
+        <RequestLogsTable
+          items={items}
+          total={total}
+          loading={loading}
+          limit={state.limit}
+          offset={state.offset}
+          activeRequestId={listVisibleRequestId ?? null}
+          onSelectRequest={handleSelectRequest}
+          onSetLimit={actions.setLimit}
+          onNextPage={() => actions.goToNextPage(total)}
+          onPreviousPage={actions.goToPreviousPage}
           formatTimestamp={format}
         />
-      </div>
-    </TooltipProvider>
+      )}
+
+      <RequestLogDetailSheet
+        request={selectedRequest}
+        open={sheetOpen}
+        activeTab={currentActiveTab}
+        onTabChange={handleTabChange}
+        onClose={handleCloseRequest}
+        formatTimestamp={format}
+      />
+    </div>
   );
 }

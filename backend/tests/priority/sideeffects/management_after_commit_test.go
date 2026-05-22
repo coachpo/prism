@@ -79,7 +79,7 @@ func TestManagementAfterCommitSemantics(t *testing.T) {
 				t.Fatalf("management outbox missing %q", want)
 			}
 		}
-		migration := readSource(t, filepath.Join(backendRoot, "migrations", "000007_management_outbox.sql"))
+		migration := readSource(t, filepath.Join(backendRoot, "migrations", "000001_initial_schema.sql"))
 		for _, want := range []string{"management_outbox", "idx_management_outbox_dedupe_key", "idx_management_outbox_polling", "failed_permanent"} {
 			if !strings.Contains(migration, want) {
 				t.Fatalf("management outbox migration missing %q", want)

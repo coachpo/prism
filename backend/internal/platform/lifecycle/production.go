@@ -24,7 +24,6 @@ import (
 	managementsidecars "github.com/coachpo/prism/backend/internal/httpapi/management/sidecars"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	managementvendors "github.com/coachpo/prism/backend/internal/httpapi/management/vendors"
-	"github.com/coachpo/prism/backend/internal/httpapi/openapi"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
 	"github.com/coachpo/prism/backend/internal/platform/background"
@@ -128,12 +127,6 @@ func (resources *productionResources) configureHTTPAssembly(settings config.Sett
 			return bootstrapErr
 		}
 		resources.deps.BootstrapConfigService = bootstrapConfigService
-	}
-	if settings.DocsEnabled() {
-		resources.deps.OpenAPI, err = openapi.Load()
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }

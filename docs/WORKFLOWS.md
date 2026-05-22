@@ -1,10 +1,9 @@
 # Prism Workflows Reference
 
-This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the checked-in Go-served contract in `docs/openapi.json`.
+This document maps Prism's current operator workflows from mounted frontend routes to the backend APIs they drive. It is grounded in the current frontend route shell in `frontend/src/App.tsx`, the live Go backend API surface, and the markdown API reference.
 
 Validated again against current repo surfaces on 2026-05-10:
 - `VERSION`, `backend/VERSION`, `frontend/VERSION`, and `frontend/package.json` are all `0.3.21`, which is the current backend/frontend version surface.
-- `docs/openapi.json` is the management and health OpenAPI artifact served by the Go backend at `/openapi.json`.
 - The protected frontend route shell in `frontend/src/App.tsx` mounts `/dashboard`, `/models`, `/models/:id`, `/models/:id/proxy`, `/endpoints`, `/loadbalance-strategies`, `/pricing-templates`, `/request-logs`, `/settings`, `/proxy-api-keys`, and `/sidecars`; analytics lives under `/dashboard?tab=analytics`.
 
 ## Evidence Sources
@@ -15,14 +14,13 @@ Validated again against current repo surfaces on 2026-05-10:
 - Selected-profile scoping: `frontend/src/context/ProfileContext.tsx`, `frontend/src/lib/api/core.ts`, `frontend/src/lib/api/profileScope.ts`
 - Sidecar route and API surface: `frontend/src/pages/sidecars/`, `frontend/src/lib/api/sidecars.ts`, `backend/internal/httpapi/management/sidecars/`
 - Backend router assembly: `backend/internal/httpapi/management/`, `backend/internal/httpapi/runtime/`, `backend/internal/httpapi/realtime/`, and `backend/internal/platform/http/server.go`
-- Checked-in backend contract: `docs/openapi.json` (served at `/openapi.json` by the Go backend)
+- Backend API reference: `docs/API_SPEC.md`
 - Request-log details: `docs/REQUESTS_PAGE.md`
 
 ## Runtime URLs
 
 - Frontend: `http://localhost:15173`
 - Backend: `http://localhost:18000`
-- Swagger UI: `http://localhost:18000/docs`
 - Health: `http://localhost:18000/health`
 
 ## Shared Scope Rules
@@ -250,7 +248,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 4. The Startup tab owns plaintext bootstrap config management under `/settings#startup`.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.
 
-Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` keep the backward-compatible no-op delivery path, so existing deployments keep starting without SMTP and do not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
+Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` mean disabled no-op delivery, so Prism starts without SMTP and does not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
 
 The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Raw `runtime.sideEffects.attemptTimeout` sets the per-attempt background side-effect enqueue budget, defaults to `"10s"` in newly seeded configs, and is restart-required rather than hot-applied. Direct external `config.json` edits are not watched automatically. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
 
@@ -330,7 +328,7 @@ Runtime auth follows the latest proxy-key snapshot immediately after auth and pr
 - `POST /v1beta/models/{model}:generateContent`
 - `POST /v1beta/models/{model}:streamGenerateContent`
 
-These routes are implemented in `backend/internal/httpapi/runtime/runtime.go` plus the related helpers under `backend/internal/httpapi/runtime/`, and they are intentionally excluded from the management-only OpenAPI document.
+These routes are implemented in `backend/internal/httpapi/runtime/runtime.go` plus the related helpers under `backend/internal/httpapi/runtime/`, and they are intentionally separate from `/api/*` management routes.
 
 ## 9. Priority Operations Runbook
 
