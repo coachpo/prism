@@ -33,7 +33,7 @@ backend/
 ├── internal/
 │   ├── httpapi/
 │   │   ├── management/         # /api/* management handlers, including sidecars
-│   │   ├── runtime/            # /v1/* and /v1beta/* proxy handlers
+│   │   ├── runtime/            # operation-registered /v1 and /v1beta proxy handlers
 │   │   └── realtime/           # WebSocket room management and publishing
 │   ├── platform/
 │   │   ├── config/             # environment and runtime settings
@@ -134,13 +134,18 @@ Runtime cache correctness is generation-based. Management mutations advance dura
 
 ## 3. Request Flow
 
-Prism is proxy-first. It forwards the supported provider-native generation routes it owns and is not a full OpenAI API emulator.
+Prism is proxy-first. It forwards only the provider-native operations registered in the runtime operation catalog, and it is not a full OpenAI, Anthropic, or Gemini API clone.
+
+The operation registry is the ingress contract for the runtime plane. Each supported operation declares an exact HTTP method, path template, API family, model-binding source, streaming classification, canonical operation name, and hook collection. The current canonical operation names are `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`. Requests that do not match that registry are rejected before body reads, planning, provider transport, telemetry, audit, or feedback side effects.
+
+After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves proxy or native models, applies routing policy, claims leases, builds upstream headers, forwards to the selected provider connection, and records telemetry through the runtime outbox seams. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
 
 ### 3.1 Proxy Request (Non-Streaming, Native Model)
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o"}
-  -> Router captures active profile snapshot at request start
+  -> Operation registry resolves `openai.chat_completions` and its request/response hooks
+  -> Shared core captures active profile snapshot at request start
   -> Gateway assigns one Prism `ingress_request_id` for the incoming runtime request
   -> Request setup resolves the native model, attached adaptive routing policy, and current candidate set in active profile scope
   -> Planner ranks candidates from live runtime state, admission counters, and current circuit state
@@ -153,7 +158,8 @@ Client -> POST /v1/chat/completions {model: "gpt-4o"}
 
 ```
 Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
-  -> Router captures active profile snapshot
+  -> Operation registry resolves `anthropic.messages` and its body-bound model hook
+  -> Shared core captures active profile snapshot
   -> LoadBalancer looks up model config in active profile scope
   -> Model is proxy -> load proxy_selection_strategy and explicit proxy_targets metadata
   -> Evaluate same-profile, same-api-family native targets using the configured selector
@@ -167,7 +173,8 @@ Client -> POST /v1/messages {model: "claude-sonnet-4-5"}
 
 ```
 Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
-  -> Router captures active profile snapshot
+  -> Operation registry resolves `openai.chat_completions`; request hooks mark the body as streaming
+  -> Shared core captures active profile snapshot
   -> Gateway assigns one Prism `ingress_request_id`
   -> Proxy target resolution (if needed) finishes before native adaptive routing begins
   -> Planner resolves the live candidate set and executor claims a streaming lease before opening the upstream stream
@@ -180,16 +187,16 @@ Client -> POST /v1/chat/completions {model: "gpt-4o", stream: true}
 
 ### 3.4 Vendor and api_family Routing
 
-| Vendor                | Proxy Path                                    | Upstream Path                                      | Auth Header                                          |
-| --------------------- | --------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
-| OpenAI                | `POST /v1/chat/completions`, `POST /v1/responses` | `{base_url}/v1/chat/completions`, `{base_url}/v1/responses` | `Authorization: Bearer {key}`                        |
-| Anthropic             | `POST /v1/messages`                           | `{base_url}/v1/messages`                           | `x-api-key: {key}` + `anthropic-version: 2023-06-01` |
-| Gemini                | `POST /v1beta/models/{model}:generateContent` / `POST /v1beta/models/{model}:streamGenerateContent` | `{base_url}/v1beta/models/{model}:generateContent` / `{base_url}/v1beta/models/{model}:streamGenerateContent` | `Authorization: Bearer {key}`                        |
+| API family            | Canonical operation names                       | Supported Prism operation paths                    | Upstream path                                      | Auth header                                          |
+| --------------------- | ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| OpenAI                | `openai.chat_completions`, `openai.responses`, `openai.images.generations`, `openai.images.edits` | `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/images/generations`, `POST /v1/images/edits` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
+| Anthropic             | `anthropic.messages`, `anthropic.count_tokens`  | `POST /v1/messages`, `POST /v1/messages/count_tokens` | Same path under `{base_url}` | `x-api-key: {key}` + `anthropic-version: 2023-06-01` |
+| Gemini                | `gemini.generate_content`, `gemini.stream_generate_content`, `gemini.count_tokens` | `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent`, `POST /v1beta/models/{model}:countTokens` | Same path under `{base_url}` | `Authorization: Bearer {key}`                        |
 
-OpenAI runtime support is limited to generation proxying for `POST /v1/chat/completions` and `POST /v1/responses`. Stored Responses object lifecycle APIs, including retrieve, list, delete, cancel, and compact routes, are outside Prism's supported contract.
+OpenAI runtime support is limited to the registered chat, Responses, and image operations listed above. Stored Responses object lifecycle APIs, including retrieve, list, delete, cancel, and compact routes, are outside Prism's supported contract. `openai.images.generations` and `openai.images.edits` are media operations with copy-only token usage semantics, not generic OpenAI passthrough routes.
 
 Note: Gemini requests use native `/v1beta/models/{model}:...` paths only. When a Gemini proxy model resolves to a different native model ID, the proxy rewrites the model ID segment in the URL path to the resolved native target model ID before forwarding upstream.
-For Gemini, the `:streamGenerateContent` path is authoritative for stream classification even when the request body omits `stream: true`.
+For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` path are authoritative for stream classification even when the request body omits `stream: true`; `gemini.generate_content` remains non-stream generate content, and `gemini.count_tokens` remains the token-count operation.
 
 Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes proxy buffering mode and an HTTP client built from startup bootstrap transport settings. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls. A missing request timeout fails startup validation by design. Raw `runtime.sideEffects.attemptTimeout` is a separate per-attempt background side-effect enqueue budget and is restart-required rather than hot-applied.
 
@@ -203,12 +210,12 @@ Vendor rows are global publisher metadata. Models may keep `vendor_id = null` an
 - Prism keeps one route-class matrix:
   - Global management routes omit `X-Profile-Id`.
   - Profile-scoped management routes require `X-Profile-Id` and resolve against the selected profile.
-  - Runtime proxy routes (`/v1/*`, `/v1beta/*`) ignore management overrides and always use the active profile.
+  - Supported runtime operations under `/v1` and `/v1beta` ignore management overrides and always use the active profile.
 - Profile-scoped config bundle routes live under `/api/config/profile/*`, and `POST /api/config/profile/import/preview` is also profile-scoped and requires `X-Profile-Id`.
 - Global management routes include `/api/profiles/*`, `/api/vendors/*`, `/api/config/vendors/*`, `/api/auth/*`, `/api/realtime/*`, and the auth/email/proxy-key settings routes under `/api/settings/auth*`.
 - Selected profile (UI management context) and active profile (runtime routing context) are intentionally distinct states.
 - Scope-control errors return stable `code` values plus human-readable `detail` text.
-- Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.
+- Supported runtime operations always use active profile and ignore override headers.
 
 The protected frontend shell now boots profile state from `GET /api/profiles/bootstrap`, derives sidebar destinations and breadcrumbs from the route metadata registry in `frontend/src/components/layout/app-layout/navigationProfileConfig.ts`, and persists only the desktop sidebar collapse preference in localStorage. Mobile drawer state remains transient browser UI state.
 
@@ -290,10 +297,11 @@ The realtime API has two supported channels. `dashboard.update` is the overview 
 
 ### 4.2 Runtime execution pipeline
 
-1. Request setup resolves the active-profile model, attached strategy, and one immutable effective strategy snapshot for the request.
-2. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, and runtime health signals.
-3. Executor claims per-attempt leases, uses the shared upstream timeout behavior from the backend runtime, and may launch hedges only within the configured `max_additional_attempts` budget before any client-visible bytes are committed.
-4. Passive request outcomes feed back into runtime state, while durable transition history stays in `loadbalance_events`.
+1. The operation registry resolves the exact runtime operation and hook collection before the request body is consumed.
+2. Request setup resolves the active-profile model, attached strategy, and one immutable effective strategy snapshot for the request.
+3. Planner and runtime-state helpers read `routing_connection_runtime_state` to build the current candidate set from circuit state, admission counters, and runtime health signals.
+4. The shared execution core claims per-attempt leases, uses the shared upstream timeout behavior from the backend runtime, and may launch hedges only within the configured `max_additional_attempts` budget before any client-visible bytes are committed.
+5. Operation request, response, stream, and media hooks interpret provider-native payload details by canonical operation name. Token-count hooks are attached to `anthropic.count_tokens` and `gemini.count_tokens`, media hooks are attached to `openai.images.generations` and `openai.images.edits`, and the Gemini SSE hook is attached to `gemini.stream_generate_content`; passive outcomes feed back into runtime state and durable transition history stays in `loadbalance_events`.
 
 If all eligible candidates are unavailable inside the current policy window, the gateway returns `503` with routing-availability detail.
 
@@ -412,9 +420,9 @@ Client → Proxy Router → LoadBalancer → ProxyService → Upstream (via Conn
 ### 7.3 Data Captured
 
 - Profile ID attribution, model ID, api family, vendor snapshot, and connection used (ID, endpoint base URL, description)
-- Prism `ingress_request_id`, per-request `attempt_number`, and best-effort `upstream_correlation_id`
+- Prism `ingress_request_id`, per-request `attempt_number`, persisted `operation_name`, and best-effort `upstream_correlation_id`
 - HTTP status code, response time (ms)
-- Token usage (input, output, total) — extracted from upstream response
+- Token usage (input, output, total), extracted by operation response or stream hooks
 - Stream flag, request path, error details
 
 Request-log semantics are per-attempt: one incoming runtime request can create multiple request-log rows when failover or retries occur. `ingress_request_id` groups those rows while `request_id` remains the unique identifier for one stored attempt row.
@@ -662,7 +670,7 @@ See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 ## 12. Security Considerations
 
 - **Operator Authentication**: Optional cookie-backed authentication for management APIs (`/api/*`). Supports username/password.
-- **Proxy API Keys**: Optional API key enforcement for runtime proxy traffic (`/v1/*`, `/v1beta/*`). Keys are issued and managed through the dashboard.
+- **Proxy API Keys**: Optional API key enforcement for supported runtime operations mounted under `/v1` and `/v1beta`. Keys are issued and managed through the dashboard.
 - **Auth Bifurcation**: Management auth (session cookies) and runtime auth (proxy API keys) are separate enforcement paths.
 - **Data at Rest**: API keys and secrets are stored in PostgreSQL. Endpoint secrets are encrypted at rest.
 - **CORS**: Local browser traffic stays same-origin through the launcher-local Vite proxy in `full` mode; standalone frontend workflows can still target an explicit backend base URL.
@@ -670,23 +678,10 @@ See [API_SPEC.md](./API_SPEC.md) for complete API documentation.
 
 ## 13. Supported Runtime API Families
 
-The runtime plane exclusively supports three fixed API families:
+The runtime plane supports three fixed API families through the operation registry:
 
-- **OpenAI** (`openai`) — GPT-style request and response contracts
-- **Anthropic** (`anthropic`) — Claude-style request and response contracts
-- **Gemini** (`gemini`) — Gemini-native `/v1beta/models/*` contracts
+- **OpenAI** (`openai`): `openai.chat_completions`, `openai.responses`, `openai.images.generations`, and `openai.images.edits`
+- **Anthropic** (`anthropic`): `anthropic.messages` and `anthropic.count_tokens`
+- **Gemini** (`gemini`): `gemini.generate_content`, `gemini.stream_generate_content`, and `gemini.count_tokens`
 
-The vendor catalog is separate and global. Models always carry required `api_family`, while `vendor_id` remains optional metadata, so operators may create additional vendor metadata rows such as `OpenRouter` without changing runtime compatibility. The Global settings tab exposes vendor create/edit/delete flows, and deleting a vendor clears live model vendor metadata instead of blocking the delete.
- clears live model vendor metadata instead of blocking the delete.
-
-
-
- instead of blocking the delete.
-
-
-
-
-
-
-
-ing the delete.
+The vendor catalog is separate and global. Models always carry required `api_family`, while `vendor_id` remains optional metadata, so operators may create additional vendor metadata rows such as `OpenRouter` without changing runtime compatibility. The Global settings tab exposes vendor create, edit, and delete flows, and deleting a vendor clears live model vendor metadata instead of blocking the delete.

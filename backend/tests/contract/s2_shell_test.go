@@ -101,7 +101,7 @@ func TestNormativeDocsParity(t *testing.T) {
 		"Proxy endpoints (`/v1/*`, `/v1beta/*`) always use the active profile and ignore management scope overrides.",
 	})
 	assertFileContains(t, docsPath(t, "ARCHITECTURE.md"), []string{
-		"Runtime proxy routes (`/v1/*`, `/v1beta/*`) always use active profile and ignore override headers.",
+		"Supported runtime operations always use active profile and ignore override headers.",
 	})
 	assertFileContains(t, docsPath(t, "WORKFLOWS.md"), []string{
 		"Runtime proxy traffic on `/v1/*` and `/v1beta/*` always uses the active profile, not the selected profile.",

@@ -1425,17 +1425,35 @@ Authfile priority has two context-specific zero semantics. In CLIProxyAPI live `
 
 ---
 
-## 2. Proxy API
+## 2. Runtime Proxy API
 
-Prism accepts api-family-native runtime paths only:
+Prism's runtime proxy is an explicit allowlist, not a full vendor API clone. It forwards only the operations listed in this section through the active profile. Other vendor routes, including stored-object, list, retrieve, delete, cancel, compact, embedding, model-list, file, batch, and admin APIs, are outside Prism's runtime contract unless they appear in this allowlist.
 
-- OpenAI clients use base URL `<prism-host>/v1`
-- Anthropic clients use base URL `<prism-host>`
-- Gemini clients use base URL `<prism-host>`
+Runtime proxy routes ignore management `X-Profile-Id` overrides and always use the active runtime profile.
 
-Runtime proxy contract note: supported OpenAI generation proxy routes are `POST /v1/chat/completions` and `POST /v1/responses`. Prism forwards these routes through the active profile and does not try to emulate the full OpenAI API. Stored-object, list, retrieve, delete, cancel, and compact APIs are outside Prism's supported contract.
+### 2.1 Supported Runtime Operations
 
-### 2.1 OpenAI Generation Proxy
+| Operation | Canonical operation name | Supported request |
+|---|---|---|
+| OpenAI chat completions | `openai.chat_completions` | `POST /v1/chat/completions` |
+| OpenAI Responses | `openai.responses` | `POST /v1/responses` |
+| OpenAI image generations | `openai.images.generations` | `POST /v1/images/generations` |
+| OpenAI image edits | `openai.images.edits` | `POST /v1/images/edits` |
+| Anthropic Messages | `anthropic.messages` | `POST /v1/messages` |
+| Anthropic token count | `anthropic.count_tokens` | `POST /v1/messages/count_tokens` |
+| Gemini generate content | `gemini.generate_content` | `POST /v1beta/models/{model}:generateContent` |
+| Gemini stream generate content | `gemini.stream_generate_content` | `POST /v1beta/models/{model}:streamGenerateContent` |
+| Gemini token count | `gemini.count_tokens` | `POST /v1beta/models/{model}:countTokens` |
+
+Each allowlisted row maps to one canonical operation name persisted as `operation_name` in runtime telemetry. Operation names are part of the runtime contract, not aliases for broader vendor route groups. The Gemini `{model}` path binding is one non-empty path segment. Nested Gemini model paths are not part of this runtime contract.
+
+### 2.2 Unsupported Routes and Methods
+
+Unsupported runtime routes return a Prism JSON `404` response before Prism reads the request body, resolves a model, contacts a provider, creates runtime admission state, submits runtime side effects, or writes runtime persistence rows. The current error detail is `Runtime operation not found`.
+
+Wrong methods on supported runtime paths return a Prism JSON `405` response before the same downstream seams run. The response includes `Allow: POST`, and the current error detail is `Method not allowed for runtime operation`.
+
+### 2.3 OpenAI Operations
 
 #### Chat Completions
 ```
@@ -1453,7 +1471,7 @@ Request (standard OpenAI format):
   "stream": false
 }
 ```
-Response: Proxied directly from the upstream API family. Format matches that family's native response.
+Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.chat_completions`.
 
 #### Responses
 ```
@@ -1467,9 +1485,25 @@ Request (OpenAI Responses generation format):
   "stream": false
 }
 ```
-Response: Proxied directly from the upstream OpenAI-compatible endpoint.
+Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.responses`.
 
-### 2.2 Anthropic-Compatible Messages
+#### Image Generations
+```
+POST /v1/images/generations
+```
+Request uses the upstream OpenAI-compatible image generation body, including body-bound `model`.
+Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.images.generations`.
+
+#### Image Edits
+```
+POST /v1/images/edits
+```
+Request uses the upstream OpenAI-compatible image edit body, including body-bound `model`. JSON and multipart request bodies are supported for model binding and forwarding.
+Response: Proxied directly from the upstream OpenAI-compatible endpoint. Canonical operation name: `openai.images.edits`.
+
+### 2.4 Anthropic Operations
+
+#### Messages
 ```
 POST /v1/messages
 ```
@@ -1483,12 +1517,20 @@ Request (standard Anthropic format):
   ]
 }
 ```
-Response: Proxied directly from upstream Anthropic API.
+Response: Proxied directly from the upstream Anthropic-compatible endpoint. Canonical operation name: `anthropic.messages`.
 
-### 2.3 Gemini Native Generate Content
+#### Token Count
+```
+POST /v1/messages/count_tokens
+```
+Request uses the upstream Anthropic-compatible token-count body, including body-bound `model`.
+Response: Proxied directly from the upstream Anthropic-compatible endpoint. Canonical operation name: `anthropic.count_tokens`.
+
+### 2.5 Gemini Operations
+
+#### Generate Content
 ```
 POST /v1beta/models/{model}:generateContent
-POST /v1beta/models/{model}:streamGenerateContent
 ```
 Request (standard Gemini native format):
 ```json
@@ -1501,30 +1543,49 @@ Request (standard Gemini native format):
   ]
 }
 ```
-Response: Proxied directly from the upstream Gemini API.
+Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.generate_content`.
 
-### 2.4 Streaming
+#### Stream Generate Content
+```
+POST /v1beta/models/{model}:streamGenerateContent
+```
+Request uses the upstream Gemini native generate-content body with the model bound from the path.
+Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.stream_generate_content`.
 
-Streaming stays api-family-native: OpenAI and Anthropic typically use body flags on `/v1/*` routes, while Gemini streaming uses `/v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied directly from upstream.
-For Gemini, the path is authoritative: `/v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`.
+#### Count Tokens
+```
+POST /v1beta/models/{model}:countTokens
+```
+Request uses the upstream Gemini native token-count body with the model bound from the path.
+Response: Proxied directly from the upstream Gemini-compatible endpoint. Canonical operation name: `gemini.count_tokens`.
 
-### 2.5 Token Usage Extraction
+### 2.6 Streaming
 
-The gateway extracts token usage from upstream responses and logs it to `request_logs`. Extraction is api-family-aware:
+Streaming stays operation-native: `openai.chat_completions`, `openai.responses`, and `anthropic.messages` use their upstream-compatible request body flags, while `gemini.stream_generate_content` uses `POST /v1beta/models/{model}:streamGenerateContent`. Streaming responses are proxied directly from upstream.
+For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v1beta/models/{model}:streamGenerateContent` is treated as streaming even when the request body omits `stream: true`. `gemini.generate_content` remains the non-stream generate-content operation.
+
+### 2.7 Token Usage Extraction
+
+The gateway extracts token usage from upstream responses and logs it to `request_logs`. Extraction is selected by the resolved canonical operation name and its hook collection:
 
 **Non-streaming responses:**
-| API Family | Response Format | Extraction Path |
+| Canonical operation name | Response format | Extraction path |
 |---|---|---|
-| OpenAI | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` | `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` |
-| Anthropic Messages | `{"usage": {"input_tokens": N, "output_tokens": N}}` | `usage.input_tokens`, `usage.output_tokens`; `total_tokens` = sum |
-| Anthropic count_tokens | `{"input_tokens": N}` | Top-level `input_tokens`; `output_tokens` and `total_tokens` = null |
+| `openai.chat_completions`, `openai.responses` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` | `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` |
+| `anthropic.messages` | `{"usage": {"input_tokens": N, "output_tokens": N}}` | `usage.input_tokens`, `usage.output_tokens`; `total_tokens` = sum |
+| `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level `input_tokens`; `output_tokens` = null; normalized `total_tokens` = `input_tokens` |
+| `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "candidatesTokenCount": N, "totalTokenCount": N}}` | `usageMetadata.promptTokenCount`, `usageMetadata.candidatesTokenCount`, `usageMetadata.totalTokenCount` |
+| `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as `input_tokens` and `total_tokens`; `output_tokens` = null |
+| `openai.images.generations`, `openai.images.edits` | Media response bodies | Token fields remain `null`; media hooks copy the upstream response without estimating tokens |
 
 **Streaming responses:**
-The gateway accumulates SSE chunks during streaming and extracts usage from the final events:
-| API Family | Usage Events | Extraction |
+The gateway accumulates SSE chunks during streaming and extracts usage from operation-specific terminal events:
+| Canonical operation name | Usage events | Extraction |
 |---|---|---|
-| OpenAI | Final chunk/event containing a `usage` object (when provided by upstream) | Same as non-streaming `usage` object |
-| Anthropic | `message_start` event -> `message.usage.input_tokens`; `message_delta` event -> `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
+| `openai.chat_completions` | Final chunk containing a `usage` object when provided by upstream | Same as non-streaming `usage` object |
+| `openai.responses` | `response.completed` or `response.incomplete` event with a `usage` object when provided by upstream | Same as non-streaming `usage` object |
+| `anthropic.messages` | `message_start` event -> `message.usage.input_tokens`; `message_delta` event -> `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
+| `gemini.stream_generate_content` | Stream terminal or final chunk carrying `usageMetadata` | Same as Gemini non-stream `usageMetadata` |
 
 If token data cannot be extracted, all token fields are logged as `null`. Prism does not estimate tokens or cost. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable.
 

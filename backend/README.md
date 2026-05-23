@@ -33,6 +33,24 @@ When launched through `../start.sh`, the backend listens on `http://localhost:18
 
 Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
 
+## Runtime proxy contract
+
+The backend mounts runtime handlers under `/v1` and `/v1beta`, but Prism does not support every route under those prefixes. Runtime ingress is operation-led: the operation registry resolves the exact method and path before body reads, request planning, provider transport, telemetry, audit, or feedback side effects. Unsupported vendor routes are rejected instead of being treated as generic passthrough.
+
+Supported runtime routes are:
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/images/generations`
+- `POST /v1/images/edits`
+- `POST /v1/messages`
+- `POST /v1/messages/count_tokens`
+- `POST /v1beta/models/{model}:generateContent`
+- `POST /v1beta/models/{model}:streamGenerateContent`
+- `POST /v1beta/models/{model}:countTokens`
+
+After registry resolution, all supported operations share the same execution core for active-profile routing, proxy-model target selection, load-balance planning, upstream forwarding, and runtime telemetry. Operation hooks own request extraction, non-stream response parsing, stream terminal classification, and media or multipart handling around that shared core. Prism is a focused proxy for these operations, not a full vendor API clone.
+
 ## Verification
 
 Use the Go regression packages directly for targeted validation:
