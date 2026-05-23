@@ -157,7 +157,7 @@ func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
 	pipeReader, pipeWriter := io.Pipe()
 	requestContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, fmt.Sprintf("%s/v1beta/models/%s:generateContent", harness.url, route.PublicModelID), pipeReader)
+	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent", harness.url, route.PublicModelID), pipeReader)
 	if err != nil {
 		t.Fatalf("build cancellable runtime request: %v", err)
 	}

@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-const responsesMissingModelDetail = "Cannot determine model for routing. Include 'model' in the request body or use a Gemini-style model path."
+const chatMissingModelDetail = "Cannot determine model for routing. Operation 'openai.chat_completions' binds models from the body."
+const responsesMissingModelDetail = "Cannot determine model for routing. Operation 'openai.responses' binds models from the body."
 
-func TestRuntimeResponsesMissingModelMatchesChatCompletions(t *testing.T) {
+func TestRuntimeResponsesMissingModelUsesOperationSpecificDetail(t *testing.T) {
 	harness := newRuntimeHarness(t)
 
 	chatResponse := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{
@@ -21,11 +22,11 @@ func TestRuntimeResponsesMissingModelMatchesChatCompletions(t *testing.T) {
 	assertStatus(t, chatResponse, http.StatusBadRequest)
 	assertStatus(t, responsesResponse, http.StatusBadRequest)
 	chatDetail := runtimeResponseDetail(t, chatResponse)
-	if chatDetail != responsesMissingModelDetail {
-		t.Fatalf("expected chat missing-model detail %q, got %q", responsesMissingModelDetail, chatDetail)
+	if chatDetail != chatMissingModelDetail {
+		t.Fatalf("expected chat missing-model detail %q, got %q", chatMissingModelDetail, chatDetail)
 	}
-	if responsesDetail := runtimeResponseDetail(t, responsesResponse); responsesDetail != chatDetail {
-		t.Fatalf("expected Responses missing-model detail to match chat completions %q, got %q", chatDetail, responsesDetail)
+	if responsesDetail := runtimeResponseDetail(t, responsesResponse); responsesDetail != responsesMissingModelDetail {
+		t.Fatalf("expected Responses missing-model detail %q, got %q", responsesMissingModelDetail, responsesDetail)
 	}
 	if got := len(harness.upstream.requestsSnapshot()); got != 0 {
 		t.Fatalf("expected missing-model requests to stop before upstream, got %d upstream requests", got)
@@ -50,7 +51,7 @@ func TestRuntimeResponsesRejectsAnthropicPathCompatibility(t *testing.T) {
 	}, nil)
 
 	assertStatus(t, response, http.StatusBadRequest)
-	wantDetail := "Path '/v1/responses' is incompatible with api_family 'anthropic'. Use an api-family-native path."
+	wantDetail := "Operation 'openai.responses' is incompatible with api_family 'anthropic'. Use an operation that matches the resolved model api_family."
 	if detail := runtimeResponseDetail(t, response); detail != wantDetail {
 		t.Fatalf("expected Responses path compatibility detail %q, got %q", wantDetail, detail)
 	}

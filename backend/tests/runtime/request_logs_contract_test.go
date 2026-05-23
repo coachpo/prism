@@ -1507,7 +1507,7 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 	response := harness.requestJSON(
 		t,
 		http.MethodPost,
-		fmt.Sprintf("/v1beta/models/%s:generateContent?alt=sse", route.PublicModelID),
+		fmt.Sprintf("/v1beta/models/%s:streamGenerateContent", route.PublicModelID),
 		map[string]any{
 			"contents": []map[string]any{{
 				"role":  "user",
@@ -1520,11 +1520,11 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
 	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
 	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.CompletionDurationMS.Valid {
-		t.Fatalf("expected actual Gemini SSE response to persist completed stream telemetry despite non-stream request plan, got %+v", row)
+		t.Fatalf("expected Gemini streamGenerateContent response to persist completed stream telemetry, got %+v", row)
 	}
 	usageEventRow := loadLatestRuntimeUsageEventStreamTelemetryRow(t, harness.conn, profileID)
 	if usageEventRow.StreamOutcome != "completed" || usageEventRow.StreamErrorKind.Valid || !usageEventRow.CompletionDurationMS.Valid {
-		t.Fatalf("expected actual Gemini SSE usage event to persist completed stream telemetry despite non-stream request plan, got %+v", usageEventRow)
+		t.Fatalf("expected Gemini streamGenerateContent usage event to persist completed stream telemetry, got %+v", usageEventRow)
 	}
 }
 
