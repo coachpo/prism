@@ -1,11 +1,13 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -80,6 +82,76 @@ func TestRuntimeRequestGenerationParamsPersistProviderMatrix(t *testing.T) {
 	})
 }
 
+func TestRuntimeOperationNamePersistsForTextTokenCountAndMedia(t *testing.T) {
+	tests := []struct {
+		name          string
+		apiFamily     string
+		operationName string
+		media         bool
+		perform       func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response
+	}{
+		{
+			name:          "OpenAIText",
+			apiFamily:     "openai",
+			operationName: "openai.chat_completions",
+			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
+				return harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "persist text operation name"}}}, nil)
+			},
+		},
+		{
+			name:          "AnthropicTokenCount",
+			apiFamily:     "anthropic",
+			operationName: "anthropic.count_tokens",
+			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
+				return harness.requestJSON(t, http.MethodPost, "/v1/messages/count_tokens", map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "persist token-count operation name"}}}, nil)
+			},
+		},
+		{
+			name:          "GeminiTokenCount",
+			apiFamily:     "gemini",
+			operationName: "gemini.count_tokens",
+			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
+				return harness.requestJSON(t, http.MethodPost, fmt.Sprintf("/v1beta/models/%s:countTokens", route.PublicModelID), map[string]any{"contents": []map[string]any{{"role": "user", "parts": []map[string]any{{"text": "persist gemini token-count operation name"}}}}}, nil)
+			},
+		},
+		{
+			name:          "OpenAIImageGenerations",
+			apiFamily:     "openai",
+			operationName: "openai.images.generations",
+			media:         true,
+			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
+				return harness.requestJSON(t, http.MethodPost, "/v1/images/generations", map[string]any{"model": route.PublicModelID, "prompt": "hidden image prompt", "size": "1024x1024", "stream": true, "temperature": 0.7}, nil)
+			},
+		},
+		{
+			name:          "OpenAIImageEdits",
+			apiFamily:     "openai",
+			operationName: "openai.images.edits",
+			media:         true,
+			perform: func(t *testing.T, harness *runtimeHarness, route seededRuntimeRoute) *http.Response {
+				body, contentType := newRuntimeImageEditMultipartBody(t, route.PublicModelID)
+				return performRuntimeRawRequest(t, harness, http.MethodPost, "/v1/images/edits", body, contentType)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newRuntimeHarness(t)
+			profileID := harness.activeProfileID(t)
+			upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{"id": "operation-name-" + strings.ToLower(test.name)})
+			route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: test.apiFamily, PublicModelID: "operation-name-public-" + strings.ToLower(test.name) + "-" + randomSuffix(), TargetModelID: "operation-name-target-" + strings.ToLower(test.name) + "-" + randomSuffix(), EndpointBaseURL: upstream.baseURL("/operation-name/" + strings.ToLower(test.name)), EndpointAPIKey: "operation-name-key-" + strings.ToLower(test.name)})
+
+			response := test.perform(t, harness, route)
+			assertStatus(t, response, http.StatusOK)
+			assertLatestRuntimeOperationName(t, harness.conn, profileID, test.operationName)
+			if test.media {
+				assertLatestRequestGenerationParamsMissing(t, harness.conn, profileID)
+			}
+		})
+	}
+}
+
 func TestRuntimeRequestGenerationParamsPersistGeminiDirectStreaming(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
@@ -88,7 +160,7 @@ func TestRuntimeRequestGenerationParamsPersistGeminiDirectStreaming(t *testing.T
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "gemini", PublicModelID: "generation-gemini-direct-public-" + randomSuffix(), TargetModelID: "generation-gemini-direct-target-" + randomSuffix(), EndpointBaseURL: upstream.baseURL("/generation/gemini/direct"), EndpointAPIKey: "generation-gemini-direct-key"})
 
 	rawBody := mustMarshalBenchmarkJSON(t, geminiGenerationParamsBody(strings.Repeat("hidden direct gemini prompt ", 4096)))
-	result := performSplitRuntimeRequestExpectingUpstreamStart(t, harness.client, fmt.Sprintf("%s/v1beta/models/%s:generateContent", harness.url, route.PublicModelID), rawBody, upstream.started)
+	result := performSplitRuntimeRequestExpectingUpstreamStart(t, harness.client, fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent", harness.url, route.PublicModelID), rawBody, upstream.started)
 	if result.Err != nil {
 		t.Fatalf("expected direct streaming Gemini request to succeed, got error: %v", result.Err)
 	}
@@ -250,6 +322,76 @@ func performSplitRuntimeRequestExpectingUpstreamStart(t *testing.T, client *http
 		t.Fatalf("close split streaming generation writer: %v", err)
 	}
 	return awaitAsyncRequest(t, resultCh, 5*time.Second)
+}
+
+func performRuntimeRawRequest(t *testing.T, harness *runtimeHarness, method string, path string, body []byte, contentType string) *http.Response {
+	t.Helper()
+	request, err := http.NewRequest(method, harness.url+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build raw runtime request %s %s: %v", method, path, err)
+	}
+	if strings.TrimSpace(contentType) != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+	response, err := harness.client.Do(request)
+	if err != nil {
+		t.Fatalf("perform raw runtime request %s %s: %v", method, path, err)
+	}
+	t.Cleanup(func() { _ = response.Body.Close() })
+	return response
+}
+
+func newRuntimeImageEditMultipartBody(t *testing.T, model string) ([]byte, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", model); err != nil {
+		t.Fatalf("write image edit model field: %v", err)
+	}
+	if err := writer.WriteField("prompt", "make the image brighter"); err != nil {
+		t.Fatalf("write image edit prompt field: %v", err)
+	}
+	imagePart, err := writer.CreateFormFile("image", "input.png")
+	if err != nil {
+		t.Fatalf("create image edit file field: %v", err)
+	}
+	if _, err := imagePart.Write([]byte("fake-png-bytes")); err != nil {
+		t.Fatalf("write image edit file bytes: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close image edit multipart writer: %v", err)
+	}
+	return body.Bytes(), writer.FormDataContentType()
+}
+
+func assertLatestRuntimeOperationName(t *testing.T, conn *pgx.Conn, profileID int, want string) {
+	t.Helper()
+	waitForRuntimeTelemetryCounts(t, conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
+
+	var requestLogOperationName sql.NullString
+	if err := conn.QueryRow(context.Background(), `SELECT operation_name FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`, profileID, ingressRequestID).Scan(&requestLogOperationName); err != nil {
+		t.Fatalf("load request_logs operation_name: %v", err)
+	}
+	if !requestLogOperationName.Valid || requestLogOperationName.String != want {
+		t.Fatalf("expected request_logs operation_name %q, got %+v", want, requestLogOperationName)
+	}
+
+	var usageEventOperationName sql.NullString
+	if err := conn.QueryRow(context.Background(), `SELECT operation_name FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`, profileID, ingressRequestID).Scan(&usageEventOperationName); err != nil {
+		t.Fatalf("load usage_request_events operation_name: %v", err)
+	}
+	if !usageEventOperationName.Valid || usageEventOperationName.String != want {
+		t.Fatalf("expected usage_request_events operation_name %q, got %+v", want, usageEventOperationName)
+	}
+}
+
+func assertLatestRequestGenerationParamsMissing(t *testing.T, conn *pgx.Conn, profileID int) {
+	t.Helper()
+	params, status := loadLatestRequestGenerationParams(t, conn, profileID)
+	if params != nil || !status.Valid || status.String != "missing" {
+		t.Fatalf("expected null request_generation_params with missing status, got status=%+v params=%+v", status, params)
+	}
 }
 
 func assertLatestRequestGenerationParams(t *testing.T, conn *pgx.Conn, profileID int, wantStatus string, want map[string]any) {
