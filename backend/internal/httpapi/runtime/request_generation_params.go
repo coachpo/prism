@@ -42,8 +42,15 @@ type requestGenerationReasoningParams struct {
 	SourceField     *string `json:"source_field,omitempty"`
 }
 
-func extractBufferedRequestGenerationParams(apiFamily string, requestPath string, rawBody []byte) requestGenerationParamsSnapshot {
-	provider := strings.ToLower(strings.TrimSpace(apiFamily))
+func extractBufferedRequestGenerationParams(operation RuntimeOperation, rawBody []byte) requestGenerationParamsSnapshot {
+	hooks, ok := requestHooksForOperation(operation)
+	if !ok || hooks.ExtractBufferedGenerationParams == nil {
+		return requestGenerationParamsSnapshot{Status: requestGenerationParamsStatusMissing}
+	}
+	provider := strings.ToLower(strings.TrimSpace(hooks.Provider))
+	if provider == "" {
+		provider = strings.ToLower(strings.TrimSpace(operation.APIFamily))
+	}
 	if provider == "" {
 		return requestGenerationParamsSnapshot{Status: requestGenerationParamsStatusMissing}
 	}
@@ -57,18 +64,7 @@ func extractBufferedRequestGenerationParams(apiFamily string, requestPath string
 	if err := decoder.Decode(&payload); err != nil {
 		return requestGenerationParamsSnapshot{Status: requestGenerationParamsStatusMalformed}
 	}
-	switch provider {
-	case "openai":
-		if strings.Contains(strings.ToLower(strings.TrimSpace(requestPath)), "/responses") {
-			extractOpenAIResponsesGenerationParams(payload, params)
-		} else {
-			extractOpenAIChatGenerationParams(payload, params)
-		}
-	case "anthropic":
-		extractAnthropicGenerationParams(payload, params)
-	case "gemini":
-		extractGeminiGenerationParams(payload, params)
-	}
+	hooks.ExtractBufferedGenerationParams(payload, params)
 	status := requestGenerationParamsStatusComplete
 	if !params.hasGenerationFields() {
 		status = requestGenerationParamsStatusMissing

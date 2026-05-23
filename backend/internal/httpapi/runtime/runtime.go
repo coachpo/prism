@@ -11,7 +11,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -21,12 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
-)
-
-var (
-	geminiModelRE           = regexp.MustCompile(`^/v1beta/models/([^/:]+)`)
-	geminiNativePathRE      = regexp.MustCompile(`^/v1beta/models/[^/:]+(?:[:/].*)?/?$`)
-	anthropicMessagesPathRE = regexp.MustCompile(`^/v1/messages(?:/count_tokens)?/?$`)
 )
 
 var apiFamilyAuthConfigs = map[string]apiFamilyAuthConfig{
@@ -166,6 +159,8 @@ type requestPlan struct {
 	RequestedVendorName         *string
 	ProfileID                   int
 	APIFamily                   string
+	RuntimeOperation            RuntimeOperation
+	RuntimeOperationPathParams  map[string]string
 	AuditEnabledAtRequest       bool
 	AuditCaptureBodiesAtRequest bool
 	ReportCurrencySnapshot      runtimeReportCurrencySnapshot
@@ -300,15 +295,11 @@ var errHedgeLoserCanceled = errors.New("hedge loser canceled")
 
 const hedgeCanceledAttemptStatusCode = 499
 
-func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) (requestPlan, error) {
-	requestedModelID, err := resolveModelID(rawBody, request.URL.Path)
+func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
+	operationMatch, err := validateResolvedRuntimeOperation(operationMatch, request.Method, request.URL.Path)
 	if err != nil {
-		return requestPlan{}, &domainError{
-			StatusCode: http.StatusBadRequest,
-			Detail:     "Cannot determine model for routing. Include 'model' in the request body or use a Gemini-style model path.",
-		}
+		return requestPlan{}, err
 	}
-
 	if s.cache == nil {
 		return requestPlan{}, runtimeSnapshotDomainError(ErrPublishedRuntimeSnapshotUnavailable)
 	}
@@ -316,21 +307,34 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 	if err != nil {
 		return requestPlan{}, runtimeSnapshotDomainError(err)
 	}
+	return s.buildRequestPlanFromSnapshot(request, rawBody, runtimeConfig, operationMatch, activeProfile.ID, snapshot)
+}
+
+func (s *Service) buildRequestPlanFromSnapshot(request *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch, activeProfileID int, snapshot *planningSnapshot) (requestPlan, error) {
+	operationMatch, err := validateResolvedRuntimeOperation(operationMatch, request.Method, request.URL.Path)
+	if err != nil {
+		return requestPlan{}, err
+	}
+	requestContentType := request.Header.Get("Content-Type")
+	requestedModelID, err := resolveModelIDForOperation(rawBody, requestContentType, operationMatch)
+	if err != nil {
+		return requestPlan{}, err
+	}
 
 	requestedModel, found := snapshot.ModelsByID[requestedModelID]
 	if !found {
 		return requestPlan{}, &domainError{StatusCode: http.StatusNotFound, Detail: fmt.Sprintf("Model '%s' not configured or disabled", requestedModelID)}
 	}
 
-	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(activeProfile.ID, snapshot, requestedModel, s.nowUTC())
+	targetModel, connections, runtimeStates, strategy, err := s.resolveExecutionTargetFromSnapshot(activeProfileID, snapshot, requestedModel, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
-	if err := validatePathCompatibility(targetModel.APIFamily, request.URL.Path); err != nil {
+	if err := validateOperationAPIFamily(operationMatch.Operation, targetModel); err != nil {
 		return requestPlan{}, err
 	}
 
-	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(activeProfile.ID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.runtimeState, s.nowUTC())
+	orderedConnectionIDs, err := loadbalance.OrderConnectionIDs(activeProfileID, targetModel.ID, strategy, toConnectionOrderCandidates(connections), runtimeStates, s.runtimeState, s.nowUTC())
 	if err != nil {
 		return requestPlan{}, err
 	}
@@ -340,16 +344,22 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 	}
 
 	effectiveRequestPath := request.URL.Path
-	if pathModelID := extractModelFromPath(request.URL.Path); pathModelID != "" && pathModelID != targetModel.ModelID {
-		effectiveRequestPath = rewriteModelInPath(request.URL.Path, pathModelID, targetModel.ModelID)
-	}
-
 	upstreamBody := rawBody
-	requestGenerationParams := extractBufferedRequestGenerationParams(targetModel.APIFamily, request.URL.Path, rawBody)
-	if bodyModelID := extractModelFromBody(rawBody); bodyModelID != "" && bodyModelID != targetModel.ModelID {
-		upstreamBody = rewriteModelInBody(rawBody, targetModel.ModelID)
+	switch operationMatch.Operation.ModelBindingSource {
+	case RuntimeOperationModelBindingPath:
+		pathModelID := strings.TrimSpace(operationMatch.PathParams["model"])
+		if pathModelID != "" && pathModelID != targetModel.ModelID {
+			effectiveRequestPath = rewriteModelInPath(request.URL.Path, pathModelID, targetModel.ModelID)
+		}
+	case RuntimeOperationModelBindingBody:
+		if bodyModelID := extractModelFromBodyForOperation(rawBody, requestContentType, operationMatch.Operation); bodyModelID != "" && bodyModelID != targetModel.ModelID {
+			upstreamBody = rewriteModelInBodyForOperation(rawBody, requestContentType, operationMatch.Operation, targetModel.ModelID)
+		}
+	default:
+		return requestPlan{}, unsupportedOperationModelBindingError(operationMatch.Operation)
 	}
 
+	requestGenerationParams := extractBufferedRequestGenerationParams(operationMatch.Operation, rawBody)
 	return requestPlan{
 		RequestedModelID:            requestedModelID,
 		ResolvedTargetModelID:       stringPointerIfNotEmpty(targetModel.ModelID),
@@ -357,15 +367,17 @@ func (s *Service) buildRequestPlan(ctx context.Context, request *http.Request, r
 		RequestedVendorID:           requestedModel.VendorID,
 		RequestedVendorKey:          requestedModel.VendorKey,
 		RequestedVendorName:         requestedModel.VendorName,
-		ProfileID:                   activeProfile.ID,
+		ProfileID:                   activeProfileID,
 		APIFamily:                   targetModel.APIFamily,
+		RuntimeOperation:            operationMatch.Operation,
+		RuntimeOperationPathParams:  cloneStringMap(operationMatch.PathParams),
 		AuditEnabledAtRequest:       targetModel.AuditEnabled,
 		AuditCaptureBodiesAtRequest: targetModel.AuditEnabled && targetModel.AuditCaptureBodies,
 		ReportCurrencySnapshot:      snapshot.ReportCurrency,
 		EffectiveRequestPath:        effectiveRequestPath,
 		RawRequestBody:              rawBody,
 		UpstreamBody:                upstreamBody,
-		IsStreamingRequest:          requestWantsStream(rawBody, effectiveRequestPath),
+		IsStreamingRequest:          requestWantsStreamForOperation(operationMatch.Operation, rawBody, effectiveRequestPath),
 		Connections:                 orderedConnections,
 		RuntimeStates:               runtimeStates,
 		BlocklistRules:              snapshot.BlocklistRules,
@@ -981,14 +993,57 @@ func parseCustomHeaders(value sql.NullString) map[string]any {
 	return parsed
 }
 
-func resolveModelID(rawBody []byte, requestPath string) (string, error) {
-	if modelID := extractModelFromBody(rawBody); modelID != "" {
-		return modelID, nil
+func validateResolvedRuntimeOperation(operationMatch RuntimeOperationMatch, requestMethod string, requestPath string) (RuntimeOperationMatch, error) {
+	operation := operationMatch.Operation
+	if strings.TrimSpace(operation.Name) == "" {
+		return RuntimeOperationMatch{}, &domainError{StatusCode: http.StatusNotFound, Detail: runtimeOperationNotFoundDetail}
 	}
-	if modelID := extractModelFromPath(requestPath); modelID != "" {
-		return modelID, nil
+	if operation.Method != requestMethod {
+		return RuntimeOperationMatch{}, &domainError{StatusCode: http.StatusMethodNotAllowed, Detail: runtimeOperationMethodNotAllowedDetail}
 	}
-	return "", fmt.Errorf("model is required")
+	pathParams, ok := operation.PathMatcher.Match(requestPath)
+	if !ok {
+		return RuntimeOperationMatch{}, &domainError{StatusCode: http.StatusNotFound, Detail: runtimeOperationNotFoundDetail}
+	}
+	return RuntimeOperationMatch{Operation: operation, PathParams: cloneStringMap(pathParams)}, nil
+}
+
+func resolveModelIDForOperation(rawBody []byte, contentType string, operationMatch RuntimeOperationMatch) (string, error) {
+	switch operationMatch.Operation.ModelBindingSource {
+	case RuntimeOperationModelBindingBody:
+		if modelID := extractModelFromBodyForOperation(rawBody, contentType, operationMatch.Operation); modelID != "" {
+			return modelID, nil
+		}
+	case RuntimeOperationModelBindingPath:
+		if modelID := strings.TrimSpace(operationMatch.PathParams["model"]); modelID != "" {
+			return modelID, nil
+		}
+	default:
+		return "", unsupportedOperationModelBindingError(operationMatch.Operation)
+	}
+	return "", &domainError{
+		StatusCode: http.StatusBadRequest,
+		Detail:     fmt.Sprintf("Cannot determine model for routing. Operation '%s' binds models from the %s.", operationMatch.Operation.Name, operationMatch.Operation.ModelBindingSource),
+	}
+}
+
+func validateOperationAPIFamily(operation RuntimeOperation, targetModel runtimeModelRecord) error {
+	operationAPIFamily := strings.ToLower(strings.TrimSpace(operation.APIFamily))
+	targetAPIFamily := strings.ToLower(strings.TrimSpace(targetModel.APIFamily))
+	if operationAPIFamily == targetAPIFamily && operationAPIFamily != "" {
+		return nil
+	}
+	return &domainError{
+		StatusCode: http.StatusBadRequest,
+		Detail:     fmt.Sprintf("Operation '%s' is incompatible with api_family '%s'. Use an operation that matches the resolved model api_family.", operation.Name, targetModel.APIFamily),
+	}
+}
+
+func unsupportedOperationModelBindingError(operation RuntimeOperation) error {
+	return &domainError{
+		StatusCode: http.StatusBadRequest,
+		Detail:     fmt.Sprintf("Operation '%s' has unsupported model binding source '%s'.", operation.Name, operation.ModelBindingSource),
+	}
 }
 
 func extractModelFromBody(rawBody []byte) string {
@@ -1019,42 +1074,11 @@ func rewriteModelInBody(rawBody []byte, targetModelID string) []byte {
 	return rewritten
 }
 
-func extractModelFromPath(requestPath string) string {
-	matches := geminiModelRE.FindStringSubmatch(requestPath)
-	if len(matches) < 2 {
-		return ""
-	}
-	return strings.TrimSpace(matches[1])
-}
-
 func rewriteModelInPath(requestPath string, originalModel string, targetModel string) string {
 	if originalModel == targetModel {
 		return requestPath
 	}
 	return strings.Replace(requestPath, "/models/"+originalModel, "/models/"+targetModel, 1)
-}
-
-func validatePathCompatibility(apiFamily string, requestPath string) error {
-	pathFamily := "generic"
-	switch {
-	case geminiNativePathRE.MatchString(requestPath):
-		pathFamily = "gemini_native"
-	case anthropicMessagesPathRE.MatchString(requestPath):
-		pathFamily = "anthropic_messages"
-	}
-	allowedFamilies := map[string]map[string]struct{}{
-		"openai":    {"generic": {}},
-		"anthropic": {"anthropic_messages": {}},
-		"gemini":    {"gemini_native": {}},
-	}
-	allowed, ok := allowedFamilies[strings.ToLower(strings.TrimSpace(apiFamily))]
-	if !ok {
-		return nil
-	}
-	if _, ok := allowed[pathFamily]; ok {
-		return nil
-	}
-	return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Path '%s' is incompatible with api_family '%s'. Use an api-family-native path.", requestPath, apiFamily)}
 }
 
 func shouldFailover(statusCode int, failoverStatusCodes []int) bool {

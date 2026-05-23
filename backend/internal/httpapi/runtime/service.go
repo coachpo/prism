@@ -281,22 +281,59 @@ func (s *Service) handleProxy(w http.ResponseWriter, r *http.Request) {
 	s.handleStreamingProxy(w, r)
 }
 
+const (
+	runtimeOperationNotFoundDetail         = "Runtime operation not found"
+	runtimeOperationMethodNotAllowedDetail = "Method not allowed for runtime operation"
+)
+
+func resolveRuntimeOperationAtIngress(method string, requestPath string) (*RuntimeOperationMatch, []string) {
+	if match, ok := ResolveRuntimeOperation(method, requestPath); ok {
+		return &match, nil
+	}
+	allowedMethods := make([]string, 0, 1)
+	seenMethods := map[string]struct{}{}
+	for _, operation := range runtimeOperationCatalog {
+		if _, ok := operation.PathMatcher.Match(requestPath); !ok {
+			continue
+		}
+		if _, seen := seenMethods[operation.Method]; seen {
+			continue
+		}
+		seenMethods[operation.Method] = struct{}{}
+		allowedMethods = append(allowedMethods, operation.Method)
+	}
+	return nil, allowedMethods
+}
+
 func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		defer func() { _ = r.Body.Close() }()
 	}
+	operationMatch, allowedMethods := resolveRuntimeOperationAtIngress(r.Method, r.URL.Path)
+	if len(allowedMethods) > 0 {
+		w.Header().Set("Allow", strings.Join(allowedMethods, ", "))
+		writeError(w, http.StatusMethodNotAllowed, runtimeOperationMethodNotAllowedDetail)
+		return
+	}
+	if operationMatch == nil {
+		writeError(w, http.StatusNotFound, runtimeOperationNotFoundDetail)
+		return
+	}
+
 	runtimeConfig := s.runtimeProxyConfigSnapshot()
-	if canBuildStreamingRequestPlan(r) {
-		plan, err := s.buildProxyRequestPlan(r, nil, runtimeConfig)
+	if canBuildStreamingRequestPlan(operationMatch.Operation) {
+		plan, err := s.buildProxyRequestPlan(r, nil, runtimeConfig, *operationMatch)
 		if err != nil {
 			writeDomainError(w, err)
 			return
 		}
-		if canStreamIncomingRequestBody(plan, r) {
-			observer := newGeminiGenerationParamsStreamingObserver()
-			plan.RequestGenerationSnapshot = observer.Snapshot
-			s.handlePlannedProxy(w, r, plan, newStreamingRuntimeRequestBodySource(r.Body, r.ContentLength).withGenerationParamsObserver(observer))
-			return
+		if canStreamIncomingRequestBody(plan, operationMatch.Operation) {
+			observer, ok := newRequestGenerationParamsStreamingObserver(operationMatch.Operation)
+			if ok {
+				plan.RequestGenerationSnapshot = observer.Snapshot
+				s.handlePlannedProxy(w, r, plan, newStreamingRuntimeRequestBodySource(r.Body, r.ContentLength).withGenerationParamsObserver(observer))
+				return
+			}
 		}
 	}
 	rawBody, err := readBufferedRequestBody(r.Body)
@@ -304,7 +341,7 @@ func (s *Service) handleStreamingProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	plan, err := s.buildProxyRequestPlan(r, rawBody, runtimeConfig)
+	plan, err := s.buildProxyRequestPlan(r, rawBody, runtimeConfig, *operationMatch)
 	if err != nil {
 		writeDomainError(w, err)
 		return
@@ -323,25 +360,23 @@ func readBufferedRequestBody(body io.Reader) ([]byte, error) {
 	return rawBody, nil
 }
 
-func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot) (requestPlan, error) {
-	return s.buildRequestPlan(r.Context(), r, rawBody, runtimeConfig)
+func (s *Service) buildProxyRequestPlan(r *http.Request, rawBody []byte, runtimeConfig RuntimeProxyConfigSnapshot, operationMatch RuntimeOperationMatch) (requestPlan, error) {
+	return s.buildRequestPlan(r.Context(), r, rawBody, runtimeConfig, operationMatch)
 }
 
-func canBuildStreamingRequestPlan(r *http.Request) bool {
-	if r == nil {
-		return false
-	}
-	return extractModelFromPath(r.URL.Path) != ""
+func canBuildStreamingRequestPlan(operation RuntimeOperation) bool {
+	return operation.ModelBindingSource == RuntimeOperationModelBindingPath
 }
 
-func canStreamIncomingRequestBody(plan requestPlan, r *http.Request) bool {
-	if r == nil {
+func canStreamIncomingRequestBody(plan requestPlan, operation RuntimeOperation) bool {
+	if operation.ModelBindingSource != RuntimeOperationModelBindingPath || !operation.Streaming {
 		return false
 	}
-	if extractModelFromPath(r.URL.Path) == "" {
+	if !strings.EqualFold(plan.APIFamily, operation.APIFamily) {
 		return false
 	}
-	if !strings.EqualFold(plan.APIFamily, "gemini") {
+	hooks, ok := requestHooksForOperation(operation)
+	if !ok || hooks.NewGenerationParamsStreamingObserver == nil {
 		return false
 	}
 	return !plan.requiresReplayableRequestBody()
@@ -371,15 +406,17 @@ func (s *Service) writeProxyResponse(w http.ResponseWriter, r *http.Request, pla
 	contentType := strings.ToLower(strings.TrimSpace(execution.Response.Header.Get("Content-Type")))
 	captureAuditBody := plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest
 	if strings.Contains(contentType, "text/event-stream") {
-		responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
-		if streamErr != nil {
-			slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+		if _, ok := streamHooksForProxyResponse(plan.RuntimeOperation, plan.IsStreamingRequest); ok {
+			responseCapture, streamErr := proxyEventStreamAndCaptureCompletedResponse(plan.RuntimeOperation, r.Context(), proxyWriter, execution.Response.Body, s.nowUTC, captureAuditBody)
+			if streamErr != nil {
+				slog.Debug("runtime stream proxy ended with classified error", "error", streamErr, "stream_outcome", responseCapture.StreamOutcome)
+			}
+			proxyWriter.Commit()
+			s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
+			return
 		}
-		proxyWriter.Commit()
-		s.recordRuntimeActivity(plan, execution, r, startedAt, responseCapture)
-		return
 	}
-	responseCapture, err := proxyNonEventResponseAndCaptureUsage(proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
+	responseCapture, err := proxyNonEventResponseAndCaptureByOperation(plan.RuntimeOperation, proxyWriter, execution.Response.Body, contentType, s.nowUTC, captureAuditBody)
 	if err != nil {
 		if !proxyWriter.Committed() {
 			writeError(w, http.StatusBadGateway, "Failed to read upstream response")
@@ -841,9 +878,13 @@ func isJSONWhitespace(value byte) bool {
 	}
 }
 
-func proxyEventStreamAndCaptureCompletedResponse(ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyEventStreamAndCaptureCompletedResponse(operation RuntimeOperation, ctx context.Context, dst io.Writer, src io.Reader, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+	streamHooks, ok := streamHooksForOperation(operation)
+	if !ok {
+		return runtimeResponseCapture{}, fmt.Errorf("stream hooks not configured for operation %s", operation.Name)
+	}
 	reader := bufio.NewReader(src)
-	capture := sseCompletedResponseCapture{}
+	capture := sseCompletedResponseCapture{streamHooks: streamHooks}
 	var auditBuffer bytes.Buffer
 
 	captureResult := func(classification sseStreamClassification) runtimeResponseCapture {
@@ -896,6 +937,7 @@ type sseStreamClassification struct {
 }
 
 type sseCompletedResponseCapture struct {
+	streamHooks       operationStreamHooks
 	currentEvent      string
 	currentDataLines  []string
 	completedResponse []byte
@@ -997,9 +1039,11 @@ func (capture *sseCompletedResponseCapture) finishEvent(observedAt time.Time) {
 
 func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, observedAt time.Time) {
 	if strings.TrimSpace(string(payloadBytes)) == "[DONE]" {
-		completedAt := observedAt
-		capture.completedAt = &completedAt
-		capture.terminalSignal = sseTerminalSignalCompleted
+		if capture.streamHooks.CompleteOnDoneSentinel {
+			completedAt := observedAt
+			capture.completedAt = &completedAt
+			capture.terminalSignal = sseTerminalSignalCompleted
+		}
 		return
 	}
 
@@ -1011,22 +1055,12 @@ func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, 
 		firstPayloadAt := observedAt
 		capture.firstPayloadAt = &firstPayloadAt
 	}
-	if terminalSignal := payloadTerminalSignal(capture.currentEvent, payload); terminalSignal != sseTerminalSignalNone {
+	if terminalSignal := capture.streamHooks.terminalSignal(capture.currentEvent, payload); terminalSignal != sseTerminalSignalNone {
 		completedAt := observedAt
 		capture.completedAt = &completedAt
 		capture.terminalSignal = terminalSignal
 	}
-	if usagePayload, ok := responseUsagePayload(payload); ok {
-		capture.usage.mergeStandardUsagePayload(usagePayload)
-	}
-	if messagePayload, ok := payload["message"].(map[string]any); ok {
-		if usagePayload, ok := messagePayload["usage"].(map[string]any); ok {
-			capture.usage.mergeStandardUsagePayload(usagePayload)
-		}
-	}
-	if usageMetadata, ok := payload["usageMetadata"].(map[string]any); ok {
-		capture.usage.mergeGeminiUsagePayload(usageMetadata)
-	}
+	capture.streamHooks.mergeUsage(&capture.usage, payload)
 	if usageBody := buildUsageBodyFromResponseUsage(capture.usage); len(usageBody) > 0 {
 		capture.completedResponse = usageBody
 	}
@@ -1066,27 +1100,6 @@ func payloadContainsMeaningfulValue(value any) bool {
 		return strings.TrimSpace(typed) != ""
 	}
 	return false
-}
-
-func payloadTerminalSignal(event string, payload map[string]any) sseTerminalSignal {
-	if event == "response.incomplete" {
-		return sseTerminalSignalProviderIncomplete
-	}
-	if event == "response.completed" || event == "message_stop" {
-		return sseTerminalSignalCompleted
-	}
-	if payloadType, _ := payload["type"].(string); payloadType == "response.incomplete" {
-		return sseTerminalSignalProviderIncomplete
-	} else if payloadType == "response.completed" || payloadType == "message_stop" {
-		return sseTerminalSignalCompleted
-	}
-	if done, _ := payload["done"].(bool); done {
-		return sseTerminalSignalCompleted
-	}
-	if _, hasGeminiUsage := payload["usageMetadata"].(map[string]any); hasGeminiUsage {
-		return sseTerminalSignalCompleted
-	}
-	return sseTerminalSignalNone
 }
 
 func stringValue(value any) string {
