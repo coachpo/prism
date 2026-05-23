@@ -6,30 +6,31 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 func TestModelResolutionAndRewriteHelpers(t *testing.T) {
 	rawBody := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`)
-	if got, err := resolveModelID(rawBody, "/v1/chat/completions"); err != nil || got != "gpt-4o" {
+	chatOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
+	if got, err := resolveModelIDForOperation(rawBody, "application/json", chatOperation); err != nil || got != "gpt-4o" {
 		t.Fatalf("expected body model id, got model=%q err=%v", got, err)
 	}
 	responsesBody := []byte(`{"model":"gpt-4o","input":"hello"}`)
-	if got, err := resolveModelID(responsesBody, "/v1/responses"); err != nil || got != "gpt-4o" {
+	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses")
+	if got, err := resolveModelIDForOperation(responsesBody, "application/json", responsesOperation); err != nil || got != "gpt-4o" {
 		t.Fatalf("expected Responses body model id, got model=%q err=%v", got, err)
 	}
-	if got, err := resolveModelID(nil, "/v1beta/models/gemini-2.5-pro:generateContent"); err != nil || got != "gemini-2.5-pro" {
+	geminiOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent")
+	if got, err := resolveModelIDForOperation(nil, "", geminiOperation); err != nil || got != "gemini-2.5-pro" {
 		t.Fatalf("expected path model id, got model=%q err=%v", got, err)
 	}
-	if got := extractModelFromPath("/v1beta/models/gemini-2.5-pro:generateContent"); got != "gemini-2.5-pro" {
-		t.Fatalf("expected path extraction to return Gemini model id, got %q", got)
-	}
-
 	rewrittenBody := rewriteModelInBody(rawBody, "gpt-4o-mini")
 	if got := extractModelFromBody(rewrittenBody); got != "gpt-4o-mini" {
 		t.Fatalf("expected rewritten model id in body, got %q", got)
@@ -37,38 +38,171 @@ func TestModelResolutionAndRewriteHelpers(t *testing.T) {
 	if got := rewriteModelInPath("/v1beta/models/gemini-1.5-pro:generateContent", "gemini-1.5-pro", "gemini-2.5-pro"); got != "/v1beta/models/gemini-2.5-pro:generateContent" {
 		t.Fatalf("expected rewritten Gemini path, got %q", got)
 	}
-	if _, err := resolveModelID([]byte(`{"messages":[]}`), "/v1/chat/completions"); err == nil {
+	if _, err := resolveModelIDForOperation([]byte(`{"messages":[]}`), "application/json", chatOperation); err == nil {
 		t.Fatal("expected missing model id to fail")
 	}
-	if _, err := resolveModelID([]byte(`{"input":"hello"}`), "/v1/responses"); err == nil {
+	if _, err := resolveModelIDForOperation([]byte(`{"input":"hello"}`), "application/json", responsesOperation); err == nil {
 		t.Fatal("expected missing Responses model id to fail")
 	}
 }
 
-func TestValidatePathCompatibilityAndHeaderHelpers(t *testing.T) {
-	if err := validatePathCompatibility("openai", "/v1/chat/completions"); err != nil {
-		t.Fatalf("expected OpenAI generic path to be valid, got %v", err)
+func TestBuildRequestPlanCarriesOperation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-public", ModelType: "native"})
+	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-public:generateContent", nil)
+	operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+	plan, err := service.buildRequestPlanFromSnapshot(request, nil, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+	if err != nil {
+		t.Fatalf("build request plan: %v", err)
 	}
-	if err := validatePathCompatibility("openai", "/v1/responses"); err != nil {
-		t.Fatalf("expected OpenAI Responses path to be valid, got %v", err)
+	operationMatch.PathParams["model"] = "mutated"
+
+	if plan.RuntimeOperation.Name != "gemini.generate_content" {
+		t.Fatalf("expected plan operation gemini.generate_content, got %+v", plan.RuntimeOperation)
 	}
-	if err := validatePathCompatibility("anthropic", "/v1/messages"); err != nil {
-		t.Fatalf("expected Anthropic messages path to be valid, got %v", err)
+	if plan.RuntimeOperation.HookCollectionID != "gemini.generate_content" {
+		t.Fatalf("expected hook collection id to travel with operation, got %q", plan.RuntimeOperation.HookCollectionID)
 	}
-	if err := validatePathCompatibility("gemini", "/v1beta/models/gemini-2.5-pro:generateContent"); err != nil {
-		t.Fatalf("expected Gemini native path to be valid, got %v", err)
+	if got := plan.RuntimeOperationPathParams["model"]; got != "gemini-public" {
+		t.Fatalf("expected path model param gemini-public, got %q", got)
+	}
+}
+
+func TestBuildRequestPlanClassifiesGeminiStreamingByOperation(t *testing.T) {
+	service := newRequestPlanUnitService()
+	snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-public", ModelType: "native"})
+
+	tests := []struct {
+		name       string
+		path       string
+		rawBody    []byte
+		wantStream bool
+	}{
+		{
+			name:       "generateContent ignores body stream flag",
+			path:       "/v1beta/models/gemini-public:generateContent",
+			rawBody:    []byte(`{"contents":[],"stream":true}`),
+			wantStream: false,
+		},
+		{
+			name:       "streamGenerateContent is path authoritative",
+			path:       "/v1beta/models/gemini-public:streamGenerateContent",
+			rawBody:    []byte(`{"contents":[],"stream":false}`),
+			wantStream: true,
+		},
 	}
 
-	err := validatePathCompatibility("openai", "/v1beta/models/gemini-2.5-pro:generateContent")
-	var domainErr *domainError
-	if !errors.As(err, &domainErr) || domainErr.StatusCode != http.StatusBadRequest || !strings.Contains(domainErr.Detail, "incompatible") {
-		t.Fatalf("expected incompatibility domain error, got %v", err)
-	}
-	err = validatePathCompatibility("anthropic", "/v1/responses")
-	if !errors.As(err, &domainErr) || domainErr.StatusCode != http.StatusBadRequest || !strings.Contains(domainErr.Detail, "api_family 'anthropic'") {
-		t.Fatalf("expected Anthropic Responses incompatibility domain error, got %v", err)
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, test.path, nil)
+			operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
 
+			plan, err := service.buildRequestPlanFromSnapshot(request, test.rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+			if err != nil {
+				t.Fatalf("build request plan: %v", err)
+			}
+			if plan.IsStreamingRequest != test.wantStream {
+				t.Fatalf("expected IsStreamingRequest=%v for %s, got %v", test.wantStream, plan.RuntimeOperation.Name, plan.IsStreamingRequest)
+			}
+		})
+	}
+}
+
+func TestBuildRequestPlanAppliesOperationRewriteRules(t *testing.T) {
+	t.Run("path-bound operation rewrites only path model", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(
+			runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "public-gemini", ModelType: "proxy", ProxySelectionStrategy: proxySelectionStrategyOrderedFallback},
+			runtimeModelRecord{ID: 2, APIFamily: "gemini", ModelID: "target-gemini", ModelType: "native"},
+		)
+		addRequestPlanProxyTarget(snapshot, "public-gemini", "target-gemini")
+		rawBody := []byte(`{"model":"body-should-not-change","contents":[]}`)
+		request := httptest.NewRequest(http.MethodPost, "/v1beta/models/public-gemini:generateContent", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build request plan: %v", err)
+		}
+
+		if plan.EffectiveRequestPath != "/v1beta/models/target-gemini:generateContent" {
+			t.Fatalf("expected rewritten Gemini path, got %q", plan.EffectiveRequestPath)
+		}
+		if !bytes.Equal(plan.UpstreamBody, rawBody) {
+			t.Fatalf("expected path-bound operation to leave body unchanged, got %s", string(plan.UpstreamBody))
+		}
+		if got := extractModelFromBody(plan.UpstreamBody); got != "body-should-not-change" {
+			t.Fatalf("expected body model to remain untouched, got %q", got)
+		}
+	})
+
+	t.Run("body-bound operation rewrites only body model", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(
+			runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "public-openai", ModelType: "proxy", ProxySelectionStrategy: proxySelectionStrategyOrderedFallback},
+			runtimeModelRecord{ID: 2, APIFamily: "openai", ModelID: "target-openai", ModelType: "native"},
+		)
+		addRequestPlanProxyTarget(snapshot, "public-openai", "target-openai")
+		rawBody := []byte(`{"model":"public-openai","messages":[]}`)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+		plan, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		if err != nil {
+			t.Fatalf("build request plan: %v", err)
+		}
+
+		if plan.EffectiveRequestPath != "/v1/chat/completions" {
+			t.Fatalf("expected body-bound operation to leave path unchanged, got %q", plan.EffectiveRequestPath)
+		}
+		if got := extractModelFromBody(plan.UpstreamBody); got != "target-openai" {
+			t.Fatalf("expected rewritten body model target-openai, got %q in %s", got, string(plan.UpstreamBody))
+		}
+	})
+
+	t.Run("operation api family must match resolved target", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "gemini", ModelID: "gemini-native", ModelType: "native"})
+		rawBody := []byte(`{"model":"gemini-native","messages":[]}`)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, request.URL.Path)
+
+		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		assertPlanDomainError(t, err, http.StatusBadRequest, "incompatible")
+	})
+
+	t.Run("unsupported model-binding source fails before model fallback", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", ModelType: "native"})
+		rawBody := []byte(`{"model":"gpt-4o","messages":[]}`)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		operationMatch := RuntimeOperationMatch{Operation: RuntimeOperation{
+			Name:               "test.header_model",
+			Method:             http.MethodPost,
+			APIFamily:          "openai",
+			PathTemplate:       "/v1/chat/completions",
+			PathMatcher:        staticRuntimeOperationPath("/v1/chat/completions"),
+			ModelBindingSource: RuntimeOperationModelBindingSource("header"),
+		}}
+
+		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		assertPlanDomainError(t, err, http.StatusBadRequest, "unsupported model binding source")
+	})
+
+	t.Run("generic OpenAI v1 path is not a planning fallback", func(t *testing.T) {
+		service := newRequestPlanUnitService()
+		snapshot := newRequestPlanSnapshot(runtimeModelRecord{ID: 1, APIFamily: "openai", ModelID: "gpt-4o", ModelType: "native"})
+		rawBody := []byte(`{"model":"gpt-4o"}`)
+		request := httptest.NewRequest(http.MethodPost, "/v1/models", nil)
+		operationMatch := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions")
+
+		_, err := service.buildRequestPlanFromSnapshot(request, rawBody, RuntimeProxyConfigSnapshot{}, operationMatch, requestPlanTestProfileID, snapshot)
+		assertPlanDomainError(t, err, http.StatusNotFound, runtimeOperationNotFoundDetail)
+	})
+}
+
+func TestHeaderHelpers(t *testing.T) {
 	if got, ok := normalizeHeaderValue("  keep  "); !ok || got != "keep" {
 		t.Fatalf("expected normalized header value, got value=%q ok=%v", got, ok)
 	}
@@ -143,9 +277,10 @@ func TestClassifySSEStreamOutcome(t *testing.T) {
 }
 
 func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	writeFailure := errors.New("write failed\nwith\tcontrol")
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), failingWriter{err: writeFailure}, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), time.Now, false)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), failingWriter{err: writeFailure}, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), time.Now, false)
 	if !errors.Is(err, writeFailure) {
 		t.Fatalf("expected write failure, got %v", err)
 	}
@@ -154,7 +289,7 @@ func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
 	}
 
 	readFailure := errors.New("upstream read failed")
-	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), err: readFailure}, time.Now, false)
+	capture, err = proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, &errorAfterReader{payload: []byte("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"), err: readFailure}, time.Now, false)
 	if !errors.Is(err, readFailure) {
 		t.Fatalf("expected upstream read failure, got %v", err)
 	}
@@ -164,8 +299,9 @@ func TestProxyEventStreamClassifiesWriteAndReadFailures(t *testing.T) {
 }
 
 func TestProxyEventStreamClassifiesEOFWithoutTerminal(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n"), time.Now, false)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n"), time.Now, false)
 	if err != nil {
 		t.Fatalf("proxy SSE without terminal: %v", err)
 	}
@@ -175,13 +311,14 @@ func TestProxyEventStreamClassifiesEOFWithoutTerminal(t *testing.T) {
 }
 
 func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	terminalStream := "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n"
 
 	canceledContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var forwarded bytes.Buffer
 	cancelingWriter := cancelOnBlankLineWriter{dst: &forwarded, cancel: cancel}
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(canceledContext, cancelingWriter, strings.NewReader(terminalStream), time.Now, false)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, canceledContext, cancelingWriter, strings.NewReader(terminalStream), time.Now, false)
 	if err != nil {
 		t.Fatalf("proxy SSE with canceled context after terminal: %v", err)
 	}
@@ -191,7 +328,7 @@ func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t 
 
 	readFailure := errors.New("upstream read failed after terminal")
 	forwarded.Reset()
-	capture, err = proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, &errorAfterReader{payload: []byte(terminalStream), err: readFailure}, time.Now, false)
+	capture, err = proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, &errorAfterReader{payload: []byte(terminalStream), err: readFailure}, time.Now, false)
 	if !errors.Is(err, readFailure) {
 		t.Fatalf("expected upstream read failure, got %v", err)
 	}
@@ -201,6 +338,7 @@ func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t 
 }
 
 func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
 
@@ -208,7 +346,7 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 		stream := "data: {\"id\":\"chatcmpl-done\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"}}]}\n\n" +
 			"data:   [DONE]  \n\n"
 		var forwarded bytes.Buffer
-		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
+		capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
 		if err != nil {
 			t.Fatalf("proxy SSE with [DONE]: %v", err)
 		}
@@ -227,7 +365,7 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 
 	t.Run("other non JSON remains missing terminal", func(t *testing.T) {
 		var forwarded bytes.Buffer
-		capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader("data: not-json\n\n"), time.Now, false)
+		capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader("data: not-json\n\n"), time.Now, false)
 		if err != nil {
 			t.Fatalf("proxy SSE with non-JSON payload: %v", err)
 		}
@@ -238,10 +376,11 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 }
 
 func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
 	stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":13,\"total_tokens\":20}}\n\n" +
 		"data: [DONE]\n\n"
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
 	if err != nil {
 		t.Fatalf("proxy SSE with usage and [DONE]: %v", err)
 	}
@@ -264,12 +403,13 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 }
 
 func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	stream := "event: response.created\n" +
 		"data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
 		"event: response.completed\n" +
 		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n"
 	var forwarded bytes.Buffer
-	capture, err := proxyEventStreamAndCaptureCompletedResponse(context.Background(), &forwarded, strings.NewReader(stream), time.Now, true)
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, true)
 	if err != nil {
 		t.Fatalf("proxy SSE with audit capture: %v", err)
 	}
@@ -291,25 +431,136 @@ func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestStreamPayloadTerminalSignalRecognizesJSONTerminals(t *testing.T) {
+func TestSSEStreamHooksByOperation(t *testing.T) {
 	tests := []struct {
-		name  string
-		event string
-		body  map[string]any
-		want  sseTerminalSignal
+		name         string
+		requestPath  string
+		stream       string
+		wantProvider string
+		wantKind     operationResponseKind
+		wantOutcome  string
+		wantUsage    responseUsage
 	}{
-		{name: "openai responses completed event", event: "response.completed", body: map[string]any{"type": "response.created"}, want: sseTerminalSignalCompleted},
-		{name: "openai responses completed type", body: map[string]any{"type": "response.completed"}, want: sseTerminalSignalCompleted},
-		{name: "openai responses incomplete type", body: map[string]any{"type": "response.incomplete"}, want: sseTerminalSignalProviderIncomplete},
-		{name: "anthropic stop event", event: "message_stop", body: map[string]any{}, want: sseTerminalSignalCompleted},
-		{name: "anthropic stop type", body: map[string]any{"type": "message_stop"}, want: sseTerminalSignalCompleted},
-		{name: "gemini usage metadata", body: map[string]any{"usageMetadata": map[string]any{"promptTokenCount": float64(1)}}, want: sseTerminalSignalCompleted},
+		{
+			name:         "openai responses completed owns response terminal",
+			requestPath:  "/v1/responses",
+			stream:       "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":8,\"total_tokens\":13}}}\n\n",
+			wantProvider: "openai",
+			wantKind:     operationResponseKindTextGeneration,
+			wantOutcome:  runtimeStreamOutcomeCompleted,
+			wantUsage:    responseUsage{InputTokens: intPtr(5), OutputTokens: intPtr(8), TotalTokens: intPtr(13)},
+		},
+		{
+			name:         "openai responses incomplete owns provider incomplete terminal",
+			requestPath:  "/v1/responses",
+			stream:       "event: response.incomplete\ndata: {\"type\":\"response.incomplete\"}\n\n",
+			wantProvider: "openai",
+			wantKind:     operationResponseKindTextGeneration,
+			wantOutcome:  runtimeStreamOutcomeProviderIncomplete,
+		},
+		{
+			name:         "anthropic messages owns message stop",
+			requestPath:  "/v1/messages",
+			stream:       "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":11}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":7,\"total_tokens\":18}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+			wantProvider: "anthropic",
+			wantKind:     operationResponseKindTextGeneration,
+			wantOutcome:  runtimeStreamOutcomeCompleted,
+			wantUsage:    responseUsage{InputTokens: intPtr(11), OutputTokens: intPtr(7), TotalTokens: intPtr(18)},
+		},
+		{
+			name:         "gemini stream generate owns usage metadata terminal",
+			requestPath:  "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+			stream:       "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20,\"cachedContentTokenCount\":3}}\n\n",
+			wantProvider: "gemini",
+			wantKind:     operationResponseKindTextGeneration,
+			wantOutcome:  runtimeStreamOutcomeCompleted,
+			wantUsage:    responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(13), TotalTokens: intPtr(20), CacheReadInputTokens: intPtr(3)},
+		},
+		{
+			name:         "gemini stream generate owns done terminal",
+			requestPath:  "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+			stream:       "data: {\"done\":true}\n\n",
+			wantProvider: "gemini",
+			wantKind:     operationResponseKindTextGeneration,
+			wantOutcome:  runtimeStreamOutcomeCompleted,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := payloadTerminalSignal(test.event, test.body); got != test.want {
-				t.Fatalf("expected terminal signal %d, got %d", test.want, got)
+			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
+			hooks, ok := streamHooksForProxyResponse(operation, true)
+			if !ok {
+				t.Fatalf("expected stream hooks for %s", operation.Name)
+			}
+			if hooks.Provider != test.wantProvider || hooks.Kind != test.wantKind {
+				t.Fatalf("expected %s/%s stream hooks, got %+v", test.wantProvider, test.wantKind, hooks)
+			}
+			var forwarded bytes.Buffer
+			capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(test.stream), time.Now, false)
+			if err != nil {
+				t.Fatalf("proxy SSE stream: %v", err)
+			}
+			if forwarded.String() != test.stream {
+				t.Fatalf("expected SSE stream to pass through unchanged, got %q", forwarded.String())
+			}
+			if capture.StreamOutcome != test.wantOutcome {
+				t.Fatalf("expected outcome %q, got %+v", test.wantOutcome, capture)
+			}
+			if got := capture.extractedUsage(); !reflect.DeepEqual(got, test.wantUsage) {
+				t.Fatalf("expected usage %+v, got %+v", test.wantUsage, got)
+			}
+		})
+	}
+
+	responsesHooks, _ := streamHooksForOperation(mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation)
+	if got := responsesHooks.terminalSignal("message_stop", map[string]any{"type": "message_stop"}); got != sseTerminalSignalNone {
+		t.Fatalf("expected OpenAI responses hook to ignore Anthropic message_stop, got %d", got)
+	}
+	anthropicHooks, _ := streamHooksForOperation(mustResolveRuntimeOperation(t, http.MethodPost, "/v1/messages").Operation)
+	if got := anthropicHooks.terminalSignal("response.completed", map[string]any{"type": "response.completed"}); got != sseTerminalSignalNone {
+		t.Fatalf("expected Anthropic hook to ignore OpenAI response.completed, got %d", got)
+	}
+	geminiHooks, _ := streamHooksForOperation(mustResolveRuntimeOperation(t, http.MethodPost, "/v1beta/models/gemini-2.5-pro:streamGenerateContent").Operation)
+	if got := geminiHooks.terminalSignal("response.completed", map[string]any{"type": "response.completed"}); got != sseTerminalSignalNone {
+		t.Fatalf("expected Gemini hook to ignore OpenAI response.completed, got %d", got)
+	}
+}
+
+func TestNonStreamOperationsCannotUseSSEHooks(t *testing.T) {
+	responsesOperation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
+	if _, ok := streamHooksForProxyResponse(responsesOperation, false); ok {
+		t.Fatal("expected non-stream OpenAI responses request to skip SSE hook selection")
+	}
+
+	geminiStreamPath := "/v1beta/models/gemini-2.5-pro:streamGenerateContent"
+	geminiStreamOperation := mustResolveRuntimeOperation(t, http.MethodPost, geminiStreamPath).Operation
+	if !requestWantsStreamForOperation(geminiStreamOperation, nil, geminiStreamPath) {
+		t.Fatal("expected Gemini streamGenerateContent path to imply streaming")
+	}
+	if _, ok := streamHooksForProxyResponse(geminiStreamOperation, true); !ok {
+		t.Fatal("expected Gemini streamGenerateContent to select SSE hooks")
+	}
+
+	tests := []struct {
+		name        string
+		requestPath string
+	}{
+		{name: "openai image generations", requestPath: "/v1/images/generations"},
+		{name: "openai image edits", requestPath: "/v1/images/edits"},
+		{name: "anthropic count tokens", requestPath: "/v1/messages/count_tokens"},
+		{name: "gemini generate content", requestPath: "/v1beta/models/gemini-2.5-pro:generateContent"},
+		{name: "gemini count tokens", requestPath: "/v1beta/models/gemini-2.5-pro:countTokens"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
+			if _, ok := streamHooksForOperation(operation); ok {
+				t.Fatalf("expected no SSE hooks for %s", operation.Name)
+			}
+			if _, ok := streamHooksForProxyResponse(operation, true); ok {
+				t.Fatalf("expected %s to skip SSE parser dispatch even when forced streaming", operation.Name)
 			}
 		})
 	}
@@ -786,6 +1037,98 @@ type mutableRuntimeProxyConfigProvider struct {
 
 func (p *mutableRuntimeProxyConfigProvider) RuntimeProxyConfigSnapshot() RuntimeProxyConfigSnapshot {
 	return p.snapshot
+}
+
+const (
+	requestPlanTestProfileID  = 101
+	requestPlanTestStrategyID = 202
+)
+
+func newRequestPlanUnitService() *Service {
+	return &Service{
+		runtimeState: loadbalance.NewLocalRuntimeStateStore(),
+		now: func() time.Time {
+			return time.Unix(1_700_000_000, 0).UTC()
+		},
+	}
+}
+
+func newRequestPlanSnapshot(models ...runtimeModelRecord) *planningSnapshot {
+	strategyID := requestPlanTestStrategyID
+	legacyStrategyType := "fill-first"
+	strategy := loadbalance.RuntimeStrategy{ID: strategyID, Name: "test legacy", StrategyType: "legacy", LegacyStrategyType: &legacyStrategyType}
+	snapshot := &planningSnapshot{
+		ModelsByID:             map[string]runtimeModelRecord{},
+		ProxyTargetsBySourceID: map[int][]runtimeProxyTargetRecord{},
+		NativeTargetsByModelID: map[string]nativePlanningSnapshot{},
+		ReportCurrency:         runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
+	}
+	for index, model := range models {
+		if model.ID == 0 {
+			model.ID = index + 1
+		}
+		if model.ProfileID == 0 {
+			model.ProfileID = requestPlanTestProfileID
+		}
+		if strings.TrimSpace(model.ModelType) == "" {
+			model.ModelType = "native"
+		}
+		if model.ModelType == "native" && model.LoadbalanceStrategyID == nil {
+			model.LoadbalanceStrategyID = &strategyID
+		}
+		snapshot.ModelsByID[model.ModelID] = model
+		if model.ModelType != "native" {
+			continue
+		}
+		snapshot.NativeTargetsByModelID[model.ModelID] = nativePlanningSnapshot{
+			Model:    model,
+			Strategy: &strategy,
+			Connections: []runtimeConnection{{
+				ID:            1_000 + model.ID,
+				ProfileID:     model.ProfileID,
+				ModelConfigID: model.ID,
+				EndpointID:    1,
+				Priority:      1,
+				Endpoint:      runtimeEndpoint{ID: 1, BaseURL: "https://upstream.example"},
+			}},
+		}
+	}
+	return snapshot
+}
+
+func addRequestPlanProxyTarget(snapshot *planningSnapshot, proxyModelID string, targetModelID string) {
+	proxyModel := snapshot.ModelsByID[proxyModelID]
+	snapshot.ProxyTargetsBySourceID[proxyModel.ID] = []runtimeProxyTargetRecord{{
+		SourceModelConfigID: proxyModel.ID,
+		TargetModelID:       targetModelID,
+		ID:                  1,
+		Position:            1,
+		Weight:              1,
+		TargetPriority:      1,
+	}}
+}
+
+func mustResolveRuntimeOperation(t *testing.T, method string, requestPath string) RuntimeOperationMatch {
+	t.Helper()
+	operationMatch, ok := ResolveRuntimeOperation(method, requestPath)
+	if !ok {
+		t.Fatalf("expected runtime operation for %s %s", method, requestPath)
+	}
+	return operationMatch
+}
+
+func assertPlanDomainError(t *testing.T, err error, wantStatus int, detailContains string) {
+	t.Helper()
+	var domainErr *domainError
+	if !errors.As(err, &domainErr) {
+		t.Fatalf("expected domain error, got %v", err)
+	}
+	if domainErr.StatusCode != wantStatus {
+		t.Fatalf("expected status %d, got %d with detail %q", wantStatus, domainErr.StatusCode, domainErr.Detail)
+	}
+	if !strings.Contains(domainErr.Detail, detailContains) {
+		t.Fatalf("expected detail containing %q, got %q", detailContains, domainErr.Detail)
+	}
 }
 
 func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPaths(t *testing.T) {
