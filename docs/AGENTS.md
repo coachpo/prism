@@ -1,7 +1,7 @@
 # DOCS REFERENCE MAP
 
 ## OVERVIEW
-`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references and archive material. Active working plans live outside `docs/` under `../.sisyphus/plans/`; archive notes never outrank live docs or owning code AGENTS files.
+`docs/` holds Prism's normative architecture, API, and data-model docs, plus supporting references and archive material. Active working plans live outside `docs/` under `../.omo/plans/`; live execution artifacts belong in `../.omo/evidence/`; archive notes never outrank live docs or owning code AGENTS files.
 
 ## STRUCTURE
 ```text
@@ -20,40 +20,43 @@ docs/
 ```
 
 ## OWNERSHIP
-- `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source of truth.
+- `ARCHITECTURE.md`, `API_SPEC.md`, and `DATA_MODEL.md` are the source-of-truth trio.
 - `PRD.md`, `REQUESTS_PAGE.md`, `SMOKE_TEST_PLAN.md`, `WORKFLOWS.md`, and `TEST_CASE_GENERATION_METHODOLOGY.md` are supporting references that defer to the normative trio and owning backend/frontend AGENTS files.
 - `archive/` holds the boundary file plus dated finished notes and retained evidence, including the 2026-05-10 sidecars live-smoke record.
 - Archived run notes use `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md`.
-- Active working plans belong in `../.sisyphus/plans/`, not under `docs/`.
+- Active working plans belong in `../.omo/plans/`, not under `docs/`.
 
 ## WHERE TO LOOK
 - Launcher, release, and deploy facts: `../README.md`, `../start.sh`, `../release.sh`, `../deploy.sh`, `../frontend/.env.example`
 - Backend/frontend version surfaces: `../backend/VERSION`, `../frontend/VERSION`, `../frontend/package.json`
 - Backend container contract: `../backend/Dockerfile`, `../backend/tests/integration/dockerfile_contract_test.go`
+- Runtime operation contract, hook residency, rejected-route isolation, and `operation_name` persistence: `API_SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `../backend/internal/httpapi/runtime/AGENTS.md`, `../backend/internal/httpapi/runtime/operations.go`
+- Startup bootstrap contract, hot-apply effect reporting, and startup-tab ownership: `../backend/internal/httpapi/management/bootstrapconfig/AGENTS.md`, `../backend/internal/platform/config/`, `../frontend/src/pages/settings/startup/AGENTS.md`
+- Config bundle and vendor catalog export/import ownership: `../backend/internal/httpapi/management/configbundle/AGENTS.md`, `../frontend/src/pages/settings/`, `../frontend/src/pages/settings/useConfigBackupData.ts`
 - Partitioned log retention contract: `../backend/internal/platform/logretention/`, `../backend/internal/httpapi/runtime/log_partitions.go`, `../backend/migrations/000001_initial_schema.sql`
 - Sidecars control-plane contract: `../backend/internal/httpapi/management/sidecars/AGENTS.md`, `../backend/internal/httpapi/management/sidecars/`, `../backend/migrations/000001_initial_schema.sql`, `../frontend/src/pages/sidecars/`
 - Backend and frontend ownership boundaries inside the monorepo: `../backend/AGENTS.md`, `../frontend/AGENTS.md`
 - Product and request-log context: `PRD.md`, `REQUESTS_PAGE.md`
 - Operator workflow map grounded in the mounted route and API surface: `WORKFLOWS.md`
 - Test-generation workflow: `TEST_CASE_GENERATION_METHODOLOGY.md`
-- Active working plans outside docs: `../.sisyphus/plans/`
+- Active working plans and live execution evidence: `../.omo/plans/`, `../.omo/evidence/`
 - Archive boundary rules and retained smoke evidence: `archive/AGENTS.md`, `archive/`
 
 ## CONVENTIONS
-
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation, prefer manual confirmation over adding dedicated “proves not” tests; keep absence assertions only when the missing surface is itself a shipped contract or guardrail.
 - Keep docs Prism-specific.
 - Point to child AGENTS files instead of repeating leaf detail.
 - Keep launcher facts aligned with `../start.sh`, especially root `.env` loading, `headless|full`, ports, repo-local `config.json` defaults, the canonical PostgreSQL host port `15432`, same-origin full-mode proxying via `PRISM_VITE_PROXY_ENABLED` and `PRISM_VITE_PROXY_TARGET`, and the bootstrap-only startup contract.
-- Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, unsupported encrypted legacy files, and enabled SMTP fail-fast.
+- Keep runtime contract docs aligned with the explicit operation allowlist, operation hook collections, rejected-route isolation, and `operation_name` persistence instead of broad vendor path-family wording.
+- Keep bootstrap docs aligned with backend ownership: plaintext file-backed v1, required `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout`, metadata-only safe secrets, `runtime.secretEncryptionKey` preserve-only, apply-capability reporting, unsupported encrypted legacy files, and enabled SMTP fail-fast.
 - Keep release facts aligned with `../release.sh` and the version surfaces it updates.
 - Keep backend container docs aligned with non-root `../backend/Dockerfile` execution, `/app/config` ownership, and `../backend/tests/integration/dockerfile_contract_test.go`.
 - Keep log-retention docs aligned with the four managed partitioned tables, management settings/job endpoints, runtime partition ensuring, and platform maintenance worker.
 - Keep sidecar docs aligned with `/sidecars`, `/api/sidecars/*`, the baseline sidecar schema, the low-priority sidecar sync worker, and the rule that CLIProxyAPI owns live auth/provider state.
 - Keep live sidecar implementation contracts, including the strict `/auth-files` top-level `files` envelope rule, in `../backend/internal/httpapi/management/sidecars/AGENTS.md`; archive run notes are evidence only.
 - State CI facts accurately: `.github/workflows/docker-images.yml` builds monorepo images for `linux/arm64` on path-filtered `main` pushes, path-filtered PRs, `v*` tags, and `workflow_dispatch`, and `.github/workflows/cleanup.yml` handles cleanup only.
-- Keep active plans out of `docs/`. Use `../.sisyphus/plans/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
+- Keep active plans out of `docs/`. Use `../.omo/plans/` plus `../.omo/evidence/` while work is in flight, and move only finished notes or retained evidence into `archive/`.
 - Keep archive wording tight: finished notes first, optional evidence only when needed, never treat archive notes as canonical docs.
 - Keep archived test run notes on the `docs/archive/YYYY-MM-DD-llm-test-run-<scope>.md` pattern.
 - Keep `REQUESTS_PAGE.md` subordinate to the live request-log route and tests. When request-log audit, clipboard, proxy-key usage, or reporting-currency behavior changes, refresh the page AGENTS and backend runtime tests before supporting prose.
