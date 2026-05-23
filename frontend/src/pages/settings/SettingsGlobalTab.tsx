@@ -16,18 +16,13 @@ export function SettingsGlobalTab({ data }: SettingsGlobalTabProps) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-blue-500/25 bg-blue-500/10 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Badge
-            variant="outline"
-            className="w-fit border-blue-500/30 bg-blue-500/15 text-blue-700 dark:text-blue-300"
-          >
-            {messages.settingsPage.globalSettings}
-          </Badge>
-          <p className="text-sm text-blue-800 dark:text-blue-300">
-            {messages.settingsPage.globalSettingsDescription}
-          </p>
-        </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <Badge variant="outline" className="w-fit">
+          {messages.settingsPage.globalSettings}
+        </Badge>
+        <p className="text-sm text-muted-foreground">
+          {messages.settingsPage.globalSettingsDescription}
+        </p>
       </div>
 
       <AuthenticationSection

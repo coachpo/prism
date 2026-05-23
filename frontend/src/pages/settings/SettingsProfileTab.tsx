@@ -27,18 +27,13 @@ export function SettingsProfileTab({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <Badge
-            variant="outline"
-            className="w-fit border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300"
-          >
-            {messages.settingsPage.profileScopedSettings}
-          </Badge>
-          <p className="text-sm text-amber-800 dark:text-amber-300">
-            {messages.settingsPage.profileScopedDescription(data.selectedProfileLabel)}
-          </p>
-        </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <Badge variant="outline" className="w-fit">
+          {messages.settingsPage.profileScopedSettings}
+        </Badge>
+        <p className="text-sm text-muted-foreground">
+          {messages.settingsPage.profileScopedDescription(data.selectedProfileLabel)}
+        </p>
       </div>
 
       <div className="space-y-4 lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6 lg:space-y-0">
