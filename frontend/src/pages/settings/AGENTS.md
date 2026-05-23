@@ -1,12 +1,13 @@
 # FRONTEND SETTINGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile, Global, and Startup tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, and costing state in `costing/AGENTS.md`.
+`pages/settings/` is the route-domain shell behind `../SettingsPage.tsx`. It owns the Profile, Global, and Startup tab split, stable section and tab helpers, hash-driven section focus, shared save-state rendering, and the dialog handoff that supports settings mutations. Keep shell behavior here, section rendering in `sections/AGENTS.md`, dialog-local flows in `dialogs/AGENTS.md`, startup bootstrap details in `startup/AGENTS.md`, and costing state in `costing/AGENTS.md`.
 
 ## STRUCTURE
 ```
 settings/
 ├── sections/                      # Rendered settings sections and nested local clusters
+├── startup/                       # Plaintext bootstrap field metadata and section clusters
 ├── costing/                       # Costing bootstrap, derived state, FX mapping CRUD, save flows
 ├── dialogs/
 │   ├── AGENTS.md                  # Delete confirmation, vendor CRUD, and audit-rule dialogs
@@ -34,13 +35,13 @@ settings/
 
 - `SettingsPage.tsx` renders three tabs: `Profile`, `Global`, and `Startup`.
 - The Profile tab owns section navigation and mounts backup, billing and currency, timezone, and audit and privacy.
-- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
+- The Global tab mounts instance-wide authentication, retention and deletion, plus the shared vendor-management section, catalog import/export preview transport, and its dialogs. The Startup tab mounts the plaintext bootstrap config surface through `SettingsStartupTab.tsx`, while the dense field registry and section cluster live under `startup/AGENTS.md`. Vendor rows carry the persisted optional `icon_key`, while model rows do not.
 - `settingsPageHelpers.ts` is the source of truth for tab ids, profile section ids, instance-only section handling, delete keywords, and shared costing and auth validation helpers.
 
 ## WHERE TO LOOK
 
 - Thin route shell, tab split, startup-tab mount, section order, and dialog mounts: `../SettingsPage.tsx`, `SettingsStartupTab.tsx`
-- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `SettingsStartupTab.tsx`
+- Startup tab field groups for secrets, named PostgreSQL pool lanes, runtime transport, auth TTL/cookie settings, mail/SMTP, state-transfer secrets, planned changes, and dangerous confirmations: `startup/AGENTS.md`, `SettingsStartupTab.tsx`
 - Cross-section composition, selected-profile labeling, and shared save-state handoff: `useSettingsPageData.ts`
 - Active tab state, hash updates, scroll-driven focus, and section jump behavior: `useSettingsPageSectionState.ts`, `useSettingsSectionNavigation.ts`, `SettingsSectionsNav.tsx`
 - Stable helper constants and form-normalization utilities: `settingsPageHelpers.ts`
@@ -53,6 +54,7 @@ settings/
 ## CHILD DOCS
 
 - `sections/AGENTS.md`: authentication-adjacent section UI, audit and privacy, billing and currency, backup, retention, timezone, and the nested `authentication/` and `billing-currency/` clusters.
+- `startup/AGENTS.md`: plaintext bootstrap field metadata, server/database/runtime/mail-secret sections, and apply-capability rendering.
 - `sections/billing-currency/AGENTS.md`: reporting currency and FX-mapping rendering leaf.
 - `sections/authentication/AGENTS.md`: operator account and recovery email verification surface.
 - `dialogs/AGENTS.md`: delete confirmations, vendor CRUD modals, and audit-rule editors mounted by `../SettingsPage.tsx`.
@@ -63,6 +65,7 @@ settings/
 - When doing upgrade work, prefer clean architecture and the best current implementation over backward-compatibility shims; this project is still under development and has no users, so preserve legacy shapes only when explicitly requested.
 - For ordinary removal-only validation here, prefer manual confirmation over adding dedicated “proves not” tests unless the missing settings surface is itself a shipped contract or guardrail.
 - Keep new settings work sectionized. Extend helper registries, shared hooks, or local dialogs instead of inflating `SettingsPage.tsx`.
+- Keep startup bootstrap field metadata and field-effect rendering in `startup/AGENTS.md` and its children.
 - Hash navigation is part of the settings UX contract. New profile-tab sections need stable ids and must participate in jump and active-section logic.
 - Save-state feedback belongs in `sectionSaveState.tsx` and related helper types, not in ad hoc spinners or toast-only status.
 - Keep the scope split clear in copy and behavior: authentication and retention are global, while backup, billing and currency, timezone, and audit and privacy stay profile-scoped.
@@ -77,3 +80,4 @@ settings/
 - Do not add inline modal branches to `SettingsPage.tsx` when a local dialog file already fits the flow.
 - Do not bypass shared save-state helpers with one-off loading badges or toast-only feedback.
 - Do not duplicate auth, FX mapping, or billing-currency implementation detail here when the child docs already own it.
+- Do not move bootstrap field registry logic back into `SettingsPage.tsx` or the route shell.

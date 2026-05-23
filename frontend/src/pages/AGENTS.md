@@ -14,11 +14,12 @@
 - Configuration and routing: `ModelsPage.tsx`, `ModelDetailPage.tsx`, `ProxyModelDetailPage.tsx`, `EndpointsPage.tsx`, `LoadbalanceStrategiesPage.tsx`, `PricingTemplatesPage.tsx`; this is also where dual-family strategy selection and assignment surfaces live
 - Access control and runtime credentials: `ProxyApiKeysPage.tsx`
 - Global sidecar control plane: `SidecarsPage.tsx`, `sidecars/AGENTS.md`
-- Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/` and `settings/costing/`
+- Settings shell: `SettingsPage.tsx` with Profile, Global, and Startup tabs, plus `settings/sections/`, `settings/startup/`, and `settings/costing/`
 
 ## WHERE TO LOOK
 - Mounted route list, public auth split, and protected shell boundary: `../App.tsx`
-- Dashboard, model detail, request logs, settings, sidecars, and statistics leaf maps: `dashboard/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
+- Dashboard, model detail, request logs, settings, startup bootstrap, sidecars, and statistics leaf maps: `dashboard/AGENTS.md`, `model-detail/AGENTS.md`, `request-logs/AGENTS.md`, `settings/AGENTS.md`, `settings/startup/AGENTS.md`, `sidecars/AGENTS.md`, `statistics/AGENTS.md`
+- Settings startup cluster and bootstrap field registry: `settings/startup/AGENTS.md`
 
 ## CHILD DOCS
 - `dashboard/AGENTS.md`
@@ -30,6 +31,7 @@
 - `proxy-api-keys/AGENTS.md`
 - `request-logs/AGENTS.md`
 - `settings/AGENTS.md`
+- `settings/startup/AGENTS.md`
 - `sidecars/AGENTS.md`
 - `statistics/AGENTS.md`
 
