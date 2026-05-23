@@ -4,7 +4,7 @@
 `lib/api/` is the typed `/api/*` client split behind `../api.ts`. It owns shared request plumbing in `core.ts`, profile-scope route matching in `profileScope.ts`, then groups endpoints by auth/settings, management CRUD, observability/bootstrap-config/audit/loadbalance/settings-costing, and global sidecar surfaces.
 
 ## STRUCTURE
-```
+```text
 api/
 ├── core.ts           # API base, credentials, X-Profile-Id injection, refresh retry, query builder
 ├── profileScope.ts   # Management-route matcher for selected-profile headers
@@ -23,6 +23,7 @@ api/
 - Global profile/vendor management plus profile-scoped model, loadbalance strategy, endpoint, connection, and pricing-template surfaces: `management.ts`
 - Observability, usage snapshot, throughput, bootstrap-config get/validate/update, config import/export, audit, loadbalance current state/events, and settings costing/timezone/retention clients: `observability.ts`
 - Global sidecar CRUD, test-connection, sync, auth/provider inventory, and direct auth-file mutations: `sidecars.ts`
+- Runtime operation paths `/v1` and `/v1beta` stay outside this client split; launcher/Vite proxying passes them through and backend runtime owns allowlist enforcement.
 
 ## CONVENTIONS
 
@@ -34,9 +35,11 @@ api/
 - Keep auth/settings nesting in `authSettings.ts` and `api.settings` aligned with the backend route structure.
 - Keep observability-side query building centralized through `buildQuery()` and typed param objects, including bootstrap-config validation/update requests consumed by `SettingsStartupTab.tsx`.
 - Import statistics through the public `stats` export from `../api.ts` when a caller needs the standalone stats helper; use `api.stats` when staying on the grouped facade.
+- Keep runtime-route pass-through out of this client split; `api/core.ts` only governs `/api/*` requests.
 
 ## ANTI-PATTERNS
 
 - Do not call `fetch()` directly for Prism backend requests when this client layer already owns credentials and error handling.
 - Do not inject `X-Profile-Id` or maintain a second profile-scope route list from pages, hooks, or provider code outside `core.ts` and `profileScope.ts`.
 - Do not split one endpoint family across multiple client modules without a real backend-boundary change.
+- Do not route `/v1` or `/v1beta` runtime operations through this client layer.

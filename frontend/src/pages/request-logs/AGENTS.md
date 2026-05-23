@@ -1,7 +1,7 @@
 # FRONTEND REQUEST LOGS DOMAIN KNOWLEDGE BASE
 
 ## OVERVIEW
-`pages/request-logs/` owns the investigation flow for proxy traffic: retained browse filtering, exact-request focus mode, request-time audit provenance, profile-aware spend rendering, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
+`pages/request-logs/` owns the investigation flow for proxy traffic: retained browse filtering, exact-request focus mode, request-time audit provenance, profile-aware spend rendering, stream telemetry, and detailed payload inspection. This parent also covers the local `detail/` cluster, while URL-state, exact-request behavior, and sheet-scoped clipboard fallback stay local here.
 
 ## STRUCTURE
 ```
@@ -12,6 +12,7 @@ request-logs/
 ├── useAuditDetail.ts            # Lazy audit detail lookup and retry behavior
 ├── useRequestLogDetail.ts       # Exact-request detail fetch, not-found handling, and refresh
 ├── requestLogAuditState.ts      # Audit capture mode and request-detail audit state helpers
+├── streamTelemetry.ts           # Stream-outcome, TTFT, and rate helpers for request-log views
 ├── columns.tsx                  # Table column definitions and detail entry affordances
 ├── FiltersBar.tsx               # UI shell for retained browse filters plus refresh/clear actions
 ├── FiltersBar.constants.ts      # Filter option constants and shared filter presentation helpers
@@ -30,6 +31,7 @@ request-logs/
 - Table columns, row actions, and detail-entry affordances: `columns.tsx`, `RequestLogsTable.tsx`
 - Filter-bar composition and shared filter constants: `FiltersBar.constants.ts`, `FiltersBarPrimaryFilters.tsx`, `FiltersBar.tsx`
 - Detail sheet, exact-request fetch, audit capture state, sheet-scoped clipboard fallback, and lazy audit fetch: `RequestLogDetailSheet.tsx`, `useRequestLogDetail.ts`, `requestLogAuditState.ts`, `useAuditDetail.ts`
+- Stream telemetry helpers and TTFT/rate display logic: `streamTelemetry.ts`, `detail/RequestLogOverviewTab.tsx`
 - Connection navigation helpers for request-log detail context: `connectionNavigation.ts`
 - Parent-covered detail cluster helpers: `detail/RequestLogOverviewTab.tsx`, `detail/RequestLogAuditTab.tsx`, `detail/RequestLogPayloadBlock.tsx`, `detail/requestLogDetailShared.tsx`, `detail/requestLogDetailUtils.ts`
 - Reporting-currency trust and spend display coupling: `../../context/ReportingCurrencyContext.tsx`, `../../lib/reportingCurrency.ts`, `detail/RequestLogOverviewTab.tsx`
@@ -45,6 +47,7 @@ request-logs/
 - Keep user-facing copy on the shared locale boundary through `useLocale()`, while timestamp formatting continues to flow through `useTimezone()`.
 - Keep audit capture mode and detail-state helpers in `requestLogAuditState.ts` instead of re-deriving them inside detail tabs or fetch hooks.
 - Derive audit visibility from request-time provenance: disabled audit means no linked-audit fetch; enabled without body capture is metadata-only; body presence alone is not the contract.
+- Keep stream telemetry in `streamTelemetry.ts` and parent detail helpers instead of recomputing TTFT or request-rate state in shared widgets.
 - Keep copy actions on shared clipboard helpers. `RequestLogDetailSheet.tsx` intentionally provides `[data-clipboard-fallback-root]` so browser fallback UI stays inside the sheet instead of triggering downloads.
 - Keep request-log cost labels tied to `useReportingCurrencyContext()` so fallback or verified reporting-currency trust is visible in detail views.
 - Keep `detail/` parent-covered here. Those helpers support the request-log sheet only and should not get a separate AGENTS file.
