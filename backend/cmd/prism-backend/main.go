@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -142,10 +143,7 @@ func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 	}
 
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	if _, err := manager.LoadOrSeed(bootstrapConfigPath); err != nil {
-		return bootstrapStartupConfig{}, err
-	}
-	snapshot, settings, err := manager.LoadBootstrapConfigDocument(bootstrapConfigPath)
+	snapshot, settings, err := loadBootstrapConfigDocumentWithRepair(manager, bootstrapConfigPath)
 	if err != nil {
 		return bootstrapStartupConfig{}, err
 	}
@@ -155,6 +153,41 @@ func loadBootstrapSettings() (bootstrapStartupConfig, error) {
 		LoadedRevision:     snapshot.FileRevision,
 		LoadedDocumentETag: snapshot.DocumentETag,
 	}, nil
+}
+
+func loadBootstrapConfigDocumentWithRepair(manager config.BootstrapConfigManager, bootstrapConfigPath string) (config.BootstrapConfigSnapshot, config.Settings, error) {
+	snapshot, settings, err := manager.LoadBootstrapConfigDocument(bootstrapConfigPath)
+	if err == nil {
+		return snapshot, settings, nil
+	}
+	if !shouldRepairBootstrapConfig(err) {
+		return config.BootstrapConfigSnapshot{}, config.Settings{}, err
+	}
+	if err := reseedBootstrapConfig(manager, bootstrapConfigPath); err != nil {
+		return config.BootstrapConfigSnapshot{}, config.Settings{}, err
+	}
+	return manager.LoadBootstrapConfigDocument(bootstrapConfigPath)
+}
+
+func shouldRepairBootstrapConfig(err error) bool {
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) && errors.Is(pathErr.Err, os.ErrNotExist) {
+		return true
+	}
+	return strings.Contains(err.Error(), `unknown field "docsEnabled"`)
+}
+
+func reseedBootstrapConfig(manager config.BootstrapConfigManager, bootstrapConfigPath string) error {
+	if err := os.Remove(bootstrapConfigPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale bootstrap config %q: %w", bootstrapConfigPath, err)
+	}
+	if _, err := manager.LoadOrSeed(bootstrapConfigPath); err != nil {
+		return fmt.Errorf("reseed bootstrap config %q: %w", bootstrapConfigPath, err)
+	}
+	return nil
 }
 
 func shouldPrintEffectiveStartupSettings() bool {

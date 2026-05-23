@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -58,6 +59,52 @@ func TestLoadBootstrapSettingsUsesExplicitBootstrapPath(t *testing.T) {
 		t.Fatalf("expected explicit bootstrap config file to be created: %v", err)
 	}
 	assertLoadedBootstrapSettings(t, bootstrapConfig, databaseURL)
+}
+
+func TestLoadBootstrapSettingsRepairsStaleDocsEnabledConfigJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+	databaseURL := "postgres://stale-bootstrap@db.invalid:5432/prism?sslmode=disable"
+	t.Setenv(config.BootstrapConfigPathEnv, "")
+	t.Setenv("DATABASE_URL", databaseURL)
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+	if _, err := manager.LoadOrSeed(defaultBootstrapConfigPath); err != nil {
+		t.Fatalf("seed bootstrap config: %v", err)
+	}
+
+	configPath := filepath.Join(tempDir, defaultBootstrapConfigPath)
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read seeded bootstrap config: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal seeded bootstrap config: %v", err)
+	}
+	payload["docsEnabled"] = true
+	mutated, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal stale bootstrap config: %v", err)
+	}
+	mutated = append(mutated, '\n')
+	if err := os.WriteFile(configPath, mutated, 0o600); err != nil {
+		t.Fatalf("write stale bootstrap config: %v", err)
+	}
+
+	bootstrapConfig, err := loadBootstrapSettings()
+	if err != nil {
+		t.Fatalf("repair stale bootstrap config: %v", err)
+	}
+	assertLoadedBootstrapSettings(t, bootstrapConfig, databaseURL)
+
+	repairedRaw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read repaired bootstrap config: %v", err)
+	}
+	if strings.Contains(string(repairedRaw), `"docsEnabled"`) {
+		t.Fatalf("expected repaired bootstrap config to omit docsEnabled, got:\n%s", repairedRaw)
+	}
 }
 
 func TestRunPrintEffectiveStartupSettingsReturnsBeforeStartupAndServerWork(t *testing.T) {
