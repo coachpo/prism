@@ -1,4 +1,3 @@
-import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/useLocale";
 import {
@@ -18,7 +17,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SwitchController } from "@/components/SwitchController";
 import type { HeaderBlocklistRule, HeaderBlocklistRuleCreate } from "@/lib/types";
 import type { Dispatch, FormEvent, SetStateAction } from "react";
@@ -58,26 +56,6 @@ export function RuleDialog({
           <input type="hidden" name="match_type" value={ruleForm.match_type} />
           <input type="hidden" name="enabled" value={String(ruleForm.enabled)} />
           <DialogBody>
-            <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-              <div className="flex items-start gap-3">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" aria-label={copy.whyBlockHeaders} className="mt-0.5 shrink-0">
-                      <Info className="size-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs">
-                    {copy.blockHeadersTooltip}
-                  </TooltipContent>
-                </Tooltip>
-
-                <div className="flex flex-col gap-1">
-                  <p>{copy.blockHeadersExamples}</p>
-                  <p>{copy.stripSensitiveHeaders}</p>
-                </div>
-              </div>
-            </div>
-
             <div className="flex flex-col gap-4 rounded-lg border p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-2">

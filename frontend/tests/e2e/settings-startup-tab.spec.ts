@@ -348,7 +348,7 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
 
   gate.resolve();
 
-  await expect(page.getByText("Eligible settings apply immediately after save; structural settings are written to config.json and require a Prism restart.")).toBeVisible();
+  await expect(page.getByText("Immediate settings apply on save; structural settings require restart.")).toBeVisible();
   await expect(page.getByText(maskedDatabaseUrl)).toBeVisible();
   await expect(page.getByText(maskedRuntimeKey)).toBeVisible();
   await expect(page.getByText(maskedJwtKey)).toBeVisible();
@@ -578,7 +578,7 @@ test("runtime side-effects timeout renders distinct field", async ({ page }) => 
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await expect(page.getByText("Runtime side effects", { exact: true })).toBeVisible();
-  await expect(page.getByText("Telemetry enqueue attempts use this timeout separately from upstream provider requests.")).toBeVisible();
+  await expect(page.getByText("Telemetry enqueue timeout.")).toBeVisible();
   await expect(page.locator('label[for="startup-side-effects-attempt-timeout"]').locator("..").getByText("Restart required")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" })).toHaveValue("10s");
   await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");

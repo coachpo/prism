@@ -879,8 +879,6 @@ export interface Messages {
   settingsDialogs: {
     activateRuleImmediately: string;
     allData: string;
-    blockHeadersExamples: string;
-    blockHeadersTooltip: string;
     cancel: string;
     cleanupTypeAudits: string;
     cleanupTypeLoadbalanceEvents: string;
@@ -915,7 +913,6 @@ export interface Messages {
     ruleDialogEditTitle: string;
     retention: string;
     saveRule: string;
-    stripSensitiveHeaders: string;
     type: string;
     typeDeleteToProceed: (keyword: string) => string;
     userAgentClientRuleDialogAddTitle: string;
@@ -925,7 +922,6 @@ export interface Messages {
     userAgentClientRulesExplanation: string;
     userAgentClientRulesTooltip: string;
     whyMatchUserAgentClients: string;
-    whyBlockHeaders: string;
   };
   settingsAuditRules: {
     addRule: string;
@@ -2822,7 +2818,7 @@ export const enMessages: Messages = {
     accessCookieName: "Access cookie name",
     accessTokenTtlSeconds: "Access token TTL seconds",
     auth: "Auth",
-    authAndCookiesDescription: "JWT signing metadata, token TTLs, and cookie settings. Eligible TTL and cookie fields apply immediately.",
+    authAndCookiesDescription: "JWT signing, token TTLs, and cookies.",
     authAndCookiesTitle: "Auth and cookies",
     appliedNowMessage: "Applied immediately to the running process.",
     appliesImmediately: "Applies immediately",
@@ -2848,7 +2844,7 @@ export const enMessages: Messages = {
     dangerDialogDescription: "These edits will be written to config.json. Eligible fields apply immediately; structural fields require the next Prism restart.",
     dangerDialogTitle: "Save dangerous startup changes?",
     dangerousChangesStaged: "Dangerous changes staged",
-    dangerousChecklistDescription: "Required only for listener, database URL, JWT signing key, and bundle encryption-key changes.",
+    dangerousChecklistDescription: "Required for restart-sensitive changes.",
     dangerousChecklistTitle: "Dangerous confirmation checklist",
     database: "Database",
     databaseAndCapacityDescription: "PostgreSQL secret metadata plus pool and admission limits.",
@@ -2880,10 +2876,10 @@ export const enMessages: Messages = {
     loadFailedTitle: "Startup bootstrap config unavailable",
     loadFailedDescription: "The startup bootstrap config could not be loaded.",
     mail: "Mail",
-    mailAndSmtpDescription: "Auth email delivery and SMTP settings apply immediately when hot publish succeeds.",
+    mailAndSmtpDescription: "Auth email delivery and SMTP.",
     mailAndSmtpTitle: "Mail and SMTP",
     mailEnabled: "Enable auth email delivery",
-    mailEnabledDescription: "When disabled, Prism uses no-op email delivery and does not require SMTP settings.",
+    mailEnabledDescription: "Disabling mail also disables SMTP requirements.",
     mailFrom: "Mail sender",
     mailFromPlaceholder: "Prism <noreply@example.com>",
     mailFromRequired: "Mail sender is required when mail is enabled.",
@@ -2931,7 +2927,7 @@ export const enMessages: Messages = {
     requestTimeout: "Request timeout",
     responseHeaderTimeout: "Response header timeout",
     runtimeSideEffects: "Runtime side effects",
-    runtimeSideEffectsDescription: "Telemetry enqueue attempts use this timeout separately from upstream provider requests.",
+    runtimeSideEffectsDescription: "Telemetry enqueue timeout.",
     replacementDisabled: "Replacement disabled",
     replaceOnSave: "Replace on save",
     requiredConfirmations: (tokens) => ` Required confirmations: ${tokens}.`,
@@ -2941,7 +2937,7 @@ export const enMessages: Messages = {
     restartChangesStaged: (count) => `${count} restart ${count === 1 ? "change" : "changes"} staged`,
     restartRequiredSaveMessage: "Saved for the next Prism restart.",
     retry: "Retry",
-    reviewAndSaveDescription: "Validate edits, confirm dangerous structural changes, then write config.json.",
+    reviewAndSaveDescription: "Validate and save config.json changes.",
     reviewAndSaveTitle: "Review and save",
     runtimeMaxConns: "Runtime max conns",
     runtimeMinIdle: "Runtime min idle",
@@ -2984,7 +2980,7 @@ export const enMessages: Messages = {
     stateTransferTitle: "State transfer",
     status: "Status",
     startupBootstrapConfigTitle: "Startup bootstrap config",
-    startupBootstrapConfigDescription: "Eligible settings apply immediately after save; structural settings are written to config.json and require a Prism restart.",
+    startupBootstrapConfigDescription: "Immediate settings apply on save; structural settings require restart.",
     streaming: "streaming",
     smtp: "SMTP",
     smtpAuth: "SMTP auth",
@@ -2992,8 +2988,8 @@ export const enMessages: Messages = {
     smtpAuthPlain: "Plain username and password",
     smtpAuthPlaceholder: "Select SMTP auth",
     smtpAuthRequired: "Select a valid SMTP auth mode.",
-    smtpDescription: "Configure the outbound SMTP connection used for password reset and recovery email messages.",
-    smtpDisabledDescription: "Enable mail delivery to edit SMTP connection settings.",
+    smtpDescription: "Outbound SMTP for recovery email.",
+    smtpDisabledDescription: "Enable mail to edit SMTP.",
     smtpEhloHostname: "EHLO hostname",
     smtpEhloHostnamePlaceholder: "prism.example.com",
     smtpHost: "SMTP host",
@@ -3039,10 +3035,6 @@ export const enMessages: Messages = {
   settingsDialogs: {
     activateRuleImmediately: "Activate this rule immediately",
     allData: "All data",
-    blockHeadersExamples:
-      'Examples: cf- (prefix), x-forwarded-for (exact).',
-    blockHeadersTooltip:
-      "Blocklist rules prevent privacy, tunnel, and tracing metadata from reaching upstream providers.",
     cancel: "Cancel",
     cleanupTypeAudits: "Audit Logs",
     cleanupTypeLoadbalanceEvents: "Loadbalance Events",
@@ -3079,7 +3071,6 @@ export const enMessages: Messages = {
     ruleDialogEditTitle: "Edit Rule",
     retention: "Retention",
     saveRule: "Save Rule",
-    stripSensitiveHeaders: "Use this to strip sensitive headers before forwarding runtime traffic.",
     type: "Type",
     typeDeleteToProceed: (keyword) => `Type ${keyword} to proceed`,
     userAgentClientRuleDialogAddTitle: "Add User-Agent Client Rule",
@@ -3089,7 +3080,6 @@ export const enMessages: Messages = {
     userAgentClientRulesExplanation: "Use regex rules to classify caller and upstream clients from stored User-Agent values.",
     userAgentClientRulesTooltip: "These rules label request-log clients from the backend-provided caller and upstream User-Agent strings.",
     whyMatchUserAgentClients: "Why match User-Agent clients",
-    whyBlockHeaders: "Why block headers",
   },
   settingsAuditRules: {
     addRule: "Add Rule",
@@ -3163,7 +3153,7 @@ export const enMessages: Messages = {
     addPasskey: "Add passkey",
     authentication: "Authentication",
     authenticationDisabled: "Authentication disabled",
-  authenticationDisabledDescription: "Configure operator sign-in and recovery email for this Prism instance.",
+    authenticationDisabledDescription: "Configure operator sign-in and recovery email.",
     authenticationIsDisabled: "Authentication is disabled",
     authenticationStatus: "Authentication status",
     authenticationToggleDescription: "Sign-in can only be enabled after the operator account and recovery email are fully configured.",
@@ -3179,7 +3169,7 @@ export const enMessages: Messages = {
     emailVerificationFailed: "Failed to verify email",
     emailVerificationSucceeded: "Email verified",
     enableAuthenticationToEnforceKeys: "Enable authentication in Settings when you are ready to enforce these keys.",
-  enableAuthenticationToManagePasskeys: "Enable authentication to manage operator access.",
+    enableAuthenticationToManagePasskeys: "Enable authentication to manage operator access.",
     lastUsed: (value) => `Last used ${value}`,
     noPasskeysRegistered: "No passkeys registered",
     noPasskeysRegisteredDescription:
@@ -3195,7 +3185,7 @@ export const enMessages: Messages = {
     passkeys: "Passkeys",
     passkeysRegistered: (count) => `${count} registered`,
     passkeyFallbackName: (id) => `Passkey #${id}`,
-    proxyKeyTrafficRequirement: "Requests to `/v1/*` and `/v1beta/*` must present a valid key.",
+    proxyKeyTrafficRequirement: "Runtime requests require a valid key.",
     recoveryEmail: "Recovery email",
     recoveryEmailDescription: "Verify a recovery email before authentication can be turned on.",
     recoveryEmailChangedRequiresVerification:
