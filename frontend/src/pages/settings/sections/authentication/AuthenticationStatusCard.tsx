@@ -23,12 +23,7 @@ export function AuthenticationStatusCard({
     <Card className="shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{copy.authentication}</CardTitle>
-        <CardDescription>
-          <span className="font-medium text-foreground">
-            {copy.authentication}: {authEnabled ? messages.shell.activate : messages.settingsDialogs.cancel}
-          </span>{" "}
-          {statusDescription}
-        </CardDescription>
+        <CardDescription>{statusDescription}</CardDescription>
       </CardHeader>
       <CardContent>
         <SwitchController

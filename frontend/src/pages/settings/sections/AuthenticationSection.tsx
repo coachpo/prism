@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -46,9 +45,6 @@ export function AuthenticationSection({
                 <Shield className="h-4 w-4" />
                 {copy.authentication}
               </CardTitle>
-              <CardDescription className="text-xs">
-                {copy.authenticationDisabledDescription}
-              </CardDescription>
             </div>
             <Badge variant={authEnabled ? "default" : "outline"} className="w-fit">
               {authEnabled ? messages.loadbalanceStrategiesTable.enabled : messages.loadbalanceStrategiesTable.disabled}
