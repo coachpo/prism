@@ -19,11 +19,7 @@ export const CHANNEL_PAYLOAD_EXTRACTORS: {
     message.type === "dashboard.update"
       ? {
           request_log: message.request_log,
-          stats_summary_24h: message.stats_summary_24h,
-          api_family_summary_24h: message.api_family_summary_24h,
-          spending_summary_30d: message.spending_summary_30d,
-          throughput_24h: message.throughput_24h,
-          routing_route_24h: message.routing_route_24h,
+          snapshot: message.snapshot,
         }
       : null,
   analytics: (message) =>

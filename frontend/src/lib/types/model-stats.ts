@@ -511,27 +511,98 @@ export interface ThroughputStatsParams {
   connection_id?: number;
 }
 
-export interface DashboardRouteSnapshot {
-  model_id: string;
-  model_config_id: number | null;
-  model_label: string;
-  endpoint_id: number;
-  endpoint_label: string;
-  active_connection_count: number;
-  traffic_request_count_24h: number;
-  request_count_24h: number;
-  success_count_24h: number;
-  error_count_24h: number;
-  success_rate_24h: number | null;
+export interface DashboardSnapshotCoverage {
+  from: string;
+  to: string;
+}
+
+export interface DashboardSnapshotHealth {
+  lag_seconds: number;
+  stale: boolean;
+  stale_after_seconds: number;
+}
+
+export interface DashboardMetricSnapshot {
+  active_models: number;
+  average_rpm: number;
+  average_rpm_request_total: number;
+  avg_latency: number;
+  error_rate: number;
+  p95_latency: number;
+  priced_request_count: number;
+  stream_share: number;
+  success_rate: number;
+  total_cost: number;
+  total_models: number;
+  total_requests: number;
+  unpriced_request_count: number;
+}
+
+export interface DashboardStrategyFamilySummary {
+  adaptive_count: number;
+  legacy_count: number;
+  unassigned_count: number;
+}
+
+export interface DashboardRoutingNode {
+  id: string;
+  name: string;
+  kind: "endpoint" | "model";
+  label: string;
+  sublabel: string | null;
+  endpointId: number | null;
+  modelId: string | null;
+  modelConfigId: number | null;
+  activeConnectionCount: number;
+  trafficRequestCount24h: number;
+  requestCount24h: number;
+  successCount24h: number;
+  errorCount24h: number;
+  successRate24h: number | null;
+}
+
+export interface DashboardRoutingLink {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  modelId: string;
+  modelLabel: string;
+  modelConfigId: number;
+  endpointId: number;
+  endpointLabel: string;
+  activeConnectionCount: number;
+  trafficRequestCount24h: number;
+  requestCount24h: number;
+  successCount24h: number;
+  errorCount24h: number;
+  successRate24h: number | null;
+}
+
+export interface DashboardRoutingHealthMap {
+  nodes: DashboardRoutingNode[];
+  links: DashboardRoutingLink[];
+  endpointCount: number;
+  modelCount: number;
+  activeConnectionTotal: number;
+  trafficRequestTotal24h: number;
+}
+
+export interface DashboardSnapshot {
+  generated_at: string;
+  coverage_24h: DashboardSnapshotCoverage;
+  coverage_30d: DashboardSnapshotCoverage;
+  health: DashboardSnapshotHealth;
+  metric_snapshot: DashboardMetricSnapshot;
+  api_family_rows: StatGroup[];
+  strategy_family_summary: DashboardStrategyFamilySummary;
+  recent_requests: RequestLogListItem[];
+  top_spending_models: SpendingTopModel[];
+  routing_health_map: DashboardRoutingHealthMap;
 }
 
 export interface DashboardRealtimeUpdatePayload {
   request_log: RequestLogEntry;
-  stats_summary_24h: StatsSummary;
-  api_family_summary_24h: StatsSummary;
-  spending_summary_30d: SpendingReportResponse;
-  throughput_24h: ThroughputStatsResponse;
-  routing_route_24h: DashboardRouteSnapshot | null;
+  snapshot: DashboardSnapshot;
 }
 
 export interface EndpointModelsBatchParams {

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 
@@ -22,7 +23,7 @@ function createModelListItem() {
     id: 101,
     vendor_id: null,
     vendor: null,
-    api_family: "openai",
+    api_family: "openai" as const,
     model_id: "model-a",
     display_name: "Model A",
     model_type: "native",
@@ -36,57 +37,6 @@ function createModelListItem() {
     health_total_requests: 42,
     created_at: timestamp,
     updated_at: timestamp,
-  };
-}
-
-function createDashboardModelListItem(
-  id: number,
-  modelId: string,
-  strategy: ReturnType<typeof createLegacyStrategy> | ReturnType<typeof createAdaptiveStrategy> | null,
-) {
-  return {
-    ...createModelListItem(),
-    id,
-    model_id: modelId,
-    display_name: modelId,
-    connection_count: 0,
-    active_connection_count: 0,
-    loadbalance_strategy_id: strategy?.id ?? null,
-    loadbalance_strategy: strategy,
-  };
-}
-
-function createLegacyStrategy() {
-  return {
-    id: 11,
-    name: "Legacy routing",
-    strategy_type: "legacy" as const,
-    legacy_strategy_type: "round-robin" as const,
-    auto_recovery: { mode: "disabled" as const },
-  };
-}
-
-function createAdaptiveStrategy() {
-  return {
-    id: 12,
-    name: "Adaptive routing",
-    strategy_type: "adaptive" as const,
-    routing_policy: {
-      kind: "adaptive" as const,
-      routing_objective: "maximize_availability" as const,
-      hedge: { enabled: false, delay_ms: 250, max_additional_attempts: 1 },
-      circuit_breaker: {
-        failure_status_codes: [429, 500, 502, 503, 504],
-        base_open_seconds: 30,
-        failure_threshold: 3,
-        backoff_multiplier: 2,
-        max_open_seconds: 300,
-        ban_mode: "off" as const,
-        max_open_strikes_before_ban: 0,
-        ban_duration_seconds: 0,
-      },
-      admission: { respect_qps_limit: true, respect_in_flight_limits: true },
-    },
   };
 }
 
@@ -143,7 +93,7 @@ function createRecentRequestLogItem() {
     caller_client_display: "Dashboard Fixture Row",
     upstream_client_display: "Dashboard Fixture Row",
     user_agent_overridden: false,
-    api_family: "openai",
+    api_family: "openai" as const,
     vendor_id: null,
     vendor_key: null,
     vendor_name: null,
@@ -155,9 +105,14 @@ function createRecentRequestLogItem() {
     status_code: 200,
     response_time_ms: 640,
     is_stream: false,
+    stream_outcome: "not_streaming" as const,
+    stream_error_kind: null,
+    reasoning_effort: null,
     output_tokens: 48,
     total_tokens: 120,
     total_cost_user_currency_micros: 250000,
+    priced_flag: true,
+    unpriced_reason: null,
     report_currency_symbol: "$",
   };
 }
@@ -171,7 +126,7 @@ function createRequestLogDetail() {
       model_label: "Model A",
       resolved_target_model_id: null,
       resolved_target_model_label: null,
-      api_family: "openai",
+      api_family: "openai" as const,
       vendor_id: null,
       vendor_key: null,
       vendor_name: null,
@@ -259,19 +214,19 @@ function createRequestLogsResponse() {
 
 async function mockDashboardRoutes(
   page: Page,
-  options: { failOptionalDashboardStats?: boolean; modelListItems?: ReturnType<typeof createDashboardModelListItem>[] } = {},
+  options: { dashboardSnapshot?: ReturnType<typeof createDashboardSnapshot> } = {},
 ) {
   const profiles = [createProfile(1, "Red Team", true)];
-  const modelListItem = createModelListItem();
-  const modelListItems = options.modelListItems ?? [modelListItem];
   const modelDetail = createModelDetail();
-  const connection = createConnection();
   const requestLogDetail = createRequestLogDetail();
+  const dashboardSnapshot = options.dashboardSnapshot ?? createDashboardSnapshot({
+    recentRequests: [createRecentRequestLogItem()],
+  });
 
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const { pathname, searchParams } = url;
+    const { pathname } = url;
 
     if (!pathname.startsWith("/api/")) {
       return route.continue();
@@ -283,9 +238,6 @@ async function mockDashboardRoutes(
         contentType: "application/json",
         body: JSON.stringify(body),
       });
-    const fulfillOverloaded = () =>
-      fulfillJson({ detail: "Management route temporarily overloaded. Retry later." }, 503);
-
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
     }
@@ -298,25 +250,8 @@ async function mockDashboardRoutes(
       });
     }
 
-    if (pathname === "/api/stats/summary" && options.failOptionalDashboardStats && searchParams.get("group_by") === "api_family") {
-      return fulfillOverloaded();
-    }
-
-    if (pathname === "/api/stats/summary") {
-      return fulfillJson({
-        total_requests: 42,
-        success_requests: 41,
-        failed_requests: 1,
-        success_rate: 97.6,
-        avg_response_time_ms: 123,
-        p95_response_time_ms: 180,
-        total_tokens: 2048,
-        input_tokens: 1200,
-        output_tokens: 700,
-        cached_tokens: 100,
-        reasoning_tokens: 48,
-        groups: [],
-      });
+    if (pathname === "/api/stats/dashboard") {
+      return fulfillJson(dashboardSnapshot);
     }
 
     if (pathname === "/api/settings/costing") {
@@ -332,84 +267,6 @@ async function mockDashboardRoutes(
       return fulfillJson({ timezone_preference: "UTC" });
     }
 
-    if (pathname === "/api/stats/spending") {
-      if (options.failOptionalDashboardStats && searchParams.get("group_by") !== "model_endpoint") {
-        return fulfillOverloaded();
-      }
-
-      if (searchParams.get("group_by") === "model_endpoint") {
-        return fulfillJson({
-          summary: {
-            total_cost_micros: 250000,
-            successful_request_count: 41,
-            priced_request_count: 41,
-            unpriced_request_count: 0,
-            total_input_tokens: 1200,
-            total_output_tokens: 700,
-            total_cache_read_input_tokens: 100,
-            total_cache_creation_input_tokens: 0,
-            total_reasoning_tokens: 48,
-            total_tokens: 2048,
-            avg_cost_per_successful_request_micros: 6098,
-          },
-          groups: [
-            {
-              key: "model-a#201",
-              total_cost_micros: 250000,
-              total_requests: 42,
-              priced_requests: 41,
-              unpriced_requests: 0,
-              total_tokens: 2048,
-            },
-          ],
-          groups_total: 1,
-          top_spending_models: [{ model_id: "model-a", total_cost_micros: 250000 }],
-          top_spending_endpoints: [{ endpoint_id: 201, endpoint_label: "Endpoint A", total_cost_micros: 250000 }],
-          unpriced_breakdown: {},
-          report_currency_code: "USD",
-          report_currency_symbol: "$",
-        });
-      }
-
-      return fulfillJson({
-        summary: {
-          total_cost_micros: 250000,
-          successful_request_count: 41,
-          priced_request_count: 41,
-          unpriced_request_count: 0,
-          total_input_tokens: 1200,
-          total_output_tokens: 700,
-          total_cache_read_input_tokens: 100,
-          total_cache_creation_input_tokens: 0,
-          total_reasoning_tokens: 48,
-          total_tokens: 2048,
-          avg_cost_per_successful_request_micros: 6098,
-        },
-        groups: [],
-        groups_total: 0,
-        top_spending_models: [{ model_id: "model-a", total_cost_micros: 250000 }],
-        top_spending_endpoints: [{ endpoint_id: 201, endpoint_label: "Endpoint A", total_cost_micros: 250000 }],
-        unpriced_breakdown: {},
-        report_currency_code: "USD",
-        report_currency_symbol: "$",
-      });
-    }
-
-    if (pathname === "/api/stats/throughput") {
-      if (options.failOptionalDashboardStats) {
-        return fulfillOverloaded();
-      }
-
-      return fulfillJson({
-        average_rpm: 1.2,
-        peak_rpm: 2,
-        current_rpm: 1,
-        total_requests: 42,
-        time_window_seconds: 86400,
-        buckets: [],
-      });
-    }
-
     if (pathname === "/api/stats/requests") {
       return fulfillJson(createRequestLogsResponse());
     }
@@ -418,30 +275,8 @@ async function mockDashboardRoutes(
       return fulfillJson(requestLogDetail);
     }
 
-    if (pathname === "/api/stats/api-family") {
-      return fulfillJson({ groups: [] });
-    }
-
-    if (pathname === "/api/stats/connection-success-rates") {
-      return fulfillJson([
-        {
-          connection_id: 501,
-          total_requests: 42,
-          success_count: 41,
-          error_count: 1,
-          success_rate: 97.6,
-        },
-      ]);
-    }
-
-    if (pathname === "/api/models/connections/batch") {
-      return fulfillJson({
-        items: [{ model_config_id: 101, connections: [connection] }],
-      });
-    }
-
     if (pathname === "/api/models") {
-      return fulfillJson(modelListItems);
+      return fulfillJson([createModelListItem()]);
     }
 
     if (pathname === "/api/models/101") {
@@ -516,17 +351,15 @@ test.describe("dashboard routing shell", () => {
     await expect(page).toHaveURL(/\/models\/101$/);
   });
 
-  test("keeps strategy counts when optional dashboard stats are overloaded", async ({ page }) => {
-    const legacyStrategy = createLegacyStrategy();
-    const adaptiveStrategy = createAdaptiveStrategy();
-
+  test("keeps strategy counts from the aggregate dashboard snapshot", async ({ page }) => {
     await mockDashboardRoutes(page, {
-      failOptionalDashboardStats: true,
-      modelListItems: [
-        createDashboardModelListItem(101, "legacy-model", legacyStrategy),
-        createDashboardModelListItem(102, "adaptive-model", adaptiveStrategy),
-        createDashboardModelListItem(103, "unassigned-model", null),
-      ],
+      dashboardSnapshot: createDashboardSnapshot({
+        strategyFamilySummary: {
+          adaptive_count: 1,
+          legacy_count: 1,
+          unassigned_count: 1,
+        },
+      }),
     });
 
     await page.goto("/dashboard?tab=overview");

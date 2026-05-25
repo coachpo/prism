@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 
@@ -39,146 +40,12 @@ function createModelListItem(profileId: number) {
   };
 }
 
-function createDashboardUsageSnapshot(profileId: number) {
-  return {
-    generated_at: timestamp,
-    time_range: {
-      preset: "24h",
-      start_at: "2026-04-10T00:00:00Z",
-      end_at: timestamp,
-    },
-    currency: {
-      code: profileId === 2 ? "USD" : "CNY",
-      symbol: profileId === 2 ? "$" : "¥",
-    },
-    overview: {
-      total_requests: 20,
-      success_requests: 19,
-      failed_requests: 1,
-      success_rate: 95,
-      total_tokens: 1650,
-      input_tokens: 900,
-      output_tokens: 600,
-      cached_tokens: 100,
-      reasoning_tokens: 50,
-      average_rpm: 0.5,
-      average_tpm: 68.8,
-      total_cost_micros: 250000,
-    },
-    service_health: {
-      availability_percentage: 95,
-      request_count: 20,
-      success_count: 19,
-      failed_count: 1,
-      interval_minutes: 60,
-      cells: [],
-    },
-    request_trends: {
-      hourly: [
-        {
-          key: "all",
-          label: "All requests",
-          total_requests: 20,
-          points: [],
-        },
-      ],
-      daily: [
-        {
-          key: "all",
-          label: "All requests",
-          total_requests: 20,
-          points: [],
-        },
-      ],
-    },
-    token_usage_trends: {
-      hourly: [],
-      daily: [],
-    },
-    token_type_breakdown: {
-      hourly: [],
-      daily: [],
-    },
-    cost_overview: {
-      total_cost_micros: 250000,
-      priced_request_count: 9,
-      unpriced_request_count: 2,
-      hourly: [],
-      daily: [],
-    },
-    endpoint_statistics: [],
-    model_statistics: [],
-    proxy_api_key_statistics: [],
-  };
-}
-
-function createStatsSummary(totalRequests: number) {
-  return {
-    total_requests: totalRequests,
-    success_requests: totalRequests - 1,
-    failed_requests: 1,
-    success_rate: 95,
-    total_tokens: 1650,
-    input_tokens: 900,
-    output_tokens: 600,
-    cached_tokens: 100,
-    reasoning_tokens: 50,
-    average_rpm: 0.5,
-    average_tpm: 68.8,
-  };
-}
-
 function createCostingSettings(profileId: number) {
   return {
     report_currency_code: profileId === 2 ? "USD" : "CNY",
     report_currency_symbol: profileId === 2 ? "$" : "¥",
     endpoint_fx_mappings: [],
     timezone_preference: null,
-  };
-}
-
-function createRequestLogsResponse(searchParams: URLSearchParams) {
-  const requestLogItems = [
-    {
-      id: 1,
-      created_at: timestamp,
-      model_id: "gpt-4o-mini",
-      resolved_target_model_id: null,
-      caller_client_display: null,
-      upstream_client_display: null,
-      user_agent_overridden: false,
-      api_family: "openai",
-      vendor_id: null,
-      vendor_key: null,
-      vendor_name: null,
-      endpoint_id: null,
-      endpoint_label: "Unknown Endpoint",
-      connection_id: null,
-      ttft_ms: null,
-      completion_duration_ms: null,
-      status_code: 200,
-      response_time_ms: 123,
-      is_stream: false,
-      output_tokens: 10,
-      total_tokens: 10,
-      total_cost_user_currency_micros: 1000,
-      report_currency_symbol: "¥",
-    },
-  ];
-  const limit = Number.parseInt(
-    searchParams.get("limit") ?? String(requestLogItems.length),
-    10,
-  );
-  const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
-
-  return {
-    items: requestLogItems.slice(offset, offset + limit),
-    total: requestLogItems.length,
-    limit,
-    offset,
-    filter_options: {
-      endpoints: [],
-    },
   };
 }
 
@@ -191,7 +58,7 @@ async function mockDashboardRoutes(page: Page) {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const { pathname, searchParams } = url;
+    const { pathname } = url;
 
     if (!pathname.startsWith("/api/")) {
       return route.continue();
@@ -203,6 +70,7 @@ async function mockDashboardRoutes(page: Page) {
         contentType: "application/json",
         body: JSON.stringify(body),
       });
+    const profileId = Number(request.headers()["x-profile-id"] ?? "1");
 
     if (pathname === "/api/auth/status") {
       return fulfillJson({ auth_enabled: false });
@@ -217,64 +85,28 @@ async function mockDashboardRoutes(page: Page) {
     }
 
     if (pathname === "/api/settings/costing") {
-      const profileId = Number(request.headers()["x-profile-id"] ?? "1");
       return fulfillJson(createCostingSettings(profileId));
     }
 
-    if (pathname === "/api/stats/summary") {
-      return fulfillJson(createStatsSummary(20));
-    }
-
-    if (pathname === "/api/models") {
-      const profileId = Number(request.headers()["x-profile-id"] ?? "1");
-      return fulfillJson([createModelListItem(profileId)]);
-    }
-
-    if (pathname === "/api/stats/requests") {
-      return fulfillJson(createRequestLogsResponse(searchParams));
-    }
-
-    if (pathname === "/api/stats/usage-snapshot") {
-      const profileId = Number(request.headers()["x-profile-id"] ?? "1");
-      return fulfillJson(createDashboardUsageSnapshot(profileId));
-    }
-
-    if (pathname === "/api/stats/spending") {
-      const profileId = Number(request.headers()["x-profile-id"] ?? "1");
-      return fulfillJson({
-        summary: {
-          total_cost_micros: 250000,
-          successful_request_count: 11,
+    if (pathname === "/api/stats/dashboard") {
+      return fulfillJson(createDashboardSnapshot({
+        metricSnapshot: {
+          total_cost: 250000,
           priced_request_count: 9,
           unpriced_request_count: 2,
+          total_requests: 20,
         },
-        top_spending_models: [
+        topSpendingModels: [
           {
             model_id: `gpt-4o-mini-p${profileId}`,
             total_cost_micros: 250000,
           },
         ],
-      });
+      }));
     }
 
-    if (pathname === "/api/stats/throughput") {
-      return fulfillJson({ average_rpm: 0.5, total_requests: 20 });
-    }
-
-    if (pathname === "/api/stats/api-family") {
-      return fulfillJson({ groups: [] });
-    }
-
-    if (pathname === "/api/stats/connection-success-rates") {
-      return fulfillJson([]);
-    }
-
-    if (pathname === "/api/connections/by-models") {
-      return fulfillJson([]);
-    }
-
-    if (pathname === "/api/routing-diagram") {
-      return fulfillJson({ nodes: [], links: [] });
+    if (pathname === "/api/models") {
+      return fulfillJson([createModelListItem(profileId)]);
     }
 
     return fulfillJson({}, 404);

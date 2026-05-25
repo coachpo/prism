@@ -65,19 +65,11 @@ function DashboardOverviewSection({ pageState }: { pageState: ReturnType<typeof 
       <DashboardTabs pageState={pageState} />
 
       <DashboardOverviewTab
-        apiFamilyRows={data.apiFamilyRows}
         clearRecentRequestHighlight={data.clearRecentRequestHighlight}
         loading={data.loading}
-        metricSnapshot={data.metricSnapshot}
         metricsHighlighted={data.metricsHighlighted}
-        modelDisplayNames={data.modelDisplayNames}
+        overviewData={data.overviewData}
         recentNewIds={data.recentNewIds}
-        recentRequests={data.recentRequests}
-        routingDiagramData={data.routingDiagramData}
-        routingDiagramError={data.routingDiagramError}
-        routingDiagramLoading={data.routingDiagramLoading}
-        strategyFamilySummary={data.strategyFamilySummary}
-        topSpendingModels={data.topSpendingModels}
         formatTime={formatTime}
         onOpenAnalytics={openAnalyticsTab}
         onInspectSpending={openAnalyticsTab}

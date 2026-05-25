@@ -1,77 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtimeData } from "@/hooks/useRealtimeData";
-import type {
-  DashboardRealtimeUpdatePayload,
-  RequestLogEntry,
-  RequestLogListItem,
-  SpendingReportResponse,
-  StatsSummary,
-  ThroughputStatsResponse,
-} from "@/lib/types";
-import { applyRoutingDiagramRealtimeUpdate, type RoutingDiagramData } from "./routingDiagram";
-
-function toRequestLogListItem(entry: RequestLogEntry): RequestLogListItem {
-  return {
-    id: entry.id,
-    created_at: entry.created_at,
-    model_id: entry.model_id,
-    model_label: entry.model_label,
-    resolved_target_model_id: entry.resolved_target_model_id,
-    resolved_target_model_label: entry.resolved_target_model_label,
-    is_proxy_origin: entry.is_proxy_origin,
-    caller_client_display: null,
-    upstream_client_display: null,
-    user_agent_overridden: false,
-    api_family: entry.api_family ?? "openai",
-    vendor_id: entry.vendor_id,
-    vendor_key: entry.vendor_key,
-    vendor_name: entry.vendor_name,
-    endpoint_id: entry.endpoint_id,
-    endpoint_label:
-      entry.endpoint_base_url ??
-      (entry.endpoint_id === null ? "Unknown Endpoint" : `Endpoint ${entry.endpoint_id}`),
-    connection_id: entry.connection_id,
-    ttft_ms: entry.ttft_ms,
-    completion_duration_ms: entry.completion_duration_ms,
-    status_code: entry.status_code,
-    response_time_ms: entry.response_time_ms,
-    is_stream: entry.is_stream,
-    stream_outcome: entry.stream_outcome,
-    stream_error_kind: entry.stream_error_kind,
-    reasoning_effort: null,
-    output_tokens: entry.output_tokens,
-    total_tokens: entry.total_tokens,
-    total_cost_user_currency_micros: entry.total_cost_user_currency_micros,
-    priced_flag: entry.priced_flag,
-    unpriced_reason: entry.unpriced_reason,
-    report_currency_symbol: entry.report_currency_symbol,
-  };
-}
+import type { DashboardRealtimeUpdatePayload } from "@/lib/types";
+import type { DashboardSnapshotReconciler } from "./useDashboardBootstrapData";
 
 type Params = {
-  fetchDashboardData: (args?: { forceRefresh?: boolean; silent?: boolean }) => Promise<void>;
-  latestDashboardRequestIdRef: React.RefObject<number>;
+  fetchDashboardData: (args?: { silent?: boolean }) => Promise<void>;
+  reconcileDashboardSnapshot: DashboardSnapshotReconciler;
   selectedProfileId: number | null;
-  setApiFamilyStats: React.Dispatch<React.SetStateAction<StatsSummary | null>>;
-  setRecentRequests: React.Dispatch<React.SetStateAction<RequestLogListItem[]>>;
-  setRoutingDiagramData: React.Dispatch<React.SetStateAction<RoutingDiagramData | null>>;
   setRoutingDiagramError: React.Dispatch<React.SetStateAction<string | null>>;
-  setSpending: React.Dispatch<React.SetStateAction<SpendingReportResponse | null>>;
-  setStats: React.Dispatch<React.SetStateAction<StatsSummary | null>>;
-  setThroughput: React.Dispatch<React.SetStateAction<ThroughputStatsResponse | null>>;
 };
 
 export function useDashboardRealtime({
   fetchDashboardData,
-  latestDashboardRequestIdRef,
+  reconcileDashboardSnapshot,
   selectedProfileId,
-  setApiFamilyStats,
-  setRecentRequests,
-  setRoutingDiagramData,
   setRoutingDiagramError,
-  setSpending,
-  setStats,
-  setThroughput,
 }: Params) {
   const [recentNewIds, setRecentNewIds] = useState<Set<number>>(() => new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -93,43 +36,24 @@ export function useDashboardRealtime({
   const applyDashboardUpdate = useCallback(
     (update: DashboardRealtimeUpdatePayload) => {
       const entry = update.request_log;
-      const summary = toRequestLogListItem(entry);
 
-      if (entry.id <= latestDashboardRequestIdRef.current) {
+      const didApply = reconcileDashboardSnapshot(update.snapshot, {
+        requestId: entry.id,
+      });
+
+      if (!didApply) {
         return;
       }
 
-      latestDashboardRequestIdRef.current = entry.id;
-
-      setRecentRequests((prev) => [summary, ...prev].slice(0, 12));
       setRecentNewIds((prev) => new Set(prev).add(entry.id));
-
-      setStats(update.stats_summary_24h);
-      setApiFamilyStats(update.api_family_summary_24h);
-      setSpending(update.spending_summary_30d);
-      setThroughput(update.throughput_24h);
       setRoutingDiagramError(null);
-      setRoutingDiagramData((prev) =>
-        applyRoutingDiagramRealtimeUpdate(prev, update.routing_route_24h)
-      );
-
       triggerMetricHighlight();
     },
-    [
-      latestDashboardRequestIdRef,
-      setApiFamilyStats,
-      setRecentRequests,
-      setRoutingDiagramData,
-      setRoutingDiagramError,
-      setSpending,
-      setStats,
-      setThroughput,
-      triggerMetricHighlight,
-    ]
+    [reconcileDashboardSnapshot, setRoutingDiagramError, triggerMetricHighlight]
   );
 
   const handleReconnect = useCallback(() => {
-    void fetchDashboardData({ forceRefresh: true, silent: true }).finally(() => {
+    void fetchDashboardData({ silent: true }).finally(() => {
       markSyncCompleteRef.current();
     });
   }, [fetchDashboardData]);
@@ -138,7 +62,7 @@ export function useDashboardRealtime({
     setIsRefreshing(true);
 
     try {
-      await fetchDashboardData({ forceRefresh: true, silent: true });
+      await fetchDashboardData({ silent: true });
       triggerMetricHighlight();
     } finally {
       setIsRefreshing(false);

@@ -1,30 +1,17 @@
-import type { RoutingDiagramData } from "@/pages/dashboard/routingDiagram";
 import { DashboardHighlightsGrid } from "@/pages/dashboard/DashboardHighlightsGrid";
 import { DashboardMetricsGrid } from "@/pages/dashboard/DashboardMetricsGrid";
 import { DashboardPageSkeleton } from "@/pages/dashboard/DashboardPageSkeleton";
 import { RecentActivityCard } from "@/pages/dashboard/RecentActivityCard";
 import { RoutingDiagramCard } from "@/pages/dashboard/RoutingDiagramCard";
 import { TopSpendingModelsCard } from "@/pages/dashboard/TopSpendingModelsCard";
-import type {
-  DashboardMetricSnapshot,
-  DashboardStrategyFamilySummary,
-} from "@/pages/dashboard/useDashboardPageData";
-import type { RequestLogListItem, SpendingTopModel, StatGroup } from "@/lib/types";
+import type { DashboardOverviewData } from "@/pages/dashboard/useDashboardPageData";
 
 interface DashboardOverviewTabProps {
-  apiFamilyRows: StatGroup[];
   clearRecentRequestHighlight: (requestId: number) => void;
   loading: boolean;
-  metricSnapshot: DashboardMetricSnapshot;
   metricsHighlighted: boolean;
-  modelDisplayNames: Map<string, string>;
+  overviewData: DashboardOverviewData;
   recentNewIds: Set<number>;
-  recentRequests: RequestLogListItem[];
-  routingDiagramData: RoutingDiagramData | null;
-  routingDiagramError: string | null;
-  routingDiagramLoading: boolean;
-  strategyFamilySummary: DashboardStrategyFamilySummary;
-  topSpendingModels: SpendingTopModel[];
   formatTime: (value: string) => string;
   onOpenAnalytics: () => void;
   onInspectSpending: () => void;
@@ -35,19 +22,11 @@ interface DashboardOverviewTabProps {
 }
 
 export function DashboardOverviewTab({
-  apiFamilyRows,
   clearRecentRequestHighlight,
   loading,
-  metricSnapshot,
   metricsHighlighted,
-  modelDisplayNames,
+  overviewData,
   recentNewIds,
-  recentRequests,
-  routingDiagramData,
-  routingDiagramError,
-  routingDiagramLoading,
-  strategyFamilySummary,
-  topSpendingModels,
   formatTime,
   onOpenAnalytics,
   onInspectSpending,
@@ -56,6 +35,18 @@ export function DashboardOverviewTab({
   onSelectRecentRequest,
   onDrillDownRequests,
 }: DashboardOverviewTabProps) {
+  const {
+    apiFamilyRows,
+    metricSnapshot,
+    modelDisplayNames,
+    recentRequests,
+    routingDiagramData,
+    routingDiagramError,
+    routingDiagramLoading,
+    strategyFamilySummary,
+    topSpendingModels,
+  } = overviewData;
+
   if (loading) {
     return <DashboardPageSkeleton />;
   }

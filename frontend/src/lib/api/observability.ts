@@ -12,6 +12,7 @@ import type {
   ConnectionSuccessRateParams,
   CostingSettingsResponse,
   CostingSettingsUpdate,
+  DashboardSnapshot,
   HeaderBlocklistRule,
   HeaderBlocklistRuleCreate,
   HeaderBlocklistRuleUpdate,
@@ -58,6 +59,7 @@ function buildStatsQuery(params?: StatsRequestParams) {
 }
 
 export const stats = {
+  dashboard: () => request<DashboardSnapshot>("/api/stats/dashboard"),
   requests: (params?: StatsRequestParams) => {
     const query = buildStatsQuery(params);
     return request<RequestLogListResponse>(`/api/stats/requests${query ? `?${query}` : ""}`);

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 import type {
+  DashboardSnapshot,
+  RequestLogListItem,
   SpendingTopModel,
   StatGroup,
 } from "@/lib/types";
+import type { RoutingDiagramData } from "./routingDiagram";
 import { useDashboardBootstrapData } from "./useDashboardBootstrapData";
 import { useDashboardRealtime } from "./useDashboardRealtime";
 
@@ -33,30 +36,132 @@ export interface DashboardStrategyFamilySummary {
   unassignedCount: number;
 }
 
+export interface DashboardOverviewData {
+  apiFamilyRows: StatGroup[];
+  metricSnapshot: DashboardMetricSnapshot;
+  modelDisplayNames: Map<string, string>;
+  recentRequests: RequestLogListItem[];
+  routingDiagramData: RoutingDiagramData | null;
+  routingDiagramError: string | null;
+  routingDiagramLoading: boolean;
+  strategyFamilySummary: DashboardStrategyFamilySummary;
+  topSpendingModels: SpendingTopModel[];
+}
+
+const EMPTY_METRIC_SNAPSHOT: DashboardMetricSnapshot = {
+  activeModels: 0,
+  averageRpm: 0,
+  averageRpmRequestTotal: 0,
+  avgLatency: 0,
+  errorRate: 0,
+  p95Latency: 0,
+  pricedRequestCount: 0,
+  streamShare: 0,
+  successRate: 0,
+  totalCost: 0,
+  totalModels: 0,
+  totalRequests: 0,
+  unpricedRequestCount: 0,
+};
+
+function toDashboardMetricSnapshot(snapshot: DashboardSnapshot | null): DashboardMetricSnapshot {
+  if (!snapshot) {
+    return EMPTY_METRIC_SNAPSHOT;
+  }
+
+  const metric = snapshot.metric_snapshot;
+  return {
+    activeModels: metric.active_models,
+    averageRpm: metric.average_rpm,
+    averageRpmRequestTotal: metric.average_rpm_request_total,
+    avgLatency: metric.avg_latency,
+    errorRate: metric.error_rate,
+    p95Latency: metric.p95_latency,
+    pricedRequestCount: metric.priced_request_count,
+    streamShare: metric.stream_share,
+    successRate: metric.success_rate,
+    totalCost: metric.total_cost,
+    totalModels: metric.total_models,
+    totalRequests: metric.total_requests,
+    unpricedRequestCount: metric.unpriced_request_count,
+  };
+}
+
+function toDashboardStrategyFamilySummary(snapshot: DashboardSnapshot | null): DashboardStrategyFamilySummary {
+  if (!snapshot) {
+    return {
+      adaptiveCount: 0,
+      legacyCount: 0,
+      unassignedCount: 0,
+    };
+  }
+
+  return {
+    adaptiveCount: snapshot.strategy_family_summary.adaptive_count,
+    legacyCount: snapshot.strategy_family_summary.legacy_count,
+    unassignedCount: snapshot.strategy_family_summary.unassigned_count,
+  };
+}
+
+function buildModelDisplayNames(snapshot: DashboardSnapshot | null) {
+  const displayNames = new Map<string, string>();
+
+  if (!snapshot) {
+    return displayNames;
+  }
+
+  for (const request of snapshot.recent_requests) {
+    displayNames.set(request.model_id, request.model_label || request.model_id);
+    if (request.resolved_target_model_id) {
+      displayNames.set(
+        request.resolved_target_model_id,
+        request.resolved_target_model_label || request.resolved_target_model_id,
+      );
+    }
+  }
+
+  for (const model of snapshot.top_spending_models) {
+    if (!displayNames.has(model.model_id)) {
+      displayNames.set(model.model_id, model.model_id);
+    }
+  }
+
+  return displayNames;
+}
+
+function toDashboardOverviewData(
+  snapshot: DashboardSnapshot | null,
+  routingDiagramError: string | null,
+  routingDiagramLoading: boolean,
+): DashboardOverviewData {
+  return {
+    apiFamilyRows: [...(snapshot?.api_family_rows ?? [])].sort(
+      (left, right) => right.total_requests - left.total_requests,
+    ),
+    metricSnapshot: toDashboardMetricSnapshot(snapshot),
+    modelDisplayNames: buildModelDisplayNames(snapshot),
+    recentRequests: snapshot?.recent_requests ?? [],
+    routingDiagramData: snapshot?.routing_health_map ?? null,
+    routingDiagramError,
+    routingDiagramLoading,
+    strategyFamilySummary: toDashboardStrategyFamilySummary(snapshot),
+    topSpendingModels: snapshot?.top_spending_models ?? [],
+  };
+}
+
 export function useDashboardPageData({
   revision,
   selectedProfileId,
 }: UseDashboardPageDataInput) {
   const latestDashboardRequestIdRef = useRef(0);
   const {
+    dashboardSnapshot,
     fetchDashboardData,
     loading,
-    models,
-    apiFamilyStats,
-    recentRequests,
-    routingDiagramData,
+    reconcileDashboardSnapshot,
     routingDiagramError,
     routingDiagramLoading,
-    setApiFamilyStats,
-    setRecentRequests,
-    setRoutingDiagramData,
     setRoutingDiagramError,
-    setSpending,
-    setStats,
-    setThroughput,
-    spending,
-    stats,
-    throughput,
   } = useDashboardBootstrapData({
     latestDashboardRequestIdRef,
     revision,
@@ -72,20 +177,10 @@ export function useDashboardPageData({
     refreshDashboard,
   } = useDashboardRealtime({
     fetchDashboardData,
-    latestDashboardRequestIdRef,
+    reconcileDashboardSnapshot,
     selectedProfileId,
-    setApiFamilyStats,
-    setRecentRequests,
-    setRoutingDiagramData,
     setRoutingDiagramError,
-    setSpending,
-    setStats,
-    setThroughput,
   });
-
-  const modelDisplayNames = useMemo(() => {
-    return new Map(models.map((model) => [model.model_id, model.display_name || model.model_id]));
-  }, [models]);
 
   useEffect(() => {
     latestDashboardRequestIdRef.current = 0;
@@ -95,66 +190,13 @@ export function useDashboardPageData({
     void fetchDashboardData({ reuseInFlight: true });
   }, [fetchDashboardData]);
 
-  const metricSnapshot = useMemo<DashboardMetricSnapshot>(() => {
-    const activeModels = models.filter((model) => model.is_enabled).length;
-    const totalRequests = stats?.total_requests ?? 0;
-    const successRate = stats?.success_rate ?? 0;
-    const avgLatency = stats?.avg_response_time_ms ?? 0;
-    const p95Latency = stats?.p95_response_time_ms ?? 0;
-    const totalCost = spending?.summary.total_cost_micros ?? 0;
-    const streamShare =
-      recentRequests.length === 0
-        ? 0
-        : (recentRequests.filter((request) => request.is_stream).length / recentRequests.length) * 100;
-
-    return {
-      activeModels,
-      averageRpm: throughput?.average_rpm ?? 0,
-      averageRpmRequestTotal: throughput?.total_requests ?? 0,
-      avgLatency,
-      errorRate: Math.max(0, 100 - successRate),
-      p95Latency,
-      pricedRequestCount: spending?.summary.priced_request_count ?? 0,
-      streamShare,
-      successRate,
-      totalCost,
-      totalModels: models.length,
-      totalRequests,
-      unpricedRequestCount: spending?.summary.unpriced_request_count ?? 0,
-    };
-  }, [models, recentRequests, spending, stats, throughput]);
-
-  const apiFamilyRows = useMemo<StatGroup[]>(() => {
-    return [...(apiFamilyStats?.groups ?? [])].sort((left, right) => right.total_requests - left.total_requests);
-  }, [apiFamilyStats]);
-
-  const topSpendingModels = useMemo<SpendingTopModel[]>(() => {
-    return spending?.top_spending_models ?? [];
-  }, [spending]);
-
-  const strategyFamilySummary = useMemo<DashboardStrategyFamilySummary>(() => {
-    return models.reduce(
-      (summary, model) => {
-        if (!model.loadbalance_strategy) {
-          summary.unassignedCount += 1;
-          return summary;
-        }
-
-        if (model.loadbalance_strategy.strategy_type === "adaptive") {
-          summary.adaptiveCount += 1;
-        } else {
-          summary.legacyCount += 1;
-        }
-
-        return summary;
-      },
-      {
-        adaptiveCount: 0,
-        legacyCount: 0,
-        unassignedCount: 0,
-      },
+  const overviewData = useMemo<DashboardOverviewData>(() => {
+    return toDashboardOverviewData(
+      dashboardSnapshot,
+      routingDiagramError,
+      routingDiagramLoading,
     );
-  }, [models]);
+  }, [dashboardSnapshot, routingDiagramError, routingDiagramLoading]);
 
   return {
     clearRecentRequestHighlight,
@@ -162,17 +204,9 @@ export function useDashboardPageData({
     isRefreshing,
     isSyncing,
     loading,
-    metricSnapshot,
     metricsHighlighted,
-    modelDisplayNames,
-    apiFamilyRows,
+    overviewData,
     recentNewIds,
-    recentRequests,
     refreshDashboard,
-    routingDiagramData,
-    routingDiagramError,
-    routingDiagramLoading,
-    strategyFamilySummary,
-    topSpendingModels,
   };
 }

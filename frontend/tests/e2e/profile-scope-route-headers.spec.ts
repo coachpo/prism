@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
+import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-28T12:00:00Z";
 const PROFILE_STORAGE_KEY = "prism.selectedProfileId";
@@ -7,7 +8,7 @@ type HeaderProbeCapture = {
   bootstrap: Array<string | null>;
   settingsAuth: Array<string | null>;
   settingsCosting: Array<string | null>;
-  statsSummary: Array<string | null>;
+  statsDashboard: Array<string | null>;
 };
 
 function createProfile(id: number, name: string, options?: { isActive?: boolean; isDefault?: boolean }) {
@@ -31,24 +32,6 @@ function createCostingSettings(profileId: number) {
     report_currency_symbol: profileId === 2 ? "$" : "€",
     endpoint_fx_mappings: [],
     timezone_preference: null,
-  };
-}
-
-function createStatsSummary(profileId: number) {
-  const totalRequests = profileId === 2 ? 42 : 13;
-
-  return {
-    total_requests: totalRequests,
-    success_requests: totalRequests - 1,
-    failed_requests: 1,
-    success_rate: 97.6,
-    total_tokens: 1650,
-    input_tokens: 900,
-    output_tokens: 600,
-    cached_tokens: 100,
-    reasoning_tokens: 50,
-    average_rpm: 0.5,
-    average_tpm: 68.8,
   };
 }
 
@@ -79,13 +62,13 @@ async function mockHeaderProbeRoutes(page: Page) {
     bootstrap: [],
     settingsAuth: [],
     settingsCosting: [],
-    statsSummary: [],
+    statsDashboard: [],
   };
 
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const { pathname, searchParams } = url;
+    const { pathname } = url;
 
     if (!pathname.startsWith("/api/")) {
       return route.continue();
@@ -160,105 +143,15 @@ async function mockHeaderProbeRoutes(page: Page) {
       return fulfillJson([]);
     }
 
-    if (pathname === "/api/stats/summary") {
+    if (pathname === "/api/stats/dashboard") {
       const profileHeader = await readProfileHeader(request);
       const profileId = Number.parseInt(profileHeader ?? "1", 10);
-      capturedHeaders.statsSummary.push(profileHeader);
-      return fulfillJson(createStatsSummary(Number.isFinite(profileId) ? profileId : 1));
-    }
-
-    if (pathname === "/api/stats/usage-snapshot") {
-      return fulfillJson({
-        generated_at: timestamp,
-        time_range: {
-          preset: "24h",
-          start_at: "2026-04-27T12:00:00Z",
-          end_at: timestamp,
+      capturedHeaders.statsDashboard.push(profileHeader);
+      return fulfillJson(createDashboardSnapshot({
+        metricSnapshot: {
+          total_requests: Number.isFinite(profileId) && profileId === 2 ? 42 : 13,
         },
-        currency: { code: "USD", symbol: "$" },
-        overview: {
-          total_requests: 42,
-          success_requests: 41,
-          failed_requests: 1,
-          success_rate: 97.6,
-          total_tokens: 1650,
-          input_tokens: 900,
-          output_tokens: 600,
-          cached_tokens: 100,
-          reasoning_tokens: 50,
-          average_rpm: 0.5,
-          average_tpm: 68.8,
-          total_cost_micros: 250000,
-        },
-        service_health: {
-          availability_percentage: 97.6,
-          request_count: 42,
-          success_count: 41,
-          failed_count: 1,
-          interval_minutes: 60,
-          cells: [],
-        },
-        request_trends: {
-          hourly: [{ key: "all", label: "All requests", total_requests: 42, points: [] }],
-          daily: [{ key: "all", label: "All requests", total_requests: 42, points: [] }],
-        },
-        token_usage_trends: { hourly: [], daily: [] },
-        token_type_breakdown: { hourly: [], daily: [] },
-        cost_overview: {
-          total_cost_micros: 250000,
-          priced_request_count: 9,
-          unpriced_request_count: 2,
-          hourly: [],
-          daily: [],
-        },
-        endpoint_statistics: [],
-        model_statistics: [],
-        proxy_api_key_statistics: [],
-      });
-    }
-
-    if (pathname === "/api/stats/requests") {
-      const limit = Number.parseInt(searchParams.get("limit") ?? "1", 10);
-      const offset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
-      return fulfillJson({
-        items: [],
-        total: 0,
-        limit,
-        offset,
-        filter_options: { endpoints: [] },
-      });
-    }
-
-    if (pathname === "/api/stats/spending") {
-      return fulfillJson({
-        summary: {
-          total_cost_micros: 250000,
-          successful_request_count: 11,
-          priced_request_count: 9,
-          unpriced_request_count: 2,
-        },
-        top_spending_models: [],
-      });
-    }
-
-    if (pathname === "/api/stats/throughput") {
-      return fulfillJson({ average_rpm: 0.5, total_requests: 42 });
-    }
-
-    if (pathname === "/api/stats/api-family") {
-      return fulfillJson({ groups: [] });
-    }
-
-    if (pathname === "/api/stats/connection-success-rates") {
-      return fulfillJson([]);
-    }
-
-    if (pathname === "/api/connections/by-models") {
-      return fulfillJson([]);
-    }
-
-    if (pathname === "/api/routing-diagram") {
-      return fulfillJson({ nodes: [], links: [] });
+      }));
     }
 
     throw new Error(`Unhandled API request: ${request.method()} ${pathname}`);
@@ -287,8 +180,8 @@ test("browser requests omit X-Profile-Id on global routes and include it on scop
 
   await page.goto("/dashboard?tab=overview");
 
-  await expect.poll(() => capturedHeaders.statsSummary.length).toBeGreaterThan(0);
+  await expect.poll(() => capturedHeaders.statsDashboard.length).toBeGreaterThan(0);
 
   expect(capturedHeaders.bootstrap.every((value) => value === null)).toBe(true);
-  expect(capturedHeaders.statsSummary.every((value) => value === "2")).toBe(true);
+  expect(capturedHeaders.statsDashboard.every((value) => value === "2")).toBe(true);
 });

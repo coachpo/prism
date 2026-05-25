@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createDashboardSnapshot } from "./dashboard-aggregate-fixtures";
 
 const timestamp = "2026-04-11T00:00:00Z";
 const canonicalCurrency = {
@@ -26,7 +27,7 @@ function createModelListItem() {
     id: 1,
     vendor_id: null,
     vendor: null,
-    api_family: "openai",
+    api_family: "openai" as const,
     model_id: "gpt-4o-mini",
     display_name: "GPT-4o mini",
     model_type: "native",
@@ -111,7 +112,7 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     caller_client_display: "Payload symbol row",
     upstream_client_display: "Payload symbol row",
     user_agent_overridden: false,
-    api_family: "openai",
+    api_family: "openai" as const,
     vendor_id: 1,
     vendor_key: "openai",
     vendor_name: "OpenAI",
@@ -123,6 +124,8 @@ function createRequestLogItem(overrides: Record<string, unknown> = {}) {
     completion_duration_ms: 500,
     response_time_ms: 125,
     is_stream: false,
+    stream_outcome: "not_streaming" as const,
+    stream_error_kind: null,
     output_tokens: 80,
     total_tokens: 150,
     total_cost_user_currency_micros: 750000,
@@ -160,7 +163,7 @@ function createRequestLogDetail({
       resolved_target_model_id: null,
       resolved_target_model_label: null,
       is_proxy_origin: false,
-      api_family: "openai",
+      api_family: "openai" as const,
       vendor_id: 1,
       vendor_key: "openai",
       vendor_name: "OpenAI",
@@ -424,6 +427,22 @@ async function mockCurrencyRoutes(
 
     if (pathname === "/api/stats/requests") {
       return fulfillJson(createRequestLogsResponse(requestLogItems, searchParams));
+    }
+
+    if (pathname === "/api/stats/dashboard") {
+      return fulfillJson(createDashboardSnapshot({
+        metricSnapshot: {
+          total_cost: 1250000,
+          total_requests: 12,
+        },
+        recentRequests: requestLogItems,
+        topSpendingModels: [
+          {
+            model_id: model.model_id,
+            total_cost_micros: 1250000,
+          },
+        ],
+      }));
     }
 
     if (pathname.startsWith("/api/stats/requests/")) {

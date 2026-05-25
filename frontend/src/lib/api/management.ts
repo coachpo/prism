@@ -12,8 +12,6 @@ import type {
   LoadbalanceStrategySummary,
   LoadbalanceStrategyUpdate,
   LegacyLoadbalanceStrategyType,
-  ModelConnectionsBatchParams,
-  ModelConnectionsBatchResponse,
   ConnectionDropdownResponse,
   ConnectionHealthCheckPreviewResponse,
   ConnectionOwnerResponse,
@@ -526,11 +524,6 @@ export const endpoints = {
 export const connections = {
   list: (modelConfigId: number) =>
     request<Connection[]>(`/api/models/${modelConfigId}/connections`),
-  byModels: (data: ModelConnectionsBatchParams) =>
-    request<ModelConnectionsBatchResponse>("/api/models/connections/batch", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
   create: (modelConfigId: number, data: ConnectionCreate) =>
     request<Connection>(`/api/models/${modelConfigId}/connections`, {
       method: "POST",

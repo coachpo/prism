@@ -1,5 +1,3 @@
-export type NonEmptyArray<T> = [T, ...T[]];
-
 /**
  * Optional pricing components stay nullable across management and config bundles.
  * A null value means the runtime/display default of zero; explicit strings are stored decimal prices.
@@ -199,17 +197,4 @@ export interface ConnectionDropdownItem {
 
 export interface ConnectionDropdownResponse {
   items: ConnectionDropdownItem[];
-}
-
-export interface ModelConnectionsBatchParams {
-  model_config_ids: NonEmptyArray<number>;
-}
-
-export interface ModelConnectionsBatchItem {
-  model_config_id: number;
-  connections: Connection[];
-}
-
-export interface ModelConnectionsBatchResponse {
-  items: ModelConnectionsBatchItem[];
 }
