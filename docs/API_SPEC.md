@@ -1,6 +1,6 @@
 # API Specification: Prism
 
-Local `./start.sh` backend base URL: `http://localhost:8000`
+Local `./start.sh` backend base URL follows the selected bootstrap file's `server.port`; with the checked-in `config.json`, that is `http://localhost:18000`
 
 Container and custom deployments use the listener configured in the plaintext bootstrap file; the manual Docker examples commonly publish `http://localhost:8000`.
 

@@ -20,8 +20,8 @@ Validated again against current repo surfaces on 2026-05-10:
 ## Runtime URLs
 
 - Frontend: `http://localhost:5173`
-- Backend: `http://localhost:8000`
-- Health: `http://localhost:8000/health`
+- Backend: `http://localhost:18000` with the checked-in `config.json`
+- Health: `http://localhost:18000/health` with the checked-in `config.json`
 
 ## Shared Scope Rules
 
@@ -247,7 +247,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 
 Auth email delivery for password reset and recovery-email verification is transport-backed only when startup config has `mail.enabled=true`. Missing `mail` and `mail.enabled=false` mean disabled no-op delivery, so Prism starts without SMTP and does not dial SMTP. Enabled SMTP is strict: invalid host, port, mode, timeout, credential, or plaintext rules fail validation or startup instead of silently using no-op delivery.
 
-The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Fresh bootstrap seeds use launcher ports `8000/5173/15432`, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Request timeout is hot-applicable for future provider requests, while side-effects attempt timeout is restart-required. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
+The Startup tab treats `mail.smtp.password` as a secret field. Safe bootstrap payloads show metadata only, and operators should either preserve or replace that secret through the bootstrap update flow or point `mail.smtp.passwordFile` at a local secret file. SMTP transport changes apply immediately when saved through the Startup tab or API PUT and hot publish succeeds. Fresh bootstrap seeds use backend `8000`, frontend `5173`, and PostgreSQL `15432`, but `./start.sh` follows the existing bootstrap file's configured `server.port` when one already exists. `runtime.transport.requestTimeout` is seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout` is seeded as `"10s"`. Request timeout is hot-applicable for future provider requests, while side-effects attempt timeout is restart-required. Direct external `config.json` edits are not watched automatically, and existing valid files are not rewritten by the launcher. To reset startup defaults, stop Prism, remove or relocate the bootstrap file, and restart. To roll back delivery, remove `mail` or set `mail.enabled=false` through the Startup tab or API PUT.
 
 The configuration-operations flow is explicit in both lanes:
 - profile export defaults to the safe redacted bundle at `GET /api/config/profile/export`
