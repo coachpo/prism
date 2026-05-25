@@ -426,15 +426,16 @@ export function RequestLogOverviewTab({
                 {routing.connection_id !== null ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-[12px]">#{routing.connection_id}</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-2.5 text-[11px]"
-                      onClick={() => void navigateToConnection(routing.connection_id!)}
+                    <a
+                      href="#"
+                      className="rounded-sm text-[11px] font-medium text-primary underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void navigateToConnection(routing.connection_id!);
+                      }}
                     >
                       {messages.requestLogs.viewConnection}
-                    </Button>
+                    </a>
                   </div>
                 ) : (
                   messages.requestLogs.noConnectionRecorded
