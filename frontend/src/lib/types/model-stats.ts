@@ -6,6 +6,7 @@ import type {
 import type { UsageSnapshotPreset } from "./usage-statistics";
 
 export type ModelType = "native" | "proxy";
+export type ProxySelectionStrategy = "ordered_fallback" | "weighted_static" | "priority_static";
 
 export type StreamOutcome =
   | "not_streaming"
@@ -25,6 +26,8 @@ export type StreamErrorKind =
 export interface ProxyTarget {
   target_model_id: string;
   position: number;
+  weight: number;
+  target_priority: number;
 }
 
 export interface ModelConfig {
@@ -35,6 +38,7 @@ export interface ModelConfig {
   model_id: string;
   display_name: string | null;
   model_type: ModelType;
+  proxy_selection_strategy: ProxySelectionStrategy | null;
   proxy_targets: ProxyTarget[];
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
@@ -52,6 +56,7 @@ export interface ModelConfigListItem {
   model_id: string;
   display_name: string | null;
   model_type: ModelType;
+  proxy_selection_strategy: ProxySelectionStrategy | null;
   proxy_targets: ProxyTarget[];
   loadbalance_strategy_id: number | null;
   loadbalance_strategy: LoadbalanceStrategySummary | null;
@@ -77,6 +82,7 @@ export type ModelConfigCreate =
       api_family: ApiFamily;
       model_id: string;
       model_type: "native";
+      proxy_selection_strategy?: null;
       proxy_targets?: [];
       loadbalance_strategy_id: number | null;
     })
@@ -84,6 +90,7 @@ export type ModelConfigCreate =
       api_family: ApiFamily;
       model_id: string;
       model_type: "proxy";
+      proxy_selection_strategy: ProxySelectionStrategy;
       proxy_targets: ProxyTarget[];
       loadbalance_strategy_id?: null;
     });
@@ -91,16 +98,19 @@ export type ModelConfigCreate =
 export type ModelConfigUpdate =
   | (ModelConfigMutationBase & {
       model_type: "native";
+      proxy_selection_strategy?: null;
       proxy_targets?: [];
       loadbalance_strategy_id: number | null;
     })
   | (ModelConfigMutationBase & {
       model_type: "proxy";
+      proxy_selection_strategy: ProxySelectionStrategy;
       proxy_targets: ProxyTarget[];
       loadbalance_strategy_id?: null;
     })
   | (ModelConfigMutationBase & {
       model_type?: undefined;
+      proxy_selection_strategy?: ProxySelectionStrategy | null;
       proxy_targets?: ProxyTarget[];
       loadbalance_strategy_id?: number | null;
     });

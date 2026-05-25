@@ -27,10 +27,11 @@ test("edit model form preserves and normalizes existing proxy targets", () => {
     model_id: "proxy-gateway",
     display_name: "Proxy Gateway",
     model_type: "proxy",
+    proxy_selection_strategy: "priority_static",
     proxy_targets: [
-      { target_model_id: "native-b", position: 5 },
-      { target_model_id: "native-a", position: 2 },
-      { target_model_id: "native-b", position: 7 },
+      { target_model_id: "native-b", position: 5, weight: 4, target_priority: 7 },
+      { target_model_id: "native-a", position: 2, weight: 2, target_priority: 1 },
+      { target_model_id: "native-b", position: 7, weight: 9, target_priority: 3 },
     ],
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
@@ -43,9 +44,10 @@ test("edit model form preserves and normalizes existing proxy targets", () => {
     updated_at: "2026-04-20T00:00:00Z",
   });
 
+  assert.equal(formData.proxy_selection_strategy, "priority_static");
   assert.deepEqual(formData.proxy_targets, [
-    { target_model_id: "native-b", position: 0 },
-    { target_model_id: "native-a", position: 1 },
+    { target_model_id: "native-b", position: 0, weight: 4, target_priority: 7 },
+    { target_model_id: "native-a", position: 1, weight: 2, target_priority: 1 },
   ]);
 });
 
@@ -57,9 +59,10 @@ test("changing api family clears proxy targets for proxy models", () => {
       model_id: "proxy-gateway",
       display_name: "Proxy Gateway",
       model_type: "proxy",
+      proxy_selection_strategy: "weighted_static",
       proxy_targets: [
-        { target_model_id: "native-b", position: 0 },
-        { target_model_id: "native-a", position: 1 },
+        { target_model_id: "native-b", position: 0, weight: 3, target_priority: 5 },
+        { target_model_id: "native-a", position: 1, weight: 2, target_priority: 1 },
       ],
       loadbalance_strategy_id: null,
       is_enabled: true,
@@ -69,6 +72,7 @@ test("changing api family clears proxy targets for proxy models", () => {
   );
 
   assert.equal(formData.api_family, "anthropic");
+  assert.equal(formData.proxy_selection_strategy, "weighted_static");
   assert.deepEqual(formData.proxy_targets, []);
 });
 
@@ -79,9 +83,10 @@ test("proxy model payloads keep ordered targets and clear native routing fields"
     model_id: "proxy-gateway",
     display_name: "Proxy Gateway",
     model_type: "proxy",
+    proxy_selection_strategy: "ordered_fallback",
     proxy_targets: [
-      { target_model_id: "native-b", position: 4 },
-      { target_model_id: "native-a", position: 1 },
+      { target_model_id: "native-b", position: 4, weight: 8, target_priority: 6 },
+      { target_model_id: "native-a", position: 1, weight: 3, target_priority: 2 },
     ],
     loadbalance_strategy_id: 99,
     is_enabled: true,
@@ -94,9 +99,10 @@ test("proxy model payloads keep ordered targets and clear native routing fields"
     model_id: "proxy-gateway",
     display_name: "Proxy Gateway",
     model_type: "proxy",
+    proxy_selection_strategy: "ordered_fallback",
     proxy_targets: [
-      { target_model_id: "native-b", position: 0 },
-      { target_model_id: "native-a", position: 1 },
+      { target_model_id: "native-b", position: 0, weight: 8, target_priority: 6 },
+      { target_model_id: "native-a", position: 1, weight: 3, target_priority: 2 },
     ],
     loadbalance_strategy_id: null,
     is_enabled: true,
@@ -108,9 +114,10 @@ test("proxy model payloads keep ordered targets and clear native routing fields"
     model_id: "proxy-gateway",
     display_name: "Proxy Gateway",
     model_type: "proxy",
+    proxy_selection_strategy: "ordered_fallback",
     proxy_targets: [
-      { target_model_id: "native-b", position: 0 },
-      { target_model_id: "native-a", position: 1 },
+      { target_model_id: "native-b", position: 0, weight: 8, target_priority: 6 },
+      { target_model_id: "native-a", position: 1, weight: 3, target_priority: 2 },
     ],
     loadbalance_strategy_id: null,
     is_enabled: true,
@@ -126,7 +133,8 @@ test("shared validation requires same-family proxy targets and native strategies
         model_id: "proxy-gateway",
         display_name: "Proxy Gateway",
         model_type: "proxy",
-        proxy_targets: [{ target_model_id: "native-b", position: 0 }],
+        proxy_selection_strategy: "ordered_fallback",
+        proxy_targets: [{ target_model_id: "native-b", position: 0, weight: 1, target_priority: 0 }],
         loadbalance_strategy_id: null,
         is_enabled: true,
         last_auto_display_name: "Proxy Gateway",
@@ -143,6 +151,7 @@ test("shared validation requires same-family proxy targets and native strategies
       model_id: "native-gateway",
       display_name: "Native Gateway",
       model_type: "native",
+      proxy_selection_strategy: null,
       proxy_targets: [],
       loadbalance_strategy_id: null,
       is_enabled: true,

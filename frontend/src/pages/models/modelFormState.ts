@@ -5,6 +5,7 @@ import type {
   ModelConfigListItem,
   ModelConfigUpdate,
   ModelType,
+  ProxySelectionStrategy,
   ProxyTarget,
   Vendor,
 } from "@/lib/types";
@@ -16,6 +17,7 @@ export interface ModelFormData {
   model_id: string;
   display_name: string;
   model_type: ModelType;
+  proxy_selection_strategy: ProxySelectionStrategy | null;
   proxy_targets: ProxyTarget[];
   loadbalance_strategy_id: number | null;
   is_enabled: boolean;
@@ -28,6 +30,7 @@ export type ModelFormValidationError =
   | "proxy_target_required";
 
 const DEFAULT_API_FAMILY: ApiFamily = "openai";
+const DEFAULT_PROXY_SELECTION_STRATEGY: ProxySelectionStrategy = "ordered_fallback";
 
 export function resolveModelApiFamily(
   model: Pick<ModelConfigListItem, "api_family"> | Pick<ModelConfig, "api_family">,
@@ -47,6 +50,7 @@ export const DEFAULT_MODEL_FORM_DATA: ModelFormData = {
   model_id: "",
   display_name: "",
   model_type: "native",
+  proxy_selection_strategy: null,
   proxy_targets: [],
   loadbalance_strategy_id: null,
   is_enabled: true,
@@ -58,14 +62,23 @@ function shouldAutoSyncDisplayName(formData: ModelFormData): boolean {
   return displayName.trim() === "" || displayName === (formData.last_auto_display_name ?? "");
 }
 
+function normalizeProxyTargetMetadata(target: ProxyTarget, index: number): ProxyTarget {
+  return {
+    target_model_id: target.target_model_id.trim(),
+    position: index,
+    weight: Number.isInteger(target.weight) && target.weight >= 1 ? target.weight : 1,
+    target_priority:
+      Number.isInteger(target.target_priority) && target.target_priority >= 0
+        ? target.target_priority
+        : index,
+  };
+}
+
 export function normalizeProxyTargets(proxyTargets: ProxyTarget[] | null | undefined): ProxyTarget[] {
   const seenTargetIds = new Set<string>();
 
   return (proxyTargets ?? [])
-    .map((target) => ({
-      target_model_id: target.target_model_id.trim(),
-      position: target.position,
-    }))
+    .map((target) => ({ ...target, target_model_id: target.target_model_id.trim() }))
     .filter((target) => {
       if (!target.target_model_id || seenTargetIds.has(target.target_model_id)) {
         return false;
@@ -74,16 +87,14 @@ export function normalizeProxyTargets(proxyTargets: ProxyTarget[] | null | undef
       seenTargetIds.add(target.target_model_id);
       return true;
     })
-    .map((target, index) => ({
-      target_model_id: target.target_model_id,
-      position: index,
-    }));
+    .map((target, index) => normalizeProxyTargetMetadata(target, index));
 }
 
 function getNormalizedRoutingState(formData: ModelFormData) {
   if (formData.model_type === "native") {
     return {
       model_type: "native" as const,
+      proxy_selection_strategy: null,
       proxy_targets: [] as [],
       loadbalance_strategy_id: formData.loadbalance_strategy_id ?? null,
     };
@@ -91,6 +102,8 @@ function getNormalizedRoutingState(formData: ModelFormData) {
 
   return {
     model_type: "proxy" as const,
+    proxy_selection_strategy:
+      formData.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY,
     proxy_targets: normalizeProxyTargets(formData.proxy_targets),
     loadbalance_strategy_id: null,
   };
@@ -119,9 +132,15 @@ export function moveProxyTarget(proxyTargets: ProxyTarget[], fromIndex: number, 
 }
 
 export function appendProxyTarget(proxyTargets: ProxyTarget[], targetModelId: string): ProxyTarget[] {
+  const normalizedTargets = normalizeProxyTargets(proxyTargets);
   return normalizeProxyTargets([
-    ...normalizeProxyTargets(proxyTargets),
-    { target_model_id: targetModelId, position: proxyTargets.length },
+    ...normalizedTargets,
+    {
+      target_model_id: targetModelId,
+      position: normalizedTargets.length,
+      weight: 1,
+      target_priority: normalizedTargets.length,
+    },
   ]);
 }
 
@@ -138,6 +157,7 @@ type EditableModelFormSource = Pick<
   | "model_id"
   | "display_name"
   | "model_type"
+  | "proxy_selection_strategy"
   | "proxy_targets"
   | "loadbalance_strategy_id"
   | "is_enabled"
@@ -153,6 +173,10 @@ export function createEditModelFormData(model: EditableModelFormSource): ModelFo
     model_id: model.model_id,
     display_name: displayName,
     model_type: model.model_type,
+    proxy_selection_strategy:
+      model.model_type === "proxy"
+        ? model.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY
+        : null,
     proxy_targets: normalizeProxyTargets(model.proxy_targets),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     is_enabled: model.is_enabled,
@@ -233,6 +257,10 @@ export function setModelTypeOnForm(
   return {
     ...formData,
     model_type: modelType,
+    proxy_selection_strategy:
+      modelType === "proxy"
+        ? formData.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY
+        : null,
     proxy_targets: [],
     loadbalance_strategy_id:
       modelType === "native"
@@ -256,6 +284,10 @@ export function setApiFamilyOnForm(formData: ModelFormData, apiFamily: ApiFamily
   return {
     ...formData,
     api_family: apiFamily,
+    proxy_selection_strategy:
+      formData.model_type === "proxy"
+        ? formData.proxy_selection_strategy ?? DEFAULT_PROXY_SELECTION_STRATEGY
+        : formData.proxy_selection_strategy,
     proxy_targets: formData.model_type === "proxy" ? [] : formData.proxy_targets,
   };
 }
@@ -303,6 +335,7 @@ export function toModelListItem(
     model_id: model.model_id,
     display_name: model.display_name,
     model_type: model.model_type,
+    proxy_selection_strategy: model.proxy_selection_strategy,
     proxy_targets: normalizeProxyTargets(model.proxy_targets),
     loadbalance_strategy_id: model.loadbalance_strategy_id,
     loadbalance_strategy: model.loadbalance_strategy,

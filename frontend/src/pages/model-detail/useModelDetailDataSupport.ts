@@ -309,6 +309,7 @@ export function patchModelListItemFromDetail(
       model_id: model.model_id,
       display_name: model.display_name,
       model_type: model.model_type,
+      proxy_selection_strategy: model.proxy_selection_strategy,
       proxy_targets: normalizeProxyTargets(model.proxy_targets),
       loadbalance_strategy_id: model.loadbalance_strategy_id,
       loadbalance_strategy: model.loadbalance_strategy,
