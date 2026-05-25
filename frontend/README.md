@@ -15,12 +15,12 @@ Prism targets Node.js 24+ and uses the `pnpm@10.30.1` toolchain declared in `pac
 
 Use `frontend/.env.example` as the standalone frontend env sample when you want to point the frontend at a non-launcher backend.
 
-When started through the checked-in root launcher, Prism serves the frontend at `http://localhost:5173` and proxies same-origin backend traffic to `http://localhost:8000`. For full-stack local setup, launcher behavior, and shared repository context, start at `../README.md` and `./AGENTS.md`.
+When started through the checked-in root launcher, Prism serves the frontend at `http://localhost:5173` and proxies same-origin backend traffic to the selected bootstrap file's listener port. With the checked-in `../config.json`, that backend URL is `http://localhost:18000`. For full-stack local setup, launcher behavior, and shared repository context, start at `../README.md` and `./AGENTS.md`.
 
 ## Runtime notes
 
 - `VITE_API_BASE` is optional. If it is unset, the frontend uses same-origin requests to `/api`, `/v1`, and `/v1beta`.
-- `../start.sh full` enables a launcher-only Vite proxy so browser traffic stays same-origin while `/api`, `/v1`, and `/v1beta` reach backend `8000`.
+- `../start.sh full` enables a launcher-only Vite proxy so browser traffic stays same-origin while `/api`, `/v1`, and `/v1beta` reach the selected bootstrap file's configured backend port.
 - Standalone frontend development can still use explicit `VITE_API_BASE` when you want the dev server to talk to a remote backend.
 - The production container serves the built `dist/` output through `server.mjs`, which also exposes `/health`.
 

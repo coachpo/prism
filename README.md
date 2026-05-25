@@ -55,7 +55,7 @@ cd prism
 
 Prism is a monorepo: the backend and frontend live in the same checkout under `backend/` and `frontend/`.
 
-The launcher uses backend `8000`, frontend `5173`, and PostgreSQL `15432`. The backend bootstrap defaults are the source of truth for freshly seeded startup values.
+The launcher keeps frontend `5173` and PostgreSQL `15432` fixed, and it follows the selected bootstrap file's backend listener port. In this repo's checked-in `config.json`, that backend port is `18000`; freshly seeded startup configs default it to `8000`.
 
 Log retention is configured from the Settings Global tab. Normal retention is global across all profiles and runs as durable `log_retention` jobs. It drops expired daily log partitions first, then cleans only the cutoff-overlapping boundary partition and vacuums that child with `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`. Manual shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are emergency operator actions only; `pg_repack` is not available in the default local `postgres:16-alpine` image.
 
@@ -68,7 +68,7 @@ For subproject-specific setup and commands, use:
 
 > **Note**: there is no root full-stack `docker-compose.yml` in this repository. `backend/docker-compose.yml` only provisions PostgreSQL for local backend work. For a full deployment, create your own compose file based on the bootstrap-config mount, minimal external bootstrap env contract, and service layout documented in this repository.
 
-If you create a `docker-compose.yml`, the backend will be available at `http://localhost:8000` and the frontend at `http://localhost:3000`.
+If you create a `docker-compose.yml`, the frontend will commonly be published at `http://localhost:3000`, and the backend will listen on whatever port your chosen bootstrap file configures (`http://localhost:8000` is the fresh-seed default).
 
 ### Docker (manual)
 
@@ -215,15 +215,15 @@ To send password-reset and recovery-email verification messages, set `mail.enabl
 
 Other configuration notes:
 
-- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `8000`, frontend `5173`, and PostgreSQL `15432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
-- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port stays `8000`, and the bootstrap config resolves to the local PostgreSQL DSN `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
+- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, keeps frontend `5173` and PostgreSQL `15432`, follows the selected bootstrap file's backend port, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
+- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port comes from the selected bootstrap file's `server.port`, and the bootstrap config resolves to the local PostgreSQL DSN `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
 - If you set `PRISM_CONFIG_PATH` in `.env`, `./start.sh` resolves relative paths from the repo root before launching the backend
 - Direct backend runs should prefer an absolute `PRISM_CONFIG_PATH`
 - Frontend build/runtime metadata uses `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying management traffic and supported runtime operation traffic to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults, the fixed local backend port, and the local PostgreSQL DSN. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults, including backend port `8000`, and the local PostgreSQL DSN. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./start.sh full` keeps management requests and supported runtime operation requests on the launcher origin through Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

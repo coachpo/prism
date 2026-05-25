@@ -29,7 +29,7 @@ Recommended local entrypoints:
 ../start.sh full
 ```
 
-When launched through `../start.sh`, the backend listens on `http://localhost:8000` and the frontend is served on `http://localhost:5173` in full mode.
+When launched through `../start.sh`, the backend listens on the selected bootstrap file's port — `http://localhost:18000` with the checked-in `../config.json` — and the frontend is served on `http://localhost:5173` in full mode.
 
 Direct Go runs from `backend/` use `PRISM_CONFIG_PATH` and a plaintext bootstrap file such as `../config.json`. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
 
@@ -67,8 +67,8 @@ go build ./cmd/prism-backend
 - When the bootstrap file already exists and is valid, Prism loads startup settings from it without rewriting it, even if it contains older values.
 - When the bootstrap file is missing, Prism seeds it from backend-owned defaults plus the optional `DATABASE_URL` input only.
 - The startup bootstrap contract is not DB-backed, and profile backup/restore, vendor catalog export/import, global log retention, and other settings-page state flows remain PostgreSQL-backed state transport.
-- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file only when it is missing so local runs use backend `8000`, frontend `5173`, and the local PostgreSQL DSN on host port `15432`.
-- Before booting, `../start.sh` verifies that the selected bootstrap file resolves to the local launcher contract instead of trying to negotiate alternate backend ports or database targets. If an existing valid file still carries old-but-valid values, reset manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
+- `../start.sh` reads the root `../.env`, provisions local PostgreSQL, defaults `PRISM_CONFIG_PATH` to `../config.json`, and seeds that plaintext bootstrap file only when it is missing so local runs keep frontend `5173` and the local PostgreSQL DSN on host port `15432`; fresh seeds default backend port to `8000`.
+- Before booting, `../start.sh` verifies that the selected bootstrap file keeps the local launcher host and database contract, then uses that file's configured backend port. If an existing valid file still carries old-but-valid values, reset manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 - Direct Go runs should prefer an absolute `PRISM_CONFIG_PATH`.
 - The backend container image runs as `prism:prism`, UID/GID `1000:1000`. If `PRISM_CONFIG_PATH` points inside `/app/config`, bind mount the containing host directory, such as `/absolute/secure/path/prism-config:/app/config:rw`, and make that directory writable by UID/GID `1000:1000`.
 - Prepare new host config directories with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`. Use the same one-time remediation for existing root-owned bind mounts before starting the non-root backend image.
