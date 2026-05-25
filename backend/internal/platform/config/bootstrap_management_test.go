@@ -48,7 +48,7 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 	if snapshot.Values.Database == nil || snapshot.Values.Database.Pools == nil || snapshot.Values.Database.Pools.RuntimeExecution == nil || snapshot.Values.Auth == nil {
 		t.Fatal("expected safe values to include editable sections")
 	}
-	if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.Transport == nil || snapshot.Values.Runtime.Transport.RequestTimeout == nil || *snapshot.Values.Runtime.Transport.RequestTimeout != "60s" {
+	if snapshot.Values.Runtime == nil || snapshot.Values.Runtime.Transport == nil || snapshot.Values.Runtime.Transport.RequestTimeout == nil || *snapshot.Values.Runtime.Transport.RequestTimeout != "300s" {
 		t.Fatalf("expected safe runtime transport request_timeout to be exposed, got %+v", snapshot.Values.Runtime)
 	}
 	if snapshot.Values.Runtime.SideEffects == nil || snapshot.Values.Runtime.SideEffects.AttemptTimeout == nil || *snapshot.Values.Runtime.SideEffects.AttemptTimeout != "10s" {
@@ -57,7 +57,7 @@ func TestBootstrapConfigManagementLoadReturnsSafeMetadata(t *testing.T) {
 
 	encoded := mustMarshalJSON(t, snapshot)
 	assertSafeManagementSnapshot(t, encoded)
-	if !bytes.Contains(encoded, []byte(`"request_timeout":"60s"`)) {
+	if !bytes.Contains(encoded, []byte(`"request_timeout":"300s"`)) {
 		t.Fatal("expected safe management snapshot to include request_timeout")
 	}
 	if !bytes.Contains(encoded, []byte(`"attempt_timeout":"10s"`)) {
@@ -114,6 +114,71 @@ func TestBootstrapConfigManagementLoadCanonicalizesOmittedMailToDisabledSafeValu
 	if !bytes.Equal(rawAfterLoad, originalPayload) {
 		t.Fatal("expected read-only snapshot load to leave omitted-mail source file unchanged")
 	}
+}
+
+func TestSafeBootstrapProjectionReturnsCompletePoolValues(t *testing.T) {
+	createdAt := time.Date(2026, 4, 26, 14, 0, 0, 0, time.UTC)
+	path, _ := writeManagementTestDocument(t, newManagementTestDocument(t, createdAt))
+	manager := NewBootstrapConfigManager(BootstrapConfigManagerOptions{})
+
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(path)
+	if err != nil {
+		t.Fatalf("load bootstrap config for complete safe projection: %v", err)
+	}
+	values := snapshot.Values
+	if values.Server == nil || values.Server.Port == nil || *values.Server.Port != 8000 {
+		t.Fatalf("expected safe projection server port=8000, got %+v", values.Server)
+	}
+	if values.HTTP == nil || values.HTTP.CORSAllowedOrigins == nil || !slices.Equal(*values.HTTP.CORSAllowedOrigins, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
+		t.Fatalf("expected safe projection CORS origins on frontend port 5173, got %+v", values.HTTP)
+	}
+	if values.Runtime == nil || values.Runtime.BufferingMode == nil || *values.Runtime.BufferingMode != string(RuntimeBufferingModeStreaming) {
+		t.Fatalf("expected safe projection runtime buffering=streaming, got %+v", values.Runtime)
+	}
+	if values.Database == nil || values.Database.Pools == nil {
+		t.Fatalf("expected safe projection to include database pools, got %+v", values.Database)
+	}
+	pools := values.Database.Pools
+	if pools.TotalMaxConns == nil || *pools.TotalMaxConns != 24 {
+		t.Fatalf("expected safe projection total_max_conns=24, got %+v", pools.TotalMaxConns)
+	}
+	assertPool := func(name string, pool *BootstrapConfigDatabasePoolValues, maxConns int, minIdleConns int) {
+		t.Helper()
+		if pool == nil || pool.MaxConns == nil || pool.MinIdleConns == nil || *pool.MaxConns != maxConns || *pool.MinIdleConns != minIdleConns {
+			t.Fatalf("expected safe projection pool %s to be %d/%d, got %+v", name, maxConns, minIdleConns, pool)
+		}
+	}
+	assertPool("management", pools.Management, 4, 1)
+	assertPool("runtime_execution", pools.RuntimeExecution, 8, 2)
+	assertPool("runtime_telemetry", pools.RuntimeTelemetry, 4, 1)
+	assertPool("runtime_feedback", pools.RuntimeFeedback, 2, 0)
+	assertPool("realtime", pools.Realtime, 2, 0)
+	assertPool("cache_refresh", pools.CacheRefresh, 2, 0)
+	assertPool("background_jobs", pools.BackgroundJobs, 2, 0)
+
+	admission := values.Database.ManagementAdmission
+	if admission == nil || admission.M2MaxConcurrent == nil || admission.M3MaxConcurrent == nil || *admission.M2MaxConcurrent != 3 || *admission.M3MaxConcurrent != 2 {
+		t.Fatalf("expected safe projection admission 3/2, got %+v", admission)
+	}
+	if values.Runtime == nil || values.Runtime.Transport == nil || values.Runtime.SideEffects == nil {
+		t.Fatalf("expected safe projection to include runtime defaults, got %+v", values.Runtime)
+	}
+	transport := values.Runtime.Transport
+	if transport.MaxIdleConns == nil || transport.MaxIdleConnsPerHost == nil || transport.MaxConnsPerHost == nil || *transport.MaxIdleConns != 100 || *transport.MaxIdleConnsPerHost != 16 || *transport.MaxConnsPerHost != 16 {
+		t.Fatalf("expected safe projection runtime transport caps 100/16/16, got %+v", transport)
+	}
+	assertDuration := func(name string, got *string, want string) {
+		t.Helper()
+		if got == nil || *got != want {
+			t.Fatalf("expected safe projection %s=%q, got %+v", name, want, got)
+		}
+	}
+	assertDuration("runtime.transport.request_timeout", transport.RequestTimeout, "300s")
+	assertDuration("runtime.transport.idle_conn_timeout", transport.IdleConnTimeout, "90s")
+	assertDuration("runtime.transport.response_header_timeout", transport.ResponseHeaderTimeout, "0s")
+	assertDuration("runtime.transport.tls_handshake_timeout", transport.TLSHandshakeTimeout, "10s")
+	assertDuration("runtime.transport.expect_continue_timeout", transport.ExpectContinueTimeout, "1s")
+	assertDuration("runtime.side_effects.attempt_timeout", values.Runtime.SideEffects.AttemptTimeout, "10s")
 }
 
 func TestBootstrapConfigManagementUpdatePersistsCanonicalDisabledMail(t *testing.T) {

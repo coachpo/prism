@@ -340,7 +340,7 @@ func TestNewHandlerWithDependenciesMountsBaselineRoutes(t *testing.T) {
 
 	settings := config.Settings{
 		Host:                             "127.0.0.1",
-		Port:                             18000,
+		Port:                             8000,
 		AppEnv:                           config.EnvironmentDevelopment,
 		RuntimeTransportConfig:           config.RuntimeTransportConfig{RequestTimeout: time.Second},
 		ManagementDatabasePoolBudget:     config.DatabasePoolBudget{MaxConns: 4},

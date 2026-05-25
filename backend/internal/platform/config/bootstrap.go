@@ -2177,13 +2177,13 @@ func buildSeededBootstrapDocument(settings Settings, now time.Time) (bootstrapCo
 				MaxIdleConnsPerHost:   intPointer(runtimeTransport.MaxIdleConnsPerHost),
 				MaxConnsPerHost:       intPointer(runtimeTransport.MaxConnsPerHost),
 				RequestTimeout:        stringPointer(bootstrapRequestTimeoutString(runtimeTransport.RequestTimeout)),
-				IdleConnTimeout:       stringPointer(runtimeTransport.IdleConnTimeout.String()),
-				ResponseHeaderTimeout: stringPointer(runtimeTransport.ResponseHeaderTimeout.String()),
-				TLSHandshakeTimeout:   stringPointer(runtimeTransport.TLSHandshakeTimeout.String()),
-				ExpectContinueTimeout: stringPointer(runtimeTransport.ExpectContinueTimeout.String()),
+				IdleConnTimeout:       stringPointer(bootstrapDurationString(runtimeTransport.IdleConnTimeout)),
+				ResponseHeaderTimeout: stringPointer(bootstrapDurationString(runtimeTransport.ResponseHeaderTimeout)),
+				TLSHandshakeTimeout:   stringPointer(bootstrapDurationString(runtimeTransport.TLSHandshakeTimeout)),
+				ExpectContinueTimeout: stringPointer(bootstrapDurationString(runtimeTransport.ExpectContinueTimeout)),
 			},
 			SideEffects: &bootstrapRuntimeSideEffects{
-				AttemptTimeout: stringPointer(runtimeSideEffects.AttemptTimeout.String()),
+				AttemptTimeout: stringPointer(bootstrapDurationString(runtimeSideEffects.AttemptTimeout)),
 			},
 		},
 		HTTP: &bootstrapHTTP{
@@ -2212,10 +2212,24 @@ func bootstrapDatabasePoolFromBudget(budget DatabasePoolBudget) *bootstrapDataba
 }
 
 func bootstrapRequestTimeoutString(timeout time.Duration) string {
-	if timeout == defaultRuntimeTransportRequestTimeout {
-		return "60s"
+	return bootstrapDurationString(timeout)
+}
+
+func bootstrapDurationString(duration time.Duration) string {
+	switch duration {
+	case defaultRuntimeTransportRequestTimeout:
+		return "300s"
+	case defaultRuntimeTransportIdleConnTimeout:
+		return "90s"
+	case defaultRuntimeTransportResponseHeaderTimeout:
+		return "0s"
+	case defaultRuntimeTransportTLSHandshakeTimeout:
+		return "10s"
+	case defaultRuntimeTransportExpectContinueTimeout:
+		return "1s"
+	default:
+		return duration.String()
 	}
-	return timeout.String()
 }
 
 func intPointer(value int) *int {

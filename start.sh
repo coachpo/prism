@@ -6,9 +6,9 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
 DATABASE_PORT=15432
-BACKEND_PORT=18000
-FRONTEND_PORT=15173
-DATABASE_COMPOSE_PROJECT=prism
+BACKEND_PORT=8000
+FRONTEND_PORT=5173
+PRISM_DATABASE_COMPOSE_PROJECT="${PRISM_DATABASE_COMPOSE_PROJECT:-prism}"
 DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"
 ORIGINAL_PATH="$PATH"
 
@@ -103,7 +103,7 @@ require_cmd() {
 }
 
 postgres_compose() {
-    (cd "$BACKEND_DIR" && docker compose --project-name "$DATABASE_COMPOSE_PROJECT" "$@")
+    (cd "$BACKEND_DIR" && docker compose --project-name "$PRISM_DATABASE_COMPOSE_PROJECT" "$@")
 }
 
 port_pids() {

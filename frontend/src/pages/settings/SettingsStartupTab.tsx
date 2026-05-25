@@ -30,8 +30,8 @@ import {
   buildPlannedRows,
   buildPreserveSecretUpdates,
   cloneValues,
-  defaultDisabledMailValues,
-  defaultSMTPValues,
+  emptyDisabledMailValuesForUiState,
+  smtpValuesForNewOrIncompleteMailConfig,
   emptySecretInputs,
   extractBackendRows,
   extractBootstrapResponse,
@@ -151,10 +151,10 @@ export function SettingsStartupTab() {
     }
     updateValues((current) => {
       if (!checked) {
-        return { ...current, mail: defaultDisabledMailValues() };
+        return { ...current, mail: emptyDisabledMailValuesForUiState() };
       }
       const currentMail = normalizeMailValues(current.mail);
-      return { ...current, mail: { ...currentMail, enabled: true, smtp: currentMail.smtp ?? defaultSMTPValues() } };
+      return { ...current, mail: { ...currentMail, enabled: true, smtp: currentMail.smtp ?? smtpValuesForNewOrIncompleteMailConfig() } };
     });
   }, [updateValues]);
 
@@ -168,7 +168,7 @@ export function SettingsStartupTab() {
   const setSMTPStringField = useCallback((field: keyof BootstrapConfigMailSMTPValues, rawValue: string) => {
     updateValues((current) => {
       const currentMail = normalizeMailValues(current.mail);
-      const currentSMTP = currentMail.smtp ?? defaultSMTPValues();
+      const currentSMTP = currentMail.smtp ?? smtpValuesForNewOrIncompleteMailConfig();
       return { ...current, mail: { ...currentMail, enabled: true, smtp: { ...currentSMTP, [field]: rawValue.trim() || null } } };
     });
   }, [updateValues]);
@@ -177,7 +177,7 @@ export function SettingsStartupTab() {
     const parsed = parseNullableInteger(rawValue);
     updateValues((current) => {
       const currentMail = normalizeMailValues(current.mail);
-      const currentSMTP = currentMail.smtp ?? defaultSMTPValues();
+      const currentSMTP = currentMail.smtp ?? smtpValuesForNewOrIncompleteMailConfig();
       return { ...current, mail: { ...currentMail, enabled: true, smtp: { ...currentSMTP, [field]: parsed } } };
     });
   }, [updateValues]);
@@ -390,7 +390,7 @@ export function SettingsStartupTab() {
 
   const controlsDisabled = saving || validating || !bootstrapConfig.writable;
   const mailValues = normalizeMailValues(values.mail);
-  const smtpValues = mailValues.smtp ?? defaultSMTPValues();
+  const smtpValues = mailValues.smtp ?? smtpValuesForNewOrIncompleteMailConfig();
   const mailEnabled = Boolean(mailValues.enabled);
   const smtpControlsDisabled = controlsDisabled || !mailEnabled;
   const currentApplySummary = summarizeApplyResult(bootstrapConfig.apply_result, copy);

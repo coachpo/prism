@@ -121,6 +121,27 @@ function createApplyCapabilities() {
   ]);
 }
 
+function createEnabledMailBootstrapResponse() {
+  const response = createBootstrapResponse();
+  (response.values as { mail: unknown }).mail = {
+    enabled: true,
+    from: "Prism <noreply@example.com>",
+    reply_to: "support@example.com",
+    smtp: {
+      host: "smtp.example.com",
+      port: 587,
+      mode: "starttls_required",
+      ehlo_hostname: "prism.example.com",
+      auth: "plain",
+      username: "smtp-user",
+      password_file: null,
+      timeout: "15s",
+      tls_server_name: "smtp.example.com",
+    },
+  };
+  return response;
+}
+
 function createBootstrapResponse() {
   return {
     config_path: "/app/config/config.json",
@@ -147,35 +168,35 @@ function createBootstrapResponse() {
       | { changed_fields: { field: string; mode: string }[]; restart_required: boolean }
       | undefined,
     values: {
-      server: { host: "127.0.0.1", port: 18000 },
+      server: { host: "0.0.0.0", port: 8000 },
       database: {
         pools: {
-          total_max_conns: 42,
-          management: { max_conns: 6, min_idle_conns: 0 },
-          runtime_execution: { max_conns: 14, min_idle_conns: 1 },
-          runtime_telemetry: { max_conns: 7, min_idle_conns: 0 },
-          runtime_feedback: { max_conns: 3, min_idle_conns: 0 },
-          realtime: { max_conns: 4, min_idle_conns: 0 },
-          cache_refresh: { max_conns: 4, min_idle_conns: 0 },
-          background_jobs: { max_conns: 4, min_idle_conns: 0 },
+          total_max_conns: 24,
+          management: { max_conns: 4, min_idle_conns: 1 },
+          runtime_execution: { max_conns: 8, min_idle_conns: 2 },
+          runtime_telemetry: { max_conns: 4, min_idle_conns: 1 },
+          runtime_feedback: { max_conns: 2, min_idle_conns: 0 },
+          realtime: { max_conns: 2, min_idle_conns: 0 },
+          cache_refresh: { max_conns: 2, min_idle_conns: 0 },
+          background_jobs: { max_conns: 2, min_idle_conns: 0 },
         },
-        management_admission: { m2_max_concurrent: 8, m3_max_concurrent: 4 },
+        management_admission: { m2_max_concurrent: 3, m3_max_concurrent: 2 },
       },
       runtime: {
-        buffering_mode: "buffered",
+        buffering_mode: "streaming",
         transport: {
           max_idle_conns: 100,
-          max_idle_conns_per_host: 10,
-          max_conns_per_host: 0,
+          max_idle_conns_per_host: 16,
+          max_conns_per_host: 16,
           idle_conn_timeout: "90s",
-          request_timeout: "60s",
-          response_header_timeout: "30s",
+          request_timeout: "300s",
+          response_header_timeout: "0s",
           tls_handshake_timeout: "10s",
           expect_continue_timeout: "1s",
         },
         side_effects: { attempt_timeout: "10s" },
       },
-      http: { cors_allowed_origins: ["http://localhost:15173"] },
+      http: { cors_allowed_origins: ["http://localhost:5173"] },
       auth: {
         access_token_ttl_seconds: 900,
         refresh_token_ttl_seconds: 604800,
@@ -184,22 +205,7 @@ function createBootstrapResponse() {
         refresh_cookie_name: "prism_refresh",
         cookie_secure: false,
       },
-      mail: {
-        enabled: true,
-        from: "Prism <noreply@example.com>",
-        reply_to: "support@example.com",
-        smtp: {
-          host: "smtp.example.com",
-          port: 587,
-          mode: "starttls_required",
-          ehlo_hostname: "prism.example.com",
-          auth: "plain",
-          username: "smtp-user",
-          password_file: null,
-          timeout: "15s",
-          tls_server_name: "smtp.example.com",
-        },
-      },
+      mail: { enabled: false, from: null, reply_to: null, smtp: null },
     },
     secrets: {
       "database.url": { configured: true, editable: true, masked: maskedDatabaseUrl },
@@ -357,11 +363,27 @@ test("settings startup hash opens the tab, shows loading state, warning copy, an
   await expect(page.getByRole("textbox", { name: "Database URL" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "JWT signing key" })).toHaveValue("");
   await expect(page.getByRole("textbox", { name: "SMTP password", exact: true })).toHaveValue("");
-  await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");
+  await expect(page.getByRole("textbox", { name: "Server host" })).toHaveValue("0.0.0.0");
+  await expect(page.getByRole("spinbutton", { name: "Server port" })).toHaveValue("8000");
+  await expect(page.getByLabel("CORS allowed origins")).toHaveValue("http://localhost:5173");
+  await expect(page.getByRole("spinbutton", { name: "PostgreSQL total max conns" })).toHaveValue("24");
+  await expect(page.getByRole("spinbutton", { name: "Runtime execution max conns" })).toHaveValue("8");
+  await expect(page.getByRole("spinbutton", { name: "Runtime execution min idle" })).toHaveValue("2");
+  await expect(page.getByRole("spinbutton", { name: "Runtime feedback max conns" })).toHaveValue("2");
+  await expect(page.getByRole("spinbutton", { name: "Management max conns" })).toHaveValue("4");
+  await expect(page.getByRole("spinbutton", { name: "M2 max concurrent" })).toHaveValue("3");
+  await expect(page.getByRole("spinbutton", { name: "M3 max concurrent" })).toHaveValue("2");
+  await expect(page.getByRole("combobox", { name: "Buffering mode" })).toContainText("streaming");
+  await expect(page.getByRole("spinbutton", { name: "Max idle per host" })).toHaveValue("16");
+  await expect(page.getByRole("spinbutton", { name: "Max conns per host" })).toHaveValue("16");
+  await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("300s");
+  await expect(page.getByRole("textbox", { name: "Response header timeout" })).toHaveValue("0s");
+  await expect(page.getByRole("switch", { name: "Enable auth email delivery" })).not.toBeChecked();
+  await expect(page.getByRole("textbox", { name: "SMTP host" })).toBeDisabled();
   await expect(page.getByText(forbiddenSecretSentinel)).toHaveCount(0);
 });
 
-test("missing PostgreSQL pool lanes hydrate defaults and save canonical pools", async ({ page }) => {
+test("missing PostgreSQL pool lanes render empty instead of frontend-owned defaults", async ({ page }) => {
   const response = createBootstrapResponse();
   const pools = response.values.database.pools as Partial<typeof response.values.database.pools>;
   delete pools.runtime_feedback;
@@ -371,30 +393,21 @@ test("missing PostgreSQL pool lanes hydrate defaults and save canonical pools", 
   await page.goto("/settings#startup");
 
   await expect(page.getByRole("tab", { name: "Startup" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("spinbutton", { name: "Runtime feedback max conns" })).toHaveValue("3");
-  await expect(page.getByRole("spinbutton", { name: "Runtime feedback min idle" })).toHaveValue("0");
-  await expect(page.getByRole("spinbutton", { name: "Cache refresh max conns" })).toHaveValue("4");
-  await expect(page.getByRole("spinbutton", { name: "Cache refresh min idle" })).toHaveValue("0");
+  await expect(page.getByRole("spinbutton", { name: "Runtime feedback max conns" })).toHaveValue("");
+  await expect(page.getByRole("spinbutton", { name: "Runtime feedback min idle" })).toHaveValue("");
+  await expect(page.getByRole("spinbutton", { name: "Cache refresh max conns" })).toHaveValue("");
+  await expect(page.getByRole("spinbutton", { name: "Cache refresh min idle" })).toHaveValue("");
 
   await page.getByRole("button", { name: "Save startup config" }).click();
-  await expect(page.getByText("Saved to config.json and applied immediately.")).toBeVisible();
 
-  expect(routes.getValidateRequests()).toHaveLength(1);
-  expect(routes.getUpdateRequests()).toHaveLength(1);
-  expect(routes.getUpdateRequests()[0]).toMatchObject({
-    values: {
-      database: {
-        pools: {
-          runtime_feedback: { max_conns: 3, min_idle_conns: 0 },
-          cache_refresh: { max_conns: 4, min_idle_conns: 0 },
-        },
-      },
-    },
-  });
+  await expect(page.getByRole("row", { name: /database\.pools\.runtime_feedback\.max_conns.*Use a positive integer\./i })).toBeVisible();
+  await expect(page.getByRole("row", { name: /database\.pools\.cache_refresh\.max_conns.*Use a positive integer\./i })).toBeVisible();
+  expect(routes.getValidateRequests()).toHaveLength(0);
+  expect(routes.getUpdateRequests()).toHaveLength(0);
 });
 
-test("mail and SMTP startup card renders every safe field", async ({ page }) => {
-  await mockSettingsStartupRoutes(page);
+test("mail and SMTP startup card renders every backend-provided enabled field", async ({ page }) => {
+  await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
   await page.goto("/settings#startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
@@ -453,7 +466,7 @@ test("enabled blank mail validates on the client without backend validate", asyn
 });
 
 test("enabled mail saves password file separately from SMTP password secret updates", async ({ page }) => {
-  const routes = await mockSettingsStartupRoutes(page);
+  const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
   await page.goto("/settings#startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
@@ -473,7 +486,7 @@ test("enabled mail saves password file separately from SMTP password secret upda
 });
 
 test("enabled mail saves inline SMTP password replacement only through secret updates", async ({ page }) => {
-  const routes = await mockSettingsStartupRoutes(page);
+  const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
   await page.goto("/settings#startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
@@ -493,7 +506,7 @@ test("enabled mail saves inline SMTP password replacement only through secret up
 });
 
 test("disabling mail after staging SMTP password saves disabled mail without replacement", async ({ page }) => {
-  const routes = await mockSettingsStartupRoutes(page);
+  const routes = await mockSettingsStartupRoutes(page, { bootstrapResponse: createEnabledMailBootstrapResponse() });
 
   await page.goto("/settings#startup");
   await expect(page.getByText("Mail and SMTP")).toBeVisible();
@@ -542,7 +555,7 @@ test("client validation reports invalid port and CORS without backend validate",
   await expect(page.getByText("Review and save")).toBeVisible();
 
   await page.getByRole("spinbutton", { name: "Server port" }).fill("0");
-  await page.getByLabel("CORS allowed origins").fill("localhost:15173");
+  await page.getByLabel("CORS allowed origins").fill("localhost:5173");
   await page.getByRole("button", { name: "Validate" }).click();
 
   await expect(page.getByText("Server port must be an integer from 1 to 65535.").first()).toBeVisible();
@@ -581,7 +594,7 @@ test("runtime side-effects timeout renders distinct field", async ({ page }) => 
   await expect(page.getByText("Telemetry enqueue timeout.")).toBeVisible();
   await expect(page.locator('label[for="startup-side-effects-attempt-timeout"]').locator("..").getByText("Restart required")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Telemetry enqueue attempt timeout" })).toHaveValue("10s");
-  await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("60s");
+  await expect(page.getByRole("textbox", { name: "Request timeout" })).toHaveValue("300s");
 });
 
 test("blank side-effects timeout blocks client validate and save", async ({ page }) => {
@@ -639,8 +652,8 @@ test("backend validation renders planned hot-apply and restart effects before sa
   await page.goto("/settings#startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
-  await page.getByLabel("CORS allowed origins").fill("http://localhost:15173, http://127.0.0.1:15173");
-  await page.getByRole("spinbutton", { name: "Server port" }).fill("18001");
+  await page.getByLabel("CORS allowed origins").fill("http://localhost:5173, http://127.0.0.1:5173");
+  await page.getByRole("spinbutton", { name: "Server port" }).fill("8001");
   await page.getByRole("button", { name: "Validate" }).click();
 
   await expect(page.getByRole("row", { name: /CORS allowed origins.*Will apply immediately after save\./i })).toBeVisible();
@@ -705,8 +718,8 @@ test("mixed save shows immediate rows plus restart-required alert", async ({ pag
   await page.goto("/settings#startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
-  await page.getByLabel("CORS allowed origins").fill("http://localhost:15173, http://127.0.0.1:15173");
-  await page.getByRole("spinbutton", { name: "Server port" }).fill("18001");
+  await page.getByLabel("CORS allowed origins").fill("http://localhost:5173, http://127.0.0.1:5173");
+  await page.getByRole("spinbutton", { name: "Server port" }).fill("8001");
   await expect(page.getByText("1 immediate and 1 restart change staged")).toBeVisible();
   await page.getByLabel("Server port changes the management and proxy port after restart").check();
   await page.getByRole("button", { name: "Save startup config" }).click();
@@ -761,7 +774,7 @@ test("dangerous port save requires checklist, AlertDialog confirmation, and show
   await page.goto("/settings#startup");
   await expect(page.getByText("Review and save")).toBeVisible();
 
-  await page.getByRole("spinbutton", { name: "Server port" }).fill("18001");
+  await page.getByRole("spinbutton", { name: "Server port" }).fill("8001");
   await expect(page.getByText("Dangerous changes staged")).toBeVisible();
   await page.getByLabel("Server port changes the management and proxy port after restart").check();
   await page.getByRole("button", { name: "Save startup config" }).click();
@@ -777,11 +790,11 @@ test("dangerous port save requires checklist, AlertDialog confirmation, and show
   expect(routes.getValidateRequests()).toHaveLength(1);
   expect(routes.getUpdateRequests()).toHaveLength(1);
   expect(routes.getValidateRequests()[0]).toMatchObject({
-    values: { runtime: { transport: { request_timeout: "60s" } } },
+    values: { runtime: { transport: { request_timeout: "300s" } } },
   });
   expect(routes.getUpdateRequests()[0]).toMatchObject({
     confirmations: ["server-port-change"],
-    values: { server: { port: 18001 }, runtime: { transport: { request_timeout: "60s" } } },
+    values: { server: { port: 8001 }, runtime: { transport: { request_timeout: "300s" } } },
   });
 });
 

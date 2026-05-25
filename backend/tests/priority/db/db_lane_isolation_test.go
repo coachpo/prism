@@ -18,8 +18,8 @@ func TestDBPoolLaneIsolation(t *testing.T) {
 		if err := budget.Validate(); err != nil {
 			t.Fatalf("default budget should validate: %v", err)
 		}
-		if budget.TotalMaxConns != 42 || budget.SumMaxConns() != 42 {
-			t.Fatalf("expected total budget and lane sum to be 42, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
+		if budget.TotalMaxConns != 24 || budget.SumMaxConns() != 24 {
+			t.Fatalf("expected total budget and lane sum to be 24, got total=%d sum=%d", budget.TotalMaxConns, budget.SumMaxConns())
 		}
 		for _, lane := range []config.PostgresPoolLane{config.PostgresLaneRuntimeExecution, config.PostgresLaneRuntimeTelemetry, config.PostgresLaneRuntimeFeedback, config.PostgresLaneManagement, config.PostgresLaneRealtime, config.PostgresLaneCacheRefresh, config.PostgresLaneBackgroundJobs} {
 			if _, ok := platformdb.ComponentLaneAssignments()[string(lane)]; !ok {
@@ -53,7 +53,7 @@ func TestDBPoolLaneIsolation(t *testing.T) {
 				mutate: func(payload map[string]any) {
 					payload["database"].(map[string]any)["pools"].(map[string]any)["totalMaxConns"] = float64(10)
 				},
-				wantErr: "postgres pool budget exceeded: total_max_conns=10 lane_sum=42",
+				wantErr: "postgres pool budget exceeded: total_max_conns=10 lane_sum=24",
 			},
 		}
 		for _, testCase := range testCases {
@@ -114,6 +114,15 @@ func loadBootstrapPayload(t *testing.T) map[string]any {
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		t.Fatalf("decode bootstrap fixture: %v", err)
 	}
+	pools := payload["database"].(map[string]any)["pools"].(map[string]any)
+	pools["totalMaxConns"] = float64(24)
+	pools["management"] = map[string]any{"maxConns": float64(4), "minIdleConns": float64(1)}
+	pools["runtimeExecution"] = map[string]any{"maxConns": float64(8), "minIdleConns": float64(2)}
+	pools["runtimeTelemetry"] = map[string]any{"maxConns": float64(4), "minIdleConns": float64(1)}
+	pools["runtimeFeedback"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	pools["realtime"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	pools["cacheRefresh"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	pools["backgroundJobs"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
 	return payload
 }
 

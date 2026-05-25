@@ -6,7 +6,7 @@
 ┌─────────────┐     ┌──────────────────────────────────────────────┐     ┌──────────────┐
 │   Client    │     │                    Prism                     │     │   Providers  │
 │             │     │  ┌────────────┐  ┌──────────┐               │     │              │
-│ Port 15173* │◀────│  │ Management │  │  Proxy   │          │◀────│  OpenAI API  │
+│ Port 5173*  │◀────│  │ Management │  │  Proxy   │          │◀────│  OpenAI API  │
 │             │     │  │   APIs     │  │  Engine  │          │     │  Anthropic   │
 │             │     │  └─────┬──────┘  └────┬─────┘          │     │  Gemini API  │
 └─────────────┘     │        │              │                │     └──────────────┘
@@ -17,11 +17,11 @@
                     │  │  settings, request_logs,  │          │
                     │  │  audit_logs, sidecars)    │          │
                     │  └───────────────────────────┘          │
-                     │             Port 18000*                 │
+                     │              Port 8000*                 │
                     └──────────────────────────────────────────┘
 ```
 
-*Local `./start.sh` defaults are backend `18000`, frontend `15173`, and PostgreSQL `15432`. Standalone frontend containers commonly expose `3000`.
+*Local `./start.sh` defaults are backend `8000`, frontend `5173`, and PostgreSQL `15432`. Standalone frontend containers commonly expose `3000`.
 
 ## 2. Component Architecture
 
@@ -103,10 +103,10 @@ frontend/
 ### 2.3 Local Tooling and Build Workflow
 
 - Prism is a monorepo: `backend/` and `frontend/` are root-owned directories that share the root launcher, release helper, and CI wiring.
-- Root local orchestration lives in `start.sh`: it loads the root `.env`, starts PostgreSQL from `backend/docker-compose.yml`, validates that the selected bootstrap config still matches the fixed local launcher contract, and launches the Go backend service on `18000`.
-- `./start.sh full` launches the frontend on `15173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:18000` so browser traffic stays same-origin.
-- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; the only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
-- Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; old encrypted bootstrap files must be replaced before boot, and there is no compatibility mode for older bootstrap file shapes.
+- Root local orchestration lives in `start.sh`: it loads the root `.env`, starts PostgreSQL from `backend/docker-compose.yml`, validates that the selected bootstrap config still matches the fixed local launcher contract, and launches the Go backend service on `8000`.
+- `./start.sh full` launches the frontend on `5173`, unsets `VITE_API_BASE`, and enables a launcher-local Vite proxy via `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:8000` so browser traffic stays same-origin.
+- Canonical startup config lives in a plaintext bootstrap JSON selected by `PRISM_CONFIG_PATH`; the backend canonical defaults are the source of truth for fresh seeds, the only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`, and the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`.
+- Plaintext bootstrap startup reads that bootstrap file directly through `PRISM_CONFIG_PATH`; encrypted bootstrap files must be replaced before boot, and there is no compatibility mode for older bootstrap file shapes. Missing files are seeded once. Existing valid files are preserved until an operator resets manually by stopping Prism, removing or relocating the file, and restarting.
 - The backend image runs as `prism:prism`, UID/GID `1000:1000`. Container deployments that bind mount `/app/config` or any other `PRISM_CONFIG_PATH` parent must make that host directory writable by UID/GID `1000:1000`; new and existing root-owned mounts should be prepared once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 - The Startup tab and `PUT /api/config/bootstrap` are the only supported hot publication paths for file-backed startup edits. External edits to `config.json` are not watched automatically.
 - Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport instead of bootstrap ownership.
@@ -198,7 +198,7 @@ OpenAI runtime support is limited to the registered chat, Responses, and image o
 Note: Gemini requests use native `/v1beta/models/{model}:...` paths only. When a Gemini proxy model resolves to a different native model ID, the proxy rewrites the model ID segment in the URL path to the resolved native target model ID before forwarding upstream.
 For Gemini, `gemini.stream_generate_content` and the `:streamGenerateContent` path are authoritative for stream classification even when the request body omits `stream: true`; `gemini.generate_content` remains non-stream generate content, and `gemini.count_tokens` remains the token-count operation.
 
-Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes proxy buffering mode and an HTTP client built from startup bootstrap transport settings. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls. A missing request timeout fails startup validation by design. Raw `runtime.sideEffects.attemptTimeout` is a separate per-attempt background side-effect enqueue budget and is restart-required rather than hot-applied.
+Runtime upstream requests capture an immutable bootstrap runtime snapshot at request start. The snapshot includes proxy buffering mode and an HTTP client built from startup bootstrap transport settings. Fresh seeds use runtime buffering `streaming`, transport `100/16/16/300s/90s/0s/10s/1s`, and side-effect attempt timeout `10s`. The raw `runtime.transport.requestTimeout` Go duration is applied as `http.Client.Timeout`, which makes it the whole-request timeout for outbound provider calls, and it is hot-applicable for new requests. A missing request timeout fails startup validation by design. Raw `runtime.sideEffects.attemptTimeout` is a separate per-attempt background side-effect enqueue budget and is restart-required rather than hot-applied.
 
 Hot bootstrap projection builds a new aggregate snapshot, validates it, then atomically publishes it for future work. CORS origin checks, auth TTL and cookie metadata, mail delivery settings, runtime buffering, runtime transport, and M2/M3 management admission limits are hot-apply boundaries. New requests and new email sends read the current snapshot; in-flight proxy requests keep the HTTP client they captured, and a retired runtime transport only has idle connections closed.
 

@@ -23,10 +23,10 @@ func TestHotBootstrapConfigRuntimeInitializesSnapshotsFromSettings(t *testing.T)
 	}
 
 	snapshot := runtime.Snapshot()
-	if got := snapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:15173", "http://127.0.0.1:15173"}) {
+	if got := snapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
 		t.Fatalf("unexpected CORS origins: %v", got)
 	}
-	if !snapshot.CORS().AllowsOrigin(" http://127.0.0.1:15173 ") {
+	if !snapshot.CORS().AllowsOrigin(" http://127.0.0.1:5173 ") {
 		t.Fatal("expected trimmed CORS origin to be allowed")
 	}
 	auth := snapshot.Auth()
@@ -83,13 +83,13 @@ func TestHotBootstrapConfigRuntimeSnapshotsProtectMutableValues(t *testing.T) {
 
 	origins := snapshot.CORS().AllowedOrigins()
 	origins[0] = "http://evil.example"
-	if got := snapshot.CORS().AllowedOrigins()[0]; got != "http://localhost:15173" {
+	if got := snapshot.CORS().AllowedOrigins()[0]; got != "http://localhost:5173" {
 		t.Fatalf("caller mutated CORS origin slice, got %q", got)
 	}
 	originSet := snapshot.CORS().AllowedOriginSet()
-	delete(originSet, "http://localhost:15173")
+	delete(originSet, "http://localhost:5173")
 	originSet["http://evil.example"] = struct{}{}
-	if !snapshot.CORS().AllowsOrigin("http://localhost:15173") || snapshot.CORS().AllowsOrigin("http://evil.example") {
+	if !snapshot.CORS().AllowsOrigin("http://localhost:5173") || snapshot.CORS().AllowsOrigin("http://evil.example") {
 		t.Fatal("caller mutated CORS origin set")
 	}
 
@@ -150,7 +150,7 @@ func TestHotBootstrapConfigRuntimePublishUpdatesAtomicallyAndKeepsOldSnapshotSta
 		t.Fatalf("new admission limits = %+v", got)
 	}
 
-	if got := oldSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:15173", "http://127.0.0.1:15173"}) {
+	if got := oldSnapshot.CORS().AllowedOrigins(); !reflect.DeepEqual(got, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
 		t.Fatalf("old CORS origins changed: %v", got)
 	}
 	if got := oldSnapshot.Auth().AccessTokenTTL; got != 17*time.Second {
@@ -205,7 +205,7 @@ func TestHotBootstrapConfigRuntimeRejectsInvalidMailerBeforePublishing(t *testin
 
 func hotBootstrapRuntimeTestSettings() config.Settings {
 	return config.Settings{
-		CORSAllowedOrigins:               "http://localhost:15173, http://127.0.0.1:15173",
+		CORSAllowedOrigins:               "http://localhost:5173, http://127.0.0.1:5173",
 		AuthAccessTokenTTLSeconds:        17,
 		AuthRefreshTokenTTLSeconds:       29,
 		AuthResetCodeTTLSeconds:          31,

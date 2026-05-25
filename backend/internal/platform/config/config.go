@@ -47,9 +47,9 @@ const (
 const (
 	bootstrapDatabaseURLEnv            = "DATABASE_URL"
 	defaultBootstrapHost               = "0.0.0.0"
-	defaultBootstrapPort               = 18000
+	defaultBootstrapPort               = 8000
 	defaultBootstrapDatabaseURL        = "postgres://prism:prism@localhost:5432/prism?sslmode=disable"
-	defaultBootstrapCORSAllowedOrigins = "http://localhost:15173,http://127.0.0.1:15173"
+	defaultBootstrapCORSAllowedOrigins = "http://localhost:5173,http://127.0.0.1:5173"
 	defaultSeedSecretEncryptionKey     = "prism-dev-runtime-secret-change-me"
 	defaultAuthJWTSecret               = "prism-dev-jwt-secret-change-me"
 	defaultAuthAccessTokenTTLSeconds   = 900
@@ -61,27 +61,27 @@ const (
 )
 
 const (
-	defaultPostgresTotalMaxConns                 int32 = 42
-	defaultManagementDatabaseMaxConns            int32 = 6
-	defaultManagementDatabaseMinIdleConns        int32 = 0
-	defaultRuntimeExecutionDatabaseMaxConns      int32 = 14
-	defaultRuntimeExecutionDatabaseMinIdleConns  int32 = 1
-	defaultRuntimeTelemetryDatabaseMaxConns      int32 = 7
-	defaultRuntimeTelemetryDatabaseMinIdleConns  int32 = 0
-	defaultRuntimeFeedbackDatabaseMaxConns       int32 = 3
+	defaultPostgresTotalMaxConns                 int32 = 24
+	defaultManagementDatabaseMaxConns            int32 = 4
+	defaultManagementDatabaseMinIdleConns        int32 = 1
+	defaultRuntimeExecutionDatabaseMaxConns      int32 = 8
+	defaultRuntimeExecutionDatabaseMinIdleConns  int32 = 2
+	defaultRuntimeTelemetryDatabaseMaxConns      int32 = 4
+	defaultRuntimeTelemetryDatabaseMinIdleConns  int32 = 1
+	defaultRuntimeFeedbackDatabaseMaxConns       int32 = 2
 	defaultRuntimeFeedbackDatabaseMinIdleConns   int32 = 0
-	defaultRealtimeDatabaseMaxConns              int32 = 4
+	defaultRealtimeDatabaseMaxConns              int32 = 2
 	defaultRealtimeDatabaseMinIdleConns          int32 = 0
-	defaultCacheRefreshDatabaseMaxConns          int32 = 4
+	defaultCacheRefreshDatabaseMaxConns          int32 = 2
 	defaultCacheRefreshDatabaseMinIdleConns      int32 = 0
-	defaultBackgroundJobsDatabaseMaxConns        int32 = 4
+	defaultBackgroundJobsDatabaseMaxConns        int32 = 2
 	defaultBackgroundJobsDatabaseMinIdleConns    int32 = 0
-	defaultManagementM2MaxConcurrent             int64 = 10
-	defaultManagementM3MaxConcurrent             int64 = 6
+	defaultManagementM2MaxConcurrent             int64 = 3
+	defaultManagementM3MaxConcurrent             int64 = 2
 	defaultRuntimeTransportMaxIdleConns                = 100
-	defaultRuntimeTransportMaxIdleConnsPerHost         = 8
-	defaultRuntimeTransportMaxConnsPerHost             = 0
-	defaultRuntimeTransportRequestTimeout              = 60 * time.Second
+	defaultRuntimeTransportMaxIdleConnsPerHost         = 16
+	defaultRuntimeTransportMaxConnsPerHost             = 16
+	defaultRuntimeTransportRequestTimeout              = 300 * time.Second
 	defaultRuntimeTransportIdleConnTimeout             = 90 * time.Second
 	defaultRuntimeTransportResponseHeaderTimeout       = 0
 	defaultRuntimeTransportTLSHandshakeTimeout         = 10 * time.Second
@@ -199,7 +199,7 @@ func loadCanonicalDefaultSettings(databaseURL string) Settings {
 		AppEnv:                           EnvironmentDevelopment,
 		DatabaseURL:                      resolvedDatabaseURL,
 		RuntimeTelemetryMode:             RuntimeTelemetryModeDurableOutbox,
-		RuntimeBufferingMode:             RuntimeBufferingModeBuffered,
+		RuntimeBufferingMode:             RuntimeBufferingModeStreaming,
 		RuntimeTransportConfig:           defaultRuntimeTransportConfig(),
 		RuntimeSideEffectsConfig:         defaultRuntimeSideEffectsConfig(),
 		PostgresPoolsBudget:              DefaultPostgresPoolsBudget(),

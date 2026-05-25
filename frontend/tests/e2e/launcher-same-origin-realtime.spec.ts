@@ -25,7 +25,10 @@ test.describe("launcher same-origin realtime", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle");
 
-    expect(new URL(page.url()).origin).toBe(new URL(launcherBaseUrl).origin);
+    const launcherOrigin = new URL(launcherBaseUrl);
+    const pageOrigin = new URL(page.url());
+    expect(pageOrigin.origin).toBe(launcherOrigin.origin);
+    expect(pageOrigin.port).toBe("5173");
 
     const websocketResult = await page.evaluate(async () => {
       const url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/realtime/ws`;
@@ -108,15 +111,24 @@ test.describe("launcher same-origin realtime", () => {
       };
     });
 
-    expect(new URL(websocketResult.url).host).toBe(new URL(launcherBaseUrl).host);
+    expect(new URL(websocketResult.url).host).toBe(launcherOrigin.host);
+    expect(new URL(websocketResult.url).port).toBe("5173");
     expect(new URL(websocketResult.url).pathname).toBe("/api/realtime/ws");
     expect(
       websocketResult.opened,
       JSON.stringify(websocketResult.attempts)
     ).toBe(true);
 
+    const sameOriginApiRequests = browserRequests.filter((url) =>
+      new URL(url).pathname.startsWith("/api/")
+    );
+    expect(sameOriginApiRequests.map((url) => new URL(url).origin)).toEqual(
+      sameOriginApiRequests.map(() => launcherOrigin.origin)
+    );
     expect(
-      browserRequests.filter((url) => url.startsWith("http://localhost:18000"))
+      browserRequests.filter((url) =>
+        url.startsWith("http://localhost:8000") || url.startsWith("http://127.0.0.1:8000")
+      )
     ).toHaveLength(0);
 
     const websocketConsoleErrors = consoleErrors.filter((message) => {

@@ -106,7 +106,7 @@ function createLauncherProxyConfig(target: string): Record<string, string | Prox
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "")
   const launcherProxyEnabled = isTruthyEnvFlag(env.PRISM_VITE_PROXY_ENABLED)
-  const launcherProxyTarget = env.PRISM_VITE_PROXY_TARGET?.trim() || "http://localhost:18000"
+  const launcherProxyTarget = env.PRISM_VITE_PROXY_TARGET?.trim() || "http://localhost:8000"
   const browserApiBase = launcherProxyEnabled ? "" : env.VITE_API_BASE?.trim() || ""
 
   return {

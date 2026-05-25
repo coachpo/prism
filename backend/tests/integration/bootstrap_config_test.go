@@ -63,6 +63,9 @@ type bootstrapSeededFile struct {
 			TLSHandshakeTimeout   string `json:"tlsHandshakeTimeout"`
 			ExpectContinueTimeout string `json:"expectContinueTimeout"`
 		} `json:"transport"`
+		SideEffects struct {
+			AttemptTimeout string `json:"attemptTimeout"`
+		} `json:"sideEffects"`
 	} `json:"runtime"`
 	HTTP struct {
 		CORSAllowedOrigins []string `json:"corsAllowedOrigins"`
@@ -89,7 +92,7 @@ type bootstrapSeededDBPool struct {
 	MinIdleConns int `json:"minIdleConns"`
 }
 
-func TestBootstrapConfigFileIsSeededFromCanonicalDefaults(t *testing.T) {
+func TestBootstrapConfigSeedsCanonicalDefaults(t *testing.T) {
 	seededPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
 	seededAt := time.Date(2026, 4, 26, 16, 15, 0, 0, time.UTC)
 
@@ -121,6 +124,45 @@ func TestBootstrapConfigFileIsSeededFromCanonicalDefaults(t *testing.T) {
 	assertSeededBootstrapSettings(t, loadedAgain, bootstrapFixtureDatabaseURL)
 }
 
+func TestBootstrapConfigSeededMailDefaultsRemainDisabled(t *testing.T) {
+	seededPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
+	seededAt := time.Date(2026, 4, 26, 16, 16, 0, 0, time.UTC)
+
+	setBootstrapSeedEnv(t, map[string]string{
+		config.BootstrapConfigPathEnv: seededPath,
+		"DATABASE_URL":                "",
+	})
+
+	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{
+		TimeNow: func() time.Time { return seededAt },
+	})
+	settings, err := manager.LoadOrSeedFromEnv()
+	if err != nil {
+		t.Fatalf("seed bootstrap config for disabled mail defaults: %v", err)
+	}
+	if settings.Mail.Enabled {
+		t.Fatalf("expected seeded mail settings to remain disabled, got %+v", settings.Mail)
+	}
+
+	raw, err := os.ReadFile(seededPath)
+	if err != nil {
+		t.Fatalf("read seeded bootstrap config for disabled mail defaults: %v", err)
+	}
+	assertSeededBootstrapMailDocument(t, raw)
+
+	snapshot, _, err := manager.LoadBootstrapConfigDocument(seededPath)
+	if err != nil {
+		t.Fatalf("load seeded bootstrap snapshot for disabled mail defaults: %v", err)
+	}
+	if snapshot.Values.Mail == nil || snapshot.Values.Mail.Enabled == nil || *snapshot.Values.Mail.Enabled || snapshot.Values.Mail.From != nil || snapshot.Values.Mail.ReplyTo != nil || snapshot.Values.Mail.SMTP != nil {
+		t.Fatalf("expected safe seeded mail values to contain only enabled=false, got %+v", snapshot.Values.Mail)
+	}
+	smtpSecret := snapshot.Secrets[config.BootstrapConfigSecretMailSMTPPassword]
+	if smtpSecret.Configured || !smtpSecret.Editable || smtpSecret.Masked != "" {
+		t.Fatalf("expected seeded disabled mail SMTP secret metadata to be unconfigured/editable, got %+v", smtpSecret)
+	}
+}
+
 func TestBootstrapConfigFileSeedingIgnoresDeletedLegacyEnvInputs(t *testing.T) {
 	seededPath := filepath.Join(t.TempDir(), "bootstrap-config.json")
 	seededAt := time.Date(2026, 4, 26, 16, 18, 0, 0, time.UTC)
@@ -131,7 +173,7 @@ func TestBootstrapConfigFileSeedingIgnoresDeletedLegacyEnvInputs(t *testing.T) {
 		"HOST":                             "127.0.0.1",
 		"PORT":                             "19090",
 		"APP_ENV":                          "production",
-		"RUNTIME_BUFFERING_MODE":           "streaming",
+		"RUNTIME_BUFFERING_MODE":           "buffered",
 		"RUNTIME_TRANSPORT_MAX_IDLE_CONNS": "77",
 		"RUNTIME_TRANSPORT_MAX_IDLE_CONNS_PER_HOST": "11",
 		"RUNTIME_TRANSPORT_MAX_CONNS_PER_HOST":      "17",
@@ -228,7 +270,13 @@ func TestBootstrapConfigFileWinsWhenPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load existing bootstrap config file: %v", err)
 	}
-	assertSeededBootstrapSettings(t, settings, bootstrapFixtureDatabaseURL)
+	if settings.DatabaseURL != bootstrapFixtureDatabaseURL {
+		t.Fatalf("expected existing bootstrap config database URL %q, got %q", bootstrapFixtureDatabaseURL, settings.DatabaseURL)
+	}
+	transport := settings.RuntimeTransport()
+	if settings.Port != 18000 || settings.RuntimeBufferingMode != config.RuntimeBufferingModeBuffered || transport.RequestTimeout != time.Minute || transport.MaxConnsPerHost != 0 {
+		t.Fatalf("expected existing bootstrap fixture values to load without auto-reset, got port=%d buffering=%q timeout=%s maxConnsPerHost=%d", settings.Port, settings.RuntimeBufferingMode, transport.RequestTimeout, transport.MaxConnsPerHost)
+	}
 
 	rawAfter, err := os.ReadFile(configPath)
 	if err != nil {
@@ -287,7 +335,7 @@ func TestEncryptedBootstrapConfigFileFailsFast(t *testing.T) {
 
 func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantDatabaseURL string) {
 	t.Helper()
-	if settings.Host != "0.0.0.0" || settings.Port != 18000 {
+	if settings.Host != "0.0.0.0" || settings.Port != 8000 {
 		t.Fatalf("unexpected seeded server settings: %+v", settings)
 	}
 	if settings.AppEnv != config.EnvironmentDevelopment {
@@ -302,26 +350,26 @@ func assertSeededBootstrapSettings(t *testing.T, settings config.Settings, wantD
 	if settings.AuthJWTSecret != bootstrapFixtureJWTSecret {
 		t.Fatalf("unexpected seeded auth JWT secret: %q", settings.AuthJWTSecret)
 	}
-	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox || settings.RuntimeBufferingMode != config.RuntimeBufferingModeBuffered {
+	if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox || settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
 		t.Fatalf("unexpected seeded runtime modes: telemetry=%q buffering=%q", settings.RuntimeTelemetryMode, settings.RuntimeBufferingMode)
 	}
 	transport := settings.RuntimeTransport()
-	if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 8 || transport.MaxConnsPerHost != 0 {
+	if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 16 || transport.MaxConnsPerHost != 16 {
 		t.Fatalf("unexpected seeded runtime transport pool: %+v", transport)
 	}
-	if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
+	if transport.RequestTimeout != 300*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 		t.Fatalf("unexpected seeded runtime transport timeouts: %+v", transport)
 	}
-	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 14 || got.MinIdleConns != 1 {
+	if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 8 || got.MinIdleConns != 2 {
 		t.Fatalf("unexpected seeded runtime DB budget: %+v", got)
 	}
-	if got := settings.ManagementDatabaseBudget(); got.MaxConns != 6 || got.MinIdleConns != 0 {
+	if got := settings.ManagementDatabaseBudget(); got.MaxConns != 4 || got.MinIdleConns != 1 {
 		t.Fatalf("unexpected seeded management DB budget: %+v", got)
 	}
-	if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 5 || got.M3MaxConcurrent != 5 {
+	if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 3 || got.M3MaxConcurrent != 2 {
 		t.Fatalf("unexpected seeded management admission budget: %+v", got)
 	}
-	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
+	if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:5173" || got[1] != "http://127.0.0.1:5173" {
 		t.Fatalf("unexpected seeded CORS origins: %+v", got)
 	}
 	if settings.AuthAccessTokenTTLSeconds != 900 || settings.AuthRefreshTokenTTLSeconds != 604800 || settings.AuthResetCodeTTLSeconds != 600 {
@@ -357,28 +405,31 @@ func assertSeededBootstrapFile(t *testing.T, raw []byte, seededAt time.Time, wan
 	if seeded.Meta.SchemaVersion != 1 || seeded.Meta.Revision != 1 || seeded.Meta.CreatedAt != seededAt.Format(time.RFC3339) || seeded.Meta.UpdatedAt != seededAt.Format(time.RFC3339) {
 		t.Fatalf("unexpected seeded meta payload: %+v", seeded.Meta)
 	}
-	if seeded.Server.Host != "0.0.0.0" || seeded.Server.Port != 18000 {
+	if seeded.Server.Host != "0.0.0.0" || seeded.Server.Port != 8000 {
 		t.Fatalf("unexpected seeded server payload: %+v", seeded.Server)
 	}
 	if seeded.Database.URL != wantDatabaseURL {
 		t.Fatalf("unexpected seeded database URL: %q", seeded.Database.URL)
 	}
-	if seeded.Database.Pools.TotalMaxConns != 42 || seeded.Database.Pools.Management.MaxConns != 6 || seeded.Database.Pools.RuntimeExecution.MaxConns != 14 || seeded.Database.Pools.RuntimeTelemetry.MaxConns != 7 || seeded.Database.Pools.RuntimeFeedback.MaxConns != 3 || seeded.Database.Pools.Realtime.MaxConns != 4 || seeded.Database.Pools.CacheRefresh.MaxConns != 4 || seeded.Database.Pools.BackgroundJobs.MaxConns != 4 {
+	if seeded.Database.Pools.TotalMaxConns != 24 || seeded.Database.Pools.Management != (bootstrapSeededDBPool{MaxConns: 4, MinIdleConns: 1}) || seeded.Database.Pools.RuntimeExecution != (bootstrapSeededDBPool{MaxConns: 8, MinIdleConns: 2}) || seeded.Database.Pools.RuntimeTelemetry != (bootstrapSeededDBPool{MaxConns: 4, MinIdleConns: 1}) || seeded.Database.Pools.RuntimeFeedback != (bootstrapSeededDBPool{MaxConns: 2, MinIdleConns: 0}) || seeded.Database.Pools.Realtime != (bootstrapSeededDBPool{MaxConns: 2, MinIdleConns: 0}) || seeded.Database.Pools.CacheRefresh != (bootstrapSeededDBPool{MaxConns: 2, MinIdleConns: 0}) || seeded.Database.Pools.BackgroundJobs != (bootstrapSeededDBPool{MaxConns: 2, MinIdleConns: 0}) {
 		t.Fatalf("unexpected seeded database pools payload: %+v", seeded.Database.Pools)
 	}
-	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 5 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 5 {
+	if seeded.Database.ManagementAdmission.M2MaxConcurrent != 3 || seeded.Database.ManagementAdmission.M3MaxConcurrent != 2 {
 		t.Fatalf("unexpected seeded admission payload: %+v", seeded.Database.ManagementAdmission)
 	}
-	if seeded.Runtime.BufferingMode != "buffered" || seeded.Runtime.SecretEncryptionKey != bootstrapFixtureSecretKey {
+	if seeded.Runtime.BufferingMode != "streaming" || seeded.Runtime.SecretEncryptionKey != bootstrapFixtureSecretKey {
 		t.Fatalf("unexpected seeded runtime payload: %+v", seeded.Runtime)
 	}
-	if seeded.Runtime.Transport.MaxIdleConns != 100 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 8 || seeded.Runtime.Transport.MaxConnsPerHost != 0 {
+	if seeded.Runtime.Transport.MaxIdleConns != 100 || seeded.Runtime.Transport.MaxIdleConnsPerHost != 16 || seeded.Runtime.Transport.MaxConnsPerHost != 16 {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)
 	}
-	if seeded.Runtime.Transport.RequestTimeout != "60s" || seeded.Runtime.Transport.IdleConnTimeout != "1m30s" || seeded.Runtime.Transport.ResponseHeaderTimeout != "0s" || seeded.Runtime.Transport.TLSHandshakeTimeout != "10s" || seeded.Runtime.Transport.ExpectContinueTimeout != "1s" {
+	if seeded.Runtime.Transport.RequestTimeout != "300s" || seeded.Runtime.Transport.IdleConnTimeout != "90s" || seeded.Runtime.Transport.ResponseHeaderTimeout != "0s" || seeded.Runtime.Transport.TLSHandshakeTimeout != "10s" || seeded.Runtime.Transport.ExpectContinueTimeout != "1s" {
 		t.Fatalf("unexpected seeded runtime transport payload: %+v", seeded.Runtime.Transport)
 	}
-	if len(seeded.HTTP.CORSAllowedOrigins) != 2 || seeded.HTTP.CORSAllowedOrigins[0] != "http://localhost:15173" || seeded.HTTP.CORSAllowedOrigins[1] != "http://127.0.0.1:15173" {
+	if seeded.Runtime.SideEffects.AttemptTimeout != "10s" {
+		t.Fatalf("unexpected seeded side-effects payload: %+v", seeded.Runtime.SideEffects)
+	}
+	if len(seeded.HTTP.CORSAllowedOrigins) != 2 || seeded.HTTP.CORSAllowedOrigins[0] != "http://localhost:5173" || seeded.HTTP.CORSAllowedOrigins[1] != "http://127.0.0.1:5173" {
 		t.Fatalf("unexpected seeded CORS payload: %+v", seeded.HTTP.CORSAllowedOrigins)
 	}
 	if seeded.Auth.JWTSigningKey != bootstrapFixtureJWTSecret || seeded.Auth.AccessTokenTTLSeconds != 900 || seeded.Auth.RefreshTokenTTLSeconds != 604800 || seeded.Auth.ResetCodeTTLSeconds != 600 {

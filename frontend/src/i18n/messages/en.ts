@@ -2836,7 +2836,7 @@ export const enMessages: Messages = {
     confirmationRequiredBeforeSave: "Confirmation required before save.",
     configPath: "Config path",
     corsAllowedOrigins: "CORS allowed origins",
-    corsOriginsDescription: "Comma-separated absolute origins, for example http://localhost:15173.",
+    corsOriginsDescription: "Comma-separated absolute origins, for example http://localhost:5173.",
     corsOriginsAbsolute: "CORS origins must be absolute URLs.",
     corsOriginsRequired: "At least one CORS origin is required.",
     corsOriginsUnique: "CORS origins must be unique.",

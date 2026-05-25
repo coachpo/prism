@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coachpo/prism/backend/internal/platform/config"
 	runtimeapi "github.com/coachpo/prism/backend/internal/httpapi/runtime"
+	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 const runtimeCacheMissStormConcurrency = 8
@@ -54,7 +54,7 @@ func BenchmarkRuntimeHotPath(b *testing.B) {
 }
 
 func BenchmarkRuntimeLargeResponse(b *testing.B) {
-	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{SettingsMutator: combineRuntimeSettingsMutators(useStreamingRuntimeBufferingMode, useBenchmarkRuntimeTransportOverrides)})
+	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{SettingsMutator: useBenchmarkRuntimeTransportOverrides})
 	profileID := harness.activeProfileID(b)
 	upstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, runtimeBenchmarkLargeResponse())
 	route := harness.seedProxyRoute(b, runtimeRouteSeed{
@@ -92,7 +92,7 @@ func BenchmarkRuntimeLargeResponse(b *testing.B) {
 }
 
 func BenchmarkRuntimeLargeRequestBody(b *testing.B) {
-	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{SettingsMutator: combineRuntimeSettingsMutators(useStreamingRuntimeBufferingMode, useBenchmarkRuntimeTransportOverrides)})
+	harness := newRuntimeHarnessWithConfig(b, runtimeHarnessConfig{SettingsMutator: useBenchmarkRuntimeTransportOverrides})
 	profileID := harness.activeProfileID(b)
 	upstream := newRuntimeBenchmarkUpstream(b, http.StatusOK, []byte(`{"responseId":"gemini-benchmark-large-request","usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":13,"totalTokenCount":20}}`))
 	route := harness.seedProxyRoute(b, runtimeRouteSeed{
@@ -279,17 +279,6 @@ func runRuntimeBenchmarkStorm(client *http.Client, url string, rawBody []byte, r
 	}
 	wg.Wait()
 	return firstErr
-}
-
-func combineRuntimeSettingsMutators(mutators ...func(*config.Settings)) func(*config.Settings) {
-	return func(settings *config.Settings) {
-		for _, mutator := range mutators {
-			if mutator == nil {
-				continue
-			}
-			mutator(settings)
-		}
-	}
 }
 
 func useBenchmarkRuntimeTransportOverrides(settings *config.Settings) {

@@ -694,16 +694,38 @@ func TestBuildRuntimePricingResultPrioritizesPriceDataBeforeMissingUsage(t *test
 	}
 }
 
-func TestNewRuntimeHTTPClientUsesConfiguredRequestTimeout(t *testing.T) {
-	settings := config.Settings{
-		RuntimeTransportConfig: config.RuntimeTransportConfig{
-			RequestTimeout: 17 * time.Second,
-		},
+func TestNewRuntimeHTTPClientUsesTransportDefaultsAndOverrides(t *testing.T) {
+	defaultClient := newRuntimeHTTPClient(config.Load())
+	if defaultClient.Timeout != 300*time.Second {
+		t.Fatalf("expected canonical runtime HTTP client timeout 300s, got %v", defaultClient.Timeout)
+	}
+	defaultTransport, ok := defaultClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected canonical runtime HTTP transport, got %T", defaultClient.Transport)
+	}
+	if defaultTransport.MaxIdleConns != 100 || defaultTransport.MaxIdleConnsPerHost != 16 || defaultTransport.MaxConnsPerHost != 16 {
+		t.Fatalf("expected canonical runtime transport caps 100/16/16, got %+v", defaultTransport)
+	}
+	if defaultTransport.IdleConnTimeout != 90*time.Second || defaultTransport.ResponseHeaderTimeout != 0 || defaultTransport.TLSHandshakeTimeout != 10*time.Second || defaultTransport.ExpectContinueTimeout != time.Second {
+		t.Fatalf("unexpected canonical runtime transport timeouts: %+v", defaultTransport)
 	}
 
-	client := newRuntimeHTTPClient(settings)
-	if client.Timeout != 17*time.Second {
-		t.Fatalf("expected runtime HTTP client timeout 17s, got %v", client.Timeout)
+	zeroSettings := config.Load()
+	zeroSettings.RuntimeTransportConfig.MaxConnsPerHost = 0
+	zeroClient := newRuntimeHTTPClient(zeroSettings)
+	zeroTransport, ok := zeroClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected explicit-zero runtime HTTP transport, got %T", zeroClient.Transport)
+	}
+	if zeroTransport.MaxConnsPerHost != 0 {
+		t.Fatalf("expected explicit maxConnsPerHost=0 to remain unlimited, got %+v", zeroTransport)
+	}
+
+	settings := config.Load()
+	settings.RuntimeTransportConfig.RequestTimeout = 17 * time.Second
+	configuredClient := newRuntimeHTTPClient(settings)
+	if configuredClient.Timeout != 17*time.Second {
+		t.Fatalf("expected configured runtime HTTP client timeout 17s, got %v", configuredClient.Timeout)
 	}
 }
 

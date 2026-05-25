@@ -89,20 +89,21 @@ func TestBootstrapConfigFieldDiffDetectsHotOnlyChanges(t *testing.T) {
 	requested := cloneManagementValues(t, current)
 	requested.HTTP.CORSAllowedOrigins = &[]string{"https://console.example.test"}
 	nextAccessTokenTTL := *current.Auth.AccessTokenTTLSeconds + 60
-	oneMinute := "1m"
+	nextRequestTimeout := "301s"
 	requested.Auth.AccessTokenTTLSeconds = &nextAccessTokenTTL
-	requested.Runtime.Transport.RequestTimeout = &oneMinute
+	requested.Runtime.Transport.RequestTimeout = &nextRequestTimeout
 	diff, err := DiffBootstrapConfigFields(current, requested, preserveManagementSecretUpdates())
 	if err != nil {
 		t.Fatalf("diff hot-only bootstrap fields: %v", err)
 	}
-	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{bootstrapFieldHTTPCORSAllowedOrigins, bootstrapFieldAuthAccessTokenTTLSeconds})
+	assertBootstrapFieldsEqual(t, diff.ChangedHotApplyFields, []string{
+		bootstrapFieldHTTPCORSAllowedOrigins,
+		bootstrapFieldAuthAccessTokenTTLSeconds,
+		bootstrapFieldRuntimeTransportRequestTimeout,
+	})
 	assertBootstrapFieldsEqual(t, diff.ChangedRestartRequiredFields, nil)
 	if diff.RestartRequired() {
 		t.Fatal("expected hot-only diff not to require restart")
-	}
-	if containsString(diff.UnchangedFields, bootstrapFieldRuntimeTransportRequestTimeout) == false {
-		t.Fatal("expected semantically equal duration strings to remain unchanged")
 	}
 }
 
@@ -189,8 +190,8 @@ func TestBootstrapConfigFieldDiffEmitsSecretUpdatePaths(t *testing.T) {
 func TestBootstrapConfigFieldDiffReportsUnchangedFields(t *testing.T) {
 	current := bootstrapApplyTestValues(t)
 	requested := cloneManagementValues(t, current)
-	oneMinute := "1m"
-	requested.Runtime.Transport.RequestTimeout = &oneMinute
+	fiveMinutes := "5m"
+	requested.Runtime.Transport.RequestTimeout = &fiveMinutes
 	if current.HTTP.CORSAllowedOrigins != nil {
 		origins := make([]string, len(*current.HTTP.CORSAllowedOrigins))
 		for index, origin := range *current.HTTP.CORSAllowedOrigins {

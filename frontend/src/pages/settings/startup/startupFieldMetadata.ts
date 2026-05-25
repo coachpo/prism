@@ -49,16 +49,10 @@ export const emptySecretInputs = (): SecretInputState => ({
   "mail.smtp.password": "",
 });
 
-const DEFAULT_POSTGRES_POOLS: BootstrapConfigDatabasePoolsValues = {
-  total_max_conns: 42,
-  management: { max_conns: 6, min_idle_conns: 0 },
-  runtime_execution: { max_conns: 14, min_idle_conns: 1 },
-  runtime_telemetry: { max_conns: 7, min_idle_conns: 0 },
-  runtime_feedback: { max_conns: 3, min_idle_conns: 0 },
-  realtime: { max_conns: 4, min_idle_conns: 0 },
-  cache_refresh: { max_conns: 4, min_idle_conns: 0 },
-  background_jobs: { max_conns: 4, min_idle_conns: 0 },
-};
+// Backend bootstrap responses own canonical pool sizes; legacy or incomplete payloads render missing lanes as empty fields only.
+function emptyPostgresPoolForIncompletePayload(): BootstrapConfigDatabasePoolValues {
+  return { max_conns: null, min_idle_conns: null };
+}
 
 export const POSTGRES_POOL_LANES: PostgresPoolLane[] = [
   "runtime_execution",
@@ -201,34 +195,41 @@ export const STATE_TRANSFER_FIELD_PATHS = ["stateTransfer.bundleEncryptionKey", 
 
 export const cloneValues = (values: BootstrapConfigValues): BootstrapConfigValues => structuredClone(values);
 
-function normalizePoolValues(
-  pool: BootstrapConfigDatabasePoolValues | null | undefined,
-  defaults: BootstrapConfigDatabasePoolValues,
-): BootstrapConfigDatabasePoolValues {
+function normalizePoolValues(pool: BootstrapConfigDatabasePoolValues | null | undefined): BootstrapConfigDatabasePoolValues {
   if (!pool) {
-    return { ...defaults };
+    return emptyPostgresPoolForIncompletePayload();
   }
   return {
-    max_conns: pool.max_conns === undefined ? defaults.max_conns : pool.max_conns,
-    min_idle_conns: pool.min_idle_conns === undefined ? defaults.min_idle_conns : pool.min_idle_conns,
+    max_conns: pool.max_conns === undefined ? null : pool.max_conns,
+    min_idle_conns: pool.min_idle_conns === undefined ? null : pool.min_idle_conns,
   };
 }
 
 function normalizePostgresPools(values: BootstrapConfigValues): BootstrapConfigDatabasePoolsValues {
   const pools = values.database.pools;
   return {
-    total_max_conns: pools?.total_max_conns === undefined ? DEFAULT_POSTGRES_POOLS.total_max_conns : pools.total_max_conns,
-    management: normalizePoolValues(pools?.management ?? values.database.management_pool, DEFAULT_POSTGRES_POOLS.management),
-    runtime_execution: normalizePoolValues(pools?.runtime_execution ?? values.database.runtime_pool, DEFAULT_POSTGRES_POOLS.runtime_execution),
-    runtime_telemetry: normalizePoolValues(pools?.runtime_telemetry, DEFAULT_POSTGRES_POOLS.runtime_telemetry),
-    runtime_feedback: normalizePoolValues(pools?.runtime_feedback, DEFAULT_POSTGRES_POOLS.runtime_feedback),
-    realtime: normalizePoolValues(pools?.realtime, DEFAULT_POSTGRES_POOLS.realtime),
-    cache_refresh: normalizePoolValues(pools?.cache_refresh, DEFAULT_POSTGRES_POOLS.cache_refresh),
-    background_jobs: normalizePoolValues(pools?.background_jobs, DEFAULT_POSTGRES_POOLS.background_jobs),
+    total_max_conns: pools?.total_max_conns === undefined ? null : pools.total_max_conns,
+    management: normalizePoolValues(pools?.management ?? values.database.management_pool),
+    runtime_execution: normalizePoolValues(pools?.runtime_execution ?? values.database.runtime_pool),
+    runtime_telemetry: normalizePoolValues(pools?.runtime_telemetry),
+    runtime_feedback: normalizePoolValues(pools?.runtime_feedback),
+    realtime: normalizePoolValues(pools?.realtime),
+    cache_refresh: normalizePoolValues(pools?.cache_refresh),
+    background_jobs: normalizePoolValues(pools?.background_jobs),
   };
 }
 
-export function defaultSMTPValues(): BootstrapConfigMailSMTPValues {
+export function emptyDisabledMailValuesForUiState(): BootstrapConfigMailValues {
+  return {
+    enabled: false,
+    from: null,
+    reply_to: null,
+    smtp: null,
+  };
+}
+
+// Used when an operator enables mail or a legacy payload lacks SMTP details; backend-provided SMTP values win when present.
+export function smtpValuesForNewOrIncompleteMailConfig(): BootstrapConfigMailSMTPValues {
   return {
     host: null,
     port: null,
@@ -242,23 +243,14 @@ export function defaultSMTPValues(): BootstrapConfigMailSMTPValues {
   };
 }
 
-export function defaultDisabledMailValues(): BootstrapConfigMailValues {
-  return {
-    enabled: false,
-    from: null,
-    reply_to: null,
-    smtp: null,
-  };
-}
-
 export function normalizeMailValues(mail: BootstrapConfigMailValues | null | undefined): BootstrapConfigMailValues {
   if (!mail || !mail.enabled) {
-    return defaultDisabledMailValues();
+    return emptyDisabledMailValuesForUiState();
   }
   return {
     ...mail,
     enabled: true,
-    smtp: mail.smtp ?? defaultSMTPValues(),
+    smtp: mail.smtp ?? smtpValuesForNewOrIncompleteMailConfig(),
   };
 }
 
@@ -366,7 +358,7 @@ export function validateStartupValues({
   else if (origins.some((origin) => !isAbsoluteUrl(origin))) addError("http.cors_allowed_origins", copy.corsOriginsAbsolute);
   const mailValues = normalizeMailValues(values.mail);
   if (mailValues.enabled) {
-    const smtpValues = mailValues.smtp ?? defaultSMTPValues();
+    const smtpValues = mailValues.smtp ?? smtpValuesForNewOrIncompleteMailConfig();
     if (!mailValues.from?.trim()) addError("mail.from", copy.mailFromRequired);
     if (!smtpValues.host?.trim()) addError("mail.smtp.host", copy.smtpHostRequired);
     if (!smtpValues.port || smtpValues.port < 1 || smtpValues.port > 65535) addError("mail.smtp.port", copy.smtpPortRange);

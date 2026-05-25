@@ -688,7 +688,7 @@ export const zhCNMessages: Messages = {
     confirmationRequiredBeforeSave: "保存前需要确认。",
     configPath: "配置路径",
     corsAllowedOrigins: "允许的 CORS 源",
-    corsOriginsDescription: "以英文逗号分隔的绝对源，例如 http://localhost:15173。",
+    corsOriginsDescription: "以英文逗号分隔的绝对源，例如 http://localhost:5173。",
     corsOriginsAbsolute: "CORS 源必须是绝对 URL。",
     corsOriginsRequired: "至少需要一个 CORS 源。",
     corsOriginsUnique: "CORS 源必须唯一。",

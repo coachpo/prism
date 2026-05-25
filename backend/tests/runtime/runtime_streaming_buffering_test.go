@@ -14,14 +14,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/coachpo/prism/backend/internal/platform/config"
 )
 
 const runtimeStreamingAssertionDeadline = 500 * time.Millisecond
 
 func TestRuntimeResponseStreamingPreservesUsage(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	largeContent := strings.Repeat("phase-2-stream-usage-", 32768)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +60,7 @@ func TestRuntimeResponseStreamingPreservesUsage(t *testing.T) {
 }
 
 func TestRuntimeResponseStreamingIgnoresNestedSpoofedUsage(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
@@ -94,7 +92,7 @@ func TestRuntimeResponseStreamingIgnoresNestedSpoofedUsage(t *testing.T) {
 }
 
 func TestRuntimeLargeNonStreamResponseDoesNotFullyBuffer(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newChunkedLargeResponseUpstream(t)
 	defer upstream.close()
@@ -140,7 +138,7 @@ func TestRuntimeLargeNonStreamResponseDoesNotFullyBuffer(t *testing.T) {
 }
 
 func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newCancellationAwareUpstream(t)
 	defer upstream.close()
@@ -193,7 +191,7 @@ func TestRuntimeRequestCancellationStopsUpstream(t *testing.T) {
 }
 
 func TestRuntimeBufferedFallbackForRewritePath(t *testing.T) {
-	harness := newRuntimeHarnessWithConfig(t, runtimeHarnessConfig{SettingsMutator: useStreamingRuntimeBufferingMode})
+	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := newArrivalRecordingUpstream(t)
 	defer upstream.close()
@@ -257,10 +255,6 @@ func TestRuntimeBufferedFallbackForRewritePath(t *testing.T) {
 	if got := requestModelID(t, body); got != route.TargetModelID {
 		t.Fatalf("expected buffered fallback to preserve model rewrite to %q, got %q", route.TargetModelID, got)
 	}
-}
-
-func useStreamingRuntimeBufferingMode(settings *config.Settings) {
-	settings.RuntimeBufferingMode = config.RuntimeBufferingModeStreaming
 }
 
 func assertLatestUsageEventUsage(t *testing.T, conn *pgx.Conn, profileID int, wantInput int64, wantOutput int64, wantTotal int64) {

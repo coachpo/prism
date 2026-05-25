@@ -1,6 +1,6 @@
 # API Specification: Prism
 
-Local `./start.sh` backend base URL: `http://localhost:18000`
+Local `./start.sh` backend base URL: `http://localhost:8000`
 
 Container and custom deployments use the listener configured in the plaintext bootstrap file; the manual Docker examples commonly publish `http://localhost:8000`.
 
@@ -20,7 +20,7 @@ Container and custom deployments use the listener configured in the plaintext bo
 
 ### 1.0 Bootstrap Config
 
-The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, and it has no compatibility mode for older bootstrap shapes. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields are durable for the next Prism start.
+The startup bootstrap contract is a plaintext `config.json` management surface. It is not a PostgreSQL-backed settings bundle, and it has no compatibility mode for older bootstrap shapes. Backend-owned canonical defaults are the source of truth for freshly seeded files. API-managed writes update the file and immediately apply fields that are marked `hot_apply`; structural fields are durable for the next Prism start. Existing valid files are preserved until the operator resets manually by stopping Prism, removing or relocating the bootstrap file, and restarting.
 
 #### Get Bootstrap Config
 ```
@@ -57,17 +57,17 @@ GET is a read of the managed file plus the live applied baseline. Current respon
   },
   "values": {
     "server": {
-      "host": "127.0.0.1",
-      "port": 18000
+      "host": "0.0.0.0",
+      "port": 8000
     },
     "runtime": {
-      "buffering_mode": "buffered",
+      "buffering_mode": "streaming",
       "transport": {
         "max_idle_conns": 100,
-        "max_idle_conns_per_host": 8,
-        "max_conns_per_host": 0,
-        "request_timeout": "60s",
-        "idle_conn_timeout": "1m30s",
+        "max_idle_conns_per_host": 16,
+        "max_conns_per_host": 16,
+        "request_timeout": "300s",
+        "idle_conn_timeout": "90s",
         "response_header_timeout": "0s",
         "tls_handshake_timeout": "10s",
         "expect_continue_timeout": "1s"
@@ -103,7 +103,7 @@ GET is a read of the managed file plus the live applied baseline. Current respon
 }
 ```
 
-The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
+The underlying `config.json` file must include raw `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` as Go duration strings. Fresh seeds set them to `"300s"` and `"10s"`. Missing either required field fails validation and startup by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through PUT. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
 
 Raw runtime startup config uses camelCase JSON field names in the file:
 
@@ -111,9 +111,9 @@ Raw runtime startup config uses camelCase JSON field names in the file:
 {
   "runtime": {
     "transport": {
-      "requestTimeout": "60s",
-      "idleConnTimeout": "1m30s",
-      "responseHeaderTimeout": "30s",
+      "requestTimeout": "300s",
+      "idleConnTimeout": "90s",
+      "responseHeaderTimeout": "0s",
       "tlsHandshakeTimeout": "10s",
       "expectContinueTimeout": "1s"
     },

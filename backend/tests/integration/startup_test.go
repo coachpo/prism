@@ -1,10 +1,14 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +159,42 @@ func TestStartupSeeds(t *testing.T) {
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM user_agent_client_rules WHERE is_system = TRUE`, len(startup.SystemUserAgentClientRuleDefaults))
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM header_blocklist_rules WHERE is_system = TRUE`, len(startup.SystemHeaderBlocklistDefaults))
 	assertCount(t, testContext, conn, `SELECT COUNT(*) FROM loadbalance_strategies`, 0)
+}
+
+func TestStartupSeedsMissingBootstrapOnly(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	firstDatabaseURL := "postgres://startup-missing-first@db.invalid:5432/prism?sslmode=disable"
+	secondDatabaseURL := "postgres://startup-missing-second@db.invalid:5432/prism?sslmode=disable"
+
+	firstOutput := runBackendPrintEffectiveStartupSettings(t, configPath, firstDatabaseURL)
+	assertStartupPrintLine(t, firstOutput, config.BootstrapConfigPathEnv+"="+configPath)
+	assertStartupPrintLine(t, firstOutput, "DATABASE_URL="+firstDatabaseURL)
+	seededState := readStartupBootstrapFileState(t, configPath)
+
+	secondOutput := runBackendPrintEffectiveStartupSettings(t, configPath, secondDatabaseURL)
+	assertStartupPrintLine(t, secondOutput, "DATABASE_URL="+firstDatabaseURL)
+	assertStartupPrintDoesNotContain(t, secondOutput, secondDatabaseURL)
+	assertStartupBootstrapFileStatePreserved(t, configPath, seededState)
+}
+
+func TestStartupPreservesExistingBootstrap(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+	fileDatabaseURL := "postgres://startup-preserve-file@db.invalid:5432/prism?sslmode=disable"
+	envDatabaseURL := "postgres://startup-preserve-env@db.invalid:5432/prism?sslmode=disable"
+
+	runBackendPrintEffectiveStartupSettings(t, configPath, fileDatabaseURL)
+	mutateStartupBootstrapJSON(t, configPath, func(payload map[string]any) {
+		startupBootstrapObject(t, payload, "server")["port"] = 18000
+		runtimePayload := startupBootstrapObject(t, payload, "runtime")
+		startupBootstrapObject(t, runtimePayload, "transport")["requestTimeout"] = "60s"
+	})
+	before := setStartupBootstrapFileModTime(t, configPath, time.Date(2026, 5, 25, 13, 0, 0, 0, time.UTC))
+
+	output := runBackendPrintEffectiveStartupSettings(t, configPath, envDatabaseURL)
+	assertStartupPrintLine(t, output, "DATABASE_URL="+fileDatabaseURL)
+	assertStartupPrintLine(t, output, "SERVER_PORT=18000")
+	assertStartupPrintDoesNotContain(t, output, envDatabaseURL)
+	assertStartupBootstrapFileStatePreserved(t, configPath, before)
 }
 
 func TestStartupIgnoresLegacySkipEnv(t *testing.T) {
@@ -680,6 +720,115 @@ type startupStateSnapshot struct {
 	HeaderBlocklistRules []systemHeaderRuleSnapshot    `json:"header_blocklist_rules"`
 	UserAgentClientRules []systemUserAgentRuleSnapshot `json:"user_agent_client_rules"`
 	Endpoints            []endpointSnapshot            `json:"endpoints"`
+}
+
+type startupBootstrapFileState struct {
+	raw     []byte
+	modTime time.Time
+}
+
+func runBackendPrintEffectiveStartupSettings(t *testing.T, configPath, databaseURL string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	packageDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve integration package directory: %v", err)
+	}
+	backendRoot := filepath.Clean(filepath.Join(packageDir, "..", ".."))
+	command := exec.CommandContext(ctx, "go", "run", "./cmd/prism-backend")
+	command.Dir = backendRoot
+	command.Env = append(os.Environ(),
+		config.BootstrapConfigPathEnv+"="+configPath,
+		"DATABASE_URL="+databaseURL,
+		"PRISM_PRINT_EFFECTIVE_STARTUP_SETTINGS=1",
+	)
+
+	output, err := command.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("backend print-effective startup timed out: %v\n%s", ctx.Err(), output)
+	}
+	if err != nil {
+		t.Fatalf("backend print-effective startup failed: %v\n%s", err, output)
+	}
+	return string(output)
+}
+
+func readStartupBootstrapFileState(t *testing.T, configPath string) startupBootstrapFileState {
+	t.Helper()
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read startup bootstrap config %q: %v", configPath, err)
+	}
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat startup bootstrap config %q: %v", configPath, err)
+	}
+	return startupBootstrapFileState{raw: raw, modTime: info.ModTime()}
+}
+
+func setStartupBootstrapFileModTime(t *testing.T, configPath string, modTime time.Time) startupBootstrapFileState {
+	t.Helper()
+	if err := os.Chtimes(configPath, modTime, modTime); err != nil {
+		t.Fatalf("set startup bootstrap config mtime for %q: %v", configPath, err)
+	}
+	return readStartupBootstrapFileState(t, configPath)
+}
+
+func assertStartupBootstrapFileStatePreserved(t *testing.T, configPath string, before startupBootstrapFileState) {
+	t.Helper()
+	after := readStartupBootstrapFileState(t, configPath)
+	if !bytes.Equal(after.raw, before.raw) {
+		t.Fatalf("expected startup bootstrap config bytes to be preserved\nbefore:\n%s\nafter:\n%s", before.raw, after.raw)
+	}
+	if !after.modTime.Equal(before.modTime) {
+		t.Fatalf("expected startup bootstrap config mtime %s to be preserved, got %s", before.modTime, after.modTime)
+	}
+}
+
+func mutateStartupBootstrapJSON(t *testing.T, configPath string, mutate func(map[string]any)) {
+	t.Helper()
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read startup bootstrap config %q: %v", configPath, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal startup bootstrap config %q: %v", configPath, err)
+	}
+	mutate(payload)
+	mutated, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal startup bootstrap config %q: %v", configPath, err)
+	}
+	mutated = append(mutated, '\n')
+	if err := os.WriteFile(configPath, mutated, 0o600); err != nil {
+		t.Fatalf("write startup bootstrap config %q: %v", configPath, err)
+	}
+}
+
+func startupBootstrapObject(t *testing.T, payload map[string]any, key string) map[string]any {
+	t.Helper()
+	object, ok := payload[key].(map[string]any)
+	if !ok {
+		t.Fatalf("expected startup bootstrap field %q to be an object, got %T", key, payload[key])
+	}
+	return object
+}
+
+func assertStartupPrintLine(t *testing.T, outputText, expectedLine string) {
+	t.Helper()
+	if !strings.Contains(outputText, expectedLine+"\n") {
+		t.Fatalf("expected startup print output to contain %q, got:\n%s", expectedLine, outputText)
+	}
+}
+
+func assertStartupPrintDoesNotContain(t *testing.T, outputText, forbidden string) {
+	t.Helper()
+	if forbidden != "" && strings.Contains(outputText, forbidden) {
+		t.Fatalf("startup print output contained %q:\n%s", forbidden, outputText)
+	}
 }
 
 func newStartupService(t *testing.T, databaseURL string, observer func(startup.Step)) startup.Service {

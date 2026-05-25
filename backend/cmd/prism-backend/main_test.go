@@ -61,50 +61,99 @@ func TestLoadBootstrapSettingsUsesExplicitBootstrapPath(t *testing.T) {
 	assertLoadedBootstrapSettings(t, bootstrapConfig, databaseURL)
 }
 
-func TestLoadBootstrapSettingsRepairsStaleDocsEnabledConfigJSON(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Chdir(tempDir)
-	databaseURL := "postgres://stale-bootstrap@db.invalid:5432/prism?sslmode=disable"
-	t.Setenv(config.BootstrapConfigPathEnv, "")
-	t.Setenv("DATABASE_URL", databaseURL)
+func TestLoadBootstrapConfigDocumentWithRepair(t *testing.T) {
+	t.Run("missing file seeds once and preserves later loads", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+		databaseURL := "postgres://missing-bootstrap@db.invalid:5432/prism?sslmode=disable"
+		t.Setenv("DATABASE_URL", databaseURL)
 
-	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
-	if _, err := manager.LoadOrSeed(defaultBootstrapConfigPath); err != nil {
-		t.Fatalf("seed bootstrap config: %v", err)
-	}
+		manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+		snapshot, settings, err := loadBootstrapConfigDocumentWithRepair(manager, configPath)
+		if err != nil {
+			t.Fatalf("seed missing bootstrap config: %v", err)
+		}
+		assertLoadedBootstrapDocument(t, snapshot, settings, databaseURL)
+		seededState := readBootstrapConfigFileState(t, configPath)
 
-	configPath := filepath.Join(tempDir, defaultBootstrapConfigPath)
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read seeded bootstrap config: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("unmarshal seeded bootstrap config: %v", err)
-	}
-	payload["docsEnabled"] = true
-	mutated, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal stale bootstrap config: %v", err)
-	}
-	mutated = append(mutated, '\n')
-	if err := os.WriteFile(configPath, mutated, 0o600); err != nil {
-		t.Fatalf("write stale bootstrap config: %v", err)
-	}
+		snapshot, settings, err = loadBootstrapConfigDocumentWithRepair(manager, configPath)
+		if err != nil {
+			t.Fatalf("load seeded bootstrap config again: %v", err)
+		}
+		assertLoadedBootstrapDocument(t, snapshot, settings, databaseURL)
+		assertBootstrapConfigFileStatePreserved(t, configPath, seededState)
+	})
 
-	bootstrapConfig, err := loadBootstrapSettings()
-	if err != nil {
-		t.Fatalf("repair stale bootstrap config: %v", err)
-	}
-	assertLoadedBootstrapSettings(t, bootstrapConfig, databaseURL)
+	t.Run("existing valid file is preserved byte and mtime", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+		databaseURL := "postgres://existing-bootstrap@db.invalid:5432/prism?sslmode=disable"
+		t.Setenv("DATABASE_URL", databaseURL)
 
-	repairedRaw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read repaired bootstrap config: %v", err)
-	}
-	if strings.Contains(string(repairedRaw), `"docsEnabled"`) {
-		t.Fatalf("expected repaired bootstrap config to omit docsEnabled, got:\n%s", repairedRaw)
-	}
+		manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+		if _, err := manager.LoadOrSeed(configPath); err != nil {
+			t.Fatalf("seed bootstrap config: %v", err)
+		}
+		before := setBootstrapConfigFileModTime(t, configPath, time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC))
+
+		snapshot, settings, err := loadBootstrapConfigDocumentWithRepair(manager, configPath)
+		if err != nil {
+			t.Fatalf("load existing bootstrap config: %v", err)
+		}
+		assertLoadedBootstrapDocument(t, snapshot, settings, databaseURL)
+		assertBootstrapConfigFileStatePreserved(t, configPath, before)
+	})
+
+	t.Run("stale docsEnabled marker repairs by reseeding", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+		databaseURL := "postgres://stale-bootstrap@db.invalid:5432/prism?sslmode=disable"
+		t.Setenv("DATABASE_URL", databaseURL)
+
+		manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+		if _, err := manager.LoadOrSeed(configPath); err != nil {
+			t.Fatalf("seed bootstrap config: %v", err)
+		}
+		mutateBootstrapConfigJSON(t, configPath, func(payload map[string]any) {
+			payload["docsEnabled"] = true
+		})
+		staleState := readBootstrapConfigFileState(t, configPath)
+
+		snapshot, settings, err := loadBootstrapConfigDocumentWithRepair(manager, configPath)
+		if err != nil {
+			t.Fatalf("repair stale bootstrap config: %v", err)
+		}
+		assertLoadedBootstrapDocument(t, snapshot, settings, databaseURL)
+
+		repairedState := readBootstrapConfigFileState(t, configPath)
+		if bytes.Equal(repairedState.raw, staleState.raw) {
+			t.Fatal("expected stale docsEnabled bootstrap config to be reseeded")
+		}
+		if strings.Contains(string(repairedState.raw), `"docsEnabled"`) {
+			t.Fatalf("expected repaired bootstrap config to omit docsEnabled, got:\n%s", repairedState.raw)
+		}
+	})
+
+	t.Run("unsupported unknown markers are not repaired", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "bootstrap.json")
+		databaseURL := "postgres://unsupported-marker@db.invalid:5432/prism?sslmode=disable"
+		t.Setenv("DATABASE_URL", databaseURL)
+
+		manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
+		if _, err := manager.LoadOrSeed(configPath); err != nil {
+			t.Fatalf("seed bootstrap config: %v", err)
+		}
+		mutateBootstrapConfigJSON(t, configPath, func(payload map[string]any) {
+			payload["legacyUnsupported"] = true
+		})
+		before := setBootstrapConfigFileModTime(t, configPath, time.Date(2026, 5, 25, 12, 15, 0, 0, time.UTC))
+
+		_, _, err := loadBootstrapConfigDocumentWithRepair(manager, configPath)
+		if err == nil {
+			t.Fatal("expected unsupported unknown bootstrap marker to fail without repair")
+		}
+		if !strings.Contains(err.Error(), `unknown field "legacyUnsupported"`) {
+			t.Fatalf("expected unsupported-marker parse error, got %v", err)
+		}
+		assertBootstrapConfigFileStatePreserved(t, configPath, before)
+	})
 }
 
 func TestRunPrintEffectiveStartupSettingsReturnsBeforeStartupAndServerWork(t *testing.T) {
@@ -311,14 +360,85 @@ func assertLoadedBootstrapSettings(t *testing.T, bootstrapConfig bootstrapStartu
 	}
 }
 
+func assertLoadedBootstrapDocument(t *testing.T, snapshot config.BootstrapConfigSnapshot, settings config.Settings, wantDatabaseURL string) {
+	t.Helper()
+	if settings.DatabaseURL != wantDatabaseURL {
+		t.Fatalf("expected loaded database URL %q, got %q", wantDatabaseURL, settings.DatabaseURL)
+	}
+	if snapshot.FileRevision != 1 {
+		t.Fatalf("expected loaded bootstrap revision 1, got %d", snapshot.FileRevision)
+	}
+	if strings.TrimSpace(snapshot.DocumentETag) == "" {
+		t.Fatal("expected loaded bootstrap document ETag")
+	}
+}
+
+type bootstrapConfigFileState struct {
+	raw     []byte
+	modTime time.Time
+}
+
+func readBootstrapConfigFileState(t *testing.T, configPath string) bootstrapConfigFileState {
+	t.Helper()
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read bootstrap config %q: %v", configPath, err)
+	}
+	info, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat bootstrap config %q: %v", configPath, err)
+	}
+	return bootstrapConfigFileState{raw: raw, modTime: info.ModTime()}
+}
+
+func setBootstrapConfigFileModTime(t *testing.T, configPath string, modTime time.Time) bootstrapConfigFileState {
+	t.Helper()
+	if err := os.Chtimes(configPath, modTime, modTime); err != nil {
+		t.Fatalf("set bootstrap config mtime for %q: %v", configPath, err)
+	}
+	return readBootstrapConfigFileState(t, configPath)
+}
+
+func assertBootstrapConfigFileStatePreserved(t *testing.T, configPath string, before bootstrapConfigFileState) {
+	t.Helper()
+	after := readBootstrapConfigFileState(t, configPath)
+	if !bytes.Equal(after.raw, before.raw) {
+		t.Fatalf("expected bootstrap config bytes to be preserved\nbefore:\n%s\nafter:\n%s", before.raw, after.raw)
+	}
+	if !after.modTime.Equal(before.modTime) {
+		t.Fatalf("expected bootstrap config mtime %s to be preserved, got %s", before.modTime, after.modTime)
+	}
+}
+
+func mutateBootstrapConfigJSON(t *testing.T, configPath string, mutate func(map[string]any)) {
+	t.Helper()
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read bootstrap config %q: %v", configPath, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal bootstrap config %q: %v", configPath, err)
+	}
+	mutate(payload)
+	mutated, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal bootstrap config %q: %v", configPath, err)
+	}
+	mutated = append(mutated, '\n')
+	if err := os.WriteFile(configPath, mutated, 0o600); err != nil {
+		t.Fatalf("write bootstrap config %q: %v", configPath, err)
+	}
+}
+
 func assertEffectiveStartupSettingsOutput(t *testing.T, outputText, configPath, databaseURL string) {
 	t.Helper()
 	for _, expectedLine := range []string{
 		config.BootstrapConfigPathEnv + "=" + configPath,
 		"DATABASE_URL=" + databaseURL,
 		"SERVER_HOST=0.0.0.0",
-		"SERVER_PORT=18000",
-		"SERVER_ADDR=0.0.0.0:18000",
+		"SERVER_PORT=8000",
+		"SERVER_ADDR=0.0.0.0:8000",
 	} {
 		if !strings.Contains(outputText, expectedLine+"\n") {
 			t.Fatalf("expected print output to contain %q, got:\n%s", expectedLine, outputText)

@@ -69,6 +69,7 @@ func TestBootstrapConfigRouteGetReturnsSafeMetadata(t *testing.T) {
 	if !body.Writable {
 		t.Fatal("expected route fixture to report writable metadata")
 	}
+	assertRouteDefaultSafeValues(t, body.Values)
 	databaseSecret := body.Secrets[config.BootstrapConfigSecretDatabaseURL]
 	if !databaseSecret.Configured || !databaseSecret.Editable || databaseSecret.Masked == "" {
 		t.Fatal("expected database secret metadata to be configured, editable, and masked")
@@ -307,6 +308,9 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 		if writtenSettings.AuthAccessTokenTTLSeconds != 2400 {
 			t.Fatalf("expected canonical file write before publish, got auth TTL %d", writtenSettings.AuthAccessTokenTTLSeconds)
 		}
+		if got := writtenSettings.RuntimeTransport().RequestTimeout; got != 301*time.Second {
+			t.Fatalf("expected canonical file write before publish to include request timeout 301s, got %s", got)
+		}
 	}
 	service, err := NewService(settings, Options{
 		ConfigPath:         path,
@@ -323,6 +327,7 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 	router.Route("/api", service.MountManagementRoutes)
 	request := bootstrapRouteRequestForSnapshot(t, snapshot)
 	request.Values.Auth.AccessTokenTTLSeconds = routeIntPtr(2400)
+	request.Values.Runtime.Transport.RequestTimeout = routeStringPtr("301s")
 
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/config/bootstrap", bytes.NewReader(mustMarshalBootstrapRouteJSON(t, request))))
@@ -334,11 +339,14 @@ func TestBootstrapConfigRoutePutPublishesHotApplyRuntimeAfterWrite(t *testing.T)
 	if hotRuntime.published.AuthAccessTokenTTLSeconds != 2400 {
 		t.Fatalf("expected published hot auth TTL, got %d", hotRuntime.published.AuthAccessTokenTTLSeconds)
 	}
+	if got := hotRuntime.published.RuntimeTransport().RequestTimeout; got != 301*time.Second {
+		t.Fatalf("expected published hot request timeout 301s, got %s", got)
+	}
 	body := decodeBootstrapConfigResponse(t, response)
 	if body.RestartRequired || body.ApplyResult == nil {
 		t.Fatalf("expected hot-only successful apply without restart, got restart=%v result=%+v", body.RestartRequired, body.ApplyResult)
 	}
-	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds"})
+	assertStringSetEqual(t, body.ApplyResult.AppliedNowFields, []string{"auth.access_token_ttl_seconds", "runtime.transport.request_timeout"})
 	assertStringSetEqual(t, body.ApplyResult.PendingHotApplyFields, []string{})
 	assertStringSetEqual(t, body.ApplyResult.FailedHotApplyFields, []string{})
 }
@@ -1172,6 +1180,53 @@ func requireStatus(t *testing.T, response *httptest.ResponseRecorder, status int
 	t.Helper()
 	if response.Code != status {
 		t.Fatalf("expected HTTP status %d, got %d", status, response.Code)
+	}
+}
+
+func assertRouteDefaultSafeValues(t *testing.T, values config.BootstrapConfigValues) {
+	t.Helper()
+	if values.Server == nil || values.Server.Port == nil || *values.Server.Port != 8000 {
+		t.Fatalf("expected route safe server port=8000, got %+v", values.Server)
+	}
+	if values.HTTP == nil || values.HTTP.CORSAllowedOrigins == nil || !slices.Equal(*values.HTTP.CORSAllowedOrigins, []string{"http://localhost:5173", "http://127.0.0.1:5173"}) {
+		t.Fatalf("expected route safe CORS origins on frontend port 5173, got %+v", values.HTTP)
+	}
+	if values.Runtime == nil || values.Runtime.BufferingMode == nil || values.Runtime.Transport == nil || values.Runtime.SideEffects == nil || *values.Runtime.BufferingMode != string(config.RuntimeBufferingModeStreaming) {
+		t.Fatalf("expected route safe runtime defaults, got %+v", values.Runtime)
+	}
+	transport := values.Runtime.Transport
+	if transport.MaxIdleConns == nil || transport.MaxIdleConnsPerHost == nil || transport.MaxConnsPerHost == nil || *transport.MaxIdleConns != 100 || *transport.MaxIdleConnsPerHost != 16 || *transport.MaxConnsPerHost != 16 {
+		t.Fatalf("expected route safe runtime transport caps 100/16/16, got %+v", transport)
+	}
+	if transport.RequestTimeout == nil || *transport.RequestTimeout != "300s" {
+		t.Fatalf("expected route safe runtime request_timeout=300s, got %+v", transport.RequestTimeout)
+	}
+	if values.Runtime.SideEffects.AttemptTimeout == nil || *values.Runtime.SideEffects.AttemptTimeout != "10s" {
+		t.Fatalf("expected route safe side-effects attempt_timeout=10s, got %+v", values.Runtime.SideEffects)
+	}
+	if values.Database == nil || values.Database.Pools == nil || values.Database.ManagementAdmission == nil {
+		t.Fatalf("expected route safe database defaults, got %+v", values.Database)
+	}
+	pools := values.Database.Pools
+	if pools.TotalMaxConns == nil || *pools.TotalMaxConns != 24 {
+		t.Fatalf("expected route safe total_max_conns=24, got %+v", pools.TotalMaxConns)
+	}
+	assertPool := func(name string, pool *config.BootstrapConfigDatabasePoolValues, maxConns int, minIdleConns int) {
+		t.Helper()
+		if pool == nil || pool.MaxConns == nil || pool.MinIdleConns == nil || *pool.MaxConns != maxConns || *pool.MinIdleConns != minIdleConns {
+			t.Fatalf("expected route safe pool %s to be %d/%d, got %+v", name, maxConns, minIdleConns, pool)
+		}
+	}
+	assertPool("management", pools.Management, 4, 1)
+	assertPool("runtime_execution", pools.RuntimeExecution, 8, 2)
+	assertPool("runtime_telemetry", pools.RuntimeTelemetry, 4, 1)
+	assertPool("runtime_feedback", pools.RuntimeFeedback, 2, 0)
+	assertPool("realtime", pools.Realtime, 2, 0)
+	assertPool("cache_refresh", pools.CacheRefresh, 2, 0)
+	assertPool("background_jobs", pools.BackgroundJobs, 2, 0)
+	admission := values.Database.ManagementAdmission
+	if admission.M2MaxConcurrent == nil || admission.M3MaxConcurrent == nil || *admission.M2MaxConcurrent != 3 || *admission.M3MaxConcurrent != 2 {
+		t.Fatalf("expected route safe management admission 3/2, got %+v", admission)
 	}
 }
 

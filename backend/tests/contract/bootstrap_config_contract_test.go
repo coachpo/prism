@@ -393,7 +393,7 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 	manager := config.NewBootstrapConfigManager(config.BootstrapConfigManagerOptions{})
 
 	t.Run("fixture embeds plaintext startup values", func(t *testing.T) {
-		raw := loadBootstrapFixtureBytes(t, "bootstrap-valid-v1.json")
+		raw := canonicalBootstrapFixtureBytes(t)
 		for _, value := range []string{bootstrapContractDatabaseURL, bootstrapContractSecretKey, bootstrapContractJWTSecret, bootstrapContractBundleKey} {
 			if !bytes.Contains(raw, []byte(value)) {
 				t.Fatalf("expected fixture to keep plaintext value %q", value)
@@ -407,11 +407,11 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 	})
 
 	t.Run("valid fixture resolves settings surface", func(t *testing.T) {
-		settings, err := manager.Load(bootstrapFixturePath(t, "bootstrap-valid-v1.json"))
+		settings, err := manager.Parse(canonicalBootstrapFixtureBytes(t))
 		if err != nil {
-			t.Fatalf("load valid bootstrap fixture: %v", err)
+			t.Fatalf("parse canonical bootstrap fixture: %v", err)
 		}
-		if settings.Host != "0.0.0.0" || settings.Port != 18000 {
+		if settings.Host != "0.0.0.0" || settings.Port != 8000 {
 			t.Fatalf("unexpected server settings: %+v", settings)
 		}
 		if settings.DatabaseURL != bootstrapContractDatabaseURL {
@@ -435,29 +435,29 @@ func TestBootstrapConfigPlaintextMapping(t *testing.T) {
 		if settings.RuntimeTelemetryMode != config.RuntimeTelemetryModeDurableOutbox {
 			t.Fatalf("expected durable runtime telemetry mode, got %q", settings.RuntimeTelemetryMode)
 		}
-		if settings.RuntimeBufferingMode != config.RuntimeBufferingModeBuffered {
-			t.Fatalf("expected buffered runtime buffering mode, got %q", settings.RuntimeBufferingMode)
+		if settings.RuntimeBufferingMode != config.RuntimeBufferingModeStreaming {
+			t.Fatalf("expected streaming runtime buffering mode, got %q", settings.RuntimeBufferingMode)
 		}
 		transport := settings.RuntimeTransport()
-		if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 8 || transport.MaxConnsPerHost != 0 {
+		if transport.MaxIdleConns != 100 || transport.MaxIdleConnsPerHost != 16 || transport.MaxConnsPerHost != 16 {
 			t.Fatalf("unexpected runtime transport pool settings: %+v", transport)
 		}
-		if transport.RequestTimeout != 60*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
+		if transport.RequestTimeout != 300*time.Second || transport.IdleConnTimeout != 90*time.Second || transport.ResponseHeaderTimeout != 0 || transport.TLSHandshakeTimeout != 10*time.Second || transport.ExpectContinueTimeout != time.Second {
 			t.Fatalf("unexpected runtime transport timeouts: %+v", transport)
 		}
 		if got := settings.RuntimeSideEffects(); got.AttemptTimeout != 10*time.Second {
 			t.Fatalf("unexpected runtime side effects settings: %+v", got)
 		}
-		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 6 || got.MinIdleConns != 0 {
+		if got := settings.ManagementDatabaseBudget(); got.MaxConns != 4 || got.MinIdleConns != 1 {
 			t.Fatalf("unexpected management database budget: %+v", got)
 		}
-		if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 14 || got.MinIdleConns != 1 {
+		if got := settings.RuntimeDatabaseBudget(); got.MaxConns != 8 || got.MinIdleConns != 2 {
 			t.Fatalf("unexpected runtime execution database budget: %+v", got)
 		}
-		if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 5 || got.M3MaxConcurrent != 5 {
+		if got := settings.ManagementAdmissionBudget(); got.M2MaxConcurrent != 3 || got.M3MaxConcurrent != 2 {
 			t.Fatalf("unexpected management admission budget: %+v", got)
 		}
-		if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:15173" || got[1] != "http://127.0.0.1:15173" {
+		if got := settings.CORSAllowedOriginsList(); len(got) != 2 || got[0] != "http://localhost:5173" || got[1] != "http://127.0.0.1:5173" {
 			t.Fatalf("unexpected CORS origins: %+v", got)
 		}
 	})
@@ -561,6 +561,35 @@ func mustMarshalBootstrapFixture(t *testing.T, payload map[string]any) []byte {
 		t.Fatalf("marshal bootstrap fixture: %v", err)
 	}
 	return raw
+}
+
+func canonicalBootstrapFixtureBytes(t *testing.T) []byte {
+	t.Helper()
+	payload := loadBootstrapFixture(t, "bootstrap-valid-v1.json")
+	payload["server"].(map[string]any)["port"] = float64(8000)
+	payload["runtime"].(map[string]any)["bufferingMode"] = "streaming"
+	transport := payload["runtime"].(map[string]any)["transport"].(map[string]any)
+	transport["maxIdleConns"] = float64(100)
+	transport["maxIdleConnsPerHost"] = float64(16)
+	transport["maxConnsPerHost"] = float64(16)
+	transport["requestTimeout"] = "300s"
+	transport["idleConnTimeout"] = "90s"
+	transport["responseHeaderTimeout"] = "0s"
+	transport["tlsHandshakeTimeout"] = "10s"
+	transport["expectContinueTimeout"] = "1s"
+	payload["http"].(map[string]any)["corsAllowedOrigins"] = []any{"http://localhost:5173", "http://127.0.0.1:5173"}
+
+	pools := payload["database"].(map[string]any)["pools"].(map[string]any)
+	pools["totalMaxConns"] = float64(24)
+	pools["management"] = map[string]any{"maxConns": float64(4), "minIdleConns": float64(1)}
+	pools["runtimeExecution"] = map[string]any{"maxConns": float64(8), "minIdleConns": float64(2)}
+	pools["runtimeTelemetry"] = map[string]any{"maxConns": float64(4), "minIdleConns": float64(1)}
+	pools["runtimeFeedback"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	pools["realtime"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	pools["cacheRefresh"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	pools["backgroundJobs"] = map[string]any{"maxConns": float64(2), "minIdleConns": float64(0)}
+	payload["database"].(map[string]any)["managementAdmission"] = map[string]any{"m2MaxConcurrent": float64(3), "m3MaxConcurrent": float64(2)}
+	return mustMarshalBootstrapFixture(t, payload)
 }
 
 func assertContractDisabledSafeMailValues(t *testing.T, values *config.BootstrapConfigMailValues) {

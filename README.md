@@ -55,7 +55,7 @@ cd prism
 
 Prism is a monorepo: the backend and frontend live in the same checkout under `backend/` and `frontend/`.
 
-The launcher uses backend `18000`, frontend `15173`, and PostgreSQL `15432`.
+The launcher uses backend `8000`, frontend `5173`, and PostgreSQL `15432`. The backend bootstrap defaults are the source of truth for freshly seeded startup values.
 
 Log retention is configured from the Settings Global tab. Normal retention is global across all profiles and runs as durable `log_retention` jobs. It drops expired daily log partitions first, then cleans only the cutoff-overlapping boundary partition and vacuums that child with `VACUUM (ANALYZE, PROCESS_TOAST TRUE)`. Manual shrink tools such as `VACUUM FULL`, `CLUSTER`, and `pg_repack` are emergency operator actions only; `pg_repack` is not available in the default local `postgres:16-alpine` image.
 
@@ -94,7 +94,7 @@ docker run -d \
   ghcr.io/coachpo/prism-frontend:latest
 ```
 
-Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`. If an old encrypted bootstrap file is still on disk, replace it before booting. Existing bootstrap `config.json` files must include `runtime.transport.requestTimeout` and `runtime.sideEffects.attemptTimeout` before starting this upgraded backend. Set `runtime.transport.requestTimeout` to `"60s"` to preserve the prior whole-request upstream timeout behavior, and set `runtime.sideEffects.attemptTimeout` to the newly seeded default `"10s"` for each background side-effect enqueue attempt.
+Startup uses a plaintext bootstrap file owned by `PRISM_CONFIG_PATH`, with `config.json` as the default root launcher target. The only optional startup env vars are `PRISM_CONFIG_PATH` and `DATABASE_URL`; the default database URL is `postgres://prism:prism@localhost:15432/prism?sslmode=disable`. If an encrypted bootstrap file is still on disk, replace it before booting. Freshly seeded files use backend-owned canonical defaults, including `0.0.0.0:8000`, CORS for `http://localhost:5173`, `runtime.transport.requestTimeout` as `"300s"`, and `runtime.sideEffects.attemptTimeout` as `"10s"`. Existing valid bootstrap files are preserved, even when they contain older values. To reset to the current defaults, stop Prism, remove or relocate the bootstrap file, then restart so the launcher or backend can seed a missing file.
 
 The backend image runs as `prism:prism`, UID/GID `1000:1000`. The bind-mounted directory that contains `PRISM_CONFIG_PATH`, such as `/absolute/secure/path/prism-config` for `/app/config/config.json`, must be writable by UID/GID `1000:1000` so the Startup API can create and replace the bootstrap file. For an existing root-owned bind mount, remediate the host directory once with `sudo chown -R 1000:1000 <prism-config-dir>` and `sudo chmod 0700 <prism-config-dir>`.
 
@@ -176,7 +176,7 @@ The Startup tab at `/settings#startup` manages that plaintext file directly. GET
 
 That bootstrap file owns startup values directly. Hot-eligible fields include CORS origins, auth TTL and cookie metadata, mail and SMTP settings, runtime buffering and transport settings, and M2/M3 management admission limits. Listener host and port, database URL and pool budgets, runtime side-effects attempt timeout, runtime secret encryption key, JWT signing key, and bundle key changes still require restart. If an encrypted bootstrap file is still present, replace it before booting.
 
-Plaintext bootstrap files must include `runtime.transport.requestTimeout`, usually `"60s"`, and `runtime.sideEffects.attemptTimeout`, usually `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
+Plaintext bootstrap files must include `runtime.transport.requestTimeout`, seeded as `"300s"`, and `runtime.sideEffects.attemptTimeout`, seeded as `"10s"`. Missing either required field fails startup validation by design. `runtime.transport.requestTimeout` remains the whole-request upstream provider HTTP timeout and is hot-applicable through the Startup tab or API. `runtime.sideEffects.attemptTimeout` is the per-attempt background side-effect enqueue budget, is restart-required, and is not hot-applied.
 
 Auth email delivery is disabled by default. Existing bootstrap files with no `mail` block still start and use no-op delivery with no SMTP network activity. Seeded local configs include the explicit disabled shape:
 
@@ -215,15 +215,15 @@ To send password-reset and recovery-email verification messages, set `mail.enabl
 
 Other configuration notes:
 
-- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `18000`, frontend `15173`, and PostgreSQL `15432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
-- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port stays `18000`, and the bootstrap config resolves to the launcher-managed PostgreSQL DSN `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
+- `./start.sh` reads the root `.env`, provisions PostgreSQL from `backend/docker-compose.yml`, uses backend `8000`, frontend `5173`, and PostgreSQL `15432`, and defaults `PRISM_CONFIG_PATH` to the repo-local `config.json`
+- Launcher startup only supports the local bootstrap contract: backend host stays local, backend port stays `8000`, and the bootstrap config resolves to the local PostgreSQL DSN `postgres://prism:prism@localhost:15432/prism?sslmode=disable`
 - If you set `PRISM_CONFIG_PATH` in `.env`, `./start.sh` resolves relative paths from the repo root before launching the backend
 - Direct backend runs should prefer an absolute `PRISM_CONFIG_PATH`
 - Frontend build/runtime metadata uses `VITE_API_BASE`, `VITE_GIT_RUN_NUMBER`, and `VITE_GIT_REVISION`
 - `./start.sh full` serves the browser through the launcher origin, with Vite proxying management traffic and supported runtime operation traffic to the backend so local browser traffic stays same-origin
 - Standalone frontend development can still point at a remote backend with explicit `VITE_API_BASE`
 
-If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using the fixed local backend port and local PostgreSQL DSN. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
+If you compose a root `.env` for `./start.sh`, keep `PRISM_CONFIG_PATH` unset to use the repo-local `config.json`, or point it at another plaintext bootstrap file. The launcher seeds that file only when it is missing, using backend-owned canonical defaults, the fixed local backend port, and the local PostgreSQL DSN. It does not rewrite an existing valid bootstrap file. Prism does not watch external edits to this file. Use `/settings#startup` or `PUT /api/config/bootstrap` when a hot-eligible edit should reach the running process. To force a fresh seed, stop Prism, remove or relocate the bootstrap file, then restart. Profile backup/restore, vendor catalog export/import, and other settings-page state flows remain PostgreSQL-backed state transport and are not loaded from `config.json`.
 
 When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./start.sh full` keeps management requests and supported runtime operation requests on the launcher origin through Vite proxying; standalone frontend workflows can still set `VITE_API_BASE` explicitly.
 

@@ -60,7 +60,7 @@ frontend/
 - Realtime websocket ownership and consumers: `src/lib/websocket.ts`, `src/lib/websocket/AGENTS.md`, `src/hooks/useRealtimeData.ts`
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
 - Frontend locale state and shared formatting: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`
-- Vite version injection, optional same-origin proxying, dev or preview `/health`, launcher proxy env path, and build metadata: `vite.config.ts`, `package.json`
+- Vite version injection, optional same-origin proxying, dev or preview `/health`, launcher proxy env path, launcher ports `5173` to backend `8000`, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` server and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `playwright.config.ts`
 - Page hierarchy and route-domain handoff, including the global sidecars route: `src/pages/AGENTS.md`, `src/pages/sidecars/AGENTS.md`
@@ -74,6 +74,7 @@ frontend/
 - Keep selected profile separate from active runtime routing. `selectedProfile` scopes profile-scoped management APIs; it does not switch proxy traffic or global sidecar management.
 - Keep `src/components/` focused on shared shell chrome, shared widgets, and design-system wrappers, and keep the leaf ownership documented below it.
 - Keep backend access on the typed `src/lib/api.ts` boundary and the modules it re-exports.
+- Keep startup bootstrap rendering dependent on backend-provided values. The frontend owns no canonical backend startup default table; fresh defaults are backend source of truth, including `8000`, `5173`, `15432`, `300s`, and `10s`.
 - Keep reporting-currency provider state in `src/context/ReportingCurrencyContext.tsx` and shared cache and normalization in `src/lib/reportingCurrency.ts` instead of duplicating settings-side currency bootstrap in pages.
 - Keep realtime ownership in `src/lib/websocket.ts` and consume it through hooks instead of creating ad hoc clients.
 - Keep locale state and shared formatting in `src/i18n/`, not in shell or page code.
