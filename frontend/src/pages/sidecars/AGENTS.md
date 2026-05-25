@@ -35,3 +35,6 @@ sidecars/
 - Keep the browser on Prism's typed sidecar API client. It must not call CLIProxyAPI directly.
 - Keep visible detail panels limited to sidecar metadata, auth-file inventory, read-only auth-file model discovery, provider inventory, direct auth-file status or priority edits, test connection, and manual sync.
 - Keep management password values write-only. Forms may submit new values, but list and detail surfaces should render only credential metadata.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).

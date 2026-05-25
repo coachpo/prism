@@ -30,6 +30,9 @@ configbundle/
 - Keep bundle-secret handling explicit and transactional; do not bury encryption/decryption in page code or shared settings helpers.
 - Keep effective-profile resolution and after-import hooks inside this package.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not bypass preview-token validation or import-envelope checks.
 - Do not mix bootstrap config, runtime proxy behavior, or sidecar control-plane state into bundle flows.

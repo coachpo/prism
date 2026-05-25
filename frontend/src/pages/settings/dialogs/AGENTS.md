@@ -31,6 +31,9 @@ dialogs/
 - Keep mutation state, delete keywords, and save orchestration in the parent settings hooks.
 - Keep audit-rule dialogs separate from vendor CRUD dialogs; they share the mount point but not the form contract.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not add inline modal branches back to `../../SettingsPage.tsx` or the section components when this cluster already owns the dialogs.

@@ -42,6 +42,9 @@ sidecars/
 - Keep private-network, insecure-HTTP, TLS-skip, request-timeout, and management-auth pause behavior on the sidecar instance policy.
 - Keep `sidecar_snapshot_sync` as a bounded low-background worker with queue limit 1 and no priority elevation.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not let the browser call CLIProxyAPI directly; all sidecar traffic goes through the Prism backend service.
 - Do not persist or return raw management passwords, provider secrets, auth tokens, or unredacted provider observation fields.

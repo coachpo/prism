@@ -37,6 +37,9 @@ api/
 - Import statistics through the public `stats` export from `../api.ts` when a caller needs the standalone stats helper; use `api.stats` when staying on the grouped facade.
 - Keep runtime-route pass-through out of this client split; `api/core.ts` only governs `/api/*` requests.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not call `fetch()` directly for Prism backend requests when this client layer already owns credentials and error handling.

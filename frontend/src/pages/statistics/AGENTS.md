@@ -40,6 +40,9 @@ statistics/
 - Keep null-vs-zero rendering differences visible in helpers and copy, so missing data stays distinct from a true zero value.
 - Keep selected-profile reporting-currency fallback or verified trust visible through the shared currency/cost helpers; do not invent page-local trust states.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not recreate the tab/query-param model inside section or table components.

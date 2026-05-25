@@ -31,6 +31,9 @@ endpoints/
 - Keep reorder state and DnD bookkeeping in `useEndpointReorder.ts`; cards stay presentational.
 - Patch local endpoint state through `commitEndpoints()` after create, update, duplicate, delete, and reorder flows.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not mutate endpoint ordering directly inside card components.

@@ -52,6 +52,9 @@ request-logs/
 - Keep request-log cost labels tied to `useReportingCurrencyContext()` so fallback or verified reporting-currency trust is visible in detail views.
 - Keep `detail/` parent-covered here. Those helpers support the request-log sheet only and should not get a separate AGENTS file.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not stale-claim that request logs are missing from the route map.
 - Do not duplicate filter parsing outside `queryParams.ts`.

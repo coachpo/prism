@@ -26,6 +26,9 @@ hooks/
 - Keep hook side effects small, and push complex shaping into `src/lib/` or local page helpers.
 - Route shared date and time display through `useTimezone.ts` or `src/i18n/format.ts`.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not create ad hoc `setInterval` loops in components.

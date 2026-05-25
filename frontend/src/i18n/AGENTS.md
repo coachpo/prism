@@ -33,6 +33,9 @@ i18n/
 - Route shared formatting through `format.ts` or `useLocale()` instead of ad hoc `Intl.*` usage.
 - Use `staticMessages.ts` when a non-hook caller needs locale-aware fallback labels, objective labels, or known-label comparisons.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not bypass `useLocale()` for shared visible copy.

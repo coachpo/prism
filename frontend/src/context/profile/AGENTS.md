@@ -29,6 +29,9 @@ profile/
 - Preserve the fallback order in `selection.ts`: stored profile, then active profile, then default profile, then first available profile.
 - Keep `expected_active_profile_id` activation conflict handling in `actions.ts` so stale active-profile snapshots are refreshed centrally.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not invent a second localStorage key or alternate selected-profile persistence path.

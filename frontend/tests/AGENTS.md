@@ -31,3 +31,6 @@
 - Keep shared test-only utilities in `helpers/` instead of scattering loader glue across suites.
 - Keep runtime-path and profile-scope contract tests separate from Playwright route flows.
 - Do not invent extra test roots or child AGENTS files.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).

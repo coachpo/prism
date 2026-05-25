@@ -1,4 +1,4 @@
-<!-- Generated: 2026-05-23 | branch: main | commit: c689b1f -->
+<!-- Generated: 2026-05-26 | branch: main | commit: 8c404b4 -->
 # PRISM REPO KNOWLEDGE BASE
 
 ## OVERVIEW
@@ -63,8 +63,8 @@ prism/
 - `docs/archive/AGENTS.md`: archive boundary for finished notes and retained evidence.
 
 ## SHARED FACTS
-- `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, and uses backend `8000`, frontend `5173`, and PostgreSQL `15432`.
-- `start.sh` keeps a fixed local launcher contract by using plaintext bootstrap ownership, the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET=http://localhost:8000`.
+- `start.sh` reads the root `.env`, supports `headless` and `full`, defaults `PRISM_CONFIG_PATH` to repo-local `config.json`, keeps frontend `5173` and PostgreSQL `15432`, and follows the selected bootstrap file's backend port; fresh seeds default that port to `8000`.
+- `start.sh` keeps a local launcher contract by using plaintext bootstrap ownership and the local PostgreSQL DSN, and in `full` mode keeping browser traffic same-origin by unsetting `VITE_API_BASE` and starting Vite with `PRISM_VITE_PROXY_ENABLED=1` plus `PRISM_VITE_PROXY_TARGET` pointed at the effective backend port from the selected bootstrap file.
 - Active working plans and execution artifacts live under `.omo/`; current repo planning uses `.omo/plans/` plus `.omo/evidence/`.
 - The runtime contract is operation-registered. Supported routes are allowlisted in `backend/internal/httpapi/runtime/operations.go`, and unsupported or wrong-method requests reject before provider transport, telemetry, audit, feedback, or durable runtime side effects.
 - Runtime request extraction, non-stream parsing, stream terminal classification, media multipart handling, and token-count behavior are split across `operation_request_hooks.go`, `operation_response_hooks.go`, `operation_stream_hooks.go`, and `operation_media_hooks.go` beside the shared runtime executor.
@@ -122,6 +122,9 @@ cd frontend && pnpm run test:e2e
 - Keep partitioned log-retention docs aligned with the four managed tables, runtime partition ensuring, management retention jobs, and the low-priority platform worker.
 - Keep `README.md` aligned with the same launcher, release, and deploy facts.
 - Keep active implementation plans out of `docs/`; store working plans under `.omo/plans/`, use `.omo/evidence/` for live execution artifacts, and reserve `docs/archive/` for finished notes or retained evidence.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
 
 ## ANTI-PATTERNS
 - Do not describe `backend/` or `frontend/` as external repos, gitlinks, or separately released submodules. They are root-owned monorepo directories.

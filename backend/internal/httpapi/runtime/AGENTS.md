@@ -52,6 +52,9 @@ runtime/
 - Keep telemetry, feedback, and runtime side-effect work on durable outboxes or worker seams instead of the hot request path.
 - Keep runtime partition ensuring here plus `../../platform/logretention/`; handlers must not create or drop partitions ad hoc.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not describe mounted `/v1` and `/v1beta` prefixes as broad passthrough support.
 - Do not add generic OpenAI or vendor fallback behavior outside the allowlist in `operations.go`.

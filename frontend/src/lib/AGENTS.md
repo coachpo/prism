@@ -73,6 +73,9 @@ lib/
 - Treat `types.ts` as a barrel. Backend-aligned contracts live in `types/` leaf files and should retain server field names.
 - Request-log clipboard fallback behavior is shared infrastructure through `clipboard.ts`; route sheets can supply scoped fallback roots, but copy helpers stay here.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not bypass `api/core.ts` or `api/profileScope.ts` for Prism backend requests or selected-profile header rules.

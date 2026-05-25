@@ -17,6 +17,9 @@
 - Keep dashboard analytics orchestration and data fetching in the page layer.
 - Keep null-vs-zero rendering rules and metric formatting decisions in the page helpers, not in these renderers.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not move snapshot orchestration or request-log drilldown state into these shared renderers.
 - Do not duplicate page-local null-vs-zero rendering rules when the dashboard analytics helpers already shape the inputs.

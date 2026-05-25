@@ -33,6 +33,9 @@ loadbalance-strategies/
 - Keep kind-aware summary wording in `LoadbalanceStrategiesTable.tsx` and shared page data helpers; do not duplicate family label, objective label, or summary formatting elsewhere.
 - Keep the merged contract forward-only. Do not add compatibility shims, silent coercion, or a fallback path that collapses both families back into one generic strategy type.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not let table components own API calls directly when `useLoadbalanceStrategiesPageData.ts` already centralizes CRUD orchestration.

@@ -35,6 +35,9 @@ proxy-api-keys/
 - Bootstrap auth settings and existing keys in parallel with `Promise.allSettled()`.
 - Patch the local key list after create, edit, rotate, and delete flows instead of reloading the whole page.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not scope proxy-key UX to the selected profile; runtime keys are global instance credentials.

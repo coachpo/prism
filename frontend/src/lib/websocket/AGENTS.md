@@ -25,6 +25,9 @@ websocket/
 - Keep channel subscription ref-count math in `subscriptions.ts`; `../websocket.ts` consumes the helpers but should not duplicate the logic.
 - Keep URL construction and reconnect timing policy in `transport.ts`, while `../websocket.ts` owns the actual socket lifecycle and event handlers.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not parse raw realtime JSON or hand-build subscribe or unsubscribe payloads outside `protocol.ts`.
 - Do not duplicate ref-counted subscription bookkeeping outside `subscriptions.ts`.

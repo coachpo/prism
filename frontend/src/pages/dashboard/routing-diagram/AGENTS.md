@@ -33,6 +33,9 @@ routing-diagram/
 - Keep diagram-specific layout math local to this cluster.
 - Keep chart and shape components rendering-focused; backend-owned `RoutingDiagramData` is the source payload.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not rebuild routing-diagram payload aggregation in `RoutingDiagramCard.tsx`, the dashboard hooks, or this cluster; consume backend `routing_health_map` data.

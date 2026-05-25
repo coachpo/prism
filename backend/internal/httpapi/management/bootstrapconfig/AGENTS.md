@@ -22,6 +22,9 @@ bootstrapconfig/
 - Keep hot-eligible changes and restart-required changes classified explicitly, including `failed_hot_apply_fields`.
 - Keep the writable-path guardrails and revision/etag semantics intact.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not mix `/api/config/bootstrap` with `management/settings/` or `management/configbundle/`.
 - Do not treat bootstrap writes as DB-backed state.

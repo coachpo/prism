@@ -27,6 +27,9 @@ settings/
 - Keep log-retention settings global and trigger cleanup through low-priority management jobs instead of request-path deletes.
 - Keep startup bootstrap config ownership separate; this package does not own `/api/config/bootstrap`.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not treat global log-retention settings as selected-profile state.
 - Do not run partition cleanup or retention deletes inline in these handlers.

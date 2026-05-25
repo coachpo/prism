@@ -35,6 +35,9 @@ ui/
 - Use semantic tokens and component variants before raw colors or ad hoc CSS. Compose conditional classes with `cn(...)`.
 - Keep accessibility composition intact for dialogs, sheets, popovers, tabs, and menus; do not remove required titles or grouping wrappers from vendored primitives.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not move shell navigation or profile logic into `ui/`.
 - Do not add route-aware data fetching here.

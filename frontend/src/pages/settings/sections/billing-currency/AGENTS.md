@@ -29,6 +29,9 @@ billing-currency/
 - Keep model and endpoint selector data supplied by the parent hook layer.
 - Keep the card, form, summary, and table components focused on rendering and local field wiring.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not move FX mapping CRUD state or save logic into this leaf.
 - Do not add page-level fetches or bootstrap orchestration here.

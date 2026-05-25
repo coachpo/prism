@@ -39,6 +39,9 @@ httpapi/
 - Keep log-retention settings global in `management/settings/`, with cleanup triggered through low-priority management jobs instead of request-path cleanup.
 - Keep `/metrics` DB-backed and mounted by platform server assembly, even though stats handlers live under management.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not add unsupported providers, proxy routes, or realtime message types without updating docs and contracts.
 - Do not inject profile scope inside runtime proxy handlers.

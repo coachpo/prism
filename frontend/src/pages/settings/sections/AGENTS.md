@@ -55,6 +55,9 @@ sections/
 - Keep section IDs and save-state wiring aligned with the parent settings helpers.
 - Let `BillingCurrencySection.tsx` stay a rendering boundary. The hooks that own costing changes live in `../costing/`.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not move auth setup logic out of `authentication/`.

@@ -60,7 +60,7 @@ frontend/
 - Realtime websocket ownership and consumers: `src/lib/websocket.ts`, `src/lib/websocket/AGENTS.md`, `src/hooks/useRealtimeData.ts`
 - Shared vendor cache and profile-revision keyed reference-data invalidation: `src/lib/referenceData.ts`
 - Frontend locale state and shared formatting: `src/i18n/LocaleProvider.tsx`, `src/i18n/format.ts`
-- Vite version injection, optional same-origin proxying, dev or preview `/health`, launcher proxy env path, launcher ports `5173` to backend `8000`, and build metadata: `vite.config.ts`, `package.json`
+- Vite version injection, optional same-origin proxying, dev or preview `/health`, launcher proxy env path, launcher port `5173` to the selected bootstrap file's backend port, and build metadata: `vite.config.ts`, `package.json`
 - Production `dist/` server and `/health`: `server.mjs`
 - Test split and browser config: `tests/AGENTS.md`, `tests/e2e/`, `tests/lib/`, `playwright.config.ts`
 - Page hierarchy and route-domain handoff, including the global sidecars route: `src/pages/AGENTS.md`, `src/pages/sidecars/AGENTS.md`
@@ -80,6 +80,9 @@ frontend/
 - Keep locale state and shared formatting in `src/i18n/`, not in shell or page code.
 - Keep shadcn/ui additions aligned with `components.json`: `style` `new-york`, Tailwind CSS in `src/index.css`, `lucide` icons, aliases rooted at `@/`, and generated primitives under `src/components/ui/`.
 - Use existing `ui/` primitives and local wrappers before adding one-off markup in pages or shared widgets.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
 
 ## ANTI-PATTERNS
 - Do not add generic React, Vite, or test-runner boilerplate here.

@@ -34,6 +34,9 @@ models/
 - Hydrate 24h metrics separately from the base model list so CRUD flows do not own observability queries.
 - Keep the grouped models table keyed by vendor, not api family, while still rendering the per-row `api_family` metadata.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not rebuild proxy/native strategy or form rules outside `modelFormState.ts`.

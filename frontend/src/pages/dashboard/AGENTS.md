@@ -53,6 +53,9 @@ dashboard/
 - Treat `routingDiagram.ts` as the barrel entrypoint for routing visualization and let `routing-diagram/AGENTS.md` own the layout, aggregation, realtime, and chart-helper split beneath it.
 - Keep overview presentation components focused on rendering. Bootstrap, payload shaping, and merge logic belong in the dashboard hooks.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not bypass `useDashboardRealtime.ts` for dashboard-specific live state.

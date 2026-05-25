@@ -43,6 +43,9 @@ context/
 - Keep bootstrap and helper logic in `auth/` and `profile/`, with the provider files focused on composition and exposed state.
 - Let the child AGENTS files own helper-layer detail so this parent stays provider-focused.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not invent local profile state in pages.

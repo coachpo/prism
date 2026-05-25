@@ -49,6 +49,9 @@ platform/
 - Keep shutdown sequencing explicit: HTTP shutdown, realtime shutdown, side-effect drain, scheduler stop, service close, then DB close.
 - Keep migrations fresh-install-only and schema-history-aware. Existing app tables without the current `prism_schema_migrations` baseline must fail fast instead of rewriting historical schemas.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not put provider sends, cache invalidations, dashboard publishes, or email delivery inline on request paths.
 - Do not treat external bootstrap file edits as watched state; use the Startup tab or bootstrap API to publish hot-eligible changes.

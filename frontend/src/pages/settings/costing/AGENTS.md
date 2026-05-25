@@ -39,6 +39,9 @@ costing/
 - Reuse `settingsPageHelpers.ts` for mapping keys, validation, formatting, and default state.
 - After reporting-currency writes, use the provider refresh/prime seam instead of creating a local currency cache.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not move FX mapping CRUD state into `sections/billing-currency/AGENTS.md` presentation components.

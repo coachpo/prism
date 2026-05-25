@@ -24,3 +24,6 @@
 - Prefer the parent docs or the owning backend or frontend AGENTS tree for live guidance.
 - If an archive note exposes a still-live implementation rule, move the canonical wording to the owning AGENTS file and leave the note as historical evidence.
 - When archiving evidence, link back to the live owner instead of restating implementation contracts here.
+
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).

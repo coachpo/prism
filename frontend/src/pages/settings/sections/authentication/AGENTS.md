@@ -29,6 +29,9 @@ authentication/
 - Keep operator account and recovery email flows separate in copy and behavior.
 - Keep `AuthenticationFieldShell.tsx` as the shared field wrapper for operator-account and recovery-email cards.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not duplicate presentation metadata in multiple auth components.

@@ -88,6 +88,9 @@ backend/
 - Keep backend container execution non-root with writable config ownership under `/app/config`; update `tests/integration/dockerfile_contract_test.go` when changing that contract.
 - Keep implementation detail in the Go ownership tree instead of inventing alternate runtime surfaces.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not describe Prism as a mixed-runtime backend.
 - Do not point readers to retired backend runtime surfaces as current implementation paths.

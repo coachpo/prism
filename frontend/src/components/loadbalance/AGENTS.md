@@ -15,6 +15,9 @@
 - Keep these components presentational and feed them shaped props.
 - Keep route-specific data loading out of this folder.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not move route-state or realtime orchestration into this shared folder.
 - Do not duplicate page-local event formatting when the shared detail sheet or table already owns the presentation.

@@ -33,6 +33,9 @@ startup/
 - Keep missing pool or startup values empty or validation-driven instead of filling them from a frontend canonical default table. Current backend fresh seeds provide `8000`, `5173`, `15432`, pool split `4/8/4/2/2/2/2`, runtime transport `100/16/16/300s/90s/0s/10s/1s`, and admission `3/2`.
 - Existing valid bootstrap files may show older values because startup preserves them. Reset guidance belongs in copy as manual operator action: stop Prism, remove or relocate the bootstrap file, then restart.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not inflate `SettingsPage.tsx` with field-level bootstrap logic.
 - Do not duplicate capability/effect rendering outside `startupFieldMetadata.ts` and the startup section components.

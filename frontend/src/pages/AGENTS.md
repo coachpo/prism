@@ -44,6 +44,9 @@
 - Let route files own bookmarkable query or hash state and the first handoff into local hooks.
 - Parent-cover local route clusters that do not need their own AGENTS file, including dense local helper folders already documented by the page leaves.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 - Do not treat auth pages as protected-shell pages.
 - Do not create extra AGENTS files for local helper clusters already covered by their page parent.

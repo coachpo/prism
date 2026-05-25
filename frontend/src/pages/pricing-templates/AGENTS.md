@@ -30,6 +30,9 @@ pricing-templates/
 - Parse delete conflicts and usage rows through `pricingTemplateFormState.ts` helpers instead of duplicating row normalization.
 - Keep profile scope explicit in copy and behavior; this page follows the selected management profile rather than a global instance scope.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not bypass usage lookups when delete conflicts need concrete connection rows.

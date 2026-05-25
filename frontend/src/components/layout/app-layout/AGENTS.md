@@ -50,6 +50,9 @@ app-layout/
 - Keep footer preferences, logout, and version-label concerns in `NavUser.tsx`.
 - Keep the post-upgrade shell limited to the mounted `page.tsx` wrapper and the retained seams above. Do not add back the deleted legacy shell wrapper, header, or profile popover surfaces.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not move route-specific query or data-fetch logic into the shell cluster.

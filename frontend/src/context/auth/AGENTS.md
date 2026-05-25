@@ -30,6 +30,9 @@ auth/
 - Keep passive refresh mutation-aware. `refresh.ts` should return early while a login/logout mutation is in flight.
 - Keep the proactive refresh interval and visibility-refresh rules centralized in `refresh.ts`.
 
+## LLM UPSTREAM MATRIX
+- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+
 ## ANTI-PATTERNS
 
 - Do not duplicate bootstrap fallback logic inside route components or page hooks.
