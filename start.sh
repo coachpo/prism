@@ -6,7 +6,8 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 
 DATABASE_PORT=15432
-BACKEND_PORT=8000
+DEFAULT_BACKEND_PORT=8000
+BACKEND_PORT="$DEFAULT_BACKEND_PORT"
 FRONTEND_PORT=5173
 PRISM_DATABASE_COMPOSE_PROJECT="${PRISM_DATABASE_COMPOSE_PROJECT:-prism}"
 DATABASE_URL="postgres://prism:prism@localhost:${DATABASE_PORT}/prism?sslmode=disable"
@@ -281,10 +282,17 @@ ensure_local_launcher_contract() {
         exit 1
     fi
 
-    if [[ "$EFFECTIVE_SERVER_PORT" != "$BACKEND_PORT" ]]; then
-        echo "Error: start.sh requires backend port $BACKEND_PORT, got $EFFECTIVE_SERVER_PORT" >&2
+    if [[ -z "$EFFECTIVE_SERVER_PORT" ]]; then
+        echo "Error: start.sh could not resolve backend port from $PRISM_CONFIG_PATH" >&2
         exit 1
     fi
+
+    if [[ ! "$EFFECTIVE_SERVER_PORT" =~ ^[0-9]+$ ]]; then
+        echo "Error: start.sh requires a numeric backend port, got $EFFECTIVE_SERVER_PORT" >&2
+        exit 1
+    fi
+
+    BACKEND_PORT="$EFFECTIVE_SERVER_PORT"
 
     if [[ "$EFFECTIVE_DATABASE_URL" != "$DATABASE_URL" ]]; then
         echo "Error: start.sh requires DATABASE_URL=$DATABASE_URL" >&2
