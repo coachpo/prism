@@ -24,7 +24,7 @@ function createModelListItem(
   displayName: string,
   modelType: "native" | "proxy",
   apiFamily: "openai" | "anthropic",
-  proxyTargets: Array<{ target_model_id: string; position: number }> = [],
+  proxyTargets: Array<{ target_model_id: string; position: number; weight: number; target_priority: number }> = [],
 ) {
   return {
     id,
@@ -34,6 +34,7 @@ function createModelListItem(
     model_id: modelId,
     display_name: displayName,
     model_type: modelType,
+    proxy_selection_strategy: modelType === "proxy" ? "ordered_fallback" : null,
     proxy_targets: proxyTargets,
     loadbalance_strategy_id: null,
     loadbalance_strategy: null,
@@ -47,7 +48,7 @@ function createModelListItem(
   };
 }
 
-function createProxyModelDetail(proxyTargets: Array<{ target_model_id: string; position: number }>) {
+function createProxyModelDetail(proxyTargets: Array<{ target_model_id: string; position: number; weight: number; target_priority: number }>) {
   return {
     ...createModelListItem(proxyModelConfigId, "proxy-openai", "Proxy OpenAI", "proxy", "openai", proxyTargets),
     connections: [],
@@ -82,7 +83,7 @@ function createSpendingResponse() {
 async function mockProxyModelDetailRoutes(page: Page) {
   const profile = createProfile();
   const updatePayloads: unknown[] = [];
-  let currentProxyTargets = [{ target_model_id: "native-a", position: 0 }];
+  let currentProxyTargets = [{ target_model_id: "native-a", position: 0, weight: 1, target_priority: 0 }];
 
   await page.route("**/*", async (route) => {
     const request = route.request();
@@ -115,7 +116,7 @@ async function mockProxyModelDetailRoutes(page: Page) {
         createModelListItem(proxyModelConfigId, "proxy-openai", "Proxy OpenAI", "proxy", "openai", currentProxyTargets),
         createModelListItem(1, "native-a", "Native A", "native", "openai"),
         createModelListItem(2, "native-b", "Native B", "native", "openai"),
-        createModelListItem(3, "proxy-shadow", "Proxy Shadow", "proxy", "openai", [{ target_model_id: "native-a", position: 0 }]),
+        createModelListItem(3, "proxy-shadow", "Proxy Shadow", "proxy", "openai", [{ target_model_id: "native-a", position: 0, weight: 1, target_priority: 0 }]),
         createModelListItem(4, "claude-sonnet", "Claude Sonnet", "native", "anthropic"),
       ]);
     }
@@ -131,7 +132,8 @@ async function mockProxyModelDetailRoutes(page: Page) {
         model_id: string;
         display_name: string | null;
         model_type: "proxy";
-        proxy_targets: Array<{ target_model_id: string; position: number }>;
+        proxy_selection_strategy: "ordered_fallback" | "weighted_static" | "priority_static";
+        proxy_targets: Array<{ target_model_id: string; position: number; weight: number; target_priority: number }>;
         loadbalance_strategy_id: null;
         is_enabled: boolean;
       };
@@ -143,6 +145,7 @@ async function mockProxyModelDetailRoutes(page: Page) {
         api_family: payload.api_family,
         model_id: payload.model_id,
         display_name: payload.display_name,
+        proxy_selection_strategy: payload.proxy_selection_strategy,
         is_enabled: payload.is_enabled,
       });
     }
@@ -206,9 +209,10 @@ test("proxy detail editing reuses the same ordered same-family native-target con
       model_id: "proxy-openai",
       display_name: "Proxy OpenAI",
       model_type: "proxy",
+      proxy_selection_strategy: "ordered_fallback",
       proxy_targets: [
-        { target_model_id: "native-b", position: 0 },
-        { target_model_id: "native-a", position: 1 },
+        { target_model_id: "native-b", position: 0, weight: 1, target_priority: 1 },
+        { target_model_id: "native-a", position: 1, weight: 1, target_priority: 0 },
       ],
       loadbalance_strategy_id: null,
       is_enabled: true,
