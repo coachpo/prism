@@ -40,6 +40,7 @@ function buildValidConfigImport() {
         api_family: "openai",
         model_id: "demo-native",
         model_type: "native",
+        proxy_selection_strategy: null,
         proxy_targets: [],
         loadbalance_strategy_name: "Default legacy routing",
         connections: [],
@@ -48,7 +49,8 @@ function buildValidConfigImport() {
         api_family: "openai",
         model_id: "demo-proxy",
         model_type: "proxy",
-        proxy_targets: [{ target_model_id: "demo-native", position: 0 }],
+        proxy_selection_strategy: "ordered_fallback",
+        proxy_targets: [{ target_model_id: "demo-native", position: 0, weight: 1, target_priority: 0 }],
         loadbalance_strategy_name: null,
         connections: [],
       },
@@ -119,7 +121,7 @@ test("vendor catalog import schema rejects profile bundles on the vendor path", 
 
 test("config import schema rejects native models with proxy targets", () => {
   const payload = buildValidConfigImport();
-  payload.models[0].proxy_targets = [{ target_model_id: "demo-native", position: 0 }];
+  payload.models[0].proxy_targets = [{ target_model_id: "demo-native", position: 0, weight: 1, target_priority: 0 }];
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
@@ -133,7 +135,7 @@ test("config import schema rejects proxy models with non-null strategy names", (
 
 test("config import schema rejects proxy models with non-contiguous proxy target positions", () => {
   const payload = buildValidConfigImport();
-  payload.models[1].proxy_targets = [{ target_model_id: "demo-native", position: 2 }];
+  payload.models[1].proxy_targets = [{ target_model_id: "demo-native", position: 2, weight: 1, target_priority: 0 }];
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });
@@ -141,9 +143,30 @@ test("config import schema rejects proxy models with non-contiguous proxy target
 test("config import schema rejects proxy models with duplicate target ids", () => {
   const payload = buildValidConfigImport();
   payload.models[1].proxy_targets = [
-    { target_model_id: "demo-native", position: 0 },
-    { target_model_id: "demo-native", position: 1 },
+    { target_model_id: "demo-native", position: 0, weight: 1, target_priority: 0 },
+    { target_model_id: "demo-native", position: 1, weight: 1, target_priority: 1 },
   ];
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects proxy models missing selector", () => {
+  const payload = buildValidConfigImport();
+  delete payload.models[1].proxy_selection_strategy;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects proxy models missing target weight", () => {
+  const payload = buildValidConfigImport();
+  delete payload.models[1].proxy_targets[0].weight;
+
+  assert.throws(() => ConfigImportSchema.parse(payload));
+});
+
+test("config import schema rejects proxy models missing target priority", () => {
+  const payload = buildValidConfigImport();
+  delete payload.models[1].proxy_targets[0].target_priority;
 
   assert.throws(() => ConfigImportSchema.parse(payload));
 });

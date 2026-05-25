@@ -135,6 +135,8 @@ const ConnectionImportSchema = z.strictObject({
 const ProxyTargetImportSchema = z.strictObject({
   target_model_id: z.string(),
   position: z.number().int().min(0),
+  weight: z.number().int().min(1),
+  target_priority: z.number().int().min(0),
 });
 
 const NativeModelImportSchema = z.strictObject({
@@ -143,6 +145,7 @@ const NativeModelImportSchema = z.strictObject({
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
   model_type: z.literal("native"),
+  proxy_selection_strategy: z.null().optional(),
   proxy_targets: z.tuple([]),
   loadbalance_strategy_name: z.string(),
   is_enabled: z.boolean().optional(),
@@ -155,6 +158,7 @@ const ProxyModelImportSchema = z.strictObject({
   model_id: z.string(),
   display_name: z.string().nullable().optional(),
   model_type: z.literal("proxy"),
+  proxy_selection_strategy: z.enum(["ordered_fallback", "weighted_static", "priority_static"]),
   proxy_targets: z.array(ProxyTargetImportSchema),
   loadbalance_strategy_name: z.null(),
   is_enabled: z.boolean().optional(),

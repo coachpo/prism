@@ -1,5 +1,6 @@
 import type {
   ModelType,
+  ProxySelectionStrategy,
   ProxyTarget,
 } from "./model-stats";
 import type { LoadbalanceStrategyCreate } from "./loadbalance";
@@ -87,6 +88,7 @@ export interface ConfigModelExport {
   model_id: string;
   display_name: string | null;
   model_type: ModelType;
+  proxy_selection_strategy: ProxySelectionStrategy | null;
   proxy_targets: ProxyTarget[];
   loadbalance_strategy_name: string | null;
   is_enabled: boolean;
@@ -111,6 +113,7 @@ export type ConfigModelImport =
       model_id: string;
       display_name?: string | null;
       model_type: "proxy";
+      proxy_selection_strategy: ProxySelectionStrategy;
       proxy_targets: ProxyTarget[];
       loadbalance_strategy_name: null;
       is_enabled?: boolean;
