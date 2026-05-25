@@ -68,28 +68,10 @@ type RequestLogEntry struct {
 	CreatedAt                         time.Time `json:"created_at"`
 }
 
-type DashboardRouteSnapshot struct {
-	ModelID               string   `json:"model_id"`
-	ModelConfigID         *int     `json:"model_config_id"`
-	ModelLabel            string   `json:"model_label"`
-	EndpointID            int      `json:"endpoint_id"`
-	EndpointLabel         string   `json:"endpoint_label"`
-	ActiveConnectionCount int      `json:"active_connection_count"`
-	TrafficRequestCount24 int      `json:"traffic_request_count_24h"`
-	RequestCount24        int      `json:"request_count_24h"`
-	SuccessCount24        int      `json:"success_count_24h"`
-	ErrorCount24          int      `json:"error_count_24h"`
-	SuccessRate24         *float64 `json:"success_rate_24h"`
-}
-
 type DashboardUpdateMessage struct {
-	Type                string                              `json:"type"`
-	RequestLog          RequestLogEntry                     `json:"request_log"`
-	StatsSummary24H     statsdomain.StatsSummaryResponse    `json:"stats_summary_24h"`
-	APIFamilySummary24H statsdomain.StatsSummaryResponse    `json:"api_family_summary_24h"`
-	SpendingSummary30D  statsdomain.SpendingReportResponse  `json:"spending_summary_30d"`
-	Throughput24H       statsdomain.ThroughputStatsResponse `json:"throughput_24h"`
-	RoutingRoute24H     *DashboardRouteSnapshot             `json:"routing_route_24h"`
+	Type       string                        `json:"type"`
+	RequestLog RequestLogEntry               `json:"request_log"`
+	Snapshot   statsdomain.DashboardSnapshot `json:"snapshot"`
 }
 
 type AnalyticsSnapshotMessage struct {

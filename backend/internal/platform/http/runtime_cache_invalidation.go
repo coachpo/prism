@@ -16,10 +16,16 @@ import (
 	"github.com/coachpo/prism/backend/internal/profiledomain"
 )
 
+type dashboardSnapshotInvalidator interface {
+	InvalidateDashboardSnapshot(profileID int)
+	InvalidateAllDashboardSnapshots()
+}
+
 type runtimeCacheInvalidationMiddleware struct {
-	planningCache *runtimeapi.SharedCache
-	authService   *managementauth.Service
-	runtimeState  *loadbalancedomain.LocalRuntimeStateStore
+	planningCache      *runtimeapi.SharedCache
+	authService        *managementauth.Service
+	runtimeState       *loadbalancedomain.LocalRuntimeStateStore
+	dashboardSnapshots dashboardSnapshotInvalidator
 }
 
 type runtimeCacheInvalidationAction struct {
@@ -34,15 +40,15 @@ type statusCapturingResponseWriter struct {
 	statusCode int
 }
 
-func newRuntimeCacheInvalidationMiddleware(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore) *runtimeCacheInvalidationMiddleware {
-	if planningCache == nil && authService == nil && runtimeState == nil {
+func newRuntimeCacheInvalidationMiddleware(planningCache *runtimeapi.SharedCache, authService *managementauth.Service, runtimeState *loadbalancedomain.LocalRuntimeStateStore, dashboardSnapshots dashboardSnapshotInvalidator) *runtimeCacheInvalidationMiddleware {
+	if planningCache == nil && authService == nil && runtimeState == nil && dashboardSnapshots == nil {
 		return nil
 	}
-	return &runtimeCacheInvalidationMiddleware{planningCache: planningCache, authService: authService, runtimeState: runtimeState}
+	return &runtimeCacheInvalidationMiddleware{planningCache: planningCache, authService: authService, runtimeState: runtimeState, dashboardSnapshots: dashboardSnapshots}
 }
 
 func (m *runtimeCacheInvalidationMiddleware) Middleware(next http.Handler) http.Handler {
-	if m == nil || (m.planningCache == nil && m.authService == nil && m.runtimeState == nil) {
+	if m == nil || (m.planningCache == nil && m.authService == nil && m.runtimeState == nil && m.dashboardSnapshots == nil) {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +72,7 @@ func (m *runtimeCacheInvalidationMiddleware) Middleware(next http.Handler) http.
 		if !isSuccessfulManagementMutation(normalizedMethod, writer.statusCode) {
 			return
 		}
-		action.apply(m.planningCache, m.runtimeState)
+		action.apply(m.planningCache, m.runtimeState, m.dashboardSnapshots)
 	})
 }
 
@@ -136,13 +142,14 @@ func classifyRuntimeCacheInvalidation(method string, rawPath string, header http
 	return action
 }
 
-func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, runtimeState *loadbalancedomain.LocalRuntimeStateStore) {
+func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCache, runtimeState *loadbalancedomain.LocalRuntimeStateStore, dashboardSnapshots dashboardSnapshotInvalidator) {
 	request := a.refreshRequest()
 	if planningCache != nil {
 		if request.HasWork() {
 			planningCache.ScheduleRefresh(request)
 		}
 	}
+	a.invalidateDashboardSnapshots(dashboardSnapshots)
 	if runtimeState == nil {
 		return
 	}
@@ -152,6 +159,19 @@ func (a runtimeCacheInvalidationAction) apply(planningCache *runtimeapi.SharedCa
 	}
 	for _, profileID := range a.planningIDs {
 		runtimeState.ResetProfile(profileID)
+	}
+}
+
+func (a runtimeCacheInvalidationAction) invalidateDashboardSnapshots(dashboardSnapshots dashboardSnapshotInvalidator) {
+	if dashboardSnapshots == nil {
+		return
+	}
+	if a.planningAll {
+		dashboardSnapshots.InvalidateAllDashboardSnapshots()
+		return
+	}
+	for _, profileID := range a.planningIDs {
+		dashboardSnapshots.InvalidateDashboardSnapshot(profileID)
 	}
 }
 

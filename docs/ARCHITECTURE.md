@@ -128,7 +128,7 @@ Durable outboxes expose failure as queued, retry, sent/succeeded, dead-letter, o
 
 Runtime telemetry and runtime feedback have different loss semantics. Accepted runtime activity intents are required-durable background work until the telemetry outbox transaction commits, terminal validation fails, or shutdown prevents completion. Runtime feedback is intentionally lossy under pressure; queue-full, invalid, closed, or store-failure cases drop feedback with accounting and never block proxy responses.
 
-Audit and statistics reads are bounded. Raw audit lists require backend-enforced time windows and keyset cursors, dashboard stats read materialized rollups, and broad deletes run as durable management jobs. Operators may see audit or stat freshness lag while background rollups or delete jobs catch up; Prism does not fall back to unbounded live aggregation to hide that lag.
+Audit and statistics reads are bounded. Raw audit lists require backend-enforced time windows and keyset cursors. The overview dashboard reads one canonical `/api/stats/dashboard` aggregate snapshot with backend-computed Routing Health Map data, while the internal rollup helper remains scoped to background rollup tests. Broad deletes run as durable management jobs.
 
 Runtime cache correctness is generation-based. Management mutations advance durable runtime-cache generations in the same transaction as the primary state change, runtime reads validate generation vectors and refresh or fail closed when stale, and post-response cache warming is non-authoritative. Cache generation lag may delay warm snapshots, but auth-sensitive runtime reads reject stale or unverifiable snapshots instead of accepting old state.
 
@@ -261,17 +261,12 @@ Dashboard overview page -> WebSocket connect /api/realtime/ws
   -> Realtime manager stores dashboard room membership keyed by profile and channel
 
 Proxy request completes
-  -> Stats service persists the `request_logs` row
-  -> Dashboard publisher gathers:
-     - request_log
-     - stats_summary_24h
-     - api_family_summary_24h
-     - spending_summary_30d
-     - throughput_24h
-     - routing_route_24h
-  -> Broadcast {type: "dashboard.update", ...payload} to dashboard subscribers for that profile
-  -> `frontend/src/pages/dashboard/useDashboardRealtime.ts` merges the overview payload into dashboard state
-  -> On reconnect or manual refresh, frontend reconciles overview state through REST bootstrap calls
+  -> Runtime telemetry persists the `request_logs` row
+  -> Realtime refreshes or reads the shared dashboard aggregate snapshot for the profile
+  -> Dashboard publisher gathers request_log plus the canonical DashboardSnapshot
+  -> Broadcast {type: "dashboard.update", request_log, snapshot} to dashboard subscribers for that profile
+  -> REST bootstrap reads the same shape from GET /api/stats/dashboard
+  -> Overview and Routing Health Map state reconcile against that shared snapshot shape
 
 Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> Client sends {type: "subscribe", profile_id, channel: "analytics", preset}
@@ -283,7 +278,7 @@ Dashboard analytics tab -> WebSocket connect /api/realtime/ws
   -> The frontend treats each `analytics.snapshot` as a full replacement for that scoped analytics view
 ```
 
-The realtime API has two supported channels. `dashboard.update` is the overview dashboard signal and does not carry analytics page replacement data. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/usage-snapshot`, remain supported API and debug surfaces.
+The realtime API has two supported channels. `dashboard.update` is the overview dashboard signal and carries `request_log` plus the same `DashboardSnapshot` returned by `GET /api/stats/dashboard`; it does not carry analytics page replacement data. `analytics.snapshot` is scoped by `{profile_id,preset}` inside the WebSocket message payload and powers the Analytics tab without requiring UI calls to `/api/stats/*`. The REST stats endpoints, including `GET /api/stats/dashboard` and `GET /api/stats/usage-snapshot`, remain supported API and debug surfaces.
 
 ## 4. Routing Strategies and Runtime Health Signals
 

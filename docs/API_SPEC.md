@@ -1619,37 +1619,64 @@ Stats APIs are profile-scoped and require `X-Profile-Id`.
 ```
 GET /api/stats/dashboard
 ```
-This is the bounded management dashboard freshness contract. It reads materialized rollups from `management_stat_buckets`; the request path doesn't fall back to live `request_logs` or `audit_logs` aggregation when rollups are missing or stale.
+This is the canonical overview dashboard read path. It returns one backend-computed aggregate snapshot for the effective profile, including overview metrics, API-family rows, recent requests, top-spending models, strategy-family counts, and the Routing Health Map. The same `DashboardSnapshot` shape is nested under realtime `dashboard.update.snapshot`, so REST bootstrap and websocket updates share one schema.
 
-Query parameters:
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `window` | string | required | Supported windows: `1h`, `24h`, `7d`, `30d` |
+Query parameters: none. Legacy `window` query values are ignored. The endpoint always returns the canonical aggregate snapshot and does not expose the old top-level `window`, `covers`, `freshness`, or `metrics` shape.
 
 Response `200`:
 ```json
 {
-  "window": "24h",
   "generated_at": "2026-04-19T12:00:00Z",
-  "covers": {
+  "coverage_24h": {
     "from": "2026-04-18T12:00:00Z",
-    "to": "2026-04-19T13:00:00Z"
+    "to": "2026-04-19T12:00:00Z"
   },
-  "freshness": {
-    "lag_seconds": 30,
+  "coverage_30d": {
+    "from": "2026-03-20T12:00:00Z",
+    "to": "2026-04-19T12:00:00Z"
+  },
+  "health": {
+    "lag_seconds": 0,
     "stale": false,
     "stale_after_seconds": 120
   },
-  "metrics": {
-    "request_count": 42,
-    "error_count": 3,
-    "audit_event_count": 18,
-    "active_profiles": 1
+  "metric_snapshot": {
+    "active_models": 12,
+    "average_rpm": 0.7,
+    "average_rpm_request_total": 42,
+    "avg_latency": 523,
+    "error_rate": 2.38,
+    "p95_latency": 900,
+    "priced_request_count": 40,
+    "stream_share": 18.5,
+    "success_rate": 97.62,
+    "total_cost": 1250000,
+    "total_models": 14,
+    "total_requests": 42,
+    "unpriced_request_count": 2
+  },
+  "api_family_rows": [
+    { "key": "openai", "total_requests": 42, "success_rate": 97.62 }
+  ],
+  "strategy_family_summary": {
+    "adaptive_count": 4,
+    "legacy_count": 8,
+    "unassigned_count": 2
+  },
+  "recent_requests": [],
+  "top_spending_models": [],
+  "routing_health_map": {
+    "nodes": [],
+    "links": [],
+    "endpointCount": 0,
+    "modelCount": 0,
+    "activeConnectionTotal": 0,
+    "trafficRequestTotal24h": 0
   }
 }
 ```
 
-If no matching rollup rows exist, the endpoint still returns the supported response shape with zero metrics and `freshness.stale=true`. Unsupported or missing `window` returns `400` with error code `stats_window_unsupported`.
+`routing_health_map` is assembled by the backend from model, endpoint, connection, request-log, and usage-event data. API clients should treat it as the canonical Routing Health Map payload rather than rebuilding route edges from separate stats endpoints.
 
 ### 4.1 Usage Snapshot
 ```
@@ -1664,7 +1691,7 @@ Query parameters:
 
 The snapshot is backed by `backend/internal/httpapi/management/stats/service.go` together with the aggregation types and query helpers in `backend/internal/domain/stats/snapshot.go` and `backend/internal/domain/stats/types.go`.
 
-The snapshot is aggregated from persisted usage-event rows, while `/api/stats/dashboard` is the separate materialized rollup freshness contract for dashboard management cards. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
+The snapshot is aggregated from persisted usage-event rows. `/api/stats/dashboard` is the canonical overview aggregate that also includes the backend-computed Routing Health Map. Exact request investigation remains on `/request-logs`, while dashboard and other pages continue to use the shared stats routes below.
 
 `GET /api/stats/requests/operations` is not part of the current management API.
 
@@ -2631,19 +2658,35 @@ Example `dashboard.update` payload:
 ```json
 {
   "type": "dashboard.update",
-  "request_log": { "id": 101, "model_id": "gpt-4o" },
-  "stats_summary_24h": { "total_requests": 42 },
-  "api_family_summary_24h": { "group_by": "api_family", "items": [] },
-  "spending_summary_30d": { "summary": { "total_cost_micros": 1250000 } },
-  "throughput_24h": { "total_requests": 42, "buckets": [] },
-  "routing_route_24h": {
+  "request_log": {
+    "id": 101,
+    "profile_id": 2,
     "model_id": "gpt-4o",
-    "endpoint_id": 12,
-    "request_count_24h": 42,
-    "success_rate_24h": 97.62
+    "model_label": "GPT-4o",
+    "request_path": "/v1/chat/completions"
+  },
+  "snapshot": {
+    "generated_at": "2026-04-19T12:00:00Z",
+    "coverage_24h": {
+      "from": "2026-04-18T12:00:00Z",
+      "to": "2026-04-19T12:00:00Z"
+    },
+    "coverage_30d": {
+      "from": "2026-03-20T12:00:00Z",
+      "to": "2026-04-19T12:00:00Z"
+    },
+    "health": { "lag_seconds": 0, "stale": false, "stale_after_seconds": 120 },
+    "metric_snapshot": { "total_requests": 42, "success_rate": 97.62 },
+    "api_family_rows": [],
+    "strategy_family_summary": { "adaptive_count": 4, "legacy_count": 8, "unassigned_count": 2 },
+    "recent_requests": [],
+    "top_spending_models": [],
+    "routing_health_map": { "nodes": [], "links": [], "endpointCount": 0, "modelCount": 0 }
   }
 }
 ```
+
+`dashboard.update` is a thin envelope over `request_log` plus `snapshot`. It no longer carries the old top-level per-section compatibility fields.
 
 ### 8.3 Analytics WebSocket Channel
 

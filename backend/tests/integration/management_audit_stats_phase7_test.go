@@ -23,6 +23,7 @@ import (
 	auditdomain "github.com/coachpo/prism/backend/internal/domain/audit"
 	"github.com/coachpo/prism/backend/internal/domain/stats"
 	managementsettings "github.com/coachpo/prism/backend/internal/httpapi/management/settings"
+	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	"github.com/coachpo/prism/backend/internal/platform/config"
 	"github.com/coachpo/prism/backend/internal/platform/logretention"
 	"github.com/coachpo/prism/backend/internal/platform/managementjobs"
@@ -193,7 +194,7 @@ func TestManagementAuditNoBroadCount(t *testing.T) {
 	}
 }
 
-func TestManagementStatsReadFromRollupsOnly(t *testing.T) {
+func TestDashboardRollupHelperReadsRollupsOnly(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	conn := phase7MigratedConn(t, ctx, "stats_rollups_only")
@@ -201,12 +202,203 @@ func TestManagementStatsReadFromRollupsOnly(t *testing.T) {
 	profileID := phase7InsertProfile(t, ctx, conn)
 	phase7InsertRequestLog(t, ctx, conn, profileID, 1001, 500, phase7Now.Add(-time.Hour))
 
-	response, err := stats.LoadDashboardStats(ctx, conn, profileID, "24h", phase7Now)
+	response, err := stats.LoadDashboardRollupStats(ctx, conn, profileID, "24h", phase7Now)
 	if err != nil {
-		t.Fatalf("load dashboard stats without rollups: %v", err)
+		t.Fatalf("load internal dashboard rollups without rows: %v", err)
 	}
-	if response.Metrics.RequestCount != 0 || !response.Freshness.Stale {
-		t.Fatalf("expected dashboard read to avoid live request_logs fallback, got %+v", response)
+	if response.Metrics.RequestCount != 0 || !response.Health.Stale {
+		t.Fatalf("expected internal rollup helper to avoid live request_logs fallback, got %+v", response)
+	}
+}
+
+func TestManagementDashboardStatsRouteReturnsAggregateSnapshot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	databaseName := "stats_dashboard_aggregate_route"
+	conn := harness.openDatabase(t, ctx, databaseName)
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	profileID := phase7InsertProfile(t, ctx, conn)
+	phase7InsertRequestLog(t, ctx, conn, profileID, 1002, 200, phase7Now.Add(-30*time.Minute))
+	phase7InsertUsageEvent(t, ctx, conn, profileID, 1003, phase7Now.Add(-30*time.Minute))
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString(databaseName))
+	if err != nil {
+		t.Fatalf("open dashboard stats pool: %v", err)
+	}
+	defer pool.Close()
+	service, err := managementstats.NewService(config.Settings{}, managementstats.Options{Pool: pool, Now: func() time.Time { return phase7Now }})
+	if err != nil {
+		t.Fatalf("create stats service: %v", err)
+	}
+	defer service.Close()
+	router := chiRouterForStats(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/stats/dashboard?window=24h", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /stats/dashboard status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode dashboard aggregate response: %v", err)
+	}
+	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "strategy_family_summary", "recent_requests", "top_spending_models", "routing_health_map"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("expected aggregate dashboard field %q, got %+v", key, payload)
+		}
+	}
+	for _, legacyKey := range []string{"window", "covers", "freshness", "metrics"} {
+		if _, ok := payload[legacyKey]; ok {
+			t.Fatalf("dashboard route must not expose legacy top-level %q, got %+v", legacyKey, payload)
+		}
+	}
+	metricSnapshot := payload["metric_snapshot"].(map[string]any)
+	if metricSnapshot["total_requests"] != float64(1) || metricSnapshot["success_rate"] != float64(100) {
+		t.Fatalf("expected aggregate dashboard metrics from seeded activity, got %+v", metricSnapshot)
+	}
+}
+
+func TestManagementDashboardStatsKeepsCachedAggregateAtStaleThreshold(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	databaseName := "stats_dashboard_stale_threshold"
+	conn := harness.openDatabase(t, ctx, databaseName)
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	profileID := phase7InsertProfile(t, ctx, conn)
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString(databaseName))
+	if err != nil {
+		t.Fatalf("open threshold dashboard stats pool: %v", err)
+	}
+	defer pool.Close()
+	dashboardSnapshots := stats.NewDashboardAggregateStore()
+	dashboardSnapshots.StoreProfile(stats.DashboardAggregateSnapshot{ProfileID: profileID, GeneratedAt: phase7Now.Add(-stats.DashboardStatsStaleAfter), StatsSummary24H: stats.StatsSummaryResponse{TotalRequests: 7}})
+	service, err := managementstats.NewService(config.Settings{}, managementstats.Options{Pool: pool, Now: func() time.Time { return phase7Now }, DashboardSnapshots: dashboardSnapshots})
+	if err != nil {
+		t.Fatalf("create stats service: %v", err)
+	}
+	defer service.Close()
+	router := chiRouterForStats(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/stats/dashboard", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /stats/dashboard threshold status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode threshold dashboard aggregate response: %v", err)
+	}
+	metricSnapshot := payload["metric_snapshot"].(map[string]any)
+	if metricSnapshot["total_requests"] != float64(7) {
+		t.Fatalf("expected threshold cached dashboard aggregate to remain reusable, got %+v", metricSnapshot)
+	}
+	health := payload["health"].(map[string]any)
+	if health["stale"] != false || health["lag_seconds"] != float64(stats.DashboardStatsStaleAfter/time.Second) {
+		t.Fatalf("expected threshold cached dashboard aggregate to report fresh boundary health, got %+v", health)
+	}
+}
+
+func TestManagementDashboardStatsRebuildsStaleCachedAggregate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	runner := newRunner(t)
+	databaseName := "stats_dashboard_stale_aggregate"
+	conn := harness.openDatabase(t, ctx, databaseName)
+	if _, err := runner.Run(ctx, conn); err != nil {
+		t.Fatalf("run migrations: %v", err)
+	}
+	profileID := phase7InsertProfile(t, ctx, conn)
+	phase7InsertRequestLog(t, ctx, conn, profileID, 1004, 200, phase7Now.Add(-30*time.Second))
+	phase7InsertUsageEvent(t, ctx, conn, profileID, 1005, phase7Now.Add(-30*time.Second))
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString(databaseName))
+	if err != nil {
+		t.Fatalf("open stale dashboard stats pool: %v", err)
+	}
+	defer pool.Close()
+	dashboardSnapshots := stats.NewDashboardAggregateStore()
+	dashboardSnapshots.StoreProfile(stats.DashboardAggregateSnapshot{ProfileID: profileID, GeneratedAt: phase7Now.Add(-stats.DashboardStatsStaleAfter - time.Second)})
+	service, err := managementstats.NewService(config.Settings{}, managementstats.Options{Pool: pool, Now: func() time.Time { return phase7Now }, DashboardSnapshots: dashboardSnapshots})
+	if err != nil {
+		t.Fatalf("create stats service: %v", err)
+	}
+	defer service.Close()
+	router := chiRouterForStats(service)
+
+	request := httptest.NewRequest(http.MethodGet, "/stats/dashboard", nil)
+	request.Header.Set("X-Profile-Id", fmt.Sprintf("%d", profileID))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /stats/dashboard status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode rebuilt dashboard aggregate response: %v", err)
+	}
+	metricSnapshot := payload["metric_snapshot"].(map[string]any)
+	if metricSnapshot["total_requests"] != float64(1) {
+		t.Fatalf("expected stale cached dashboard aggregate to rebuild from seeded activity, got %+v", metricSnapshot)
+	}
+	health := payload["health"].(map[string]any)
+	if health["stale"] != false || health["lag_seconds"] != float64(0) {
+		t.Fatalf("expected rebuilt dashboard aggregate to report fresh health, got %+v", health)
+	}
+}
+
+func TestDashboardSnapshotInvalidationEvictsCachedProfiles(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	harness := newPostgresHarness(t)
+	databaseName := "dashboard_snapshot_invalidation"
+	conn := harness.openDatabase(t, ctx, databaseName)
+	if err := conn.Close(ctx); err != nil {
+		t.Fatalf("close setup conn: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, harness.connectionString(databaseName))
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	defer pool.Close()
+	dashboardSnapshots := stats.NewDashboardAggregateStore()
+	service, err := managementstats.NewService(config.Settings{}, managementstats.Options{Pool: pool, DashboardSnapshots: dashboardSnapshots})
+	if err != nil {
+		t.Fatalf("create stats service: %v", err)
+	}
+	defer service.Close()
+
+	dashboardSnapshots.StoreProfile(stats.DashboardAggregateSnapshot{ProfileID: 101, GeneratedAt: phase7Now})
+	dashboardSnapshots.StoreProfile(stats.DashboardAggregateSnapshot{ProfileID: 202, GeneratedAt: phase7Now})
+	service.InvalidateDashboardSnapshot(101)
+	if _, ok := dashboardSnapshots.LoadProfile(101); ok {
+		t.Fatal("expected profile-specific dashboard snapshot invalidation to evict profile 101")
+	}
+	if _, ok := dashboardSnapshots.LoadProfile(202); !ok {
+		t.Fatal("expected profile-specific dashboard snapshot invalidation to preserve profile 202")
+	}
+	service.InvalidateAllDashboardSnapshots()
+	if _, ok := dashboardSnapshots.LoadProfile(202); ok {
+		t.Fatal("expected global dashboard snapshot invalidation to evict remaining profiles")
 	}
 }
 
@@ -223,11 +415,11 @@ func TestManagementStatsRefreshHighWaterMark(t *testing.T) {
 	if err := stats.RefreshDashboardStatsRollup(ctx, conn, profileID, "24h", phase7Now); err != nil {
 		t.Fatalf("refresh dashboard stats rollup: %v", err)
 	}
-	response, err := stats.LoadDashboardStats(ctx, conn, profileID, "24h", phase7Now)
+	response, err := stats.LoadDashboardRollupStats(ctx, conn, profileID, "24h", phase7Now)
 	if err != nil {
 		t.Fatalf("load refreshed dashboard stats: %v", err)
 	}
-	if response.Metrics.RequestCount != 2 || response.Metrics.ErrorCount != 1 || response.Metrics.AuditEventCount != 1 || response.Freshness.Stale {
+	if response.Metrics.RequestCount != 2 || response.Metrics.ErrorCount != 1 || response.Metrics.AuditEventCount != 1 || response.Health.Stale {
 		t.Fatalf("expected refreshed dashboard metrics with fresh high-water mark, got %+v", response)
 	}
 }
@@ -268,11 +460,11 @@ func TestManagementStatsStaleNoLiveFallback(t *testing.T) {
 	if _, err := conn.Exec(ctx, `INSERT INTO management_stat_buckets (bucket_start, bucket_size, metric, dimension_key, dimension_value, value, source_high_water_mark, generated_at) VALUES ($1, '24h', 'request_count', 'profile_id', $2, 7, $3, $3)`, phase7Now.Add(-24*time.Hour).Truncate(time.Hour), fmt.Sprintf("%d", profileID), phase7Now.Add(-10*time.Minute)); err != nil {
 		t.Fatalf("seed stale dashboard rollup: %v", err)
 	}
-	response, err := stats.LoadDashboardStats(ctx, conn, profileID, "24h", phase7Now)
+	response, err := stats.LoadDashboardRollupStats(ctx, conn, profileID, "24h", phase7Now)
 	if err != nil {
 		t.Fatalf("load stale dashboard stats: %v", err)
 	}
-	if response.Metrics.RequestCount != 7 || !response.Freshness.Stale {
+	if response.Metrics.RequestCount != 7 || !response.Health.Stale {
 		t.Fatalf("expected stale rollup value without live fallback, got %+v", response)
 	}
 }
@@ -496,6 +688,12 @@ func chiRouterForSettings(service *managementsettings.Service) http.Handler {
 	return router
 }
 
+func chiRouterForStats(service *managementstats.Service) http.Handler {
+	router := chi.NewRouter()
+	service.MountManagementRoutes(router)
+	return router
+}
+
 func phase7PartitionExists(partitions []logretention.Partition, partitionName string) bool {
 	for _, partition := range partitions {
 		if partition.PartitionName == partitionName {
@@ -587,6 +785,16 @@ func phase7InsertRequestLog(t *testing.T, ctx context.Context, exec interface {
 	phase7EnsureLogPartition(t, ctx, exec, "request_logs", createdAt)
 	if _, err := exec.Exec(ctx, `INSERT INTO request_logs (id, profile_id, model_id, api_family, status_code, response_time_ms, is_stream, success_flag, billable_flag, priced_flag, request_path, created_at, audit_enabled_at_request, audit_capture_bodies_at_request) VALUES ($1, $2, 'phase7-model', 'openai', $3, 100, FALSE, $4, TRUE, TRUE, '/v1/chat/completions', $5, FALSE, FALSE)`, id, profileID, statusCode, statusCode >= 200 && statusCode < 300, createdAt.UTC()); err != nil {
 		t.Fatalf("insert phase7 request log %d: %v", id, err)
+	}
+}
+
+func phase7InsertUsageEvent(t *testing.T, ctx context.Context, exec interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, profileID int, id int, createdAt time.Time) {
+	t.Helper()
+	phase7EnsureLogPartition(t, ctx, exec, "usage_request_events", createdAt)
+	if _, err := exec.Exec(ctx, `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, api_family, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, 'phase7-model', 'openai', 200, TRUE, TRUE, TRUE, 7, 11, 18, 1250, 'USD', '$', 1, '/v1/chat/completions', $4, 100)`, id, profileID, fmt.Sprintf("phase7-ingress-%d", id), createdAt.UTC()); err != nil {
+		t.Fatalf("insert phase7 usage event %d: %v", id, err)
 	}
 }
 

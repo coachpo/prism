@@ -306,7 +306,7 @@ Prepare seed state through API (not manual DB edits):
 | E11 | P1 | Streaming without usage fields | Token fields null |
 | E12 | P0 | Model health fields in `/api/models` | Weighted health and request totals correct |
 | E13 | P0 | Model metrics batch API | Returns metrics for multiple models |
-| E14 | P0 | Dashboard materialized stats API | Requires supported `window`, returns `generated_at`, `covers`, `freshness`, and rollup `metrics`; stale or missing buckets report freshness lag without live aggregation fallback |
+| E14 | P0 | Dashboard aggregate stats API | `GET /api/stats/dashboard` returns the canonical overview snapshot with `metric_snapshot`, `api_family_rows`, `recent_requests`, top spending models, strategy-family counts, and backend-computed `routing_health_map` |
 | E15 | P1 | Throughput API | Returns aggregate RPM metrics plus time buckets for the selected scope |
 | E16 | P0 | Endpoint model statistics API | Returns per-model counts, success rates, TTFT percentiles, token totals, and cost for the selected endpoint scope |
 

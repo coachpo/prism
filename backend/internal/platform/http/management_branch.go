@@ -44,7 +44,7 @@ func mountManagementBranch(router chi.Router, deps Dependencies, admissionContro
 		managementHandler = deps.AuthService.ManagementMiddleware(managementHandler)
 	}
 	managementHandler = (&managementAdmissionController{controller: admissionController, provider: admissionProvider}).Middleware(managementHandler)
-	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState).Middleware(managementHandler)
+	managementHandler = newRuntimeCacheInvalidationMiddleware(deps.RuntimeCache, deps.RuntimeAuthService, deps.RuntimeState, deps.StatsService).Middleware(managementHandler)
 	router.Mount("/api", managementHandler)
 }
 

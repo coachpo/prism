@@ -9,13 +9,150 @@ import (
 )
 
 type DashboardAggregateSnapshot struct {
-	ProfileID            int
-	GeneratedAt          time.Time
-	StatsSummary24H      StatsSummaryResponse
-	APIFamilySummary24H  StatsSummaryResponse
-	SpendingSummary30D   SpendingReportResponse
-	Throughput24H        ThroughputStatsResponse
-	UsageSnapshotPreset1 UsageSnapshotResponse
+	ProfileID             int
+	GeneratedAt           time.Time
+	StatsSummary24H       StatsSummaryResponse
+	APIFamilySummary24H   StatsSummaryResponse
+	SpendingSummary30D    SpendingReportResponse
+	Throughput24H         ThroughputStatsResponse
+	UsageSnapshotPreset1  UsageSnapshotResponse
+	RecentRequests        []RequestLogListItem
+	StrategyFamilySummary DashboardStrategyFamilySummary
+	RoutingHealthMap      DashboardRoutingHealthMap
+	TotalModelCount       int
+	ActiveModelCount      int
+}
+
+type DashboardSnapshot struct {
+	GeneratedAt           time.Time                      `json:"generated_at"`
+	Coverage24H           DashboardSnapshotCoverage      `json:"coverage_24h"`
+	Coverage30D           DashboardSnapshotCoverage      `json:"coverage_30d"`
+	Health                DashboardSnapshotHealth        `json:"health"`
+	MetricSnapshot        DashboardMetricSnapshot        `json:"metric_snapshot"`
+	APIFamilyRows         []StatGroup                    `json:"api_family_rows"`
+	StrategyFamilySummary DashboardStrategyFamilySummary `json:"strategy_family_summary"`
+	RecentRequests        []RequestLogListItem           `json:"recent_requests"`
+	TopSpendingModels     []SpendingTopModel             `json:"top_spending_models"`
+	RoutingHealthMap      DashboardRoutingHealthMap      `json:"routing_health_map"`
+}
+
+type DashboardMetricSnapshot struct {
+	ActiveModels           int     `json:"active_models"`
+	AverageRPM             float64 `json:"average_rpm"`
+	AverageRPMRequestTotal int     `json:"average_rpm_request_total"`
+	AvgLatency             float64 `json:"avg_latency"`
+	ErrorRate              float64 `json:"error_rate"`
+	P95Latency             int     `json:"p95_latency"`
+	PricedRequestCount     int     `json:"priced_request_count"`
+	StreamShare            float64 `json:"stream_share"`
+	SuccessRate            float64 `json:"success_rate"`
+	TotalCost              int64   `json:"total_cost"`
+	TotalModels            int     `json:"total_models"`
+	TotalRequests          int     `json:"total_requests"`
+	UnpricedRequestCount   int     `json:"unpriced_request_count"`
+}
+
+type DashboardStrategyFamilySummary struct {
+	AdaptiveCount   int `json:"adaptive_count"`
+	LegacyCount     int `json:"legacy_count"`
+	UnassignedCount int `json:"unassigned_count"`
+}
+
+type DashboardRoutingHealthMap struct {
+	Nodes                  []DashboardRoutingNode `json:"nodes"`
+	Links                  []DashboardRoutingLink `json:"links"`
+	EndpointCount          int                    `json:"endpointCount"`
+	ModelCount             int                    `json:"modelCount"`
+	ActiveConnectionTotal  int                    `json:"activeConnectionTotal"`
+	TrafficRequestTotal24H int                    `json:"trafficRequestTotal24h"`
+}
+
+type DashboardRoutingNode struct {
+	ID                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	Kind                   string   `json:"kind"`
+	Label                  string   `json:"label"`
+	Sublabel               *string  `json:"sublabel"`
+	EndpointID             *int     `json:"endpointId"`
+	ModelID                *string  `json:"modelId"`
+	ModelConfigID          *int     `json:"modelConfigId"`
+	ActiveConnectionCount  int      `json:"activeConnectionCount"`
+	TrafficRequestCount24H int      `json:"trafficRequestCount24h"`
+	RequestCount24H        int      `json:"requestCount24h"`
+	SuccessCount24H        int      `json:"successCount24h"`
+	ErrorCount24H          int      `json:"errorCount24h"`
+	SuccessRate24H         *float64 `json:"successRate24h"`
+}
+
+type DashboardRoutingLink struct {
+	ID                     string   `json:"id"`
+	SourceNodeID           string   `json:"sourceNodeId"`
+	TargetNodeID           string   `json:"targetNodeId"`
+	ModelID                string   `json:"modelId"`
+	ModelLabel             string   `json:"modelLabel"`
+	ModelConfigID          int      `json:"modelConfigId"`
+	EndpointID             int      `json:"endpointId"`
+	EndpointLabel          string   `json:"endpointLabel"`
+	ActiveConnectionCount  int      `json:"activeConnectionCount"`
+	TrafficRequestCount24H int      `json:"trafficRequestCount24h"`
+	RequestCount24H        int      `json:"requestCount24h"`
+	SuccessCount24H        int      `json:"successCount24h"`
+	ErrorCount24H          int      `json:"errorCount24h"`
+	SuccessRate24H         *float64 `json:"successRate24h"`
+}
+
+func NewDashboardSnapshot(aggregate DashboardAggregateSnapshot, referenceNow time.Time) DashboardSnapshot {
+	generatedAt := aggregate.GeneratedAt.UTC()
+	if generatedAt.IsZero() {
+		generatedAt = referenceNow.UTC()
+	}
+	recentRequests := append([]RequestLogListItem{}, aggregate.RecentRequests...)
+	apiFamilyRows := append([]StatGroup{}, aggregate.APIFamilySummary24H.Groups...)
+	topSpendingModels := append([]SpendingTopModel{}, aggregate.SpendingSummary30D.TopSpendingModels...)
+	return DashboardSnapshot{
+		GeneratedAt:           generatedAt,
+		Coverage24H:           DashboardSnapshotCoverage{From: generatedAt.Add(-24 * time.Hour), To: generatedAt},
+		Coverage30D:           DashboardSnapshotCoverage{From: generatedAt.Add(-30 * 24 * time.Hour), To: generatedAt},
+		Health:                NewDashboardSnapshotHealth(generatedAt, referenceNow),
+		MetricSnapshot:        newDashboardMetricSnapshot(aggregate, recentRequests),
+		APIFamilyRows:         apiFamilyRows,
+		StrategyFamilySummary: aggregate.StrategyFamilySummary,
+		RecentRequests:        recentRequests,
+		TopSpendingModels:     topSpendingModels,
+		RoutingHealthMap:      cloneDashboardRoutingHealthMap(aggregate.RoutingHealthMap),
+	}
+}
+
+func newDashboardMetricSnapshot(aggregate DashboardAggregateSnapshot, recentRequests []RequestLogListItem) DashboardMetricSnapshot {
+	streamShare := 0.0
+	if len(recentRequests) > 0 {
+		streamCount := 0
+		for _, request := range recentRequests {
+			if request.IsStream {
+				streamCount++
+			}
+		}
+		streamShare = roundFloat((float64(streamCount)/float64(len(recentRequests)))*100, 2)
+	}
+	errorRate := 100 - aggregate.StatsSummary24H.SuccessRate
+	if errorRate < 0 {
+		errorRate = 0
+	}
+	return DashboardMetricSnapshot{
+		ActiveModels:           aggregate.ActiveModelCount,
+		AverageRPM:             aggregate.Throughput24H.AverageRPM,
+		AverageRPMRequestTotal: aggregate.Throughput24H.TotalRequests,
+		AvgLatency:             aggregate.StatsSummary24H.AvgResponseTimeMS,
+		ErrorRate:              errorRate,
+		P95Latency:             aggregate.StatsSummary24H.P95ResponseTimeMS,
+		PricedRequestCount:     aggregate.SpendingSummary30D.Summary.PricedRequestCount,
+		StreamShare:            streamShare,
+		SuccessRate:            aggregate.StatsSummary24H.SuccessRate,
+		TotalCost:              aggregate.SpendingSummary30D.Summary.TotalCostMicros,
+		TotalModels:            aggregate.TotalModelCount,
+		TotalRequests:          aggregate.StatsSummary24H.TotalRequests,
+		UnpricedRequestCount:   aggregate.SpendingSummary30D.Summary.UnpricedRequestCount,
+	}
 }
 
 type DashboardAggregateStore struct {
@@ -68,6 +205,10 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 	generatedAt := referenceNow.UTC()
 	windowStart24H := generatedAt.Add(-24 * time.Hour)
 	apiFamilyGroupBy := "api_family"
+	models, err := loadDashboardSnapshotModels(ctx, exec, profileID)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
 	statsSummary, err := GetStatsSummary(ctx, exec, StatsSummaryParams{ProfileID: profileID, FromTime: &windowStart24H, ToTime: &generatedAt})
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
@@ -88,14 +229,27 @@ func BuildDashboardAggregateSnapshot(ctx context.Context, exec queryExecutor, pr
 	if err != nil {
 		return DashboardAggregateSnapshot{}, err
 	}
+	recentRequests, err := ListRequestLogs(ctx, exec, RequestLogListParams{ProfileID: profileID, ToTime: &generatedAt, Limit: 12, Offset: 0})
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
+	routingHealthMap, err := buildDashboardRoutingHealthMap(ctx, exec, profileID, models, windowStart24H, generatedAt)
+	if err != nil {
+		return DashboardAggregateSnapshot{}, err
+	}
 	return DashboardAggregateSnapshot{
-		ProfileID:            profileID,
-		GeneratedAt:          generatedAt,
-		StatsSummary24H:      statsSummary,
-		APIFamilySummary24H:  apiFamilySummary,
-		SpendingSummary30D:   spendingSummary,
-		Throughput24H:        throughput,
-		UsageSnapshotPreset1: usageSnapshot,
+		ProfileID:             profileID,
+		GeneratedAt:           generatedAt,
+		StatsSummary24H:       statsSummary,
+		APIFamilySummary24H:   apiFamilySummary,
+		SpendingSummary30D:    spendingSummary,
+		Throughput24H:         throughput,
+		UsageSnapshotPreset1:  usageSnapshot,
+		RecentRequests:        recentRequests.Items,
+		StrategyFamilySummary: buildDashboardStrategyFamilySummary(models),
+		RoutingHealthMap:      routingHealthMap,
+		TotalModelCount:       len(models),
+		ActiveModelCount:      countDashboardActiveModels(models),
 	}, nil
 }
 

@@ -20,14 +20,15 @@ type asyncAnalyticsPublishCall struct {
 }
 
 type fakeAsyncDashboardTarget struct {
-	mu           sync.Mutex
-	latest       map[int]int
-	subscribers  map[int]bool
-	calls        []asyncPublishCall
-	publishCh    chan asyncPublishCall
-	firstStarted chan struct{}
-	releaseFirst chan struct{}
-	blockFirst   bool
+	mu            sync.Mutex
+	latest        map[int]int
+	subscribers   map[int]bool
+	calls         []asyncPublishCall
+	invalidations []int
+	publishCh     chan asyncPublishCall
+	firstStarted  chan struct{}
+	releaseFirst  chan struct{}
+	blockFirst    bool
 }
 
 func TestAsyncDashboardPublisher_CoalescesProfileWhileWorkerIsInflight(t *testing.T) {
@@ -152,6 +153,42 @@ func TestAsyncDashboardPublisher_DropsOnlyQueuedBestEffortProfileWhenCapacityIsE
 	}
 	if finalSnapshot.LastDrainedAt.IsZero() || finalSnapshot.LastDrainDuration <= 0 {
 		t.Fatalf("expected saturated publisher to record a positive drain interval, got %+v", finalSnapshot)
+	}
+}
+
+func TestAsyncDashboardPublisher_QueuesRefreshWhenNoSubscribers(t *testing.T) {
+	target := newFakeAsyncDashboardTarget(false)
+	target.mu.Lock()
+	target.subscribers[7] = false
+	target.mu.Unlock()
+	publisher := NewAsyncDashboardPublisher(target, AsyncDashboardPublisherOptions{
+		QueueCapacity:   1,
+		WorkerCount:     1,
+		PublishTimeout:  5 * time.Second,
+		ShutdownTimeout: time.Second,
+	})
+	defer publisher.Close()
+
+	accepted, err := publisher.PublishDashboardUpdate(context.Background(), 303, 7)
+	if err != nil {
+		t.Fatalf("publish dashboard update without subscribers: %v", err)
+	}
+	if !accepted {
+		t.Fatal("expected no-subscriber dashboard traffic to queue aggregate refresh work")
+	}
+	target.mu.Lock()
+	invalidations := append([]int(nil), target.invalidations...)
+	target.mu.Unlock()
+	if len(invalidations) != 1 || invalidations[0] != 7 {
+		t.Fatalf("expected no-subscriber dashboard traffic to invalidate cached profile 7, got %+v", invalidations)
+	}
+	call := target.waitForCall(t, 2*time.Second)
+	if call.ProfileID != 7 || call.RequestLogID != 303 {
+		t.Fatalf("expected no-subscriber publish call to use latest request log, got %+v", call)
+	}
+	finalSnapshot := waitForAsyncDashboardDrain(t, publisher, 2*time.Second)
+	if finalSnapshot.AcceptedCount != 1 || finalSnapshot.DroppedCount != 0 || !finalSnapshot.Drained {
+		t.Fatalf("expected no-subscriber refresh work to drain cleanly, got %+v", finalSnapshot)
 	}
 }
 
@@ -288,6 +325,12 @@ func (t *fakeAsyncDashboardTarget) RecordLatestDashboardRequestLog(profileID int
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.latest[profileID] = requestLogID
+}
+
+func (t *fakeAsyncDashboardTarget) InvalidateDashboardSnapshot(profileID int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.invalidations = append(t.invalidations, profileID)
 }
 
 func (t *fakeAsyncDashboardTarget) HasDashboardSubscribers(profileID int) bool {

@@ -90,19 +90,16 @@ Validated again against current repo surfaces on 2026-05-10:
 
 **Frontend flow**
 
-1. Dashboard bootstrap loads KPI cards, spending summaries, throughput, recent activity, and routing data.
-2. The dashboard subscribes to realtime `dashboard.update` messages for live reconciliation.
+1. Dashboard overview bootstrap loads KPI cards, spending summaries, throughput, recent activity, and routing data from the canonical aggregate snapshot.
+2. The dashboard subscribes to realtime `dashboard.update` messages for live reconciliation against that same overview snapshot shape.
 3. Quick actions send operators into the analytics tab or `/request-logs` for deeper analysis.
-4. The analytics tab stays aggregate-focused and uses snapshot presets rather than request-level drill-down.
+4. The analytics tab stays aggregate-focused and uses its own snapshot presets rather than request-level drill-down.
 
 **Backend touchpoints**
 
-- `GET /api/stats/summary`
-- `GET /api/stats/spending`
-- `GET /api/stats/throughput`
-- `GET /api/stats/requests?limit=12`
-- `GET /api/stats/usage-snapshot`
-- `WS /api/realtime/ws`
+- `GET /api/stats/dashboard` for the overview aggregate snapshot, including backend-computed Routing Health Map data
+- `GET /api/stats/usage-snapshot` for the analytics tab snapshot presets
+- `WS /api/realtime/ws` for overview `dashboard.update` reconciliation
 
 ## 4. Model Management And Model Detail
 
@@ -348,7 +345,7 @@ Operational triage by symptom:
 - Outbox failures: inspect the relevant durable store state. Email outbox retries or dead-letters delivery without leaking OTPs or SMTP credentials; management side-effect outbox rows retry or become permanent failures without rolling back committed primary state.
 - Runtime telemetry loss: accepted runtime activity intents should drain to the telemetry outbox unless terminal validation or forced shutdown prevents completion. Treat lost accepted telemetry as a durability incident.
 - Runtime feedback loss: feedback is best effort and may drop on queue full, invalid event, closed pipeline, or store failure. Drops should be accounted for, but they must not delay or fail proxy responses.
-- Audit or stat lag: raw audit reads remain bounded by time window and keyset cursor, dashboard stats come from materialized rollups, and broad deletes run as durable management jobs. Freshness lag is visible; Prism does not hide it with unbounded live aggregation.
+- Audit or stat lag: raw audit reads remain bounded by time window and keyset cursor. Dashboard overview reads come from the canonical `/api/stats/dashboard` aggregate snapshot, including backend-computed Routing Health Map data, and broad deletes run as durable management jobs.
 - Cache generation lag: management mutations advance durable runtime-cache generations before commit. Cache warming may lag, but runtime reads compare generation vectors and refresh or fail closed for stale, missing, or unverifiable auth-sensitive snapshots.
 
 ## Cross-References

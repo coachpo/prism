@@ -9,41 +9,52 @@ import (
 
 const DashboardStatsStaleAfter = 2 * time.Minute
 
-type DashboardStatsFreshness struct {
+type DashboardSnapshotHealth struct {
 	LagSeconds        int64 `json:"lag_seconds"`
 	Stale             bool  `json:"stale"`
 	StaleAfterSeconds int64 `json:"stale_after_seconds"`
 }
 
-type DashboardStatsCovers struct {
+type DashboardSnapshotCoverage struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
 }
 
-type DashboardStatsMetrics struct {
-	RequestCount    int64 `json:"request_count"`
-	ErrorCount      int64 `json:"error_count"`
-	AuditEventCount int64 `json:"audit_event_count"`
-	ActiveProfiles  int64 `json:"active_profiles"`
+func NewDashboardSnapshotHealth(generatedAt time.Time, referenceNow time.Time) DashboardSnapshotHealth {
+	generatedAt = generatedAt.UTC()
+	if generatedAt.IsZero() {
+		generatedAt = referenceNow.UTC()
+	}
+	lag := referenceNow.UTC().Sub(generatedAt)
+	if lag < 0 {
+		lag = 0
+	}
+	return DashboardSnapshotHealth{LagSeconds: int64(lag.Seconds()), Stale: lag > DashboardStatsStaleAfter, StaleAfterSeconds: int64(DashboardStatsStaleAfter.Seconds())}
 }
 
-type DashboardStatsResponse struct {
-	Window      string                  `json:"window"`
-	GeneratedAt time.Time               `json:"generated_at"`
-	Covers      DashboardStatsCovers    `json:"covers"`
-	Freshness   DashboardStatsFreshness `json:"freshness"`
-	Metrics     DashboardStatsMetrics   `json:"metrics"`
+type DashboardStatsRollupMetrics struct {
+	RequestCount    int64
+	ErrorCount      int64
+	AuditEventCount int64
+	ActiveProfiles  int64
 }
 
-func LoadDashboardStats(ctx context.Context, exec queryExecutor, profileID int, window string, now time.Time) (DashboardStatsResponse, error) {
+type DashboardStatsRollup struct {
+	GeneratedAt time.Time
+	Coverage    DashboardSnapshotCoverage
+	Health      DashboardSnapshotHealth
+	Metrics     DashboardStatsRollupMetrics
+}
+
+func LoadDashboardRollupStats(ctx context.Context, exec queryExecutor, profileID int, window string, now time.Time) (DashboardStatsRollup, error) {
 	from, to, err := dashboardWindowBounds(window, now.UTC())
 	if err != nil {
-		return DashboardStatsResponse{}, err
+		return DashboardStatsRollup{}, err
 	}
-	response := DashboardStatsResponse{Window: window, GeneratedAt: now.UTC(), Covers: DashboardStatsCovers{From: from, To: to}}
+	response := DashboardStatsRollup{GeneratedAt: now.UTC(), Coverage: DashboardSnapshotCoverage{From: from, To: to}}
 	rows, err := exec.Query(ctx, `SELECT metric, value::bigint, source_high_water_mark, generated_at FROM management_stat_buckets WHERE dimension_key = 'profile_id' AND dimension_value = $1 AND bucket_size = $2 AND bucket_start = $3`, fmt.Sprintf("%d", profileID), window, from)
 	if err != nil {
-		return DashboardStatsResponse{}, fmt.Errorf("query dashboard stats rollup for profile %d: %w", profileID, err)
+		return DashboardStatsRollup{}, fmt.Errorf("query dashboard stats rollup for profile %d: %w", profileID, err)
 	}
 	defer rows.Close()
 	found := false
@@ -56,7 +67,7 @@ func LoadDashboardStats(ctx context.Context, exec queryExecutor, profileID int, 
 		var sourceHighWaterMark time.Time
 		var rowGeneratedAt time.Time
 		if err := rows.Scan(&metric, &value, &sourceHighWaterMark, &rowGeneratedAt); err != nil {
-			return DashboardStatsResponse{}, fmt.Errorf("scan dashboard stats rollup: %w", err)
+			return DashboardStatsRollup{}, fmt.Errorf("scan dashboard stats rollup: %w", err)
 		}
 		switch metric {
 		case "request_count":
@@ -76,16 +87,13 @@ func LoadDashboardStats(ctx context.Context, exec queryExecutor, profileID int, 
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return DashboardStatsResponse{}, fmt.Errorf("iterate dashboard stats rollup: %w", err)
+		return DashboardStatsRollup{}, fmt.Errorf("iterate dashboard stats rollup: %w", err)
 	}
 	if found {
 		response.GeneratedAt = generatedAt
 	}
-	lag := now.UTC().Sub(highWaterMark.UTC())
-	if lag < 0 {
-		lag = 0
-	}
-	response.Freshness = DashboardStatsFreshness{LagSeconds: int64(lag.Seconds()), Stale: !found || lag > DashboardStatsStaleAfter, StaleAfterSeconds: int64(DashboardStatsStaleAfter.Seconds())}
+	response.Health = NewDashboardSnapshotHealth(highWaterMark, now)
+	response.Health.Stale = !found || response.Health.Stale
 	return response, nil
 }
 

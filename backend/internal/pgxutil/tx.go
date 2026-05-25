@@ -30,8 +30,16 @@ func InTx(ctx context.Context, beginner Beginner, label string, fn func(pgx.Tx) 
 }
 
 func InTxValue[T any](ctx context.Context, beginner Beginner, label string, fn func(pgx.Tx) (T, error)) (T, error) {
+	return inTxValue(ctx, beginner, label, pgx.TxOptions{}, fn)
+}
+
+func InReadOnlyTxValue[T any](ctx context.Context, beginner Beginner, label string, fn func(pgx.Tx) (T, error)) (T, error) {
+	return inTxValue(ctx, beginner, label, pgx.TxOptions{AccessMode: pgx.ReadOnly}, fn)
+}
+
+func inTxValue[T any](ctx context.Context, beginner Beginner, label string, options pgx.TxOptions, fn func(pgx.Tx) (T, error)) (T, error) {
 	var zero T
-	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := beginner.BeginTx(ctx, options)
 	if err != nil {
 		return zero, fmt.Errorf("begin %s transaction: %w", label, err)
 	}

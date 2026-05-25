@@ -342,6 +342,10 @@ func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {
 		args = append(args, params.FromTime.UTC())
 		clauses = append(clauses, fmt.Sprintf("created_at >= $%d", len(args)))
 	}
+	if params.ToTime != nil {
+		args = append(args, params.ToTime.UTC())
+		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", len(args)))
+	}
 	if params.EndpointID != nil {
 		args = append(args, *params.EndpointID)
 		clauses = append(clauses, fmt.Sprintf("endpoint_id = $%d", len(args)))

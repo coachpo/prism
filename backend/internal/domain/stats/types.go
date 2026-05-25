@@ -11,6 +11,7 @@ type RequestLogListParams struct {
 	ModelID          *string
 	StatusFamily     *string
 	FromTime         *time.Time
+	ToTime           *time.Time
 	EndpointID       *int
 	Limit            int
 	Offset           int

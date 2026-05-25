@@ -88,10 +88,19 @@ func (s *Service) resolveEffectiveProfile(ctx context.Context, request *http.Req
 }
 
 func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
-	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok {
+	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok && dashboardAggregateSnapshotFresh(snapshot, referenceNow) {
 		return snapshot, nil
 	}
-	snapshot, err := statsdomain.BuildDashboardAggregateSnapshot(ctx, s.pool, profileID, referenceNow)
+	return pgxutil.InReadOnlyTxValue(ctx, s.pool, "stats dashboard snapshot", func(tx pgx.Tx) (statsdomain.DashboardAggregateSnapshot, error) {
+		return s.loadOrBuildDashboardAggregateSnapshotInTx(ctx, tx, profileID, referenceNow)
+	})
+}
+
+func (s *Service) loadOrBuildDashboardAggregateSnapshotInTx(ctx context.Context, tx pgx.Tx, profileID int, referenceNow time.Time) (statsdomain.DashboardAggregateSnapshot, error) {
+	if snapshot, ok := s.dashboardSnapshots.LoadProfile(profileID); ok && dashboardAggregateSnapshotFresh(snapshot, referenceNow) {
+		return snapshot, nil
+	}
+	snapshot, err := statsdomain.BuildDashboardAggregateSnapshot(ctx, tx, profileID, referenceNow)
 	if err != nil {
 		return statsdomain.DashboardAggregateSnapshot{}, err
 	}
@@ -99,7 +108,22 @@ func (s *Service) loadOrBuildDashboardAggregateSnapshot(ctx context.Context, pro
 	return snapshot, nil
 }
 
-func (s *Service) invalidateDashboardAggregateSnapshot(profileID int) {
+func dashboardAggregateSnapshotFresh(snapshot statsdomain.DashboardAggregateSnapshot, referenceNow time.Time) bool {
+	return !statsdomain.NewDashboardSnapshotHealth(snapshot.GeneratedAt, referenceNow).Stale
+}
+
+func (s *Service) InvalidateDashboardSnapshot(profileID int) {
+	s.evictDashboardAggregateSnapshot(profileID)
+}
+
+func (s *Service) InvalidateAllDashboardSnapshots() {
+	if s == nil || s.dashboardSnapshots == nil {
+		return
+	}
+	s.dashboardSnapshots.InvalidateAll()
+}
+
+func (s *Service) evictDashboardAggregateSnapshot(profileID int) {
 	if s == nil || s.dashboardSnapshots == nil {
 		return
 	}
@@ -114,7 +138,7 @@ func (s *Service) handleDashboardSnapshotInvalidation(_ context.Context, event m
 	if payload.ProfileID <= 0 {
 		return managementsideeffects.PermanentError{Err: fmt.Errorf("dashboard snapshot invalidation profile_id required")}
 	}
-	s.invalidateDashboardAggregateSnapshot(payload.ProfileID)
+	s.evictDashboardAggregateSnapshot(payload.ProfileID)
 	return nil
 }
 
@@ -190,22 +214,23 @@ func (s *Service) MountManagementRoutes(api chi.Router) {
 }
 
 func (s *Service) handleDashboardStats(w http.ResponseWriter, r *http.Request) {
-	profile, err := s.resolveEffectiveProfile(r.Context(), r)
+	referenceNow := s.nowUTC()
+	snapshot, err := pgxutil.InReadOnlyTxValue(r.Context(), s.pool, "stats dashboard", func(tx pgx.Tx) (statsdomain.DashboardSnapshot, error) {
+		profile, err := profiledomain.ResolveEffectiveProfile(r.Context(), tx, r.Header.Get(profiledomain.ProfileIDHeader))
+		if err != nil {
+			return statsdomain.DashboardSnapshot{}, err
+		}
+		aggregate, err := s.loadOrBuildDashboardAggregateSnapshotInTx(r.Context(), tx, profile.ID, referenceNow)
+		if err != nil {
+			return statsdomain.DashboardSnapshot{}, err
+		}
+		return statsdomain.NewDashboardSnapshot(aggregate, referenceNow), nil
+	})
 	if err != nil {
 		writeDomainError(w, r, s.corsSnapshot(), err)
 		return
 	}
-	window := strings.TrimSpace(r.URL.Query().Get("window"))
-	if window == "" {
-		writeStructuredError(w, r, s.corsSnapshot(), &statsdomain.HTTPError{StatusCode: http.StatusBadRequest, Code: "stats_window_unsupported", Detail: "Dashboard stats window is required."})
-		return
-	}
-	response, err := statsdomain.LoadDashboardStats(r.Context(), s.pool, profile.ID, window, s.nowUTC())
-	if err != nil {
-		writeDomainError(w, r, s.corsSnapshot(), err)
-		return
-	}
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {

@@ -25,6 +25,7 @@ import (
 	loadbalancedomain "github.com/coachpo/prism/backend/internal/domain/loadbalance"
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	managementauth "github.com/coachpo/prism/backend/internal/httpapi/management/auth"
+	managementmodels "github.com/coachpo/prism/backend/internal/httpapi/management/models"
 	managementprofiles "github.com/coachpo/prism/backend/internal/httpapi/management/profiles"
 	managementstats "github.com/coachpo/prism/backend/internal/httpapi/management/stats"
 	realtimeapi "github.com/coachpo/prism/backend/internal/httpapi/realtime"
@@ -36,9 +37,10 @@ import (
 
 type realtimeHarness struct {
 	*runtimeHarness
-	realtimeService *realtimeapi.Service
-	statsService    *managementstats.Service
-	fixedNow        time.Time
+	realtimeService         *realtimeapi.Service
+	statsService            *managementstats.Service
+	asyncDashboardPublisher *realtimeapi.AsyncDashboardPublisher
+	fixedNow                time.Time
 }
 
 func TestRealtimeProtocolOrder(t *testing.T) {
@@ -202,8 +204,8 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	if message.Type != "dashboard.update" {
 		t.Fatalf("expected dashboard.update message type, got %+v", message)
 	}
-	if message.RequestLog.ID != requestLogID || message.RequestLog.ProfileID != profileID || message.RoutingRoute24H == nil {
-		t.Fatalf("expected built payload to include request log and route snapshot, got %+v", message)
+	if message.RequestLog.ID != requestLogID || message.RequestLog.ProfileID != profileID || len(message.Snapshot.RoutingHealthMap.Links) == 0 {
+		t.Fatalf("expected built payload to include request log and nested routing snapshot, got %+v", message)
 	}
 	if message.RequestLog.ModelLabel != route.PublicModelLabel {
 		t.Fatalf("expected realtime request_log.model_label=%q, got %+v", route.PublicModelLabel, message.RequestLog)
@@ -474,16 +476,18 @@ func TestDashboardUpdateDelivery(t *testing.T) {
 	if requestLog["is_proxy_origin"] != true {
 		t.Fatalf("expected delivered request_log.is_proxy_origin=true, got %+v", requestLog)
 	}
-	statsSummary := message["stats_summary_24h"].(map[string]any)
-	if statsSummary["total_requests"] != float64(1) || statsSummary["success_count"] != float64(1) {
-		t.Fatalf("unexpected delivered stats summary payload: %+v", statsSummary)
+	if _, ok := message["stats_summary_24h"]; ok {
+		t.Fatalf("did not expect legacy stats_summary_24h field in dashboard.update, got %+v", message)
 	}
-	throughput := message["throughput_24h"].(map[string]any)
-	if throughput["total_requests"] != float64(1) {
-		t.Fatalf("unexpected delivered throughput payload: %+v", throughput)
+	snapshot := message["snapshot"].(map[string]any)
+	metricSnapshot := snapshot["metric_snapshot"].(map[string]any)
+	if metricSnapshot["total_requests"] != float64(1) || metricSnapshot["success_rate"] != float64(100) {
+		t.Fatalf("unexpected delivered metric_snapshot payload: %+v", metricSnapshot)
 	}
-	if message["routing_route_24h"] == nil {
-		t.Fatalf("expected delivered routing snapshot, got %+v", message)
+	routingHealthMap := snapshot["routing_health_map"].(map[string]any)
+	links := routingHealthMap["links"].([]any)
+	if len(links) == 0 {
+		t.Fatalf("expected delivered nested routing_health_map links, got %+v", routingHealthMap)
 	}
 	_ = conn.Close()
 }
@@ -551,6 +555,11 @@ func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
 	from24h := url.QueryEscape(harness.fixedNow.Add(-24 * time.Hour).Format(time.RFC3339))
 	to24h := url.QueryEscape(harness.fixedNow.Format(time.RFC3339))
 
+	dashboardResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
+	assertStatus(t, dashboardResponse, http.StatusOK)
+	var dashboardSnapshot statsdomain.DashboardSnapshot
+	decodeJSONResponse(t, dashboardResponse, &dashboardSnapshot)
+
 	summaryResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/summary?from_time="+from24h, nil, runtimeModelHeader(profileID))
 	assertStatus(t, summaryResponse, http.StatusOK)
 	var summary statsdomain.StatsSummaryResponse
@@ -575,17 +584,20 @@ func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build dashboard update after rest snapshot warmup: %v", err)
 	}
-	if !reflect.DeepEqual(summary, message.StatsSummary24H) {
-		t.Fatalf("expected /api/stats/summary to match realtime stats_summary_24h, got rest=%+v realtime=%+v", summary, message.StatsSummary24H)
+	if !reflect.DeepEqual(dashboardSnapshot, message.Snapshot) {
+		t.Fatalf("expected /api/stats/dashboard to match realtime snapshot, got rest=%+v realtime=%+v", dashboardSnapshot, message.Snapshot)
 	}
-	if !reflect.DeepEqual(apiFamily, message.APIFamilySummary24H) {
-		t.Fatalf("expected /api/stats/summary?group_by=api_family to match realtime api_family_summary_24h, got rest=%+v realtime=%+v", apiFamily, message.APIFamilySummary24H)
+	if summary.TotalRequests != message.Snapshot.MetricSnapshot.TotalRequests || summary.SuccessRate != message.Snapshot.MetricSnapshot.SuccessRate {
+		t.Fatalf("expected /api/stats/summary to stay coherent with realtime metric_snapshot, got rest=%+v realtime=%+v", summary, message.Snapshot.MetricSnapshot)
 	}
-	if !reflect.DeepEqual(throughput, message.Throughput24H) {
-		t.Fatalf("expected /api/stats/throughput to match realtime throughput_24h, got rest=%+v realtime=%+v", throughput, message.Throughput24H)
+	if !reflect.DeepEqual(apiFamily.Groups, message.Snapshot.APIFamilyRows) {
+		t.Fatalf("expected /api/stats/summary?group_by=api_family to match realtime api_family_rows, got rest=%+v realtime=%+v", apiFamily.Groups, message.Snapshot.APIFamilyRows)
 	}
-	if usage.Overview.TotalRequests != message.StatsSummary24H.TotalRequests || usage.Overview.TotalTokens != message.StatsSummary24H.TotalTokens {
-		t.Fatalf("expected /api/stats/usage-snapshot?preset=1h to stay coherent with the shared dashboard aggregate totals, got usage=%+v realtime=%+v", usage.Overview, message.StatsSummary24H)
+	if throughput.TotalRequests != message.Snapshot.MetricSnapshot.AverageRPMRequestTotal {
+		t.Fatalf("expected /api/stats/throughput to match realtime metric_snapshot average_rpm_request_total, got rest=%+v realtime=%+v", throughput, message.Snapshot.MetricSnapshot)
+	}
+	if usage.Overview.TotalRequests != message.Snapshot.MetricSnapshot.TotalRequests || usage.Overview.TotalTokens != summary.TotalTokens {
+		t.Fatalf("expected /api/stats/usage-snapshot?preset=1h to stay coherent with the shared dashboard aggregate totals, got usage=%+v snapshot=%+v", usage.Overview, message.Snapshot.MetricSnapshot)
 	}
 
 	conn := harness.dialWebSocket(t, false)
@@ -604,7 +616,76 @@ func TestDashboardSnapshotConsistencyBetweenRESTAndRealtime(t *testing.T) {
 	_ = conn.Close()
 }
 
+func TestDashboardSnapshotInvalidatesAfterModelMutation(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "invalidation")
+	harness.insertDashboardActivity(t, route, profileID, 8351, 9351, harness.fixedNow)
+
+	baselineResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
+	assertStatus(t, baselineResponse, http.StatusOK)
+	var baseline statsdomain.DashboardSnapshot
+	decodeJSONResponse(t, baselineResponse, &baseline)
+	if len(baseline.RoutingHealthMap.Links) == 0 || baseline.RoutingHealthMap.Links[0].ModelLabel != route.TargetModelLabel {
+		t.Fatalf("expected warmed dashboard snapshot to use target model label %q, got %+v", route.TargetModelLabel, baseline.RoutingHealthMap.Links)
+	}
+
+	var targetModelConfigID int
+	if err := harness.conn.QueryRow(context.Background(), `SELECT id FROM model_configs WHERE profile_id = $1 AND model_id = $2`, profileID, route.TargetModelID).Scan(&targetModelConfigID); err != nil {
+		t.Fatalf("load target model config id: %v", err)
+	}
+	updatedLabel := "Updated invalidation route"
+	updateResponse := harness.requestJSON(t, http.MethodPut, fmt.Sprintf("/api/models/%d", targetModelConfigID), map[string]any{"display_name": updatedLabel}, runtimeModelHeader(profileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+
+	freshResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
+	assertStatus(t, freshResponse, http.StatusOK)
+	var fresh statsdomain.DashboardSnapshot
+	decodeJSONResponse(t, freshResponse, &fresh)
+	if len(fresh.RoutingHealthMap.Links) == 0 || fresh.RoutingHealthMap.Links[0].ModelLabel != updatedLabel {
+		t.Fatalf("expected dashboard snapshot cache to invalidate after model mutation, got %+v", fresh.RoutingHealthMap.Links)
+	}
+}
+
+func TestAsyncDashboardPublisherRefreshesWarmedSnapshotWithoutSubscribers(t *testing.T) {
+	harness := newRealtimeHarnessWithConfig(t, realtimeHarnessConfig{UseAsyncDashboardPublisher: true})
+	profileID := harness.activeProfileID(t)
+	route := harness.seedRealtimeDashboardRoute(t, profileID, "async-no-subscriber")
+
+	baseline := harness.loadDashboardSnapshot(t, profileID)
+	if baseline.MetricSnapshot.TotalRequests != 0 {
+		t.Fatalf("expected warmed baseline dashboard snapshot to start empty, got %+v", baseline.MetricSnapshot)
+	}
+
+	response := harness.requestJSON(
+		t,
+		http.MethodPost,
+		"/v1/chat/completions",
+		map[string]any{
+			"model":    route.PublicModelID,
+			"messages": []map[string]any{{"role": "user", "content": "refresh dashboard without subscribers"}},
+		},
+		nil,
+	)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	fresh := harness.waitForDashboardTotalRequests(t, profileID, 1, 5*time.Second)
+	if fresh.MetricSnapshot.TotalRequests != 1 || len(fresh.RecentRequests) != 1 {
+		t.Fatalf("expected async no-subscriber refresh to rebuild dashboard aggregate, got %+v", fresh)
+	}
+}
+
 func newRealtimeHarness(t *testing.T) *realtimeHarness {
+	t.Helper()
+	return newRealtimeHarnessWithConfig(t, realtimeHarnessConfig{})
+}
+
+type realtimeHarnessConfig struct {
+	UseAsyncDashboardPublisher bool
+}
+
+func newRealtimeHarnessWithConfig(t *testing.T, harnessConfig realtimeHarnessConfig) *realtimeHarness {
 	t.Helper()
 	testContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -654,6 +735,11 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("build S16 profiles service: %v", err)
 	}
 	t.Cleanup(profilesService.Close)
+	modelsService, err := managementmodels.NewService(settings, managementmodels.Options{Pool: pool, Now: func() time.Time { return fixedNow }})
+	if err != nil {
+		t.Fatalf("build S16 models service: %v", err)
+	}
+	t.Cleanup(modelsService.Close)
 	statsService, err := managementstats.NewService(settings, managementstats.Options{Pool: pool, Now: func() time.Time { return fixedNow }, DashboardSnapshots: dashboardSnapshots})
 	if err != nil {
 		t.Fatalf("build S16 stats service: %v", err)
@@ -664,12 +750,20 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 		t.Fatalf("build S16 realtime service: %v", err)
 	}
 	t.Cleanup(realtimeService.Close)
-	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, Now: func() time.Time { return fixedNow }, DashboardUpdates: realtimeService, Cache: runtimeCache, RuntimeState: runtimeState})
+	dashboardUpdates := runtimeapi.DashboardUpdatePublisher(realtimeService)
+	var asyncDashboardPublisher *realtimeapi.AsyncDashboardPublisher
+	if harnessConfig.UseAsyncDashboardPublisher {
+		asyncDashboardPublisher = realtimeapi.NewAsyncDashboardPublisher(realtimeService, realtimeapi.AsyncDashboardPublisherOptions{PublishTimeout: 5 * time.Second, ShutdownTimeout: time.Second})
+		realtimeService.SetAsyncDashboardPublisher(asyncDashboardPublisher)
+		t.Cleanup(asyncDashboardPublisher.Close)
+		dashboardUpdates = asyncDashboardPublisher
+	}
+	runtimeService, err := runtimeapi.NewService(settings, runtimeapi.Options{ExecutionPool: pool, TelemetryPool: telemetryPool, FeedbackPool: feedbackPool, Now: func() time.Time { return fixedNow }, DashboardUpdates: dashboardUpdates, Cache: runtimeCache, RuntimeState: runtimeState})
 	if err != nil {
 		t.Fatalf("build S16 runtime service: %v", err)
 	}
 	t.Cleanup(runtimeService.Close)
-	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s16-runtime-test", AuthService: authService, ProfilesService: profilesService, RealtimeService: realtimeService, RuntimeService: runtimeService, StatsService: statsService})
+	handler, err := platformhttp.NewHandlerWithDependencies(settings, platformhttp.Dependencies{Version: "s16-runtime-test", AuthService: authService, ModelsService: modelsService, ProfilesService: profilesService, RealtimeService: realtimeService, RuntimeService: runtimeService, StatsService: statsService})
 	if err != nil {
 		t.Fatalf("build S16 handler: %v", err)
 	}
@@ -682,7 +776,31 @@ func newRealtimeHarness(t *testing.T) *realtimeHarness {
 	client := server.Client()
 	client.Jar = jar
 	baseHarness := &runtimeHarness{databaseName: databaseName, client: client, conn: conn, authService: authService, profilesService: profilesService, runtimeService: runtimeService, runtimeCache: runtimeCache, server: server, url: server.URL, upstream: upstream}
-	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, fixedNow: fixedNow}
+	return &realtimeHarness{runtimeHarness: baseHarness, realtimeService: realtimeService, statsService: statsService, asyncDashboardPublisher: asyncDashboardPublisher, fixedNow: fixedNow}
+}
+
+func (h *realtimeHarness) loadDashboardSnapshot(t *testing.T, profileID int) statsdomain.DashboardSnapshot {
+	t.Helper()
+	response := h.requestJSON(t, http.MethodGet, "/api/stats/dashboard", nil, runtimeModelHeader(profileID))
+	assertStatus(t, response, http.StatusOK)
+	var snapshot statsdomain.DashboardSnapshot
+	decodeJSONResponse(t, response, &snapshot)
+	return snapshot
+}
+
+func (h *realtimeHarness) waitForDashboardTotalRequests(t *testing.T, profileID int, want int, timeout time.Duration) statsdomain.DashboardSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	last := h.loadDashboardSnapshot(t, profileID)
+	for time.Now().Before(deadline) {
+		last = h.loadDashboardSnapshot(t, profileID)
+		if last.MetricSnapshot.TotalRequests == want {
+			return last
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for dashboard total_requests=%d, last snapshot %+v", want, last)
+	return statsdomain.DashboardSnapshot{}
 }
 
 func (h *realtimeHarness) dialWebSocket(t *testing.T, includeCookies bool) *websocket.Conn {

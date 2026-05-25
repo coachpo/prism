@@ -47,6 +47,20 @@ func assertErrorCode(t *testing.T, payload map[string]any, want string) {
 	}
 }
 
+func assertDashboardSnapshotTopLevelShape(t *testing.T, payload map[string]any) {
+	t.Helper()
+	for _, key := range []string{"generated_at", "coverage_24h", "coverage_30d", "health", "metric_snapshot", "api_family_rows", "strategy_family_summary", "recent_requests", "top_spending_models", "routing_health_map"} {
+		if _, ok := payload[key]; !ok {
+			t.Fatalf("expected dashboard snapshot field %q, got %+v", key, payload)
+		}
+	}
+	for _, legacyKey := range []string{"window", "covers", "freshness", "metrics"} {
+		if _, ok := payload[legacyKey]; ok {
+			t.Fatalf("dashboard snapshot must not expose legacy top-level %q, got %+v", legacyKey, payload)
+		}
+	}
+}
+
 func TestUsageSnapshot(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -151,38 +165,58 @@ func TestStatsSummary(t *testing.T) {
 	}
 }
 
-func TestManagementDashboardStatsRequiresSupportedWindow(t *testing.T) {
+func TestManagementDashboardStatsReturnsCanonicalSnapshotWithoutWindow(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
 
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID))
-	assertStatus(t, response, http.StatusBadRequest)
-	var payload map[string]any
-	decodeJSONResponse(t, response, &payload)
-	assertErrorCode(t, payload, "stats_window_unsupported")
-
-	unsupported := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=all", nil, modelHeader(profileID))
-	assertStatus(t, unsupported, http.StatusBadRequest)
+	for _, path := range []string{"/api/stats/dashboard", "/api/stats/dashboard?window=24h", "/api/stats/dashboard?window=all"} {
+		response := harness.requestJSON(t, harness.client, http.MethodGet, path, nil, modelHeader(profileID))
+		assertStatus(t, response, http.StatusOK)
+		var payload map[string]any
+		decodeJSONResponse(t, response, &payload)
+		assertDashboardSnapshotTopLevelShape(t, payload)
+	}
 }
 
-func TestManagementDashboardStatsFreshnessShape(t *testing.T) {
+func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertDashboardStatRollup(t, harness, profileID, "24h", "request_count", 3, fixedS15Now)
-	insertDashboardStatRollup(t, harness, profileID, "24h", "error_count", 1, fixedS15Now)
-	insertDashboardStatRollup(t, harness, profileID, "24h", "audit_event_count", 2, fixedS15Now)
-	insertDashboardStatRollup(t, harness, profileID, "24h", "active_profiles", 1, fixedS15Now)
+	insertRequestLogSummaryRow(t, harness, 100, profileID, "dashboard-model", "openai", 12, 41, 200, 100, 10, 20, 30, fixedS15Now.Add(-55*time.Minute))
+	insertRequestLogSummaryRow(t, harness, 101, profileID, "dashboard-model", "openai", 12, 41, 500, 300, 5, 10, 15, fixedS15Now.Add(-50*time.Minute))
+	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "dashboard-spend-1", ModelID: "dashboard-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalCostUserCurrencyMicros: int64Ptr(2500), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	if payload["window"] != "24h" || payload["generated_at"] == nil || payload["covers"] == nil || payload["freshness"] == nil {
-		t.Fatalf("expected freshness dashboard stats shape, got %+v", payload)
+	assertDashboardSnapshotTopLevelShape(t, payload)
+	coverage24H := asMap(t, payload["coverage_24h"])
+	coverage30D := asMap(t, payload["coverage_30d"])
+	if coverage24H["from"] == nil || coverage24H["to"] == nil || coverage30D["from"] == nil || coverage30D["to"] == nil {
+		t.Fatalf("expected dashboard coverage sections, got %+v", payload)
 	}
-	metrics := asMap(t, payload["metrics"])
-	if jsonInt(t, metrics["request_count"]) != 3 || jsonInt(t, metrics["error_count"]) != 1 || jsonInt(t, metrics["audit_event_count"]) != 2 {
-		t.Fatalf("expected rollup metrics only, got %+v", metrics)
+	health := asMap(t, payload["health"])
+	if jsonInt(t, health["lag_seconds"]) != 0 || health["stale"] != false || jsonInt(t, health["stale_after_seconds"]) != 120 {
+		t.Fatalf("expected fresh dashboard health section, got %+v", health)
+	}
+	metricSnapshot := asMap(t, payload["metric_snapshot"])
+	if jsonInt(t, metricSnapshot["total_requests"]) != 2 || jsonInt(t, metricSnapshot["total_cost"]) != 2500 || jsonInt(t, metricSnapshot["priced_request_count"]) != 1 {
+		t.Fatalf("expected aggregate metric snapshot, got %+v", metricSnapshot)
+	}
+	if math.Abs(metricSnapshot["success_rate"].(float64)-50) > 0.001 || math.Abs(metricSnapshot["error_rate"].(float64)-50) > 0.001 {
+		t.Fatalf("expected success/error rates from 24h summary, got %+v", metricSnapshot)
+	}
+	apiFamilyRows := payload["api_family_rows"].([]any)
+	if len(apiFamilyRows) != 1 || asMap(t, apiFamilyRows[0])["key"] != "openai" || jsonInt(t, asMap(t, apiFamilyRows[0])["total_requests"]) != 2 {
+		t.Fatalf("expected API-family rows from 24h summary, got %+v", payload["api_family_rows"])
+	}
+	topSpendingModels := payload["top_spending_models"].([]any)
+	if len(topSpendingModels) != 1 || asMap(t, topSpendingModels[0])["model_id"] != "dashboard-model" || jsonInt(t, asMap(t, topSpendingModels[0])["total_cost_micros"]) != 2500 {
+		t.Fatalf("expected top spending models from 30d spending, got %+v", payload["top_spending_models"])
+	}
+	routingHealthMap := asMap(t, payload["routing_health_map"])
+	if len(routingHealthMap["nodes"].([]any)) != 0 || len(routingHealthMap["links"].([]any)) != 0 || jsonInt(t, routingHealthMap["endpointCount"]) != 0 || jsonInt(t, routingHealthMap["modelCount"]) != 0 {
+		t.Fatalf("expected task-1 empty routing health map shell, got %+v", routingHealthMap)
 	}
 }
 
@@ -214,19 +248,18 @@ func TestManagementGlobalLogRetentionJobStatusContract(t *testing.T) {
 	}
 }
 
-func TestManagementHealthReportsStatsLag(t *testing.T) {
+func TestManagementDashboardHealthReportsSnapshotFreshness(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	staleHighWaterMark := fixedS15Now.Add(-10 * time.Minute)
-	insertDashboardStatRollup(t, harness, profileID, "24h", "request_count", 5, staleHighWaterMark)
 
-	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard?window=24h", nil, modelHeader(profileID))
+	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/dashboard", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	freshness := asMap(t, payload["freshness"])
-	if jsonInt(t, freshness["lag_seconds"]) < 600 || freshness["stale"] != true || jsonInt(t, freshness["stale_after_seconds"]) != 120 {
-		t.Fatalf("expected dashboard health freshness to report stale stats lag, got %+v", payload)
+	assertDashboardSnapshotTopLevelShape(t, payload)
+	health := asMap(t, payload["health"])
+	if jsonInt(t, health["lag_seconds"]) != 0 || health["stale"] != false || jsonInt(t, health["stale_after_seconds"]) != 120 {
+		t.Fatalf("expected dashboard health to describe the aggregate snapshot freshness, got %+v", payload)
 	}
 }
 
@@ -1475,13 +1508,6 @@ func withHeader(headers map[string]string, key string, value string) map[string]
 	maps.Copy(merged, headers)
 	merged[key] = value
 	return merged
-}
-
-func insertDashboardStatRollup(t *testing.T, harness *contractHarness, profileID int, window string, metric string, value int, highWaterMark time.Time) {
-	t.Helper()
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO management_stat_buckets (bucket_start, bucket_size, metric, dimension_key, dimension_value, value, source_high_water_mark, generated_at) VALUES ($1, $2, $3, 'profile_id', $4, $5, $6, $7)`, fixedS15Now.Add(-24*time.Hour).Truncate(time.Hour), window, metric, fmt.Sprintf("%d", profileID), value, highWaterMark.UTC(), fixedS15Now.UTC()); err != nil {
-		t.Fatalf("insert dashboard stat rollup %s: %v", metric, err)
-	}
 }
 
 func createS15LogRetentionJob(t *testing.T, harness *contractHarness, tableName string, scope map[string]any, suffix string) string {

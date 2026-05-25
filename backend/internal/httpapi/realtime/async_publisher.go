@@ -12,6 +12,7 @@ import (
 type DashboardPublishTarget interface {
 	PublishLatestDashboardUpdate(context.Context, int) (int, bool, error)
 	RecordLatestDashboardRequestLog(int, int)
+	InvalidateDashboardSnapshot(int)
 	HasDashboardSubscribers(int) bool
 }
 
@@ -105,9 +106,7 @@ func (p *AsyncDashboardPublisher) PublishDashboardUpdate(_ context.Context, requ
 		return false, nil
 	}
 	p.target.RecordLatestDashboardRequestLog(profileID, requestLogID)
-	if !p.target.HasDashboardSubscribers(profileID) {
-		return false, nil
-	}
+	p.target.InvalidateDashboardSnapshot(profileID)
 	return p.enqueue(profileID, requestLogID), nil
 }
 
