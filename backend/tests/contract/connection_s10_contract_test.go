@@ -184,7 +184,7 @@ func TestConnectionPricingTemplates(t *testing.T) {
 	assertErrorResponse(t, wrongProfileResponse, http.StatusNotFound, "Pricing template not found")
 }
 
-func TestPricingTemplateManagementCRUD(t *testing.T) {
+func TestConnectionS10PricingTemplateCRUD(t *testing.T) {
 	harness := newEndpointConnectionContractHarness(t)
 	defaultProfileID := modelLoadDefaultProfileID(t, harness)
 	otherProfileID := insertContractProfile(t, harness, "S10 Other CRUD Profile")
@@ -198,6 +198,7 @@ func TestPricingTemplateManagementCRUD(t *testing.T) {
 	if len(listed) != 1 || jsonInt(t, listed[0]["id"]) != existingTemplateID || listed[0]["name"] != "S10 Existing Template" {
 		t.Fatalf("expected pricing template list for effective profile only, got %+v", listed)
 	}
+	assertPricingTemplatePayloadPrices(t, listed[0], "1", "2", "0", "0", "0")
 
 	getResponse := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d", existingTemplateID), nil, modelHeader(defaultProfileID))
 	assertStatus(t, getResponse, http.StatusOK)
@@ -206,32 +207,36 @@ func TestPricingTemplateManagementCRUD(t *testing.T) {
 	if jsonInt(t, existing["profile_id"]) != defaultProfileID || existing["pricing_unit"] != "PER_1M" {
 		t.Fatalf("expected pricing template payload for profile %d, got %+v", defaultProfileID, existing)
 	}
+	assertPricingTemplatePayloadPrices(t, existing, "1", "2", "0", "0", "0")
 
 	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Created Template", "description": "created via contract", "pricing_currency_code": "usd", "input_price": "1.25", "output_price": "2.50", "cached_input_price": "0.10", "cache_creation_price": "   ", "reasoning_price": nil}, modelHeader(defaultProfileID))
 	assertStatus(t, createResponse, http.StatusCreated)
 	var created map[string]any
 	decodeJSONResponse(t, createResponse, &created)
 	createdID := jsonInt(t, created["id"])
-	if created["name"] != "S10 Created Template" || created["pricing_currency_code"] != "USD" || created["cache_creation_price"] != nil || created["reasoning_price"] != nil || created["version"] != float64(1) {
+	if created["name"] != "S10 Created Template" || created["pricing_currency_code"] != "USD" || created["version"] != float64(1) {
 		t.Fatalf("expected created pricing template payload, got %+v", created)
 	}
+	assertPricingTemplatePayloadPrices(t, created, "1.25", "2.50", "0.10", "0", "0")
 
 	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "description": "updated via contract", "input_price": "3.75", "reasoning_price": "0.50"}, modelHeader(defaultProfileID))
 	assertStatus(t, updateResponse, http.StatusOK)
 	var updated map[string]any
 	decodeJSONResponse(t, updateResponse, &updated)
-	if updated["description"] != "updated via contract" || updated["input_price"] != "3.75" || updated["reasoning_price"] != "0.50" || updated["version"] != float64(2) {
+	if updated["description"] != "updated via contract" || updated["version"] != float64(2) {
 		t.Fatalf("expected updated pricing template payload, got %+v", updated)
 	}
+	assertPricingTemplatePayloadPrices(t, updated, "3.75", "0", "0", "0", "0.50")
 
-	clearOptionalsResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": updated["updated_at"], "cached_input_price": nil, "cache_creation_price": "   ", "reasoning_price": "   "}, modelHeader(defaultProfileID))
-	assertStatus(t, clearOptionalsResponse, http.StatusOK)
-	var clearedOptionals map[string]any
-	decodeJSONResponse(t, clearOptionalsResponse, &clearedOptionals)
-	if clearedOptionals["cached_input_price"] != nil || clearedOptionals["cache_creation_price"] != nil || clearedOptionals["reasoning_price"] != nil || clearedOptionals["version"] != float64(3) {
-		t.Fatalf("expected blank/null optional prices to store as nulls, got %+v", clearedOptionals)
+	zeroPricesResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": updated["updated_at"], "cached_input_price": nil, "cache_creation_price": "   ", "reasoning_price": "   "}, modelHeader(defaultProfileID))
+	assertStatus(t, zeroPricesResponse, http.StatusOK)
+	var zeroed map[string]any
+	decodeJSONResponse(t, zeroPricesResponse, &zeroed)
+	if zeroed["version"] != float64(3) {
+		t.Fatalf("expected blank/null pricing fields to bump version, got %+v", zeroed)
 	}
-	assertPricingTemplateOptionalPrices(t, harness, defaultProfileID, "S10 Created Template", nil, nil, nil)
+	assertPricingTemplatePayloadPrices(t, zeroed, "0", "0", "0", "0", "0")
+	assertPricingTemplateStoredPrices(t, harness, defaultProfileID, "S10 Created Template", "0", "0", "0", "0", "0")
 
 	staleUpdate := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"], "name": "Stale Update"}, modelHeader(defaultProfileID))
 	assertErrorResponse(t, staleUpdate, http.StatusConflict, "Pricing template has changed. Please refresh and retry.")
@@ -246,6 +251,28 @@ func TestPricingTemplateManagementCRUD(t *testing.T) {
 
 	missingAfterDelete := harness.requestJSON(t, harness.client, http.MethodGet, fmt.Sprintf("/api/pricing-templates/%d", createdID), nil, modelHeader(defaultProfileID))
 	assertErrorResponse(t, missingAfterDelete, http.StatusNotFound, "Pricing template not found")
+}
+
+func TestConnectionS10PricingTemplateUpdateMissingPricesBecomeZero(t *testing.T) {
+	harness := newEndpointConnectionContractHarness(t)
+	defaultProfileID := modelLoadDefaultProfileID(t, harness)
+
+	createResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/pricing-templates", map[string]any{"name": "S10 Missing Prices Become Zero", "pricing_currency_code": "usd", "input_price": "1.10", "output_price": "2.20", "cached_input_price": "3.30", "cache_creation_price": "4.40", "reasoning_price": "5.50"}, modelHeader(defaultProfileID))
+	assertStatus(t, createResponse, http.StatusCreated)
+	var created map[string]any
+	decodeJSONResponse(t, createResponse, &created)
+	createdID := jsonInt(t, created["id"])
+	assertPricingTemplatePayloadPrices(t, created, "1.10", "2.20", "3.30", "4.40", "5.50")
+
+	updateResponse := harness.requestJSON(t, harness.client, http.MethodPut, fmt.Sprintf("/api/pricing-templates/%d", createdID), map[string]any{"expected_updated_at": created["updated_at"]}, modelHeader(defaultProfileID))
+	assertStatus(t, updateResponse, http.StatusOK)
+	var updated map[string]any
+	decodeJSONResponse(t, updateResponse, &updated)
+	if updated["version"] != float64(2) {
+		t.Fatalf("expected omitted prices to bump template version, got %+v", updated)
+	}
+	assertPricingTemplatePayloadPrices(t, updated, "0", "0", "0", "0", "0")
+	assertPricingTemplateStoredPrices(t, harness, defaultProfileID, "S10 Missing Prices Become Zero", "0", "0", "0", "0", "0")
 }
 
 func TestPricingTemplateDeleteConflict(t *testing.T) {

@@ -36,9 +36,9 @@ type pricingTemplateRow struct {
 	PricingCurrencyCode string
 	InputPrice          string
 	OutputPrice         string
-	CachedInputPrice    *string
-	CacheCreationPrice  *string
-	ReasoningPrice      *string
+	CachedInputPrice    string
+	CacheCreationPrice  string
+	ReasoningPrice      string
 	Version             int
 }
 
@@ -414,7 +414,7 @@ func listOrderedEndpoints(ctx context.Context, exec queryExecutor, profileID int
 }
 
 func listPricingTemplates(ctx context.Context, exec queryExecutor, profileID int) ([]pricingTemplateRow, error) {
-	rows, err := exec.Query(ctx, `SELECT id, name, description, pricing_unit, pricing_currency_code, input_price::text, output_price::text, cached_input_price::text, cache_creation_price::text, reasoning_price::text, version FROM pricing_templates WHERE profile_id = $1 ORDER BY id ASC`, profileID)
+	rows, err := exec.Query(ctx, `SELECT id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price::text, '0'), COALESCE(output_price::text, '0'), COALESCE(cached_input_price::text, '0'), COALESCE(cache_creation_price::text, '0'), COALESCE(reasoning_price::text, '0'), version FROM pricing_templates WHERE profile_id = $1 ORDER BY id ASC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("query pricing templates for profile %d: %w", profileID, err)
 	}
@@ -423,17 +423,11 @@ func listPricingTemplates(ctx context.Context, exec queryExecutor, profileID int
 	items := make([]pricingTemplateRow, 0)
 	for rows.Next() {
 		var description sql.NullString
-		var cachedInputPrice sql.NullString
-		var cacheCreationPrice sql.NullString
-		var reasoningPrice sql.NullString
 		item := pricingTemplateRow{}
-		if err := rows.Scan(&item.ID, &item.Name, &description, &item.PricingUnit, &item.PricingCurrencyCode, &item.InputPrice, &item.OutputPrice, &cachedInputPrice, &cacheCreationPrice, &reasoningPrice, &item.Version); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &description, &item.PricingUnit, &item.PricingCurrencyCode, &item.InputPrice, &item.OutputPrice, &item.CachedInputPrice, &item.CacheCreationPrice, &item.ReasoningPrice, &item.Version); err != nil {
 			return nil, fmt.Errorf("scan pricing template row: %w", err)
 		}
 		item.Description = nullableStringValue(description)
-		item.CachedInputPrice = nullableStringValue(cachedInputPrice)
-		item.CacheCreationPrice = nullableStringValue(cacheCreationPrice)
-		item.ReasoningPrice = nullableStringValue(reasoningPrice)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

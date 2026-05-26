@@ -146,10 +146,32 @@ func insertContractPricingTemplate(t *testing.T, harness *contractHarness, profi
 	t.Helper()
 	now := time.Now().UTC()
 	var templateID int
-	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, NULL, 'PER_1M', 'USD', '1', '2', NULL, NULL, NULL, 1, $3, $3) RETURNING id`, profileID, name, now).Scan(&templateID); err != nil {
+	if err := harness.conn.QueryRow(context.Background(), `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, NULL, 'PER_1M', 'USD', '1', '2', '0', '0', '0', 1, $3, $3) RETURNING id`, profileID, name, now).Scan(&templateID); err != nil {
 		t.Fatalf("insert pricing template %q: %v", name, err)
 	}
 	return templateID
+}
+
+func assertPricingTemplatePayloadPrices(t *testing.T, payload map[string]any, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) {
+	t.Helper()
+	if payload["input_price"] != inputPrice || payload["output_price"] != outputPrice || payload["cached_input_price"] != cachedInputPrice || payload["cache_creation_price"] != cacheCreationPrice || payload["reasoning_price"] != reasoningPrice {
+		t.Fatalf("expected pricing fields input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q, got %+v", inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, payload)
+	}
+}
+
+func assertPricingTemplateStoredPrices(t *testing.T, harness *contractHarness, profileID int, name string, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) {
+	t.Helper()
+	var gotInputPrice string
+	var gotOutputPrice string
+	var gotCachedInputPrice string
+	var gotCacheCreationPrice string
+	var gotReasoningPrice string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_templates WHERE profile_id = $1 AND name = $2`, profileID, name).Scan(&gotInputPrice, &gotOutputPrice, &gotCachedInputPrice, &gotCacheCreationPrice, &gotReasoningPrice); err != nil {
+		t.Fatalf("load pricing template %q prices: %v", name, err)
+	}
+	if gotInputPrice != inputPrice || gotOutputPrice != outputPrice || gotCachedInputPrice != cachedInputPrice || gotCacheCreationPrice != cacheCreationPrice || gotReasoningPrice != reasoningPrice {
+		t.Fatalf("expected stored pricing fields input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q, got input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q", inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, gotInputPrice, gotOutputPrice, gotCachedInputPrice, gotCacheCreationPrice, gotReasoningPrice)
+	}
 }
 
 func dropConnectionEndpointConstraint(t *testing.T, harness *contractHarness) {

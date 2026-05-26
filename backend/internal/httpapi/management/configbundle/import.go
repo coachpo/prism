@@ -386,7 +386,7 @@ func validateProfileImportRequest(data profileImportRequest) error {
 		if _, ok := pricingTemplateNames[name]; ok {
 			return &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Duplicate pricing template name: '%s'", name)}
 		}
-		if _, err := normalizeImportedPricingTemplateOptionalPrices(template); err != nil {
+		if _, err := normalizeImportedPricingTemplatePrices(template); err != nil {
 			return err
 		}
 		pricingTemplateNames[name] = struct{}{}
@@ -598,36 +598,39 @@ func normalizeVendorCatalogImportRequest(data vendorCatalogImportRequest) vendor
 	return normalized
 }
 
-// normalizeImportedPricingTemplateOptionalPrices preserves bundle v1 nullable optional-price
-// compatibility while preventing blank strings from becoming stored decimal values.
-func normalizeImportedPricingTemplateOptionalPrices(template pricingTemplateExport) (pricingTemplateExport, error) {
+// normalizeImportedPricingTemplatePrices accepts legacy bundle v1 gaps at ingress:
+// missing, null, empty, and whitespace-only price values all become concrete "0" strings.
+func normalizeImportedPricingTemplatePrices(template pricingTemplateExport) (pricingTemplateExport, error) {
 	normalized := template
 	var err error
-	if normalized.CachedInputPrice, err = normalizeImportedOptionalPricingTemplatePrice(template, "cached_input_price", template.CachedInputPrice); err != nil {
+	if normalized.InputPrice, err = normalizeImportedPricingTemplatePrice(template, "input_price", template.InputPrice); err != nil {
 		return pricingTemplateExport{}, err
 	}
-	if normalized.CacheCreationPrice, err = normalizeImportedOptionalPricingTemplatePrice(template, "cache_creation_price", template.CacheCreationPrice); err != nil {
+	if normalized.OutputPrice, err = normalizeImportedPricingTemplatePrice(template, "output_price", template.OutputPrice); err != nil {
 		return pricingTemplateExport{}, err
 	}
-	if normalized.ReasoningPrice, err = normalizeImportedOptionalPricingTemplatePrice(template, "reasoning_price", template.ReasoningPrice); err != nil {
+	if normalized.CachedInputPrice, err = normalizeImportedPricingTemplatePrice(template, "cached_input_price", template.CachedInputPrice); err != nil {
+		return pricingTemplateExport{}, err
+	}
+	if normalized.CacheCreationPrice, err = normalizeImportedPricingTemplatePrice(template, "cache_creation_price", template.CacheCreationPrice); err != nil {
+		return pricingTemplateExport{}, err
+	}
+	if normalized.ReasoningPrice, err = normalizeImportedPricingTemplatePrice(template, "reasoning_price", template.ReasoningPrice); err != nil {
 		return pricingTemplateExport{}, err
 	}
 	return normalized, nil
 }
 
-func normalizeImportedOptionalPricingTemplatePrice(template pricingTemplateExport, fieldName string, raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*raw)
+func normalizeImportedPricingTemplatePrice(template pricingTemplateExport, fieldName string, raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return nil, nil
+		return "0", nil
 	}
 	if !importedPricingTemplateDecimalPattern.MatchString(trimmed) {
 		name := strings.TrimSpace(template.Name)
-		return nil, &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Pricing template '%s' %s must be a non-negative decimal string", name, fieldName)}
+		return "", &domainError{StatusCode: http.StatusBadRequest, Detail: fmt.Sprintf("Pricing template '%s' %s must be a non-negative decimal string", name, fieldName)}
 	}
-	return stringPtr(trimmed), nil
+	return trimmed, nil
 }
 
 func countVendorCatalogChanges(ctx context.Context, exec queryExecutor, data vendorCatalogImportRequest) (int, int, int, []string, map[string]*vendorRow, error) {
@@ -891,12 +894,12 @@ func insertImportedEndpoints(ctx context.Context, exec queryExecutor, profileID 
 func insertImportedPricingTemplates(ctx context.Context, exec queryExecutor, profileID int, templates []pricingTemplateExport, currentTime time.Time) (map[string]int, int, error) {
 	pricingIDsByName := map[string]int{}
 	for _, template := range templates {
-		normalized, err := normalizeImportedPricingTemplateOptionalPrices(template)
+		normalized, err := normalizeImportedPricingTemplatePrices(template)
 		if err != nil {
 			return nil, 0, err
 		}
 		var pricingTemplateID int
-		if err := exec.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, strings.TrimSpace(normalized.Name), nullableString(normalized.Description), normalized.PricingUnit, normalized.PricingCurrencyCode, normalized.InputPrice, normalized.OutputPrice, nullableString(normalized.CachedInputPrice), nullableString(normalized.CacheCreationPrice), nullableString(normalized.ReasoningPrice), normalized.Version, currentTime).Scan(&pricingTemplateID); err != nil {
+		if err := exec.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12) RETURNING id`, profileID, strings.TrimSpace(normalized.Name), nullableString(normalized.Description), normalized.PricingUnit, normalized.PricingCurrencyCode, normalized.InputPrice, normalized.OutputPrice, normalized.CachedInputPrice, normalized.CacheCreationPrice, normalized.ReasoningPrice, normalized.Version, currentTime).Scan(&pricingTemplateID); err != nil {
 			return nil, 0, fmt.Errorf("insert imported pricing template %q: %w", normalized.Name, err)
 		}
 		pricingIDsByName[strings.TrimSpace(normalized.Name)] = pricingTemplateID

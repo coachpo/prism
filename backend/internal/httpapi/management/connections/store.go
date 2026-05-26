@@ -72,15 +72,15 @@ type pricingTemplateResponse struct {
 	PricingCurrencyCode string    `json:"pricing_currency_code"`
 	InputPrice          string    `json:"input_price"`
 	OutputPrice         string    `json:"output_price"`
-	CachedInputPrice    *string   `json:"cached_input_price"`
-	CacheCreationPrice  *string   `json:"cache_creation_price"`
-	ReasoningPrice      *string   `json:"reasoning_price"`
+	CachedInputPrice    string    `json:"cached_input_price"`
+	CacheCreationPrice  string    `json:"cache_creation_price"`
+	ReasoningPrice      string    `json:"reasoning_price"`
 	Version             int       `json:"version"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at FROM pricing_templates`
+const pricingTemplateSelectQuery = `SELECT id, profile_id, name, description, pricing_unit, pricing_currency_code, COALESCE(input_price, '0'), COALESCE(output_price, '0'), COALESCE(cached_input_price, '0'), COALESCE(cache_creation_price, '0'), COALESCE(reasoning_price, '0'), version, created_at, updated_at FROM pricing_templates`
 
 func loadModelRecord(ctx context.Context, exec queryExecutor, profileID int, modelConfigID int) (modelRecord, bool, error) {
 	record, err := scanModelRecord(exec.QueryRow(ctx, `SELECT id, profile_id, model_id, model_type, api_family FROM model_configs WHERE profile_id = $1 AND id = $2 LIMIT 1`, profileID, modelConfigID))
@@ -259,7 +259,7 @@ func listPricingTemplates(ctx context.Context, exec queryExecutor, profileID int
 }
 
 func insertPricingTemplate(ctx context.Context, exec queryExecutor, item pricingTemplateResponse) (pricingTemplateResponse, error) {
-	created, err := scanPricingTemplateResponse(exec.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id, profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at`, item.ProfileID, item.Name, nullableString(item.Description), item.PricingUnit, item.PricingCurrencyCode, item.InputPrice, item.OutputPrice, nullableString(item.CachedInputPrice), nullableString(item.CacheCreationPrice), nullableString(item.ReasoningPrice), item.Version, item.CreatedAt, item.UpdatedAt))
+	created, err := scanPricingTemplateResponse(exec.QueryRow(ctx, `INSERT INTO pricing_templates (profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id, profile_id, name, description, pricing_unit, pricing_currency_code, input_price, output_price, cached_input_price, cache_creation_price, reasoning_price, version, created_at, updated_at`, item.ProfileID, item.Name, nullableString(item.Description), item.PricingUnit, item.PricingCurrencyCode, item.InputPrice, item.OutputPrice, item.CachedInputPrice, item.CacheCreationPrice, item.ReasoningPrice, item.Version, item.CreatedAt, item.UpdatedAt))
 	if err != nil {
 		return pricingTemplateResponse{}, fmt.Errorf("insert pricing template %q: %w", item.Name, err)
 	}
@@ -267,7 +267,7 @@ func insertPricingTemplate(ctx context.Context, exec queryExecutor, item pricing
 }
 
 func updatePricingTemplate(ctx context.Context, exec queryExecutor, item pricingTemplateResponse) error {
-	if _, err := exec.Exec(ctx, `UPDATE pricing_templates SET name = $2, description = $3, pricing_unit = $4, pricing_currency_code = $5, input_price = $6, output_price = $7, cached_input_price = $8, cache_creation_price = $9, reasoning_price = $10, version = $11, updated_at = $12 WHERE id = $1`, item.ID, item.Name, nullableString(item.Description), item.PricingUnit, item.PricingCurrencyCode, item.InputPrice, item.OutputPrice, nullableString(item.CachedInputPrice), nullableString(item.CacheCreationPrice), nullableString(item.ReasoningPrice), item.Version, item.UpdatedAt); err != nil {
+	if _, err := exec.Exec(ctx, `UPDATE pricing_templates SET name = $2, description = $3, pricing_unit = $4, pricing_currency_code = $5, input_price = $6, output_price = $7, cached_input_price = $8, cache_creation_price = $9, reasoning_price = $10, version = $11, updated_at = $12 WHERE id = $1`, item.ID, item.Name, nullableString(item.Description), item.PricingUnit, item.PricingCurrencyCode, item.InputPrice, item.OutputPrice, item.CachedInputPrice, item.CacheCreationPrice, item.ReasoningPrice, item.Version, item.UpdatedAt); err != nil {
 		return fmt.Errorf("update pricing template %d: %w", item.ID, err)
 	}
 	return nil
@@ -518,17 +518,11 @@ func scanPricingTemplateConnectionUsageRecord(scanner interface{ Scan(...any) er
 
 func scanPricingTemplateResponse(scanner interface{ Scan(...any) error }) (pricingTemplateResponse, error) {
 	var description sql.NullString
-	var cachedInputPrice sql.NullString
-	var cacheCreationPrice sql.NullString
-	var reasoningPrice sql.NullString
 	item := pricingTemplateResponse{}
-	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.Name, &description, &item.PricingUnit, &item.PricingCurrencyCode, &item.InputPrice, &item.OutputPrice, &cachedInputPrice, &cacheCreationPrice, &reasoningPrice, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := scanner.Scan(&item.ID, &item.ProfileID, &item.Name, &description, &item.PricingUnit, &item.PricingCurrencyCode, &item.InputPrice, &item.OutputPrice, &item.CachedInputPrice, &item.CacheCreationPrice, &item.ReasoningPrice, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return pricingTemplateResponse{}, err
 	}
 	item.Description = nullableStringValue(description)
-	item.CachedInputPrice = nullableStringValue(cachedInputPrice)
-	item.CacheCreationPrice = nullableStringValue(cacheCreationPrice)
-	item.ReasoningPrice = nullableStringValue(reasoningPrice)
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
 	return item, nil

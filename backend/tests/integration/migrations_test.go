@@ -40,6 +40,7 @@ func TestSingleBaselineAppliesToFreshDatabase(t *testing.T) {
 	assertHistoryVersions(t, testContext, conn, expectedVersions)
 	assertRequestLogAuditEnabledColumnContract(t, testContext, conn)
 	assertRequestLogGenerationParamsColumnContract(t, testContext, conn)
+	assertPricingTemplateConcretePriceColumnContract(t, testContext, conn)
 	assertStreamOutcomeTelemetryColumnContracts(t, testContext, conn)
 	assertRuntimeCacheGenerationContract(t, testContext, conn)
 	assertPartitionedLogSchemaContract(t, testContext, conn)
@@ -492,6 +493,31 @@ func assertRequestLogGenerationParamsColumnContract(t *testing.T, ctx context.Co
 	}
 	if got["request_generation_params_status"] != [2]string{"character varying", "YES"} {
 		t.Fatalf("expected request_generation_params_status nullable varchar, got %+v", got["request_generation_params_status"])
+	}
+}
+
+func assertPricingTemplateConcretePriceColumnContract(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	for _, columnName := range []string{"cached_input_price", "cache_creation_price", "reasoning_price"} {
+		var dataType string
+		var maxLength int
+		var isNullable string
+		var columnDefault string
+		if err := conn.QueryRow(
+			ctx,
+			`SELECT data_type, COALESCE(character_maximum_length, 0), is_nullable, COALESCE(column_default, '')
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'pricing_templates' AND column_name = $1`,
+			columnName,
+		).Scan(&dataType, &maxLength, &isNullable, &columnDefault); err != nil {
+			t.Fatalf("load pricing_templates.%s column contract: %v", columnName, err)
+		}
+		if dataType != "character varying" || maxLength != 20 || isNullable != "NO" {
+			t.Fatalf("expected pricing_templates.%s varchar(20) NOT NULL, got data_type=%q max_length=%d is_nullable=%q", columnName, dataType, maxLength, isNullable)
+		}
+		if !strings.Contains(columnDefault, "'0'::character varying") {
+			t.Fatalf("expected pricing_templates.%s default to contain zero varchar, got %q", columnName, columnDefault)
+		}
 	}
 }
 

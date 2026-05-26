@@ -2,7 +2,6 @@ package contract_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -246,36 +245,20 @@ func TestConfigBundleDownloadHeaders(t *testing.T) {
 	}
 }
 
-func TestConfigBundleV1ExportAllowsNullOptionalPricingFields(t *testing.T) {
+func TestConfigBundleExportConcretePricingFields(t *testing.T) {
 	harness := newConfigBundleContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
-	insertContractPricingTemplate(t, harness, profileID, "Null Optional Pricing")
+	insertContractPricingTemplate(t, harness, profileID, "Concrete Pricing")
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
 
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
-	items, ok := payload["pricing_templates"].([]any)
-	if !ok {
-		t.Fatalf("expected pricing_templates array, got %+v", payload)
-	}
-
-	for _, raw := range items {
-		item := asMap(t, raw)
-		if item["name"] != "Null Optional Pricing" {
-			continue
-		}
-		if item["cached_input_price"] != nil || item["cache_creation_price"] != nil || item["reasoning_price"] != nil {
-			t.Fatalf("expected null optional pricing fields in export, got %+v", item)
-		}
-		return
-	}
-
-	t.Fatalf("expected exported pricing template %q, got %+v", "Null Optional Pricing", items)
+	assertProfileBundlePricingFields(t, payload, "Concrete Pricing", "1", "2", "0", "0", "0")
 }
 
-func TestConfigBundleImportNormalizesOptionalPricingFields(t *testing.T) {
+func TestConfigBundleImportNormalizesAllMissingPricesToZero(t *testing.T) {
 	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
 	profileID := modelLoadDefaultProfileID(t, harness)
 	bundle := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
@@ -285,16 +268,16 @@ func TestConfigBundleImportNormalizesOptionalPricingFields(t *testing.T) {
 		t.Fatalf("expected pricing_templates array, got %+v", bundle)
 	}
 	primary := asMap(t, templates[0])
-	primary["cached_input_price"] = "  1.250000  "
+	delete(primary, "input_price")
+	primary["output_price"] = nil
+	primary["cached_input_price"] = "   "
 	primary["cache_creation_price"] = nil
-	primary["reasoning_price"] = "   "
+	delete(primary, "reasoning_price")
 	bundle["pricing_templates"] = append(templates, map[string]any{
-		"name":                  "Omitted Optional Pricing",
+		"name":                  "Omitted All Pricing",
 		"description":           nil,
 		"pricing_unit":          "PER_1M",
 		"pricing_currency_code": "USD",
-		"input_price":           "1",
-		"output_price":          "2",
 		"version":               1,
 	})
 
@@ -302,8 +285,8 @@ func TestConfigBundleImportNormalizesOptionalPricingFields(t *testing.T) {
 	importResponse := harness.requestJSON(t, harness.client, http.MethodPost, "/api/config/profile/import", bundle, mergeHeaders(modelHeader(profileID), previewTokenHeaders(previewToken)))
 	assertStatus(t, importResponse, http.StatusOK)
 
-	assertPricingTemplateOptionalPrices(t, harness, profileID, "OpenAI Standard", stringPtr("1.250000"), nil, nil)
-	assertPricingTemplateOptionalPrices(t, harness, profileID, "Omitted Optional Pricing", nil, nil, nil)
+	assertPricingTemplatePrices(t, harness, profileID, "OpenAI Standard", "0", "0", "0", "0", "0")
+	assertPricingTemplatePrices(t, harness, profileID, "Omitted All Pricing", "0", "0", "0", "0", "0")
 
 	exportResponse := harness.requestJSON(t, harness.client, http.MethodGet, "/api/config/profile/export", nil, modelHeader(profileID))
 	assertStatus(t, exportResponse, http.StatusOK)
@@ -312,15 +295,15 @@ func TestConfigBundleImportNormalizesOptionalPricingFields(t *testing.T) {
 	if jsonInt(t, exported["version"]) != 1 {
 		t.Fatalf("expected round-tripped profile bundle version 1, got %+v", exported["version"])
 	}
-	assertProfileBundleOptionalPricingFields(t, exported, "OpenAI Standard", stringPtr("1.250000"), nil, nil)
-	assertProfileBundleOptionalPricingFields(t, exported, "Omitted Optional Pricing", nil, nil, nil)
+	assertProfileBundlePricingFields(t, exported, "OpenAI Standard", "0", "0", "0", "0", "0")
+	assertProfileBundlePricingFields(t, exported, "Omitted All Pricing", "0", "0", "0", "0", "0")
 }
 
-func TestConfigBundleImportRejectsInvalidOptionalPricingFields(t *testing.T) {
+func TestConfigBundleImportRejectsInvalidPricingFields(t *testing.T) {
 	harness := newConfigBundleImportHarness(t, configBundleImportHarnessOptions{})
 	profileID := modelLoadDefaultProfileID(t, harness)
 
-	cases := []string{"cached_input_price", "cache_creation_price", "reasoning_price"}
+	cases := []string{"input_price", "output_price", "cached_input_price", "cache_creation_price", "reasoning_price"}
 	for _, field := range cases {
 		t.Run(field, func(t *testing.T) {
 			bundle := mustCloneBundlePayload(t, loadBundleFixture(t, "profile-v1-example.json"))
@@ -667,50 +650,39 @@ func assertProfileImportRejected(t *testing.T, harness *contractHarness, profile
 	assertErrorResponse(t, importResponse, http.StatusBadRequest, detail)
 }
 
-func assertProfileBundleOptionalPricingFields(t *testing.T, payload map[string]any, name string, wantCachedInputPrice *string, wantCacheCreationPrice *string, wantReasoningPrice *string) {
+func assertProfileBundlePricingFields(t *testing.T, payload map[string]any, name string, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) {
 	t.Helper()
 	template := profileBundlePricingTemplate(t, payload, name)
-	assertOptionalBundleString(t, template["cached_input_price"], wantCachedInputPrice, "cached_input_price")
-	assertOptionalBundleString(t, template["cache_creation_price"], wantCacheCreationPrice, "cache_creation_price")
-	assertOptionalBundleString(t, template["reasoning_price"], wantReasoningPrice, "reasoning_price")
+	assertBundleStringField(t, template, "input_price", inputPrice)
+	assertBundleStringField(t, template, "output_price", outputPrice)
+	assertBundleStringField(t, template, "cached_input_price", cachedInputPrice)
+	assertBundleStringField(t, template, "cache_creation_price", cacheCreationPrice)
+	assertBundleStringField(t, template, "reasoning_price", reasoningPrice)
 }
 
-func assertOptionalBundleString(t *testing.T, got any, want *string, fieldName string) {
+func assertBundleStringField(t *testing.T, template map[string]any, fieldName string, want string) {
 	t.Helper()
-	if want == nil {
-		if got != nil {
-			t.Fatalf("expected exported %s to be null, got %+v", fieldName, got)
-		}
-		return
+	got, ok := template[fieldName]
+	if !ok {
+		t.Fatalf("expected exported %s field to be present, got %+v", fieldName, template)
 	}
-	if got != *want {
-		t.Fatalf("expected exported %s to be %q, got %+v", fieldName, *want, got)
+	if got != want {
+		t.Fatalf("expected exported %s to be %q, got %+v", fieldName, want, got)
 	}
 }
 
-func assertPricingTemplateOptionalPrices(t *testing.T, harness *contractHarness, profileID int, name string, wantCachedInputPrice *string, wantCacheCreationPrice *string, wantReasoningPrice *string) {
+func assertPricingTemplatePrices(t *testing.T, harness *contractHarness, profileID int, name string, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) {
 	t.Helper()
-	var cachedInputPrice sql.NullString
-	var cacheCreationPrice sql.NullString
-	var reasoningPrice sql.NullString
-	if err := harness.conn.QueryRow(context.Background(), `SELECT cached_input_price, cache_creation_price, reasoning_price FROM pricing_templates WHERE profile_id = $1 AND name = $2`, profileID, name).Scan(&cachedInputPrice, &cacheCreationPrice, &reasoningPrice); err != nil {
-		t.Fatalf("load pricing template optional prices for %q: %v", name, err)
+	var gotInputPrice string
+	var gotOutputPrice string
+	var gotCachedInputPrice string
+	var gotCacheCreationPrice string
+	var gotReasoningPrice string
+	if err := harness.conn.QueryRow(context.Background(), `SELECT input_price, output_price, cached_input_price, cache_creation_price, reasoning_price FROM pricing_templates WHERE profile_id = $1 AND name = $2`, profileID, name).Scan(&gotInputPrice, &gotOutputPrice, &gotCachedInputPrice, &gotCacheCreationPrice, &gotReasoningPrice); err != nil {
+		t.Fatalf("load pricing template prices for %q: %v", name, err)
 	}
-	assertNullStringValue(t, cachedInputPrice, wantCachedInputPrice, "cached_input_price")
-	assertNullStringValue(t, cacheCreationPrice, wantCacheCreationPrice, "cache_creation_price")
-	assertNullStringValue(t, reasoningPrice, wantReasoningPrice, "reasoning_price")
-}
-
-func assertNullStringValue(t *testing.T, got sql.NullString, want *string, fieldName string) {
-	t.Helper()
-	if want == nil {
-		if got.Valid {
-			t.Fatalf("expected %s to be NULL, got %q", fieldName, got.String)
-		}
-		return
-	}
-	if !got.Valid || got.String != *want {
-		t.Fatalf("expected %s to be %q, got valid=%t value=%q", fieldName, *want, got.Valid, got.String)
+	if gotInputPrice != inputPrice || gotOutputPrice != outputPrice || gotCachedInputPrice != cachedInputPrice || gotCacheCreationPrice != cacheCreationPrice || gotReasoningPrice != reasoningPrice {
+		t.Fatalf("expected stored pricing fields input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q, got input=%q output=%q cached_input=%q cache_creation=%q reasoning=%q", inputPrice, outputPrice, cachedInputPrice, cacheCreationPrice, reasoningPrice, gotInputPrice, gotOutputPrice, gotCachedInputPrice, gotCacheCreationPrice, gotReasoningPrice)
 	}
 }
 

@@ -715,9 +715,9 @@ CREATE TABLE public.pricing_templates (
     pricing_currency_code character varying(3) NOT NULL,
     input_price character varying(20) NOT NULL,
     output_price character varying(20) NOT NULL,
-    cached_input_price character varying(20),
-    cache_creation_price character varying(20),
-    reasoning_price character varying(20),
+    cached_input_price character varying(20) DEFAULT '0'::character varying NOT NULL,
+    cache_creation_price character varying(20) DEFAULT '0'::character varying NOT NULL,
+    reasoning_price character varying(20) DEFAULT '0'::character varying NOT NULL,
     version integer NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL

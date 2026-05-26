@@ -20,8 +20,8 @@ type pricingTemplateCreateRequest struct {
 	Description         *string `json:"description"`
 	PricingUnit         *string `json:"pricing_unit"`
 	PricingCurrencyCode string  `json:"pricing_currency_code"`
-	InputPrice          string  `json:"input_price"`
-	OutputPrice         string  `json:"output_price"`
+	InputPrice          *string `json:"input_price"`
+	OutputPrice         *string `json:"output_price"`
 	CachedInputPrice    *string `json:"cached_input_price"`
 	CacheCreationPrice  *string `json:"cache_creation_price"`
 	ReasoningPrice      *string `json:"reasoning_price"`
@@ -232,23 +232,23 @@ func buildCreatedPricingTemplate(profileID int, currentTime time.Time, requestBo
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	inputPrice, err := normalizeRequiredDecimalString("input_price", requestBody.InputPrice)
+	inputPrice, err := normalizePricingDecimalString("input_price", requestBody.InputPrice)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	outputPrice, err := normalizeRequiredDecimalString("output_price", requestBody.OutputPrice)
+	outputPrice, err := normalizePricingDecimalString("output_price", requestBody.OutputPrice)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	cachedInputPrice, err := normalizeOptionalDecimalString("cached_input_price", requestBody.CachedInputPrice)
+	cachedInputPrice, err := normalizePricingDecimalString("cached_input_price", requestBody.CachedInputPrice)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	cacheCreationPrice, err := normalizeOptionalDecimalString("cache_creation_price", requestBody.CacheCreationPrice)
+	cacheCreationPrice, err := normalizePricingDecimalString("cache_creation_price", requestBody.CacheCreationPrice)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
-	reasoningPrice, err := normalizeOptionalDecimalString("reasoning_price", requestBody.ReasoningPrice)
+	reasoningPrice, err := normalizePricingDecimalString("reasoning_price", requestBody.ReasoningPrice)
 	if err != nil {
 		return pricingTemplateResponse{}, err
 	}
@@ -281,41 +281,31 @@ func buildUpdatedPricingTemplate(current pricingTemplateResponse, requestBody pr
 		}
 		next.PricingCurrencyCode = currencyCode
 	}
-	if requestBody.InputPrice.Set {
-		inputPrice, err := normalizeOptionalRequiredDecimalString("input_price", requestBody.InputPrice.Value)
-		if err != nil {
-			return pricingTemplateResponse{}, err
-		}
-		next.InputPrice = inputPrice
+	inputPrice, err := normalizePricingDecimalString("input_price", requestBody.InputPrice.Value)
+	if err != nil {
+		return pricingTemplateResponse{}, err
 	}
-	if requestBody.OutputPrice.Set {
-		outputPrice, err := normalizeOptionalRequiredDecimalString("output_price", requestBody.OutputPrice.Value)
-		if err != nil {
-			return pricingTemplateResponse{}, err
-		}
-		next.OutputPrice = outputPrice
+	next.InputPrice = inputPrice
+	outputPrice, err := normalizePricingDecimalString("output_price", requestBody.OutputPrice.Value)
+	if err != nil {
+		return pricingTemplateResponse{}, err
 	}
-	if requestBody.CachedInputPrice.Set {
-		cachedInputPrice, err := normalizeOptionalDecimalString("cached_input_price", requestBody.CachedInputPrice.Value)
-		if err != nil {
-			return pricingTemplateResponse{}, err
-		}
-		next.CachedInputPrice = cachedInputPrice
+	next.OutputPrice = outputPrice
+	cachedInputPrice, err := normalizePricingDecimalString("cached_input_price", requestBody.CachedInputPrice.Value)
+	if err != nil {
+		return pricingTemplateResponse{}, err
 	}
-	if requestBody.CacheCreationPrice.Set {
-		cacheCreationPrice, err := normalizeOptionalDecimalString("cache_creation_price", requestBody.CacheCreationPrice.Value)
-		if err != nil {
-			return pricingTemplateResponse{}, err
-		}
-		next.CacheCreationPrice = cacheCreationPrice
+	next.CachedInputPrice = cachedInputPrice
+	cacheCreationPrice, err := normalizePricingDecimalString("cache_creation_price", requestBody.CacheCreationPrice.Value)
+	if err != nil {
+		return pricingTemplateResponse{}, err
 	}
-	if requestBody.ReasoningPrice.Set {
-		reasoningPrice, err := normalizeOptionalDecimalString("reasoning_price", requestBody.ReasoningPrice.Value)
-		if err != nil {
-			return pricingTemplateResponse{}, err
-		}
-		next.ReasoningPrice = reasoningPrice
+	next.CacheCreationPrice = cacheCreationPrice
+	reasoningPrice, err := normalizePricingDecimalString("reasoning_price", requestBody.ReasoningPrice.Value)
+	if err != nil {
+		return pricingTemplateResponse{}, err
 	}
+	next.ReasoningPrice = reasoningPrice
 	if pricingTemplateVersionBumpRequired(current, next) {
 		next.Version++
 	}
@@ -328,9 +318,9 @@ func pricingTemplateVersionBumpRequired(current pricingTemplateResponse, next pr
 		current.PricingCurrencyCode != next.PricingCurrencyCode ||
 		current.InputPrice != next.InputPrice ||
 		current.OutputPrice != next.OutputPrice ||
-		derefString(current.CachedInputPrice) != derefString(next.CachedInputPrice) ||
-		derefString(current.CacheCreationPrice) != derefString(next.CacheCreationPrice) ||
-		derefString(current.ReasoningPrice) != derefString(next.ReasoningPrice)
+		current.CachedInputPrice != next.CachedInputPrice ||
+		current.CacheCreationPrice != next.CacheCreationPrice ||
+		current.ReasoningPrice != next.ReasoningPrice
 }
 
 func validatePricingTemplateExpectedUpdatedAt(current time.Time, expected optionalString) error {
@@ -395,36 +385,18 @@ func normalizeOptionalRequiredPricingCurrencyCode(raw *string) (string, error) {
 	return trimmed, nil
 }
 
-func normalizeRequiredDecimalString(fieldName string, raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
+func normalizePricingDecimalString(fieldName string, raw *string) (string, error) {
+	if raw == nil {
+		return "0", nil
+	}
+	trimmed := strings.TrimSpace(*raw)
 	if trimmed == "" {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)}
+		return "0", nil
 	}
 	if !pricingTemplateDecimalPattern.MatchString(trimmed) {
 		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be a non-negative decimal string", fieldName)}
 	}
 	return trimmed, nil
-}
-
-func normalizeOptionalRequiredDecimalString(fieldName string, raw *string) (string, error) {
-	if raw == nil {
-		return "", &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s is required", fieldName)}
-	}
-	return normalizeRequiredDecimalString(fieldName, *raw)
-}
-
-func normalizeOptionalDecimalString(fieldName string, raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" {
-		return nil, nil
-	}
-	if !pricingTemplateDecimalPattern.MatchString(trimmed) {
-		return nil, &domainError{StatusCode: http.StatusUnprocessableEntity, Detail: fmt.Sprintf("%s must be a non-negative decimal string", fieldName)}
-	}
-	return stringPtr(trimmed), nil
 }
 
 func normalizeOptionalTrimmedString(raw *string) *string {
