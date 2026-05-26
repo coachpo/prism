@@ -280,18 +280,7 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			AuditEnabledAtRequest:       row.AuditEnabledAtRequest,
 			AuditCaptureBodiesAtRequest: row.AuditCaptureBodiesAtRequest,
 		},
-		Usage: RequestLogDetailUsage{
-			InputTokens:              row.InputTokens,
-			OutputTokens:             row.OutputTokens,
-			TotalTokens:              row.TotalTokens,
-			SuccessFlag:              row.SuccessFlag,
-			BillableFlag:             row.BillableFlag,
-			PricedFlag:               row.PricedFlag,
-			UnpricedReason:           row.UnpricedReason,
-			CacheReadInputTokens:     row.CacheReadInputTokens,
-			CacheCreationInputTokens: row.CacheCreationInputTokens,
-			ReasoningTokens:          row.ReasoningTokens,
-		},
+		Usage: requestLogDetailUsageFromRow(row),
 		Costing: RequestLogDetailCosting{
 			InputCostMicros:              row.InputCostMicros,
 			OutputCostMicros:             row.OutputCostMicros,
@@ -306,17 +295,36 @@ func GetRequestLogDetail(ctx context.Context, exec queryExecutor, profileID int,
 			FXRateUsed:                   row.FXRateUsed,
 			FXRateSource:                 row.FXRateSource,
 		},
-		Pricing: RequestLogDetailPricing{
-			PricingSnapshotUnit:               row.PricingSnapshotUnit,
-			PricingSnapshotInput:              row.PricingSnapshotInput,
-			PricingSnapshotOutput:             row.PricingSnapshotOutput,
-			PricingSnapshotCacheReadInput:     row.PricingSnapshotCacheReadInput,
-			PricingSnapshotCacheCreationInput: row.PricingSnapshotCacheCreationInput,
-			PricingSnapshotReasoning:          row.PricingSnapshotReasoning,
-			PricingConfigVersionUsed:          row.PricingConfigVersionUsed,
-		},
+		Pricing: requestLogDetailPricingFromRow(row),
 	}
 	return response, nil
+}
+
+func requestLogDetailUsageFromRow(row requestLogDetailRow) RequestLogDetailUsage {
+	return RequestLogDetailUsage{
+		InputTokens:              row.InputTokens,
+		OutputTokens:             row.OutputTokens,
+		TotalTokens:              row.TotalTokens,
+		SuccessFlag:              row.SuccessFlag,
+		BillableFlag:             row.BillableFlag,
+		PricedFlag:               row.PricedFlag,
+		UnpricedReason:           row.UnpricedReason,
+		CacheReadInputTokens:     row.CacheReadInputTokens,
+		CacheCreationInputTokens: row.CacheCreationInputTokens,
+		ReasoningTokens:          row.ReasoningTokens,
+	}
+}
+
+func requestLogDetailPricingFromRow(row requestLogDetailRow) RequestLogDetailPricing {
+	return RequestLogDetailPricing{
+		PricingSnapshotUnit:               row.PricingSnapshotUnit,
+		PricingSnapshotInput:              row.PricingSnapshotInput,
+		PricingSnapshotOutput:             row.PricingSnapshotOutput,
+		PricingSnapshotCacheReadInput:     row.PricingSnapshotCacheReadInput,
+		PricingSnapshotCacheCreationInput: row.PricingSnapshotCacheCreationInput,
+		PricingSnapshotReasoning:          row.PricingSnapshotReasoning,
+		PricingConfigVersionUsed:          row.PricingConfigVersionUsed,
+	}
 }
 
 func buildRequestLogBrowseWhere(params RequestLogListParams) (string, []any) {

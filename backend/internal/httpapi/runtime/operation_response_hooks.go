@@ -15,11 +15,12 @@ const (
 	operationResponseKindMedia          operationResponseKind = "media"
 )
 
-type operationNonStreamResponseParser func(io.Writer, io.Reader, string, func() time.Time, bool) (runtimeResponseCapture, error)
+type operationNonStreamResponseParser func(operationResponseHooks, io.Writer, io.Reader, string, func() time.Time, bool) (runtimeResponseCapture, error)
 
 type operationResponseHooks struct {
 	Provider               string
 	Kind                   operationResponseKind
+	UsageRule              runtimeUsageNormalizationRule
 	ParseNonStreamResponse operationNonStreamResponseParser
 }
 
@@ -27,11 +28,13 @@ var operationResponseHooksByCollectionID = map[string]operationResponseHooks{
 	"openai.chat_completions": {
 		Provider:               "openai",
 		Kind:                   operationResponseKindTextGeneration,
+		UsageRule:              runtimeUsageRuleOpenAIChatCompletions,
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
 	},
 	"openai.responses": {
 		Provider:               "openai",
 		Kind:                   operationResponseKindTextGeneration,
+		UsageRule:              runtimeUsageRuleOpenAIResponses,
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
 	},
 	runtimeHookCollectionOpenAIImagesGeneration: {
@@ -47,6 +50,7 @@ var operationResponseHooksByCollectionID = map[string]operationResponseHooks{
 	"anthropic.messages": {
 		Provider:               "anthropic",
 		Kind:                   operationResponseKindTextGeneration,
+		UsageRule:              runtimeUsageRuleAnthropicMessages,
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
 	},
 	runtimeHookCollectionAnthropicCountTokens: {
@@ -57,11 +61,13 @@ var operationResponseHooksByCollectionID = map[string]operationResponseHooks{
 	"gemini.generate_content": {
 		Provider:               "gemini",
 		Kind:                   operationResponseKindTextGeneration,
+		UsageRule:              runtimeUsageRuleGeminiGenerateContent,
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
 	},
 	"gemini.stream_generate_content": {
 		Provider:               "gemini",
 		Kind:                   operationResponseKindTextGeneration,
+		UsageRule:              runtimeUsageRuleGeminiStreamGenerateContent,
 		ParseNonStreamResponse: proxyNonEventResponseAndCaptureUsage,
 	},
 	runtimeHookCollectionGeminiCountTokens: {
@@ -88,12 +94,12 @@ func ResponseHooksForOperation(operation RuntimeOperation) (operationResponseHoo
 func proxyNonEventResponseAndCaptureByOperation(operation RuntimeOperation, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	hooks, ok := responseHooksForOperation(operation)
 	if !ok || hooks.ParseNonStreamResponse == nil {
-		return proxyNonEventResponseAndCaptureWithoutUsage(dst, src, contentType, now, captureAuditBody)
+		return proxyNonEventResponseAndCaptureWithoutUsage(operationResponseHooks{}, dst, src, contentType, now, captureAuditBody)
 	}
-	return hooks.ParseNonStreamResponse(dst, src, contentType, now, captureAuditBody)
+	return hooks.ParseNonStreamResponse(hooks, dst, src, contentType, now, captureAuditBody)
 }
 
-func proxyNonEventResponseAndCaptureWithoutUsage(dst io.Writer, src io.Reader, _ string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyNonEventResponseAndCaptureWithoutUsage(_ operationResponseHooks, dst io.Writer, src io.Reader, _ string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	writers := []io.Writer{dst}
 	auditBuffer := &bytes.Buffer{}
 	if captureAuditBody {
@@ -108,9 +114,9 @@ func proxyNonEventResponseAndCaptureWithoutUsage(dst io.Writer, src io.Reader, _
 	return capture, err
 }
 
-func proxyNonEventTokenCountResponseAndCaptureUsage(dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyNonEventTokenCountResponseAndCaptureUsage(_ operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if !responseMayContainJSONUsage(contentType) {
-		return proxyNonEventResponseAndCaptureWithoutUsage(dst, src, contentType, now, captureAuditBody)
+		return proxyNonEventResponseAndCaptureWithoutUsage(operationResponseHooks{}, dst, src, contentType, now, captureAuditBody)
 	}
 	bodyBuffer := &bytes.Buffer{}
 	auditBuffer := &bytes.Buffer{}
@@ -153,6 +159,9 @@ func extractTokenCountResponseUsage(body []byte) responseUsage {
 	}
 	if cacheCreationTokens := intPointerFromAny(payload["cache_creation_input_tokens"]); cacheCreationTokens != nil {
 		usage.CacheCreationInputTokens = cacheCreationTokens
+	}
+	if !usage.validForRuntimeUsage(runtimeUsageNormalizationRule{ValidateParentSplitBounds: true}) {
+		return responseUsage{}
 	}
 	return usage.normalized()
 }

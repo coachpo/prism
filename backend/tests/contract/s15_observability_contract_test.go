@@ -61,6 +61,84 @@ func assertDashboardSnapshotTopLevelShape(t *testing.T, payload map[string]any) 
 	}
 }
 
+func assertS15UsageSnapshotTokenTotals(t *testing.T, payload map[string]any, wantInput int, wantOutput int, wantTotal int, wantCached int, wantReasoning int) {
+	t.Helper()
+	overview := asMap(t, payload["overview"])
+	if jsonInt(t, overview["input_tokens"]) != wantInput || jsonInt(t, overview["output_tokens"]) != wantOutput || jsonInt(t, overview["total_tokens"]) != wantTotal || jsonInt(t, overview["cached_tokens"]) != wantCached || jsonInt(t, overview["reasoning_tokens"]) != wantReasoning {
+		t.Fatalf("expected overview input/output/total/cached/reasoning=%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCached, wantReasoning, overview)
+	}
+	trendTotals := s15AllModelHourlyTokenTrendTotals(t, payload)
+	if trendTotals.inputTokens != wantInput || trendTotals.outputTokens != wantOutput || trendTotals.totalTokens != wantTotal || trendTotals.cachedTokens != wantCached || trendTotals.reasoningTokens != wantReasoning {
+		t.Fatalf("expected token trend input/output/total/cached/reasoning=%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCached, wantReasoning, trendTotals)
+	}
+	breakdownTotals := s15HourlyTokenBreakdownTotals(t, payload)
+	if breakdownTotals.inputTokens != wantInput || breakdownTotals.outputTokens != wantOutput || breakdownTotals.cachedTokens != wantCached || breakdownTotals.reasoningTokens != wantReasoning {
+		t.Fatalf("expected token breakdown input/output/cached/reasoning=%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantCached, wantReasoning, breakdownTotals)
+	}
+	modelTotals := s15UsageModelTokenTotals(t, payload)
+	if modelTotals.inputTokens != wantInput || modelTotals.outputTokens != wantOutput || modelTotals.totalTokens != wantTotal || modelTotals.cachedTokens != wantCached || modelTotals.reasoningTokens != wantReasoning {
+		t.Fatalf("expected model stats input/output/total/cached/reasoning=%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCached, wantReasoning, modelTotals)
+	}
+}
+
+type s15UsageTokenTotals struct {
+	inputTokens     int
+	outputTokens    int
+	totalTokens     int
+	cachedTokens    int
+	reasoningTokens int
+}
+
+func s15AllModelHourlyTokenTrendTotals(t *testing.T, payload map[string]any) s15UsageTokenTotals {
+	t.Helper()
+	trends := asMap(t, payload["token_usage_trends"])
+	for _, rawSeries := range trends["hourly"].([]any) {
+		series := asMap(t, rawSeries)
+		if series["key"] != "all" {
+			continue
+		}
+		totals := s15UsageTokenTotals{}
+		for _, rawPoint := range series["points"].([]any) {
+			point := asMap(t, rawPoint)
+			totals.inputTokens += jsonInt(t, point["input_tokens"])
+			totals.outputTokens += jsonInt(t, point["output_tokens"])
+			totals.totalTokens += jsonInt(t, point["total_tokens"])
+			totals.cachedTokens += jsonInt(t, point["cached_tokens"])
+			totals.reasoningTokens += jsonInt(t, point["reasoning_tokens"])
+		}
+		return totals
+	}
+	return s15UsageTokenTotals{}
+}
+
+func s15HourlyTokenBreakdownTotals(t *testing.T, payload map[string]any) s15UsageTokenTotals {
+	t.Helper()
+	breakdown := asMap(t, payload["token_type_breakdown"])
+	totals := s15UsageTokenTotals{}
+	for _, rawPoint := range breakdown["hourly"].([]any) {
+		point := asMap(t, rawPoint)
+		totals.inputTokens += jsonInt(t, point["input_tokens"])
+		totals.outputTokens += jsonInt(t, point["output_tokens"])
+		totals.cachedTokens += jsonInt(t, point["cached_tokens"])
+		totals.reasoningTokens += jsonInt(t, point["reasoning_tokens"])
+	}
+	return totals
+}
+
+func s15UsageModelTokenTotals(t *testing.T, payload map[string]any) s15UsageTokenTotals {
+	t.Helper()
+	totals := s15UsageTokenTotals{}
+	for _, rawModel := range payload["model_statistics"].([]any) {
+		model := asMap(t, rawModel)
+		totals.inputTokens += jsonInt(t, model["input_tokens"])
+		totals.outputTokens += jsonInt(t, model["output_tokens"])
+		totals.totalTokens += jsonInt(t, model["total_tokens"])
+		totals.cachedTokens += jsonInt(t, model["cached_tokens"])
+		totals.reasoningTokens += jsonInt(t, model["reasoning_tokens"])
+	}
+	return totals
+}
+
 func TestUsageSnapshot(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
@@ -70,7 +148,7 @@ func TestUsageSnapshot(t *testing.T) {
 	endpointID := modelInsertEndpoint(t, harness, profileID, "Snapshot Endpoint", 0)
 	connectionID := modelInsertConnection(t, harness, profileID, modelConfigID, endpointID, 0, true, nil)
 	proxyKeyID := insertContractProxyAPIKey(t, harness, "Snapshot Key")
-	insertUsageEvent(t, harness, usageEventSeed{ID: 1, ProfileID: profileID, IngressRequestID: "snap-1", ModelID: "snapshot-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, ProxyAPIKeyID: &proxyKeyID, ProxyAPIKeyNameSnapshot: stringPtr("Snapshot Key"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(30), CacheReadInputTokens: intPtr(5), CacheCreationInputTokens: intPtr(2), ReasoningTokens: intPtr(1), TotalCostUserCurrencyMicros: int64Ptr(2500), AttemptCount: 1, RequestPath: "/v1/chat/completions", ResponseTimeMS: intPtr(800), TTFTMS: intPtr(100), CompletionDurationMS: intPtr(1100), CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 1, ProfileID: profileID, IngressRequestID: "snap-1", ModelID: "snapshot-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, ProxyAPIKeyID: &proxyKeyID, ProxyAPIKeyNameSnapshot: stringPtr("Snapshot Key"), StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(38), CacheReadInputTokens: intPtr(5), CacheCreationInputTokens: intPtr(2), ReasoningTokens: intPtr(1), TotalCostUserCurrencyMicros: int64Ptr(2500), AttemptCount: 1, RequestPath: "/v1/chat/completions", ResponseTimeMS: intPtr(800), TTFTMS: intPtr(100), CompletionDurationMS: intPtr(1100), CreatedAt: fixedS15Now.Add(-10 * time.Minute)})
 	insertUsageEvent(t, harness, usageEventSeed{ID: 2, ProfileID: profileID, IngressRequestID: "snap-2", ModelID: "snapshot-model", APIFamily: "openai", EndpointID: &endpointID, ConnectionID: &connectionID, StatusCode: 500, SuccessFlag: false, BillableFlag: boolPtr(false), PricedFlag: boolPtr(false), InputTokens: intPtr(15), OutputTokens: intPtr(25), TotalTokens: intPtr(40), AttemptCount: 1, RequestPath: "/v1/chat/completions", ResponseTimeMS: intPtr(900), CreatedAt: fixedS15Now.Add(-5 * time.Minute)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/usage-snapshot?preset=1h", nil, modelHeader(profileID))
@@ -78,9 +156,10 @@ func TestUsageSnapshot(t *testing.T) {
 	var payload map[string]any
 	decodeJSONResponse(t, response, &payload)
 	overview := asMap(t, payload["overview"])
-	if jsonInt(t, overview["total_requests"]) != 2 || jsonInt(t, overview["success_requests"]) != 1 || jsonInt(t, overview["failed_requests"]) != 1 || jsonInt(t, overview["total_tokens"]) != 70 {
+	if jsonInt(t, overview["total_requests"]) != 2 || jsonInt(t, overview["success_requests"]) != 1 || jsonInt(t, overview["failed_requests"]) != 1 || jsonInt(t, overview["total_tokens"]) != 78 {
 		t.Fatalf("expected usage snapshot overview totals, got %+v", overview)
 	}
+	assertS15UsageSnapshotTokenTotals(t, payload, 25, 45, 78, 7, 1)
 	if asMap(t, payload["currency"])["code"] != "USD" || asMap(t, payload["time_range"])["preset"] != "1h" {
 		t.Fatalf("expected usage snapshot currency/time range payload, got %+v", payload)
 	}
@@ -114,6 +193,74 @@ func TestUsageSnapshot(t *testing.T) {
 	costOverview := asMap(t, payload["cost_overview"])
 	if jsonInt(t, costOverview["priced_request_count"]) != 1 || jsonInt(t, costOverview["unpriced_request_count"]) != 0 {
 		t.Fatalf("expected cost overview priced/unpriced counts, got %+v", costOverview)
+	}
+}
+
+func TestObservabilityUsageEventSeedPersistsMergedPersistenceSemantics(t *testing.T) {
+	harness := newS15ContractHarness(t)
+	profileID := modelLoadDefaultProfileID(t, harness)
+	insertUsageEvent(t, harness, usageEventSeed{
+		ID:                                3,
+		ProfileID:                         profileID,
+		IngressRequestID:                  "merged-persistence-usage",
+		ModelID:                           "merged-persistence-model",
+		APIFamily:                         "openai",
+		StatusCode:                        200,
+		SuccessFlag:                       true,
+		BillableFlag:                      boolPtr(true),
+		PricedFlag:                        boolPtr(true),
+		InputTokens:                       intPtr(6),
+		OutputTokens:                      intPtr(3),
+		TotalTokens:                       intPtr(42),
+		CacheReadInputTokens:              intPtr(4),
+		CacheCreationInputTokens:          intPtr(2),
+		ReasoningTokens:                   intPtr(1),
+		InputCostMicros:                   int64Ptr(12),
+		OutputCostMicros:                  int64Ptr(15),
+		CacheReadInputCostMicros:          int64Ptr(44),
+		CacheCreationInputCostMicros:      int64Ptr(26),
+		ReasoningCostMicros:               int64Ptr(17),
+		TotalCostOriginalMicros:           int64Ptr(114),
+		TotalCostUserCurrencyMicros:       int64Ptr(114),
+		CurrencyCodeOriginal:              stringPtr("USD"),
+		ReportCurrencyCode:                stringPtr("USD"),
+		ReportCurrencySymbol:              stringPtr("$"),
+		FXRateUsed:                        stringPtr("1"),
+		FXRateSource:                      stringPtr("DEFAULT_1_TO_1"),
+		PricingSnapshotUnit:               stringPtr("PER_1M"),
+		PricingSnapshotInput:              stringPtr("2"),
+		PricingSnapshotOutput:             stringPtr("5"),
+		PricingSnapshotCacheReadInput:     stringPtr("11"),
+		PricingSnapshotCacheCreationInput: stringPtr("13"),
+		PricingSnapshotReasoning:          stringPtr("17"),
+		PricingConfigVersionUsed:          intPtr(7),
+		AttemptCount:                      1,
+		RequestPath:                       "/v1/chat/completions",
+		ResponseTimeMS:                    intPtr(800),
+		TTFTMS:                            intPtr(100),
+		CompletionDurationMS:              intPtr(1100),
+		CreatedAt:                         fixedS15Now.Add(-8 * time.Minute),
+	})
+
+	var inputTokens, outputTokens, totalTokens, cacheReadInputTokens, cacheCreationInputTokens, reasoningTokens int
+	var inputCostMicros, outputCostMicros, cacheReadInputCostMicros, cacheCreationInputCostMicros, reasoningCostMicros, totalCostOriginalMicros, totalCostUserCurrencyMicros int64
+	var pricingSnapshotUnit, pricingSnapshotInput, pricingSnapshotOutput, pricingSnapshotCacheReadInput, pricingSnapshotCacheCreationInput, pricingSnapshotReasoning string
+	var pricingConfigVersionUsed int
+	if err := harness.conn.QueryRow(
+		context.Background(),
+		`SELECT input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used FROM usage_request_events WHERE profile_id = $1 AND id = 3`,
+		profileID,
+	).Scan(&inputTokens, &outputTokens, &totalTokens, &cacheReadInputTokens, &cacheCreationInputTokens, &reasoningTokens, &inputCostMicros, &outputCostMicros, &cacheReadInputCostMicros, &cacheCreationInputCostMicros, &reasoningCostMicros, &totalCostOriginalMicros, &totalCostUserCurrencyMicros, &pricingSnapshotUnit, &pricingSnapshotInput, &pricingSnapshotOutput, &pricingSnapshotCacheReadInput, &pricingSnapshotCacheCreationInput, &pricingSnapshotReasoning, &pricingConfigVersionUsed); err != nil {
+		t.Fatalf("load merged usage-event persistence row: %v", err)
+	}
+	if inputTokens != 6 || outputTokens != 3 || totalTokens != 42 || cacheReadInputTokens != 4 || cacheCreationInputTokens != 2 || reasoningTokens != 1 {
+		t.Fatalf("expected canonical token components 6/3/42/4/2/1, got input=%d output=%d total=%d cache_read=%d cache_creation=%d reasoning=%d", inputTokens, outputTokens, totalTokens, cacheReadInputTokens, cacheCreationInputTokens, reasoningTokens)
+	}
+	if inputCostMicros != 12 || outputCostMicros != 15 || cacheReadInputCostMicros != 44 || cacheCreationInputCostMicros != 26 || reasoningCostMicros != 17 || totalCostOriginalMicros != 114 || totalCostUserCurrencyMicros != 114 {
+		t.Fatalf("expected component costs and totals to persist, got input=%d output=%d cache_read=%d cache_creation=%d reasoning=%d total_original=%d total_user=%d", inputCostMicros, outputCostMicros, cacheReadInputCostMicros, cacheCreationInputCostMicros, reasoningCostMicros, totalCostOriginalMicros, totalCostUserCurrencyMicros)
+	}
+	if pricingSnapshotUnit != "PER_1M" || pricingSnapshotInput != "2" || pricingSnapshotOutput != "5" || pricingSnapshotCacheReadInput != "11" || pricingSnapshotCacheCreationInput != "13" || pricingSnapshotReasoning != "17" || pricingConfigVersionUsed != 7 {
+		t.Fatalf("expected concrete pricing snapshot values, got unit=%q input=%q output=%q cache_read=%q cache_creation=%q reasoning=%q version=%d", pricingSnapshotUnit, pricingSnapshotInput, pricingSnapshotOutput, pricingSnapshotCacheReadInput, pricingSnapshotCacheCreationInput, pricingSnapshotReasoning, pricingConfigVersionUsed)
 	}
 }
 
@@ -326,8 +473,8 @@ func TestSpending(t *testing.T) {
 	profileID := modelLoadDefaultProfileID(t, harness)
 	endpointA := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint A", 0)
 	endpointB := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint B", 1)
-	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "spend-1", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointA, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalTokens: intPtr(50), TotalCostUserCurrencyMicros: int64Ptr(5000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-4 * time.Hour)})
-	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "spend-2", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointB, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("PRICING_DISABLED"), TotalTokens: intPtr(25), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-3 * time.Hour)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "spend-1", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointA, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(38), CacheReadInputTokens: intPtr(5), CacheCreationInputTokens: intPtr(2), ReasoningTokens: intPtr(1), TotalCostUserCurrencyMicros: int64Ptr(5000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-4 * time.Hour)})
+	insertUsageEvent(t, harness, usageEventSeed{ID: 31, ProfileID: profileID, IngressRequestID: "spend-2", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointB, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(false), UnpricedReason: stringPtr("PRICING_DISABLED"), InputTokens: intPtr(3), OutputTokens: intPtr(4), TotalTokens: intPtr(12), CacheReadInputTokens: intPtr(2), CacheCreationInputTokens: intPtr(1), ReasoningTokens: intPtr(2), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-3 * time.Hour)})
 
 	response := harness.requestJSON(t, harness.client, http.MethodGet, "/api/stats/spending?preset=all&group_by=model_endpoint&limit=50&offset=0", nil, modelHeader(profileID))
 	assertStatus(t, response, http.StatusOK)
@@ -336,6 +483,9 @@ func TestSpending(t *testing.T) {
 	summary := asMap(t, payload["summary"])
 	if jsonInt(t, summary["successful_request_count"]) != 2 || jsonInt(t, summary["priced_request_count"]) != 1 || jsonInt(t, summary["unpriced_request_count"]) != 1 || jsonInt(t, summary["total_cost_micros"]) != 5000 || jsonInt(t, payload["groups_total"]) != 2 {
 		t.Fatalf("unexpected spending summary payload: %+v", payload)
+	}
+	if jsonInt(t, summary["total_input_tokens"]) != 13 || jsonInt(t, summary["total_output_tokens"]) != 24 || jsonInt(t, summary["total_cache_read_input_tokens"]) != 7 || jsonInt(t, summary["total_cache_creation_input_tokens"]) != 3 || jsonInt(t, summary["total_reasoning_tokens"]) != 3 || jsonInt(t, summary["total_tokens"]) != 50 {
+		t.Fatalf("expected spending summary to preserve base and split token totals, got %+v", summary)
 	}
 	groups := payload["groups"].([]any)
 	if len(groups) != 2 || !strings.Contains(asMap(t, groups[0])["key"].(string), "spend-model#") {
@@ -1143,34 +1293,52 @@ func newS15ContractHarness(t *testing.T) *contractHarness {
 }
 
 type usageEventSeed struct {
-	ID                          int
-	ProfileID                   int
-	IngressRequestID            string
-	ModelID                     string
-	ResolvedTargetModelID       *string
-	APIFamily                   string
-	EndpointID                  *int
-	ConnectionID                *int
-	ProxyAPIKeyID               *int
-	ProxyAPIKeyNameSnapshot     *string
-	StatusCode                  int
-	SuccessFlag                 bool
-	BillableFlag                *bool
-	PricedFlag                  *bool
-	UnpricedReason              *string
-	InputTokens                 *int
-	OutputTokens                *int
-	TotalTokens                 *int
-	CacheReadInputTokens        *int
-	CacheCreationInputTokens    *int
-	ReasoningTokens             *int
-	TotalCostUserCurrencyMicros *int64
-	AttemptCount                int
-	RequestPath                 string
-	ResponseTimeMS              *int
-	TTFTMS                      *int
-	CompletionDurationMS        *int
-	CreatedAt                   time.Time
+	ID                                int
+	ProfileID                         int
+	IngressRequestID                  string
+	ModelID                           string
+	ResolvedTargetModelID             *string
+	APIFamily                         string
+	EndpointID                        *int
+	ConnectionID                      *int
+	ProxyAPIKeyID                     *int
+	ProxyAPIKeyNameSnapshot           *string
+	StatusCode                        int
+	SuccessFlag                       bool
+	BillableFlag                      *bool
+	PricedFlag                        *bool
+	UnpricedReason                    *string
+	InputTokens                       *int
+	OutputTokens                      *int
+	TotalTokens                       *int
+	CacheReadInputTokens              *int
+	CacheCreationInputTokens          *int
+	ReasoningTokens                   *int
+	InputCostMicros                   *int64
+	OutputCostMicros                  *int64
+	CacheReadInputCostMicros          *int64
+	CacheCreationInputCostMicros      *int64
+	ReasoningCostMicros               *int64
+	TotalCostOriginalMicros           *int64
+	TotalCostUserCurrencyMicros       *int64
+	CurrencyCodeOriginal              *string
+	ReportCurrencyCode                *string
+	ReportCurrencySymbol              *string
+	FXRateUsed                        *string
+	FXRateSource                      *string
+	PricingSnapshotUnit               *string
+	PricingSnapshotInput              *string
+	PricingSnapshotOutput             *string
+	PricingSnapshotCacheReadInput     *string
+	PricingSnapshotCacheCreationInput *string
+	PricingSnapshotReasoning          *string
+	PricingConfigVersionUsed          *int
+	AttemptCount                      int
+	RequestPath                       string
+	ResponseTimeMS                    *int
+	TTFTMS                            *int
+	CompletionDurationMS              *int
+	CreatedAt                         time.Time
 }
 
 type auditLogSeed struct {
@@ -1237,7 +1405,56 @@ type loadbalanceEventSeed struct {
 func insertUsageEvent(t *testing.T, harness *contractHarness, seed usageEventSeed) {
 	t.Helper()
 	ensureContractTestLogPartitions(t, harness, contractTestLogPartitionFor("usage_request_events", seed.CreatedAt))
-	if _, err := harness.conn.Exec(context.Background(), `INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`, seed.ID, seed.ProfileID, seed.IngressRequestID, seed.ModelID, nullableTestString(seed.ResolvedTargetModelID), seed.APIFamily, nullableTestInt(seed.EndpointID), nullableTestInt(seed.ConnectionID), nullableTestInt(seed.ProxyAPIKeyID), nullableTestString(seed.ProxyAPIKeyNameSnapshot), seed.StatusCode, seed.SuccessFlag, nullableTestInt(seed.InputTokens), nullableTestInt(seed.OutputTokens), nullableTestInt(seed.TotalTokens), nullableTestInt(seed.CacheReadInputTokens), nullableTestInt(seed.CacheCreationInputTokens), nullableTestInt(seed.ReasoningTokens), nullableTestInt64(seed.TotalCostUserCurrencyMicros), seed.AttemptCount, seed.RequestPath, seed.CreatedAt, nullableTestInt(seed.ResponseTimeMS), nullableTestInt(seed.CompletionDurationMS), nullableTestInt(seed.TTFTMS), nullableTestBool(seed.BillableFlag), nullableTestBool(seed.PricedFlag), nullableTestString(seed.UnpricedReason)); err != nil {
+	if _, err := harness.conn.Exec(
+		context.Background(),
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, proxy_api_key_id, proxy_api_key_name_snapshot, status_code, success_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, input_cost_micros, output_cost_micros, cache_read_input_cost_micros, cache_creation_input_cost_micros, reasoning_cost_micros, total_cost_original_micros, total_cost_user_currency_micros, currency_code_original, report_currency_code, report_currency_symbol, fx_rate_used, fx_rate_source, pricing_snapshot_unit, pricing_snapshot_input, pricing_snapshot_output, pricing_snapshot_cache_read_input, pricing_snapshot_cache_creation_input, pricing_snapshot_reasoning, pricing_config_version_used, attempt_count, request_path, created_at, response_time_ms, completion_duration_ms, ttft_ms, billable_flag, priced_flag, unpriced_reason) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)`,
+		seed.ID,
+		seed.ProfileID,
+		seed.IngressRequestID,
+		seed.ModelID,
+		nullableTestString(seed.ResolvedTargetModelID),
+		seed.APIFamily,
+		nullableTestInt(seed.EndpointID),
+		nullableTestInt(seed.ConnectionID),
+		nullableTestInt(seed.ProxyAPIKeyID),
+		nullableTestString(seed.ProxyAPIKeyNameSnapshot),
+		seed.StatusCode,
+		seed.SuccessFlag,
+		nullableTestInt(seed.InputTokens),
+		nullableTestInt(seed.OutputTokens),
+		nullableTestInt(seed.TotalTokens),
+		nullableTestInt(seed.CacheReadInputTokens),
+		nullableTestInt(seed.CacheCreationInputTokens),
+		nullableTestInt(seed.ReasoningTokens),
+		nullableTestInt64(seed.InputCostMicros),
+		nullableTestInt64(seed.OutputCostMicros),
+		nullableTestInt64(seed.CacheReadInputCostMicros),
+		nullableTestInt64(seed.CacheCreationInputCostMicros),
+		nullableTestInt64(seed.ReasoningCostMicros),
+		nullableTestInt64(seed.TotalCostOriginalMicros),
+		nullableTestInt64(seed.TotalCostUserCurrencyMicros),
+		nullableTestString(seed.CurrencyCodeOriginal),
+		nullableTestString(seed.ReportCurrencyCode),
+		nullableTestString(seed.ReportCurrencySymbol),
+		nullableTestString(seed.FXRateUsed),
+		nullableTestString(seed.FXRateSource),
+		nullableTestString(seed.PricingSnapshotUnit),
+		nullableTestString(seed.PricingSnapshotInput),
+		nullableTestString(seed.PricingSnapshotOutput),
+		nullableTestString(seed.PricingSnapshotCacheReadInput),
+		nullableTestString(seed.PricingSnapshotCacheCreationInput),
+		nullableTestString(seed.PricingSnapshotReasoning),
+		nullableTestInt(seed.PricingConfigVersionUsed),
+		seed.AttemptCount,
+		seed.RequestPath,
+		seed.CreatedAt,
+		nullableTestInt(seed.ResponseTimeMS),
+		nullableTestInt(seed.CompletionDurationMS),
+		nullableTestInt(seed.TTFTMS),
+		nullableTestBool(seed.BillableFlag),
+		nullableTestBool(seed.PricedFlag),
+		nullableTestString(seed.UnpricedReason),
+	); err != nil {
 		t.Fatalf("insert usage event %d: %v", seed.ID, err)
 	}
 }

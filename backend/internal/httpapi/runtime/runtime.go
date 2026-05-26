@@ -101,9 +101,9 @@ type runtimePricingTemplateSnapshot struct {
 	PricingCurrencyCode string
 	InputPrice          string
 	OutputPrice         string
-	CachedInputPrice    *string
-	CacheCreationPrice  *string
-	ReasoningPrice      *string
+	CachedInputPrice    string
+	CacheCreationPrice  string
+	ReasoningPrice      string
 	Version             int
 }
 

@@ -40,11 +40,14 @@ type routeMatrixGenerationParamsExpectation struct {
 }
 
 type routeMatrixUsageExpectation struct {
-	isStream      bool
-	streamOutcome string
-	inputTokens   *int64
-	outputTokens  *int64
-	totalTokens   *int64
+	isStream                 bool
+	streamOutcome            string
+	inputTokens              *int64
+	outputTokens             *int64
+	totalTokens              *int64
+	cacheReadInputTokens     *int64
+	cacheCreationInputTokens *int64
+	reasoningTokens          *int64
 }
 
 func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
@@ -163,7 +166,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			operationName: "gemini.generate_content",
 			responsePayload: map[string]any{
 				"responseId":    "route-matrix-gemini-generate",
-				"usageMetadata": map[string]any{"promptTokenCount": 11, "candidatesTokenCount": 17, "totalTokenCount": 28},
+				"usageMetadata": map[string]any{"promptTokenCount": 11, "candidatesTokenCount": 17, "totalTokenCount": 28, "cachedContentTokenCount": 4, "thoughtsTokenCount": 6},
 			},
 			requestPath: func(route seededRuntimeRoute) string {
 				return fmt.Sprintf("/v1beta/models/%s:generateContent", route.PublicModelID)
@@ -174,7 +177,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			wantUpstreamPath:  routeMatrixGeminiUpstreamPath(":generateContent"),
 			assertModelSource: assertRouteMatrixPathModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.44}},
-			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(11), outputTokens: routeMatrixInt64(17), totalTokens: routeMatrixInt64(28)},
+			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(11), totalTokens: routeMatrixInt64(28), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)},
 			responseContains:  "route-matrix-gemini-generate",
 		},
 		{
@@ -182,7 +185,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			apiFamily:           "gemini",
 			operationName:       "gemini.stream_generate_content",
 			responseContentType: "text/event-stream",
-			responseBody:        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"route matrix gemini stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":13,\"candidatesTokenCount\":21,\"totalTokenCount\":34}}\n\n",
+			responseBody:        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"route matrix gemini stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":13,\"candidatesTokenCount\":21,\"totalTokenCount\":34,\"cachedContentTokenCount\":5,\"thoughtsTokenCount\":8}}\n\n",
 			requestPath: func(route seededRuntimeRoute) string {
 				return fmt.Sprintf("/v1beta/models/%s:streamGenerateContent", route.PublicModelID)
 			},
@@ -192,7 +195,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			wantUpstreamPath:  routeMatrixGeminiUpstreamPath(":streamGenerateContent"),
 			assertModelSource: assertRouteMatrixPathModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.55}},
-			usage:             routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(13), outputTokens: routeMatrixInt64(21), totalTokens: routeMatrixInt64(34)},
+			usage:             routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(8), outputTokens: routeMatrixInt64(13), totalTokens: routeMatrixInt64(34), cacheReadInputTokens: routeMatrixInt64(5), reasoningTokens: routeMatrixInt64(8)},
 			responseContains:  "route matrix gemini stream",
 		},
 		{
@@ -202,7 +205,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			responsePayload: map[string]any{
 				"totalTokens":             41,
 				"cachedContentTokenCount": 3,
-				"usageMetadata":           map[string]any{"promptTokenCount": 999, "candidatesTokenCount": 999, "totalTokenCount": 1998},
+				"usageMetadata":           map[string]any{"promptTokenCount": 999, "candidatesTokenCount": 999, "totalTokenCount": 1998, "cachedContentTokenCount": 777, "thoughtsTokenCount": 666},
 			},
 			requestPath: func(route seededRuntimeRoute) string {
 				return fmt.Sprintf("/v1beta/models/%s:countTokens", route.PublicModelID)
@@ -215,7 +218,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 			wantUpstreamPath:  routeMatrixGeminiUpstreamPath(":countTokens"),
 			assertModelSource: assertRouteMatrixPathModelBinding,
 			generationParams:  routeMatrixGenerationParamsExpectation{status: "missing"},
-			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(41), totalTokens: routeMatrixInt64(41)},
+			usage:             routeMatrixUsageExpectation{streamOutcome: "not_streaming", inputTokens: routeMatrixInt64(41), totalTokens: routeMatrixInt64(41), cacheReadInputTokens: routeMatrixInt64(3)},
 			responseContains:  "totalTokens",
 		},
 	}
@@ -265,7 +268,7 @@ func TestRuntimeOperationRouteMatrixSupportedOperations(t *testing.T) {
 func TestGeminiStreamGenerateUsesPathStreaming(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
-	upstream := newRouteMatrixUpstream(t, "text/event-stream", []byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"split stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":11,\"candidatesTokenCount\":17,\"totalTokenCount\":28}}\n\n"))
+	upstream := newRouteMatrixUpstream(t, "text/event-stream", []byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"split stream\"}]}}],\"usageMetadata\":{\"promptTokenCount\":11,\"candidatesTokenCount\":17,\"totalTokenCount\":28,\"cachedContentTokenCount\":4,\"thoughtsTokenCount\":6}}\n\n"))
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "gemini",
@@ -294,7 +297,7 @@ func TestGeminiStreamGenerateUsesPathStreaming(t *testing.T) {
 	assertRouteMatrixSharedCoreForwarding(t, upstreamRequest, route, "gemini", "/route-matrix/gemini-stream-path/v1beta/models/"+route.TargetModelID+":streamGenerateContent", "route-matrix-gemini-stream-path")
 	assertRouteMatrixPathModelBinding(t, upstreamRequest, route, ignoredBodyModel)
 	assertRouteMatrixSharedCorePersistence(t, harness, profileID, route, "gemini.stream_generate_content", requestPath)
-	assertRouteMatrixUsage(t, harness, profileID, routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(11), outputTokens: routeMatrixInt64(17), totalTokens: routeMatrixInt64(28)})
+	assertRouteMatrixUsage(t, harness, profileID, routeMatrixUsageExpectation{isStream: true, streamOutcome: "completed", inputTokens: routeMatrixInt64(7), outputTokens: routeMatrixInt64(11), totalTokens: routeMatrixInt64(28), cacheReadInputTokens: routeMatrixInt64(4), reasoningTokens: routeMatrixInt64(6)})
 	assertRouteMatrixGenerationParams(t, harness, profileID, routeMatrixGenerationParamsExpectation{status: "complete", params: map[string]any{"provider": "gemini", "temperature": 0.67}})
 }
 
@@ -568,21 +571,24 @@ func assertRouteMatrixUsage(t *testing.T, harness *runtimeHarness, profileID int
 	if logRow.isStream != want.isStream || logRow.streamOutcome != want.streamOutcome {
 		t.Fatalf("expected request_log stream=%t outcome=%q, got stream=%t outcome=%q", want.isStream, want.streamOutcome, logRow.isStream, logRow.streamOutcome)
 	}
-	assertRouteMatrixUsageTokens(t, "request_log", logRow.inputTokens, logRow.outputTokens, logRow.totalTokens, want)
+	assertRouteMatrixUsageTokens(t, "request_log", logRow, want)
 
 	eventRow := loadRouteMatrixUsageEventUsage(t, harness, profileID, ingressRequestID)
 	if eventRow.streamOutcome != want.streamOutcome {
 		t.Fatalf("expected usage_event outcome=%q, got %q", want.streamOutcome, eventRow.streamOutcome)
 	}
-	assertRouteMatrixUsageTokens(t, "usage_event", eventRow.inputTokens, eventRow.outputTokens, eventRow.totalTokens, want)
+	assertRouteMatrixUsageTokens(t, "usage_event", eventRow, want)
 }
 
 type routeMatrixUsageRow struct {
-	isStream      bool
-	streamOutcome string
-	inputTokens   sql.NullInt64
-	outputTokens  sql.NullInt64
-	totalTokens   sql.NullInt64
+	isStream                 bool
+	streamOutcome            string
+	inputTokens              sql.NullInt64
+	outputTokens             sql.NullInt64
+	totalTokens              sql.NullInt64
+	cacheReadInputTokens     sql.NullInt64
+	cacheCreationInputTokens sql.NullInt64
+	reasoningTokens          sql.NullInt64
 }
 
 func loadRouteMatrixRequestLogUsage(t *testing.T, harness *runtimeHarness, profileID int, ingressRequestID string) routeMatrixUsageRow {
@@ -590,10 +596,10 @@ func loadRouteMatrixRequestLogUsage(t *testing.T, harness *runtimeHarness, profi
 	var row routeMatrixUsageRow
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT is_stream, stream_outcome, input_tokens, output_tokens, total_tokens FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
+		`SELECT is_stream, stream_outcome, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
 		profileID,
 		ingressRequestID,
-	).Scan(&row.isStream, &row.streamOutcome, &row.inputTokens, &row.outputTokens, &row.totalTokens); err != nil {
+	).Scan(&row.isStream, &row.streamOutcome, &row.inputTokens, &row.outputTokens, &row.totalTokens, &row.cacheReadInputTokens, &row.cacheCreationInputTokens, &row.reasoningTokens); err != nil {
 		t.Fatalf("load route-matrix request_log usage: %v", err)
 	}
 	return row
@@ -603,20 +609,23 @@ func loadRouteMatrixUsageEventUsage(t *testing.T, harness *runtimeHarness, profi
 	var row routeMatrixUsageRow
 	if err := harness.conn.QueryRow(
 		context.Background(),
-		`SELECT stream_outcome, input_tokens, output_tokens, total_tokens FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		`SELECT stream_outcome, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
 		profileID,
 		ingressRequestID,
-	).Scan(&row.streamOutcome, &row.inputTokens, &row.outputTokens, &row.totalTokens); err != nil {
+	).Scan(&row.streamOutcome, &row.inputTokens, &row.outputTokens, &row.totalTokens, &row.cacheReadInputTokens, &row.cacheCreationInputTokens, &row.reasoningTokens); err != nil {
 		t.Fatalf("load route-matrix usage_event usage: %v", err)
 	}
 	return row
 }
 
-func assertRouteMatrixUsageTokens(t *testing.T, label string, gotInput sql.NullInt64, gotOutput sql.NullInt64, gotTotal sql.NullInt64, want routeMatrixUsageExpectation) {
+func assertRouteMatrixUsageTokens(t *testing.T, label string, got routeMatrixUsageRow, want routeMatrixUsageExpectation) {
 	t.Helper()
-	assertRouteMatrixNullInt64(t, label+" input_tokens", gotInput, want.inputTokens)
-	assertRouteMatrixNullInt64(t, label+" output_tokens", gotOutput, want.outputTokens)
-	assertRouteMatrixNullInt64(t, label+" total_tokens", gotTotal, want.totalTokens)
+	assertRouteMatrixNullInt64(t, label+" input_tokens", got.inputTokens, want.inputTokens)
+	assertRouteMatrixNullInt64(t, label+" output_tokens", got.outputTokens, want.outputTokens)
+	assertRouteMatrixNullInt64(t, label+" total_tokens", got.totalTokens, want.totalTokens)
+	assertRouteMatrixNullInt64(t, label+" cache_read_input_tokens", got.cacheReadInputTokens, want.cacheReadInputTokens)
+	assertRouteMatrixNullInt64(t, label+" cache_creation_input_tokens", got.cacheCreationInputTokens, want.cacheCreationInputTokens)
+	assertRouteMatrixNullInt64(t, label+" reasoning_tokens", got.reasoningTokens, want.reasoningTokens)
 }
 func assertRouteMatrixNullInt64(t *testing.T, label string, got sql.NullInt64, want *int64) {
 	t.Helper()

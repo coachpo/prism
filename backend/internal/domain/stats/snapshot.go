@@ -298,7 +298,7 @@ func GetUsageSnapshot(ctx context.Context, exec queryExecutor, profileID int, pr
 		totalTokens += event.TotalTokens
 		inputTokens += event.InputTokens
 		outputTokens += event.OutputTokens
-		cachedTokens += event.CachedTokens
+		cachedTokens += cachedTokensForSnapshotEvent(event)
 		reasoningTokens += event.ReasoningTokens
 		totalCostMicros += event.TotalCostMicros
 	}
@@ -399,38 +399,43 @@ func buildSnapshotEvents(records []usageEventRecord) []snapshotEvent {
 			totalCostMicros = record.TotalCostUserCurrencyMicros
 		}
 		events = append(events, snapshotEvent{
-			APIFamily:             record.APIFamily,
-			AttemptCount:          record.AttemptCount,
-			BillableFlag:          record.BillableFlag,
-			CachedTokens:          record.CacheReadInputTokens + record.CacheCreationInputTokens,
-			ConnectionID:          record.ConnectionID,
-			CreatedAt:             record.CreatedAt.UTC(),
-			EndpointID:            record.EndpointID,
-			EndpointLabel:         endpointLabel,
-			IngressRequestID:      record.IngressRequestID,
-			InputTokens:           record.InputTokens,
-			ModelID:               record.ModelID,
-			ModelLabel:            modelLabel,
-			OutputTokens:          record.OutputTokens,
-			PricedFlag:            record.PricedFlag,
-			ProxyAPIKeyID:         record.ProxyAPIKeyID,
-			ProxyAPIKeyLabel:      proxyAPIKeyLabel,
-			ProxyAPIKeyStatsLabel: proxyAPIKeyStatsLabel,
-			ProxyAPIKeyPrefix:     record.CurrentProxyAPIKeyPrefix,
-			ReasoningTokens:       record.ReasoningTokens,
-			RequestPath:           record.RequestPath,
-			ResolvedTargetModelID: record.ResolvedTargetModelID,
-			StatusCode:            record.StatusCode,
-			SuccessFlag:           record.SuccessFlag,
-			ResponseTimeMS:        record.ResponseTimeMS,
-			TTFTMS:                record.TTFTMS,
-			CompletionDurationMS:  record.CompletionDurationMS,
-			HasOutputTokens:       record.HasOutputTokens,
-			TotalCostMicros:       totalCostMicros,
-			TotalTokens:           record.TotalTokens,
+			APIFamily:                record.APIFamily,
+			AttemptCount:             record.AttemptCount,
+			BillableFlag:             record.BillableFlag,
+			CacheReadInputTokens:     record.CacheReadInputTokens,
+			CacheCreationInputTokens: record.CacheCreationInputTokens,
+			ConnectionID:             record.ConnectionID,
+			CreatedAt:                record.CreatedAt.UTC(),
+			EndpointID:               record.EndpointID,
+			EndpointLabel:            endpointLabel,
+			IngressRequestID:         record.IngressRequestID,
+			InputTokens:              record.InputTokens,
+			ModelID:                  record.ModelID,
+			ModelLabel:               modelLabel,
+			OutputTokens:             record.OutputTokens,
+			PricedFlag:               record.PricedFlag,
+			ProxyAPIKeyID:            record.ProxyAPIKeyID,
+			ProxyAPIKeyLabel:         proxyAPIKeyLabel,
+			ProxyAPIKeyStatsLabel:    proxyAPIKeyStatsLabel,
+			ProxyAPIKeyPrefix:        record.CurrentProxyAPIKeyPrefix,
+			ReasoningTokens:          record.ReasoningTokens,
+			RequestPath:              record.RequestPath,
+			ResolvedTargetModelID:    record.ResolvedTargetModelID,
+			StatusCode:               record.StatusCode,
+			SuccessFlag:              record.SuccessFlag,
+			ResponseTimeMS:           record.ResponseTimeMS,
+			TTFTMS:                   record.TTFTMS,
+			CompletionDurationMS:     record.CompletionDurationMS,
+			HasOutputTokens:          record.HasOutputTokens,
+			TotalCostMicros:          totalCostMicros,
+			TotalTokens:              record.TotalTokens,
 		})
 	}
 	return events
+}
+
+func cachedTokensForSnapshotEvent(event snapshotEvent) int {
+	return event.CacheReadInputTokens + event.CacheCreationInputTokens
 }
 
 const (
@@ -648,7 +653,7 @@ func buildTokenTrendSeries(events []snapshotEvent, startAt *time.Time, endAt tim
 		stat.totalTokens += event.TotalTokens
 		stat.inputTokens += event.InputTokens
 		stat.outputTokens += event.OutputTokens
-		stat.cachedTokens += event.CachedTokens
+		stat.cachedTokens += cachedTokensForSnapshotEvent(event)
 		stat.reasoningTokens += event.ReasoningTokens
 		modelTotals[event.ModelID] += event.TotalTokens
 		modelLabels[event.ModelID] = event.ModelLabel
@@ -665,7 +670,7 @@ func buildTokenTrendSeries(events []snapshotEvent, startAt *time.Time, endAt tim
 		bucketStat.totalTokens += event.TotalTokens
 		bucketStat.inputTokens += event.InputTokens
 		bucketStat.outputTokens += event.OutputTokens
-		bucketStat.cachedTokens += event.CachedTokens
+		bucketStat.cachedTokens += cachedTokensForSnapshotEvent(event)
 		bucketStat.reasoningTokens += event.ReasoningTokens
 	}
 	items := []UsageTokenTrendSeries{{
@@ -715,7 +720,7 @@ func buildTokenTypeBreakdown(events []snapshotEvent, startAt *time.Time, endAt t
 		}
 		item.inputTokens += event.InputTokens
 		item.outputTokens += event.OutputTokens
-		item.cachedTokens += event.CachedTokens
+		item.cachedTokens += cachedTokensForSnapshotEvent(event)
 		item.reasoningTokens += event.ReasoningTokens
 	}
 	points := make([]UsageTokenTypeBreakdownPoint, 0, len(buckets))
@@ -856,7 +861,7 @@ func buildUsageModelStatistics(events []snapshotEvent) []UsageModelStatistic {
 		}
 		group.inputTokens += event.InputTokens
 		group.outputTokens += event.OutputTokens
-		group.cachedTokens += event.CachedTokens
+		group.cachedTokens += cachedTokensForSnapshotEvent(event)
 		group.reasoningTokens += event.ReasoningTokens
 		group.totalTokens += event.TotalTokens
 		group.totalCostMicros += event.TotalCostMicros

@@ -296,13 +296,14 @@ type UsageSnapshotCurrency struct {
 }
 
 type UsageSnapshotOverview struct {
-	TotalRequests        int     `json:"total_requests"`
-	SuccessRequests      int     `json:"success_requests"`
-	FailedRequests       int     `json:"failed_requests"`
-	SuccessRate          float64 `json:"success_rate"`
-	TotalTokens          int     `json:"total_tokens"`
-	InputTokens          int     `json:"input_tokens"`
-	OutputTokens         int     `json:"output_tokens"`
+	TotalRequests   int     `json:"total_requests"`
+	SuccessRequests int     `json:"success_requests"`
+	FailedRequests  int     `json:"failed_requests"`
+	SuccessRate     float64 `json:"success_rate"`
+	TotalTokens     int     `json:"total_tokens"`
+	InputTokens     int     `json:"input_tokens"`
+	OutputTokens    int     `json:"output_tokens"`
+	// CachedTokens is derived from cache-read plus cache-creation input tokens for aggregate presentation only.
 	CachedTokens         int     `json:"cached_tokens"`
 	ReasoningTokens      int     `json:"reasoning_tokens"`
 	AverageRPM           float64 `json:"average_rpm"`
@@ -354,13 +355,14 @@ type UsageRequestTrends struct {
 }
 
 type UsageTokenTrendPoint struct {
-	BucketStart     time.Time `json:"bucket_start"`
-	TotalTokens     int       `json:"total_tokens"`
-	InputTokens     int       `json:"input_tokens"`
-	OutputTokens    int       `json:"output_tokens"`
-	CachedTokens    int       `json:"cached_tokens"`
-	ReasoningTokens int       `json:"reasoning_tokens"`
-	TPM             float64   `json:"tpm"`
+	BucketStart  time.Time `json:"bucket_start"`
+	TotalTokens  int       `json:"total_tokens"`
+	InputTokens  int       `json:"input_tokens"`
+	OutputTokens int       `json:"output_tokens"`
+	// CachedTokens is derived from cache-read plus cache-creation input tokens for aggregate presentation only.
+	CachedTokens    int     `json:"cached_tokens"`
+	ReasoningTokens int     `json:"reasoning_tokens"`
+	TPM             float64 `json:"tpm"`
 }
 
 type UsageTokenTrendSeries struct {
@@ -376,11 +378,12 @@ type UsageTokenUsageTrends struct {
 }
 
 type UsageTokenTypeBreakdownPoint struct {
-	BucketStart     time.Time `json:"bucket_start"`
-	InputTokens     int       `json:"input_tokens"`
-	OutputTokens    int       `json:"output_tokens"`
-	CachedTokens    int       `json:"cached_tokens"`
-	ReasoningTokens int       `json:"reasoning_tokens"`
+	BucketStart  time.Time `json:"bucket_start"`
+	InputTokens  int       `json:"input_tokens"`
+	OutputTokens int       `json:"output_tokens"`
+	// CachedTokens is derived from cache-read plus cache-creation input tokens for aggregate presentation only.
+	CachedTokens    int `json:"cached_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 type UsageTokenTypeBreakdown struct {
@@ -414,23 +417,24 @@ type UsageEndpointStatistic struct {
 }
 
 type UsageModelStatistic struct {
-	ModelID              string   `json:"model_id"`
-	ModelLabel           string   `json:"model_label"`
-	RequestCount         int      `json:"request_count"`
-	SuccessCount         *int     `json:"success_count"`
-	FailedCount          *int     `json:"failed_count"`
-	PricedRequestCount   *int     `json:"priced_request_count"`
-	UnpricedRequestCount *int     `json:"unpriced_request_count"`
-	SuccessRate          float64  `json:"success_rate"`
-	P50TTFTMS            *int     `json:"p50_ttft_ms"`
-	P95TTFTMS            *int     `json:"p95_ttft_ms"`
-	InputTokens          *int     `json:"input_tokens"`
-	OutputTokens         *int     `json:"output_tokens"`
-	CachedTokens         *int     `json:"cached_tokens"`
-	ReasoningTokens      *int     `json:"reasoning_tokens"`
-	TotalTokens          int      `json:"total_tokens"`
-	TotalCostMicros      int64    `json:"total_cost_micros"`
-	AvgOutputRateTPS     *float64 `json:"avg_output_rate_tps"`
+	ModelID              string  `json:"model_id"`
+	ModelLabel           string  `json:"model_label"`
+	RequestCount         int     `json:"request_count"`
+	SuccessCount         *int    `json:"success_count"`
+	FailedCount          *int    `json:"failed_count"`
+	PricedRequestCount   *int    `json:"priced_request_count"`
+	UnpricedRequestCount *int    `json:"unpriced_request_count"`
+	SuccessRate          float64 `json:"success_rate"`
+	P50TTFTMS            *int    `json:"p50_ttft_ms"`
+	P95TTFTMS            *int    `json:"p95_ttft_ms"`
+	InputTokens          *int    `json:"input_tokens"`
+	OutputTokens         *int    `json:"output_tokens"`
+	// CachedTokens is derived from cache-read plus cache-creation input tokens for aggregate presentation only.
+	CachedTokens     *int     `json:"cached_tokens"`
+	ReasoningTokens  *int     `json:"reasoning_tokens"`
+	TotalTokens      int      `json:"total_tokens"`
+	TotalCostMicros  int64    `json:"total_cost_micros"`
+	AvgOutputRateTPS *float64 `json:"avg_output_rate_tps"`
 }
 
 type UsageProxyAPIKeyStatistic struct {

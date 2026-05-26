@@ -216,6 +216,7 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	if !message.RequestLog.IsProxyOrigin {
 		t.Fatalf("expected realtime request_log.is_proxy_origin=true, got %+v", message.RequestLog)
 	}
+	assertRealtimeRequestLogTokenPointers(t, message.RequestLog, 11, 7, 25, 4, 2, 1)
 	var requestLogPayload map[string]any
 	rawRequestLogPayload, err := json.Marshal(message.RequestLog)
 	if err != nil {
@@ -226,6 +227,33 @@ func TestDashboardUpdatePayload(t *testing.T) {
 	}
 	if _, ok := requestLogPayload["stream_error_detail"]; ok {
 		t.Fatalf("did not expect realtime request_log to expose stream_error_detail, got %+v", requestLogPayload)
+	}
+	detailResponse := harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	var detailPayload map[string]any
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	assertRealtimeRequestLogMatchesRESTDetail(t, requestLogPayload, detailPayload)
+
+	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET priced_flag = TRUE, unpriced_reason = NULL, total_cost_user_currency_micros = NULL WHERE id = $1 AND profile_id = $2`, requestLogID, profileID); err != nil {
+		t.Fatalf("mark realtime request log with missing cost: %v", err)
+	}
+	message, err = harness.realtimeService.BuildDashboardUpdate(context.Background(), requestLogID, profileID)
+	if err != nil {
+		t.Fatalf("build dashboard update payload with normalized missing cost: %v", err)
+	}
+	rawRequestLogPayload, err = json.Marshal(message.RequestLog)
+	if err != nil {
+		t.Fatalf("marshal realtime missing-cost request_log payload: %v", err)
+	}
+	if err := json.Unmarshal(rawRequestLogPayload, &requestLogPayload); err != nil {
+		t.Fatalf("decode realtime missing-cost request_log payload: %v", err)
+	}
+	detailResponse = harness.requestJSON(t, http.MethodGet, fmt.Sprintf("/api/stats/requests/%d", requestLogID), nil, runtimeModelHeader(profileID))
+	assertStatus(t, detailResponse, http.StatusOK)
+	decodeJSONResponse(t, detailResponse, &detailPayload)
+	assertRealtimeRequestLogMatchesRESTDetail(t, requestLogPayload, detailPayload)
+	if requestLogPayload["priced_flag"] != false || requestLogPayload["unpriced_reason"] != "MISSING_PRICE_DATA" {
+		t.Fatalf("expected realtime missing-cost request_log to use REST spend normalization, got %+v", requestLogPayload)
 	}
 
 	if _, err := harness.conn.Exec(context.Background(), `UPDATE request_logs SET is_stream = FALSE, stream_outcome = 'upstream_read_error', stream_error_kind = 'upstream_read_failed', stream_error_detail = 'upstream socket closed' WHERE id = $1 AND profile_id = $2`, requestLogID, profileID); err != nil {
@@ -342,6 +370,7 @@ func TestRealtimeAnalyticsSnapshotParity(t *testing.T) {
 	assertStatus(t, usageResponse, http.StatusOK)
 	var restUsage statsdomain.UsageSnapshotResponse
 	decodeJSONResponse(t, usageResponse, &restUsage)
+	assertUsageSnapshotMergedTokenSemantics(t, restUsage, 11, 7, 25, 6, 1)
 
 	fromTime := url.QueryEscape(restUsage.TimeRange.StartAt.Format(time.RFC3339Nano))
 	toTime := url.QueryEscape(restUsage.TimeRange.EndAt.Format(time.RFC3339Nano))
@@ -360,6 +389,7 @@ func TestRealtimeAnalyticsSnapshotParity(t *testing.T) {
 	if !reflect.DeepEqual(restUsage, message.Snapshot) {
 		t.Fatalf("expected analytics snapshot to match REST usage snapshot, got rest=%+v realtime=%+v", restUsage, message.Snapshot)
 	}
+	assertUsageSnapshotMergedTokenSemantics(t, message.Snapshot, 11, 7, 25, 6, 1)
 	if message.Snapshot.TimeRange.StartAt == nil || !message.Snapshot.TimeRange.StartAt.Equal(*restUsage.TimeRange.StartAt) || !message.Snapshot.TimeRange.EndAt.Equal(restUsage.TimeRange.EndAt) {
 		t.Fatalf("expected realtime snapshot window to match REST window, got rest=%+v realtime=%+v", restUsage.TimeRange, message.Snapshot.TimeRange)
 	}
@@ -865,7 +895,7 @@ func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDash
 	)
 	if _, err := h.conn.Exec(
 		context.Background(),
-		`INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, success_flag, billable_flag, priced_flag, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, endpoint_description, created_at) VALUES ($1, $2, $3, $4, 'openai', $5, $6, $7, 1, $8, $9, 200, 1200, FALSE, 11, 7, 18, TRUE, TRUE, TRUE, 1250, 'USD', '$', '/v1/chat/completions', $10, $11)`,
+		`INSERT INTO request_logs (id, profile_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, ingress_request_id, attempt_number, provider_correlation_id, endpoint_base_url, status_code, response_time_ms, is_stream, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, success_flag, billable_flag, priced_flag, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, request_path, endpoint_description, created_at) VALUES ($1, $2, $3, $4, 'openai', $5, $6, $7, 1, $8, $9, 200, 1200, FALSE, 11, 7, 25, 4, 2, 1, TRUE, TRUE, TRUE, 1250, 'USD', '$', '/v1/chat/completions', $10, $11)`,
 		requestLogID,
 		profileID,
 		route.PublicModelID,
@@ -882,7 +912,7 @@ func (h *realtimeHarness) insertDashboardActivity(t *testing.T, route seededDash
 	}
 	if _, err := h.conn.Exec(
 		context.Background(),
-		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, $4, $5, 'openai', $6, $7, 200, TRUE, TRUE, TRUE, 11, 7, 18, 1250, 'USD', '$', 1, '/v1/chat/completions', $8, 1200)`,
+		`INSERT INTO usage_request_events (id, profile_id, ingress_request_id, model_id, resolved_target_model_id, api_family, endpoint_id, connection_id, status_code, success_flag, billable_flag, priced_flag, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens, total_cost_user_currency_micros, report_currency_code, report_currency_symbol, attempt_count, request_path, created_at, response_time_ms) VALUES ($1, $2, $3, $4, $5, 'openai', $6, $7, 200, TRUE, TRUE, TRUE, 11, 7, 25, 4, 2, 1, 1250, 'USD', '$', 1, '/v1/chat/completions', $8, 1200)`,
 		usageEventID,
 		profileID,
 		fmt.Sprintf("ingress-%d", requestLogID),
@@ -953,6 +983,168 @@ func assertNestedRequestLogProfileID(t *testing.T, message map[string]any, profi
 	}
 	if requestLog["profile_id"] != float64(profileID) {
 		t.Fatalf("expected realtime request_log.profile_id=%d, got %+v", profileID, requestLog)
+	}
+}
+
+func assertRealtimeRequestLogTokenPointers(t *testing.T, entry realtimeapi.RequestLogEntry, wantInput int, wantOutput int, wantTotal int, wantCacheRead int, wantCacheCreation int, wantReasoning int) {
+	t.Helper()
+	if entry.InputTokens == nil || *entry.InputTokens != wantInput || entry.OutputTokens == nil || *entry.OutputTokens != wantOutput || entry.TotalTokens == nil || *entry.TotalTokens != wantTotal || entry.CacheReadInputTokens == nil || *entry.CacheReadInputTokens != wantCacheRead || entry.CacheCreationInputTokens == nil || *entry.CacheCreationInputTokens != wantCacheCreation || entry.ReasoningTokens == nil || *entry.ReasoningTokens != wantReasoning {
+		t.Fatalf("expected realtime request_log input/output/total/cache-read/cache-creation/reasoning=%d/%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCacheRead, wantCacheCreation, wantReasoning, entry)
+	}
+}
+
+func assertUsageSnapshotMergedTokenSemantics(t *testing.T, snapshot statsdomain.UsageSnapshotResponse, wantInput int, wantOutput int, wantTotal int, wantCached int, wantReasoning int) {
+	t.Helper()
+	if snapshot.Overview.InputTokens != wantInput || snapshot.Overview.OutputTokens != wantOutput || snapshot.Overview.TotalTokens != wantTotal || snapshot.Overview.CachedTokens != wantCached || snapshot.Overview.ReasoningTokens != wantReasoning {
+		t.Fatalf("expected usage snapshot overview input/output/total/cached/reasoning=%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCached, wantReasoning, snapshot.Overview)
+	}
+	trendTotals := sumAllModelTokenTrendPoints(snapshot.TokenUsageTrends.Hourly)
+	if trendTotals.inputTokens != wantInput || trendTotals.outputTokens != wantOutput || trendTotals.totalTokens != wantTotal || trendTotals.cachedTokens != wantCached || trendTotals.reasoningTokens != wantReasoning {
+		t.Fatalf("expected usage snapshot token trend input/output/total/cached/reasoning=%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCached, wantReasoning, trendTotals)
+	}
+	breakdownTotals := sumTokenTypeBreakdownPoints(snapshot.TokenTypeBreakdown.Hourly)
+	if breakdownTotals.inputTokens != wantInput || breakdownTotals.outputTokens != wantOutput || breakdownTotals.cachedTokens != wantCached || breakdownTotals.reasoningTokens != wantReasoning {
+		t.Fatalf("expected usage snapshot token breakdown input/output/cached/reasoning=%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantCached, wantReasoning, breakdownTotals)
+	}
+	modelTotals := sumUsageModelStatisticTokens(snapshot.ModelStatistics)
+	if modelTotals.inputTokens != wantInput || modelTotals.outputTokens != wantOutput || modelTotals.totalTokens != wantTotal || modelTotals.cachedTokens != wantCached || modelTotals.reasoningTokens != wantReasoning {
+		t.Fatalf("expected usage snapshot model stats input/output/total/cached/reasoning=%d/%d/%d/%d/%d, got %+v", wantInput, wantOutput, wantTotal, wantCached, wantReasoning, modelTotals)
+	}
+}
+
+type usageSnapshotTokenTotals struct {
+	inputTokens     int
+	outputTokens    int
+	totalTokens     int
+	cachedTokens    int
+	reasoningTokens int
+}
+
+func sumAllModelTokenTrendPoints(series []statsdomain.UsageTokenTrendSeries) usageSnapshotTokenTotals {
+	for _, item := range series {
+		if item.Key != "all" {
+			continue
+		}
+		totals := usageSnapshotTokenTotals{}
+		for _, point := range item.Points {
+			totals.inputTokens += point.InputTokens
+			totals.outputTokens += point.OutputTokens
+			totals.totalTokens += point.TotalTokens
+			totals.cachedTokens += point.CachedTokens
+			totals.reasoningTokens += point.ReasoningTokens
+		}
+		return totals
+	}
+	return usageSnapshotTokenTotals{}
+}
+
+func sumTokenTypeBreakdownPoints(points []statsdomain.UsageTokenTypeBreakdownPoint) usageSnapshotTokenTotals {
+	totals := usageSnapshotTokenTotals{}
+	for _, point := range points {
+		totals.inputTokens += point.InputTokens
+		totals.outputTokens += point.OutputTokens
+		totals.cachedTokens += point.CachedTokens
+		totals.reasoningTokens += point.ReasoningTokens
+	}
+	return totals
+}
+
+func sumUsageModelStatisticTokens(items []statsdomain.UsageModelStatistic) usageSnapshotTokenTotals {
+	totals := usageSnapshotTokenTotals{}
+	for _, item := range items {
+		if item.InputTokens != nil {
+			totals.inputTokens += *item.InputTokens
+		}
+		if item.OutputTokens != nil {
+			totals.outputTokens += *item.OutputTokens
+		}
+		if item.CachedTokens != nil {
+			totals.cachedTokens += *item.CachedTokens
+		}
+		if item.ReasoningTokens != nil {
+			totals.reasoningTokens += *item.ReasoningTokens
+		}
+		totals.totalTokens += item.TotalTokens
+	}
+	return totals
+}
+
+func assertRealtimeRequestLogMatchesRESTDetail(t *testing.T, requestLog map[string]any, detail map[string]any) {
+	t.Helper()
+	summary := asMapRuntime(t, detail["summary"])
+	request := asMapRuntime(t, detail["request"])
+	routing := asMapRuntime(t, detail["routing"])
+	usage := asMapRuntime(t, detail["usage"])
+	costing := asMapRuntime(t, detail["costing"])
+	pricing := asMapRuntime(t, detail["pricing"])
+	fields := []struct {
+		realtimeKey string
+		restPayload map[string]any
+		restKey     string
+	}{
+		{"id", summary, "id"},
+		{"model_id", summary, "model_id"},
+		{"model_label", summary, "model_label"},
+		{"resolved_target_model_id", summary, "resolved_target_model_id"},
+		{"resolved_target_model_label", summary, "resolved_target_model_label"},
+		{"is_proxy_origin", summary, "is_proxy_origin"},
+		{"api_family", summary, "api_family"},
+		{"vendor_id", summary, "vendor_id"},
+		{"vendor_key", summary, "vendor_key"},
+		{"vendor_name", summary, "vendor_name"},
+		{"status_code", summary, "status_code"},
+		{"response_time_ms", summary, "response_time_ms"},
+		{"ttft_ms", summary, "ttft_ms"},
+		{"completion_duration_ms", summary, "completion_duration_ms"},
+		{"is_stream", summary, "is_stream"},
+		{"stream_outcome", summary, "stream_outcome"},
+		{"stream_error_kind", summary, "stream_error_kind"},
+		{"request_path", request, "request_path"},
+		{"ingress_request_id", request, "ingress_request_id"},
+		{"attempt_number", request, "attempt_number"},
+		{"provider_correlation_id", request, "provider_correlation_id"},
+		{"proxy_api_key_id", request, "proxy_api_key_id"},
+		{"proxy_api_key_name_snapshot", request, "proxy_api_key_name_snapshot"},
+		{"error_detail", request, "error_detail"},
+		{"profile_id", routing, "profile_id"},
+		{"endpoint_id", routing, "endpoint_id"},
+		{"connection_id", routing, "connection_id"},
+		{"endpoint_base_url", routing, "endpoint_base_url"},
+		{"endpoint_description", routing, "endpoint_description"},
+		{"input_tokens", usage, "input_tokens"},
+		{"output_tokens", usage, "output_tokens"},
+		{"total_tokens", usage, "total_tokens"},
+		{"success_flag", usage, "success_flag"},
+		{"billable_flag", usage, "billable_flag"},
+		{"priced_flag", usage, "priced_flag"},
+		{"unpriced_reason", usage, "unpriced_reason"},
+		{"cache_read_input_tokens", usage, "cache_read_input_tokens"},
+		{"cache_creation_input_tokens", usage, "cache_creation_input_tokens"},
+		{"reasoning_tokens", usage, "reasoning_tokens"},
+		{"input_cost_micros", costing, "input_cost_micros"},
+		{"output_cost_micros", costing, "output_cost_micros"},
+		{"cache_read_input_cost_micros", costing, "cache_read_input_cost_micros"},
+		{"cache_creation_input_cost_micros", costing, "cache_creation_input_cost_micros"},
+		{"reasoning_cost_micros", costing, "reasoning_cost_micros"},
+		{"total_cost_original_micros", costing, "total_cost_original_micros"},
+		{"total_cost_user_currency_micros", costing, "total_cost_user_currency_micros"},
+		{"currency_code_original", costing, "currency_code_original"},
+		{"report_currency_code", costing, "report_currency_code"},
+		{"report_currency_symbol", costing, "report_currency_symbol"},
+		{"fx_rate_used", costing, "fx_rate_used"},
+		{"fx_rate_source", costing, "fx_rate_source"},
+		{"pricing_snapshot_unit", pricing, "pricing_snapshot_unit"},
+		{"pricing_snapshot_input", pricing, "pricing_snapshot_input"},
+		{"pricing_snapshot_output", pricing, "pricing_snapshot_output"},
+		{"pricing_snapshot_cache_read_input", pricing, "pricing_snapshot_cache_read_input"},
+		{"pricing_snapshot_cache_creation_input", pricing, "pricing_snapshot_cache_creation_input"},
+		{"pricing_snapshot_reasoning", pricing, "pricing_snapshot_reasoning"},
+		{"pricing_config_version_used", pricing, "pricing_config_version_used"},
+	}
+	for _, field := range fields {
+		if !reflect.DeepEqual(requestLog[field.realtimeKey], field.restPayload[field.restKey]) {
+			t.Fatalf("expected realtime request_log.%s to match REST %s=%v, got %v", field.realtimeKey, field.restKey, field.restPayload[field.restKey], requestLog[field.realtimeKey])
+		}
 	}
 }
 

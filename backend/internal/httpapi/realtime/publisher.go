@@ -2,11 +2,8 @@ package realtime
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,12 +11,6 @@ import (
 	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	"github.com/coachpo/prism/backend/internal/pgxutil"
 )
-
-type requestLogModelMetadata struct {
-	ModelID     string
-	DisplayName *string
-	ModelType   string
-}
 
 var errDashboardRequestLogNotFound = errors.New("dashboard request log not found")
 
@@ -153,26 +144,78 @@ func loadRequestLogCreatedAt(ctx context.Context, tx pgx.Tx, requestLogID int, p
 }
 
 func loadRequestLogEntry(ctx context.Context, tx pgx.Tx, requestLogID int, profileID int) (RequestLogEntry, error) {
-	var raw []byte
-	err := tx.QueryRow(ctx, `SELECT row_to_json(request_logs) FROM request_logs WHERE id = $1 AND profile_id = $2 LIMIT 1`, requestLogID, profileID).Scan(&raw)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
-	}
+	detail, err := statsdomain.GetRequestLogDetail(ctx, tx, profileID, requestLogID)
 	if err != nil {
 		return RequestLogEntry{}, fmt.Errorf("load request log %d for profile %d: %w", requestLogID, profileID, err)
 	}
-	var entry RequestLogEntry
-	if err := json.Unmarshal(raw, &entry); err != nil {
-		return RequestLogEntry{}, fmt.Errorf("decode request log %d: %w", requestLogID, err)
+	if detail == nil {
+		return RequestLogEntry{}, fmt.Errorf("%w: request log %d not found for profile %d", errDashboardRequestLogNotFound, requestLogID, profileID)
 	}
-	entry.CreatedAt = entry.CreatedAt.UTC()
-	entry.StreamOutcome = normalizeRequestLogStreamOutcome(entry.StreamOutcome, entry.IsStream, entry.CompletionDurationMS)
-	entry.StreamErrorKind = normalizeOptionalString(entry.StreamErrorKind)
-	enrichedEntry, err := enrichRequestLogEntry(ctx, tx, entry)
-	if err != nil {
-		return RequestLogEntry{}, err
+	return requestLogEntryFromDetail(*detail), nil
+}
+
+func requestLogEntryFromDetail(detail statsdomain.RequestLogDetailResponse) RequestLogEntry {
+	return RequestLogEntry{
+		ID:                                detail.Summary.ID,
+		ProfileID:                         detail.Routing.ProfileID,
+		ModelID:                           detail.Summary.ModelID,
+		ModelLabel:                        detail.Summary.ModelLabel,
+		ResolvedTargetModelID:             detail.Summary.ResolvedTargetModelID,
+		ResolvedTargetModelLabel:          detail.Summary.ResolvedTargetModelLabel,
+		IsProxyOrigin:                     detail.Summary.IsProxyOrigin,
+		APIFamily:                         detail.Summary.APIFamily,
+		VendorID:                          detail.Summary.VendorID,
+		VendorKey:                         detail.Summary.VendorKey,
+		VendorName:                        detail.Summary.VendorName,
+		EndpointID:                        detail.Routing.EndpointID,
+		ConnectionID:                      detail.Routing.ConnectionID,
+		ProxyAPIKeyID:                     detail.Request.ProxyAPIKeyID,
+		ProxyAPIKeyNameSnapshot:           detail.Request.ProxyAPIKeyNameSnapshot,
+		IngressRequestID:                  detail.Request.IngressRequestID,
+		AttemptNumber:                     detail.Request.AttemptNumber,
+		ProviderCorrelationID:             detail.Request.ProviderCorrelationID,
+		EndpointBaseURL:                   detail.Routing.EndpointBaseURL,
+		StatusCode:                        detail.Summary.StatusCode,
+		ResponseTimeMS:                    detail.Summary.ResponseTimeMS,
+		TTFTMS:                            detail.Summary.TTFTMS,
+		CompletionDurationMS:              detail.Summary.CompletionDurationMS,
+		IsStream:                          detail.Summary.IsStream,
+		StreamOutcome:                     detail.Summary.StreamOutcome,
+		StreamErrorKind:                   detail.Summary.StreamErrorKind,
+		InputTokens:                       detail.Usage.InputTokens,
+		OutputTokens:                      detail.Usage.OutputTokens,
+		TotalTokens:                       detail.Usage.TotalTokens,
+		SuccessFlag:                       detail.Usage.SuccessFlag,
+		BillableFlag:                      detail.Usage.BillableFlag,
+		PricedFlag:                        detail.Usage.PricedFlag,
+		UnpricedReason:                    detail.Usage.UnpricedReason,
+		CacheReadInputTokens:              detail.Usage.CacheReadInputTokens,
+		CacheCreationInputTokens:          detail.Usage.CacheCreationInputTokens,
+		ReasoningTokens:                   detail.Usage.ReasoningTokens,
+		InputCostMicros:                   detail.Costing.InputCostMicros,
+		OutputCostMicros:                  detail.Costing.OutputCostMicros,
+		CacheReadInputCostMicros:          detail.Costing.CacheReadInputCostMicros,
+		CacheCreationInputCostMicros:      detail.Costing.CacheCreationInputCostMicros,
+		ReasoningCostMicros:               detail.Costing.ReasoningCostMicros,
+		TotalCostOriginalMicros:           detail.Costing.TotalCostOriginalMicros,
+		TotalCostUserCurrencyMicros:       detail.Costing.TotalCostUserCurrencyMicros,
+		CurrencyCodeOriginal:              detail.Costing.CurrencyCodeOriginal,
+		ReportCurrencyCode:                detail.Costing.ReportCurrencyCode,
+		ReportCurrencySymbol:              detail.Costing.ReportCurrencySymbol,
+		FXRateUsed:                        detail.Costing.FXRateUsed,
+		FXRateSource:                      detail.Costing.FXRateSource,
+		PricingSnapshotUnit:               detail.Pricing.PricingSnapshotUnit,
+		PricingSnapshotInput:              detail.Pricing.PricingSnapshotInput,
+		PricingSnapshotOutput:             detail.Pricing.PricingSnapshotOutput,
+		PricingSnapshotCacheReadInput:     detail.Pricing.PricingSnapshotCacheReadInput,
+		PricingSnapshotCacheCreationInput: detail.Pricing.PricingSnapshotCacheCreationInput,
+		PricingSnapshotReasoning:          detail.Pricing.PricingSnapshotReasoning,
+		PricingConfigVersionUsed:          detail.Pricing.PricingConfigVersionUsed,
+		RequestPath:                       detail.Request.RequestPath,
+		ErrorDetail:                       detail.Request.ErrorDetail,
+		EndpointDescription:               detail.Routing.EndpointDescription,
+		CreatedAt:                         detail.Summary.CreatedAt.UTC(),
 	}
-	return enrichedEntry, nil
 }
 
 func (s *Service) setLatestRequestLogID(profileID int, requestLogID int) {
@@ -186,115 +229,4 @@ func (s *Service) latestRequestLogID(profileID int) (int, bool) {
 	defer s.latestMu.Unlock()
 	requestLogID, ok := s.latestRequestLogIDs[profileID]
 	return requestLogID, ok
-}
-
-func enrichRequestLogEntry(ctx context.Context, tx pgx.Tx, entry RequestLogEntry) (RequestLogEntry, error) {
-	currentModelsByID, err := loadRequestLogModels(ctx, tx, entry.ProfileID)
-	if err != nil {
-		return RequestLogEntry{}, err
-	}
-	entry.ModelLabel = resolveRequestLogModelLabel(currentModelsByID, entry.ModelID)
-	entry.ResolvedTargetModelLabel = resolveRequestLogResolvedTargetModelLabel(currentModelsByID, entry.ResolvedTargetModelID)
-	entry.IsProxyOrigin = resolveRequestLogIsProxyOrigin(currentModelsByID, entry.ModelID, entry.ResolvedTargetModelID)
-	return entry, nil
-}
-
-func loadRequestLogModels(ctx context.Context, tx pgx.Tx, profileID int) (map[string]requestLogModelMetadata, error) {
-	rows, err := tx.Query(ctx, `SELECT model_id, display_name, model_type FROM model_configs WHERE profile_id = $1 ORDER BY id ASC`, profileID)
-	if err != nil {
-		return nil, fmt.Errorf("query realtime request-log models for profile %d: %w", profileID, err)
-	}
-	defer rows.Close()
-	itemsByID := map[string]requestLogModelMetadata{}
-	for rows.Next() {
-		var modelID string
-		var displayName sql.NullString
-		var modelType string
-		if err := rows.Scan(&modelID, &displayName, &modelType); err != nil {
-			return nil, fmt.Errorf("scan realtime request-log model: %w", err)
-		}
-		trimmedModelID := strings.TrimSpace(modelID)
-		if trimmedModelID == "" {
-			continue
-		}
-		if _, exists := itemsByID[trimmedModelID]; exists {
-			continue
-		}
-		itemsByID[trimmedModelID] = requestLogModelMetadata{
-			ModelID:     trimmedModelID,
-			DisplayName: normalizeOptionalString(nullableStringPointer(displayName)),
-			ModelType:   strings.TrimSpace(strings.ToLower(modelType)),
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate realtime request-log models for profile %d: %w", profileID, err)
-	}
-	return itemsByID, nil
-}
-
-func requestLogModelLabel(model requestLogModelMetadata) string {
-	if model.DisplayName != nil && strings.TrimSpace(*model.DisplayName) != "" {
-		return strings.TrimSpace(*model.DisplayName)
-	}
-	return strings.TrimSpace(model.ModelID)
-}
-
-func resolveRequestLogModelLabel(currentModelsByID map[string]requestLogModelMetadata, modelID string) string {
-	trimmedModelID := strings.TrimSpace(modelID)
-	if currentModel, ok := currentModelsByID[trimmedModelID]; ok {
-		return requestLogModelLabel(currentModel)
-	}
-	return trimmedModelID
-}
-
-func resolveRequestLogResolvedTargetModelLabel(currentModelsByID map[string]requestLogModelMetadata, resolvedTargetModelID *string) *string {
-	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
-	if resolvedTarget == nil {
-		return nil
-	}
-	label := resolveRequestLogModelLabel(currentModelsByID, *resolvedTarget)
-	return &label
-}
-
-func resolveRequestLogIsProxyOrigin(currentModelsByID map[string]requestLogModelMetadata, modelID string, resolvedTargetModelID *string) bool {
-	trimmedModelID := strings.TrimSpace(modelID)
-	resolvedTarget := normalizeOptionalString(resolvedTargetModelID)
-	if resolvedTarget != nil && *resolvedTarget != trimmedModelID {
-		return true
-	}
-	currentModel, ok := currentModelsByID[trimmedModelID]
-	return ok && currentModel.ModelType == "proxy"
-}
-
-func normalizeRequestLogStreamOutcome(value string, isStream bool, completionDurationMS *int) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed != "" {
-		return trimmed
-	}
-	if !isStream {
-		return "not_streaming"
-	}
-	if completionDurationMS != nil {
-		return "completed"
-	}
-	return "unknown"
-}
-
-func normalizeOptionalString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return nil
-	}
-	return &trimmed
-}
-
-func nullableStringPointer(value sql.NullString) *string {
-	if !value.Valid {
-		return nil
-	}
-	resolved := value.String
-	return &resolved
 }

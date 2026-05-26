@@ -339,7 +339,7 @@ func TestProxyEventStreamPreservesTerminalTimingWhenTransportOutranksTerminal(t 
 
 func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
 
 	t.Run("completed without usage", func(t *testing.T) {
@@ -377,7 +377,8 @@ func TestProxyEventStreamRecognizesOpenAIDONESentinel(t *testing.T) {
 
 func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/chat/completions").Operation
-	stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":13,\"total_tokens\":20}}\n\n" +
+	stream := "data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}],\"usage\":{\"prompt_tokens\":999,\"completion_tokens\":999,\"total_tokens\":1998}}\n\n" +
+		"data: {\"id\":\"chatcmpl-usage\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":6,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":4},\"completion_tokens_details\":{\"reasoning_tokens\":3}}}\n\n" +
 		"data: [DONE]\n\n"
 	var forwarded bytes.Buffer
 	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
@@ -387,15 +388,12 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 	if capture.StreamOutcome != runtimeStreamOutcomeCompleted || capture.CompletedAt == nil || capture.StreamErrorKind != nil || capture.StreamErrorDetail != nil {
 		t.Fatalf("expected usage stream ending with [DONE] to complete, got %+v", capture)
 	}
-	inputTokens := 7
-	outputTokens := 13
-	totalTokens := 20
-	wantUsage := responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens}
+	wantUsage := responseUsage{InputTokens: intPtr(6), OutputTokens: intPtr(3), TotalTokens: intPtr(16), CacheReadInputTokens: intPtr(4), ReasoningTokens: intPtr(3)}
 	if !reflect.DeepEqual(capture.Usage, wantUsage) {
-		t.Fatalf("expected usage before [DONE] to be preserved: want %+v got %+v", wantUsage, capture.Usage)
+		t.Fatalf("expected final include_usage chunk to be preserved: want %+v got %+v", wantUsage, capture.Usage)
 	}
 
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
 	pricing := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, capture.Usage, capture.StreamOutcome)
 	if !pricing.Billable || !pricing.Priced || pricing.UnpricedReason != nil {
 		t.Fatalf("expected observed usage before [DONE] to price normally, got %+v", pricing)
@@ -405,9 +403,9 @@ func TestProxyEventStreamMergesUsageBeforeOpenAIDONESentinel(t *testing.T) {
 func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
 	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/responses").Operation
 	stream := "event: response.created\n" +
-		"data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n" +
+		"data: {\"type\":\"response.created\",\"response\":{\"usage\":{\"input_tokens\":999,\"output_tokens\":999,\"total_tokens\":1998}}}\n\n" +
 		"event: response.completed\n" +
-		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}}}\n\n"
+		"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":9,\"output_tokens\":7,\"total_tokens\":16,\"input_tokens_details\":{\"cached_tokens\":2},\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n"
 	var forwarded bytes.Buffer
 	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, true)
 	if err != nil {
@@ -422,12 +420,38 @@ func TestProxyEventStreamCapturesRawAuditBodyWhenEnabled(t *testing.T) {
 	if bytes.Equal(capture.AuditBody, capture.Body) {
 		t.Fatalf("expected raw audit body to differ from parsed completion body, got %q", string(capture.AuditBody))
 	}
-	inputTokens := 7
-	outputTokens := 13
-	totalTokens := 20
-	wantUsage := responseUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens, TotalTokens: &totalTokens}
+	wantUsage := responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(2), TotalTokens: intPtr(16), CacheReadInputTokens: intPtr(2), ReasoningTokens: intPtr(5)}
 	if got := capture.extractedUsage(); !reflect.DeepEqual(got, wantUsage) {
 		t.Fatalf("expected usage extraction to survive audit capture: want %+v got %+v", wantUsage, got)
+	}
+}
+
+func TestAnthropicMessagesStreamUsageUsesFinalCumulativeOutput(t *testing.T) {
+	operation := mustResolveRuntimeOperation(t, http.MethodPost, "/v1/messages").Operation
+	stream := "event: message_start\n" +
+		"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"output_tokens\":1}}}\n\n" +
+		"event: content_block_delta\n" +
+		"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"do not synthesize reasoning\"}}\n\n" +
+		"event: message_delta\n" +
+		"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":5}}\n\n" +
+		"event: message_delta\n" +
+		"data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":13}}\n\n" +
+		"event: message_stop\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+	var forwarded bytes.Buffer
+	capture, err := proxyEventStreamAndCaptureCompletedResponse(operation, context.Background(), &forwarded, strings.NewReader(stream), time.Now, false)
+	if err != nil {
+		t.Fatalf("proxy Anthropic SSE stream: %v", err)
+	}
+	if forwarded.String() != stream {
+		t.Fatalf("expected SSE stream to pass through unchanged, got %q", forwarded.String())
+	}
+	if capture.StreamOutcome != runtimeStreamOutcomeCompleted || capture.CompletedAt == nil || capture.StreamErrorKind != nil || capture.StreamErrorDetail != nil {
+		t.Fatalf("expected Anthropic stream to complete cleanly, got %+v", capture)
+	}
+	wantUsage := responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(13), TotalTokens: intPtr(25), CacheReadInputTokens: intPtr(2), CacheCreationInputTokens: intPtr(3)}
+	if got := capture.extractedUsage(); !reflect.DeepEqual(got, wantUsage) {
+		t.Fatalf("expected final cumulative output without summing deltas: want %+v got %+v", wantUsage, got)
 	}
 }
 
@@ -444,11 +468,11 @@ func TestSSEStreamHooksByOperation(t *testing.T) {
 		{
 			name:         "openai responses completed owns response terminal",
 			requestPath:  "/v1/responses",
-			stream:       "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":8,\"total_tokens\":13}}}\n\n",
+			stream:       "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"response\":{\"usage\":{\"input_tokens\":999,\"output_tokens\":999,\"total_tokens\":1998}},\"delta\":\"partial\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":8,\"total_tokens\":13,\"input_tokens_details\":{\"cached_tokens\":2},\"output_tokens_details\":{\"reasoning_tokens\":3}}}}\n\n",
 			wantProvider: "openai",
 			wantKind:     operationResponseKindTextGeneration,
 			wantOutcome:  runtimeStreamOutcomeCompleted,
-			wantUsage:    responseUsage{InputTokens: intPtr(5), OutputTokens: intPtr(8), TotalTokens: intPtr(13)},
+			wantUsage:    responseUsage{InputTokens: intPtr(3), OutputTokens: intPtr(5), TotalTokens: intPtr(13), CacheReadInputTokens: intPtr(2), ReasoningTokens: intPtr(3)},
 		},
 		{
 			name:         "openai responses incomplete owns provider incomplete terminal",
@@ -470,11 +494,11 @@ func TestSSEStreamHooksByOperation(t *testing.T) {
 		{
 			name:         "gemini stream generate owns usage metadata terminal",
 			requestPath:  "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
-			stream:       "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20,\"cachedContentTokenCount\":3}}\n\n",
+			stream:       "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n",
 			wantProvider: "gemini",
 			wantKind:     operationResponseKindTextGeneration,
 			wantOutcome:  runtimeStreamOutcomeCompleted,
-			wantUsage:    responseUsage{InputTokens: intPtr(7), OutputTokens: intPtr(13), TotalTokens: intPtr(20), CacheReadInputTokens: intPtr(3)},
+			wantUsage:    responseUsage{InputTokens: intPtr(4), OutputTokens: intPtr(8), TotalTokens: intPtr(20), CacheReadInputTokens: intPtr(3), ReasoningTokens: intPtr(5)},
 		},
 		{
 			name:         "gemini stream generate owns done terminal",
@@ -590,7 +614,7 @@ func TestSanitizedStreamErrorDetailNormalizesRedactsAndTruncates(t *testing.T) {
 }
 
 func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedStreams(t *testing.T) {
-	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
 	inputTokens := 7
 	outputTokens := 13
@@ -624,8 +648,8 @@ func TestBuildRuntimePricingResultUsesStreamUsageUnavailableOnlyForInterruptedSt
 	}
 }
 
-func TestBuildRuntimePricingResultPrioritizesPriceDataBeforeMissingUsage(t *testing.T) {
-	validPricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", Version: 1}
+func TestBuildRuntimePricingResultRequiresUsageBeforePriceData(t *testing.T) {
+	validPricingTemplateSnapshot := &runtimePricingTemplateSnapshot{PricingUnit: runtimePricingUnitPerMillion, PricingCurrencyCode: "USD", InputPrice: "2", OutputPrice: "5", CachedInputPrice: "0", CacheCreationPrice: "0", ReasoningPrice: "0", Version: 1}
 
 	tests := []struct {
 		name                    string
@@ -642,45 +666,51 @@ func TestBuildRuntimePricingResultPrioritizesPriceDataBeforeMissingUsage(t *test
 			wantReason:             runtimeUnpricedReasonPricingOff,
 		},
 		{
-			name:                   "invalid input price beats interrupted missing usage",
+			name:                   "interrupted missing usage beats invalid input price",
 			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
 			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
 				PricingUnit:         runtimePricingUnitPerMillion,
 				PricingCurrencyCode: "USD",
 				InputPrice:          "not-a-decimal",
 				OutputPrice:         "5",
+				CachedInputPrice:    "0",
+				CacheCreationPrice:  "0",
+				ReasoningPrice:      "0",
 				Version:             1,
 			},
 			streamOutcome: runtimeStreamOutcomeUpstreamReadError,
-			wantReason:    runtimeUnpricedReasonMissingData,
+			wantReason:    runtimeUnpricedReasonStreamUsageUnavailable,
 		},
 		{
-			name:                   "invalid output price beats completed missing usage",
+			name:                   "completed missing usage beats invalid output price",
 			reportCurrencySnapshot: runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"},
 			pricingTemplateSnapshot: &runtimePricingTemplateSnapshot{
 				PricingUnit:         runtimePricingUnitPerMillion,
 				PricingCurrencyCode: "USD",
 				InputPrice:          "2",
 				OutputPrice:         "not-a-decimal",
+				CachedInputPrice:    "0",
+				CacheCreationPrice:  "0",
+				ReasoningPrice:      "0",
 				Version:             1,
 			},
 			streamOutcome: runtimeStreamOutcomeCompleted,
-			wantReason:    runtimeUnpricedReasonMissingData,
+			wantReason:    runtimeUnpricedReasonMissingUsage,
 		},
 		{
-			name:                    "missing fx beats interrupted missing usage",
+			name:                    "interrupted missing usage beats missing fx",
 			reportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "EUR", Symbol: "EUR"},
 			pricingTemplateSnapshot: validPricingTemplateSnapshot,
 			streamOutcome:           runtimeStreamOutcomeUpstreamEndedWithoutTerminal,
-			wantReason:              runtimeUnpricedReasonMissingData,
+			wantReason:              runtimeUnpricedReasonStreamUsageUnavailable,
 		},
 		{
-			name:                    "invalid fx beats completed missing usage",
+			name:                    "completed missing usage beats invalid fx",
 			reportCurrencySnapshot:  runtimeReportCurrencySnapshot{Code: "EUR", Symbol: "EUR"},
 			pricingTemplateSnapshot: validPricingTemplateSnapshot,
 			endpointFXSnapshot:      &runtimeEndpointFXSnapshot{FXRate: "not-a-decimal"},
 			streamOutcome:           runtimeStreamOutcomeCompleted,
-			wantReason:              runtimeUnpricedReasonMissingData,
+			wantReason:              runtimeUnpricedReasonMissingUsage,
 		},
 	}
 
@@ -750,18 +780,15 @@ func TestRuntimeProxyConfigProviderUpdatesNewPlansAndKeepsExistingPlanClient(t *
 }
 
 func TestBuildRuntimePricingResult(t *testing.T) {
-	cachedInputPrice := "1"
-	cacheCreationPrice := "2"
-	reasoningPrice := "3"
 	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
 		ID:                  42,
 		PricingUnit:         runtimePricingUnitPerMillion,
 		PricingCurrencyCode: "USD",
 		InputPrice:          "2",
 		OutputPrice:         "5",
-		CachedInputPrice:    &cachedInputPrice,
-		CacheCreationPrice:  &cacheCreationPrice,
-		ReasoningPrice:      &reasoningPrice,
+		CachedInputPrice:    "1",
+		CacheCreationPrice:  "2",
+		ReasoningPrice:      "3",
 		Version:             7,
 	}
 	reportCurrencySnapshot := runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}
@@ -900,7 +927,7 @@ func TestBuildRuntimePricingResult(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimePricingResultDefaultsMissingOptionalPricesToZero(t *testing.T) {
+func TestBuildRuntimePricingResultUsesConcreteZeroComponentPrices(t *testing.T) {
 	inputTokens := 10
 	outputTokens := 10
 	totalTokens := 20
@@ -913,6 +940,9 @@ func TestBuildRuntimePricingResultDefaultsMissingOptionalPricesToZero(t *testing
 		PricingCurrencyCode: "USD",
 		InputPrice:          "2",
 		OutputPrice:         "5",
+		CachedInputPrice:    "0",
+		CacheCreationPrice:  "0",
+		ReasoningPrice:      "0",
 		Version:             7,
 	}
 	want := runtimePricingResult{
@@ -963,7 +993,7 @@ func TestBuildRuntimePricingResultDefaultsMissingOptionalPricesToZero(t *testing
 			},
 		},
 		{
-			name: "positive optional counters",
+			name: "positive component counters with concrete zero prices",
 			usage: responseUsage{
 				InputTokens:              &inputTokens,
 				OutputTokens:             &outputTokens,
@@ -979,24 +1009,25 @@ func TestBuildRuntimePricingResultDefaultsMissingOptionalPricesToZero(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			got := buildRuntimePricingResult(runtimeReportCurrencySnapshot{Code: "USD", Symbol: "$"}, pricingTemplateSnapshot, nil, test.usage, runtimeStreamOutcomeCompleted)
 			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("expected nil optional prices to resolve to zero: want %+v got %+v", want, got)
+				t.Fatalf("expected concrete zero component prices to price as free: want %+v got %+v", want, got)
 			}
 		})
 	}
 }
 
-func TestBuildRuntimePricingResultRejectsInvalidOptionalPriceWhenDimensionIsUsed(t *testing.T) {
+func TestBuildRuntimePricingResultRejectsInvalidConcretePriceWhenComponentIsUsed(t *testing.T) {
 	inputTokens := 10
 	outputTokens := 10
 	totalTokens := 20
 	reasoningTokens := 3
-	invalidReasoningPrice := "not-a-decimal"
 	pricingTemplateSnapshot := &runtimePricingTemplateSnapshot{
 		PricingUnit:         runtimePricingUnitPerMillion,
 		PricingCurrencyCode: "USD",
 		InputPrice:          "2",
 		OutputPrice:         "5",
-		ReasoningPrice:      &invalidReasoningPrice,
+		CachedInputPrice:    "0",
+		CacheCreationPrice:  "0",
+		ReasoningPrice:      "not-a-decimal",
 		Version:             7,
 	}
 
@@ -1012,7 +1043,7 @@ func TestBuildRuntimePricingResultRejectsInvalidOptionalPriceWhenDimensionIsUsed
 		UnpricedReason: stringPtr(runtimeUnpricedReasonMissingData),
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("expected invalid used optional price to degrade pricing: want %+v got %+v", want, got)
+		t.Fatalf("expected invalid used concrete component price to degrade pricing: want %+v got %+v", want, got)
 	}
 }
 
@@ -1155,13 +1186,15 @@ func assertPlanDomainError(t *testing.T, err error, wantStatus int, detailContai
 
 func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPaths(t *testing.T) {
 	tests := []struct {
-		name    string
-		payload string
-		want    responseUsage
+		name        string
+		requestPath string
+		payload     string
+		want        responseUsage
 	}{
 		{
-			name:    "keeps top-level usage and ignores nested spoofed usage object",
-			payload: `{"id":"chatcmpl-secure-stream","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"output_text","text":"hello"},{"type":"output_json","value":{"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}}]}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`,
+			name:        "keeps top-level usage and ignores nested spoofed usage object",
+			requestPath: "/v1/chat/completions",
+			payload:     `{"id":"chatcmpl-secure-stream","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"output_text","text":"hello"},{"type":"output_json","value":{"usage":{"prompt_tokens":999,"completion_tokens":999,"total_tokens":1998}}}]}}],"usage":{"prompt_tokens":7,"completion_tokens":13,"total_tokens":20}}`,
 			want: responseUsage{
 				InputTokens:  intPtr(7),
 				OutputTokens: intPtr(13),
@@ -1169,8 +1202,9 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 			},
 		},
 		{
-			name:    "keeps response usage and ignores nested spoofed usage object",
-			payload: `{"response":{"id":"resp-secure-stream","output":[{"type":"message","content":[{"type":"output_text","text":"hello","usage":{"input_tokens":999,"output_tokens":999,"total_tokens":1998}}]}],"usage":{"input_tokens":5,"output_tokens":8,"total_tokens":13}}}`,
+			name:        "keeps response usage and ignores nested spoofed usage object",
+			requestPath: "/v1/responses",
+			payload:     `{"response":{"id":"resp-secure-stream","output":[{"type":"message","content":[{"type":"output_text","text":"hello","usage":{"input_tokens":999,"output_tokens":999,"total_tokens":1998}}]}],"usage":{"input_tokens":5,"output_tokens":8,"total_tokens":13}}}`,
 			want: responseUsage{
 				InputTokens:  intPtr(5),
 				OutputTokens: intPtr(8),
@@ -1178,20 +1212,24 @@ func TestProxyNonEventResponseAndCaptureUsageAcceptsOnlySupportedUsageSchemaPath
 			},
 		},
 		{
-			name:    "keeps top-level usage metadata and ignores nested spoofed usage metadata object",
-			payload: `{"candidates":[{"content":{"parts":[{"text":"hello"},{"metadata":{"usageMetadata":{"promptTokenCount":999,"candidatesTokenCount":999,"totalTokenCount":1998}}}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":13,"totalTokenCount":20}}`,
+			name:        "keeps top-level usage metadata and ignores nested spoofed usage metadata object",
+			requestPath: "/v1beta/models/gemini-2.5-pro:generateContent",
+			payload:     `{"candidates":[{"content":{"parts":[{"text":"hello"},{"metadata":{"usageMetadata":{"promptTokenCount":999,"candidatesTokenCount":999,"totalTokenCount":1998,"cachedContentTokenCount":777,"thoughtsTokenCount":666}}}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":13,"totalTokenCount":20,"cachedContentTokenCount":3,"thoughtsTokenCount":5}}`,
 			want: responseUsage{
-				InputTokens:  intPtr(7),
-				OutputTokens: intPtr(13),
-				TotalTokens:  intPtr(20),
+				InputTokens:          intPtr(4),
+				OutputTokens:         intPtr(8),
+				TotalTokens:          intPtr(20),
+				CacheReadInputTokens: intPtr(3),
+				ReasoningTokens:      intPtr(5),
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			operation := mustResolveRuntimeOperation(t, http.MethodPost, test.requestPath).Operation
 			var forwarded bytes.Buffer
-			capture, err := proxyNonEventResponseAndCaptureUsage(&forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
+			capture, err := proxyNonEventResponseAndCaptureByOperation(operation, &forwarded, strings.NewReader(test.payload), "application/json", time.Now, false)
 			if err != nil {
 				t.Fatalf("capture streamed non-sse usage: %v", err)
 			}

@@ -16,6 +16,10 @@ import (
 	"github.com/coachpo/prism/backend/internal/httpapi/requestcontext"
 )
 
+// responseUsage is Prism's canonical runtime usage model. InputTokens and
+// OutputTokens are base-token dimensions, cache and reasoning tokens are
+// separate optional dimensions, provider TotalTokens is preserved when present,
+// and cached token counts stay derived on aggregate or presentation surfaces.
 type responseUsage struct {
 	InputTokens              *int
 	OutputTokens             *int
@@ -23,21 +27,198 @@ type responseUsage struct {
 	CacheReadInputTokens     *int
 	CacheCreationInputTokens *int
 	ReasoningTokens          *int
+	discarded                bool
 }
 
+type runtimeUsagePayloadShape string
+
+const (
+	runtimeUsagePayloadShapeStandard              runtimeUsagePayloadShape = "standard"
+	runtimeUsagePayloadShapeAnthropicMessages     runtimeUsagePayloadShape = "anthropic_messages"
+	runtimeUsagePayloadShapeOpenAIChatCompletions runtimeUsagePayloadShape = "openai_chat_completions"
+	runtimeUsagePayloadShapeOpenAIResponses       runtimeUsagePayloadShape = "openai_responses"
+	runtimeUsagePayloadShapeGemini                runtimeUsagePayloadShape = "gemini"
+)
+
+type runtimeUsageCarrier uint8
+
+const (
+	runtimeUsageCarrierNone runtimeUsageCarrier = iota
+	runtimeUsageCarrierRootUsage
+	runtimeUsageCarrierResponseUsage
+	runtimeUsageCarrierMessageUsage
+	runtimeUsageCarrierRootUsageMetadata
+)
+
+type runtimeUsageCarrierMask uint8
+
+const (
+	runtimeUsageCarrierMaskRootUsage runtimeUsageCarrierMask = 1 << iota
+	runtimeUsageCarrierMaskResponseUsage
+	runtimeUsageCarrierMaskMessageUsage
+	runtimeUsageCarrierMaskRootUsageMetadata
+)
+
+type runtimeUsageNormalizationRule struct {
+	Provider                       string
+	OperationName                  string
+	PayloadShape                   runtimeUsagePayloadShape
+	AllowedCarriers                runtimeUsageCarrierMask
+	AllowDerivedTotal              bool
+	PreserveProviderTotal          bool
+	ValidateParentSplitBounds      bool
+	ValidateDisjointComponentTotal bool
+}
+
+var (
+	runtimeUsageRuleOpenAIChatCompletions = runtimeUsageNormalizationRule{
+		Provider:                       "openai",
+		OperationName:                  "openai.chat_completions",
+		PayloadShape:                   runtimeUsagePayloadShapeOpenAIChatCompletions,
+		AllowedCarriers:                runtimeUsageCarrierMaskRootUsage,
+		AllowDerivedTotal:              true,
+		PreserveProviderTotal:          true,
+		ValidateParentSplitBounds:      false,
+		ValidateDisjointComponentTotal: true,
+	}
+	runtimeUsageRuleOpenAIResponses = runtimeUsageNormalizationRule{
+		Provider:                       "openai",
+		OperationName:                  "openai.responses",
+		PayloadShape:                   runtimeUsagePayloadShapeOpenAIResponses,
+		AllowedCarriers:                runtimeUsageCarrierMaskRootUsage | runtimeUsageCarrierMaskResponseUsage,
+		AllowDerivedTotal:              true,
+		PreserveProviderTotal:          true,
+		ValidateParentSplitBounds:      false,
+		ValidateDisjointComponentTotal: true,
+	}
+	runtimeUsageRuleAnthropicMessages = runtimeUsageNormalizationRule{
+		Provider:                       "anthropic",
+		OperationName:                  "anthropic.messages",
+		PayloadShape:                   runtimeUsagePayloadShapeAnthropicMessages,
+		AllowedCarriers:                runtimeUsageCarrierMaskRootUsage | runtimeUsageCarrierMaskMessageUsage,
+		AllowDerivedTotal:              true,
+		PreserveProviderTotal:          true,
+		ValidateDisjointComponentTotal: true,
+	}
+	runtimeUsageRuleGeminiGenerateContent = runtimeUsageNormalizationRule{
+		Provider:                       "gemini",
+		OperationName:                  "gemini.generate_content",
+		PayloadShape:                   runtimeUsagePayloadShapeGemini,
+		AllowedCarriers:                runtimeUsageCarrierMaskRootUsageMetadata,
+		AllowDerivedTotal:              true,
+		PreserveProviderTotal:          true,
+		ValidateDisjointComponentTotal: true,
+	}
+	runtimeUsageRuleGeminiStreamGenerateContent = runtimeUsageNormalizationRule{
+		Provider:                       "gemini",
+		OperationName:                  "gemini.stream_generate_content",
+		PayloadShape:                   runtimeUsagePayloadShapeGemini,
+		AllowedCarriers:                runtimeUsageCarrierMaskRootUsageMetadata,
+		AllowDerivedTotal:              true,
+		PreserveProviderTotal:          true,
+		ValidateDisjointComponentTotal: true,
+	}
+)
+
 func (usage responseUsage) hasValues() bool {
+	if usage.discarded {
+		return false
+	}
 	return usage.InputTokens != nil || usage.OutputTokens != nil || usage.TotalTokens != nil || usage.CacheReadInputTokens != nil || usage.CacheCreationInputTokens != nil || usage.ReasoningTokens != nil
 }
 
 func (usage responseUsage) normalized() responseUsage {
-	if usage.TotalTokens == nil && (usage.InputTokens != nil || usage.OutputTokens != nil) {
-		total := intValue(usage.InputTokens) + intValue(usage.OutputTokens)
+	if usage.discarded {
+		return responseUsage{}
+	}
+	if usage.TotalTokens == nil && usage.hasTokenComponents() {
+		total := usage.componentTotal()
 		usage.TotalTokens = &total
 	}
 	return usage
 }
 
-func (usage *responseUsage) mergeStandardUsagePayload(usagePayload map[string]any) {
+func (usage responseUsage) hasTokenComponents() bool {
+	return usage.InputTokens != nil || usage.OutputTokens != nil || usage.CacheReadInputTokens != nil || usage.CacheCreationInputTokens != nil || usage.ReasoningTokens != nil
+}
+
+func (usage responseUsage) componentTotal() int {
+	return intValue(usage.InputTokens) + intValue(usage.OutputTokens) + intValue(usage.CacheReadInputTokens) + intValue(usage.CacheCreationInputTokens) + intValue(usage.ReasoningTokens)
+}
+
+func (rule runtimeUsageNormalizationRule) configured() bool {
+	return strings.TrimSpace(rule.Provider) != "" && strings.TrimSpace(rule.OperationName) != "" && rule.PayloadShape != ""
+}
+
+func (rule runtimeUsageNormalizationRule) allowsCarrier(carrier runtimeUsageCarrier) bool {
+	return rule.configured() && rule.AllowedCarriers&carrier.mask() != 0
+}
+
+func (carrier runtimeUsageCarrier) mask() runtimeUsageCarrierMask {
+	switch carrier {
+	case runtimeUsageCarrierRootUsage:
+		return runtimeUsageCarrierMaskRootUsage
+	case runtimeUsageCarrierResponseUsage:
+		return runtimeUsageCarrierMaskResponseUsage
+	case runtimeUsageCarrierMessageUsage:
+		return runtimeUsageCarrierMaskMessageUsage
+	case runtimeUsageCarrierRootUsageMetadata:
+		return runtimeUsageCarrierMaskRootUsageMetadata
+	default:
+		return 0
+	}
+}
+
+func (usage *responseUsage) mergeRuntimeUsagePayload(rule runtimeUsageNormalizationRule, carrier runtimeUsageCarrier, usagePayload map[string]any) {
+	if usage == nil || usage.discarded || !rule.allowsCarrier(carrier) || usagePayload == nil {
+		return
+	}
+	parsed, ok := parseRuntimeUsagePayload(rule.PayloadShape, usagePayload)
+	if !ok {
+		return
+	}
+	merged := *usage
+	merged.merge(parsed)
+	if !merged.validForRuntimeUsage(rule) {
+		*usage = responseUsage{discarded: true}
+		return
+	}
+	*usage = merged
+}
+
+func (usage responseUsage) canonicalizedForRuntimeUsage(rule runtimeUsageNormalizationRule) responseUsage {
+	if usage.discarded || !usage.validForRuntimeUsage(rule) {
+		return responseUsage{}
+	}
+	if rule.AllowDerivedTotal && usage.TotalTokens == nil && usage.hasTokenComponents() {
+		total := usage.componentTotal()
+		usage.TotalTokens = &total
+	}
+	if !usage.validForRuntimeUsage(rule) {
+		return responseUsage{}
+	}
+	return usage
+}
+
+func parseRuntimeUsagePayload(shape runtimeUsagePayloadShape, usagePayload map[string]any) (responseUsage, bool) {
+	switch shape {
+	case runtimeUsagePayloadShapeStandard:
+		return parseStandardRuntimeUsagePayload(usagePayload)
+	case runtimeUsagePayloadShapeAnthropicMessages:
+		return parseAnthropicMessagesUsagePayload(usagePayload)
+	case runtimeUsagePayloadShapeOpenAIChatCompletions:
+		return parseOpenAIChatCompletionsUsagePayload(usagePayload)
+	case runtimeUsagePayloadShapeOpenAIResponses:
+		return parseOpenAIResponsesUsagePayload(usagePayload)
+	case runtimeUsagePayloadShapeGemini:
+		return parseGeminiRuntimeUsagePayload(usagePayload)
+	default:
+		return responseUsage{}, false
+	}
+}
+
+func parseStandardRuntimeUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
+	usage := responseUsage{}
 	if inputTokens := intPointerFromAny(firstValue(usagePayload, "prompt_tokens", "input_tokens")); inputTokens != nil {
 		usage.InputTokens = inputTokens
 	}
@@ -53,31 +234,140 @@ func (usage *responseUsage) mergeStandardUsagePayload(usagePayload map[string]an
 	if cacheCreationTokens := intPointerFromAny(usagePayload["cache_creation_input_tokens"]); cacheCreationTokens != nil {
 		usage.CacheCreationInputTokens = cacheCreationTokens
 	}
-	if reasoningTokens := intPointerFromAny(firstValue(
-		map[string]any{
-			"completion": nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"),
-			"output":     nestedValue(usagePayload, "output_tokens_details", "reasoning_tokens"),
-		},
-		"completion",
-		"output",
-	)); reasoningTokens != nil {
+	reasoningTokens := intPointerFromAny(nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"))
+	if reasoningTokens == nil {
+		reasoningTokens = intPointerFromAny(nestedValue(usagePayload, "output_tokens_details", "reasoning_tokens"))
+	}
+	if reasoningTokens != nil {
 		usage.ReasoningTokens = reasoningTokens
+	}
+	return usage, usage.hasValues()
+}
+
+func parseAnthropicMessagesUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
+	usage := responseUsage{}
+	if inputTokens := intPointerFromAny(usagePayload["input_tokens"]); inputTokens != nil {
+		usage.InputTokens = inputTokens
+	}
+	if outputTokens := intPointerFromAny(usagePayload["output_tokens"]); outputTokens != nil {
+		usage.OutputTokens = outputTokens
+	}
+	if totalTokens := intPointerFromAny(usagePayload["total_tokens"]); totalTokens != nil {
+		usage.TotalTokens = totalTokens
+	}
+	if cacheReadTokens := intPointerFromAny(usagePayload["cache_read_input_tokens"]); cacheReadTokens != nil {
+		usage.CacheReadInputTokens = cacheReadTokens
+	}
+	if cacheCreationTokens := intPointerFromAny(usagePayload["cache_creation_input_tokens"]); cacheCreationTokens != nil {
+		usage.CacheCreationInputTokens = cacheCreationTokens
+	}
+	return usage, usage.hasValues()
+}
+
+func parseOpenAIChatCompletionsUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
+	inputTokens := intPointerFromAny(usagePayload["prompt_tokens"])
+	cacheReadTokens := intPointerFromAny(nestedValue(usagePayload, "prompt_tokens_details", "cached_tokens"))
+	outputTokens := intPointerFromAny(usagePayload["completion_tokens"])
+	reasoningTokens := intPointerFromAny(nestedValue(usagePayload, "completion_tokens_details", "reasoning_tokens"))
+	totalTokens := intPointerFromAny(usagePayload["total_tokens"])
+	usage := usageFromParentTotals(inputTokens, cacheReadTokens, outputTokens, reasoningTokens, totalTokens)
+	return usage, usage.hasValues()
+}
+
+func parseOpenAIResponsesUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
+	inputTokens := intPointerFromAny(usagePayload["input_tokens"])
+	cacheReadTokens := intPointerFromAny(nestedValue(usagePayload, "input_tokens_details", "cached_tokens"))
+	outputTokens := intPointerFromAny(usagePayload["output_tokens"])
+	reasoningTokens := intPointerFromAny(nestedValue(usagePayload, "output_tokens_details", "reasoning_tokens"))
+	totalTokens := intPointerFromAny(usagePayload["total_tokens"])
+	usage := usageFromParentTotals(inputTokens, cacheReadTokens, outputTokens, reasoningTokens, totalTokens)
+	return usage, usage.hasValues()
+}
+
+func usageFromParentTotals(inputTokens *int, cacheReadTokens *int, outputTokens *int, reasoningTokens *int, totalTokens *int) responseUsage {
+	usage := responseUsage{
+		TotalTokens:          totalTokens,
+		CacheReadInputTokens: cacheReadTokens,
+		ReasoningTokens:      reasoningTokens,
+	}
+	if inputTokens != nil {
+		baseInputTokens := *inputTokens - intValue(cacheReadTokens)
+		usage.InputTokens = &baseInputTokens
+	}
+	if outputTokens != nil {
+		baseOutputTokens := *outputTokens - intValue(reasoningTokens)
+		usage.OutputTokens = &baseOutputTokens
+	}
+	return usage
+}
+
+func parseGeminiRuntimeUsagePayload(usagePayload map[string]any) (responseUsage, bool) {
+	inputTokens := intPointerFromAny(usagePayload["promptTokenCount"])
+	cacheReadTokens := intPointerFromAny(usagePayload["cachedContentTokenCount"])
+	outputTokens := intPointerFromAny(usagePayload["candidatesTokenCount"])
+	reasoningTokens := intPointerFromAny(usagePayload["thoughtsTokenCount"])
+	totalTokens := intPointerFromAny(usagePayload["totalTokenCount"])
+	usage := usageFromParentTotals(inputTokens, cacheReadTokens, outputTokens, reasoningTokens, totalTokens)
+	return usage, usage.hasValues()
+}
+
+func (usage *responseUsage) merge(parsed responseUsage) {
+	if parsed.InputTokens != nil {
+		usage.InputTokens = parsed.InputTokens
+	}
+	if parsed.OutputTokens != nil {
+		usage.OutputTokens = parsed.OutputTokens
+	}
+	if parsed.TotalTokens != nil {
+		usage.TotalTokens = parsed.TotalTokens
+	}
+	if parsed.CacheReadInputTokens != nil {
+		usage.CacheReadInputTokens = parsed.CacheReadInputTokens
+	}
+	if parsed.CacheCreationInputTokens != nil {
+		usage.CacheCreationInputTokens = parsed.CacheCreationInputTokens
+	}
+	if parsed.ReasoningTokens != nil {
+		usage.ReasoningTokens = parsed.ReasoningTokens
 	}
 }
 
-func (usage *responseUsage) mergeGeminiUsagePayload(usagePayload map[string]any) {
-	if inputTokens := intPointerFromAny(usagePayload["promptTokenCount"]); inputTokens != nil {
-		usage.InputTokens = inputTokens
+func (usage responseUsage) validForRuntimeUsage(rule runtimeUsageNormalizationRule) bool {
+	if usage.discarded {
+		return false
 	}
-	if outputTokens := intPointerFromAny(usagePayload["candidatesTokenCount"]); outputTokens != nil {
-		usage.OutputTokens = outputTokens
+	if hasNegativeRuntimeUsageValue(usage.InputTokens, usage.OutputTokens, usage.TotalTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usage.ReasoningTokens) {
+		return false
 	}
-	if totalTokens := intPointerFromAny(usagePayload["totalTokenCount"]); totalTokens != nil {
-		usage.TotalTokens = totalTokens
+	if usage.TotalTokens != nil {
+		minimumTotal := intValue(usage.InputTokens) + intValue(usage.OutputTokens)
+		if rule.ValidateDisjointComponentTotal {
+			minimumTotal = usage.componentTotal()
+		}
+		if minimumTotal > 0 && *usage.TotalTokens < minimumTotal {
+			return false
+		}
 	}
-	if cacheReadTokens := intPointerFromAny(usagePayload["cachedContentTokenCount"]); cacheReadTokens != nil {
-		usage.CacheReadInputTokens = cacheReadTokens
+	if !rule.ValidateParentSplitBounds {
+		return true
 	}
+	cacheInputTokens := intValue(usage.CacheReadInputTokens) + intValue(usage.CacheCreationInputTokens)
+	if usage.InputTokens != nil && (usage.CacheReadInputTokens != nil || usage.CacheCreationInputTokens != nil) && cacheInputTokens > *usage.InputTokens {
+		return false
+	}
+	if usage.OutputTokens != nil && usage.ReasoningTokens != nil && *usage.ReasoningTokens > *usage.OutputTokens {
+		return false
+	}
+	return true
+}
+
+func hasNegativeRuntimeUsageValue(values ...*int) bool {
+	for _, value := range values {
+		if value != nil && *value < 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func buildUsageBodyFromResponseUsage(usage responseUsage) []byte {
@@ -279,6 +569,20 @@ func (usageEvent *usageEventInsert) applyRuntimePricingResult(pricingResult runt
 	usageEvent.PricingConfigVersionUsed = pricingResult.PricingConfigVersionUsed
 }
 
+func withRuntimePricingSnapshotForPersistence(pricingResult runtimePricingResult, pricingTemplateSnapshot *runtimePricingTemplateSnapshot) runtimePricingResult {
+	if pricingTemplateSnapshot == nil {
+		return pricingResult
+	}
+	pricingResult.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingUnit)
+	pricingResult.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.InputPrice)
+	pricingResult.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.OutputPrice)
+	pricingResult.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CachedInputPrice)
+	pricingResult.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CacheCreationPrice)
+	pricingResult.PricingSnapshotReasoning = runtimeOptionalTrimmedString(pricingTemplateSnapshot.ReasoningPrice)
+	pricingResult.PricingConfigVersionUsed = intPtr(pricingTemplateSnapshot.Version)
+	return pricingResult
+}
+
 type auditLogInsert struct {
 	RequestLogAttemptNumber     int       `json:"request_log_attempt_number"`
 	ProfileID                   int       `json:"profile_id"`
@@ -347,6 +651,7 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	}
 	if successFlag {
 		pricingResult = buildRuntimePricingResult(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome)
+		pricingResult = withRuntimePricingSnapshotForPersistence(pricingResult, result.Connection.PricingTemplateSnapshot)
 	}
 	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
 	if ingressRequestID == "" {
@@ -857,39 +1162,54 @@ func insertRuntimeAuditLogTx(ctx context.Context, tx pgx.Tx, requestLogID int, r
 	return nil
 }
 
-func extractResponseUsage(body []byte) responseUsage {
-	if len(body) == 0 {
+func extractResponseUsage(body []byte, rule runtimeUsageNormalizationRule) responseUsage {
+	if len(body) == 0 || !rule.configured() {
 		return responseUsage{}
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return responseUsage{}
 	}
-	return extractResponseUsageFromPayload(payload)
+	return extractResponseUsageFromPayload(payload, rule)
 }
 
-func extractResponseUsageFromPayload(payload map[string]any) responseUsage {
+func extractResponseUsageFromPayload(payload map[string]any, rule runtimeUsageNormalizationRule) responseUsage {
 	usage := responseUsage{}
-	usagePayload, ok := responseUsagePayload(payload)
-	if ok {
-		usage.mergeStandardUsagePayload(usagePayload)
+	for _, carrier := range []runtimeUsageCarrier{runtimeUsageCarrierRootUsage, runtimeUsageCarrierResponseUsage, runtimeUsageCarrierMessageUsage, runtimeUsageCarrierRootUsageMetadata} {
+		usagePayload, ok := runtimeUsagePayloadFromCarrier(payload, carrier)
+		if !ok {
+			continue
+		}
+		usage.mergeRuntimeUsagePayload(rule, carrier, usagePayload)
 	}
-	if usageMetadata, ok := payload["usageMetadata"].(map[string]any); ok {
-		usage.mergeGeminiUsagePayload(usageMetadata)
-	}
-	return usage.normalized()
+	return usage.canonicalizedForRuntimeUsage(rule)
 }
 
-func responseUsagePayload(payload map[string]any) (map[string]any, bool) {
-	if usagePayload, ok := payload["usage"].(map[string]any); ok {
-		return usagePayload, true
-	}
-	responsePayload, ok := payload["response"].(map[string]any)
-	if !ok {
+func runtimeUsagePayloadFromCarrier(payload map[string]any, carrier runtimeUsageCarrier) (map[string]any, bool) {
+	switch carrier {
+	case runtimeUsageCarrierRootUsage:
+		usagePayload, ok := payload["usage"].(map[string]any)
+		return usagePayload, ok
+	case runtimeUsageCarrierResponseUsage:
+		responsePayload, ok := payload["response"].(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		usagePayload, ok := responsePayload["usage"].(map[string]any)
+		return usagePayload, ok
+	case runtimeUsageCarrierMessageUsage:
+		messagePayload, ok := payload["message"].(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		usagePayload, ok := messagePayload["usage"].(map[string]any)
+		return usagePayload, ok
+	case runtimeUsageCarrierRootUsageMetadata:
+		usagePayload, ok := payload["usageMetadata"].(map[string]any)
+		return usagePayload, ok
+	default:
 		return nil, false
 	}
-	usagePayload, ok := responsePayload["usage"].(map[string]any)
-	return usagePayload, ok
 }
 
 func billingState(success bool) (*bool, *bool, *string) {

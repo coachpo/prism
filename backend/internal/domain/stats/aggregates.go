@@ -442,12 +442,7 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 		}
 		response.Summary.TotalCostMicros += spend
 		response.Summary.SuccessfulRequestCount++
-		response.Summary.TotalInputTokens += record.InputTokens
-		response.Summary.TotalOutputTokens += record.OutputTokens
-		response.Summary.TotalCacheReadInputTokens += record.CacheReadInputTokens
-		response.Summary.TotalCacheCreationInputTokens += record.CacheCreationInputTokens
-		response.Summary.TotalReasoningTokens += record.ReasoningTokens
-		response.Summary.TotalTokens += record.TotalTokens
+		addSpendingSummaryTokenTotals(&response.Summary, record)
 		if record.PricedFlag {
 			response.Summary.PricedRequestCount++
 		} else {
@@ -565,6 +560,15 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 		return SpendingReportResponse{}, err
 	}
 	return response, nil
+}
+
+func addSpendingSummaryTokenTotals(summary *SpendingSummary, record usageEventRecord) {
+	summary.TotalInputTokens += record.InputTokens
+	summary.TotalOutputTokens += record.OutputTokens
+	summary.TotalCacheReadInputTokens += record.CacheReadInputTokens
+	summary.TotalCacheCreationInputTokens += record.CacheCreationInputTokens
+	summary.TotalReasoningTokens += record.ReasoningTokens
+	summary.TotalTokens += record.TotalTokens
 }
 
 func normalizedStatsSummaryGroupBy(value *string) (string, bool) {

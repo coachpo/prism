@@ -17,6 +17,7 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 		wantRequestStream              bool
 		wantGenerationStatus           string
 		wantResponseKind               operationResponseKind
+		wantUsageRule                  runtimeUsageNormalizationRule
 		wantMediaHooks                 bool
 		wantMediaKind                  operationMediaRequestKind
 		wantStreamHooks                bool
@@ -31,6 +32,7 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantRequestStream:              true,
 			wantGenerationStatus:           requestGenerationParamsStatusComplete,
 			wantResponseKind:               operationResponseKindTextGeneration,
+			wantUsageRule:                  runtimeUsageRuleOpenAIChatCompletions,
 			wantStreamHooks:                true,
 		},
 		{
@@ -43,6 +45,7 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantRequestStream:              true,
 			wantGenerationStatus:           requestGenerationParamsStatusComplete,
 			wantResponseKind:               operationResponseKindTextGeneration,
+			wantUsageRule:                  runtimeUsageRuleOpenAIResponses,
 			wantStreamHooks:                true,
 		},
 		{
@@ -79,6 +82,7 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantRequestStream:              true,
 			wantGenerationStatus:           requestGenerationParamsStatusComplete,
 			wantResponseKind:               operationResponseKindTextGeneration,
+			wantUsageRule:                  runtimeUsageRuleAnthropicMessages,
 			wantStreamHooks:                true,
 		},
 		{
@@ -101,6 +105,7 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantRequestStream:              false,
 			wantGenerationStatus:           requestGenerationParamsStatusComplete,
 			wantResponseKind:               operationResponseKindTextGeneration,
+			wantUsageRule:                  runtimeUsageRuleGeminiGenerateContent,
 		},
 		{
 			name:                           "gemini stream generate content",
@@ -113,6 +118,7 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			wantRequestStream:              true,
 			wantGenerationStatus:           requestGenerationParamsStatusComplete,
 			wantResponseKind:               operationResponseKindTextGeneration,
+			wantUsageRule:                  runtimeUsageRuleGeminiStreamGenerateContent,
 			wantStreamHooks:                true,
 		},
 		{
@@ -134,9 +140,9 @@ func TestRuntimeOperationHookResidency(t *testing.T) {
 			seen[operation.Name] = struct{}{}
 			assertResolvedHookCollection(t, operation, test.hookCollectionID)
 			assertRequestHookResidency(t, operation, test.provider, test.rawBody, test.requestPath, test.wantRequestGenerationExtractor, test.wantStreamingObserver, test.wantRequestStream, test.wantGenerationStatus)
-			assertResponseHookResidency(t, operation, test.provider, test.wantResponseKind)
+			assertResponseHookResidency(t, operation, test.provider, test.wantResponseKind, test.wantUsageRule)
 			assertMediaHookResidency(t, operation, test.provider, test.wantMediaHooks, test.wantMediaKind)
-			assertStreamHookResidency(t, operation, test.provider, test.wantRequestStream, test.wantStreamHooks)
+			assertStreamHookResidency(t, operation, test.provider, test.wantRequestStream, test.wantStreamHooks, test.wantUsageRule)
 		})
 	}
 	assertAllRuntimeOperationsCoveredByHookResidency(t, seen)
@@ -182,7 +188,7 @@ func assertRequestHookResidency(t *testing.T, operation RuntimeOperation, provid
 	}
 }
 
-func assertResponseHookResidency(t *testing.T, operation RuntimeOperation, provider string, wantKind operationResponseKind) {
+func assertResponseHookResidency(t *testing.T, operation RuntimeOperation, provider string, wantKind operationResponseKind, wantUsageRule runtimeUsageNormalizationRule) {
 	t.Helper()
 	hooks, ok := ResponseHooksForOperation(operation)
 	if !ok {
@@ -193,6 +199,13 @@ func assertResponseHookResidency(t *testing.T, operation RuntimeOperation, provi
 	}
 	if hooks.ParseNonStreamResponse == nil {
 		t.Fatalf("expected non-stream response parser for %s", operation.Name)
+	}
+	if wantKind == operationResponseKindTextGeneration {
+		if hooks.UsageRule != wantUsageRule {
+			t.Fatalf("expected response usage rule %+v for %s, got %+v", wantUsageRule, operation.Name, hooks.UsageRule)
+		}
+	} else if hooks.UsageRule.configured() {
+		t.Fatalf("expected %s response hooks to keep usage normalization outside generation seam, got %+v", operation.Name, hooks.UsageRule)
 	}
 }
 
@@ -213,7 +226,7 @@ func assertMediaHookResidency(t *testing.T, operation RuntimeOperation, provider
 	}
 }
 
-func assertStreamHookResidency(t *testing.T, operation RuntimeOperation, provider string, isStreamingRequest bool, wantStream bool) {
+func assertStreamHookResidency(t *testing.T, operation RuntimeOperation, provider string, isStreamingRequest bool, wantStream bool, wantUsageRule runtimeUsageNormalizationRule) {
 	t.Helper()
 	hooks, ok := streamHooksForProxyResponse(operation, isStreamingRequest)
 	if ok != (isStreamingRequest && wantStream) {
@@ -232,6 +245,9 @@ func assertStreamHookResidency(t *testing.T, operation RuntimeOperation, provide
 	}
 	if selected.Provider != provider || selected.Kind != operationResponseKindTextGeneration {
 		t.Fatalf("expected %s text stream hooks for %s, got %+v", provider, operation.Name, selected)
+	}
+	if selected.UsageRule != wantUsageRule {
+		t.Fatalf("expected stream usage rule %+v for %s, got %+v", wantUsageRule, operation.Name, selected.UsageRule)
 	}
 	if selected.MergeUsage == nil {
 		t.Fatalf("expected stream usage merger for %s", operation.Name)

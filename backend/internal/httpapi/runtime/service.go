@@ -504,6 +504,7 @@ type runtimeResponseCapture struct {
 	Body                     []byte
 	AuditBody                []byte
 	Usage                    responseUsage
+	UsageRule                runtimeUsageNormalizationRule
 	FirstMeaningfulPayloadAt *time.Time
 	CompletedAt              *time.Time
 	StreamOutcome            string
@@ -512,13 +513,16 @@ type runtimeResponseCapture struct {
 }
 
 func (capture runtimeResponseCapture) extractedUsage() responseUsage {
-	if capture.Usage.hasValues() {
+	if capture.Usage.hasValues() || capture.Usage.discarded {
+		if capture.UsageRule.configured() {
+			return capture.Usage.canonicalizedForRuntimeUsage(capture.UsageRule)
+		}
 		return capture.Usage.normalized()
 	}
-	return extractResponseUsage(capture.Body).normalized()
+	return extractResponseUsage(capture.Body, capture.UsageRule).normalized()
 }
 
-func proxyNonEventResponseAndCaptureUsage(dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
+func proxyNonEventResponseAndCaptureUsage(hooks operationResponseHooks, dst io.Writer, src io.Reader, contentType string, now func() time.Time, captureAuditBody bool) (runtimeResponseCapture, error) {
 	if !responseMayContainJSONUsage(contentType) {
 		writers := []io.Writer{dst}
 		auditBuffer := &bytes.Buffer{}
@@ -527,13 +531,13 @@ func proxyNonEventResponseAndCaptureUsage(dst io.Writer, src io.Reader, contentT
 		}
 		_, err := io.Copy(io.MultiWriter(writers...), src)
 		completedAt := now()
-		capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming}
+		capture := runtimeResponseCapture{CompletedAt: &completedAt, StreamOutcome: runtimeStreamOutcomeNotStreaming, UsageRule: hooks.UsageRule}
 		if captureAuditBody {
 			capture.AuditBody = append([]byte(nil), auditBuffer.Bytes()...)
 		}
 		return capture, err
 	}
-	capture := newStreamedResponseUsageCapture()
+	capture := newStreamedResponseUsageCapture(hooks.UsageRule)
 	writers := []io.Writer{dst, capture}
 	auditBuffer := &bytes.Buffer{}
 	if captureAuditBody {
@@ -558,8 +562,8 @@ type streamedResponseUsageCapture struct {
 	parser *streamedResponseUsageParser
 }
 
-func newStreamedResponseUsageCapture() *streamedResponseUsageCapture {
-	return &streamedResponseUsageCapture{parser: newStreamedResponseUsageParser()}
+func newStreamedResponseUsageCapture(rule runtimeUsageNormalizationRule) *streamedResponseUsageCapture {
+	return &streamedResponseUsageCapture{parser: newStreamedResponseUsageParser(rule)}
 }
 
 func (capture *streamedResponseUsageCapture) Write(payload []byte) (int, error) {
@@ -572,6 +576,7 @@ func (capture *streamedResponseUsageCapture) runtimeResponseCapture(completedAt 
 	responseCapture := runtimeResponseCapture{
 		Body:          buildUsageBodyFromResponseUsage(usage),
 		Usage:         usage,
+		UsageRule:     capture.parser.rule,
 		CompletedAt:   &completedAt,
 		StreamOutcome: runtimeStreamOutcomeNotStreaming,
 	}
@@ -589,14 +594,6 @@ const (
 	runtimeJSONUsagePathResponse
 )
 
-type runtimeJSONUsageKind uint8
-
-const (
-	runtimeJSONUsageKindNone runtimeJSONUsageKind = iota
-	runtimeJSONUsageKindStandard
-	runtimeJSONUsageKindGemini
-)
-
 type runtimeJSONFrame struct {
 	container    byte
 	path         runtimeJSONUsagePath
@@ -605,7 +602,7 @@ type runtimeJSONFrame struct {
 }
 
 type runtimeJSONUsageObjectCapture struct {
-	kind      runtimeJSONUsageKind
+	carrier   runtimeUsageCarrier
 	buffer    bytes.Buffer
 	depth     int
 	inString  bool
@@ -613,8 +610,8 @@ type runtimeJSONUsageObjectCapture struct {
 	oversized bool
 }
 
-func newRuntimeJSONUsageObjectCapture(kind runtimeJSONUsageKind) *runtimeJSONUsageObjectCapture {
-	capture := &runtimeJSONUsageObjectCapture{kind: kind}
+func newRuntimeJSONUsageObjectCapture(carrier runtimeUsageCarrier) *runtimeJSONUsageObjectCapture {
+	capture := &runtimeJSONUsageObjectCapture{carrier: carrier}
 	capture.buffer.Grow(256)
 	return capture
 }
@@ -653,6 +650,7 @@ func (capture *runtimeJSONUsageObjectCapture) consumeByte(value byte) bool {
 }
 
 type streamedResponseUsageParser struct {
+	rule          runtimeUsageNormalizationRule
 	frames        []runtimeJSONFrame
 	inString      bool
 	escaped       bool
@@ -663,8 +661,8 @@ type streamedResponseUsageParser struct {
 	activeCapture *runtimeJSONUsageObjectCapture
 }
 
-func newStreamedResponseUsageParser() *streamedResponseUsageParser {
-	return &streamedResponseUsageParser{}
+func newStreamedResponseUsageParser(rule runtimeUsageNormalizationRule) *streamedResponseUsageParser {
+	return &streamedResponseUsageParser{rule: rule}
 }
 
 func (parser *streamedResponseUsageParser) consume(payload []byte) {
@@ -777,8 +775,8 @@ func (parser *streamedResponseUsageParser) beginObject() {
 	if frame == nil {
 		path = runtimeJSONUsagePathRoot
 	} else if frame.container == '{' {
-		if kind := runtimeJSONUsageKindForKey(frame.path, frame.pendingKey); kind != runtimeJSONUsageKindNone {
-			parser.activeCapture = newRuntimeJSONUsageObjectCapture(kind)
+		if carrier := runtimeJSONUsageCarrierForKey(frame.path, frame.pendingKey); parser.rule.allowsCarrier(carrier) {
+			parser.activeCapture = newRuntimeJSONUsageObjectCapture(carrier)
 			_ = parser.activeCapture.consumeByte('{')
 		}
 		if frame.path == runtimeJSONUsagePathRoot && frame.pendingKey == "response" {
@@ -840,33 +838,28 @@ func (parser *streamedResponseUsageParser) mergeCapturedUsage(capture *runtimeJS
 	if err := json.Unmarshal(capture.buffer.Bytes(), &payload); err != nil {
 		return
 	}
-	switch capture.kind {
-	case runtimeJSONUsageKindStandard:
-		parser.usage.mergeStandardUsagePayload(payload)
-	case runtimeJSONUsageKindGemini:
-		parser.usage.mergeGeminiUsagePayload(payload)
-	}
+	parser.usage.mergeRuntimeUsagePayload(parser.rule, capture.carrier, payload)
 }
 
 func (parser *streamedResponseUsageParser) extractedUsage() responseUsage {
-	return parser.usage.normalized()
+	return parser.usage.canonicalizedForRuntimeUsage(parser.rule)
 }
 
-func runtimeJSONUsageKindForKey(path runtimeJSONUsagePath, key string) runtimeJSONUsageKind {
+func runtimeJSONUsageCarrierForKey(path runtimeJSONUsagePath, key string) runtimeUsageCarrier {
 	switch path {
 	case runtimeJSONUsagePathRoot:
 		switch key {
 		case "usage":
-			return runtimeJSONUsageKindStandard
+			return runtimeUsageCarrierRootUsage
 		case "usageMetadata":
-			return runtimeJSONUsageKindGemini
+			return runtimeUsageCarrierRootUsageMetadata
 		}
 	case runtimeJSONUsagePathResponse:
 		if key == "usage" {
-			return runtimeJSONUsageKindStandard
+			return runtimeUsageCarrierResponseUsage
 		}
 	}
-	return runtimeJSONUsageKindNone
+	return runtimeUsageCarrierNone
 }
 
 func isJSONWhitespace(value byte) bool {
@@ -952,9 +945,16 @@ func (capture *sseCompletedResponseCapture) runtimeResponseCapture(classificatio
 	if outcome == "" {
 		outcome = runtimeStreamOutcomeUnknown
 	}
+	usage := capture.usage.canonicalizedForRuntimeUsage(capture.streamHooks.UsageRule)
+	body := capture.completedResponse
+	if outcome != runtimeStreamOutcomeCompleted {
+		usage = responseUsage{}
+		body = nil
+	}
 	return runtimeResponseCapture{
-		Body:                     capture.completedResponse,
-		Usage:                    capture.usage,
+		Body:                     body,
+		Usage:                    usage,
+		UsageRule:                capture.streamHooks.UsageRule,
 		FirstMeaningfulPayloadAt: capture.firstPayloadAt,
 		CompletedAt:              capture.completedAt,
 		StreamOutcome:            outcome,
@@ -1060,9 +1060,11 @@ func (capture *sseCompletedResponseCapture) consumePayload(payloadBytes []byte, 
 		capture.completedAt = &completedAt
 		capture.terminalSignal = terminalSignal
 	}
-	capture.streamHooks.mergeUsage(&capture.usage, payload)
-	if usageBody := buildUsageBodyFromResponseUsage(capture.usage); len(usageBody) > 0 {
-		capture.completedResponse = usageBody
+	capture.streamHooks.mergeUsage(&capture.usage, capture.currentEvent, payload)
+	if usage := capture.usage.canonicalizedForRuntimeUsage(capture.streamHooks.UsageRule); usage.hasValues() {
+		if usageBody := buildUsageBodyFromResponseUsage(usage); len(usageBody) > 0 {
+			capture.completedResponse = usageBody
+		}
 	}
 }
 

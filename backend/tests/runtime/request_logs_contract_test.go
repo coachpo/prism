@@ -611,7 +611,7 @@ func TestRuntimeRequestLogsSkipCrossFamilyProxyTargets(t *testing.T) {
 	assertLatestRuntimeModelIdentity(t, harness.conn, profileID, publicModelID, openAITargetModelID)
 }
 
-func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t *testing.T) {
+func TestRuntimeRequestLogPersistsComponentPricingWithoutComponentUsageCounters(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	var reportCurrencyCode string
@@ -645,7 +645,7 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 	cachedInputPrice := "11"
 	cacheCreationPrice := "13"
 	reasoningPrice := "17"
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-template-"+suffix, reportCurrencyCode, "2", "5", &cachedInputPrice, &cacheCreationPrice, &reasoningPrice)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-template-"+suffix, reportCurrencyCode, "2", "5", cachedInputPrice, cacheCreationPrice, reasoningPrice)
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
@@ -691,14 +691,7 @@ func TestRuntimeRequestLogPersistsOptionalPricingWithoutOptionalUsageCounters(t 
 		PricingSnapshotReasoning:          sql.NullString{String: "17", Valid: true},
 		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 	}
-	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
-	if requestLogRow != want {
-		t.Fatalf("expected winning request_logs pricing row %+v, got %+v", want, requestLogRow)
-	}
-	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
-	if usageEventRow != want {
-		t.Fatalf("expected usage_request_events pricing row %+v, got %+v", want, usageEventRow)
-	}
+	assertLatestRuntimePricingRows(t, harness.conn, profileID, want, "winning optional-component")
 	streamRow := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
 	if streamRow.StreamOutcome != "not_streaming" || streamRow.StreamErrorKind.Valid || streamRow.StreamErrorDetail.Valid || !streamRow.TotalCostUserCurrencyMicros.Valid || streamRow.TotalCostUserCurrencyMicros.Int64 != 50 || !streamRow.CompletionDurationMS.Valid {
 		t.Fatalf("expected non-stream request log to persist not_streaming while preserving pricing/timing, got %+v", streamRow)
@@ -723,11 +716,12 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 		"id":     "chatcmpl-runtime-pricing-zero-cost-" + suffix,
 		"object": "chat.completion",
 		"usage": map[string]any{
-			"prompt_tokens":               10,
-			"completion_tokens":           6,
-			"total_tokens":                16,
-			"cache_read_input_tokens":     4,
-			"cache_creation_input_tokens": 5,
+			"prompt_tokens":     10,
+			"completion_tokens": 6,
+			"total_tokens":      16,
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": 4,
+			},
 			"completion_tokens_details": map[string]any{
 				"reasoning_tokens": 3,
 			},
@@ -741,7 +735,7 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/zero-cost"),
 		EndpointAPIKey:  "runtime-priced-zero-key",
 	})
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-zero-cost-"+suffix, reportCurrencyCode, "0", "0", nil, nil, nil)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-zero-cost-"+suffix, reportCurrencyCode, "0", "0", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
@@ -764,11 +758,10 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 		AttemptMetric:                     1,
 		BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
 		PricedFlag:                        sql.NullBool{Bool: true, Valid: true},
-		InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
-		OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+		InputTokens:                       sql.NullInt64{Int64: 6, Valid: true},
+		OutputTokens:                      sql.NullInt64{Int64: 3, Valid: true},
 		TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
 		CacheReadInputTokens:              sql.NullInt64{Int64: 4, Valid: true},
-		CacheCreationInputTokens:          sql.NullInt64{Int64: 5, Valid: true},
 		ReasoningTokens:                   sql.NullInt64{Int64: 3, Valid: true},
 		InputCostMicros:                   sql.NullInt64{Int64: 0, Valid: true},
 		OutputCostMicros:                  sql.NullInt64{Int64: 0, Valid: true},
@@ -790,14 +783,7 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 		PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
 		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 	}
-	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
-	if requestLogRow != want {
-		t.Fatalf("expected priced-zero request_logs pricing row %+v, got %+v", want, requestLogRow)
-	}
-	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
-	if usageEventRow != want {
-		t.Fatalf("expected priced-zero usage_request_events pricing row %+v, got %+v", want, usageEventRow)
-	}
+	assertLatestRuntimePricingRows(t, harness.conn, profileID, want, "priced-zero")
 
 	listResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusOK)
@@ -852,7 +838,7 @@ func TestRuntimeRequestLogKeepsPricedZeroDistinctFromUnpriced(t *testing.T) {
 	}
 }
 
-func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testing.T) {
+func TestRuntimeRequestLogUsesManagementNormalizedComponentPricingAsZero(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	var reportCurrencyCode string
@@ -867,14 +853,15 @@ func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testi
 
 	suffix := randomSuffix()
 	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
-		"id":     "chatcmpl-runtime-management-normalized-optionals-" + suffix,
+		"id":     "chatcmpl-runtime-management-normalized-components-" + suffix,
 		"object": "chat.completion",
 		"usage": map[string]any{
-			"prompt_tokens":               10,
-			"completion_tokens":           6,
-			"total_tokens":                16,
-			"cache_read_input_tokens":     4,
-			"cache_creation_input_tokens": 5,
+			"prompt_tokens":     10,
+			"completion_tokens": 6,
+			"total_tokens":      16,
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": 4,
+			},
 			"completion_tokens_details": map[string]any{
 				"reasoning_tokens": 3,
 			},
@@ -883,14 +870,14 @@ func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testi
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{
 		ProfileID:       profileID,
 		APIFamily:       "openai",
-		PublicModelID:   "management-normalized-optionals-public-" + suffix,
-		TargetModelID:   "management-normalized-optionals-target-" + suffix,
-		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/management-normalized-optionals"),
-		EndpointAPIKey:  "runtime-management-normalized-optionals-key",
+		PublicModelID:   "management-normalized-components-public-" + suffix,
+		TargetModelID:   "management-normalized-components-target-" + suffix,
+		EndpointBaseURL: upstream.baseURL("/request-logs/pricing/management-normalized-components"),
+		EndpointAPIKey:  "runtime-management-normalized-components-key",
 	})
 
 	createResponse := harness.requestJSON(t, http.MethodPost, "/api/pricing-templates", map[string]any{
-		"name":                  "Runtime Management Normalized Optionals " + suffix,
+		"name":                  "Runtime Management Normalized Components " + suffix,
 		"pricing_currency_code": reportCurrencyCode,
 		"input_price":           "2",
 		"output_price":          "5",
@@ -902,8 +889,8 @@ func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testi
 	var createdTemplate map[string]any
 	decodeJSONResponse(t, createResponse, &createdTemplate)
 	pricingTemplateID := jsonInt(t, createdTemplate["id"])
-	if createdTemplate["cached_input_price"] != nil || createdTemplate["cache_creation_price"] != nil || createdTemplate["reasoning_price"] != nil {
-		t.Fatalf("expected management-created blank/null optional prices to normalize to nulls, got %+v", createdTemplate)
+	if createdTemplate["cached_input_price"] != "0" || createdTemplate["cache_creation_price"] != "0" || createdTemplate["reasoning_price"] != "0" {
+		t.Fatalf("expected management-created blank/null component prices to normalize to zero strings, got %+v", createdTemplate)
 	}
 
 	generation := harness.runtimeCache.PublishedGeneration()
@@ -932,19 +919,18 @@ func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testi
 		AttemptMetric:                     1,
 		BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
 		PricedFlag:                        sql.NullBool{Bool: true, Valid: true},
-		InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
-		OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+		InputTokens:                       sql.NullInt64{Int64: 6, Valid: true},
+		OutputTokens:                      sql.NullInt64{Int64: 3, Valid: true},
 		TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
 		CacheReadInputTokens:              sql.NullInt64{Int64: 4, Valid: true},
-		CacheCreationInputTokens:          sql.NullInt64{Int64: 5, Valid: true},
 		ReasoningTokens:                   sql.NullInt64{Int64: 3, Valid: true},
-		InputCostMicros:                   sql.NullInt64{Int64: 20, Valid: true},
-		OutputCostMicros:                  sql.NullInt64{Int64: 30, Valid: true},
+		InputCostMicros:                   sql.NullInt64{Int64: 12, Valid: true},
+		OutputCostMicros:                  sql.NullInt64{Int64: 15, Valid: true},
 		CacheReadInputCostMicros:          sql.NullInt64{Int64: 0, Valid: true},
 		CacheCreationInputCostMicros:      sql.NullInt64{Int64: 0, Valid: true},
 		ReasoningCostMicros:               sql.NullInt64{Int64: 0, Valid: true},
-		TotalCostOriginalMicros:           sql.NullInt64{Int64: 50, Valid: true},
-		TotalCostUserCurrencyMicros:       sql.NullInt64{Int64: 50, Valid: true},
+		TotalCostOriginalMicros:           sql.NullInt64{Int64: 27, Valid: true},
+		TotalCostUserCurrencyMicros:       sql.NullInt64{Int64: 27, Valid: true},
 		CurrencyCodeOriginal:              sql.NullString{String: reportCurrencyCode, Valid: true},
 		ReportCurrencyCode:                sql.NullString{String: reportCurrencyCode, Valid: true},
 		ReportCurrencySymbol:              sql.NullString{String: reportCurrencySymbol, Valid: true},
@@ -958,14 +944,7 @@ func TestRuntimeRequestLogUsesManagementNormalizedOptionalPricingAsZero(t *testi
 		PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
 		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 	}
-	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
-	if requestLogRow != want {
-		t.Fatalf("expected management-normalized optional prices to persist request_logs pricing row %+v, got %+v", want, requestLogRow)
-	}
-	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
-	if usageEventRow != want {
-		t.Fatalf("expected management-normalized optional prices to persist usage_request_events pricing row %+v, got %+v", want, usageEventRow)
-	}
+	assertLatestRuntimePricingRows(t, harness.conn, profileID, want, "management-normalized component prices")
 }
 
 func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
@@ -1012,13 +991,20 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 			inputPrice:          "not-a-decimal",
 			outputPrice:         "5",
 			want: runtimePersistedPricingRow{
-				AttemptMetric:  1,
-				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
-				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
-				UnpricedReason: sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
-				InputTokens:    sql.NullInt64{Int64: 10, Valid: true},
-				OutputTokens:   sql.NullInt64{Int64: 6, Valid: true},
-				TotalTokens:    sql.NullInt64{Int64: 16, Valid: true},
+				AttemptMetric:                     1,
+				BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:                        sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason:                    sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
+				InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
+				OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+				TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
+				PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+				PricingSnapshotInput:              sql.NullString{String: "not-a-decimal", Valid: true},
+				PricingSnapshotOutput:             sql.NullString{String: "5", Valid: true},
+				PricingSnapshotCacheReadInput:     sql.NullString{String: "0", Valid: true},
+				PricingSnapshotCacheCreationInput: sql.NullString{String: "0", Valid: true},
+				PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
+				PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 			},
 		},
 		{
@@ -1029,13 +1015,20 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 			inputPrice:          "2",
 			outputPrice:         "5",
 			want: runtimePersistedPricingRow{
-				AttemptMetric:  1,
-				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
-				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
-				UnpricedReason: sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
-				InputTokens:    sql.NullInt64{Int64: 10, Valid: true},
-				OutputTokens:   sql.NullInt64{Int64: 6, Valid: true},
-				TotalTokens:    sql.NullInt64{Int64: 16, Valid: true},
+				AttemptMetric:                     1,
+				BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:                        sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason:                    sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
+				InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
+				OutputTokens:                      sql.NullInt64{Int64: 6, Valid: true},
+				TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
+				PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+				PricingSnapshotInput:              sql.NullString{String: "2", Valid: true},
+				PricingSnapshotOutput:             sql.NullString{String: "5", Valid: true},
+				PricingSnapshotCacheReadInput:     sql.NullString{String: "0", Valid: true},
+				PricingSnapshotCacheCreationInput: sql.NullString{String: "0", Valid: true},
+				PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
+				PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 			},
 		},
 		{
@@ -1045,10 +1038,17 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 			inputPrice:          "2",
 			outputPrice:         "5",
 			want: runtimePersistedPricingRow{
-				AttemptMetric:  1,
-				BillableFlag:   sql.NullBool{Bool: true, Valid: true},
-				PricedFlag:     sql.NullBool{Bool: false, Valid: true},
-				UnpricedReason: sql.NullString{String: "MISSING_TOKEN_USAGE", Valid: true},
+				AttemptMetric:                     1,
+				BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+				PricedFlag:                        sql.NullBool{Bool: false, Valid: true},
+				UnpricedReason:                    sql.NullString{String: "MISSING_TOKEN_USAGE", Valid: true},
+				PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+				PricingSnapshotInput:              sql.NullString{String: "2", Valid: true},
+				PricingSnapshotOutput:             sql.NullString{String: "5", Valid: true},
+				PricingSnapshotCacheReadInput:     sql.NullString{String: "0", Valid: true},
+				PricingSnapshotCacheCreationInput: sql.NullString{String: "0", Valid: true},
+				PricingSnapshotReasoning:          sql.NullString{String: "0", Valid: true},
+				PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 			},
 		},
 	}
@@ -1074,7 +1074,7 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 				EndpointAPIKey:  "runtime-unpriced-" + slug + "-key",
 			})
 			if test.attachTemplate {
-				pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-unpriced-"+slug+"-pricing-"+suffix, test.pricingCurrencyCode, test.inputPrice, test.outputPrice, nil, nil, nil)
+				pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-unpriced-"+slug+"-pricing-"+suffix, test.pricingCurrencyCode, test.inputPrice, test.outputPrice, "0", "0", "0")
 				attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 			}
 
@@ -1095,19 +1095,12 @@ func TestRuntimeRequestLogPreservesUnpricedPricingPathways(t *testing.T) {
 			waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: index + 1, UsageEvents: index + 1, OutboxRows: 0}, 5*time.Second)
 			assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 
-			requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
-			if requestLogRow != test.want {
-				t.Fatalf("expected %s request_logs pricing row %+v, got %+v", test.name, test.want, requestLogRow)
-			}
-			usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
-			if usageEventRow != test.want {
-				t.Fatalf("expected %s usage_request_events pricing row %+v, got %+v", test.name, test.want, usageEventRow)
-			}
+			assertLatestRuntimePricingRows(t, harness.conn, profileID, test.want, test.name)
 		})
 	}
 }
 
-func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsInvalid(t *testing.T) {
+func TestRuntimeRequestLogDegradesWhenUsedComponentPricingIsInvalid(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	var reportCurrencyCode string
@@ -1143,7 +1136,7 @@ func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsInvalid(t *testing.T)
 	cachedInputPrice := "11"
 	cacheCreationPrice := "13"
 	invalidReasoningPrice := "not-a-decimal"
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-invalid-dimension-"+suffix, reportCurrencyCode, "2", "5", &cachedInputPrice, &cacheCreationPrice, &invalidReasoningPrice)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-pricing-invalid-dimension-"+suffix, reportCurrencyCode, "2", "5", cachedInputPrice, cacheCreationPrice, invalidReasoningPrice)
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
@@ -1164,23 +1157,23 @@ func TestRuntimeRequestLogDegradesWhenUsedOptionalPricingIsInvalid(t *testing.T)
 	assertLatestRuntimeAttemptCounts(t, harness.conn, profileID, 1, 1)
 
 	want := runtimePersistedPricingRow{
-		AttemptMetric:   1,
-		BillableFlag:    sql.NullBool{Bool: true, Valid: true},
-		PricedFlag:      sql.NullBool{Bool: false, Valid: true},
-		UnpricedReason:  sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
-		InputTokens:     sql.NullInt64{Int64: 10, Valid: true},
-		OutputTokens:    sql.NullInt64{Int64: 6, Valid: true},
-		TotalTokens:     sql.NullInt64{Int64: 16, Valid: true},
-		ReasoningTokens: sql.NullInt64{Int64: 3, Valid: true},
+		AttemptMetric:                     1,
+		BillableFlag:                      sql.NullBool{Bool: true, Valid: true},
+		PricedFlag:                        sql.NullBool{Bool: false, Valid: true},
+		UnpricedReason:                    sql.NullString{String: "MISSING_PRICE_DATA", Valid: true},
+		InputTokens:                       sql.NullInt64{Int64: 10, Valid: true},
+		OutputTokens:                      sql.NullInt64{Int64: 3, Valid: true},
+		TotalTokens:                       sql.NullInt64{Int64: 16, Valid: true},
+		ReasoningTokens:                   sql.NullInt64{Int64: 3, Valid: true},
+		PricingSnapshotUnit:               sql.NullString{String: "PER_1M", Valid: true},
+		PricingSnapshotInput:              sql.NullString{String: "2", Valid: true},
+		PricingSnapshotOutput:             sql.NullString{String: "5", Valid: true},
+		PricingSnapshotCacheReadInput:     sql.NullString{String: cachedInputPrice, Valid: true},
+		PricingSnapshotCacheCreationInput: sql.NullString{String: cacheCreationPrice, Valid: true},
+		PricingSnapshotReasoning:          sql.NullString{String: invalidReasoningPrice, Valid: true},
+		PricingConfigVersionUsed:          sql.NullInt64{Int64: 1, Valid: true},
 	}
-	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID)
-	if requestLogRow != want {
-		t.Fatalf("expected degraded winning request_logs pricing row %+v, got %+v", want, requestLogRow)
-	}
-	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID)
-	if usageEventRow != want {
-		t.Fatalf("expected degraded usage_request_events pricing row %+v, got %+v", want, usageEventRow)
-	}
+	assertLatestRuntimePricingRows(t, harness.conn, profileID, want, "degraded component pricing")
 
 	listResponse := harness.requestJSON(t, http.MethodGet, "/api/stats/requests?limit=50&offset=0", nil, runtimeModelHeader(profileID))
 	assertStatus(t, listResponse, http.StatusOK)
@@ -1308,9 +1301,9 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "event: response.created\n")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"usage\":null}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"usage\":{\"input_tokens\":999,\"output_tokens\":999,\"total_tokens\":1998}}}\n\n")
 		_, _ = io.WriteString(w, "event: response.completed\n")
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20,\"output_tokens_details\":{\"reasoning_tokens\":0}}}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":2},\"output_tokens_details\":{\"reasoning_tokens\":5}}}}\n\n")
 	}))
 	defer upstream.Close()
 
@@ -1322,7 +1315,7 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 		EndpointBaseURL: upstream.URL,
 		EndpointAPIKey:  "runtime-stream-key",
 	})
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(
@@ -1346,30 +1339,20 @@ func TestRuntimeRequestLogPersistsStreamedResponsesUsage(t *testing.T) {
 	assertStatus(t, response, http.StatusOK)
 	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
 
-	var isStream bool
-	var inputTokens sql.NullInt64
-	var outputTokens sql.NullInt64
-	var totalTokens sql.NullInt64
-	if err := harness.conn.QueryRow(
-		context.Background(),
-		`SELECT is_stream, input_tokens, output_tokens, total_tokens FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
-		profileID,
-	).Scan(&isStream, &inputTokens, &outputTokens, &totalTokens); err != nil {
-		t.Fatalf("load persisted streamed request log usage: %v", err)
-	}
-	if !isStream {
-		t.Fatalf("expected streamed responses request to persist is_stream=true")
-	}
-	if !inputTokens.Valid || inputTokens.Int64 != 7 || !outputTokens.Valid || outputTokens.Int64 != 13 || !totalTokens.Valid || totalTokens.Int64 != 20 {
-		t.Fatalf("expected streamed responses usage to persist 7/13/20, got input=%+v output=%+v total=%+v", inputTokens, outputTokens, totalTokens)
-	}
+	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
+		InputTokens:          runtimeNullInt64(5),
+		OutputTokens:         runtimeNullInt64(8),
+		TotalTokens:          runtimeNullInt64(20),
+		CacheReadInputTokens: runtimeNullInt64(2),
+		ReasoningTokens:      runtimeNullInt64(5),
+	})
 	assertLatestRuntimeWinningRequestLogTiming(t, harness.conn, profileID, false)
 	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
-	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.TotalCostUserCurrencyMicros.Valid || row.TotalCostUserCurrencyMicros.Int64 != 79 || !row.PricedFlag.Valid || !row.PricedFlag.Bool || row.UnpricedReason.Valid || !row.CompletionDurationMS.Valid {
+	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.TotalCostUserCurrencyMicros.Valid || row.TotalCostUserCurrencyMicros.Int64 != 50 || !row.PricedFlag.Valid || !row.PricedFlag.Bool || row.UnpricedReason.Valid || !row.CompletionDurationMS.Valid {
 		t.Fatalf("expected completed streamed request log to persist priced stream telemetry, got %+v", row)
 	}
 	usageEventRow := loadLatestRuntimeUsageEventStreamTelemetryRow(t, harness.conn, profileID)
-	if usageEventRow.StreamOutcome != "completed" || usageEventRow.StreamErrorKind.Valid || !usageEventRow.TotalCostUserCurrencyMicros.Valid || usageEventRow.TotalCostUserCurrencyMicros.Int64 != 79 || !usageEventRow.PricedFlag.Valid || !usageEventRow.PricedFlag.Bool || usageEventRow.UnpricedReason.Valid || !usageEventRow.CompletionDurationMS.Valid {
+	if usageEventRow.StreamOutcome != "completed" || usageEventRow.StreamErrorKind.Valid || !usageEventRow.TotalCostUserCurrencyMicros.Valid || usageEventRow.TotalCostUserCurrencyMicros.Int64 != 50 || !usageEventRow.PricedFlag.Valid || !usageEventRow.PricedFlag.Bool || usageEventRow.UnpricedReason.Valid || !usageEventRow.CompletionDurationMS.Valid {
 		t.Fatalf("expected completed streamed usage event to persist priced stream telemetry, got %+v", usageEventRow)
 	}
 }
@@ -1386,7 +1369,7 @@ func TestRuntimeRequestLogPersistsProviderIncompleteStreamOutcome(t *testing.T) 
 	}))
 	defer upstream.Close()
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "stream-incomplete-public-" + randomSuffix(), TargetModelID: "stream-incomplete-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-stream-incomplete-key"})
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-incomplete-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-incomplete-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "provider incomplete stream", "stream": true}, nil)
@@ -1409,7 +1392,7 @@ func TestRuntimeRequestLogPersistsStreamEOFWithoutTerminalOutcome(t *testing.T) 
 	}))
 	defer upstream.Close()
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "stream-missing-terminal-public-" + randomSuffix(), TargetModelID: "stream-missing-terminal-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-stream-missing-terminal-key"})
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-missing-terminal-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-missing-terminal-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "missing terminal stream", "stream": true}, nil)
@@ -1432,7 +1415,7 @@ func TestRuntimeRequestLogCompletedStreamWithMissingUsageKeepsMissingTokenUsage(
 	}))
 	defer upstream.Close()
 	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "stream-missing-usage-public-" + randomSuffix(), TargetModelID: "stream-missing-usage-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-stream-missing-usage-key"})
-	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-missing-usage-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", nil, nil, nil)
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-stream-missing-usage-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", "0", "0", "0")
 	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
 
 	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "completed stream without usage", "stream": true}, nil)
@@ -1445,13 +1428,62 @@ func TestRuntimeRequestLogCompletedStreamWithMissingUsageKeepsMissingTokenUsage(
 	}
 }
 
-func TestRuntimeRequestLogPersistsStreamedAnthropicUsage(t *testing.T) {
+func TestRuntimeRequestLogUsageDiscardInvalidUsage(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	suffix := randomSuffix()
+	upstream := newScriptedUpstream(t, http.StatusOK, map[string]any{
+		"id":    "chatcmpl-invalid-usage-" + suffix,
+		"usage": map[string]any{"prompt_tokens": 7, "completion_tokens": 13, "total_tokens": 19},
+	})
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "invalid-usage-public-" + suffix, TargetModelID: "invalid-usage-target-" + suffix, EndpointBaseURL: upstream.baseURL("/request-logs/invalid-usage"), EndpointAPIKey: "runtime-invalid-usage-key"})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-invalid-usage-pricing-"+suffix, loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", "0", "0", "0")
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/chat/completions", map[string]any{"model": route.PublicModelID, "messages": []map[string]any{{"role": "user", "content": "invalid usage should discard"}}}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	assertRuntimePricingRowDiscardedUsage(t, loadLatestRuntimeRequestLogPricingRow(t, harness.conn, profileID), "MISSING_TOKEN_USAGE")
+	assertRuntimePricingRowDiscardedUsage(t, loadLatestRuntimeUsageEventPricingRow(t, harness.conn, profileID), "MISSING_TOKEN_USAGE")
+}
+
+func TestRuntimeRequestLogMissingTerminalUsageDiscard(t *testing.T) {
+	harness := newRuntimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"response\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":13,\"total_tokens\":20}},\"delta\":\"partial\"}\n\n")
+	}))
+	defer upstream.Close()
+	route := harness.seedProxyRoute(t, runtimeRouteSeed{ProfileID: profileID, APIFamily: "openai", PublicModelID: "missing-terminal-usage-public-" + randomSuffix(), TargetModelID: "missing-terminal-usage-target-" + randomSuffix(), EndpointBaseURL: upstream.URL, EndpointAPIKey: "runtime-missing-terminal-usage-key"})
+	pricingTemplateID := insertRuntimePricingTemplate(t, harness.conn, profileID, "runtime-missing-terminal-usage-pricing-"+randomSuffix(), loadRuntimeReportCurrencyCode(t, harness.conn, profileID), "2", "5", "0", "0", "0")
+	attachRuntimeConnectionPricingTemplate(t, harness, route.ConnectionID, pricingTemplateID)
+
+	response := harness.requestJSON(t, http.MethodPost, "/v1/responses", map[string]any{"model": route.PublicModelID, "input": "missing terminal with usage", "stream": true}, nil)
+	assertStatus(t, response, http.StatusOK)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
+	if row.StreamOutcome != "upstream_ended_without_terminal" || !row.StreamErrorKind.Valid || row.StreamErrorKind.String != "missing_terminal_event" || row.InputTokens.Valid || row.OutputTokens.Valid || row.TotalTokens.Valid || row.TotalCostUserCurrencyMicros.Valid || !row.UnpricedReason.Valid || row.UnpricedReason.String != "STREAM_USAGE_UNAVAILABLE" {
+		t.Fatalf("expected missing-terminal usage to be discarded in request log, got %+v", row)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventStreamTelemetryRow(t, harness.conn, profileID)
+	if usageEventRow.StreamOutcome != "upstream_ended_without_terminal" || usageEventRow.InputTokens.Valid || usageEventRow.OutputTokens.Valid || usageEventRow.TotalTokens.Valid || usageEventRow.TotalCostUserCurrencyMicros.Valid || !usageEventRow.UnpricedReason.Valid || usageEventRow.UnpricedReason.String != "STREAM_USAGE_UNAVAILABLE" {
+		t.Fatalf("expected missing-terminal usage to be discarded in usage event, got %+v", usageEventRow)
+	}
+}
+
+func TestRuntimeAnthropicStreamRequestLogPersistsSplitUsage(t *testing.T) {
 	harness := newRuntimeHarness(t)
 	profileID := harness.activeProfileID(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "event: message_start\n")
-		_, _ = io.WriteString(w, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":7,\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"output_tokens\":1}}}\n\n")
+		_, _ = io.WriteString(w, "event: message_delta\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":5}}\n\n")
 		_, _ = io.WriteString(w, "event: message_delta\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":13}}\n\n")
 		_, _ = io.WriteString(w, "event: message_stop\n")
@@ -1481,7 +1513,15 @@ func TestRuntimeRequestLogPersistsStreamedAnthropicUsage(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+	waitForRuntimeTelemetryCounts(t, harness.conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+
+	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
+		InputTokens:              runtimeNullInt64(7),
+		OutputTokens:             runtimeNullInt64(13),
+		TotalTokens:              runtimeNullInt64(25),
+		CacheReadInputTokens:     runtimeNullInt64(2),
+		CacheCreationInputTokens: runtimeNullInt64(3),
+	})
 	assertLatestRuntimeWinningRequestLogTiming(t, harness.conn, profileID, false)
 }
 
@@ -1491,7 +1531,7 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好\"}]}}]}\n\n")
-		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n")
 	}))
 	defer upstream.Close()
 
@@ -1517,7 +1557,13 @@ func TestRuntimeRequestLogPersistsStreamedGeminiUsage(t *testing.T) {
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
+		InputTokens:          runtimeNullInt64(4),
+		OutputTokens:         runtimeNullInt64(8),
+		TotalTokens:          runtimeNullInt64(20),
+		CacheReadInputTokens: runtimeNullInt64(3),
+		ReasoningTokens:      runtimeNullInt64(5),
+	})
 	row := loadLatestRuntimeRequestLogStreamTelemetryRow(t, harness.conn, profileID)
 	if row.StreamOutcome != "completed" || row.StreamErrorKind.Valid || row.StreamErrorDetail.Valid || !row.CompletionDurationMS.Valid {
 		t.Fatalf("expected Gemini streamGenerateContent response to persist completed stream telemetry, got %+v", row)
@@ -1534,7 +1580,7 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好\"}]}}]}\n\n")
-		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":20}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"你好！有什么我可以帮你的吗？\"}]}}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":13,\"totalTokenCount\":99,\"cachedContentTokenCount\":3,\"thoughtsTokenCount\":5}}\n\n")
 	}))
 	defer upstream.Close()
 
@@ -1560,7 +1606,13 @@ func TestRuntimeRequestLogPersistsGeminiStreamGenerateContentUsage(t *testing.T)
 		nil,
 	)
 	assertStatus(t, response, http.StatusOK)
-	assertLatestRequestLogUsage(t, harness.conn, profileID, true, 7, 13, 20)
+	assertLatestRuntimeUsageRows(t, harness.conn, profileID, true, runtimePersistedUsageRow{
+		InputTokens:          runtimeNullInt64(4),
+		OutputTokens:         runtimeNullInt64(8),
+		TotalTokens:          runtimeNullInt64(99),
+		CacheReadInputTokens: runtimeNullInt64(3),
+		ReasoningTokens:      runtimeNullInt64(5),
+	})
 }
 
 type runtimePersistedStreamTelemetryRow struct {
@@ -1615,26 +1667,60 @@ func loadLatestRuntimeUsageEventStreamTelemetryRow(t *testing.T, conn *pgx.Conn,
 	return row
 }
 
+type runtimePersistedUsageRow struct {
+	InputTokens              sql.NullInt64
+	OutputTokens             sql.NullInt64
+	TotalTokens              sql.NullInt64
+	CacheReadInputTokens     sql.NullInt64
+	CacheCreationInputTokens sql.NullInt64
+	ReasoningTokens          sql.NullInt64
+}
+
 func assertLatestRequestLogUsage(t *testing.T, conn *pgx.Conn, profileID int, expectStream bool, wantInput int64, wantOutput int64, wantTotal int64) {
 	t.Helper()
+	assertLatestRuntimeUsageRows(t, conn, profileID, expectStream, runtimePersistedUsageRow{
+		InputTokens:  runtimeNullInt64(wantInput),
+		OutputTokens: runtimeNullInt64(wantOutput),
+		TotalTokens:  runtimeNullInt64(wantTotal),
+	})
+}
+
+func assertLatestRuntimeUsageRows(t *testing.T, conn *pgx.Conn, profileID int, expectStream bool, want runtimePersistedUsageRow) {
+	t.Helper()
 	waitForRuntimeTelemetryCounts(t, conn, profileID, runtimeTelemetryCounts{RequestLogs: 1, UsageEvents: 1, OutboxRows: 0}, 5*time.Second)
+	ingressRequestID := loadLatestRuntimeIngressRequestID(t, conn, profileID)
 	var isStream bool
-	var inputTokens sql.NullInt64
-	var outputTokens sql.NullInt64
-	var totalTokens sql.NullInt64
+	requestLogRow := runtimePersistedUsageRow{}
 	if err := conn.QueryRow(
 		context.Background(),
-		`SELECT is_stream, input_tokens, output_tokens, total_tokens FROM request_logs WHERE profile_id = $1 ORDER BY id DESC LIMIT 1`,
+		`SELECT is_stream, input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens FROM request_logs WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY attempt_number DESC, id DESC LIMIT 1`,
 		profileID,
-	).Scan(&isStream, &inputTokens, &outputTokens, &totalTokens); err != nil {
-		t.Fatalf("load latest streamed request log usage: %v", err)
+		ingressRequestID,
+	).Scan(&isStream, &requestLogRow.InputTokens, &requestLogRow.OutputTokens, &requestLogRow.TotalTokens, &requestLogRow.CacheReadInputTokens, &requestLogRow.CacheCreationInputTokens, &requestLogRow.ReasoningTokens); err != nil {
+		t.Fatalf("load latest request_logs usage row: %v", err)
 	}
 	if isStream != expectStream {
-		t.Fatalf("expected request log is_stream=%t, got %t", expectStream, isStream)
+		t.Fatalf("expected request_logs is_stream=%t, got %t", expectStream, isStream)
 	}
-	if !inputTokens.Valid || inputTokens.Int64 != wantInput || !outputTokens.Valid || outputTokens.Int64 != wantOutput || !totalTokens.Valid || totalTokens.Int64 != wantTotal {
-		t.Fatalf("expected streamed usage %d/%d/%d, got input=%+v output=%+v total=%+v", wantInput, wantOutput, wantTotal, inputTokens, outputTokens, totalTokens)
+	if requestLogRow != want {
+		t.Fatalf("expected request_logs canonical usage row %+v, got %+v", want, requestLogRow)
 	}
+	usageEventRow := runtimePersistedUsageRow{}
+	if err := conn.QueryRow(
+		context.Background(),
+		`SELECT input_tokens, output_tokens, total_tokens, cache_read_input_tokens, cache_creation_input_tokens, reasoning_tokens FROM usage_request_events WHERE profile_id = $1 AND ingress_request_id = $2 ORDER BY id DESC LIMIT 1`,
+		profileID,
+		ingressRequestID,
+	).Scan(&usageEventRow.InputTokens, &usageEventRow.OutputTokens, &usageEventRow.TotalTokens, &usageEventRow.CacheReadInputTokens, &usageEventRow.CacheCreationInputTokens, &usageEventRow.ReasoningTokens); err != nil {
+		t.Fatalf("load latest usage_request_events usage row: %v", err)
+	}
+	if usageEventRow != want {
+		t.Fatalf("expected usage_request_events canonical usage row %+v, got %+v", want, usageEventRow)
+	}
+}
+
+func runtimeNullInt64(value int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: value, Valid: true}
 }
 
 type runtimeRequestLogAttempt struct {
@@ -1675,6 +1761,19 @@ type runtimePersistedPricingRow struct {
 	PricingSnapshotCacheCreationInput sql.NullString
 	PricingSnapshotReasoning          sql.NullString
 	PricingConfigVersionUsed          sql.NullInt64
+}
+
+func assertRuntimePricingRowDiscardedUsage(t *testing.T, row runtimePersistedPricingRow, wantReason string) {
+	t.Helper()
+	if row.InputTokens.Valid || row.OutputTokens.Valid || row.TotalTokens.Valid || row.CacheReadInputTokens.Valid || row.CacheCreationInputTokens.Valid || row.ReasoningTokens.Valid {
+		t.Fatalf("expected token usage to be discarded, got %+v", row)
+	}
+	if row.InputCostMicros.Valid || row.OutputCostMicros.Valid || row.CacheReadInputCostMicros.Valid || row.CacheCreationInputCostMicros.Valid || row.ReasoningCostMicros.Valid || row.TotalCostOriginalMicros.Valid || row.TotalCostUserCurrencyMicros.Valid {
+		t.Fatalf("expected discarded usage to skip pricing costs, got %+v", row)
+	}
+	if !row.BillableFlag.Valid || !row.BillableFlag.Bool || row.PricedFlag.Valid && row.PricedFlag.Bool || !row.UnpricedReason.Valid || row.UnpricedReason.String != wantReason {
+		t.Fatalf("expected discarded usage to be billable but unpriced as %s, got %+v", wantReason, row)
+	}
 }
 
 func loadLatestRuntimeIngressRequestID(t *testing.T, conn *pgx.Conn, profileID int) string {
@@ -1791,6 +1890,21 @@ func loadLatestRuntimeUsageEventPricingRow(t *testing.T, conn *pgx.Conn, profile
 		t.Fatalf("load latest runtime usage-event pricing row: %v", err)
 	}
 	return row
+}
+
+func assertLatestRuntimePricingRows(t *testing.T, conn *pgx.Conn, profileID int, want runtimePersistedPricingRow, label string) {
+	t.Helper()
+	requestLogRow := loadLatestRuntimeRequestLogPricingRow(t, conn, profileID)
+	if requestLogRow != want {
+		t.Fatalf("expected %s request_logs pricing row %+v, got %+v", label, want, requestLogRow)
+	}
+	usageEventRow := loadLatestRuntimeUsageEventPricingRow(t, conn, profileID)
+	if usageEventRow != want {
+		t.Fatalf("expected %s usage_request_events pricing row %+v, got %+v", label, want, usageEventRow)
+	}
+	if requestLogRow != usageEventRow {
+		t.Fatalf("expected %s request_logs and usage_request_events rows to agree, got request_logs=%+v usage_request_events=%+v", label, requestLogRow, usageEventRow)
+	}
 }
 
 func assertLatestRuntimeWinningRequestLogTiming(t *testing.T, conn *pgx.Conn, profileID int, expectTTFT bool) {
@@ -2192,7 +2306,7 @@ func loadVendorIDByKey(t *testing.T, conn *pgx.Conn, key string) int {
 	return vendorID
 }
 
-func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, name string, pricingCurrencyCode string, inputPrice string, outputPrice string, cachedInputPrice *string, cacheCreationPrice *string, reasoningPrice *string) int {
+func insertRuntimePricingTemplate(t *testing.T, conn *pgx.Conn, profileID int, name string, pricingCurrencyCode string, inputPrice string, outputPrice string, cachedInputPrice string, cacheCreationPrice string, reasoningPrice string) int {
 	t.Helper()
 	now := time.Now().UTC()
 	var templateID int

@@ -510,9 +510,9 @@ func listActiveConnectionsForProfile(ctx context.Context, tx pgx.Tx, profileID i
 				PricingCurrencyCode: strings.TrimSpace(templatePricingCurrencyCode.String),
 				InputPrice:          strings.TrimSpace(templateInputPrice.String),
 				OutputPrice:         strings.TrimSpace(templateOutputPrice.String),
-				CachedInputPrice:    nullableString(templateCachedInputPrice),
-				CacheCreationPrice:  nullableString(templateCacheCreationPrice),
-				ReasoningPrice:      nullableString(templateReasoningPrice),
+				CachedInputPrice:    strings.TrimSpace(templateCachedInputPrice.String),
+				CacheCreationPrice:  strings.TrimSpace(templateCacheCreationPrice.String),
+				ReasoningPrice:      strings.TrimSpace(templateReasoningPrice.String),
 				Version:             int(templateVersion.Int32),
 			}
 		}

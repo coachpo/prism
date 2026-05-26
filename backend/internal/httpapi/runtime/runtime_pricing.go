@@ -47,6 +47,15 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		return result
 	}
 
+	if usage.InputTokens == nil || usage.OutputTokens == nil {
+		if runtimeStreamOutcomeMakesUsageUnavailable(streamOutcome) {
+			result.UnpricedReason = stringPtr(runtimeUnpricedReasonStreamUsageUnavailable)
+			return result
+		}
+		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
+		return result
+	}
+
 	pricingUnit := strings.TrimSpace(pricingTemplateSnapshot.PricingUnit)
 	if pricingUnit != runtimePricingUnitPerMillion {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
@@ -58,41 +67,28 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
 	}
-	if !runtimeRequiredPriceAvailable(pricingTemplateSnapshot.InputPrice) || !runtimeRequiredPriceAvailable(pricingTemplateSnapshot.OutputPrice) {
-		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
-		return result
-	}
 
-	if usage.InputTokens == nil || usage.OutputTokens == nil {
-		if runtimeStreamOutcomeMakesUsageUnavailable(streamOutcome) {
-			result.UnpricedReason = stringPtr(runtimeUnpricedReasonStreamUsageUnavailable)
-			return result
-		}
-		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingUsage)
-		return result
-	}
-
-	inputCostMicros, ok := runtimePriceComponentMicros(usage.InputTokens, pricingTemplateSnapshot.InputPrice)
+	inputCostMicros, ok := runtimePriceConcreteComponentMicros(usage.InputTokens, pricingTemplateSnapshot.InputPrice)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
 	}
-	outputCostMicros, ok := runtimePriceComponentMicros(usage.OutputTokens, pricingTemplateSnapshot.OutputPrice)
+	outputCostMicros, ok := runtimePriceConcreteComponentMicros(usage.OutputTokens, pricingTemplateSnapshot.OutputPrice)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
 	}
-	cacheReadInputCostMicros, ok := runtimePriceOptionalComponentMicros(usage.CacheReadInputTokens, pricingTemplateSnapshot.CachedInputPrice)
+	cacheReadInputCostMicros, ok := runtimePriceConcreteComponentMicros(usage.CacheReadInputTokens, pricingTemplateSnapshot.CachedInputPrice)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
 	}
-	cacheCreationInputCostMicros, ok := runtimePriceOptionalComponentMicros(usage.CacheCreationInputTokens, pricingTemplateSnapshot.CacheCreationPrice)
+	cacheCreationInputCostMicros, ok := runtimePriceConcreteComponentMicros(usage.CacheCreationInputTokens, pricingTemplateSnapshot.CacheCreationPrice)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
 	}
-	reasoningCostMicros, ok := runtimePriceOptionalComponentMicros(usage.ReasoningTokens, pricingTemplateSnapshot.ReasoningPrice)
+	reasoningCostMicros, ok := runtimePriceConcreteComponentMicros(usage.ReasoningTokens, pricingTemplateSnapshot.ReasoningPrice)
 	if !ok {
 		result.UnpricedReason = stringPtr(runtimeUnpricedReasonMissingData)
 		return result
@@ -121,9 +117,9 @@ func buildRuntimePricingResult(reportCurrencySnapshot runtimeReportCurrencySnaps
 	result.PricingSnapshotUnit = runtimeOptionalTrimmedString(pricingTemplateSnapshot.PricingUnit)
 	result.PricingSnapshotInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.InputPrice)
 	result.PricingSnapshotOutput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.OutputPrice)
-	result.PricingSnapshotCacheReadInput = runtimeOptionalComponentSnapshotString(pricingTemplateSnapshot.CachedInputPrice)
-	result.PricingSnapshotCacheCreationInput = runtimeOptionalComponentSnapshotString(pricingTemplateSnapshot.CacheCreationPrice)
-	result.PricingSnapshotReasoning = runtimeOptionalComponentSnapshotString(pricingTemplateSnapshot.ReasoningPrice)
+	result.PricingSnapshotCacheReadInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CachedInputPrice)
+	result.PricingSnapshotCacheCreationInput = runtimeOptionalTrimmedString(pricingTemplateSnapshot.CacheCreationPrice)
+	result.PricingSnapshotReasoning = runtimeOptionalTrimmedString(pricingTemplateSnapshot.ReasoningPrice)
 	result.PricingConfigVersionUsed = intPtr(pricingTemplateSnapshot.Version)
 	return result
 }
@@ -156,14 +152,9 @@ func resolveRuntimeFXRate(reportCurrencySnapshot runtimeReportCurrencySnapshot, 
 	return fxRate, runtimeFXSourceEndpointSpecific, true
 }
 
-func runtimeRequiredPriceAvailable(price string) bool {
-	_, ok := parseRuntimeDecimalRat(price)
-	return ok
-}
-
-func runtimePriceComponentMicros(tokens *int, price string) (int64, bool) {
-	if tokens == nil {
-		return 0, false
+func runtimePriceConcreteComponentMicros(tokens *int, price string) (int64, bool) {
+	if tokens == nil || *tokens == 0 {
+		return 0, true
 	}
 	priceRat, ok := parseRuntimeDecimalRat(price)
 	if !ok {
@@ -171,19 +162,6 @@ func runtimePriceComponentMicros(tokens *int, price string) (int64, bool) {
 	}
 	component := new(big.Rat).Mul(big.NewRat(int64(*tokens), 1), priceRat)
 	return roundRuntimeRatToInt64(component)
-}
-
-func runtimePriceOptionalComponentMicros(tokens *int, price *string) (int64, bool) {
-	if tokens == nil {
-		return 0, true
-	}
-	if *tokens == 0 {
-		return 0, true
-	}
-	if price == nil {
-		return 0, true
-	}
-	return runtimePriceComponentMicros(tokens, *price)
 }
 
 func runtimeConvertMicros(originalMicros int64, fxRate string) (int64, bool) {
@@ -245,18 +223,4 @@ func runtimeOptionalTrimmedString(value string) *string {
 		return nil
 	}
 	return stringPtr(trimmed)
-}
-
-func runtimeOptionalComponentSnapshotString(value *string) *string {
-	if value == nil {
-		return stringPtr("0")
-	}
-	return runtimeOptionalOptionalTrimmedString(value)
-}
-
-func runtimeOptionalOptionalTrimmedString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	return runtimeOptionalTrimmedString(*value)
 }

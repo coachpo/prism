@@ -88,35 +88,36 @@ type usageEventRecord struct {
 }
 
 type snapshotEvent struct {
-	APIFamily             string
-	AttemptCount          int
-	BillableFlag          bool
-	CachedTokens          int
-	ConnectionID          *int
-	CreatedAt             time.Time
-	EndpointID            *int
-	EndpointLabel         string
-	IngressRequestID      string
-	InputTokens           int
-	ModelID               string
-	ModelLabel            string
-	OutputTokens          int
-	PricedFlag            bool
-	ProxyAPIKeyID         *int
-	ProxyAPIKeyLabel      *string
-	ProxyAPIKeyStatsLabel string
-	ProxyAPIKeyPrefix     *string
-	ReasoningTokens       int
-	RequestPath           string
-	ResolvedTargetModelID *string
-	StatusCode            int
-	SuccessFlag           bool
-	ResponseTimeMS        *int
-	TTFTMS                *int
-	CompletionDurationMS  *int
-	HasOutputTokens       bool
-	TotalCostMicros       int64
-	TotalTokens           int
+	APIFamily                string
+	AttemptCount             int
+	BillableFlag             bool
+	CacheReadInputTokens     int
+	CacheCreationInputTokens int
+	ConnectionID             *int
+	CreatedAt                time.Time
+	EndpointID               *int
+	EndpointLabel            string
+	IngressRequestID         string
+	InputTokens              int
+	ModelID                  string
+	ModelLabel               string
+	OutputTokens             int
+	PricedFlag               bool
+	ProxyAPIKeyID            *int
+	ProxyAPIKeyLabel         *string
+	ProxyAPIKeyStatsLabel    string
+	ProxyAPIKeyPrefix        *string
+	ReasoningTokens          int
+	RequestPath              string
+	ResolvedTargetModelID    *string
+	StatusCode               int
+	SuccessFlag              bool
+	ResponseTimeMS           *int
+	TTFTMS                   *int
+	CompletionDurationMS     *int
+	HasOutputTokens          bool
+	TotalCostMicros          int64
+	TotalTokens              int
 }
 
 func normalizeTimePointer(value *time.Time) *time.Time {
