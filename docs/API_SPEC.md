@@ -2109,6 +2109,7 @@ Response `200`:
   "top_spending_models": [
     {
       "model_id": "gpt-4o",
+      "model_label": "GPT 4o",
       "total_cost_micros": 850000
     }
   ],
@@ -2128,6 +2129,8 @@ Response `200`:
   "report_currency_symbol": "$"
 }
 ```
+
+`top_spending_models` rows carry both the stable `model_id` and the resolved `model_label` used for operator-facing displays. `model_label` reflects the current canonical model configuration label when one exists and otherwise falls back to `model_id`.
 
 Spending summaries aggregate canonical disjoint token components independently. `total_input_tokens` is base input only, `total_output_tokens` is base output only, `total_cache_read_input_tokens`, `total_cache_creation_input_tokens`, and `total_reasoning_tokens` are separate split totals, and `total_tokens` uses provider totals when available.
 
@@ -2688,7 +2691,7 @@ Example `dashboard.update` payload:
 }
 ```
 
-`dashboard.update` is a thin envelope over `request_log` plus `snapshot`. It no longer carries the old top-level per-section compatibility fields.
+`dashboard.update` is a thin envelope over `request_log` plus `snapshot`. It no longer carries the old top-level per-section compatibility fields. The embedded `snapshot.top_spending_models` rows reuse the same `{model_id, model_label, total_cost_micros}` shape as `GET /api/stats/spending`.
 
 ### 8.3 Analytics WebSocket Channel
 
