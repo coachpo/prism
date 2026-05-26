@@ -51,7 +51,7 @@ export function TopSpendingModelsCard({
                   <div className="space-y-1">
                     <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">
-                        {modelDisplayNames.get(model.model_id) || model.model_id}
+                        {model.model_label || modelDisplayNames.get(model.model_id) || model.model_id}
                       </p>
                       <p className="text-xs text-muted-foreground">{model.model_id}</p>
                     </div>

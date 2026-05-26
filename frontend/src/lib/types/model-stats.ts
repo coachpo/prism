@@ -481,6 +481,7 @@ export interface SpendingGroupRow {
 
 export interface SpendingTopModel {
   model_id: string;
+  model_label: string;
   total_cost_micros: number;
 }
 

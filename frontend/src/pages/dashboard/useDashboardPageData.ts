@@ -122,7 +122,7 @@ function buildModelDisplayNames(snapshot: DashboardSnapshot | null) {
 
   for (const model of snapshot.top_spending_models) {
     if (!displayNames.has(model.model_id)) {
-      displayNames.set(model.model_id, model.model_id);
+      displayNames.set(model.model_id, model.model_label || model.model_id);
     }
   }
 
