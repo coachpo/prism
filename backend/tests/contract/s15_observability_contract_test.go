@@ -328,6 +328,8 @@ func TestManagementDashboardStatsReturnsCanonicalSnapshotWithoutWindow(t *testin
 func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Dashboard Snapshot Strategy")
+	modelInsertModel(t, harness, profileID, nil, "openai", "dashboard-model", stringPtr("Dashboard Model"), "native", &strategyID, true)
 	insertRequestLogSummaryRow(t, harness, 100, profileID, "dashboard-model", "openai", 12, 41, 200, 100, 10, 20, 30, fixedS15Now.Add(-55*time.Minute))
 	insertRequestLogSummaryRow(t, harness, 101, profileID, "dashboard-model", "openai", 12, 41, 500, 300, 5, 10, 15, fixedS15Now.Add(-50*time.Minute))
 	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "dashboard-spend-1", ModelID: "dashboard-model", APIFamily: "openai", StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), TotalCostUserCurrencyMicros: int64Ptr(2500), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-30 * time.Minute)})
@@ -358,8 +360,12 @@ func TestManagementDashboardStatsSnapshotSections(t *testing.T) {
 		t.Fatalf("expected API-family rows from 24h summary, got %+v", payload["api_family_rows"])
 	}
 	topSpendingModels := payload["top_spending_models"].([]any)
-	if len(topSpendingModels) != 1 || asMap(t, topSpendingModels[0])["model_id"] != "dashboard-model" || jsonInt(t, asMap(t, topSpendingModels[0])["total_cost_micros"]) != 2500 {
-		t.Fatalf("expected top spending models from 30d spending, got %+v", payload["top_spending_models"])
+	if len(topSpendingModels) != 1 {
+		t.Fatalf("expected one top spending model row, got %+v", payload["top_spending_models"])
+	}
+	topSpendingModel := asMap(t, topSpendingModels[0])
+	if topSpendingModel["model_id"] != "dashboard-model" || topSpendingModel["model_label"] != "Dashboard Model" || jsonInt(t, topSpendingModel["total_cost_micros"]) != 2500 {
+		t.Fatalf("expected top spending models from 30d spending with canonical label, got %+v", payload["top_spending_models"])
 	}
 	routingHealthMap := asMap(t, payload["routing_health_map"])
 	if len(routingHealthMap["nodes"].([]any)) != 0 || len(routingHealthMap["links"].([]any)) != 0 || jsonInt(t, routingHealthMap["endpointCount"]) != 0 || jsonInt(t, routingHealthMap["modelCount"]) != 0 {
@@ -471,6 +477,8 @@ func TestThroughput(t *testing.T) {
 func TestSpending(t *testing.T) {
 	harness := newS15ContractHarness(t)
 	profileID := modelLoadDefaultProfileID(t, harness)
+	strategyID := modelInsertLoadbalanceStrategy(t, harness, profileID, "Spend Strategy")
+	modelInsertModel(t, harness, profileID, nil, "openai", "spend-model", stringPtr("Spend Model"), "native", &strategyID, true)
 	endpointA := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint A", 0)
 	endpointB := modelInsertEndpoint(t, harness, profileID, "Spend Endpoint B", 1)
 	insertUsageEvent(t, harness, usageEventSeed{ID: 30, ProfileID: profileID, IngressRequestID: "spend-1", ModelID: "spend-model", APIFamily: "openai", EndpointID: &endpointA, StatusCode: 200, SuccessFlag: true, BillableFlag: boolPtr(true), PricedFlag: boolPtr(true), InputTokens: intPtr(10), OutputTokens: intPtr(20), TotalTokens: intPtr(38), CacheReadInputTokens: intPtr(5), CacheCreationInputTokens: intPtr(2), ReasoningTokens: intPtr(1), TotalCostUserCurrencyMicros: int64Ptr(5000), AttemptCount: 1, RequestPath: "/v1/chat/completions", CreatedAt: fixedS15Now.Add(-4 * time.Hour)})
@@ -499,6 +507,14 @@ func TestSpending(t *testing.T) {
 	unpricedGroup := groupsByKey[fmt.Sprintf("spend-model#%d", endpointB)]
 	if unpricedGroup == nil || jsonInt(t, unpricedGroup["total_cost_micros"]) != 0 || jsonInt(t, unpricedGroup["priced_requests"]) != 0 || jsonInt(t, unpricedGroup["unpriced_requests"]) != 1 {
 		t.Fatalf("expected unpriced spend group to stay zero-cost while preserving request counts, got %+v", groupsByKey)
+	}
+	topSpendingModels := payload["top_spending_models"].([]any)
+	if len(topSpendingModels) != 1 {
+		t.Fatalf("expected one top spending model row, got %+v", payload["top_spending_models"])
+	}
+	topSpendingModel := asMap(t, topSpendingModels[0])
+	if topSpendingModel["model_id"] != "spend-model" || topSpendingModel["model_label"] != "Spend Model" || jsonInt(t, topSpendingModel["total_cost_micros"]) != 5000 {
+		t.Fatalf("expected top spending models to preserve canonical labels, got %+v", payload["top_spending_models"])
 	}
 	topEndpoints := payload["top_spending_endpoints"].([]any)
 	if len(topEndpoints) == 0 || asMap(t, topEndpoints[0])["endpoint_label"] != "Spend Endpoint A" {

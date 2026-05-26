@@ -264,6 +264,7 @@ type SpendingGroupRow struct {
 
 type SpendingTopModel struct {
 	ModelID         string `json:"model_id"`
+	ModelLabel      string `json:"model_label"`
 	TotalCostMicros int64  `json:"total_cost_micros"`
 }
 

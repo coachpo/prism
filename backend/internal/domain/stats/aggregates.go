@@ -460,6 +460,7 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 	groupBy := strings.TrimSpace(strings.ToLower(params.GroupBy))
 	groupAggregates := map[string]*spendingGroupAggregate{}
 	modelSpend := map[string]int64{}
+	modelLabels := map[string]string{}
 	endpointSpend := map[string]*SpendingTopEndpoint{}
 	for _, record := range successRecords {
 		spend := int64(0)
@@ -485,6 +486,13 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 			aggregate.UnpricedRequests++
 		}
 		aggregate.TotalTokens += record.TotalTokens
+		modelLabel := strings.TrimSpace(record.ModelID)
+		if record.CurrentModelLabel != nil && strings.TrimSpace(*record.CurrentModelLabel) != "" {
+			modelLabel = strings.TrimSpace(*record.CurrentModelLabel)
+		}
+		if existingLabel, ok := modelLabels[record.ModelID]; !ok || existingLabel == strings.TrimSpace(record.ModelID) {
+			modelLabels[record.ModelID] = modelLabel
+		}
 		modelSpend[record.ModelID] += spend
 		endpointKey := spendingEndpointKey(record.EndpointID, endpointLabel)
 		endpoint := endpointSpend[endpointKey]
@@ -526,7 +534,11 @@ func GetSpending(ctx context.Context, exec queryExecutor, params SpendingParams)
 		if spend <= 0 {
 			continue
 		}
-		modelItems = append(modelItems, SpendingTopModel{ModelID: modelID, TotalCostMicros: spend})
+		modelLabel := strings.TrimSpace(modelLabels[modelID])
+		if modelLabel == "" {
+			modelLabel = strings.TrimSpace(modelID)
+		}
+		modelItems = append(modelItems, SpendingTopModel{ModelID: modelID, ModelLabel: modelLabel, TotalCostMicros: spend})
 	}
 	sort.Slice(modelItems, func(i int, j int) bool {
 		if modelItems[i].TotalCostMicros != modelItems[j].TotalCostMicros {
