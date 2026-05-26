@@ -14,23 +14,40 @@ const OpenAIProbeEndpointVariantImportSchema = z.enum([
   "chat_completions_reasoning_none",
 ]);
 
-const optionalPricingComponentDecimalPattern = /^\d+(\.\d+)?$/;
+const componentPricingDecimalPattern = /^\d+(\.\d+)?$/;
 
-// Bundle v1 keeps optional component prices nullable for management compatibility.
-// null or omitted means the runtime/display default of zero; blank import strings normalize to null.
-const OptionalPricingComponentImportSchema = z.preprocess(
+// Bundle v1 keeps all component prices as concrete strings.
+// Missing, null, blank, and whitespace-only inputs normalize to "0" before decimal validation.
+const ComponentPricingImportSchema = z.preprocess(
   (value) => {
+    if (value === null || value === undefined) {
+      return "0";
+    }
+
     if (typeof value !== "string") {
       return value;
     }
+
     const trimmed = value.trim();
-    return trimmed === "" ? null : trimmed;
+    return trimmed === "" ? "0" : trimmed;
   },
-  z
-    .string()
-    .regex(optionalPricingComponentDecimalPattern, "must be a non-negative decimal string")
-    .nullable()
-    .optional(),
+  z.string().regex(componentPricingDecimalPattern, "must be a non-negative decimal string"),
+);
+
+const normalizeBasePricingImportSchema = z.preprocess(
+  (value) => {
+    if (value === null || value === undefined) {
+      return "0";
+    }
+
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const trimmed = value.trim();
+    return trimmed === "" ? "0" : trimmed;
+  },
+  z.string().regex(componentPricingDecimalPattern, "must be a non-negative decimal string"),
 );
 
 const PricingTemplateImportSchema = z.strictObject({
@@ -38,11 +55,11 @@ const PricingTemplateImportSchema = z.strictObject({
   description: z.string().nullable().optional(),
   pricing_unit: z.literal("PER_1M").optional(),
   pricing_currency_code: z.string(),
-  input_price: z.string(),
-  output_price: z.string(),
-  cached_input_price: OptionalPricingComponentImportSchema,
-  cache_creation_price: OptionalPricingComponentImportSchema,
-  reasoning_price: OptionalPricingComponentImportSchema,
+  input_price: normalizeBasePricingImportSchema,
+  output_price: normalizeBasePricingImportSchema,
+  cached_input_price: ComponentPricingImportSchema,
+  cache_creation_price: ComponentPricingImportSchema,
+  reasoning_price: ComponentPricingImportSchema,
   version: z.number().int().min(1).optional(),
 });
 

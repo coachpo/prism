@@ -5,10 +5,7 @@ import type {
 } from "./model-stats";
 import type { LoadbalanceStrategyCreate } from "./loadbalance";
 import type { ApiFamily } from "./vendor";
-import type {
-  OpenAIProbeEndpointVariant,
-  OptionalPricingComponentPrice,
-} from "./routing";
+import type { OpenAIProbeEndpointVariant, PricingComponentPrice } from "./routing";
 
 export interface ConfigEndpointExport {
   name: string;
@@ -31,9 +28,9 @@ export interface ConfigPricingTemplateExport {
   pricing_currency_code: string;
   input_price: string;
   output_price: string;
-  cached_input_price: OptionalPricingComponentPrice;
-  cache_creation_price: OptionalPricingComponentPrice;
-  reasoning_price: OptionalPricingComponentPrice;
+  cached_input_price: PricingComponentPrice;
+  cache_creation_price: PricingComponentPrice;
+  reasoning_price: PricingComponentPrice;
   version: number;
 }
 
@@ -42,11 +39,11 @@ export interface ConfigPricingTemplateImport {
   description?: string | null;
   pricing_unit?: "PER_1M";
   pricing_currency_code: string;
-  input_price: string;
-  output_price: string;
-  cached_input_price?: OptionalPricingComponentPrice;
-  cache_creation_price?: OptionalPricingComponentPrice;
-  reasoning_price?: OptionalPricingComponentPrice;
+  input_price?: string;
+  output_price?: string;
+  cached_input_price?: PricingComponentPrice;
+  cache_creation_price?: PricingComponentPrice;
+  reasoning_price?: PricingComponentPrice;
   version?: number;
 }
 

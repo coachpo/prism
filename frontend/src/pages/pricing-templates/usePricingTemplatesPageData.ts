@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   DEFAULT_PRICING_TEMPLATE_FORM,
   isNonNegativeDecimalString,
-  normalizeOptionalTemplatePrice,
+  normalizePricingTemplateFormPrices,
   parsePricingTemplateUsageRows,
   pricingTemplateFormStateFromTemplate,
   type PricingTemplateFormState,
@@ -113,29 +113,28 @@ export function usePricingTemplatesPageData(revision: number) {
       toast.error(messages.pricingTemplatesData.invalidCurrency);
       return;
     }
-    if (!isNonNegativeDecimalString(pricingTemplateForm.input_price)) {
+    const normalizedPrices = normalizePricingTemplateFormPrices(pricingTemplateForm);
+    if (!isNonNegativeDecimalString(normalizedPrices.input_price)) {
       toast.error(messages.pricingTemplatesData.inputNonNegative);
       return;
     }
-    if (!isNonNegativeDecimalString(pricingTemplateForm.output_price)) {
+
+    if (!isNonNegativeDecimalString(normalizedPrices.output_price)) {
       toast.error(messages.pricingTemplatesData.outputNonNegative);
       return;
     }
 
-    const cachedInputPrice = normalizeOptionalTemplatePrice(pricingTemplateForm.cached_input_price);
-    if (cachedInputPrice && !isNonNegativeDecimalString(cachedInputPrice)) {
+    if (!isNonNegativeDecimalString(normalizedPrices.cached_input_price)) {
       toast.error(messages.pricingTemplatesData.cachedInputNonNegative);
       return;
     }
 
-    const cacheCreationPrice = normalizeOptionalTemplatePrice(pricingTemplateForm.cache_creation_price);
-    if (cacheCreationPrice && !isNonNegativeDecimalString(cacheCreationPrice)) {
+    if (!isNonNegativeDecimalString(normalizedPrices.cache_creation_price)) {
       toast.error(messages.pricingTemplatesData.cacheCreationNonNegative);
       return;
     }
 
-    const reasoningPrice = normalizeOptionalTemplatePrice(pricingTemplateForm.reasoning_price);
-    if (reasoningPrice && !isNonNegativeDecimalString(reasoningPrice)) {
+    if (!isNonNegativeDecimalString(normalizedPrices.reasoning_price)) {
       toast.error(messages.pricingTemplatesData.reasoningNonNegative);
       return;
     }
@@ -148,11 +147,7 @@ export function usePricingTemplatesPageData(revision: number) {
           name: pricingTemplateForm.name.trim(),
           description: pricingTemplateForm.description.trim() || null,
           pricing_currency_code: pricingTemplateForm.pricing_currency_code.trim().toUpperCase(),
-          input_price: pricingTemplateForm.input_price.trim(),
-          output_price: pricingTemplateForm.output_price.trim(),
-          cached_input_price: cachedInputPrice,
-          cache_creation_price: cacheCreationPrice,
-          reasoning_price: reasoningPrice,
+          ...normalizedPrices,
         };
         const updated = await api.pricingTemplates.update(editingPricingTemplate.id, payload);
         commitPricingTemplates((current) =>
@@ -166,11 +161,7 @@ export function usePricingTemplatesPageData(revision: number) {
           name: pricingTemplateForm.name.trim(),
           description: pricingTemplateForm.description.trim() || null,
           pricing_currency_code: pricingTemplateForm.pricing_currency_code.trim().toUpperCase(),
-          input_price: pricingTemplateForm.input_price.trim(),
-          output_price: pricingTemplateForm.output_price.trim(),
-          cached_input_price: cachedInputPrice,
-          cache_creation_price: cacheCreationPrice,
-          reasoning_price: reasoningPrice,
+          ...normalizedPrices,
         };
         const created = await api.pricingTemplates.create(payload);
         commitPricingTemplates((current) => [created, ...current]);

@@ -19,11 +19,16 @@ export const DEFAULT_PRICING_TEMPLATE_FORM: PricingTemplateFormState = {
   name: "",
   description: "",
   pricing_currency_code: "USD",
-  input_price: "",
-  output_price: "",
-  cached_input_price: "",
-  cache_creation_price: "",
-  reasoning_price: "",
+  input_price: "0",
+  output_price: "0",
+  cached_input_price: "0",
+  cache_creation_price: "0",
+  reasoning_price: "0",
+};
+
+export const normalizeTemplatePrice = (value: string | null | undefined): string => {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : "0";
 };
 
 export const pricingTemplateFormStateFromTemplate = (
@@ -32,17 +37,29 @@ export const pricingTemplateFormStateFromTemplate = (
   name: template.name,
   description: template.description ?? "",
   pricing_currency_code: template.pricing_currency_code,
-  input_price: template.input_price,
-  output_price: template.output_price,
-  cached_input_price: template.cached_input_price ?? "",
-  cache_creation_price: template.cache_creation_price ?? "",
-  reasoning_price: template.reasoning_price ?? "",
+  input_price: normalizeTemplatePrice(template.input_price),
+  output_price: normalizeTemplatePrice(template.output_price),
+  cached_input_price: normalizeTemplatePrice(template.cached_input_price),
+  cache_creation_price: normalizeTemplatePrice(template.cache_creation_price),
+  reasoning_price: normalizeTemplatePrice(template.reasoning_price),
 });
 
-export const normalizeOptionalTemplatePrice = (value: string): string | null => {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
+export const normalizePricingTemplateFormPrices = (
+  form: PricingTemplateFormState
+): Pick<
+  PricingTemplateFormState,
+  | "input_price"
+  | "output_price"
+  | "cached_input_price"
+  | "cache_creation_price"
+  | "reasoning_price"
+> => ({
+  input_price: normalizeTemplatePrice(form.input_price),
+  output_price: normalizeTemplatePrice(form.output_price),
+  cached_input_price: normalizeTemplatePrice(form.cached_input_price),
+  cache_creation_price: normalizeTemplatePrice(form.cache_creation_price),
+  reasoning_price: normalizeTemplatePrice(form.reasoning_price),
+});
 
 export const isNonNegativeDecimalString = (value: string): boolean => {
   const trimmed = value.trim();

@@ -159,7 +159,7 @@ export function PricingTemplateDialog({
 
               <section className="flex flex-col gap-4 rounded-lg border p-4">
                 <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium text-foreground">{dialogMessages.primaryRatesSectionTitle}</p>
+                  <p className="text-sm font-medium text-foreground">{dialogMessages.baseRatesSectionTitle}</p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -188,8 +188,8 @@ export function PricingTemplateDialog({
 
               <section className="flex flex-col gap-4 rounded-lg border bg-muted/15 p-4">
                 <div className="flex flex-col gap-1">
-                  <p className="text-sm font-medium text-foreground">{dialogMessages.optionalRatesSectionTitle}</p>
-                  <p className="text-sm text-muted-foreground">{dialogMessages.optionalRatesSectionDescription}</p>
+                  <p className="text-sm font-medium text-foreground">{dialogMessages.componentRatesSectionTitle}</p>
+                  <p className="text-sm text-muted-foreground">{dialogMessages.componentRatesSectionDescription}</p>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-3">

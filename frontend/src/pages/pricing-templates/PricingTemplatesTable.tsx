@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { PricingTemplate } from "@/lib/types";
+import { normalizeTemplatePrice } from "./pricingTemplateFormState";
 
 interface PricingTemplatesTableProps {
   onCreate: () => void;
@@ -36,7 +37,7 @@ export function PricingTemplatesTable({
   const { messages } = useLocale();
   const copy = messages.pricingTemplatesUi;
   const dialogCopy = messages.pricingTemplateDialog;
-  const formatOptionalPrice = (value: string | null) => value ?? copy.optionalPriceDefault;
+  const formatTemplatePrice = (value: string | null | undefined) => normalizeTemplatePrice(value);
 
   return (
     <Card>
@@ -108,10 +109,10 @@ export function PricingTemplatesTable({
                           <span className="font-medium tabular-nums">{template.input_price}</span>
                           <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                             <span>
-                              {dialogCopy.cachedInputPriceLabel}: {formatOptionalPrice(template.cached_input_price)}
+                              {dialogCopy.cachedInputPriceLabel}: {formatTemplatePrice(template.cached_input_price)}
                             </span>
                             <span>
-                              {dialogCopy.cacheCreationPriceLabel}: {formatOptionalPrice(template.cache_creation_price)}
+                              {dialogCopy.cacheCreationPriceLabel}: {formatTemplatePrice(template.cache_creation_price)}
                             </span>
                           </div>
                         </div>
@@ -121,7 +122,7 @@ export function PricingTemplatesTable({
                           <span className="font-medium tabular-nums">{template.output_price}</span>
                           <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                             <span>
-                              {dialogCopy.reasoningPriceLabel}: {formatOptionalPrice(template.reasoning_price)}
+                              {dialogCopy.reasoningPriceLabel}: {formatTemplatePrice(template.reasoning_price)}
                             </span>
                           </div>
                         </div>

@@ -540,12 +540,11 @@ export interface Messages {
     inputPriceLabel: string;
     nameLabel: string;
     namePlaceholder: string;
-    optionalRatesSectionDescription: string;
-    optionalRatesSectionTitle: string;
+    componentRatesSectionDescription: string;
+    componentRatesSectionTitle: string;
     outputPriceLabel: string;
     pricePlaceholder: string;
-    primaryRatesSectionDescription: string;
-    primaryRatesSectionTitle: string;
+    baseRatesSectionTitle: string;
     reasoningPriceLabel: string;
     save: string;
     saving: string;
@@ -1620,7 +1619,6 @@ export interface Messages {
     model: string;
     noTemplatesConfigured: string;
     output: string;
-    optionalPriceDefault: string;
     profileScopedSettings: string;
     scopeCallout: (profileLabel: string) => string;
     selectedProfileFallback: string;
@@ -2677,8 +2675,8 @@ export const enMessages: Messages = {
   },
   pricingTemplateDialog: {
     addTitle: "Add Pricing Template",
-    cacheCreationPriceLabel: "Cache Creation Price (Optional)",
-    cachedInputPriceLabel: "Cached Input Price (Optional)",
+    cacheCreationPriceLabel: "Cache Creation Price (per 1M tokens)",
+    cachedInputPriceLabel: "Cached Input Price (per 1M tokens)",
     cancel: "Cancel",
     currencyCodeLabel: "Currency Code",
     currencyCodePlaceholder: "USD",
@@ -2691,14 +2689,13 @@ export const enMessages: Messages = {
     inputPriceLabel: "Input Price (per 1M tokens)",
     nameLabel: "Name",
     namePlaceholder: "e.g., GPT-4o Standard",
-    optionalRatesSectionDescription:
-      "Leave optional component prices blank to bill cached, cache-creation, or reasoning tokens at 0 per 1M tokens by default.",
-    optionalRatesSectionTitle: "Optional rate overrides",
+    componentRatesSectionDescription:
+      "Set explicit rates for cached input, cache creation, and reasoning tokens. Use 0 when a token class should not add cost.",
+    componentRatesSectionTitle: "Specialized token rates",
     outputPriceLabel: "Output Price (per 1M tokens)",
     pricePlaceholder: "0.00",
-    primaryRatesSectionDescription: "Set the default billing rates used for standard input and output tokens.",
-    primaryRatesSectionTitle: "Primary rate schedule",
-    reasoningPriceLabel: "Reasoning Price (Optional)",
+    baseRatesSectionTitle: "Base token rates",
+    reasoningPriceLabel: "Reasoning Price (per 1M tokens)",
     save: "Save Template",
     saving: "Saving...",
   },
@@ -3830,7 +3827,6 @@ export const enMessages: Messages = {
     model: "Model",
     noTemplatesConfigured: "No pricing templates configured.",
     output: "Output",
-    optionalPriceDefault: "0 (default)",
     profileScopedSettings: "Profile-scoped settings",
     scopeCallout: (profileLabel) => `Changes here affect ${profileLabel} and its runtime traffic.`,
     selectedProfileFallback: "the selected profile",

@@ -102,20 +102,22 @@ async function stubPricingTemplateRoutes(page: Page) {
   return { createPayloads };
 }
 
-test("pricing template dialog keeps blank optional prices nullable and shows default-zero table values", async ({ page }) => {
+test("pricing template dialog normalizes all prices and removes optional/default pricing copy", async ({ page }) => {
   const { createPayloads } = await stubPricingTemplateRoutes(page);
 
   await page.goto("/pricing-templates");
-  await expect(page.getByText("Cached Input Price (Optional): 0.05")).toBeVisible();
-  await expect(page.getByText("Cache Creation Price (Optional): 0 (default)")).toBeVisible();
-  await expect(page.getByText("Reasoning Price (Optional): 0 (default)")).toBeVisible();
+  await expect(page.getByText("Cached Input Price (per 1M tokens): 0.05")).toBeVisible();
+  await expect(page.getByText("Cache Creation Price (per 1M tokens): 0")).toBeVisible();
+  await expect(page.getByText("Reasoning Price (per 1M tokens): 0")).toBeVisible();
+  await expect(page.getByText(/0 \(default\)|Primary rate|Optional rate/)).toHaveCount(0);
 
   await page.getByRole("button", { name: "Edit" }).click();
   let dialog = page.getByRole("dialog");
+  const priceInput = (label: string) => dialog.getByRole("textbox", { name: label, exact: true });
   await expect(dialog.getByRole("heading", { name: "Edit Pricing Template" })).toBeVisible();
-  await expect(dialog.getByLabel("Cached Input Price (Optional)")).toHaveValue("0.05");
-  await expect(dialog.getByLabel("Cache Creation Price (Optional)")).toHaveValue("");
-  await expect(dialog.getByLabel("Reasoning Price (Optional)")).toHaveValue("");
+  await expect(priceInput("Cached Input Price (per 1M tokens)")).toHaveValue("0.05");
+  await expect(priceInput("Cache Creation Price (per 1M tokens)")).toHaveValue("0");
+  await expect(priceInput("Reasoning Price (per 1M tokens)")).toHaveValue("0");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
 
@@ -123,23 +125,28 @@ test("pricing template dialog keeps blank optional prices nullable and shows def
 
   dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Add Pricing Template" })).toBeVisible();
+  await expect(dialog.getByText("Base token rates")).toBeVisible();
+  await expect(dialog.getByText("Specialized token rates")).toBeVisible();
   await expect(
     dialog.getByText(
-      "Leave optional component prices blank to bill cached, cache-creation, or reasoning tokens at 0 per 1M tokens by default.",
+      "Set explicit rates for cached input, cache creation, and reasoning tokens. Use 0 when a token class should not add cost.",
     ),
   ).toBeVisible();
   await expect(dialog.getByLabel("Name")).toBeVisible();
   await expect(dialog.getByLabel("Currency Code")).toHaveValue("USD");
-  await expect(dialog.getByLabel("Input Price (per 1M tokens)")).toBeVisible();
-  await expect(dialog.getByLabel("Output Price (per 1M tokens)")).toBeVisible();
-  await expect(dialog.getByLabel("Cached Input Price (Optional)")).toBeVisible();
-  await expect(dialog.getByLabel("Cache Creation Price (Optional)")).toBeVisible();
-  await expect(dialog.getByLabel("Reasoning Price (Optional)")).toBeVisible();
-  await expect(dialog.getByText(/missing special token|fallback policy/i)).toHaveCount(0);
+  await expect(priceInput("Input Price (per 1M tokens)")).toHaveValue("0");
+  await expect(priceInput("Output Price (per 1M tokens)")).toHaveValue("0");
+  await expect(priceInput("Cached Input Price (per 1M tokens)")).toHaveValue("0");
+  await expect(priceInput("Cache Creation Price (per 1M tokens)")).toHaveValue("0");
+  await expect(priceInput("Reasoning Price (per 1M tokens)")).toHaveValue("0");
+  await expect(dialog.getByText(/missing special token|fallback policy|Primary rate|Optional rate|0 \(default\)/i)).toHaveCount(0);
 
   await dialog.getByLabel("Name").fill("Special token cleanup template");
-  await dialog.getByLabel("Input Price (per 1M tokens)").fill("0.30");
-  await dialog.getByLabel("Output Price (per 1M tokens)").fill("0.60");
+  await priceInput("Input Price (per 1M tokens)").fill("   ");
+  await priceInput("Output Price (per 1M tokens)").fill("");
+  await priceInput("Cached Input Price (per 1M tokens)").fill(" ");
+  await priceInput("Cache Creation Price (per 1M tokens)").fill("  ");
+  await priceInput("Reasoning Price (per 1M tokens)").fill("");
   await dialog.getByRole("button", { name: "Save Template" }).click();
 
   await expect.poll(() => createPayloads.length).toBe(1);
@@ -147,10 +154,10 @@ test("pricing template dialog keeps blank optional prices nullable and shows def
     name: "Special token cleanup template",
     description: null,
     pricing_currency_code: "USD",
-    input_price: "0.30",
-    output_price: "0.60",
-    cached_input_price: null,
-    cache_creation_price: null,
-    reasoning_price: null,
+    input_price: "0",
+    output_price: "0",
+    cached_input_price: "0",
+    cache_creation_price: "0",
+    reasoning_price: "0",
   });
 });
