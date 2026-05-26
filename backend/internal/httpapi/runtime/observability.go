@@ -631,7 +631,80 @@ func (s *Service) recordRuntimeActivity(plan requestPlan, result executionResult
 	}
 }
 
+type runtimeTelemetryPricingTimingContext struct {
+	requestCompletedAt   time.Time
+	responseTimeMS       int
+	usage                responseUsage
+	streamOutcome        string
+	isStream             bool
+	ttftMS               *int
+	completionDurationMS *int
+	successFlag          bool
+	reportCurrencyCode   *string
+	reportCurrencySymbol *string
+	operationName        string
+	pricingResult        runtimePricingResult
+	streamErrorKind      *string
+	streamErrorDetail    *string
+}
+
+type runtimeTelemetryEnvelopeContext struct {
+	runtimeTelemetryPricingTimingContext
+	ingressRequestID          string
+	proxyKey                  *requestcontext.RuntimeProxyKeySnapshot
+	callerUserAgent           *string
+	requestGenerationSnapshot requestGenerationParamsSnapshot
+	attempts                  []executionAttempt
+	capturedRequestBody       *string
+	capturedResponseBody      *string
+}
+
+type runtimeTelemetryAttemptContext struct {
+	attempt        executionAttempt
+	attemptNumber  int
+	isFinal        bool
+	success        bool
+	billableFlag   *bool
+	pricedFlag     *bool
+	unpricedReason *string
+	createdAt      time.Time
+	responseTimeMS int
+}
+
 func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelope {
+	telemetry := s.buildRuntimeTelemetryEnvelopeContext(plan, result, request, startedAt, responseCapture)
+	requestLogs := buildRuntimeRequestLogRows(plan, request, telemetry)
+	auditLogs := buildRuntimeAuditLogRows(plan, request, telemetry)
+	usageEvent := buildRuntimeUsageEvent(plan, result, request, telemetry, len(requestLogs))
+	return runtimeTelemetryEnvelope{
+		RequestLogs:   requestLogs,
+		AuditLogs:     auditLogs,
+		UsageEvent:    usageEvent,
+		ProxyKeyUsage: runtimeProxyKeyUsageSignalFromSnapshot(telemetry.proxyKey),
+	}
+}
+
+func (s *Service) buildRuntimeTelemetryEnvelopeContext(plan requestPlan, result executionResult, request *http.Request, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryEnvelopeContext {
+	pricingTiming := s.buildRuntimeTelemetryPricingTimingContext(plan, result, startedAt, responseCapture)
+	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
+	if ingressRequestID == "" {
+		ingressRequestID = fmt.Sprintf("runtime-%d", pricingTiming.requestCompletedAt.UnixNano())
+	}
+	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
+	captureBodies := plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest
+	return runtimeTelemetryEnvelopeContext{
+		runtimeTelemetryPricingTimingContext: pricingTiming,
+		ingressRequestID:                     ingressRequestID,
+		proxyKey:                             proxyKey,
+		callerUserAgent:                      trimmedStringPointer(request.UserAgent()),
+		requestGenerationSnapshot:            plan.RequestGenerationParamsSnapshot(),
+		attempts:                             runtimeTelemetryAttempts(result, request, pricingTiming),
+		capturedRequestBody:                  runtimeCapturedAuditBody(captureBodies, plan.UpstreamBody),
+		capturedResponseBody:                 runtimeCapturedAuditBody(captureBodies, responseCapture.AuditBody),
+	}
+}
+
+func (s *Service) buildRuntimeTelemetryPricingTimingContext(plan requestPlan, result executionResult, startedAt time.Time, responseCapture runtimeResponseCapture) runtimeTelemetryPricingTimingContext {
 	requestCompletedAt := s.nowUTC()
 	if responseCapture.CompletedAt != nil && !responseCapture.CompletedAt.IsZero() {
 		requestCompletedAt = responseCapture.CompletedAt.UTC()
@@ -644,183 +717,221 @@ func (s *Service) buildRuntimeTelemetryEnvelope(plan requestPlan, result executi
 	successFlag := result.Response.StatusCode >= 200 && result.Response.StatusCode <= 299
 	reportCurrencyCode := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Code)
 	reportCurrencySymbol := runtimeOptionalTrimmedString(plan.ReportCurrencySnapshot.Symbol)
-	operationName := strings.TrimSpace(plan.RuntimeOperation.Name)
-	pricingResult := runtimePricingResult{
-		ReportCurrencyCode:   reportCurrencyCode,
-		ReportCurrencySymbol: reportCurrencySymbol,
-	}
+	pricingResult := runtimePricingResult{ReportCurrencyCode: reportCurrencyCode, ReportCurrencySymbol: reportCurrencySymbol}
 	if successFlag {
 		pricingResult = buildRuntimePricingResult(plan.ReportCurrencySnapshot, result.Connection.PricingTemplateSnapshot, result.Connection.EndpointFXSnapshot, usage, streamOutcome)
 		pricingResult = withRuntimePricingSnapshotForPersistence(pricingResult, result.Connection.PricingTemplateSnapshot)
 	}
-	ingressRequestID := strings.TrimSpace(middleware.GetReqID(request.Context()))
-	if ingressRequestID == "" {
-		ingressRequestID = fmt.Sprintf("runtime-%d", requestCompletedAt.UnixNano())
+	return runtimeTelemetryPricingTimingContext{
+		requestCompletedAt:   requestCompletedAt,
+		responseTimeMS:       responseTimeMS,
+		usage:                usage,
+		streamOutcome:        streamOutcome,
+		isStream:             isStream,
+		ttftMS:               ttftMS,
+		completionDurationMS: completionDurationMS,
+		successFlag:          successFlag,
+		reportCurrencyCode:   reportCurrencyCode,
+		reportCurrencySymbol: reportCurrencySymbol,
+		operationName:        strings.TrimSpace(plan.RuntimeOperation.Name),
+		pricingResult:        pricingResult,
+		streamErrorKind:      responseCapture.StreamErrorKind,
+		streamErrorDetail:    responseCapture.StreamErrorDetail,
 	}
-	proxyKey, _ := requestcontext.RuntimeProxyKeyFromContext(request.Context())
-	callerUserAgent := trimmedStringPointer(request.UserAgent())
-	requestGenerationSnapshot := plan.RequestGenerationParamsSnapshot()
-	attempts := result.Attempts
-	if len(attempts) == 0 {
-		attempts = []executionAttempt{{
-			Connection:      result.Connection,
-			RequestURL:      request.URL.String(),
-			RequestHeaders:  result.RequestHeaders,
-			ResponseHeaders: result.Response.Header.Clone(),
-			StatusCode:      result.Response.StatusCode,
-			ResponseTimeMS:  responseTimeMS,
-			CompletedAt:     requestCompletedAt,
-		}}
-	}
+}
 
-	capturedRequestBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest, plan.UpstreamBody)
-	capturedResponseBody := runtimeCapturedAuditBody(plan.AuditEnabledAtRequest && plan.AuditCaptureBodiesAtRequest, responseCapture.AuditBody)
-	requestLogs := make([]requestLogInsert, 0, len(attempts))
-	auditLogs := make([]auditLogInsert, 0, len(attempts))
-	for index, attempt := range attempts {
-		attemptGenerationSnapshot := requestGenerationSnapshot.clone()
-		requestGenerationParamsStatus := trimmedStringPointer(attemptGenerationSnapshot.Status)
-		attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299
-		attemptBillableFlag, attemptPricedFlag, attemptUnpricedReason := billingState(attemptSuccess)
-		attemptCreatedAt := attempt.CompletedAt
-		if attemptCreatedAt.IsZero() || index == len(attempts)-1 {
-			attemptCreatedAt = requestCompletedAt
-		}
-		attemptCreatedAt = attemptCreatedAt.UTC()
-		attemptResponseTimeMS := attempt.ResponseTimeMS
-		if attemptResponseTimeMS < 1 || index == len(attempts)-1 {
-			attemptResponseTimeMS = responseTimeMS
-		}
-		requestLog := requestLogInsert{
-			ProfileID:                     plan.ProfileID,
-			ModelID:                       plan.RequestedModelID,
-			ResolvedTargetModelID:         plan.ResolvedTargetModelID,
-			APIFamily:                     plan.APIFamily,
-			OperationName:                 operationName,
-			VendorID:                      plan.RequestedVendorID,
-			VendorKey:                     plan.RequestedVendorKey,
-			VendorName:                    plan.RequestedVendorName,
-			EndpointID:                    attempt.Connection.Endpoint.ID,
-			ConnectionID:                  attempt.Connection.ID,
-			ProxyAPIKeyID:                 proxyKeyIDPointer(proxyKey),
-			ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(proxyKey),
-			IngressRequestID:              ingressRequestID,
-			AttemptNumber:                 index + 1,
-			ProviderCorrelationID:         headerValuePointer(attempt.ResponseHeaders, "x-request-id", "request-id"),
-			EndpointBaseURL:               attempt.Connection.Endpoint.BaseURL,
-			EndpointDescription:           attempt.Connection.Endpoint.Name,
-			StatusCode:                    attempt.StatusCode,
-			ResponseTimeMS:                attemptResponseTimeMS,
-			IsStream:                      isStream,
-			SuccessFlag:                   attemptSuccess,
-			BillableFlag:                  attemptBillableFlag,
-			PricedFlag:                    attemptPricedFlag,
-			UnpricedReason:                attemptUnpricedReason,
-			ReportCurrencyCode:            reportCurrencyCode,
-			ReportCurrencySymbol:          reportCurrencySymbol,
-			RequestPath:                   request.URL.Path,
-			ErrorDetail:                   nil,
-			CreatedAt:                     attemptCreatedAt,
-			CallerUserAgent:               callerUserAgent,
-			UpstreamUserAgent:             headerMapValuePointer(attempt.RequestHeaders, "User-Agent"),
-			CompletionDurationMS:          nil,
-			TTFTMS:                        nil,
-			StreamOutcome:                 runtimeStreamOutcomeNotStreaming,
-			AuditEnabledAtRequest:         plan.AuditEnabledAtRequest,
-			AuditCaptureBodiesAtRequest:   plan.AuditCaptureBodiesAtRequest,
-			RequestGenerationParams:       attemptGenerationSnapshot.Params,
-			RequestGenerationParamsStatus: requestGenerationParamsStatus,
-		}
-		if index == len(attempts)-1 {
-			requestLog.InputTokens = usage.InputTokens
-			requestLog.OutputTokens = usage.OutputTokens
-			requestLog.TotalTokens = usage.TotalTokens
-			requestLog.CacheReadInputTokens = usage.CacheReadInputTokens
-			requestLog.CacheCreationInputTokens = usage.CacheCreationInputTokens
-			requestLog.ReasoningTokens = usage.ReasoningTokens
-			requestLog.CompletionDurationMS = completionDurationMS
-			requestLog.TTFTMS = ttftMS
-			requestLog.StreamOutcome = streamOutcome
-			requestLog.StreamErrorKind = responseCapture.StreamErrorKind
-			requestLog.StreamErrorDetail = responseCapture.StreamErrorDetail
-			if attemptSuccess {
-				requestLog.applyRuntimePricingResult(pricingResult)
-			}
-		}
-		requestLogs = append(requestLogs, requestLog)
-		if !plan.AuditEnabledAtRequest {
-			continue
-		}
-		auditLog := auditLogInsert{
-			RequestLogAttemptNumber:     index + 1,
-			ProfileID:                   plan.ProfileID,
-			VendorID:                    plan.RequestedVendorID,
-			ModelID:                     plan.RequestedModelID,
-			EndpointID:                  attempt.Connection.Endpoint.ID,
-			ConnectionID:                attempt.Connection.ID,
-			EndpointBaseURL:             attempt.Connection.Endpoint.BaseURL,
-			EndpointDescription:         attempt.Connection.Endpoint.Name,
-			RequestMethod:               request.Method,
-			RequestURL:                  runtimeAuditRequestURL(attempt.RequestURL, request),
-			RequestHeaders:              marshalAuditHeaders(attempt.RequestHeaders),
-			RequestBody:                 capturedRequestBody,
-			RequestBodyStored:           capturedRequestBody != nil,
-			ResponseStatus:              attempt.StatusCode,
-			ResponseHeaders:             marshalAuditHTTPHeaders(attempt.ResponseHeaders),
-			ResponseBody:                nil,
-			ResponseBodyStored:          false,
-			IsStream:                    isStream,
-			DurationMS:                  attemptResponseTimeMS,
-			CreatedAt:                   attemptCreatedAt,
-			AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
-			AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
-		}
-		if index == len(attempts)-1 {
-			auditLog.ResponseBody = capturedResponseBody
-			auditLog.ResponseBodyStored = capturedResponseBody != nil
-		}
-		auditLogs = append(auditLogs, auditLog)
+func runtimeTelemetryAttempts(result executionResult, request *http.Request, pricingTiming runtimeTelemetryPricingTimingContext) []executionAttempt {
+	if len(result.Attempts) > 0 {
+		return result.Attempts
 	}
+	return []executionAttempt{{
+		Connection:      result.Connection,
+		RequestURL:      request.URL.String(),
+		RequestHeaders:  result.RequestHeaders,
+		ResponseHeaders: result.Response.Header.Clone(),
+		StatusCode:      result.Response.StatusCode,
+		ResponseTimeMS:  pricingTiming.responseTimeMS,
+		CompletedAt:     pricingTiming.requestCompletedAt,
+	}}
+}
 
-	attemptCount := len(requestLogs)
+func (telemetry runtimeTelemetryEnvelopeContext) attemptContext(index int) runtimeTelemetryAttemptContext {
+	attempt := telemetry.attempts[index]
+	isFinal := index == len(telemetry.attempts)-1
+	attemptSuccess := attempt.StatusCode >= 200 && attempt.StatusCode <= 299
+	attemptBillableFlag, attemptPricedFlag, attemptUnpricedReason := billingState(attemptSuccess)
+	attemptCreatedAt := attempt.CompletedAt
+	if attemptCreatedAt.IsZero() || isFinal {
+		attemptCreatedAt = telemetry.requestCompletedAt
+	}
+	attemptResponseTimeMS := attempt.ResponseTimeMS
+	if attemptResponseTimeMS < 1 || isFinal {
+		attemptResponseTimeMS = telemetry.responseTimeMS
+	}
+	return runtimeTelemetryAttemptContext{
+		attempt:        attempt,
+		attemptNumber:  index + 1,
+		isFinal:        isFinal,
+		success:        attemptSuccess,
+		billableFlag:   attemptBillableFlag,
+		pricedFlag:     attemptPricedFlag,
+		unpricedReason: attemptUnpricedReason,
+		createdAt:      attemptCreatedAt.UTC(),
+		responseTimeMS: attemptResponseTimeMS,
+	}
+}
+
+func buildRuntimeRequestLogRows(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext) []requestLogInsert {
+	requestLogs := make([]requestLogInsert, 0, len(telemetry.attempts))
+	for index := range telemetry.attempts {
+		requestLogs = append(requestLogs, buildRuntimeRequestLogRow(plan, request, telemetry, telemetry.attemptContext(index)))
+	}
+	return requestLogs
+}
+
+func buildRuntimeRequestLogRow(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) requestLogInsert {
+	generationSnapshot := telemetry.requestGenerationSnapshot.clone()
+	requestLog := requestLogInsert{
+		ProfileID:                     plan.ProfileID,
+		ModelID:                       plan.RequestedModelID,
+		ResolvedTargetModelID:         plan.ResolvedTargetModelID,
+		APIFamily:                     plan.APIFamily,
+		OperationName:                 telemetry.operationName,
+		VendorID:                      plan.RequestedVendorID,
+		VendorKey:                     plan.RequestedVendorKey,
+		VendorName:                    plan.RequestedVendorName,
+		EndpointID:                    attempt.attempt.Connection.Endpoint.ID,
+		ConnectionID:                  attempt.attempt.Connection.ID,
+		ProxyAPIKeyID:                 proxyKeyIDPointer(telemetry.proxyKey),
+		ProxyAPIKeyNameSnapshot:       proxyKeyNamePointer(telemetry.proxyKey),
+		IngressRequestID:              telemetry.ingressRequestID,
+		AttemptNumber:                 attempt.attemptNumber,
+		ProviderCorrelationID:         headerValuePointer(attempt.attempt.ResponseHeaders, "x-request-id", "request-id"),
+		EndpointBaseURL:               attempt.attempt.Connection.Endpoint.BaseURL,
+		EndpointDescription:           attempt.attempt.Connection.Endpoint.Name,
+		StatusCode:                    attempt.attempt.StatusCode,
+		ResponseTimeMS:                attempt.responseTimeMS,
+		IsStream:                      telemetry.isStream,
+		SuccessFlag:                   attempt.success,
+		BillableFlag:                  attempt.billableFlag,
+		PricedFlag:                    attempt.pricedFlag,
+		UnpricedReason:                attempt.unpricedReason,
+		ReportCurrencyCode:            telemetry.reportCurrencyCode,
+		ReportCurrencySymbol:          telemetry.reportCurrencySymbol,
+		RequestPath:                   request.URL.Path,
+		ErrorDetail:                   nil,
+		CreatedAt:                     attempt.createdAt,
+		CallerUserAgent:               telemetry.callerUserAgent,
+		UpstreamUserAgent:             headerMapValuePointer(attempt.attempt.RequestHeaders, "User-Agent"),
+		CompletionDurationMS:          nil,
+		TTFTMS:                        nil,
+		StreamOutcome:                 runtimeStreamOutcomeNotStreaming,
+		AuditEnabledAtRequest:         plan.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest:   plan.AuditCaptureBodiesAtRequest,
+		RequestGenerationParams:       generationSnapshot.Params,
+		RequestGenerationParamsStatus: trimmedStringPointer(generationSnapshot.Status),
+	}
+	if attempt.isFinal {
+		applyRuntimeFinalAttemptTelemetry(&requestLog, telemetry, attempt)
+	}
+	return requestLog
+}
+
+func applyRuntimeFinalAttemptTelemetry(requestLog *requestLogInsert, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) {
+	requestLog.InputTokens = telemetry.usage.InputTokens
+	requestLog.OutputTokens = telemetry.usage.OutputTokens
+	requestLog.TotalTokens = telemetry.usage.TotalTokens
+	requestLog.CacheReadInputTokens = telemetry.usage.CacheReadInputTokens
+	requestLog.CacheCreationInputTokens = telemetry.usage.CacheCreationInputTokens
+	requestLog.ReasoningTokens = telemetry.usage.ReasoningTokens
+	requestLog.CompletionDurationMS = telemetry.completionDurationMS
+	requestLog.TTFTMS = telemetry.ttftMS
+	requestLog.StreamOutcome = telemetry.streamOutcome
+	requestLog.StreamErrorKind = telemetry.streamErrorKind
+	requestLog.StreamErrorDetail = telemetry.streamErrorDetail
+	if attempt.success {
+		requestLog.applyRuntimePricingResult(telemetry.pricingResult)
+	}
+}
+
+func buildRuntimeAuditLogRows(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext) []auditLogInsert {
+	auditLogs := make([]auditLogInsert, 0, len(telemetry.attempts))
+	if !plan.AuditEnabledAtRequest {
+		return auditLogs
+	}
+	for index := range telemetry.attempts {
+		auditLogs = append(auditLogs, buildRuntimeAuditLogRow(plan, request, telemetry, telemetry.attemptContext(index)))
+	}
+	return auditLogs
+}
+
+func buildRuntimeAuditLogRow(plan requestPlan, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, attempt runtimeTelemetryAttemptContext) auditLogInsert {
+	auditLog := auditLogInsert{
+		RequestLogAttemptNumber:     attempt.attemptNumber,
+		ProfileID:                   plan.ProfileID,
+		VendorID:                    plan.RequestedVendorID,
+		ModelID:                     plan.RequestedModelID,
+		EndpointID:                  attempt.attempt.Connection.Endpoint.ID,
+		ConnectionID:                attempt.attempt.Connection.ID,
+		EndpointBaseURL:             attempt.attempt.Connection.Endpoint.BaseURL,
+		EndpointDescription:         attempt.attempt.Connection.Endpoint.Name,
+		RequestMethod:               request.Method,
+		RequestURL:                  runtimeAuditRequestURL(attempt.attempt.RequestURL, request),
+		RequestHeaders:              marshalAuditHeaders(attempt.attempt.RequestHeaders),
+		RequestBody:                 telemetry.capturedRequestBody,
+		RequestBodyStored:           telemetry.capturedRequestBody != nil,
+		ResponseStatus:              attempt.attempt.StatusCode,
+		ResponseHeaders:             marshalAuditHTTPHeaders(attempt.attempt.ResponseHeaders),
+		ResponseBody:                nil,
+		ResponseBodyStored:          false,
+		IsStream:                    telemetry.isStream,
+		DurationMS:                  attempt.responseTimeMS,
+		CreatedAt:                   attempt.createdAt,
+		AuditEnabledAtRequest:       plan.AuditEnabledAtRequest,
+		AuditCaptureBodiesAtRequest: plan.AuditCaptureBodiesAtRequest,
+	}
+	if attempt.isFinal {
+		auditLog.ResponseBody = telemetry.capturedResponseBody
+		auditLog.ResponseBodyStored = telemetry.capturedResponseBody != nil
+	}
+	return auditLog
+}
+
+func buildRuntimeUsageEvent(plan requestPlan, result executionResult, request *http.Request, telemetry runtimeTelemetryEnvelopeContext, requestLogCount int) usageEventInsert {
+	attemptCount := requestLogCount
 	if attemptCount < 1 {
 		attemptCount = 1
 	}
 	usageEvent := usageEventInsert{
 		ProfileID:                plan.ProfileID,
-		IngressRequestID:         ingressRequestID,
+		IngressRequestID:         telemetry.ingressRequestID,
 		ModelID:                  plan.RequestedModelID,
 		ResolvedTargetModelID:    plan.ResolvedTargetModelID,
 		APIFamily:                plan.APIFamily,
-		OperationName:            operationName,
+		OperationName:            telemetry.operationName,
 		EndpointID:               result.Connection.Endpoint.ID,
 		ConnectionID:             result.Connection.ID,
-		ProxyAPIKeyID:            proxyKeyIDPointer(proxyKey),
-		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(proxyKey),
+		ProxyAPIKeyID:            proxyKeyIDPointer(telemetry.proxyKey),
+		ProxyAPIKeyNameSnapshot:  proxyKeyNamePointer(telemetry.proxyKey),
 		StatusCode:               result.Response.StatusCode,
-		SuccessFlag:              successFlag,
-		InputTokens:              usage.InputTokens,
-		OutputTokens:             usage.OutputTokens,
-		TotalTokens:              usage.TotalTokens,
-		CacheReadInputTokens:     usage.CacheReadInputTokens,
-		CacheCreationInputTokens: usage.CacheCreationInputTokens,
-		ReasoningTokens:          usage.ReasoningTokens,
+		SuccessFlag:              telemetry.successFlag,
+		InputTokens:              telemetry.usage.InputTokens,
+		OutputTokens:             telemetry.usage.OutputTokens,
+		TotalTokens:              telemetry.usage.TotalTokens,
+		CacheReadInputTokens:     telemetry.usage.CacheReadInputTokens,
+		CacheCreationInputTokens: telemetry.usage.CacheCreationInputTokens,
+		ReasoningTokens:          telemetry.usage.ReasoningTokens,
 		AttemptCount:             attemptCount,
 		RequestPath:              request.URL.Path,
-		CreatedAt:                requestCompletedAt,
-		ResponseTimeMS:           intPtr(responseTimeMS),
-		CompletionDurationMS:     completionDurationMS,
-		TTFTMS:                   ttftMS,
-		StreamOutcome:            streamOutcome,
-		StreamErrorKind:          responseCapture.StreamErrorKind,
+		CreatedAt:                telemetry.requestCompletedAt,
+		ResponseTimeMS:           intPtr(telemetry.responseTimeMS),
+		CompletionDurationMS:     telemetry.completionDurationMS,
+		TTFTMS:                   telemetry.ttftMS,
+		StreamOutcome:            telemetry.streamOutcome,
+		StreamErrorKind:          telemetry.streamErrorKind,
 	}
-	usageEvent.applyRuntimePricingResult(pricingResult)
-	return runtimeTelemetryEnvelope{
-		RequestLogs:   requestLogs,
-		AuditLogs:     auditLogs,
-		UsageEvent:    usageEvent,
-		ProxyKeyUsage: runtimeProxyKeyUsageSignalFromSnapshot(proxyKey),
-	}
+	usageEvent.applyRuntimePricingResult(telemetry.pricingResult)
+	return usageEvent
 }
 
 func runtimeResponseTiming(startedAt time.Time, completedAt time.Time, isStream bool, capture runtimeResponseCapture) (*int, *int) {
