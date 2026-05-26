@@ -170,6 +170,7 @@ test.describe("dashboard aggregate overview regression", () => {
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
     await expect(page.getByText("Routing Health Map")).toBeVisible();
     await expect(page.getByText("Top Models by Spend")).toBeVisible();
+    await expect(page.getByText("Model A Spend Label")).toBeVisible();
 
     await expect
       .poll(() => requests.filter((request) => request.pathname === "/api/stats/dashboard").length)

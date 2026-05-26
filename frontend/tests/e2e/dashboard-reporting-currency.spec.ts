@@ -99,6 +99,7 @@ async function mockDashboardRoutes(page: Page) {
         topSpendingModels: [
           {
             model_id: `gpt-4o-mini-p${profileId}`,
+            model_label: `GPT 4o Mini P${profileId}`,
             total_cost_micros: 250000,
           },
         ],

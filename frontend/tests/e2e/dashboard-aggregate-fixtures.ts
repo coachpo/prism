@@ -143,6 +143,7 @@ export function createDashboardSnapshot(
     top_spending_models: options.topSpendingModels ?? [
       {
         model_id: "model-a",
+        model_label: "Model A Spend Label",
         total_cost_micros: 250000,
       },
     ],
