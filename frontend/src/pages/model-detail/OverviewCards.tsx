@@ -60,6 +60,14 @@ export function OverviewCards({
       ? getAdaptiveRoutingObjectiveLabel(model.loadbalance_strategy.routing_policy.routing_objective, strategyCopy)
       : strategyTypeLabel
     : null;
+  const spendingTokenDetail = spending
+    ? [
+        `${messages.requestLogs.input} ${formatNumber(spending.total_input_tokens)}`,
+        `${messages.requestLogs.output} ${formatNumber(spending.total_output_tokens)}`,
+        `${messages.statistics.cachedPrefix} ${formatNumber(spending.total_cache_read_input_tokens + spending.total_cache_creation_input_tokens)}`,
+        `${messages.requestLogs.reasoning} ${formatNumber(spending.total_reasoning_tokens)}`,
+      ].join(" · ")
+    : null;
 
   return (
     <>
@@ -161,6 +169,11 @@ export function OverviewCards({
                     <p className="text-xs text-muted-foreground">
                       {copy.totalTokens(formatNumber(spending.total_tokens))}
                     </p>
+                    {spendingTokenDetail ? (
+                      <p className="text-xs text-muted-foreground">
+                        {spendingTokenDetail}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="col-span-2 pt-2 border-t">

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const timestamp = "2026-04-10T00:00:00Z";
 const usageStatisticsStorageKey = "prism.statistics.usage-state";
@@ -194,7 +194,7 @@ function createModel(modelId: string, displayName: string, id: number) {
   };
 }
 
-async function mockStatisticsRoutes(page: Parameters<typeof test>[0]["page"]) {
+async function mockStatisticsRoutes(page: Page) {
   const endpointModelRequestCounts = {
     10: 0,
     20: 0,
@@ -344,7 +344,7 @@ async function mockStatisticsRoutes(page: Parameters<typeof test>[0]["page"]) {
 }
 
 async function seedUsageStatisticsState(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   selectedModelLines: string[],
 ) {
   await page.addInitScript(
@@ -371,7 +371,7 @@ async function seedUsageStatisticsState(
   );
 }
 
-function getMetricCard(page: Parameters<typeof test>[0]["page"], label: string) {
+function getMetricCard(page: Page, label: string) {
   return page.locator('[data-testid="usage-kpi-card"]').filter({ hasText: label }).first();
 }
 
@@ -384,11 +384,16 @@ test.describe("statistics selected-model totals", () => {
 
     await expect(page.getByTestId("shell-breadcrumb-current")).toHaveText("Dashboard");
     await expect(page.getByTestId("usage-model-line-section")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId("usage-model-line-section")).toContainText("gpt-5.4");    const requestsCard = getMetricCard(page, "Requests");
+    await expect(page.getByTestId("usage-model-line-section")).toContainText("gpt-5.4");
+    const requestsCard = getMetricCard(page, "Requests");
     await expect(requestsCard.locator('[data-slot="metric-value"]')).toHaveText("4");
 
     const tokensCard = getMetricCard(page, "Total Tokens");
     await expect(tokensCard.locator('[data-slot="metric-value"]')).toHaveText("1,600");
+    await expect(tokensCard).toContainText("Input 900");
+    await expect(tokensCard).toContainText("Output 650");
+    await expect(tokensCard).toContainText("Cached 25");
+    await expect(tokensCard).toContainText("Reasoning 25");
 
     const spendCard = getMetricCard(page, "Total Spend");
     await expect(spendCard.locator('[data-slot="metric-value"]')).toHaveText(/\$0\.62(?:\sUSD)?/);
@@ -420,6 +425,10 @@ test.describe("statistics selected-model totals", () => {
     await expect(page.getByTestId("usage-model-line-section")).toContainText("No data available");
     await expect(requestsCard.locator('[data-slot="metric-value"]')).toHaveText("6");
     await expect(tokensCard.locator('[data-slot="metric-value"]')).toHaveText("2,400");
+    await expect(tokensCard).toContainText("Input 1,400");
+    await expect(tokensCard).toContainText("Output 900");
+    await expect(tokensCard).toContainText("Cached 50");
+    await expect(tokensCard).toContainText("Reasoning 50");
     await expect(spendCard.locator('[data-slot="metric-value"]')).toHaveText(/\$0\.71(?:\sUSD)?/);
     await expect(spendCard).toContainText("Request-based spend");
     await expect(spendCard).toContainText("3 priced");

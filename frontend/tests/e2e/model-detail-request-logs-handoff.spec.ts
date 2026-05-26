@@ -106,7 +106,7 @@ function createRequestLogItem(id: number, requestedModelId: string, modelLabel: 
     response_time_ms: 300,
     is_stream: false,
     output_tokens: 40,
-    total_tokens: 100,
+    total_tokens: 120,
     total_cost_user_currency_micros: 125000,
     priced_flag: true,
     unpriced_reason: null,
@@ -123,10 +123,10 @@ function createSpendingReport() {
       unpriced_request_count: 0,
       total_input_tokens: 60,
       total_output_tokens: 40,
-      total_cache_read_input_tokens: 0,
-      total_cache_creation_input_tokens: 0,
-      total_reasoning_tokens: 0,
-      total_tokens: 100,
+      total_cache_read_input_tokens: 10,
+      total_cache_creation_input_tokens: 5,
+      total_reasoning_tokens: 5,
+      total_tokens: 120,
       avg_cost_per_successful_request_micros: 125000,
     },
     groups: [],
@@ -217,6 +217,8 @@ test("model detail overview CTA preserves the existing model_id request-log brow
 
   await page.goto(`/models/${modelConfigId}`);
   await expect(page.getByRole("heading", { name: "Model A" })).toBeVisible();
+  await expect(page.getByText("120 tokens")).toBeVisible();
+  await expect(page.getByText("Input 60 · Output 40 · Cached 15 · Reasoning 5")).toBeVisible();
   await expect(page.getByRole("button", { name: "View Request Logs" })).toBeVisible();
 
   await page.getByRole("button", { name: "View Request Logs" }).click();

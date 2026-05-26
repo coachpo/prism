@@ -36,8 +36,11 @@ export interface UsageSnapshotOverview {
   failed_requests: number;
   success_rate: number;
   total_tokens: number;
+  /** Base input tokens only; cache-read and cache-creation input are excluded. */
   input_tokens: number;
+  /** Base output tokens only; reasoning output is excluded. */
   output_tokens: number;
+  /** Derived aggregate: cache-read input plus cache-creation input tokens. */
   cached_tokens: number;
   reasoning_tokens: number;
   average_rpm: number;
@@ -93,8 +96,11 @@ export interface UsageRequestTrends {
 export interface UsageTokenTrendPoint {
   bucket_start: string;
   total_tokens: number;
+  /** Base input tokens only; cache-read and cache-creation input are excluded. */
   input_tokens: number;
+  /** Base output tokens only; reasoning output is excluded. */
   output_tokens: number;
+  /** Derived aggregate: cache-read input plus cache-creation input tokens. */
   cached_tokens: number;
   reasoning_tokens: number;
   tpm: number;

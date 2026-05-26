@@ -460,15 +460,15 @@ export function RequestLogOverviewTab({
                 </span>
               </DetailRow>
               <DetailRow label={messages.requestLogs.total}><span className="font-mono">{totalTokensValue}</span></DetailRow>
-              {(usage.cache_read_input_tokens ?? 0) > 0 ? (
-                <DetailRow label={messages.requestLogs.cacheRead}><span className="font-mono">{formatTokens(usage.cache_read_input_tokens)}</span></DetailRow>
-              ) : null}
-              {(usage.cache_creation_input_tokens ?? 0) > 0 ? (
-                <DetailRow label={messages.requestLogs.cacheCreation}><span className="font-mono">{formatTokens(usage.cache_creation_input_tokens)}</span></DetailRow>
-              ) : null}
-              {(usage.reasoning_tokens ?? 0) > 0 ? (
-                <DetailRow label={messages.requestLogs.reasoning}><span className="font-mono">{formatTokens(usage.reasoning_tokens)}</span></DetailRow>
-              ) : null}
+              <DetailRow label={messages.requestLogs.cacheRead}>
+                <span className="font-mono">{formatTokens(usage.cache_read_input_tokens)}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.cacheCreation}>
+                <span className="font-mono">{formatTokens(usage.cache_creation_input_tokens)}</span>
+              </DetailRow>
+              <DetailRow label={messages.requestLogs.reasoning}>
+                <span className="font-mono">{formatTokens(usage.reasoning_tokens)}</span>
+              </DetailRow>
             </div>
 
             <div className="space-y-1 border-t border-border/60 pt-3">

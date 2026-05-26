@@ -27,7 +27,7 @@ interface UseUsageStatisticsPageDataParams {
 }
 
 interface UsageModelAggregateTotals {
-  cachedTokens: number;
+  derivedCachedTokens: number;
   failedCount: number;
   inputTokens: number;
   outputTokens: number;
@@ -183,13 +183,13 @@ function sumModelStatistics(modelStatistics: UsageModelStatistic[]): UsageModelA
       totals.totalTokens += item.total_tokens;
       totals.inputTokens += item.input_tokens ?? 0;
       totals.outputTokens += item.output_tokens ?? 0;
-      totals.cachedTokens += item.cached_tokens ?? 0;
+      totals.derivedCachedTokens += item.cached_tokens ?? 0;
       totals.reasoningTokens += item.reasoning_tokens ?? 0;
       totals.totalCostMicros += item.total_cost_micros;
       return totals;
     },
     {
-      cachedTokens: 0,
+      derivedCachedTokens: 0,
       failedCount: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -235,7 +235,7 @@ function deriveSelectedOverview(
       overview.total_tokens,
       overview.average_tpm,
     ),
-    cached_tokens: totals.cachedTokens,
+    cached_tokens: totals.derivedCachedTokens,
     failed_requests: totals.failedCount,
     input_tokens: totals.inputTokens,
     output_tokens: totals.outputTokens,

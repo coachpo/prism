@@ -103,7 +103,7 @@ export function UsageOverviewSection({
           <div data-testid="usage-kpi-card">
             <UsageKpiCard
               accentClassName="bg-success/10 text-success"
-              detail={`${messages.requestLogs.input} ${formatNumber(overview.input_tokens)} · ${messages.requestLogs.output} ${formatNumber(overview.output_tokens)} · ${messages.requestLogs.cacheRead} ${formatNumber(overview.cached_tokens)}`}
+              detail={`${messages.requestLogs.input} ${formatNumber(overview.input_tokens)} · ${messages.requestLogs.output} ${formatNumber(overview.output_tokens)} · ${messages.statistics.cachedPrefix} ${formatNumber(overview.cached_tokens)} · ${messages.requestLogs.reasoning} ${formatNumber(overview.reasoning_tokens)}`}
               icon={<Coins className="h-4 w-4" />}
               label={messages.statistics.totalTokens}
               sparkline={tokenSparkline}

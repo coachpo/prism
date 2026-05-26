@@ -106,14 +106,14 @@ function createRequestLogDetail(overrides: Record<string, unknown> = {}) {
     usage: {
       input_tokens: 40,
       output_tokens: 0,
-      total_tokens: 60,
+      total_tokens: 45,
       success_flag: true,
       billable_flag: true,
       priced_flag: true,
       unpriced_reason: null,
-      cache_read_input_tokens: 10,
+      cache_read_input_tokens: 0,
       cache_creation_input_tokens: 5,
-      reasoning_tokens: 5,
+      reasoning_tokens: 0,
     },
     costing: {
       input_cost_micros: 0,
@@ -204,6 +204,9 @@ async function mockRequestLogRoutes(page: Page) {
           ...createRequestLogDetail().usage,
           priced_flag: false,
           unpriced_reason: "MISSING_PRICE_DATA",
+          cache_read_input_tokens: null,
+          cache_creation_input_tokens: null,
+          reasoning_tokens: null,
         },
         costing: {
           ...createRequestLogDetail().costing,
@@ -292,11 +295,15 @@ async function mockRequestLogRoutes(page: Page) {
   await page.addInitScript(() => localStorage.setItem("prism.locale", "en"));
 }
 
-function pricingSnapshotValue(page: Page, label: string) {
+function overviewValue(page: Page, label: string) {
   return page
     .getByTestId("request-log-overview-grid")
     .getByText(label, { exact: true })
     .locator("xpath=following-sibling::div[1]");
+}
+
+function pricingSnapshotValue(page: Page, label: string) {
+  return overviewValue(page, label);
 }
 
 test.describe("request logs optional zero pricing", () => {
@@ -322,7 +329,7 @@ test.describe("request logs optional zero pricing", () => {
     await expect(historicalUnpricedSpend).not.toContainText("$0.00");
   });
 
-  test("renders effective-zero optional pricing snapshots as plain zero in request-log detail", async ({ page }) => {
+  test("renders effective-zero pricing snapshots and split token zero-vs-unknown detail", async ({ page }) => {
     await mockRequestLogRoutes(page);
 
     await page.goto("/request-logs?request_id=201");
@@ -333,9 +340,17 @@ test.describe("request logs optional zero pricing", () => {
     await expect(page.getByTestId("request-log-detail-sheet")).toBeVisible();
     await expect(totalCostSummary).toContainText("$0.00");
     await expect(totalCostSummary).not.toContainText("Unpriced");
+    await expect(overviewValue(page, "Cache read")).toHaveText("0");
+    await expect(overviewValue(page, "Cache creation")).toHaveText("5");
+    await expect(overviewValue(page, "Reasoning")).toHaveText("0");
     await expect(pricingSnapshotValue(page, "Pricing snapshot cache read")).toHaveText("0");
     await expect(pricingSnapshotValue(page, "Pricing snapshot cache creation")).toHaveText("0");
     await expect(pricingSnapshotValue(page, "Pricing snapshot reasoning")).toHaveText("0");
     await expect(page.getByText("0 (default)")).toHaveCount(0);
+
+    await page.goto("/request-logs?request_id=202");
+    await expect(overviewValue(page, "Cache read")).toHaveText("—");
+    await expect(overviewValue(page, "Cache creation")).toHaveText("—");
+    await expect(overviewValue(page, "Reasoning")).toHaveText("—");
   });
 });

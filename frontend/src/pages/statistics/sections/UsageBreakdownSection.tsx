@@ -133,6 +133,7 @@ export function UsageBreakdownSection({
     [messages.statistics.totalSpend],
   );
 
+  const tokenBreakdownDescription = `${messages.statistics.input} + ${messages.statistics.output} + ${messages.statistics.cachedPrefix} + ${messages.requestLogs.reasoning}`;
   const tokenData = tokenTypeBreakdown;
   const topEndpointItems = useMemo(
     () =>
@@ -182,7 +183,7 @@ export function UsageBreakdownSection({
               <CardTitle className="text-base">
                 <h3>{messages.statistics.tokenTypeBreakdownTitle}</h3>
               </CardTitle>
-              <CardDescription>{messages.statistics.inputOutputSpecial}</CardDescription>
+              <CardDescription>{tokenBreakdownDescription}</CardDescription>
             </div>
             <CardAction className="flex items-center">
               <ChartGranularityToggle

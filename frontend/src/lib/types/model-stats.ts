@@ -283,7 +283,9 @@ export interface RequestLogDetailRouting {
 }
 
 export interface RequestLogDetailUsage {
+  /** Base input tokens only; cache-read and cache-creation input are excluded. */
   input_tokens: number | null;
+  /** Base output tokens only; reasoning output is excluded. */
   output_tokens: number | null;
   total_tokens: number | null;
   success_flag: boolean | null;
@@ -457,7 +459,9 @@ export interface SpendingSummary {
   successful_request_count: number;
   priced_request_count: number;
   unpriced_request_count: number;
+  /** Base input tokens only; cache-read and cache-creation input are excluded. */
   total_input_tokens: number;
+  /** Base output tokens only; reasoning output is excluded. */
   total_output_tokens: number;
   total_cache_read_input_tokens: number;
   total_cache_creation_input_tokens: number;

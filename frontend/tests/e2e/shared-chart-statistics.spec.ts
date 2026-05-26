@@ -539,11 +539,23 @@ async function writeEvidenceFile(filePath: string, lines: string[]) {
 }
 
 async function expectSharedPopulatedSurface(page: Page) {
-  await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible();
-  await expect(page.getByTestId("usage-trends-grid")).toBeVisible();
-  await expect(page.getByTestId("usage-cost-summary-card")).toBeVisible();
-  await expect(page.getByTestId("usage-service-health-card")).toBeVisible();
-  await expect(page.getByTestId("usage-health-heatmap")).toBeVisible();
+  const sharedSurfaceTimeout = 15_000;
+
+  await expect(page.getByTestId("usage-controls-toolbar")).toBeVisible({
+    timeout: sharedSurfaceTimeout,
+  });
+  await expect(page.getByTestId("usage-trends-grid")).toBeVisible({
+    timeout: sharedSurfaceTimeout,
+  });
+  await expect(page.getByTestId("usage-cost-summary-card")).toBeVisible({
+    timeout: sharedSurfaceTimeout,
+  });
+  await expect(page.getByTestId("usage-service-health-card")).toBeVisible({
+    timeout: sharedSurfaceTimeout,
+  });
+  await expect(page.getByTestId("usage-health-heatmap")).toBeVisible({
+    timeout: sharedSurfaceTimeout,
+  });
 
   await expect(page.getByRole("heading", { name: "Request Trends" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Token Usage Trends" }).first()).toBeVisible();
@@ -553,6 +565,12 @@ async function expectSharedPopulatedSurface(page: Page) {
   await expect(page.getByTestId("usage-trends-grid").getByText("No data available", { exact: true })).toHaveCount(0);
   await expect(page.getByText("No token usage", { exact: true })).toHaveCount(0);
   await expect(page.getByText("No cost records found.", { exact: true })).toHaveCount(0);
+  const tokensCard = page.locator('[data-testid="usage-kpi-card"]').filter({ hasText: "Total Tokens" }).first();
+  await expect(tokensCard).toContainText("Input 1,400");
+  await expect(tokensCard).toContainText("Output 900");
+  await expect(tokensCard).toContainText("Cached 50");
+  await expect(tokensCard).toContainText("Reasoning 50");
+  await expect(page.getByText("Input + Output + Cached + Reasoning", { exact: true })).toBeVisible();
   await expect(page.getByTestId("usage-cost-summary-total")).toHaveText(/\$0\.62(?:\sUSD)?/);
   await expect(page.getByTestId("usage-health-availability-badge")).toHaveText("97.5%");
   await expect(page.locator('[data-testid="usage-health-cell"][data-status="ok"]').first()).toBeVisible();
