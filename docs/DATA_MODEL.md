@@ -452,18 +452,20 @@ Reusable token pricing definitions that can be attached to many connections with
 | description | TEXT | NULLABLE | Optional notes |
 | pricing_unit | VARCHAR(20) | NOT NULL, DEFAULT 'PER_1M' | Billing unit |
 | pricing_currency_code | VARCHAR(3) | NOT NULL | Template currency code |
-| input_price | VARCHAR(20) | NOT NULL | Required input token price |
-| output_price | VARCHAR(20) | NOT NULL | Required output token price |
-| cached_input_price | VARCHAR(20) | NULLABLE | Optional cached input token price; NULL means default zero/effective zero in phase 1 |
-| cache_creation_price | VARCHAR(20) | NULLABLE | Optional cache write token price; NULL means default zero/effective zero in phase 1 |
-| reasoning_price | VARCHAR(20) | NULLABLE | Optional reasoning token price; NULL means default zero/effective zero in phase 1 |
+| input_price | VARCHAR(20) | NOT NULL | Base input token price string |
+| output_price | VARCHAR(20) | NOT NULL | Base output token price string |
+| cached_input_price | VARCHAR(20) | NOT NULL | Cache-read input token price string |
+| cache_creation_price | VARCHAR(20) | NOT NULL | Cache-creation input token price string |
+| reasoning_price | VARCHAR(20) | NOT NULL | Reasoning output token price string |
 | version | INTEGER | NOT NULL, DEFAULT 1 | Auto-incremented on pricing-impacting changes |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW | Creation timestamp |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW | Last update timestamp |
 
 Constraint: `UNIQUE(profile_id, name)`.
 
-Runtime costing treats `NULL` optional component prices as default zero/effective zero for `cached_input_price`, `cache_creation_price`, and `reasoning_price` in phase 1. This keeps nullable bundle and API representations compatible while making optional cache and reasoning dimensions priced at zero instead of unpriced. Required prices and FX mappings are still strict: missing or invalid `input_price`, `output_price`, or missing FX data can make a request unpriced with `MISSING_PRICE_DATA`.
+Pricing templates use five concrete pricing strings in steady state. Management API writes and profile bundle v1 import normalize missing/null/blank pricing inputs for any of the five pricing fields to `"0"` before decimal validation. Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` applies only when a pricing template or runtime pricing snapshot is absent, unusable, or invalid, or when required FX data cannot be applied.
+
+Token costing consumes canonical disjoint token components: base input, cache-read input, cache-creation input, base output, reasoning output, and provider or derived total. `cached_tokens` is derived-only for aggregate and presentation surfaces from cache-read plus cache-creation input tokens.
 
 
 ### 2.7 `header_blocklist_rules` (mixed scope)
@@ -554,7 +556,8 @@ Request-log semantics:
 - For proxy traffic, `model_id` stays the requested proxy identifier while `resolved_target_model_id` records the chosen native target for that attempt.
 - `stream_error_detail` is exposed only by exact request-log detail reads. List and realtime payloads expose `stream_outcome` and `stream_error_kind` without detail text.
 - Prism prices only observed usage. `STREAM_USAGE_UNAVAILABLE` marks interrupted or no-terminal stream rows where required tokens are absent; completed streams missing required usage keep `MISSING_TOKEN_USAGE`.
-- For priced rows created under phase 1 default-zero semantics, optional pricing snapshots for cache-read, cache-creation, and reasoning components persist plain `"0"` when the stored pricing-template component was `NULL`. Required-price and FX failures stay unpriced instead of receiving this default.
+- Token usage fields are canonical disjoint components. `input_tokens` is base input only, `output_tokens` is base output only, and cache-read input, cache-creation input, and reasoning output stay in their split fields.
+- Pricing snapshots persist the five concrete pricing strings used for the attempt. Explicit `"0"` prices mean configured free pricing, while absent or invalid pricing snapshots and missing FX data stay unpriced with `MISSING_PRICE_DATA`.
 
 ### 2.11 `usage_request_events` (partitioned immutable usage attribution)
 
@@ -585,7 +588,8 @@ Usage-event semantics:
 - `ingress_request_id` preserves the stable request-group identifier shared with the attempt-level `request_logs` rows for the same incoming runtime request.
 - `proxy_api_key_name_snapshot` preserves display intent even if the key name later changes.
 - Usage events keep the final stream outcome and error kind for aggregate explanation, but not `stream_error_detail`.
-- Usage events copy runtime pricing results after optional component defaults are resolved, so nullable optional component prices contribute zero-cost component micros on priced events. Rows with missing FX data or required-price failures remain unpriced rather than receiving zero-cost defaults.
+- Usage events copy canonical disjoint token totals and runtime pricing results. Aggregate `cached_tokens` is derived from cache-read plus cache-creation input tokens rather than stored as its own runtime component.
+- Explicit `"0"` pricing contributes zero-cost component micros on priced events. Rows with absent or invalid pricing snapshots, or missing FX data, remain unpriced with `MISSING_PRICE_DATA`.
 
 ### 2.12 `audit_logs` (partitioned immutable profile attribution)
 
@@ -971,7 +975,7 @@ Sidecar uniqueness and indexes are part of the baseline schema; they cover activ
 
 - Canonical profile export format is Go-era config version `1` with `bundle_kind = profile_config`, `vendor_refs`, `profile_settings`, encrypted `secret_payload`, proxy `proxy_selection_strategy`, explicit `proxy_targets`, nullable model `vendor_key`, and model `api_family`.
 - Canonical global vendor export format is Go-era config version `1` with `bundle_kind = vendor_catalog` and authoritative `vendors[]` metadata.
-- Profile import accepts `v1` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, `proxy_selection_strategy` plus `proxy_targets` with target metadata for proxy models, connection limiter fields, and encrypted `secret_payload` entries.
+- Profile import accepts `v1` profile bundles only and validates top-level strategy family discrimination (`legacy` or `adaptive`), legacy `legacy_strategy_type + auto_recovery`, adaptive `routing_policy`, optional `vendor_key`, `loadbalance_strategy_name` for native models, `proxy_selection_strategy` plus `proxy_targets` with target metadata for proxy models, connection limiter fields, five concrete pricing fields, and encrypted `secret_payload` entries. Bundle v1 import normalizes missing/null/blank pricing inputs to `"0"` before validation.
 - Profile bundles never export plaintext endpoint `api_key`; endpoints with credentials use `api_key_secret_ref` plus encrypted secret entries, and endpoints without credentials use `api_key_secret_ref = null`.
 - Vendor `icon_key` remains authoritative only in vendor-catalog bundles and in the global `vendors` table; profile bundles expose non-authoritative `icon_key_hint` through `vendor_refs` only.
 - Persisted rows created by import always receive fresh database IDs; the v1 profile bundle contract omits internal IDs entirely and relies on name-based references.

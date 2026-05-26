@@ -144,10 +144,11 @@ Validated again against current repo surfaces on 2026-05-10:
 
 1. Endpoints define reusable upstream credentials and base URLs.
 2. Loadbalance strategies define reusable `legacy` or `adaptive` routing policies for native models.
-3. Pricing templates define reusable cost models attached to connections. Required input and output prices must be explicit, while nullable optional cache-read, cache-creation, and reasoning prices mean default zero/effective zero in phase 1.
-4. Pricing-template management displays nullable optional prices as `0 (default)`. Request logs and cost math surfaces display the same effective value as plain `0`.
-5. These resources are profile-scoped and are usually managed before or alongside model-detail work.
-6. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
+3. Pricing templates define reusable cost models attached to connections with five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`.
+4. Pricing-template management saves explicit strings for every component. Missing/null/blank inputs normalize to `"0"`; explicit `"0"` is configured free pricing, not missing pricing data.
+5. Request logs and cost math consume canonical disjoint token components: base input, cache-read input, cache-creation input, base output, and reasoning output. Aggregate `cached_tokens` is derived-only for presentation.
+6. These resources are profile-scoped and are usually managed before or alongside model-detail work.
+7. The defaults action creates the canonical loadbalance strategy rows for the currently selected profile only.
 
 **Backend touchpoints**
 
@@ -240,7 +241,7 @@ For the page-specific query contract and UI behavior, see `docs/REQUESTS_PAGE.md
 **Frontend flow**
 
 1. Settings splits into Profile, Global, and Startup tabs.
-2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions. Rows with missing FX data remain pricing failures and are separate from optional pricing-template components that default to zero.
+2. Profile-scoped settings cover backup, reporting currency and FX mappings, timezone, audit/privacy defaults, and retention/deletion actions. Rows with missing FX data remain pricing failures; explicit `"0"` component prices are configured free pricing and do not become `MISSING_PRICE_DATA`.
 3. Global settings cover operator authentication and shared vendor management.
 4. The Startup tab edits the plaintext bootstrap file under `/settings#startup`, but backend-provided values and backend-owned canonical defaults remain the source of truth.
 5. Proxy API keys are managed on their own route and stay global rather than profile-scoped.

@@ -140,6 +140,8 @@ The operation registry is the ingress contract for the runtime plane. Each suppo
 
 After registry resolution, every runtime operation enters the same execution core. The shared core captures the active profile snapshot, resolves proxy or native models, applies routing policy, claims leases, builds upstream headers, forwards to the selected provider connection, and records telemetry through the runtime outbox seams. Operation-specific behavior stays in hooks around that core: request hooks extract generation params and streaming intent for text generation operations, response hooks parse non-stream usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, `anthropic.count_tokens`, `gemini.generate_content`, and `gemini.count_tokens`, stream hooks classify terminal SSE events and usage for `openai.chat_completions`, `openai.responses`, `anthropic.messages`, and `gemini.stream_generate_content`, and media hooks handle `openai.images.generations` plus JSON or multipart `openai.images.edits` model binding without forking the executor.
 
+Runtime observability stores canonical disjoint token components. Base input, cache-read input, cache-creation input, base output, and reasoning output are separate dimensions, while provider totals remain authoritative when supplied. Pricing uses five concrete pricing strings from the attached template snapshot, and explicit `"0"` component prices mean configured free pricing instead of a missing-price condition.
+
 ### 3.1 Proxy Request (Non-Streaming, Native Model)
 
 ```

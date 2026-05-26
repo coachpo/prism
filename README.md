@@ -229,7 +229,7 @@ When `VITE_API_BASE` is unset, frontend requests stay same-origin. Local `./star
 
 ### Database
 
-Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup.
+Prism uses PostgreSQL with Go-backend-managed migrations applied automatically on startup. Development contract changes are clean cut: incompatible local data should be reset and recreated, with no backfill path promised for old pricing or token semantics.
 
 Load-balance strategy defaults are created explicitly from the Loadbalance Strategies page for the selected profile as:
 

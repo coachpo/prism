@@ -808,13 +808,13 @@ Request:
   "input_price": "5.00",
   "output_price": "15.00",
   "cached_input_price": "2.50",
-  "cache_creation_price": null,
+  "cache_creation_price": "0",
   "reasoning_price": "15.00"
 }
 ```
 Response `201`: Created pricing template object.
 
-`input_price` and `output_price` are required prices. `cached_input_price`, `cache_creation_price`, and `reasoning_price` are optional component prices. For phase 1, `null` or omitted optional component prices are compatibility values that price as effective/default zero at runtime and display as `0 (default)` in pricing-template management surfaces. New priced request rows persist optional component snapshots as plain `"0"` when the effective value came from this default. A missing or invalid required price can still make a row unpriced with `MISSING_PRICE_DATA`; missing FX configuration remains a separate pricing failure and is not covered by optional-component default-zero behavior.
+Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Create and update ingress normalizes missing, `null`, empty, and whitespace-only values for any of those five fields to `"0"` before decimal validation. Explicit `"0"` is configured free pricing. It is not missing price data. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or for required FX data that cannot be applied.
 
 #### Update Pricing Template
 ```
@@ -1017,7 +1017,7 @@ Profile import semantics:
 - Internal IDs (`endpoint_id`, `connection_id`, `pricing_template_id`) remain omitted from the profile bundle. The contract uses name-based references.
 - Exported/imported proxy models carry required `proxy_selection_strategy` plus `proxy_targets` entries with required `target_model_id`, `position`, `weight`, and `target_priority`; native models carry `proxy_selection_strategy: null` and no proxy targets.
 - Exported/imported connections include `qps_limit`, `max_in_flight_non_stream`, and `max_in_flight_stream`; `null` means unlimited.
-- Exported/imported pricing templates may carry `null` or omitted optional component prices for `cached_input_price`, `cache_creation_price`, and `reasoning_price`; those values mean effective/default zero at runtime and display time in phase 1. Required `input_price` and `output_price` must still be present and valid.
+- Exported pricing templates always carry the five pricing fields as concrete strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Profile bundle `v1` import normalizes missing/null/blank pricing inputs for any of those fields to `"0"` before validation.
 - Exported/imported loadbalance strategies use a top-level `strategy_type` discriminator. Legacy strategies carry `legacy_strategy_type` plus `auto_recovery`; adaptive strategies carry `routing_policy`.
 - Other config version numbers are unsupported.
 
@@ -1566,28 +1566,28 @@ For Gemini, the `gemini.stream_generate_content` path is authoritative: `POST /v
 
 ### 2.7 Token Usage Extraction
 
-The gateway extracts token usage from upstream responses and logs it to `request_logs`. Extraction is selected by the resolved canonical operation name and its hook collection:
+The gateway extracts token usage from upstream responses and logs canonical disjoint token components to `request_logs`. Extraction is selected by the resolved canonical operation name and its hook collection. `input_tokens` is base input only, `output_tokens` is base output only, cache-read input, cache-creation input, and reasoning output are separate fields, and `total_tokens` uses the provider total when one is supplied.
 
 **Non-streaming responses:**
 | Canonical operation name | Response format | Extraction path |
 |---|---|---|
-| `openai.chat_completions`, `openai.responses` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` | `usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens` |
-| `anthropic.messages` | `{"usage": {"input_tokens": N, "output_tokens": N}}` | `usage.input_tokens`, `usage.output_tokens`; `total_tokens` = sum |
-| `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level `input_tokens`; `output_tokens` = null; normalized `total_tokens` = `input_tokens` |
-| `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "candidatesTokenCount": N, "totalTokenCount": N}}` | `usageMetadata.promptTokenCount`, `usageMetadata.candidatesTokenCount`, `usageMetadata.totalTokenCount` |
-| `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as `input_tokens` and `total_tokens`; `output_tokens` = null |
+| `openai.chat_completions`, `openai.responses` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}}` plus detail objects when present | Base input and output subtract cached and reasoning detail counts; provider `total_tokens` stays authoritative |
+| `anthropic.messages` | `{"usage": {"input_tokens": N, "cache_read_input_tokens": N, "cache_creation_input_tokens": N, "output_tokens": N}}` | Base input, cache-read input, cache-creation input, and base output stay separate; total is derived when upstream omits it |
+| `anthropic.count_tokens` | `{"input_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
+| `gemini.generate_content`, `gemini.stream_generate_content` when handled as non-stream JSON | `{"usageMetadata": {"promptTokenCount": N, "cachedContentTokenCount": N, "candidatesTokenCount": N, "thoughtsTokenCount": N, "totalTokenCount": N}}` | Base input subtracts cache-read input; base output subtracts reasoning output; provider `totalTokenCount` stays authoritative |
+| `gemini.count_tokens` | `{"totalTokens": N}` or `{"total_tokens": N}` | Top-level count as base `input_tokens` and `total_tokens`; `output_tokens` = null |
 | `openai.images.generations`, `openai.images.edits` | Media response bodies | Token fields remain `null`; media hooks copy the upstream response without estimating tokens |
 
 **Streaming responses:**
 The gateway accumulates SSE chunks during streaming and extracts usage from operation-specific terminal events:
 | Canonical operation name | Usage events | Extraction |
 |---|---|---|
-| `openai.chat_completions` | Final chunk containing a `usage` object when provided by upstream | Same as non-streaming `usage` object |
-| `openai.responses` | `response.completed` or `response.incomplete` event with a `usage` object when provided by upstream | Same as non-streaming `usage` object |
-| `anthropic.messages` | `message_start` event -> `message.usage.input_tokens`; `message_delta` event -> `usage.output_tokens` | Accumulated from both events; `total_tokens` = sum |
-| `gemini.stream_generate_content` | Stream terminal or final chunk carrying `usageMetadata` | Same as Gemini non-stream `usageMetadata` |
+| `openai.chat_completions` | Final usage chunk before `[DONE]` | Same canonical disjoint fields as non-streaming usage |
+| `openai.responses` | `response.completed` event with a `usage` object when provided by upstream | Same canonical disjoint fields as non-streaming usage |
+| `anthropic.messages` | `message_start` usage plus cumulative `message_delta.usage.output_tokens` | Base input, cache-read input, cache-creation input, and final base output stay separate |
+| `gemini.stream_generate_content` | Stream terminal or final chunk carrying `usageMetadata` | Same canonical disjoint fields as Gemini non-stream `usageMetadata` |
 
-If token data cannot be extracted, all token fields are logged as `null`. Prism does not estimate tokens or cost. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable.
+If token data cannot be extracted, all token fields are logged as `null`. Prism does not estimate tokens or cost. Completed streams that lack required usage keep `MISSING_TOKEN_USAGE`; interrupted or no-terminal streams with missing required tokens use `STREAM_USAGE_UNAVAILABLE` when their classified stream outcome made terminal usage unavailable. Aggregate `cached_tokens` is derived-only from cache-read plus cache-creation input tokens and is not a persisted runtime component.
 
 ---
 
@@ -1876,7 +1876,7 @@ Response `200`:
 }
 ```
 
-For new priced rows, optional component snapshots use plain `"0"` when the pricing template carried `null` for that component and the effective price defaulted to zero. Request-log cost and math surfaces render those values as ordinary zeroes, not the management label `0 (default)`.
+Request-log detail uses the same canonical disjoint token components as runtime persistence: base input, base output, cache-read input, cache-creation input, reasoning output, and provider or derived total. Pricing snapshots store the five concrete pricing strings used for the attempt. Explicit `"0"` prices are configured free pricing and produce zero component cost without marking the row unpriced.
 
 Response `404`: returned when the request ID is missing or out of scope for the effective profile.
 
@@ -2129,7 +2129,9 @@ Response `200`:
 }
 ```
 
-Unpriced reasons distinguish pricing configuration gaps from observed usage gaps. `MISSING_PRICE_DATA` means a required price, an explicit non-null optional price that was used, or required FX data was missing or invalid. `MISSING_TOKEN_USAGE` means a completed stream or non-stream response lacked required upstream token usage. `STREAM_USAGE_UNAVAILABLE` means a classified stream outcome made terminal usage unavailable and required tokens were absent. Prism doesn't estimate tokens or cost for usage gaps. Nullable optional component prices are not `MISSING_PRICE_DATA` by themselves in phase 1 because they use default zero/effective zero semantics.
+Spending summaries aggregate canonical disjoint token components independently. `total_input_tokens` is base input only, `total_output_tokens` is base output only, `total_cache_read_input_tokens`, `total_cache_creation_input_tokens`, and `total_reasoning_tokens` are separate split totals, and `total_tokens` uses provider totals when available.
+
+Unpriced reasons distinguish pricing configuration gaps from observed usage gaps. `MISSING_PRICE_DATA` means the pricing template or pricing snapshot is absent, unusable, or invalid, or required FX data was missing or invalid. Explicit `"0"` prices mean configured free pricing and do not trigger `MISSING_PRICE_DATA`. `MISSING_TOKEN_USAGE` means a completed stream or non-stream response lacked required upstream token usage. `STREAM_USAGE_UNAVAILABLE` means a classified stream outcome made terminal usage unavailable and required tokens were absent. Prism doesn't estimate tokens or cost for usage gaps.
 
 ---
 

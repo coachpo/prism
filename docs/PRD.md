@@ -154,8 +154,8 @@ Token usage is extracted from upstream responses using api-family-aware parsing:
 #### 4.9.2 Token Costing
 The gateway computes the cost of each request based on the extracted token usage and the connection's assigned pricing template.
 - **Pricing Templates**: Pricing is profile-scoped and reusable. Connections reference templates via `pricing_template_id` instead of storing inline price fields.
-- **Pricing behavior**: Input and output prices must be explicit. Nullable optional cache-read, cache-creation, and reasoning prices mean default zero/effective zero in phase 1.
-- **Semantic Note**: Missing FX data and required-price failures remain unpriced. Optional nullable component prices do not create a missing-token path.
+- **Pricing behavior**: Pricing templates use five concrete pricing strings: `input_price`, `output_price`, `cached_input_price`, `cache_creation_price`, and `reasoning_price`. Management writes and bundle v1 import normalize missing/null/blank pricing inputs to `"0"` before validation.
+- **Semantic Note**: Explicit `"0"` means configured free pricing. `MISSING_PRICE_DATA` is reserved for absent, unusable, or invalid pricing snapshots, or missing FX data. Token costing uses canonical disjoint components: base input, cache-read input, cache-creation input, base output, and reasoning output; aggregate `cached_tokens` is derived-only for presentation.
 
 - Statistics dashboard in the Web UI with:
   - Overview cards: total requests, average response time, success rate, total tokens used
