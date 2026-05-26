@@ -157,6 +157,27 @@ func TestAuthBootstrap(t *testing.T) {
 	assertSessionPayload(t, bootstrapAuthed, true, true, stringPtr("bootstrap-admin"))
 }
 
+func TestAuthLoginExactMatchProtection(t *testing.T) {
+	harness := newContractHarness(t)
+	seedVerifiedAuthSettings(t, harness, "exact-admin", "exact-password-123", "exact@example.com")
+
+	for _, path := range []string{"/api/auth/login/", "/api/auth/logins"} {
+		response := harness.requestJSON(
+			t,
+			harness.client,
+			http.MethodPost,
+			path,
+			map[string]any{
+				"username":         "exact-admin",
+				"password":         "exact-password-123",
+				"session_duration": "7_days",
+			},
+			nil,
+		)
+		assertStatus(t, response, http.StatusUnauthorized)
+	}
+}
+
 func TestAuthLoginRefreshLogout(t *testing.T) {
 	harness := newContractHarness(t)
 	seedVerifiedAuthSettings(t, harness, "session-admin", "session-password-123", "session@example.com")

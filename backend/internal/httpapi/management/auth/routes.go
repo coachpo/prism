@@ -31,6 +31,11 @@ var publicManagementPaths = map[string]struct{}{
 	"/api/realtime/ws":                 {},
 }
 
+func isPublicManagementPath(path string) bool {
+	_, ok := publicManagementPaths[path]
+	return ok
+}
+
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	managementHandler := s.ManagementMiddleware(next)
 	runtimeHandler := s.RuntimeMiddleware(next)
@@ -63,7 +68,7 @@ func (s *Service) managementMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if _, ok := publicManagementPaths[r.URL.Path]; ok {
+		if isPublicManagementPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
