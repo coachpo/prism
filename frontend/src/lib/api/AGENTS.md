@@ -38,7 +38,7 @@ api/
 - Keep runtime-route pass-through out of this client split; `api/core.ts` only governs `/api/*` requests.
 
 ## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
 

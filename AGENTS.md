@@ -124,7 +124,7 @@ cd frontend && pnpm run test:e2e
 - Keep active implementation plans out of `docs/`; store working plans under `.omo/plans/`, use `.omo/evidence/` for live execution artifacts, and reserve `docs/archive/` for finished notes or retained evidence.
 
 ## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
 - Do not describe `backend/` or `frontend/` as external repos, gitlinks, or separately released submodules. They are root-owned monorepo directories.

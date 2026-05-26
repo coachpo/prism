@@ -43,7 +43,7 @@ sidecars/
 - Keep `sidecar_snapshot_sync` as a bounded low-background worker with queue limit 1 and no priority elevation.
 
 ## LLM UPSTREAM MATRIX
-- When work touches LLM upstream request or response logic, evaluate all six combinations: streaming and non-streaming for each `api_family` (`openai`, `gemini`, and `anthropic`).
+- When work touches LLM upstream request or response logic, evaluate streaming and non-streaming coverage across operation shapes, not just provider families: OpenAI Chat Completions (`/v1/chat/completions`) and Responses (`/v1/responses`), Gemini, and Anthropic.
 
 ## ANTI-PATTERNS
 - Do not let the browser call CLIProxyAPI directly; all sidecar traffic goes through the Prism backend service.
