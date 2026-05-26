@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +10,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	statsdomain "github.com/coachpo/prism/backend/internal/domain/stats"
 	platformcors "github.com/coachpo/prism/backend/internal/platform/cors"
 )
 
@@ -101,4 +104,47 @@ func (p *mutableRealtimeCORSProvider) publish(origins ...string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.snapshot = platformcors.NewSnapshot(origins)
+}
+
+func TestCancelDashboardSubscribeUsesContext(t *testing.T) {
+	pool := newCancellationTestPool(t)
+	service := &Service{pool: pool, manager: NewConnectionManager(time.Second), dashboardSnapshots: statsdomain.NewDashboardAggregateStore(), now: time.Now}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if service.handleDashboardSubscribe(ctx, "conn-1", &RealtimeConnection{authenticated: true}, inboundMessage{ProfileID: 1}, "") {
+		t.Fatal("expected dashboard subscribe to stop on canceled context")
+	}
+}
+
+func TestCancelAnalyticsSubscribeUsesContext(t *testing.T) {
+	pool := newCancellationTestPool(t)
+	service := &Service{pool: pool, manager: NewConnectionManager(time.Second), dashboardSnapshots: statsdomain.NewDashboardAggregateStore(), now: time.Now}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, _, ok := service.validateAnalyticsScope(ctx, &RealtimeConnection{authenticated: true}, inboundMessage{ProfileID: 1, Preset: "1h"}); ok {
+		t.Fatal("expected analytics scope validation to stop on canceled context")
+	}
+}
+
+func TestCancelAnalyticsSnapshotUsesContext(t *testing.T) {
+	pool := newCancellationTestPool(t)
+	service := &Service{pool: pool, manager: NewConnectionManager(time.Second), dashboardSnapshots: statsdomain.NewDashboardAggregateStore(), now: time.Now}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := service.BuildAnalyticsSnapshot(ctx, 1, "1h", time.Now()); err == nil {
+		t.Fatal("expected canceled context to abort analytics snapshot build")
+	}
+}
+
+func newCancellationTestPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), "postgres://127.0.0.1:1/prism?sslmode=disable")
+	if err != nil {
+		t.Fatalf("create cancellation test pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
 }

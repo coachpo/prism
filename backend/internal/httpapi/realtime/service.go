@@ -218,6 +218,7 @@ func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
 	for {
 		var message inboundMessage
 		if err := socket.ReadJSON(&message); err != nil {
@@ -229,13 +230,13 @@ func (s *Service) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		if !s.handleInboundMessage(connectionID, connection, message) {
+		if !s.handleInboundMessage(ctx, connectionID, connection, message) {
 			return
 		}
 	}
 }
 
-func (s *Service) handleInboundMessage(connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
+func (s *Service) handleInboundMessage(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
 	switch message.Type {
 	case "subscribe":
 		if !connection.authenticated {
@@ -243,12 +244,12 @@ func (s *Service) handleInboundMessage(connectionID string, connection *Realtime
 		}
 		channel := normalizeRealtimeChannel(message.Channel)
 		if channel == analyticsChannel {
-			return s.handleAnalyticsSubscribe(connectionID, connection, message)
+			return s.handleAnalyticsSubscribe(ctx, connectionID, connection, message)
 		}
-		return s.handleDashboardSubscribe(connectionID, connection, message, channel)
+		return s.handleDashboardSubscribe(ctx, connectionID, connection, message, channel)
 	case "refresh":
 		if normalizeRealtimeChannel(message.Channel) == analyticsChannel {
-			return s.handleAnalyticsRefresh(connectionID, connection, message)
+			return s.handleAnalyticsRefresh(ctx, connectionID, connection, message)
 		}
 		return true
 	case "unsubscribe":
@@ -275,7 +276,7 @@ func (s *Service) handleInboundMessage(connectionID string, connection *Realtime
 	}
 }
 
-func (s *Service) handleDashboardSubscribe(connectionID string, connection *RealtimeConnection, message inboundMessage, channel string) bool {
+func (s *Service) handleDashboardSubscribe(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage, channel string) bool {
 	if channel == "" {
 		channel = dashboardChannel
 	}
@@ -285,7 +286,7 @@ func (s *Service) handleDashboardSubscribe(connectionID string, connection *Real
 	if _, ok := supportedRealtimeChannels[channel]; !ok {
 		return connection.SendJSON(map[string]any{"type": "error", "message": fmt.Sprintf("Unsupported channel: %s", channel)})
 	}
-	exists, err := s.profileExists(context.Background(), message.ProfileID)
+	exists, err := s.profileExists(ctx, message.ProfileID)
 	if err != nil {
 		return false
 	}
@@ -298,12 +299,12 @@ func (s *Service) handleDashboardSubscribe(connectionID string, connection *Real
 	if !connection.SendJSON(map[string]any{"type": "subscribed", "profile_id": message.ProfileID, "channel": channel}) {
 		return false
 	}
-	_, _ = s.publishPendingDashboardUpdate(context.Background(), message.ProfileID)
+	_, _ = s.publishPendingDashboardUpdate(ctx, message.ProfileID)
 	return true
 }
 
-func (s *Service) handleAnalyticsSubscribe(connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
-	profileID, preset, ok := s.validateAnalyticsScope(connection, message)
+func (s *Service) handleAnalyticsSubscribe(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
+	profileID, preset, ok := s.validateAnalyticsScope(ctx, connection, message)
 	if !ok {
 		return true
 	}
@@ -313,18 +314,18 @@ func (s *Service) handleAnalyticsSubscribe(connectionID string, connection *Real
 	if !connection.SendJSON(map[string]any{"type": "subscribed", "profile_id": profileID, "channel": analyticsChannel, "preset": preset}) {
 		return false
 	}
-	return s.sendAnalyticsSnapshotOrError(connection, profileID, preset)
+	return s.sendAnalyticsSnapshotOrError(ctx, connection, profileID, preset)
 }
 
-func (s *Service) handleAnalyticsRefresh(connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
-	profileID, preset, ok := s.validateAnalyticsScope(connection, message)
+func (s *Service) handleAnalyticsRefresh(ctx context.Context, connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
+	profileID, preset, ok := s.validateAnalyticsScope(ctx, connection, message)
 	if !ok {
 		return true
 	}
 	if !s.connectionHasSubscription(connectionID, profileID, analyticsChannel, preset) {
 		return s.sendAnalyticsError(connection, &profileID, preset, "scope_not_subscribed", "Analytics scope is not subscribed")
 	}
-	return s.sendAnalyticsSnapshotOrError(connection, profileID, preset)
+	return s.sendAnalyticsSnapshotOrError(ctx, connection, profileID, preset)
 }
 
 func (s *Service) handleAnalyticsUnsubscribeChannel(connectionID string, connection *RealtimeConnection, message inboundMessage) bool {
@@ -338,7 +339,7 @@ func (s *Service) handleAnalyticsUnsubscribeChannel(connectionID string, connect
 	return connection.SendJSON(map[string]any{"type": "unsubscribed", "channel": analyticsChannel, "preset": preset})
 }
 
-func (s *Service) validateAnalyticsScope(connection *RealtimeConnection, message inboundMessage) (int, string, bool) {
+func (s *Service) validateAnalyticsScope(ctx context.Context, connection *RealtimeConnection, message inboundMessage) (int, string, bool) {
 	preset, ok := s.validateAnalyticsPreset(connection, message)
 	if !ok {
 		return message.ProfileID, preset, false
@@ -347,7 +348,7 @@ func (s *Service) validateAnalyticsScope(connection *RealtimeConnection, message
 		s.sendAnalyticsError(connection, nil, preset, "profile_id_required", "profile_id is required")
 		return 0, preset, false
 	}
-	exists, err := s.profileExists(context.Background(), message.ProfileID)
+	exists, err := s.profileExists(ctx, message.ProfileID)
 	if err != nil {
 		return message.ProfileID, preset, false
 	}
@@ -367,8 +368,8 @@ func (s *Service) validateAnalyticsPreset(connection *RealtimeConnection, messag
 	return preset, true
 }
 
-func (s *Service) sendAnalyticsSnapshotOrError(connection *RealtimeConnection, profileID int, preset string) bool {
-	message, err := s.BuildAnalyticsSnapshot(context.Background(), profileID, preset, s.now().UTC())
+func (s *Service) sendAnalyticsSnapshotOrError(ctx context.Context, connection *RealtimeConnection, profileID int, preset string) bool {
+	message, err := s.BuildAnalyticsSnapshot(ctx, profileID, preset, s.now().UTC())
 	if err != nil {
 		return s.sendAnalyticsError(connection, &profileID, preset, "snapshot_failed", "Failed to build analytics snapshot")
 	}

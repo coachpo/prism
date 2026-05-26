@@ -360,6 +360,17 @@ func TestAnalyticsRealtimeProtocolFixture(t *testing.T) {
 	}
 }
 
+func TestRealtimeCancellation(t *testing.T) {
+	harness := newRealtimeHarness(t)
+	profileID := harness.activeProfileID(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := harness.realtimeService.BuildAnalyticsSnapshot(ctx, profileID, "1h", harness.fixedNow); err == nil {
+		t.Fatal("expected canceled context to abort realtime analytics snapshot build")
+	}
+}
+
 func TestRealtimeAnalyticsSnapshotParity(t *testing.T) {
 	harness := newRealtimeHarness(t)
 	profileID := harness.activeProfileID(t)
